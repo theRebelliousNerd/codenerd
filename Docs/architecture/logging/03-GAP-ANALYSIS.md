@@ -60,3 +60,14 @@ one honest). What remains:
 | Shutdown completeness | 100% |
 
 **Package overall (as diagnostic substrate):** ~**96%**.
+
+
+## Required contract: Exact constitutional gate audit
+
+The safety callsite inventory must classify both `VirtualStore.verifyGeneratedAuthorization` and `MCPClientManager.dispatchRemoteCall` as constitutional gates. Before generated execution or a remote MCP effect, each gate must emit an auditable final allow or deny tied to the exact authorization decision, including exact `permitted` facts for generated execution and `mcp_remote_permitted` denial for remote calls. The audit must not contain secrets or raw tool arguments. This is an audit obligation for the existing Go enforcement paths; Mangle remains the authority for the decision.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-LOGGING-EXACT-GATE-AUDIT | Exact constitutional gate audit | Both gates now record final allow/deny outcomes: generated authorization requires an exact `permitted/3` tuple before success (`internal/core/virtual_store_generated.go:64-104`), and remote dispatch records `mcp_remote_permitted/7` failures and audits before invoking transport (`internal/mcp/remote_authority.go:376-415`). The inventory classifies both as `classGate` (`internal/logging/safety_callsite_audit_test.go:61-87`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing `SafetyCheck` audit path and Mangle authorization predicates | The callsite inventory classifies both sites as `classGate`; real allow and deny regressions prove exact decision facts are recorded before effects, including `mcp_remote_permitted` denial, without recording secrets or raw arguments. |
+
+**Verified current:** `TestGeneratedAuthorizationAuditRequiresExactPermittedFact` (`internal/core/virtual_store_generated_authorization_audit_test.go:29`) proves exact allow and mismatched/missing/query-error denials produce no effect and omit the payload canary from audit output. `TestRemoteAuthority_AuditsFinalPolicyVerdictsWithoutArguments` (`internal/mcp/remote_authority_test.go:485`) verifies the remote allow is audited before transport, `mcp_remote_permitted` denial is audited without dispatch, and arguments stay out of audit evidence. `TestSafetyCheckCallSites_WhenKernelGateExists_ShouldAuditTheVerdict` (`internal/logging/safety_callsite_audit_test.go:161`) and the full logging package pass; aggregate verification remains pending.

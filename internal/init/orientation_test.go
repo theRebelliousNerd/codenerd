@@ -104,7 +104,7 @@ func initializeOrientationFixture(t *testing.T) (*Initializer, *InitResult, []st
 func TestOrientationPhaseOrder(t *testing.T) {
 	_, _, phases := initializeOrientationFixture(t)
 	orientation := slices.Index(phases, "orientation")
-	for _, consumer := range []string{"profile", "agents", "prompt_atoms", "prompt_db", "codebase_kb", "core_shards_kb", "campaign_kb"} {
+	for _, consumer := range []string{"profile", "agents", "prompt_atoms", "prompt_db", "project_tools", "tools", "registry"} {
 		index := slices.Index(phases, consumer)
 		if orientation < 0 || index < 0 || orientation >= index {
 			t.Fatalf("orientation must precede %s: %v", consumer, phases)

@@ -36,6 +36,15 @@ type ShardProfile struct {
 	Temperature float64 `yaml:"temperature" json:"temperature"` // 0.0-1.0
 	TopP        float64 `yaml:"top_p" json:"top_p"`             // 0.0-1.0
 
+	// ReasoningEffort, when set, is the effort this shard's calls are sent
+	// with, on whichever client serves them; it rides the request context
+	// (types.WithReasoningEffort) like sampling does. Empty means the effort
+	// of the slot that would otherwise serve the call: the worker's (else the
+	// main slot's), the planner's on a reasoning turn, and on a profile route
+	// the routing slot's (SecondaryLLMConfig.RouteTo). It must be one every
+	// provider that may serve the shard accepts, or the file is refused.
+	ReasoningEffort string `yaml:"reasoning_effort" json:"reasoning_effort,omitempty"`
+
 	// There is no per-shard context or output ceiling. Every shard runs on
 	// the worker (or main) client, whose completion ceiling is
 	// max_output_tokens at the top level or on the worker/planner slot, and
@@ -106,17 +115,22 @@ func DefaultShardProfiles() map[string]ShardProfile {
 }
 
 // ShardProfileContext attaches a profile to the context its shard's model
-// calls are made under: sampling always; the model when one is named; and the
-// provider when the profile routes itself. It is the one place a profile
-// becomes behaviour -- the chat delegation path and the session executor both
-// call it, where the executor used to apply nothing.
+// calls are made under: sampling always; the model when one is named; the
+// reasoning effort when one is set; and the provider when the profile routes
+// itself. It is the one place a profile becomes behaviour -- the chat
+// delegation path and the session executor both call it, where the executor
+// used to apply nothing.
 //
 // Unset fields attach nothing, so a profile that never chose a temperature
-// leaves the client's own default in force.
+// leaves the client's own default in force, and one that never chose an
+// effort leaves the serving slot's.
 func ShardProfileContext(ctx context.Context, profile ShardProfile) context.Context {
 	ctx = types.WithSampling(ctx, types.Sampling{Temperature: profile.Temperature, TopP: profile.TopP})
 	if model := strings.TrimSpace(profile.Model); model != "" {
 		ctx = types.WithModelName(ctx, model)
+	}
+	if effort := strings.TrimSpace(profile.ReasoningEffort); effort != "" {
+		ctx = types.WithReasoningEffort(ctx, effort)
 	}
 	if provider := strings.ToLower(strings.TrimSpace(profile.Provider)); provider != "" {
 		ctx = types.WithProvider(ctx, provider)

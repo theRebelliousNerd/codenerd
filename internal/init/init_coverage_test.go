@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"codenerd/internal/config"
 	"codenerd/internal/session"
 
 	"github.com/stretchr/testify/assert"
@@ -617,29 +616,6 @@ func TestLoadToolsFromFile_WhenInvalidJSON_ShouldReturnError(t *testing.T) {
 }
 
 // ===========================================================================
-// Shared knowledge helpers
-// ===========================================================================
-
-func TestGetSharedKnowledgePath_WhenCalled_ShouldReturnExpectedPath(t *testing.T) {
-	path := GetSharedKnowledgePath("/project")
-	expected := filepath.Join("/project", ".nerd", "shards", "core_concepts.db")
-	assert.Equal(t, expected, path)
-}
-
-func TestSharedKnowledgePoolExists_WhenNotCreated_ShouldReturnFalse(t *testing.T) {
-	tmpDir := t.TempDir()
-	assert.False(t, SharedKnowledgePoolExists(tmpDir))
-}
-
-func TestSharedKnowledgePoolExists_WhenCreated_ShouldReturnTrue(t *testing.T) {
-	tmpDir := t.TempDir()
-	dbDir := filepath.Join(tmpDir, ".nerd", "shards")
-	require.NoError(t, os.MkdirAll(dbDir, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(dbDir, "core_concepts.db"), []byte("db"), 0644))
-	assert.True(t, SharedKnowledgePoolExists(tmpDir))
-}
-
-// ===========================================================================
 // Validation result & summary tests
 // ===========================================================================
 
@@ -713,47 +689,33 @@ func TestCleanupBackups_WhenActualCleanup_ShouldDelete(t *testing.T) {
 }
 
 // ===========================================================================
-// ETA Tracker tests
+// Phase clock tests
 // ===========================================================================
 
-func TestNewETATracker_WhenCreated_ShouldHaveDefaults(t *testing.T) {
-	tracker := NewETATracker(10)
-	assert.Equal(t, 10, tracker.GetTotalPhases())
-	assert.Equal(t, 0, tracker.GetCurrentPhase())
-	assert.GreaterOrEqual(t, tracker.GetElapsed().Nanoseconds(), int64(0))
+func TestPhaseClock_ReportsMeasuredPosition(t *testing.T) {
+	clock := newPhaseClock(len(initPhases))
+	current, total, elapsed := clock.position()
+	assert.Equal(t, 0, current)
+	assert.Equal(t, len(initPhases), total)
+	assert.GreaterOrEqual(t, elapsed.Nanoseconds(), int64(0))
+
+	clock.setPhase(3)
+	current, _, _ = clock.position()
+	assert.Equal(t, 3, current)
 }
 
-func TestETATracker_StartAndCompletePhase_ShouldTrackProgress(t *testing.T) {
-	tracker := NewETATracker(5)
+func TestSendProgress_CarriesOnlyMeasuredFields(t *testing.T) {
+	progress := make(chan InitProgress, 2)
+	ini := &Initializer{config: InitConfig{ProgressChan: progress}, clock: newPhaseClock(4)}
+	ini.startPhase(2, "scanning", "Scanning codebase...")
+	ini.sendProgress("complete", "done")
 
-	tracker.StartPhase(1)
-	assert.Equal(t, 1, tracker.GetCurrentPhase())
-
-	tracker.CompletePhase("setup")
-
-	tracker.StartPhase(2)
-	assert.Equal(t, 2, tracker.GetCurrentPhase())
-}
-
-func TestETATracker_GetETARemaining_WhenKnownPhases_ShouldEstimate(t *testing.T) {
-	tracker := NewETATracker(3)
-
-	remaining := tracker.GetETARemaining([]string{"setup", "scanning"})
-	assert.Greater(t, remaining.Nanoseconds(), int64(0), "ETA should be positive for known phases")
-}
-
-func TestETATracker_GetETARemaining_WhenUnknownPhases_ShouldUseDefault(t *testing.T) {
-	tracker := NewETATracker(3)
-
-	remaining := tracker.GetETARemaining([]string{"unknown_phase"})
-	assert.Equal(t, 10*time.Second, remaining, "unknown phases should default to 10s")
-}
-
-func TestETATracker_GetETARemaining_WhenEmpty_ShouldReturnZero(t *testing.T) {
-	tracker := NewETATracker(3)
-
-	remaining := tracker.GetETARemaining(nil)
-	assert.Equal(t, time.Duration(0), remaining)
+	first := <-progress
+	assert.Equal(t, 2, first.CurrentPhaseNo)
+	assert.Equal(t, 4, first.TotalPhases)
+	assert.InDelta(t, 0.25, first.Percent, 1e-9, "phase 2 of 4 starts with one phase finished")
+	last := <-progress
+	assert.Equal(t, 1.0, last.Percent)
 }
 
 // ===========================================================================
@@ -765,7 +727,11 @@ func TestDefaultInitConfig_WhenEmptyWorkspace_ShouldNotPanic(t *testing.T) {
 	// Should use current working dir fallback
 	assert.NotEmpty(t, cfg.Workspace)
 	assert.True(t, cfg.Interactive)
-	assert.Equal(t, config.GetLLMTimeouts().PerCallTimeout, cfg.Timeout)
+	// Zero: each request reads llm_timeouts.per_call_timeout when it is made,
+	// after the workspace config has loaded, instead of a value snapshotted
+	// before it.
+	assert.Equal(t, time.Duration(0), cfg.Timeout)
+	assert.Equal(t, os.Stdout, cfg.Output)
 	assert.False(t, cfg.SkipResearch)
 }
 
@@ -1230,26 +1196,6 @@ func TestInitPreferences_WhenMultipleHints_ShouldApplyAll(t *testing.T) {
 	assert.Equal(t, "expert", prefs.ExplanationLevel)
 	assert.Equal(t, "conventional", prefs.CommitStyle)
 	assert.Equal(t, "table_driven", prefs.TestStyle)
-}
-
-// ===========================================================================
-// DefaultPhaseDurations tests
-// ===========================================================================
-
-func TestDefaultPhaseDurations_WhenCalled_ShouldHaveAllExpectedPhases(t *testing.T) {
-	durations := DefaultPhaseDurations()
-	expectedPhases := []string{
-		"setup", "migration", "directory", "scanning", "analysis", "profile",
-		"facts", "prompt_atoms", "prompt_db", "agents", "shared_kb", "kb_creation",
-		"codebase_kb", "core_shards_kb", "campaign_kb", "tool_generation",
-		"preferences", "session", "tools", "registry", "prompt_sync", "complete",
-	}
-
-	for _, phase := range expectedPhases {
-		dur, ok := durations[phase]
-		assert.True(t, ok, "phase %s should exist in defaults", phase)
-		assert.Greater(t, dur.Nanoseconds(), int64(0), "phase %s should have positive duration", phase)
-	}
 }
 
 // ===========================================================================

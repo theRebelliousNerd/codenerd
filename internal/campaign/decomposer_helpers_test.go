@@ -34,18 +34,3 @@ func TestDeriveTagsFromPath(t *testing.T) {
 		t.Errorf("backslash path tags missing expected segments: %v", winTags)
 	}
 }
-
-func TestExtractActionsFromDescription(t *testing.T) {
-	got := extractActionsFromDescription("Parse the file and validate the schema, then build it")
-	for _, want := range []string{"parse", "validate", "build"} {
-		if !slices.Contains(got, want) {
-			t.Errorf("expected action %q in %v", want, got)
-		}
-	}
-	if slices.Contains(got, "deploy") {
-		t.Error("deploy should not be extracted when absent")
-	}
-	if len(extractActionsFromDescription("just some prose with no verbs of note")) != 0 {
-		t.Error("no action keywords should yield no actions")
-	}
-}

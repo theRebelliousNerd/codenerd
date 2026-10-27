@@ -74,13 +74,12 @@ func (m *SessionManager) startDefault(ctx context.Context) (string, error) {
 		logging.BrowserWarn("Stale browser connection detected, reconnecting")
 		m.mu.Lock()
 		staleBrowsers := make([]*browserRecord, 0, len(m.browsers))
+		staleSessions := make([]*sessionRecord, 0, len(m.sessions))
 		for _, record := range m.browsers {
 			staleBrowsers = append(staleBrowsers, record)
 		}
 		for _, session := range m.sessions {
-			if session.streamCancel != nil {
-				session.streamCancel()
-			}
+			staleSessions = append(staleSessions, session)
 		}
 		m.browser = nil
 		m.controlURL = ""
@@ -88,6 +87,16 @@ func (m *SessionManager) startDefault(ctx context.Context) (string, error) {
 		m.sessions = make(map[string]*sessionRecord)
 		m.browsers = make(map[string]*browserRecord)
 		m.mu.Unlock()
+		for _, session := range staleSessions {
+			cancelSessionEventStream(session)
+		}
+		for _, session := range staleSessions {
+			_ = m.closeSessionResources(session)
+		}
+		for _, session := range staleSessions {
+			waitSessionEventStream(session)
+			m.forgetSessionBudget(session.meta.ID)
+		}
 		for _, record := range staleBrowsers {
 			if err := m.closeBrowserResources(record); err != nil {
 				return "", fmt.Errorf("cleanup stale browser: %w", err)
@@ -405,28 +414,33 @@ func (m *SessionManager) CreateTab(ctx context.Context, browserID, url string, i
 	m.mu.Lock()
 	m.sessions[meta.ID] = record
 	m.mu.Unlock()
-	m.startEventStream(streamCtx, meta.ID, page)
-	// Registering the session first lets first-byte events resolve its registry.
-	// The stream implementation must finish subscription setup before returning.
-	p := page.Context(ctx).Timeout(m.cfg.NavigationTimeout())
-	defer p.CancelTimeout()
-	if err := m.markAttendedNavigation(meta.ID); err != nil {
-		streamCancel()
+	if err := m.startEventStream(streamCtx, meta.ID, page); err != nil {
 		m.mu.Lock()
 		delete(m.sessions, meta.ID)
 		m.mu.Unlock()
-		closeErr := m.closeSessionResources(record)
+		closeErr := m.closeAndDrainSession(record)
+		m.forgetSessionBudget(meta.ID)
+		return nil, errors.Join(fmt.Errorf("start browser event stream: %w", err), closeErr)
+	}
+	// Registering the session first lets first-byte events resolve its registry.
+	// startEventStream returns only after both CDP listeners receive a setup probe.
+	p := page.Context(ctx).Timeout(m.cfg.NavigationTimeout())
+	defer p.CancelTimeout()
+	if err := m.markAttendedNavigation(meta.ID); err != nil {
+		m.mu.Lock()
+		delete(m.sessions, meta.ID)
+		m.mu.Unlock()
+		closeErr := m.closeAndDrainSession(record)
 		m.forgetSessionBudget(meta.ID)
 		return nil, errors.Join(fmt.Errorf("record intentional navigation: %w", err), closeErr)
 	}
 	if err := p.Navigate(url); err != nil {
 		logging.BrowserWarn("Initial navigation failed for %s: %v", m.SanitizeForEvidence(url), err)
 	} else if err := waitDocumentParsed(p); err != nil {
-		streamCancel()
 		m.mu.Lock()
 		delete(m.sessions, meta.ID)
 		m.mu.Unlock()
-		closeErr := m.closeSessionResources(record)
+		closeErr := m.closeAndDrainSession(record)
 		m.forgetSessionBudget(meta.ID)
 		return nil, errors.Join(fmt.Errorf("wait for initial document parsing: %w", err), closeErr)
 	}
@@ -498,10 +512,18 @@ func (m *SessionManager) AttachToBrowser(ctx context.Context, browserID, targetI
 		meta.Title = m.redactor.SanitizeString(info.Title)
 	}
 	streamCtx, streamCancel := context.WithCancel(context.Background())
+	record := &sessionRecord{meta: meta, page: page, streamCancel: streamCancel, registry: NewElementRegistry()}
 	m.mu.Lock()
-	m.sessions[meta.ID] = &sessionRecord{meta: meta, page: page, streamCancel: streamCancel, registry: NewElementRegistry()}
+	m.sessions[meta.ID] = record
 	m.mu.Unlock()
-	m.startEventStream(streamCtx, meta.ID, page)
+	if err := m.startEventStream(streamCtx, meta.ID, page); err != nil {
+		stopSessionEventStream(record)
+		m.mu.Lock()
+		delete(m.sessions, meta.ID)
+		m.mu.Unlock()
+		m.forgetSessionBudget(meta.ID)
+		return nil, fmt.Errorf("start browser event stream: %w", err)
+	}
 	_ = m.persistSessions()
 	return &meta, nil
 }
@@ -529,12 +551,20 @@ func (m *SessionManager) CloseSession(_ context.Context, sessionID string) error
 	if !ok {
 		return nil
 	}
-	if record.streamCancel != nil {
-		record.streamCancel()
-	}
-	closeErr := m.closeSessionResources(record)
+	closeErr := m.closeAndDrainSession(record)
 	m.forgetSessionBudget(sessionID)
 	_ = m.persistSessions()
+	return closeErr
+}
+
+// closeAndDrainSession first cancels callbacks, then closes the target to
+// unblock any in-flight CDP calls made by those callbacks, and only then waits
+// for the stream goroutine. Callers retract the session epoch after this helper
+// returns so no final callback can publish facts after retraction.
+func (m *SessionManager) closeAndDrainSession(record *sessionRecord) error {
+	cancelSessionEventStream(record)
+	closeErr := m.closeSessionResources(record)
+	waitSessionEventStream(record)
 	return closeErr
 }
 
@@ -579,10 +609,8 @@ func (m *SessionManager) CloseBrowser(_ context.Context, browserID string) error
 
 	var result error
 	for _, session := range sessions {
-		if session.streamCancel != nil {
-			session.streamCancel()
-		}
-		result = errors.Join(result, m.closeSessionResources(session))
+		result = errors.Join(result, m.closeAndDrainSession(session))
+		m.forgetSessionBudget(session.meta.ID)
 	}
 	return errors.Join(result, m.closeBrowserResources(record))
 }
@@ -656,10 +684,8 @@ func (m *SessionManager) shutdown(_ context.Context) error {
 
 	var result error
 	for _, session := range sessions {
-		if session.streamCancel != nil {
-			session.streamCancel()
-		}
-		result = errors.Join(result, m.closeSessionResources(session))
+		result = errors.Join(result, m.closeAndDrainSession(session))
+		m.forgetSessionBudget(session.meta.ID)
 	}
 	for _, managed := range browsers {
 		if err := m.closeBrowserResources(managed); err != nil {

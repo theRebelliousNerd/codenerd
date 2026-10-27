@@ -6,11 +6,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
-	"codenerd/internal/broker"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/northstar"
+	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 )
 
@@ -196,42 +198,34 @@ func (i *Initializer) verifyJITKernelLoaded(phase string) error {
 	return nil
 }
 
-// assembleJITPrompt attempts to use the JIT compiler to generate a prompt for an init phase.
-// Falls back to a simple prompt if JIT compilation fails.
-func (i *Initializer) assembleJITPrompt(ctx context.Context, phase, task string, profile *ProjectProfile) (string, error) {
-	// Check if we have a JIT compiler available
-	if i.config.LLMClient == nil {
-		return "", fmt.Errorf("no LLM client available for prompt assembly")
-	}
-
+// assembleJITPrompt compiles the system prompt for one init phase, for the
+// client route will send it to: the compile carries that client's provider and
+// model, so pinned atoms match the model that reads them, and its input cap
+// bounds the budget. A compile that cannot run falls back to the phase's
+// static prompt.
+func (i *Initializer) assembleJITPrompt(ctx context.Context, route llmRoute, phase, task string, profile *ProjectProfile) string {
 	// Expert phases re-check the kernel: a persistent specialist built from
 	// the static fallback is measurably worse, so it must not happen silently.
 	if isExpertInitPhase(phase) {
 		if err := i.verifyJITKernelLoaded(phase); err != nil {
-			return i.staticFallbackPrompt(phase, task, err), nil
+			return i.staticFallbackPrompt(phase, task, err)
 		}
 	}
 
-	// Try to create JIT compiler
 	jitCompiler, err := i.createJITCompiler()
 	if err != nil {
-		return i.staticFallbackPrompt(phase, task, fmt.Errorf("create JIT compiler: %w", err)), nil
+		return i.staticFallbackPrompt(phase, task, fmt.Errorf("create JIT compiler: %w", err))
 	}
 
-	// Build compilation context for this phase
-	cc := BuildInitCompilationContext(phase, task, profile)
-
-	// Compile the prompt
+	cc := initCompilationContext(route, phase, task, profile)
 	result, err := jitCompiler.Compile(ctx, cc)
 	if err != nil {
-		return i.staticFallbackPrompt(phase, task, fmt.Errorf("compile: %w", err)), nil
+		return i.staticFallbackPrompt(phase, task, fmt.Errorf("compile: %w", err))
 	}
 
-	logging.Boot("JIT compiled prompt for init phase %s: %d bytes, %d atoms", phase, len(result.Prompt), result.AtomsIncluded)
-
-	// Combine compiled prompt with task
-	fullPrompt := fmt.Sprintf("%s\n\nTask: %s", result.Prompt, task)
-	return fullPrompt, nil
+	logging.Boot("JIT compiled prompt for init phase %s (%s client %s): %d bytes, %d atoms",
+		phase, route.slot, formatLLMIdentity(route.provider, route.model), len(result.Prompt), result.AtomsIncluded)
+	return fmt.Sprintf("%s\n\nTask: %s", result.Prompt, task)
 }
 
 // staticFallbackPrompt returns the phase's static prompt. For an expert phase
@@ -417,56 +411,84 @@ When completing knowledge base creation:
 	return fmt.Sprintf("%s%s\nTask: %s", basePrompt, guidance, task)
 }
 
-// withJITPrompt wraps an LLM call with JIT prompt compilation.
-// This is a helper for init phases that need to make LLM calls.
-func (i *Initializer) withJITPrompt(ctx context.Context, phase, task string, profile *ProjectProfile, handler func(ctx context.Context, prompt string) (string, error), compiled ...string) (string, error) {
+// initCall is one init model request.
+type initCall struct {
+	// slot picks the client the request is sent to.
+	slot llmSlot
+	// phase selects the init atoms the JIT compile includes, and labels the
+	// attempt in the metrics.
+	phase string
+	// task is the request's own instruction.
+	task    string
+	profile *ProjectProfile
+	// system, when set, is a system prompt the caller compiled from its own
+	// corpus for the same client (northstar derivation does); init does not
+	// compile another.
+	system string
+	// query marks a request that is a search query, not a completion: no
+	// system prompt is compiled for it.
+	query bool
+}
+
+// withJITPrompt sends one init model request. It is the chokepoint every init
+// call crosses: it resolves the client the call's slot routes to, compiles the
+// system prompt for that client, bounds the request by InitConfig.Timeout
+// (zero: llm_timeouts.per_call_timeout, read when the call is made), and
+// records one outcome per provider attempt against the serving client. The
+// handler is given the routed client, so a call cannot reach a different one.
+func (i *Initializer) withJITPrompt(ctx context.Context, call initCall, handler func(ctx context.Context, client perception.LLMClient, prompt string) (string, error)) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	// Northstar owns its JIT corpus; retain its compiled system guidance.
-	var prompt string
-	if len(compiled) > 0 {
-		if len(compiled) != 1 || strings.TrimSpace(compiled[0]) == "" {
-			return "", fmt.Errorf("invalid precompiled JIT prompt")
-		}
-		prompt = compiled[0]
-	} else {
-		var err error
-		prompt, err = i.assembleJITPrompt(ctx, phase, task, profile)
-		if err != nil {
-			logging.Boot("Failed to assemble JIT prompt: %v", err)
-			prompt = i.buildFallbackPrompt(phase, task)
-		}
+	route := i.route(call.slot)
+	if route.client == nil {
+		return "", fmt.Errorf("init phase %s: no LLM client is configured", call.phase)
+	}
+	prompt := call.system
+	if strings.TrimSpace(prompt) == "" && !call.query {
+		prompt = i.assembleJITPrompt(ctx, route, call.phase, call.task, call.profile)
 	}
 
 	// Fast-path: parent already done. Skip the provider call entirely; a
-	// skipped call is not a provider attempt so it is not recorded. The
-	// caller falls back to its static template on the returned ctx error.
+	// skipped call is not a provider attempt so it is not recorded.
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return "", ctxErr
 	}
-	timeout := i.config.Timeout
-	if timeout <= 0 {
-		timeout = config.GetLLMTimeouts().PerCallTimeout
-	}
-	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	callCtx, cancel := initRequestContext(ctx, i.config.Timeout)
 	defer cancel()
 
-	// All init LLM calls pass this chokepoint, so record one outcome per actual
-	// provider attempt. Prompt compilation failures use the local fallback and
-	// are not provider attempts.
-	//
-	// Providers must honor cancellation. Keep their lifetime and usage accounting
-	// joined to this call rather than returning while a detached request runs.
-	response, callErr := handler(callCtx, prompt)
-	i.recordLLMCall(callErr)
+	// Providers must honor cancellation. Keep their lifetime and usage
+	// accounting joined to this call rather than returning while a detached
+	// request runs.
+	response, callErr := handler(callCtx, route.client, prompt)
+	i.recordLLMCall(route, call.phase, callErr)
 	return response, callErr
 }
 
-// BuildInitCompilationContext creates a CompilationContext for an init phase.
-// This can be used directly with the JIT compiler for advanced use cases.
-func BuildInitCompilationContext(phase, task string, profile *ProjectProfile) *prompt.CompilationContext {
+// initRequestContext bounds one model request. timeout is InitConfig.Timeout;
+// zero or less reads llm_timeouts.per_call_timeout now, so the configured value
+// that is current when the request is made applies, and a non-positive
+// configured value adds no clock of its own (the caller's context still ends
+// the request).
+func initRequestContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		timeout = config.GetLLMTimeouts().PerCallTimeout
+	}
+	if timeout <= 0 {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, timeout)
+}
+
+// initCompilationContext is the CompilationContext for one init phase,
+// compiled for the client route sends the prompt to.
+func initCompilationContext(route llmRoute, phase, task string, profile *ProjectProfile) *prompt.CompilationContext {
 	cc := prompt.NewCompilationContext()
+
+	// Name the model that will read this prompt. Provider and model are
+	// fail-closed regime dimensions in jit_compiler.mg: left empty they block
+	// every pinned atom, including a planner-pinned overlay.
+	cc.WithProviderModel(route.provider, route.model)
 
 	// Set shard context (init uses researcher)
 	cc.ShardType = "/researcher"
@@ -500,12 +522,12 @@ func BuildInitCompilationContext(phase, task string, profile *ProjectProfile) *p
 		}
 	}
 
-	// Init prompts can be larger than a turn prompt: scanning and profiling
-	// carry more instruction. Taken as a share of the enforced window rather
-	// than the flat 120000 that used to sit here, which was larger than some
-	// configured windows and a fraction of others.
-	cc.TokenBudget = broker.Default().PromptBudget(0.75, 120000)
-	cc.ReservedTokens = 10000
+	// A share of the enforced window, bounded by the serving client's own
+	// input cap (a planner or worker slot's max_input_tokens). Reserved is a
+	// tenth of the budget: a fixed 10000 exceeded the whole budget once a
+	// capped slot or a small window floored it at config.MinPromptTokens, and
+	// Validate then failed every init compile into the static fallback.
+	cc.TokenBudget, cc.ReservedTokens = northstar.CompileTokenBudget(route.window)
 
 	// Use task as semantic query for vector search
 	if task != "" {

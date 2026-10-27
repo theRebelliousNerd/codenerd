@@ -63,38 +63,43 @@ func toolUsageKey(toolID string) string      { return "tool_usage:" + toolID }
 // replace retracts whatever was previously emitted under key and asserts the
 // new set. Retraction happens first so re-analyze cannot leave a tool carrying
 // both its old and new categories.
-func (e *FactEmitter) replace(key string, facts []string) {
+func (e *FactEmitter) replace(key string, facts []string) error {
 	if e == nil {
-		return
+		return nil
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.replaceLocked(key, facts)
+	return e.replaceLocked(key, facts)
 }
 
-func (e *FactEmitter) replaceLocked(key string, facts []string) {
+func (e *FactEmitter) replaceLocked(key string, facts []string) error {
 	// Re-discovery of an unchanged tool is the common case. Retracting and
 	// re-asserting identical facts would dirty the kernel and force a fixpoint
 	// re-evaluation for nothing.
 	if slices.Equal(e.emitted[key], facts) {
-		return
+		return nil
 	}
 
+	var operationErr error
 	for _, old := range e.emitted[key] {
 		if err := e.kernel.Retract(old); err != nil {
-			e.failure = errors.Join(e.failure, fmt.Errorf("MCP fact retract failed (%s): %w", old, err))
+			wrapped := fmt.Errorf("MCP fact retract failed (%s): %w", old, err)
+			operationErr = errors.Join(operationErr, wrapped)
+			e.failure = errors.Join(e.failure, wrapped)
 			logging.Get(logging.CategoryTools).Error("MCP fact retract failed (%s): %v", old, err)
 		}
 	}
 	delete(e.emitted, key)
 
 	if len(facts) == 0 {
-		return
+		return operationErr
 	}
 	asserted := make([]string, 0, len(facts))
 	for _, f := range facts {
 		if err := e.kernel.Assert(f); err != nil {
-			e.failure = errors.Join(e.failure, fmt.Errorf("MCP fact assert failed (%s): %w", f, err))
+			wrapped := fmt.Errorf("MCP fact assert failed (%s): %w", f, err)
+			operationErr = errors.Join(operationErr, wrapped)
+			e.failure = errors.Join(e.failure, wrapped)
 			logging.Get(logging.CategoryTools).Warn("MCP fact assert failed (%s): %v", f, err)
 			continue
 		}
@@ -103,28 +108,28 @@ func (e *FactEmitter) replaceLocked(key string, facts []string) {
 	if len(asserted) > 0 {
 		e.emitted[key] = asserted
 	}
+	return operationErr
 }
 
 // EmitServer publishes registration, name, and capability facts for a server.
-func (e *FactEmitter) EmitServer(server *MCPServer) {
+func (e *FactEmitter) EmitServer(server *MCPServer) error {
 	if e == nil || server == nil || server.ID == "" {
-		return
+		return nil
 	}
-	e.replace(serverKey(server.ID), serverFacts(server))
-	e.EmitServerStatus(server.ID, server.Status)
+	return errors.Join(e.replace(serverKey(server.ID), serverFacts(server)), e.EmitServerStatus(server.ID, server.Status))
 }
 
 // EmitServerStatus updates only the status fact, leaving the server's
 // registration facts in place. Availability in policy keys off this predicate,
 // so a disconnect must flip it rather than drop the catalog.
-func (e *FactEmitter) EmitServerStatus(serverID string, status ServerStatus) {
+func (e *FactEmitter) EmitServerStatus(serverID string, status ServerStatus) error {
 	if e == nil || serverID == "" {
-		return
+		return nil
 	}
 	if status == "" {
 		status = ServerStatusUnknown
 	}
-	e.replace(serverStatusKey(serverID), []string{
+	return e.replace(serverStatusKey(serverID), []string{
 		fmt.Sprintf("mcp_server_status(%s, %s)", exactMangleString(serverID), mangleAtom(string(status))),
 	})
 }
@@ -162,9 +167,9 @@ func (e *FactEmitter) EmitReady(serverCount, toolCount int) {
 
 // EmitResources publishes a server's resource catalog. The whole catalog is
 // one subject so a rediscovery that drops a resource drops its facts too.
-func (e *FactEmitter) EmitResources(serverID string, resources []MCPResource) {
+func (e *FactEmitter) EmitResources(serverID string, resources []MCPResource) error {
 	if e == nil || serverID == "" {
-		return
+		return nil
 	}
 	facts := make([]string, 0, len(resources)*2)
 	for _, r := range resources {
@@ -184,13 +189,13 @@ func (e *FactEmitter) EmitResources(serverID string, resources []MCPResource) {
 				exactMangleString(r.URI), mangleString(name)))
 		}
 	}
-	e.replace("resources:"+serverID, facts)
+	return e.replace("resources:"+serverID, facts)
 }
 
 // EmitPrompts publishes a server's prompt-template catalog.
-func (e *FactEmitter) EmitPrompts(serverID string, prompts []MCPPrompt) {
+func (e *FactEmitter) EmitPrompts(serverID string, prompts []MCPPrompt) error {
 	if e == nil || serverID == "" {
-		return
+		return nil
 	}
 	facts := make([]string, 0, len(prompts)*2)
 	for _, p := range prompts {
@@ -215,7 +220,7 @@ func (e *FactEmitter) EmitPrompts(serverID string, prompts []MCPPrompt) {
 				exactMangleString(name), exactMangleString(argName), required))
 		}
 	}
-	e.replace("prompts:"+serverID, facts)
+	return e.replace("prompts:"+serverID, facts)
 }
 
 // EmitHandle publishes an outstanding result handle.

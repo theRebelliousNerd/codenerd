@@ -477,7 +477,7 @@ func (r *Registry) validateArgs(tool *Tool, args map[string]any) error {
 	// Property is declared for a key (extra args are allowed by convention).
 	for key, value := range args {
 		prop, ok := tool.Schema.Properties[key]
-		if !ok || prop.Type == "" || value == nil {
+		if !ok || prop.Type == "" {
 			continue
 		}
 		if !valueMatchesSchemaType(value, prop.Type) {
@@ -493,7 +493,13 @@ func (r *Registry) validateArgs(tool *Tool, args map[string]any) error {
 // unmarshaling yields float64 for both "integer" and "number").
 func valueMatchesSchemaType(v any, schemaType string) bool {
 	if v == nil {
-		return true
+		switch schemaType {
+		case "string", "integer", "number", "boolean", "array", "object":
+			return false
+		default:
+			// Unknown schema types remain permissive, matching the default below.
+			return true
+		}
 	}
 	rv := reflect.ValueOf(v)
 	switch schemaType {

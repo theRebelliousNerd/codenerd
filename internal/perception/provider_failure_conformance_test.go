@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -131,6 +132,114 @@ func TestProviderFailureConformance(t *testing.T) {
 				t.Fatalf("canceled call took %s", elapsed)
 			}
 		})
+	}
+}
+
+// The subscription CLI adapters report rate-limit exhaustion as a typed
+// RateLimitError rather than an HTTP-shaped message. Exercise both their
+// normal and streaming production entry points through the portable fake
+// executables; the shared classifier and safe user-facing message must match
+// the HTTP adapter contract.
+func TestCLIProviderFailureConformance(t *testing.T) {
+	type cliAdapter struct {
+		name    string
+		binary  string
+		modeEnv string
+		build   func() LLMClient
+	}
+	adapters := []cliAdapter{
+		{
+			name:    "claude-cli",
+			binary:  "claude",
+			modeEnv: "CLAUDE_TEST_MODE",
+			build:   func() LLMClient { return NewClaudeCodeCLIClient(nil) },
+		},
+		{
+			name:    "codex-cli",
+			binary:  "codex",
+			modeEnv: "CODEX_TEST_MODE",
+			build:   func() LLMClient { return NewCodexCLIClient(nil) },
+		},
+	}
+
+	for _, adapter := range adapters {
+		t.Run(adapter.name, func(t *testing.T) {
+			dir := installFakeCLI(t, adapter.binary)
+			t.Setenv("PATH", prependPath(dir, os.Getenv("PATH")))
+			t.Setenv(adapter.modeEnv, "rate_limit")
+			rawDetail := "rate limit reached; token=" + conformanceSecret
+			t.Setenv("CLI_TEST_RATE_LIMIT_DETAIL", rawDetail)
+			client := adapter.build()
+
+			assertRateLimited := func(path string, err error) {
+				t.Helper()
+				if err == nil {
+					t.Fatalf("%s returned no error", path)
+				}
+				if got := ClassifyProviderFailure(err); got != FailureRateLimited {
+					t.Fatalf("%s classified %q, want %q (err: %v)", path, got, FailureRateLimited, err)
+				}
+				if !IsTransientProviderFailure(err) {
+					t.Fatalf("%s is not retryable", path)
+				}
+				msg := SafeProviderFailureMessage(err)
+				if !strings.Contains(msg, "HTTP 429") {
+					t.Fatalf("%s safe message %q does not identify HTTP 429", path, msg)
+				}
+				if strings.Contains(msg, rawDetail) || strings.Contains(msg, conformanceSecret) {
+					t.Fatalf("%s safe message leaked raw stderr or credentials: %q", path, msg)
+				}
+			}
+
+			_, err := client.CompleteWithSystem(context.Background(), "sys", "hello")
+			assertRateLimited("CompleteWithSystem", err)
+
+			content, errorsCh := client.CompleteWithStreaming(context.Background(), "sys", "hello", false)
+			for range content {
+			}
+			var streamErr error
+			for err := range errorsCh {
+				if err != nil {
+					streamErr = err
+				}
+			}
+			assertRateLimited("CompleteWithStreaming", streamErr)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			_, err = client.CompleteWithSystem(ctx, "sys", "hello")
+			if got := ClassifyProviderFailure(err); got != FailureCanceled {
+				t.Fatalf("canceled CompleteWithSystem classified %q, want %q (err: %v)", got, FailureCanceled, err)
+			}
+
+			content, errorsCh = client.CompleteWithStreaming(ctx, "sys", "hello", false)
+			for range content {
+			}
+			streamErr = nil
+			for err := range errorsCh {
+				if err != nil {
+					streamErr = err
+				}
+			}
+			if got := ClassifyProviderFailure(streamErr); got != FailureCanceled {
+				t.Fatalf("canceled CompleteWithStreaming classified %q, want %q (err: %v)", got, FailureCanceled, streamErr)
+			}
+		})
+	}
+}
+
+func TestClassifyProviderFailure_WrappedRateLimitAndCancellationPrecedence(t *testing.T) {
+	rateLimit := fmt.Errorf("CLI retry exhausted: %w", &RateLimitError{
+		Provider:    "codex-cli",
+		RawResponse: "rate limit response echoed " + conformanceSecret,
+	})
+	if got := ClassifyProviderFailure(rateLimit); got != FailureRateLimited {
+		t.Fatalf("wrapped rate limit classified %q, want %q", got, FailureRateLimited)
+	}
+
+	canceledAndRateLimited := fmt.Errorf("request ended during cancellation: %w; provider: %w", context.Canceled, rateLimit)
+	if got := ClassifyProviderFailure(canceledAndRateLimited); got != FailureCanceled {
+		t.Fatalf("canceled rate-limited request classified %q, want %q", got, FailureCanceled)
 	}
 }
 

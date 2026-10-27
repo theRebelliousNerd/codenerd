@@ -19,11 +19,12 @@ type OllamaClient struct {
 	model  string
 }
 
-// DefaultOllamaLLMConfig returns sensible defaults for local chat.
+// DefaultOllamaLLMConfig returns the local endpoint and timeout defaults for
+// chat. It names no model: the tag comes from config (ollama.model, or the
+// slot's model) or the client is not built.
 func DefaultOllamaLLMConfig() OllamaLLMConfig {
 	return OllamaLLMConfig{
 		Endpoint: "http://127.0.0.1:11434",
-		Model:    "gemma4:12b",
 		Timeout:  10 * time.Minute,
 	}
 }
@@ -39,9 +40,6 @@ type OllamaLLMConfig struct {
 func NewOllamaClientWithConfig(cfg OllamaLLMConfig) *OllamaClient {
 	if cfg.Endpoint == "" {
 		cfg.Endpoint = "http://127.0.0.1:11434"
-	}
-	if cfg.Model == "" {
-		cfg.Model = "gemma4:12b"
 	}
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 10 * time.Minute

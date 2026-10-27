@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"sync/atomic"
 	"time"
+
+	"codenerd/internal/logging"
 )
 
 type RemoteEffect string
@@ -92,6 +94,18 @@ func remoteAction(effect RemoteEffect) string {
 	default:
 		return ""
 	}
+}
+
+// auditRemoteAuthorization records the final policy verdict without including
+// the target argument, canonical arguments, or permission payload. ToolID and
+// the reviewed action are stable catalog metadata; reasons are static so a
+// kernel or transport error cannot smuggle request data into the audit log.
+func auditRemoteAuthorization(envelope RemoteCallEnvelope, allowed bool, reason string) {
+	logging.Audit().SafetyCheck(
+		fmt.Sprintf("MCP %s %s %s", envelope.Operation, envelope.ToolID, envelope.Action),
+		allowed,
+		reason,
+	)
 }
 
 func exactMangleString(value string) string { return strconv.Quote(value) }
@@ -350,19 +364,13 @@ func (manager *MCPClientManager) dispatchRemoteCall(ctx context.Context, operati
 			return nil, fmt.Errorf("assert MCP authority: %w", assertErr)
 		}
 	}
-	constitutionalQuery := fmt.Sprintf("permitted(%s, %s, %s)", envelope.Action, exactMangleString(target), exactMangleString(envelope.PermissionPayload))
-	constitutionalPermission, permissionErr := emitter.kernel.Query(constitutionalQuery)
-	if permissionErr != nil {
-		return nil, fmt.Errorf("query MCP constitutional permission: %w", permissionErr)
-	}
-	if len(constitutionalPermission) != 1 {
-		return nil, fmt.Errorf("MCP remote effect %s refused: corresponding constitutional permission is absent", toolID)
-	}
 	confirmationRequired, confirmationErr := emitter.kernel.Query(fmt.Sprintf("mcp_remote_confirmation_required(%s)", exactMangleString(requestID)))
 	if confirmationErr != nil {
+		auditRemoteAuthorization(envelope, false, "kernel query mcp_remote_confirmation_required/1 failed; remote action denied")
 		return nil, fmt.Errorf("query MCP confirmation requirement: %w", confirmationErr)
 	}
 	if len(confirmationRequired) > 0 && !confirmed {
+		auditRemoteAuthorization(envelope, false, "kernel requires separate risk confirmation; remote action denied")
 		return nil, fmt.Errorf("MCP remote effect %s requires separate risk confirmation", toolID)
 	}
 	query := fmt.Sprintf("mcp_remote_permitted(%s, %s, %s, %s, %s, %s, %s)",
@@ -370,9 +378,11 @@ func (manager *MCPClientManager) dispatchRemoteCall(ctx context.Context, operati
 		exactMangleString(serverID), exactMangleString(toolID), exactMangleString(review.SchemaHash), exactMangleString(envelope.ArgsDigest))
 	permission, queryErr := emitter.kernel.Query(query)
 	if queryErr != nil {
+		auditRemoteAuthorization(envelope, false, "kernel query mcp_remote_permitted/7 failed; remote action denied")
 		return nil, fmt.Errorf("query MCP remote authority: %w", queryErr)
 	}
 	if len(permission) != 1 {
+		auditRemoteAuthorization(envelope, false, "kernel derived no unique mcp_remote_permitted/7 fact; remote action denied")
 		return nil, fmt.Errorf("MCP remote effect %s refused: no unique positive per-call permission", toolID)
 	}
 	// The authorized canonical tree is never rebuilt from caller-owned data.
@@ -383,26 +393,31 @@ func (manager *MCPClientManager) dispatchRemoteCall(ctx context.Context, operati
 	}
 	current, snapshotErr := json.Marshal(currentArgs)
 	if snapshotErr != nil || !bytes.Equal(current, canonical) {
+		auditRemoteAuthorization(envelope, false, "arguments changed after Mangle authorization; remote action denied")
 		return nil, fmt.Errorf("MCP arguments changed after authorization")
 	}
 	if err := ctx.Err(); err != nil {
+		auditRemoteAuthorization(envelope, false, "call context canceled after Mangle authorization; remote action denied")
 		return nil, err
 	}
 	manager.mu.RLock()
 	defer manager.mu.RUnlock()
 	if manager.servers[serverID] != connection || connection.Transport != transport || connection.Server == nil || connection.Server.ID != serverID || connection.Server.Endpoint != server.Endpoint || connection.Server.Protocol != server.Protocol || connection.Server.Status != ServerStatusConnected || !transport.IsConnected() || remoteSchemaHash(tool) != review.SchemaHash {
+		auditRemoteAuthorization(envelope, false, "MCP connection changed after Mangle authorization; remote action denied")
 		return nil, fmt.Errorf("MCP registration changed after authorization")
 	}
 	currentTool, currentMatches := manager.remoteSubjectLocked(operation, serverID, toolID)
 	if currentMatches != 1 || currentTool == nil || currentTool.ServerID != serverID || currentTool.Name != toolName || currentTool.Risk != tool.Risk || currentTool.RiskSource != tool.RiskSource || currentTool.SchemaHash != review.SchemaHash || remoteSchemaHash(currentTool) != review.SchemaHash {
+		auditRemoteAuthorization(envelope, false, "MCP catalog changed after Mangle authorization; remote action denied")
 		return nil, fmt.Errorf("MCP tool catalog changed after authorization")
 	}
+	auditRemoteAuthorization(envelope, true, "kernel derived exact mcp_remote_permitted/7 authorization; its rule matched the exact permitted/3 action, target, and payload tuple; final host checks passed")
 	return invoke(transport, frozen)
 }
 
 // invalidateRemoteCatalog removes executable registrations after a failed refresh.
 // Cached store rows remain available for discovery and analysis reuse.
-func (manager *MCPClientManager) invalidateRemoteCatalog(operation RemoteOperation, serverID string) {
+func (manager *MCPClientManager) invalidateRemoteCatalog(operation RemoteOperation, serverID string) error {
 	manager.mu.Lock()
 	var previous []*MCPTool
 	switch operation {
@@ -419,8 +434,9 @@ func (manager *MCPClientManager) invalidateRemoteCatalog(operation RemoteOperati
 	emitter := manager.facts
 	manager.mu.Unlock()
 	if emitter == nil {
-		return
+		return nil
 	}
+	var invalidateErr error
 	switch operation {
 	case RemoteTool:
 		for _, tool := range previous {
@@ -429,10 +445,11 @@ func (manager *MCPClientManager) invalidateRemoteCatalog(operation RemoteOperati
 			}
 		}
 	case RemoteResource:
-		emitter.EmitResources(serverID, nil)
+		invalidateErr = emitter.EmitResources(serverID, nil)
 	case RemotePrompt:
-		emitter.EmitPrompts(serverID, nil)
+		invalidateErr = emitter.EmitPrompts(serverID, nil)
 	}
+	return invalidateErr
 }
 
 // Revoke changed or removed subjects as soon as the live catalog arrives,

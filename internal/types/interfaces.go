@@ -153,10 +153,6 @@ type LLMToolResponse struct {
 	// Must be passed back in subsequent turns for reasoning continuity
 	ThoughtSignature string `json:"thought_signature,omitempty"`
 
-	// Grounding metadata (from Google Search / URL Context)
-	// GroundingSources lists URLs used to ground the response
-	GroundingSources []string `json:"grounding_sources,omitempty"`
-
 	// Blocks is the response's ordered native content: text, thinking with
 	// its signature, and tool_use with its id, in the order the model emitted
 	// them. Text and ToolCalls above are the flat projection of it.
@@ -342,19 +338,6 @@ type PiggybackToolProvider interface {
 	ShouldUsePiggybackTools() bool
 }
 
-// ThinkingProvider is an optional interface for LLM clients that support
-// explicit thinking/reasoning mode (Gemini 3 Thinking Mode, Claude extended thinking, etc.).
-// Use type assertion to check if a client supports thinking metadata:
-//
-//	if tp, ok := client.(types.ThinkingProvider); ok {
-//	    summary := tp.GetLastThoughtSummary()
-//	    tokens := tp.GetLastThinkingTokens()
-//	}
-//
-// This metadata is used by the System Prompt Learning (SPL) system to:
-// 1. Evaluate WHY a task succeeded or failed (reasoning quality)
-// 2. Learn from the model's decision-making process
-// 3. Generate better prompt atoms based on reasoning patterns
 // ModelIdentifier is an optional interface for LLM clients that can report
 // which provider and model they actually serve. Use a type assertion:
 //
@@ -377,6 +360,34 @@ type ModelIdentifier interface {
 	ModelIdentity() (provider, model string)
 }
 
+// InputWindowReporter is an optional interface for LLM clients whose input is
+// capped below the session's budget: a worker or planner slot's
+// max_input_tokens. InputWindowTokens is that cap in the tokens
+// prompt.EstimateRequestTokens counts (the system prompt, the transcript and
+// the tool catalog, at prompt.EstimateTokens' bytes/4); 0 means the client
+// imposes none.
+//
+// A client that reports a cap refuses a larger request itself, before anything
+// is sent, and the session executor fits every request it sends that client to
+// the smaller of the cap and its own budget. Decorators do not forward it:
+// find it with broker.InputWindow, which walks the chain.
+type InputWindowReporter interface {
+	InputWindowTokens() int
+}
+
+// ThinkingProvider is an optional interface for LLM clients that support
+// explicit thinking/reasoning mode (Gemini 3 Thinking Mode, Claude extended thinking, etc.).
+// Use type assertion to check if a client supports thinking metadata:
+//
+//	if tp, ok := client.(types.ThinkingProvider); ok {
+//	    summary := tp.GetLastThoughtSummary()
+//	    tokens := tp.GetLastThinkingTokens()
+//	}
+//
+// This metadata is used by the System Prompt Learning (SPL) system to:
+// 1. Evaluate WHY a task succeeded or failed (reasoning quality)
+// 2. Learn from the model's decision-making process
+// 3. Generate better prompt atoms based on reasoning patterns
 type ThinkingProvider interface {
 	// GetLastThoughtSummary returns the model's reasoning process from the last call.
 	// Returns empty string if thinking mode is disabled or client doesn't support it.

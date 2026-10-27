@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -46,7 +47,10 @@ type Migration struct {
 // These handle cases where tables exist but are missing newer columns.
 var pendingMigrations = []Migration{
 	// Cold storage access tracking columns (added for archival tier)
-	{"cold_storage", "last_accessed", "DATETIME DEFAULT CURRENT_TIMESTAMP"},
+	// SQLite rejects non-constant defaults when adding a column to a populated
+	// table. RunMigrations backfills this nullable field from the existing fact
+	// timestamps and StoreFact supplies values for future inserts.
+	{"cold_storage", "last_accessed", "DATETIME"},
 	{"cold_storage", "access_count", "INTEGER DEFAULT 0"},
 	// Archived facts access tracking columns (mirrored from cold_storage)
 	{"archived_facts", "last_accessed", "DATETIME"},
@@ -85,23 +89,14 @@ func RunMigrations(db *sql.DB) error {
 
 	logging.Store("Running schema migrations (%d pending)", len(pendingMigrations))
 
-	// Pre-fetch schema information to avoid N+1 queries
-	existingTables := make(map[string]bool)
-	tableRows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table'")
+	// Pre-fetch schema information to avoid N+1 queries. A failed or partial
+	// schema read cannot be treated as an empty schema: doing so would make
+	// this function report success while leaving required columns absent.
+	existingTables, err := migrationTableNames(db)
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to query tables: %v", err)
 		return fmt.Errorf("failed to query tables: %w", err)
 	}
-	defer tableRows.Close()
-
-	for tableRows.Next() {
-		var name string
-		if err := tableRows.Scan(&name); err != nil {
-			continue
-		}
-		existingTables[name] = true
-	}
-	tableRows.Close()
 
 	// Identify relevant tables from pending migrations
 	relevantTables := make(map[string]bool)
@@ -116,25 +111,10 @@ func RunMigrations(db *sql.DB) error {
 			continue
 		}
 
-		cols := make(map[string]bool)
-		query := fmt.Sprintf("PRAGMA table_info(%s)", table)
-		rows, err := db.Query(query)
+		cols, err := migrationTableColumns(db, table)
 		if err != nil {
-			logging.StoreDebug("PRAGMA table_info(%s) failed: %v", table, err)
-			continue
+			return fmt.Errorf("failed to inspect migration table %s: %w", table, err)
 		}
-
-		for rows.Next() {
-			var cid int
-			var name, ctype string
-			var notnull, pk int
-			var dfltValue any
-			if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
-				continue
-			}
-			cols[name] = true
-		}
-		rows.Close()
 		existingColumns[table] = cols
 	}
 
@@ -151,12 +131,10 @@ func RunMigrations(db *sql.DB) error {
 			continue
 		}
 
-		// Check if column exists using cached map
-		// Note: existingColumns[m.Table] might be nil if query failed, treated as empty map
+		// Check if column exists using the verified schema snapshot.
 		columns, ok := existingColumns[m.Table]
 		if !ok {
-			// Should not happen if logic above is correct, unless PRAGMA failed
-			columns = make(map[string]bool)
+			return fmt.Errorf("migration table %s was not inspected", m.Table)
 		}
 
 		if !columns[m.Column] {
@@ -164,9 +142,24 @@ func RunMigrations(db *sql.DB) error {
 			logging.StoreDebug("Executing migration: %s", query)
 
 			if _, err := db.Exec(query); err != nil {
-				logging.Get(logging.CategoryStore).Warn("Migration failed (may already exist): %s.%s: %v", m.Table, m.Column, err)
-				// Don't fail on migration errors - column may already exist in a different form
-				skippedCount++
+				// Another opener may have added the column after our schema
+				// snapshot. Treat that race as idempotent only when a fresh,
+				// successful inspection proves that the desired column exists.
+				currentColumns, inspectErr := migrationTableColumns(db, m.Table)
+				if inspectErr != nil {
+					return errors.Join(
+						fmt.Errorf("migration failed for %s.%s: %w", m.Table, m.Column, err),
+						fmt.Errorf("failed to verify migration result for %s: %w", m.Table, inspectErr),
+					)
+				}
+				if currentColumns[m.Column] {
+					logging.StoreDebug("Migration column appeared concurrently: %s.%s", m.Table, m.Column)
+					existingColumns[m.Table] = currentColumns
+					skippedCount++
+					continue
+				}
+				logging.Get(logging.CategoryStore).Error("Migration failed: %s.%s: %v", m.Table, m.Column, err)
+				return fmt.Errorf("migration failed for %s.%s: %w", m.Table, m.Column, err)
 			} else {
 				logging.Store("Migration applied: added %s.%s", m.Table, m.Column)
 				appliedCount++
@@ -183,8 +176,81 @@ func RunMigrations(db *sql.DB) error {
 		}
 	}
 
+	// This is deliberately restartable and runs even when last_accessed already
+	// existed: if a prior migration added the column but failed during the
+	// backfill, the next open completes it before publishing the store.
+	if existingTables["cold_storage"] && existingColumns["cold_storage"]["last_accessed"] {
+		timestamps := make([]string, 0, 3)
+		if existingColumns["cold_storage"]["updated_at"] {
+			timestamps = append(timestamps, "updated_at")
+		}
+		if existingColumns["cold_storage"]["created_at"] {
+			timestamps = append(timestamps, "created_at")
+		}
+		timestamps = append(timestamps, "CURRENT_TIMESTAMP")
+		backfill := fmt.Sprintf(`UPDATE cold_storage
+			SET last_accessed = COALESCE(%s)
+			WHERE last_accessed IS NULL`, strings.Join(timestamps, ", "))
+		if _, err := db.Exec(backfill); err != nil {
+			return fmt.Errorf("backfill cold_storage.last_accessed: %w", err)
+		}
+	}
+
 	logging.Store("Schema migrations complete: applied=%d, skipped=%d", appliedCount, skippedCount)
 	return nil
+}
+
+func migrationTableNames(db *sql.DB) (tables map[string]bool, resultErr error) {
+	rows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table'")
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("close table listing: %w", err))
+		}
+	}()
+
+	tables = make(map[string]bool)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("scan table name: %w", err)
+		}
+		tables[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate table listing: %w", err)
+	}
+	return tables, nil
+}
+
+func migrationTableColumns(db *sql.DB, table string) (columns map[string]bool, resultErr error) {
+	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("close column listing for %s: %w", table, err))
+		}
+	}()
+
+	columns = make(map[string]bool)
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dfltValue any
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			return nil, fmt.Errorf("scan column for %s: %w", table, err)
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate columns for %s: %w", table, err)
+	}
+	return columns, nil
 }
 
 // columnExists checks if a column exists in a table using PRAGMA table_info.
@@ -227,59 +293,108 @@ func tableExists(db *sql.DB, table string) bool {
 	return exists
 }
 
+func tableExistsStrict(db *sql.DB, table string) (bool, error) {
+	var count int
+	query := "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?"
+	if err := db.QueryRow(query, table).Scan(&count); err != nil {
+		return false, fmt.Errorf("check table %s: %w", table, err)
+	}
+	return count > 0, nil
+}
+
+func columnExistsStrict(db *sql.DB, table, column string) (bool, error) {
+	columns, err := migrationTableColumns(db, table)
+	if err != nil {
+		return false, fmt.Errorf("inspect table %s: %w", table, err)
+	}
+	return columns[column], nil
+}
+
 // GetSchemaVersion returns the current schema version of a database.
 // If no version table exists, it infers the version from table structure.
 func GetSchemaVersion(db *sql.DB) int {
 	logging.StoreDebug("Detecting schema version")
+	version, err := getSchemaVersion(db)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to detect schema version: %v", err)
+		return 0
+	}
+	logging.StoreDebug("Detected schema version: %d", version)
+	return version
+}
 
-	// First, check if schema_versions table exists
-	if tableExists(db, "schema_versions") {
+func getSchemaVersion(db *sql.DB) (int, error) {
+	if db == nil {
+		return 0, fmt.Errorf("nil database")
+	}
+	exists, err := tableExistsStrict(db, "schema_versions")
+	if err != nil {
+		return 0, err
+	}
+	if exists {
 		var version int
 		query := "SELECT version FROM schema_versions ORDER BY applied_at DESC LIMIT 1"
-		if err := db.QueryRow(query).Scan(&version); err == nil {
+		err := db.QueryRow(query).Scan(&version)
+		if err == nil {
 			logging.StoreDebug("Schema version from schema_versions table: %d", version)
-			return version
+			return version, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return 0, fmt.Errorf("read schema_versions: %w", err)
 		}
 		logging.StoreDebug("schema_versions table exists but no version record found")
 	}
 
-	// Infer version from table structure
-	version := inferSchemaVersion(db)
-	logging.StoreDebug("Inferred schema version: %d", version)
-	return version
+	return inferSchemaVersion(db)
 }
 
 // inferSchemaVersion determines schema version by examining table structure.
-func inferSchemaVersion(db *sql.DB) int {
+func inferSchemaVersion(db *sql.DB) (int, error) {
 	logging.StoreDebug("Inferring schema version from table structure")
 
 	// Check if knowledge_atoms table exists
-	if !tableExists(db, "knowledge_atoms") {
+	knowledgeAtomsExists, err := tableExistsStrict(db, "knowledge_atoms")
+	if err != nil {
+		return 0, err
+	}
+	if !knowledgeAtomsExists {
 		logging.StoreDebug("No knowledge_atoms table - version 0")
-		return 0
+		return 0, nil
 	}
 
 	// Check for v4: content_hash column
-	if columnExists(db, "knowledge_atoms", "content_hash") {
+	contentHashExists, err := columnExistsStrict(db, "knowledge_atoms", "content_hash")
+	if err != nil {
+		return 0, err
+	}
+	if contentHashExists {
 		logging.StoreDebug("Found content_hash column - version 4")
-		return 4
+		return 4, nil
 	}
 
 	// Check for v3: vec_index virtual table
-	if tableExists(db, "vec_index") {
+	vecIndexExists, err := tableExistsStrict(db, "vec_index")
+	if err != nil {
+		return 0, err
+	}
+	if vecIndexExists {
 		logging.StoreDebug("Found vec_index table - version 3")
-		return 3
+		return 3, nil
 	}
 
 	// Check for v2: embedding column
-	if columnExists(db, "knowledge_atoms", "embedding") {
+	embeddingExists, err := columnExistsStrict(db, "knowledge_atoms", "embedding")
+	if err != nil {
+		return 0, err
+	}
+	if embeddingExists {
 		logging.StoreDebug("Found embedding column - version 2")
-		return 2
+		return 2, nil
 	}
 
 	// v1: Basic table
 	logging.StoreDebug("Basic table structure - version 1")
-	return 1
+	return 1, nil
 }
 
 // SetSchemaVersion records a new schema version in the database.
@@ -321,7 +436,9 @@ func MigrateV1ToV2(db *sql.DB) error {
 
 	logging.Store("Migrating v1 -> v2: Adding embedding column")
 
-	if columnExists(db, "knowledge_atoms", "embedding") {
+	if exists, err := columnExistsStrict(db, "knowledge_atoms", "embedding"); err != nil {
+		return fmt.Errorf("inspect knowledge_atoms.embedding: %w", err)
+	} else if exists {
 		logging.Store("Embedding column already exists, skipping")
 		return nil
 	}
@@ -344,7 +461,11 @@ func MigrateV2ToV3(db *sql.DB) error {
 
 	logging.Store("Migrating v2 -> v3: Creating vec_index table")
 
-	if tableExists(db, "vec_index") {
+	exists, err := tableExistsStrict(db, "vec_index")
+	if err != nil {
+		return fmt.Errorf("inspect vec_index: %w", err)
+	}
+	if exists {
 		logging.Store("vec_index table already exists, skipping")
 		return nil
 	}
@@ -361,7 +482,9 @@ func MigrateV3ToV4(db *sql.DB) error {
 
 	logging.Store("Migrating v3 -> v4: Adding content_hash column")
 
-	if columnExists(db, "knowledge_atoms", "content_hash") {
+	if exists, err := columnExistsStrict(db, "knowledge_atoms", "content_hash"); err != nil {
+		return fmt.Errorf("inspect knowledge_atoms.content_hash: %w", err)
+	} else if exists {
 		logging.Store("content_hash column already exists, skipping")
 		return nil
 	}
@@ -644,7 +767,10 @@ func RunAllMigrations(dbPath string, targetVersion int) (*MigrationResult, error
 	defer func() { _ = closeDB() }()
 	ApplyDefaultPragmas(db, ProfileBulkBuild)
 
-	currentVersion := GetSchemaVersion(db)
+	currentVersion, err := getSchemaVersion(db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect schema version: %w", err)
+	}
 	result.FromVersion = currentVersion
 	result.ToVersion = targetVersion
 
@@ -688,7 +814,11 @@ func RunAllMigrations(dbPath string, targetVersion int) (*MigrationResult, error
 	// Non-knowledge DBs (e.g. *_learnings.db) have no knowledge_atoms table.
 	// They use LearningStore.initializeSchema, not knowledge migrations.
 	// Stamping current version avoids "unknown migration: v0 -> v1" + backup thrash.
-	if currentVersion == 0 && !tableExists(db, "knowledge_atoms") {
+	knowledgeAtomsExists, err := tableExistsStrict(db, "knowledge_atoms")
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect knowledge_atoms table: %w", err)
+	}
+	if currentVersion == 0 && !knowledgeAtomsExists {
 		logging.Store("Skipping knowledge migrations for non-knowledge DB (no knowledge_atoms): %s", dbPath)
 		if err := SetSchemaVersion(db, targetVersion); err != nil {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("stamp version: %v", err))
@@ -777,7 +907,10 @@ func CheckMigrationNeeded(dbPath string) (bool, int, error) {
 	defer db.Close()
 	ApplyDefaultPragmas(db, ProfileQuery)
 
-	currentVersion := GetSchemaVersion(db)
+	currentVersion, err := getSchemaVersion(db)
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to inspect schema version: %w", err)
+	}
 	needed := currentVersion < CurrentSchemaVersion
 	logging.StoreDebug("Migration check: current=v%d, target=v%d, needed=%v", currentVersion, CurrentSchemaVersion, needed)
 	return needed, currentVersion, nil

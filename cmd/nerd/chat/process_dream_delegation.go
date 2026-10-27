@@ -110,7 +110,7 @@ func (m Model) loadWorkspaceFacts(ctx context.Context, intent perception.Intent,
 		}
 		return false
 	}
-	if res == nil || res.Unchanged || len(res.NewFacts) == 0 {
+	if res == nil {
 		return true
 	}
 
@@ -118,6 +118,9 @@ func (m Model) loadWorkspaceFacts(ctx context.Context, intent perception.Intent,
 		if warnings != nil {
 			*warnings = append(*warnings, fmt.Sprintf("Workspace apply skipped: %v", applyErr))
 		}
+		return true
+	}
+	if res.Unchanged || len(res.NewFacts) == 0 {
 		return true
 	}
 

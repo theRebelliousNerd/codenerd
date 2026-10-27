@@ -128,28 +128,6 @@ func TestEdgeCaseDetectorGap_ImpactScoreBounds(t *testing.T) {
 	}
 }
 
-// TestEdgeCaseDetectorGap_FormatForContext_Limits (Vector 9: Context formatting limits)
-func TestEdgeCaseDetectorGap_FormatForContext_Limits(t *testing.T) {
-	analysis := &EdgeCaseAnalysis{
-		NoTestFiles: make([]string, 5000), // Massive amount of files
-	}
-	for i := range 5000 {
-		analysis.NoTestFiles[i] = "file.go"
-	}
-
-	output := analysis.FormatForContext()
-
-	// Should truncate and show "and X more"
-	if !strings.Contains(output, "and 4990 more") {
-		t.Errorf("Expected truncation message 'and 4990 more', output was: %s", output)
-	}
-
-	// Output length should be bounded and not explode
-	if len(output) > 5000 {
-		t.Errorf("Output is too large for context window: %d bytes", len(output))
-	}
-}
-
 // TestEdgeCaseDetectorGap_GodFile (Vector 3: God File Dependents serialization)
 func TestEdgeCaseDetectorGap_GodFile(t *testing.T) {
 	// A God file with 50,000 dependents

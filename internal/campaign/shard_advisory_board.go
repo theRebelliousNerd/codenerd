@@ -6,7 +6,6 @@ package campaign
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -289,50 +288,6 @@ func (b *ShardAdvisoryBoard) SynthesizeVotes(responses []AdvisoryResponse) Advis
 	return synthesis
 }
 
-// IncorporateFeedback modifies a plan based on advisory feedback.
-func (b *ShardAdvisoryBoard) IncorporateFeedback(originalPlan string, synthesis AdvisorySynthesis) string {
-	if len(synthesis.AllSuggestions) == 0 && len(synthesis.AllConcerns) == 0 {
-		return originalPlan
-	}
-
-	var sb strings.Builder
-	sb.WriteString(originalPlan)
-	sb.WriteString("\n\n## Advisory Feedback Integration\n\n")
-
-	if len(synthesis.AllConcerns) > 0 {
-		sb.WriteString("### Addressed Concerns\n")
-		for i, concern := range synthesis.AllConcerns {
-			if i >= 10 {
-				sb.WriteString(fmt.Sprintf("... and %d more concerns\n", len(synthesis.AllConcerns)-10))
-				break
-			}
-			sb.WriteString(fmt.Sprintf("- [ADDRESSED] %s\n", concern))
-		}
-		sb.WriteString("\n")
-	}
-
-	if len(synthesis.AllSuggestions) > 0 {
-		sb.WriteString("### Incorporated Suggestions\n")
-		for i, suggestion := range synthesis.AllSuggestions {
-			if i >= 10 {
-				sb.WriteString(fmt.Sprintf("... and %d more suggestions\n", len(synthesis.AllSuggestions)-10))
-				break
-			}
-			sb.WriteString(fmt.Sprintf("- [INCORPORATED] %s\n", suggestion))
-		}
-		sb.WriteString("\n")
-	}
-
-	if len(synthesis.AllCaveats) > 0 {
-		sb.WriteString("### Caveats to Monitor\n")
-		for _, caveat := range synthesis.AllCaveats {
-			sb.WriteString(fmt.Sprintf("- ⚠️ %s\n", caveat))
-		}
-	}
-
-	return sb.String()
-}
-
 // =============================================================================
 // HELPER METHODS
 // =============================================================================
@@ -585,87 +540,4 @@ func (b *ShardAdvisoryBoard) buildRecommendation(synthesis AdvisorySynthesis) st
 	}
 
 	return "NOT RECOMMENDED: Plan did not receive sufficient approval. Consider revision."
-}
-
-// =============================================================================
-// FORMATTING FOR LLM CONTEXT
-// =============================================================================
-
-// FormatForContext formats the synthesis for LLM context injection.
-func (s *AdvisorySynthesis) FormatForContext() string {
-	var sb strings.Builder
-
-	sb.WriteString("# ADVISORY BOARD REVIEW\n\n")
-	sb.WriteString(s.Summary)
-	sb.WriteString("\n")
-
-	if s.Approved {
-		sb.WriteString("✅ **APPROVED**\n\n")
-	} else {
-		sb.WriteString("❌ **NOT APPROVED**\n\n")
-	}
-
-	sb.WriteString(fmt.Sprintf("**Recommendation:** %s\n\n", s.Recommendation))
-
-	// Individual responses
-	if len(s.Responses) > 0 {
-		sb.WriteString("## Advisor Responses\n\n")
-		for _, resp := range s.Responses {
-			sb.WriteString(fmt.Sprintf("### %s\n", resp.AdvisorName))
-			sb.WriteString(fmt.Sprintf("- **Vote:** %s\n", resp.Vote))
-			sb.WriteString(fmt.Sprintf("- **Confidence:** %.0f%%\n", resp.Confidence*100))
-			if resp.Reasoning != "" {
-				reasoning := resp.Reasoning
-				if len(reasoning) > 300 {
-					reasoning = reasoning[:300] + "..."
-				}
-				sb.WriteString(fmt.Sprintf("- **Reasoning:** %s\n", reasoning))
-			}
-			sb.WriteString("\n")
-		}
-	}
-
-	// Aggregated concerns
-	if len(s.AllConcerns) > 0 {
-		sb.WriteString("## All Concerns\n")
-		seen := make(map[string]bool)
-		for _, c := range s.AllConcerns {
-			if !seen[c] {
-				sb.WriteString(fmt.Sprintf("- %s\n", c))
-				seen[c] = true
-			}
-		}
-		sb.WriteString("\n")
-	}
-
-	// Aggregated suggestions
-	if len(s.AllSuggestions) > 0 {
-		sb.WriteString("## Suggestions\n")
-		seen := make(map[string]bool)
-		for _, s := range s.AllSuggestions {
-			if !seen[s] {
-				sb.WriteString(fmt.Sprintf("- %s\n", s))
-				seen[s] = true
-			}
-		}
-		sb.WriteString("\n")
-	}
-
-	return sb.String()
-}
-
-// FormatVoteSummary returns a compact vote summary.
-func (s *AdvisorySynthesis) FormatVoteSummary() string {
-	votes := make(map[VoteType]int)
-	for _, resp := range s.Responses {
-		votes[resp.Vote]++
-	}
-
-	parts := []string{}
-	for vote, count := range votes {
-		parts = append(parts, fmt.Sprintf("%s=%d", vote, count))
-	}
-
-	sort.Strings(parts)
-	return strings.Join(parts, ", ")
 }

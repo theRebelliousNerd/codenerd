@@ -16,10 +16,21 @@
 - `NewClientFromConfig` requires a non-nil config and must never silently switch
   providers after explicit configuration. Optional classification/worker clients
   may still return `(nil, nil)` where their API documents fallback.
-- Meta `reasoning_effort` is an explicit provider contract. A configured value
-  must survive root, classification, worker, and planner factories, override
-  every capability hint (including unhinted calls), and never leak into
-  non-Meta request JSON. Preserve per-slot endpoint overrides while wiring it.
+- Reasoning effort is the config's (`internal/config/reasoning_effort.go`): every
+  slot arrives resolved; a shard profile's rides the context
+  (`types.WithReasoningEffort`). Meta and Anthropic send it wherever the model
+  accepts one (`config.AnthropicSupportsEffort`); other vendors omit the field.
+  No capability hint, vendor default or literal picks an effort; only Codex CLI
+  reads `types.WithModelCapability`, through its own configured efforts.
+- Never pick or substitute a model or provider: no default model, no alias
+  table. Model-family checks (`config.Anthropic*`) only detect capabilities.
+- A slot's `max_input_tokens` is enforced by its client (`InputWindowTokens`,
+  `admitInputWindow` over `prompt.EstimateRequestTokens`, before any send);
+  Anthropic and OpenAI-compatible clients enforce it, and a slot whose client
+  cannot is refused at construction.
+- Anthropic server web tools are opt-in (`anthropic.web_search`/`web_fetch`):
+  their blocks replay verbatim (`types.BlockServerTool`), are never tool calls,
+  `pause_turn` resumes (bounded), and sources come from results and citations.
 - Preserve typed cancellation, authentication, rate-limit, and transient outage
   identity through retry wrapping. Never log secrets or raw credential payloads.
 - Process globals (`SharedTaxonomy`, `SharedSemanticClassifier`) are lifecycle and

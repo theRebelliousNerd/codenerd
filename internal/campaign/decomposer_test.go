@@ -147,9 +147,6 @@ func TestDecomposer_Setters(t *testing.T) {
 	}
 	// Note: IntelligenceGatherer construction is complex, just checking nil safety or non-nil assignment if we had a mock
 	d.SetIntelligenceGatherer(nil)
-
-	// Test SetAdvisoryBoard
-	d.SetAdvisoryBoard(nil)
 }
 
 func TestDecomposer_InferDocType(t *testing.T) {
@@ -1009,11 +1006,6 @@ func TestDecompose_SetIntelligenceGatherer_NilDereference(t *testing.T) {
 	// Explicitly set a nil gatherer; the guard at the Step 0 call site must
 	// short-circuit instead of dereferencing.
 	d.SetIntelligenceGatherer(nil)
-	// Same for advisory board and edge case detector setters - they accept nil
-	// without panicking.
-	d.SetAdvisoryBoard(nil)
-	d.SetEdgeCaseDetector(nil)
-	d.SetToolPregenerator(nil)
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -1126,7 +1118,6 @@ func TestDecompose_MangleFactSanitization(t *testing.T) {
 }
 
 // TODO: Add a performance/stress test generating a massive DAG of tasks and ensure validatePlan completes without OOM or timeouts
-// TODO: Add tests for extreme MaxPhases (e.g., negative, math.MaxInt32)
 func TestDecompose_MassiveGoal(t *testing.T) {
 	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
 		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {

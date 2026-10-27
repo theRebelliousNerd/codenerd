@@ -299,7 +299,7 @@ var CommandRegistry = []CommandInfo{
 	{
 		Name:        "/campaign",
 		Description: "Manage campaigns",
-		Usage:       "/campaign <start|assault|recurse|status|pause|resume|list> [args]",
+		Usage:       "/campaign <start|assault|recurse|add|status|pause|resume|list> [args]",
 		Category:    CategoryAdvanced,
 		ShowInHelp:  true,
 	},

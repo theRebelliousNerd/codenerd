@@ -28,15 +28,12 @@ type Decomposer struct {
 	promptProvider PromptProvider // Optional JIT prompt provider
 	shardLister    ShardLister    // Optional shard discovery for shard-aware planning
 
-	// Intelligence integration (Step 0)
-	intelligence     *IntelligenceGatherer // Pre-planning intelligence from 12 systems
-	advisoryBoard    *ShardAdvisoryBoard   // Domain expert consultation (Step 4b)
-	edgeCaseDetector *EdgeCaseDetector     // File action decisions
-	toolPregenerator *ToolPregenerator     // Tool pre-generation (Step 9)
+	// Intelligence integration (Step 0): its report goes into the planner's
+	// prompt.
+	intelligence *IntelligenceGatherer
 
-	// Gemini advanced features (nil if not Gemini or features unavailable)
+	// Gemini grounding (nil if the client cannot ground)
 	grounding *research.GroundingHelper // Google Search / URL Context grounding
-	thinking  *research.ThinkingHelper  // Thinking mode metadata capture
 
 	// Cached intelligence report for current decomposition
 	lastIntelligence *IntelligenceReport
@@ -53,18 +50,12 @@ func NewDecomposer(kernel core.Kernel, llmClient perception.LLMClient, workspace
 		promptProvider: NewStaticPromptProvider(), // Default to static prompts
 	}
 
-	// Initialize Gemini advanced features helpers
+	// Ground planning calls in Google Search when the client can.
 	if llmClient != nil {
 		d.grounding = research.NewGroundingHelper(llmClient)
-		d.thinking = research.NewThinkingHelper(llmClient)
-
-		// Enable Google Search grounding for research-intensive planning
 		if d.grounding.IsGroundingAvailable() {
 			d.grounding.EnableGoogleSearch()
 			logging.CampaignDebug("Gemini grounding enabled for campaign planning (Google Search active)")
-		}
-		if d.thinking.IsThinkingAvailable() {
-			logging.CampaignDebug("Gemini thinking mode active for campaign planning (level=%s)", d.thinking.GetThinkingLevel())
 		}
 	}
 
@@ -102,56 +93,6 @@ func (d *Decomposer) SetIntelligenceGatherer(gatherer *IntelligenceGatherer) {
 	}
 }
 
-// SetAdvisoryBoard sets the shard advisory board for plan review.
-// When set, domain experts will review plans before execution.
-func (d *Decomposer) SetAdvisoryBoard(board *ShardAdvisoryBoard) {
-	d.advisoryBoard = board
-	if board != nil {
-		logging.CampaignDebug("Decomposer configured with advisory board")
-	}
-}
-
-// SetEdgeCaseDetector sets the edge case detector for file action decisions.
-// When set, the decomposer will analyze files to determine create/extend/modularize actions.
-func (d *Decomposer) SetEdgeCaseDetector(detector *EdgeCaseDetector) {
-	d.edgeCaseDetector = detector
-	if detector != nil {
-		logging.CampaignDebug("Decomposer configured with edge case detection")
-	}
-}
-
-// SetToolPregenerator sets the tool pregenerator for pre-execution tool generation.
-// When set, the decomposer will generate missing tools before campaign execution.
-func (d *Decomposer) SetToolPregenerator(pregenerator *ToolPregenerator) {
-	d.toolPregenerator = pregenerator
-	if pregenerator != nil {
-		logging.CampaignDebug("Decomposer configured with tool pre-generation")
-	}
-}
-
-// GetLastIntelligence returns the intelligence report from the last decomposition.
-func (d *Decomposer) GetLastIntelligence() *IntelligenceReport {
-	return d.lastIntelligence
-}
-
-// =============================================================================
-// GEMINI ADVANCED FEATURES
-// =============================================================================
-
-// IsThinkingAvailable returns true if Gemini thinking mode is available.
-func (d *Decomposer) IsThinkingAvailable() bool {
-	return d.thinking != nil && d.thinking.IsThinkingAvailable()
-}
-
-// GetThinkingStats returns statistics about thinking mode usage during decomposition.
-func (d *Decomposer) GetThinkingStats() *research.ThinkingStats {
-	if d.thinking == nil {
-		return nil
-	}
-	stats := d.thinking.GetStats()
-	return &stats
-}
-
 // completeWithGrounding performs an LLM completion with grounding if available.
 // Falls back to standard Complete if grounding is not available.
 func (d *Decomposer) completeWithGrounding(ctx context.Context, prompt string) (string, error) {
@@ -162,10 +103,6 @@ func (d *Decomposer) completeWithGrounding(ctx context.Context, prompt string) (
 		}
 		if len(sources) > 0 {
 			logging.CampaignDebug("Decomposer LLM call grounded with %d sources", len(sources))
-		}
-		// Capture thinking metadata after grounded call
-		if d.thinking != nil {
-			d.thinking.CaptureThinkingMetadata()
 		}
 		return response, nil
 	}
@@ -183,7 +120,6 @@ type DecomposeRequest struct {
 	SourcePaths   []string     // Paths to spec docs, requirements, etc.
 	CampaignType  CampaignType // Type of campaign
 	UserHints     []string     // Optional user guidance
-	MaxPhases     int          // Max phases (0 = unlimited)
 	ContextBudget int          // Token budget (0 = default 100k)
 }
 
@@ -330,67 +266,9 @@ func (d *Decomposer) Decompose(ctx context.Context, req DecomposeRequest) (*Deco
 	campaign.KnowledgeBase = kbPath
 	logging.CampaignDebug("Campaign built: phases=%d, totalTasks=%d", len(campaign.Phases), campaign.TotalTasks)
 
-	// Step 4b: Shard Advisory Board Review (NEW)
-	if d.advisoryBoard != nil {
-		logging.Campaign("Step 4b: Consulting advisory board")
-		advisoryTimer := logging.StartTimer(logging.CategoryCampaign, "advisoryBoardReview")
-
-		// Build advisory request
-		advisoryPhases := make([]AdvisoryPhase, len(campaign.Phases))
-		for i, phase := range campaign.Phases {
-			advisoryPhases[i] = AdvisoryPhase{
-				ID:          phase.ID,
-				Name:        phase.Name,
-				Description: phase.Objectives[0].Description,
-				TaskCount:   len(phase.Tasks),
-			}
-		}
-
-		advisoryReq := AdvisoryRequest{
-			CampaignID:   campaignID,
-			Goal:         req.Goal,
-			RawPlan:      rawPlan.Title,
-			Phases:       advisoryPhases,
-			TaskCount:    campaign.TotalTasks,
-			TargetPaths:  req.SourcePaths,
-			Intelligence: d.lastIntelligence,
-		}
-
-		responses, advErr := d.advisoryBoard.ConsultAdvisors(ctx, advisoryReq)
-		advisoryTimer.Stop()
-
-		if advErr != nil {
-			logging.Get(logging.CategoryCampaign).Warn("Advisory board consultation failed (non-fatal): %v", advErr)
-		} else {
-			synthesis := d.advisoryBoard.SynthesizeVotes(responses)
-			logging.Campaign("Advisory board: approved=%v, confidence=%.2f, votes=%d",
-				synthesis.Approved, synthesis.OverallConfidence, len(responses))
-
-			// Log blocking concerns if any
-			if len(synthesis.BlockingConcerns) > 0 {
-				logging.Campaign("Advisory board has %d blocking concerns:", len(synthesis.BlockingConcerns))
-				for _, bc := range synthesis.BlockingConcerns {
-					logging.CampaignDebug("  - [%s] %s: %s", bc.Severity, bc.Advisor, bc.Concern)
-				}
-			}
-
-			// Log suggestions for user awareness
-			if len(synthesis.AllSuggestions) > 0 {
-				logging.Campaign("Advisory suggestions: %d total", len(synthesis.AllSuggestions))
-				for i, suggestion := range synthesis.AllSuggestions {
-					if i >= 5 {
-						logging.CampaignDebug("  ... and %d more suggestions", len(synthesis.AllSuggestions)-5)
-						break
-					}
-					logging.CampaignDebug("  - %s", suggestion)
-				}
-			}
-
-			// Log synthesis summary for later reference
-			// Note: AdvisorySummary and AdvisoryApproved fields to be added to Campaign type
-			logging.Campaign("Advisory synthesis: %s", synthesis.Summary)
-		}
-	}
+	// The advisory board reviews the plan in the risk preflight, where its
+	// verdict gates the run (risk_scoring.go). A plan-time review here only
+	// reached a log line, so it was removed rather than run twice.
 
 	// Step 5: Load into Mangle for validation
 	logging.Campaign("Step 5: Loading campaign facts into Mangle kernel")
@@ -455,40 +333,6 @@ func (d *Decomposer) Decompose(ctx context.Context, req DecomposeRequest) (*Deco
 		}
 	}
 	logging.Campaign("Requirement coverage: %d/%d requirements linked to tasks", coveredCount, len(requirements))
-
-	// Step 9: Tool Pre-Generation (NEW - Ouroboros integration)
-	if d.toolPregenerator != nil {
-		logging.Campaign("Step 9: Pre-generating tools for campaign")
-		toolTimer := logging.StartTimer(logging.CategoryCampaign, "toolPregeneration")
-
-		// Extract task info for gap analysis
-		taskInfos := d.extractTaskInfos(campaign)
-
-		// Detect tool gaps
-		gaps, gapErr := d.toolPregenerator.DetectGaps(ctx, req.Goal, taskInfos, d.lastIntelligence)
-		if gapErr != nil {
-			logging.Get(logging.CategoryCampaign).Warn("Tool gap detection failed (non-fatal): %v", gapErr)
-		} else if len(gaps) > 0 {
-			logging.Campaign("Detected %d tool gaps, attempting pre-generation", len(gaps))
-
-			// Pre-generate tools
-			result, genErr := d.toolPregenerator.PregenerateTools(ctx, gaps)
-			if genErr != nil {
-				logging.Get(logging.CategoryCampaign).Warn("Tool pre-generation failed (non-fatal): %v", genErr)
-			} else if result != nil {
-				logging.Campaign("Tool pre-generation: %d generated, %d failed, %d unresolved",
-					len(result.ToolsGenerated), result.FailedTools, len(result.UnresolvedGaps))
-
-				// Log generated tools
-				for _, tool := range result.ToolsGenerated {
-					logging.CampaignDebug("  Generated: %s - %s", tool.Name, tool.Purpose)
-				}
-			}
-		} else {
-			logging.Campaign("No tool gaps detected")
-		}
-		toolTimer.Stop()
-	}
 
 	logging.Campaign("=== Decomposition complete: %s ===", campaign.Title)
 	logging.Campaign("Final plan: phases=%d, tasks=%d, validation=%v",
@@ -673,66 +517,6 @@ func mangleNameConst(s string) string {
 		return "/unknown"
 	}
 	return "/" + out
-}
-
-// extractTaskInfos extracts task information for tool gap analysis.
-func (d *Decomposer) extractTaskInfos(campaign *Campaign) []TaskInfo {
-	taskInfos := make([]TaskInfo, 0)
-
-	for _, phase := range campaign.Phases {
-		for _, task := range phase.Tasks {
-			// Extract file paths from artifacts
-			filePaths := make([]string, 0, len(task.Artifacts))
-			for _, artifact := range task.Artifacts {
-				filePaths = append(filePaths, artifact.Path)
-			}
-
-			// Extract actions from task description (simple heuristic)
-			actions := extractActionsFromDescription(task.Description)
-
-			taskInfos = append(taskInfos, TaskInfo{
-				ID:          task.ID,
-				Description: task.Description,
-				Type:        string(task.Type),
-				Actions:     actions,
-				FilePaths:   filePaths,
-			})
-		}
-	}
-
-	return taskInfos
-}
-
-// extractActionsFromDescription extracts action keywords from a task description.
-func extractActionsFromDescription(description string) []string {
-	actions := []string{}
-	lower := strings.ToLower(description)
-
-	// Common action keywords
-	actionKeywords := map[string]string{
-		"parse":    "parse",
-		"validate": "validate",
-		"generate": "generate",
-		"create":   "create",
-		"update":   "update",
-		"delete":   "delete",
-		"read":     "read",
-		"write":    "write",
-		"test":     "test",
-		"build":    "build",
-		"deploy":   "deploy",
-		"analyze":  "analyze",
-		"refactor": "refactor",
-		"optimize": "optimize",
-	}
-
-	for keyword, action := range actionKeywords {
-		if strings.Contains(lower, keyword) {
-			actions = append(actions, action)
-		}
-	}
-
-	return actions
 }
 
 // linkRequirementsToTasks links extracted requirements to tasks.

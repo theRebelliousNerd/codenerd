@@ -168,3 +168,43 @@ Prompt/03-GAP-ANALYSIS G9 (canonical atom precedence) and G10
 session/09-SAFETY-AND-INVARIANTS describe the same incident from their
 subsystem perspectives. Closing any one requires closing the shared contracts
 and both negative exams listed here.
+
+
+## Required contract: Generated execution acceptance
+
+A normal Executor.Process call must execute a real fixture generated tool exactly once through the authorized bridge and preserve its real output, error, and durable learning acknowledgement. Missing bridge or exact authorization must produce no effect and no fabricated execution feedback. This strengthens acceptance for GAP-SESSION-GENERATED-FEEDBACK without changing its target.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-SESSION-GENERATED-FEEDBACK-ROUNDTRIP | Generated execution acceptance | Normal `ProcessWithIntent` reaches the generated-tool loop and exact generated bridge (`internal/session/executor.go:1058`, `internal/session/executor_tools.go:2356`, `:2649`); the production fixture exercises durable acknowledgment after reopen (`generated_feedback_roundtrip_external_test.go:213`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Normal Process-to-generated-binary-to-durable-feedback test plus missing-bridge and refusal controls proves one effect and one real feedback record. |
+
+
+## Required contract: JIT degradation and cancellation
+
+Compiler cancellation/deadline must terminate the turn before configuration or provider calls. Other JIT failures and absent compiler must use the embedded mandatory identity/safety/protocol baseline or return a visible assembly error. Mandatory-budget refusal must not become a one-sentence ungoverned turn; empty capabilities remain no tools.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-SESSION-JIT-FAILURE-CONSTITUTION | JIT degradation and cancellation | Absent or failed JIT compilation assembles the embedded mandatory baseline and surfaces cancellation/assembly/budget failures before provider work (`internal/session/executor.go:997-1040`, `:1233-1240`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Process tests force cancellation and ordinary compile failure; canceled compilation invokes no LLM/config, degraded requests retain mandatory atoms, and denied/empty capability remains enforced. |
+
+**Verified current:** baseline, compile-failure, cancellation, and budget-refusal cases (`internal/session/executor_process_test.go:64`, `:114`, `:154`, `:207`) pass. `TestExecutor_Process_RealGeneratedBinaryFeedbackRoundTrip` (`internal/session/generated_feedback_roundtrip_external_test.go:213`) passes through a normal Cortex `ProcessWithIntent`, exact permission and disconnected-bridge controls, one real binary effect/output, and durable learning after reopen. The focused session gate passed; aggregate session/corpus verification remains pending.
+
+
+## Required contract: Final per-step file state
+
+Planned-step outcome must be derived from the final file state after every post-edit repair and formatting pass. `work_steps.go` currently records `step_execution` pass counts (`internal/session/work_steps.go:349`), while policy declares `step_file_net/4` as `/changed` or `/unchanged` and derives `step_reverted` from `/unchanged` (`internal/core/defaults/policy/turn_steps.mg:50-71`, `:112-123`); the host does not currently assert that final-state fact. For each file's first planned write, retain its true preimage (existence and bytes, distinguishing absent from empty), then measure only after all repairs. Emit `/changed` or `/unchanged` for matching executed steps and let the existing Mangle rules determine status. Exact restoration must produce `step_reverted`/incomplete, never executed/complete success. Unknown baselines or unreadable final state must surface a measurement error and fail closed; they must not be represented as unchanged. Add no Go completion policy and no new `/unknown` literal.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-SESSION-STEP-NET-STATE | Planned-step final file state | `recordStepPass` records `step_execution`, but no host path asserts the existing `step_file_net/4` predicate after final repair (`internal/session/work_steps.go:346-366`; policy contract `internal/core/defaults/policy/turn_steps.mg:50-71`). | Required contract above | P1 | Accepted; implementation pending | Work-step host measurement and existing turn-steps rules | A real planned write followed by repair that exactly restores the preimage derives `step_reverted`/incomplete; changed, absent-versus-empty, and unknown-baseline/unreadable-final-state controls distinguish correctly and fail closed. Existing policy remains the sole completion decider. |
+
+
+## Required contract: Evidence toolchain executable identity
+
+Change evidence must pin the resolved Go executable artifact identity at transaction Begin and bind baseline/final witnesses to it. Replacement at the same path must make evidence unverified even if version and environment outputs match. Detect artifact changes around execution so a replaced tool cannot manufacture a passing receipt.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-EVIDENCE-GO-ARTIFACT-IDENTITY | Evidence toolchain executable identity | `Begin` pins the resolved executable identity and `Transaction.Verify` compares witness identities (`internal/evidence/change.go:249`, `:326`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Replacing a pinned Go shim with identical version/env and forged passing JSON is rejected; genuine unchanged executable produces revision-bound evidence. |
+
+**Verified current:** `TestChangeCarriesExecutedRevisionBoundEvidence` and `TestVerify_RejectsReplacedGoExecutableWithSameVersionAndEnvironment` (`internal/evidence/change_test.go:32`, `:82`) pass, along with the full `internal/evidence` package suite.

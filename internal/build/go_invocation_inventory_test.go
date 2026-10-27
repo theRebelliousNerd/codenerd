@@ -145,6 +145,7 @@ func TestBuildImporters_WhenNewConsumerAppears_ShouldBeDocumented(t *testing.T) 
 		"internal/campaign":      true, // checkpoint.go, orchestrator_task_handlers.go (tags + gate env)
 		"internal/tools/shell":   true, // verification.go (run_build / run_tests via GoInvocation)
 		"internal/tools/codedom": true, // run_impacted_tests.go (run_impacted_tests via GoInvocation)
+		"internal/tools":         true, // build_exclusion.go (build-constraint detection via TestTagsForWorkspace)
 		"internal/gates":         true, // run.go (a workspace's go gates via GoInvocation)
 	}
 

@@ -583,11 +583,6 @@ func (cr *CheckpointRunner) RunAll(ctx context.Context, phase *Phase) ([]Checkpo
 	return checkpoints, nil
 }
 
-// RunQuick runs a quick sanity check (build only).
-func (cr *CheckpointRunner) RunQuick(ctx context.Context) (bool, string, error) {
-	return cr.runBuildCheckpoint(ctx)
-}
-
 // checkpointEnvelope is the minimal subset of the reviewer control-packet
 // needed here: the mangle_updates list that carries checkpoint_verdict/4.
 // A local struct avoids importing articulation (and any import cycle) for

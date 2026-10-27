@@ -33,7 +33,7 @@ func Wrap(underlying types.LLMClient, cfg Config) (types.LLMClient, error) {
 	if underlying == nil {
 		return nil, ErrNoUnderlying
 	}
-	if cfg.Counter == nil {
+	if cfg.Counter == nil && cfg.Router == nil {
 		return nil, ErrNoCounter
 	}
 	if cfg.Ledger == nil {

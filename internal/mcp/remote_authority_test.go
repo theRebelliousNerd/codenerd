@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"codenerd/internal/logging"
 )
 
 // All permission results below come from a RealKernel. Faults only remove or
@@ -18,6 +20,7 @@ type authorityFaultKernel struct {
 	queryFault   func(string) error
 	emptyQuery   string
 	beforeQuery  func(string)
+	afterQuery   func(string, []map[string]any)
 	assertFault  string
 	retractFault string
 	transform    func(string) string
@@ -36,7 +39,11 @@ func (kernel *authorityFaultKernel) Query(query string) ([]map[string]any, error
 	if kernel.emptyQuery != "" && strings.HasPrefix(query, kernel.emptyQuery) {
 		return nil, nil
 	}
-	return kernel.KernelInterface.Query(query)
+	rows, err := kernel.KernelInterface.Query(query)
+	if err == nil && kernel.afterQuery != nil {
+		kernel.afterQuery(query, rows)
+	}
+	return rows, err
 }
 
 func (kernel *authorityFaultKernel) Assert(fact string) error {
@@ -114,15 +121,74 @@ type authorityFixture struct {
 
 func newAuthorityFixture(test *testing.T) *authorityFixture {
 	test.Helper()
+	return newAuthorityFixtureWithKernel(test, nil)
+}
+
+func newAuthorityFixtureWithKernel(test *testing.T, kernelFactory func(*testing.T) KernelInterface) *authorityFixture {
+	test.Helper()
 	transport := &authorityCountedTransport{mockTransport: &mockTransport{connected: true}}
 	manager := NewMCPClientManager(nil, nil, nil)
 	manager.servers["srv"] = &MCPServerConnection{Server: &MCPServer{ID: "srv"}, Transport: transport}
-	kernel := installRemoteAuthorityFixture(test, manager, map[string]RemoteEffect{"srv/op": RemoteRead})
+	var kernel KernelInterface
+	if kernelFactory == nil {
+		kernel = installRemoteAuthorityFixture(test, manager, map[string]RemoteEffect{"srv/op": RemoteRead})
+	} else {
+		kernel = installRemoteAuthorityFixtureWithKernel(test, manager, map[string]RemoteEffect{"srv/op": RemoteRead}, kernelFactory(test))
+	}
 	fault := &authorityFaultKernel{KernelInterface: kernel}
 	manager.factEmitter().kernel = fault
 	return &authorityFixture{manager: manager, transport: transport, kernel: kernel, fault: fault,
 		args: map[string]any{"nested": map[string]any{"value": "original", "items": []any{"first"}}},
 		ctx:  WithRemoteCallIdentity(context.Background(), RemoteCallIdentity{Scope: "scope", CallID: "call"})}
+}
+
+func TestRemoteAuthority_ProductionShardsAuthorizeEffectAndRevokeRemovedMetadata(t *testing.T) {
+	if RemoteAuthorityShardedKernelForTest == nil {
+		t.Fatal("production sharded MCP authority kernel fixture is not installed")
+	}
+	fixture := newAuthorityFixtureWithKernel(t, RemoteAuthorityShardedKernelForTest)
+	result, err := fixture.manager.CallTool(fixture.ctx, "srv/op", fixture.args)
+	if err != nil || result == nil || !result.Success {
+		t.Fatalf("production sharded authorize/effect failed: result=%+v err=%v", result, err)
+	}
+	if fixture.transport.calls != 1 {
+		t.Fatalf("authorized production sharded effect calls = %d, want 1", fixture.transport.calls)
+	}
+	shardInspector, ok := fixture.kernel.(interface {
+		QueryShard(string, string) ([]map[string]any, error)
+	})
+	if !ok {
+		t.Fatalf("production sharded kernel %T cannot inspect its local consumer copy", fixture.kernel)
+	}
+	rows, err := shardInspector.QueryShard("policy", `mcp_tool_registered("srv/op", "srv", RegisteredAt)`)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("MCP metadata was not copied to the production policy shard: rows=%v err=%v", rows, err)
+	}
+
+	// The in-memory connection deliberately remains stale. Remove the live
+	// catalog facts so this next decision depends on production Cortex metadata.
+	fixture.manager.factEmitter().RetractTool("srv/op")
+	if err := fixture.manager.factEmitter().Error(); err != nil {
+		t.Fatalf("retract removed MCP metadata: %v", err)
+	}
+	rows, err = fixture.kernel.Query(`mcp_tool_registered("srv/op", "srv", RegisteredAt)`)
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("removed tool metadata remains in production Cortex: rows=%v err=%v", rows, err)
+	}
+	rows, err = shardInspector.QueryShard("policy", `mcp_tool_registered("srv/op", "srv", RegisteredAt)`)
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("removed tool metadata remains in production policy consumer copy: rows=%v err=%v", rows, err)
+	}
+
+	fixture.ctx = WithRemoteCallIdentity(context.Background(), RemoteCallIdentity{Scope: "scope-after-removal", CallID: "call-after-removal"})
+	result, err = fixture.manager.CallTool(fixture.ctx, "srv/op", fixture.args)
+	if err == nil || result != nil {
+		t.Fatalf("call with removed production metadata was admitted: result=%+v err=%v", result, err)
+	}
+	if fixture.transport.calls != 1 {
+		t.Fatalf("removed production metadata caused another remote effect: calls=%d", fixture.transport.calls)
+	}
+	requireAuthorityClean(t, fixture.kernel)
 }
 
 func (fixture *authorityFixture) call(test *testing.T, route string) error {
@@ -182,8 +248,11 @@ func TestRemoteAuthority_AllProductionRoutesRequireExactPositivePermission(t *te
 			var kernel *authorityFaultKernel
 			fixture.manager.factEmitter().kernel = kernel
 		}, false},
-		{"empty-permission", func(_ *testing.T, fixture *authorityFixture) { fixture.fault.emptyQuery = "permitted(" }, false},
 		{"empty-admission", func(_ *testing.T, fixture *authorityFixture) { fixture.fault.emptyQuery = "mcp_remote_permitted(" }, false},
+		{"missing-permitted-fact", func(test *testing.T, fixture *authorityFixture) {
+			fixture.reviewEffect(test, RemoteDelete, RiskSafe)
+			fixture.confirmed = true
+		}, false},
 		{"empty-risk-gate", func(_ *testing.T, fixture *authorityFixture) {
 			fixture.fault.emptyQuery = "mcp_tool_risk("
 			fixture.confirmed = true
@@ -193,15 +262,6 @@ func TestRemoteAuthority_AllProductionRoutesRequireExactPositivePermission(t *te
 			fixture.fault.queryFault = func(query string) error {
 				if strings.HasPrefix(query, "mcp_tool_risk(") {
 					return errors.New("classification unavailable")
-				}
-				return nil
-			}
-		}, false},
-		{"permission-query-error", func(_ *testing.T, fixture *authorityFixture) {
-			fixture.confirmed = true
-			fixture.fault.queryFault = func(query string) error {
-				if strings.HasPrefix(query, "permitted(") {
-					return errors.New("permission unavailable")
 				}
 				return nil
 			}
@@ -418,6 +478,140 @@ func TestRemoteAuthority_AllProductionRoutesRequireExactPositivePermission(t *te
 	}
 }
 
+func TestRemoteAuthority_RequiresExactManglePermitTuple(t *testing.T) {
+	t.Run("missing-exact-permitted-fact", func(test *testing.T) {
+		fixture := newAuthorityFixture(test)
+		fixture.reviewEffect(test, RemoteDelete, RiskSafe)
+		fixture.confirmed = true
+		checked := false
+		fixture.fault.beforeQuery = func(query string) {
+			if !strings.HasPrefix(query, "mcp_remote_permitted(") {
+				return
+			}
+			checked = true
+			rows, err := fixture.kernel.Query(`permitted(/delete_file, "srv/op", Payload)`)
+			if err != nil || len(rows) != 0 {
+				test.Fatalf("exact permitted tuple exists after removing its rule: rows=%v err=%v", rows, err)
+			}
+		}
+		fixture.fault.afterQuery = func(query string, rows []map[string]any) {
+			if strings.HasPrefix(query, "mcp_remote_permitted(") && len(rows) != 0 {
+				test.Fatalf("Mangle granted remote authority without the exact permit: %v", rows)
+			}
+		}
+		if err := fixture.call(test, "manager"); err == nil || fixture.transport.calls != 0 {
+			t.Fatalf("missing exact permitted tuple dispatched: calls=%d err=%v", fixture.transport.calls, err)
+		}
+		if !checked {
+			t.Fatal("remote admission did not reach the real Mangle permit check")
+		}
+	})
+
+	t.Run("wrong-target-permitted-fact", func(test *testing.T) {
+		fixture := newAuthorityFixture(test)
+		fixture.fault.transform = func(fact string) string {
+			if strings.HasPrefix(fact, "pending_action(") {
+				return strings.Replace(fact, `"srv/op"`, `"other-target"`, 1)
+			}
+			return fact
+		}
+		checked := false
+		fixture.fault.beforeQuery = func(query string) {
+			if !strings.HasPrefix(query, "mcp_remote_permitted(") {
+				return
+			}
+			checked = true
+			wrong, wrongErr := fixture.kernel.Query(`permitted(/read_file, "other-target", Payload)`)
+			exact, exactErr := fixture.kernel.Query(`permitted(/read_file, "srv/op", Payload)`)
+			if wrongErr != nil || len(wrong) != 1 || exactErr != nil || len(exact) != 0 {
+				test.Fatalf("expected only the wrong-target permit: wrong=%v err=%v exact=%v err=%v", wrong, wrongErr, exact, exactErr)
+			}
+		}
+		fixture.fault.afterQuery = func(query string, rows []map[string]any) {
+			if strings.HasPrefix(query, "mcp_remote_permitted(") && len(rows) != 0 {
+				test.Fatalf("Mangle granted remote authority for a wrong exact permit tuple: %v", rows)
+			}
+		}
+		if err := fixture.call(test, "manager"); err == nil || fixture.transport.calls != 0 {
+			t.Fatalf("wrong-target permitted tuple dispatched: calls=%d err=%v", fixture.transport.calls, err)
+		}
+		if !checked {
+			t.Fatal("remote admission did not reach the real Mangle permit check")
+		}
+	})
+}
+
+func TestRemoteAuthority_AuditsFinalPolicyVerdictsWithoutArguments(t *testing.T) {
+	workspace := t.TempDir()
+	logging.ApplyConfig(logging.Config{DebugMode: true, Level: "debug", Format: "json"})
+	if err := logging.Initialize(workspace); err != nil {
+		t.Fatalf("initialize audit logging: %v", err)
+	}
+	t.Cleanup(func() {
+		logging.CloseAll()
+		logging.ApplyConfig(logging.Config{})
+		logging.ClearInjectedConfig()
+	})
+
+	readEvents := func(test *testing.T) []logging.AuditEvent {
+		test.Helper()
+		path, err := logging.LatestAuditLogPath()
+		if err != nil {
+			test.Fatalf("find audit log: %v", err)
+		}
+		events, err := logging.ReadRecentAuditEvents(path, []logging.AuditEventType{
+			logging.AuditSafetyAllow, logging.AuditSafetyBlock,
+		}, 16)
+		if err != nil {
+			test.Fatalf("read safety audit events: %v", err)
+		}
+		return events
+	}
+
+	const secretArgument = "remote-secret-fixture-7391"
+	allowed := newAuthorityFixture(t)
+	allowed.args = map[string]any{"token": secretArgument}
+	allowed.transport.onCall = func(map[string]any) {
+		for _, event := range readEvents(t) {
+			if event.EventType == logging.AuditSafetyAllow {
+				return
+			}
+		}
+		t.Fatal("remote tool effect ran before its safety allow was audited")
+	}
+	if err := allowed.call(t, "manager"); err != nil || allowed.transport.calls != 1 {
+		t.Fatalf("authorized remote call: calls=%d err=%v", allowed.transport.calls, err)
+	}
+
+	denied := newAuthorityFixture(t)
+	denied.args = map[string]any{"token": secretArgument}
+	denied.fault.emptyQuery = "mcp_remote_permitted("
+	if err := denied.call(t, "manager"); err == nil || denied.transport.calls != 0 {
+		t.Fatalf("remote_permitted refusal: calls=%d err=%v", denied.transport.calls, err)
+	}
+
+	events := readEvents(t)
+	if len(events) != 2 {
+		t.Fatalf("safety events = %+v, want one allow and one block", events)
+	}
+	if events[0].EventType != logging.AuditSafetyAllow || events[0].Action != "MCP tool srv/op /read_file" {
+		t.Errorf("allow event = %+v", events[0])
+	}
+	if events[1].EventType != logging.AuditSafetyBlock || events[1].Action != "MCP tool srv/op /read_file" {
+		t.Errorf("block event = %+v", events[1])
+	}
+	if reason, _ := events[1].Fields["reason"].(string); !strings.Contains(reason, "mcp_remote_permitted/7") {
+		t.Errorf("refusal reason = %q, want exact mcp_remote_permitted/7 outcome", reason)
+	}
+	serialized, err := json.Marshal(events)
+	if err != nil {
+		t.Fatalf("marshal audit evidence: %v", err)
+	}
+	if strings.Contains(string(serialized), secretArgument) || strings.Contains(string(serialized), `"args"`) || strings.Contains(string(serialized), "CanonicalArgs") {
+		t.Fatalf("safety audit exposed remote call arguments: %s", serialized)
+	}
+}
+
 func (fixture *authorityFixture) reviewEffect(test *testing.T, effect RemoteEffect, override RiskClass) {
 	test.Helper()
 	tool := fixture.manager.servers["srv"].Tools[0]
@@ -488,7 +682,7 @@ func TestRemoteAuthority_ResourcesAndPromptsAlsoRequirePositiveAdmission(t *test
 	if _, err := fixture.manager.GetPrompt(ctx, "srv", "explain", nil); err != nil || fixture.transport.promptCalls != 1 {
 		t.Fatalf("reviewed prompt: %v", err)
 	}
-	fixture.fault.emptyQuery = "permitted("
+	fixture.fault.emptyQuery = "mcp_remote_permitted("
 	if _, err := fixture.manager.ReadResource(ctx, "srv", resources[0].URI); err == nil || fixture.transport.resourceCalls != 1 {
 		t.Fatal("resource without permission dispatched")
 	}

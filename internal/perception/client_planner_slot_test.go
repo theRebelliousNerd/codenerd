@@ -60,20 +60,34 @@ func TestNewPlannerClientFromUserConfig_NoPlannerReturnsNil(t *testing.T) {
 
 // A planner identical to the worker buys nothing but a second connection pool,
 // and a non-nil planner makes every reasoning-intensive turn pay a kernel query
-// for no benefit. Treat it as unset.
+// for no benefit. Treat it as unset. Identical means as resolved: the planner's
+// default effort (high) differs from the worker's (medium), so a planner that
+// names the worker's model and no effort is the same model's high-effort tier
+// and stays.
 func TestGetPlannerLLMConfig_IdenticalToWorkerIsUnset(t *testing.T) {
-	cfg := &config.UserConfig{
-		MetaAPIKey: "mt",
-		Worker:     &config.WorkerLLMConfig{Provider: "meta", Model: metaContributorModel},
-		Planner:    &config.PlannerLLMConfig{Provider: "meta", Model: metaContributorModel},
+	tests := []struct {
+		name    string
+		worker  *config.WorkerLLMConfig
+		planner *config.PlannerLLMConfig
+		wantNil bool
+	}{
+		{name: "identical including effort", wantNil: true,
+			worker:  &config.WorkerLLMConfig{Provider: "meta", Model: metaContributorModel, ReasoningEffort: "high"},
+			planner: &config.PlannerLLMConfig{Provider: "meta", Model: metaContributorModel, ReasoningEffort: "high"}},
+		{name: "same model, default efforts differ",
+			worker:  &config.WorkerLLMConfig{Provider: "meta", Model: metaContributorModel},
+			planner: &config.PlannerLLMConfig{Provider: "meta", Model: metaContributorModel}},
+		{name: "a different model",
+			worker:  &config.WorkerLLMConfig{Provider: "meta", Model: metaContributorModel, ReasoningEffort: "high"},
+			planner: &config.PlannerLLMConfig{Provider: "meta", Model: "muse-spark-1.2-pro", ReasoningEffort: "high"}},
 	}
-	if got := cfg.GetPlannerLLMConfig(); got != nil {
-		t.Errorf("planner identical to worker should resolve to nil, got %+v", got)
-	}
-
-	cfg.Planner.Model = "muse-spark-1.2-pro"
-	if got := cfg.GetPlannerLLMConfig(); got == nil {
-		t.Error("a planner differing from the worker by model must resolve")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.UserConfig{MetaAPIKey: "mt", Worker: tt.worker, Planner: tt.planner}
+			if got := cfg.GetPlannerLLMConfig(); (got == nil) != tt.wantNil {
+				t.Errorf("GetPlannerLLMConfig() = %+v, want nil=%v", got, tt.wantNil)
+			}
+		})
 	}
 }
 

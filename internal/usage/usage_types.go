@@ -15,20 +15,22 @@ type UsageData struct {
 
 // UsageEvent represents a single LLM transaction.
 type UsageEvent struct {
-	Timestamp     time.Time `json:"timestamp"`
-	Model         string    `json:"model"`
-	Provider      string    `json:"provider"`
-	InputTokens   int       `json:"input_tokens"`
-	OutputTokens  int       `json:"output_tokens"`
-	ShardType     string    `json:"shard_type"` // ephemeral, specialist, system, user
-	ShardName     string    `json:"shard_name"`
-	SessionID     string    `json:"session_id"`
-	OperationType string    `json:"operation_type"`     // chat, embedding, tool_gen
-	CostUSD       float64   `json:"cost_usd,omitempty"` // estimate; 0 when the model is unpriced
+	CredentialAlias string    `json:"credential_alias,omitempty"`
+	Timestamp       time.Time `json:"timestamp"`
+	Model           string    `json:"model"`
+	Provider        string    `json:"provider"`
+	InputTokens     int       `json:"input_tokens"`
+	OutputTokens    int       `json:"output_tokens"`
+	ShardType       string    `json:"shard_type"` // ephemeral, specialist, system, user
+	ShardName       string    `json:"shard_name"`
+	SessionID       string    `json:"session_id"`
+	OperationType   string    `json:"operation_type"`     // chat, embedding, tool_gen
+	CostUSD         float64   `json:"cost_usd,omitempty"` // estimate; 0 when the model is unpriced
 }
 
 // AggregatedStats holds counters broken down by various dimensions.
 type AggregatedStats struct {
+	ByCredential map[string]TokenCounts `json:"by_credential,omitempty"`
 	TotalProject TokenCounts            `json:"total_project"`
 	ByProvider   map[string]TokenCounts `json:"by_provider"`
 	ByModel      map[string]TokenCounts `json:"by_model"`

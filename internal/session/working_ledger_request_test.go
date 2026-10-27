@@ -35,7 +35,7 @@ func newLedgerLoop(t *testing.T, ceiling, keep int) *ledgerLoop {
 	}
 	files := &stubFileContext{section: "VIEW-OF-TARGET"}
 	e.SetFileContextProvider(files)
-	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), "fix target.go", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "target.go"})
+	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), nil, "fix target.go", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "target.go"})
 	if err != nil {
 		t.Fatalf("beginWorkingLoop: %v", err)
 	}

@@ -27,6 +27,23 @@ import (
 // 4. Delete the surface text "Fixing..." from history
 // 5. Next turn sees only the atoms task_status(/server, /fixing)
 func (c *Compressor) ProcessTurn(ctx context.Context, turn Turn) (*TurnResult, error) {
+	return c.processTurn(ctx, turn, false)
+}
+
+// ProcessTurnWithAppliedControls records a turn whose control effects the host
+// has already applied through its own governed kernel and memory-store path.
+// It retains the sanitized MemoryOperations and MangleUpdates in compressed
+// history without asserting or applying them a second time.
+//
+// This method is for trusted host orchestration only. A model-authored packet
+// must never be passed here directly: the caller must first filter every
+// MangleUpdates entry, run candidate actions through their governed proposal
+// path, and apply each allowed effect before calling this method.
+func (c *Compressor) ProcessTurnWithAppliedControls(ctx context.Context, turn Turn) (*TurnResult, error) {
+	return c.processTurn(ctx, turn, true)
+}
+
+func (c *Compressor) processTurn(ctx context.Context, turn Turn, controlsAlreadyApplied bool) (*TurnResult, error) {
 	timer := logging.StartTimer(logging.CategoryContext, fmt.Sprintf("ProcessTurn[%d]", turn.Number))
 	defer timer.Stop()
 
@@ -56,7 +73,11 @@ func (c *Compressor) ProcessTurn(ctx context.Context, turn Turn) (*TurnResult, e
 
 	// 2. Commit atoms to kernel
 	committedCount := 0
-	if len(atoms) > 0 && c.kernel != nil {
+	if controlsAlreadyApplied {
+		// The caller committed these facts through its own kernel. Keep them in
+		// the compressed turn below, but do not replay the effects here.
+		committedCount = len(atoms)
+	} else if len(atoms) > 0 && c.kernel != nil {
 		if err := c.kernel.AssertBatch(atoms); err != nil {
 			// Fallback: per-atom assert so one bad fact doesn't block the rest.
 			for _, atom := range atoms {
@@ -82,8 +103,10 @@ func (c *Compressor) ProcessTurn(ctx context.Context, turn Turn) (*TurnResult, e
 	// 3. Process memory operations
 	if turn.ControlPacket != nil && len(turn.ControlPacket.MemoryOperations) > 0 {
 		logging.ContextDebug("Processing %d memory operations", len(turn.ControlPacket.MemoryOperations))
-		for _, op := range turn.ControlPacket.MemoryOperations {
-			c.processMemoryOperation(op)
+		if !controlsAlreadyApplied {
+			for _, op := range turn.ControlPacket.MemoryOperations {
+				c.processMemoryOperation(op)
+			}
 		}
 		result.MemoryOps = turn.ControlPacket.MemoryOperations
 	}

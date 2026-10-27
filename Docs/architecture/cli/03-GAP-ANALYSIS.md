@@ -17,4 +17,73 @@ This matrix records accepted, source-grounded implementation obligations. It is 
 
 The generic command helper already defines the intended positive/non-positive semantics: `cmd/nerd/operation_context.go#operationContext` (`cmd/nerd/operation_context.go:19`) and `#commandContext` (`cmd/nerd/operation_context.go:32`). Their existence does not prove headless chat uses them.
 
+**Accepted GAP-CLI-01 refinement — inherited idle stdin:** on Linux, cancellation through `context.AfterFunc` and `Stdin.Close` left `syscall.Read` blocked when fd 0 was an inherited pipe whose peer remained open. The required behavior is a prompt typed context error with all command-owned reader work joined, without requiring the peer to close. Argument-driven input bypasses stdin; partial input, blank lines, EOF, and input errors retain their existing behavior. Do not detach a goroutine to abandon the blocked read, alter the peer's shared descriptor blocking flags, or treat a longer watchdog/skip as a fix. Current command wiring is `cmd/nerd/cmd_chat.go:168` (`runChatWith`); this refinement does not close GAP-CLI-01's separate boot/shutdown timing obligations.
+
+**Verified current — inherited-idle-stdin refinement:** Unix `newChatInputReader` polls inherited file descriptors before synchronous reads, checks cancellation, and leaves the inherited file open (`cmd/nerd/cmd_chat_stdin_unix.go:17-73`). The production child-process regression `TestChatLifecycle_ProductionStdinIdleDeadline` (`cmd/nerd/cmd_chat_lifecycle_test.go:320`) passed three repeated runs, returning the deadline error under the unchanged watchdog. The focused lifecycle tests also passed for cancellation/join, deadline, partial and blank lines, and positional-argument bypass (`:253`, `:303`, `:354`, `:579`); the full chat lifecycle test group passed. Unix runtime behavior is verified; the fallback helper cross-compiles for Windows, where inherited-stdin cancellation behavior remains unverified.
+
 Close a gap only after its exit evidence exists. Preserve the row and cite the closing revision and measured commands; source edits or a passing helper test alone cannot close the production deadline obligation.
+
+
+## Required contract: Chat campaign runtime control
+
+Slash campaign pause and resume must invoke the live orchestrator control and reflect its real progress state. A missing orchestrator or active campaign cannot claim a completed transition. Paused scheduling must start no new task until resume.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-CLI-CAMPAIGN-PAUSE | Chat campaign runtime control | `handleCampaignCommand` now reads matching live orchestrator state, invokes `Pause`/`Resume`, and confirms the resulting status before syncing the chat view (`cmd/nerd/chat/commands_handlers.go:697-765`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Slash-dispatch tests with real in-process orchestrator block task starts on pause, release on resume, and reject missing-orchestrator/no-active false success. |
+
+
+## Required contract: Reembedding command context
+
+Embedding reembed must derive its full operation from commandContext(cmd), refuse canceled context before engine boot, and propagate caller cancellation/global timeout through ReembedAllDBsForce as a nonzero command error.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-CLI-REEMBED-CONTEXT | Reembedding command context | `runEmbeddingReembedWithOps` derives `commandContext` before initialization, passes it to engine creation and `ReembedAllDBsForce`, and joins close failures (`cmd/nerd/embedding_cmd.go:139-190`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Canceled Cobra parent exits before initialization; positive command timeout reaches store operation and prevents later database work. |
+
+
+## Required contract: Chat information read containment
+
+The legacy /fs_read information-gathering action must enforce the same canonical workspace containment as typed read_file, rejecting traversal, outside absolute paths and symlink escapes before reading or asserting file_content. In-root reads remain supported.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-CLI-CHAT-READ-CONTAINMENT | Chat information read containment | `readFileContent` resolves through `tools.ResolveWorkspacePath` before `os.ReadFile`, and `executeInfoGatheringActions` emits `file_content` only after a successful read (`cmd/nerd/chat/helpers_files.go:89-105`; `process_helpers.go:83-105`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Production info-gathering tests deny outside absolute/traversal/symlink targets without file_content and admit in-root reads. |
+
+
+## Required contract: Control packet application with knowledge requests
+
+Knowledge consultation must not discard co-emitted memory operations, allowed Mangle observations or self-correction. Apply governed control effects exactly once before the knowledge branch and preserve them across synthesis; do not duplicate them in subsequent turns.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-CLI-CONTROL-BEFORE-KNOWLEDGE | Control packet application with knowledge requests | `processInput` applies the governed articulation controls and records the sanitized packet before the knowledge-request return (`cmd/nerd/chat/process.go:896-935`); `ProcessTurnWithAppliedControls` retains that metadata without replaying effects (`internal/context/compressor_turns.go:33-43`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Scripted production articulation with combined knowledge request and memory/observation controls retains governed effects once before specialist synthesis. |
+
+
+## Required contract: Model observation trust boundary
+
+Every model-authored Mangle update must pass ModelObservationPolicy before any kernel LoadFacts/Assert or compressor path. Model-authored permission grants, user intent, host witnesses and unsupported executive facts must never enter EDB or influence authorization. Candidate actions may enter only through their existing governed proposal path, never as authorization.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-CLI-MODEL-OBSERVATION-BOUNDARY | Model observation trust boundary | `applyArticulationControlPacket` partitions candidate proposals, policy-filters ordinary model observations before assertion, and records only successfully governed facts (`cmd/nerd/chat/process.go:963-1014`; candidate proposal validation at `:1016-1045`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Compressor-on production packet with safe observation and disallowed permitted/user_intent/host-witness admits only safe observation; querying base/derived facts confirms no injected authority or changed permission. |
+
+
+## Required contract: Perceived forget memory scope
+
+A perceived forget operation may retract only matching user/session memory key facts. It must never interpret a user/model key as a kernel predicate to retract. Preserve executive intent, permission and safety witnesses.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-CLI-FORGET-MEMORY-SCOPE | Perceived forget memory scope | Chat forget now delegates to `memorycontext.ApplyMemoryOperation` through the scoped `MemoryKernel` interface (`cmd/nerd/chat/process_helpers.go:55-79`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Forget requests naming permitted, user_intent and security_violation preserve all executive facts while deleting only the matching session-note key. |
+
+
+## Required contract: Degraded delegated completion honesty
+
+A delegated mutation requiring verification cannot be rendered as completed when no verifier is wired or its returned evidence is unverified. Refuse the unwired route or return an explicit unverified outcome while preserving observations and recovery.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-CLI-UNVERIFIED-DELEGATION | Degraded delegated completion honesty | Mutation delegation refuses when the verification obligation or verifier is absent and reports no completion for an unsuccessful verdict (`cmd/nerd/chat/process.go:450-464`, `:497-513`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Nil-verifier mutation and unverified outcome tests emit no completion header/checkmark and report the missing verification obligation. |
+
+**Verified current:** `TestCampaignSlashPauseResumeControlsLiveOrchestrator` and `TestCampaignSlashPauseResumeDoNotClaimMissingTransitions` (`cmd/nerd/chat/campaign_control_test.go:70`, `:177`) pass. `TestEmbeddingReembedHonorsCommandCancellation` and `TestEmbeddingReembedTimeoutReachesStoreAndStopsLaterDatabaseWork` (`cmd/nerd/embedding_cmd_test.go:17`, `:50`) pass. Chat containment/forget regressions (`cmd/nerd/chat/chat_read_boundary_test.go:30`, `:69`, `:95`) and production articulation controls (`cmd/nerd/chat/process_control_roundtrip_test.go:114`, `:298`, `:349`) pass; `TestProcessTurnWithAppliedControlsRetainsMetadataWithoutReapplying` (`internal/context/compressor_applied_controls_test.go:12`) also passes. These are focused gates; aggregate CLI/corpus verification remains pending. GAP-CLI-01 stays partial because fresh production boot/shutdown timing and bounded-cleanup proof remain open; the inherited-idle-stdin refinement itself is implemented and focused-tested above.

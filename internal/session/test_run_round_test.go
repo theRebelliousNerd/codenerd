@@ -54,7 +54,7 @@ func testRunRoundExec(t *testing.T, client types.LLMClient, exit int) (*Executor
 	e := newWorkingLoopExecutor(t, client)
 	e.kernel = kernel
 	e.virtualStore = &testExecutiveStore{} // the executive gate a test run passes
-	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), "fix the policy", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "x.mg"})
+	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), nil, "fix the policy", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "x.mg"})
 	if err != nil {
 		t.Fatalf("beginWorkingLoop: %v", err)
 	}

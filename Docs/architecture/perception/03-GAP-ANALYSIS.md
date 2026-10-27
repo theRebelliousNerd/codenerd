@@ -121,3 +121,25 @@ parent cancellation escapes optional degradation, closes owned resources, and
 does not publish a successful classifier. Prove actual blocked SQL cancellation,
 drain, preserved existing data, and successful retry alongside existing coldboot
 and optional-outage controls.
+
+
+## Required contract: CLI provider failure identity
+
+ClassifyProviderFailure must recognize wrapped RateLimitError as rate_limited and retryable for Claude and Codex CLI adapters, including streaming error paths. Caller cancellation identity takes precedence. User-facing failures must redact raw stderr, body and credentials.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-PERCEPTION-CLI-RATE-LIMIT | CLI provider failure identity | `ClassifyProviderFailure` recognizes wrapped rate-limit errors after cancellation precedence checks (`internal/perception/provider_failure.go:61`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Portable fake CLI production-entry tests prove rate_limited classification, retryability, cancellation identity and safe messages for both adapters; HTTP conformance remains green. |
+
+**Verified current:** `TestCLIProviderFailureConformance` (`internal/perception/provider_failure_conformance_test.go:143`) and `TestClassifyProviderFailure_WrappedRateLimitAndCancellationPrecedence` (`:231`) pass with the shared HTTP and degraded-intent controls in the focused provider-failure suite.
+
+
+## Required contract: Taxonomy and intent behavior oracles
+
+Taxonomy behavior tests must fail on constructor, worker, corpus-loading, or Mangle inference errors. Use the real verb corpus and assert the exact `/fix` and `/test` outcomes for their representative inputs; do not substitute local candidates or accept any nonempty result, and do not invent confidence thresholds. The `Intent.ToFact` real-kernel round trip must compare the exact typed `user_intent/5` row: ID, category, and verb retain Mangle name identity, while target and constraint remain quoted string values. Hostile punctuation in either string must stay one value and must not create executable facts. Preserve the current taxonomy and transducer behavior while making the tests fail on incorrect or skipped outcomes.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-PERCEPTION-BEHAVIOR-ORACLES | Taxonomy and intent behavior oracles | `TestTaxonomyEngine_ClassifyInput_Simple` now requires the real corpus and exact `/fix`/`/test` outcomes (`internal/perception/taxonomy_test.go:156`); `TestIntent_ToFactKernelRoundTrip` checks exact typed arguments and the quoted-string kernel round trip (`internal/perception/transducer_uplift_test.go:27`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing taxonomy corpus and `Intent.ToFact` contract (`internal/perception/transducer.go:301`) | Real-corpus `/fix` and `/test` assertions fail on constructor/worker/inference errors; typed exact-row kernel round trip preserves target/constraint strings and hostile punctuation without creating extra executable facts. |
+
+**Verified current:** `TestTaxonomyEngine_ClassifyInput_Simple` and `TestIntent_ToFactKernelRoundTrip` pass in the focused behavior-oracle gate and the full `internal/perception/...` suite. Exact typed `user_intent/5` arguments preserve target and constraint as strings; hostile punctuation remains a quoted value and creates no additional executable fact. Aggregate corpus verification remains pending.

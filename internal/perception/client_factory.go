@@ -1,6 +1,7 @@
 package perception
 
 import (
+	"codenerd/internal/broker"
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception/xaioauth"
@@ -72,10 +73,12 @@ func classificationCeiling(vendor Provider) int {
 
 // ProviderConfig holds the resolved provider and API key.
 type ProviderConfig struct {
-	Provider       Provider
-	APIKey         string
-	Model          string // Optional model override
-	Context7APIKey string // Context7 API key for research
+	Provider        Provider
+	APIKey          string
+	APIKeys         []config.ResolvedProviderAPIKey
+	CredentialAlias string
+	Model           string // Optional model override
+	Context7APIKey  string // Context7 API key for research
 
 	// ClassificationModel is the dedicated fast model for perception intent
 	// classification. Unlike Model, this never defaults to the main model:
@@ -88,16 +91,17 @@ type ProviderConfig struct {
 	CodexCLI  *config.CodexCLIConfig  // Codex CLI settings
 	XAIOAuth  *config.XAIOAuthConfig  // SuperGrok OAuth settings
 
-	// BaseURL overrides the endpoint for OpenAI-compatible providers
+	// BaseURL overrides the endpoint for Anthropic and OpenAI-compatible providers
 	// (dashscope, meta, moonshot). Each has a sensible built-in default, so this
 	// is only needed for a proxy, a regional endpoint, or a vendor codeNERD does
 	// not yet know by name.
 	BaseURL string
 
 	// Provider-specific configurations
-	Gemini *config.GeminiProviderConfig // Gemini thinking mode and built-in tools
-	Meta   *config.MetaProviderConfig   // Muse Spark web search grounding
-	Ollama *config.OllamaLLMConfig      // Local Ollama chat endpoint + model
+	Gemini    *config.GeminiProviderConfig    // Gemini thinking mode and built-in tools
+	Anthropic *config.AnthropicProviderConfig // Direct Messages API options
+	Meta      *config.MetaProviderConfig      // Muse Spark web search grounding
+	Ollama    *config.OllamaLLMConfig         // Local Ollama chat endpoint + model
 
 	// Worker is optional secondary LLM (e.g. ollama gemma for shards).
 	Worker *config.WorkerLLMConfig
@@ -107,10 +111,21 @@ type ProviderConfig struct {
 	// SecondaryLLMConfig survives the trip through the shared factory.
 	MaxOutputTokens int
 
-	// ReasoningEffort overrides Meta (Muse Spark) reasoning_effort.
-	// Accepted values: minimal, low, medium, high, xhigh. When set it wins
-	// for every Meta request and is preserved even for classification.
+	// MaxInputTokens is a secondary slot's input cap (SecondaryLLMConfig
+	// max_input_tokens), carried to the client that enforces it and reports it
+	// (types.InputWindowReporter). Zero is no cap. Every credential of a pool
+	// is built from a copy of this config, so each carries the same cap.
+	MaxInputTokens int
+
+	// ReasoningEffort is the slot's reasoning effort, resolved by config
+	// (a slot's reasoning_effort, else its default): sent by the Meta and
+	// Anthropic clients wherever the model accepts one, omitted elsewhere.
 	ReasoningEffort string
+
+	// ClassificationReasoningEffort is the classifier's effort on this
+	// provider (config.GetClassificationReasoningEffort): what the
+	// classification client built from this config is sent with.
+	ClassificationReasoningEffort string
 }
 
 // ProviderConfigFromUserConfig resolves the provider contract from an already
@@ -151,6 +166,13 @@ func ProviderConfigFromUserConfig(userCfg *config.UserConfig) (*ProviderConfig, 
 
 	// Use the unified config's provider detection for API mode
 	providerStr, apiKey := userCfg.GetActiveProvider()
+	poolKeys, poolErr := userCfg.ResolveAPIKeyPool(providerStr)
+	if poolErr != nil {
+		return nil, poolErr
+	}
+	if len(poolKeys) > 0 {
+		apiKey = poolKeys[0].Key
+	}
 	if apiKey == "" {
 		if userCfg.Provider != "" {
 			return nil, fmt.Errorf("provider %q is configured but its API key is missing; set the %s key or change the provider (config is boss: no silent fallback)", userCfg.Provider, providerKeyFieldName(userCfg.Provider))
@@ -169,16 +191,21 @@ func ProviderConfigFromUserConfig(userCfg *config.UserConfig) (*ProviderConfig, 
 		Engine:              "api",
 		Provider:            Provider(providerStr),
 		APIKey:              apiKey,
+		APIKeys:             poolKeys,
 		Model:               userCfg.Model,
 		BaseURL:             userCfg.BaseURL,
 		ClassificationModel: userCfg.ClassificationModel,
 		Context7APIKey:      context7Key,
 		Gemini:              userCfg.GetGeminiConfig(),
+		Anthropic:           userCfg.Anthropic,
 		Meta:                userCfg.GetMetaConfig(),
 		Ollama:              &ollamaCfg,
 		Worker:              userCfg.GetWorkerLLMConfig(),
 		MaxOutputTokens:     userCfg.MaxOutputTokens,
-		ReasoningEffort:     userCfg.ReasoningEffort,
+		ReasoningEffort:     userCfg.GetReasoningEffort(),
+		// The main provider's fast tier classifies when no worker does, and
+		// is the worker tier's failover.
+		ClassificationReasoningEffort: userCfg.GetClassificationReasoningEffort(providerStr),
 	}, nil
 }
 
@@ -261,10 +288,10 @@ func newCompatClassificationClient(cfg *ProviderConfig, model string) (LLMClient
 	// Classification runs on every interactive turn, so reasoning is turned
 	// off here regardless of the tier's normal setting — a thinking trace in
 	// front of every prompt is pure latency for a labelling task.
-	// Meta ignores EnableThinking: it is controlled by reasoning_effort, so
-	// the classification client defaults to "minimal" unless the caller set
-	// an explicit override. Probed live 2026-09-03: minimal keeps the same
-	// label at ~1/3 of the wall time (6.1s vs 19.3s default).
+	// Meta ignores EnableThinking: it is controlled by reasoning_effort, which
+	// is the config's classification effort (classification_reasoning_effort,
+	// else Meta's lowest, minimal: probed live 2026-09-03, the same label at
+	// ~1/3 of the wall time, 6.1s vs 19.3s default).
 	compatCfg := DefaultOpenAICompatConfig(cfg.Provider, cfg.APIKey)
 	compatCfg.EnableThinking = false
 	// A classification reply is a short label, so a small ceiling is right —
@@ -280,11 +307,7 @@ func newCompatClassificationClient(cfg *ProviderConfig, model string) (LLMClient
 		compatCfg.BaseURL = cfg.BaseURL
 	}
 	if cfg.Provider == ProviderMeta {
-		if strings.TrimSpace(cfg.ReasoningEffort) != "" {
-			compatCfg.ReasoningEffort = cfg.ReasoningEffort
-		} else {
-			compatCfg.ReasoningEffort = "minimal"
-		}
+		compatCfg.ReasoningEffort = cfg.ClassificationReasoningEffort
 		// Classification runs on every interactive turn. A web search on that
 		// call would bill a search per turn and ground a label, which is the
 		// wrong operation. EnableWebSearch stays at its zero value.
@@ -310,8 +333,9 @@ func newCompatClassificationClient(cfg *ProviderConfig, model string) (LLMClient
 // file rather than by its config. Classification runs on every interactive
 // turn, so a workspace on a large main model should set classification_model
 // to its provider's fast tier; the client built here still carries the
-// classification-specific settings (prompt caching, thinking off, minimal
-// reasoning effort) whichever model it runs on.
+// classification-specific settings (prompt caching, thinking off, the
+// config's classification effort, ClassificationReasoningEffort) whichever
+// model it runs on.
 //
 // When nil is returned, no error is set — the caller should treat nil as
 // "use main client" and not fail.
@@ -338,6 +362,16 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 		haikuCfg := DefaultAnthropicConfig(cfg.APIKey)
 		haikuCfg.Model = classificationModel(cfg)
 		haikuCfg.MaxOutputTokens = classificationCeiling(cfg.Provider)
+		if cfg.BaseURL != "" {
+			haikuCfg.BaseURL = cfg.BaseURL
+		}
+		if cfg.Anthropic != nil {
+			haikuCfg.Options.WorkspaceID = cfg.Anthropic.WorkspaceID
+		}
+		// The config's classification effort (classification_reasoning_effort,
+		// else Anthropic's lowest, low); the client omits it for a model that
+		// takes none.
+		haikuCfg.ReasoningEffort = cfg.ClassificationReasoningEffort
 		client := NewAnthropicClientWithConfig(haikuCfg)
 		// The only EnableSystemCaching call in the repository.
 		//
@@ -362,6 +396,9 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 
 	case ProviderGemini:
 		flashCfg := DefaultGeminiConfig(cfg.APIKey)
+		if cfg.BaseURL != "" {
+			flashCfg.BaseURL = cfg.BaseURL
+		}
 		flashCfg.Model = classificationModel(cfg)
 		flashCfg.MaxOutputTokens = classificationCeiling(cfg.Provider)
 		// Classification is a labelling task on the critical path of every
@@ -376,6 +413,9 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 
 	case ProviderOpenAI:
 		openaiCfg := DefaultOpenAIConfig(cfg.APIKey)
+		if cfg.BaseURL != "" {
+			openaiCfg.BaseURL = cfg.BaseURL
+		}
 		openaiCfg.MaxOutputTokens = classificationCeiling(cfg.Provider)
 		client := NewOpenAIClientWithConfig(openaiCfg)
 		client.SetModel(classificationModel(cfg))
@@ -384,6 +424,9 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 
 	case ProviderZAI:
 		zaiCfg := DefaultZAIConfig(cfg.APIKey)
+		if cfg.BaseURL != "" {
+			zaiCfg.BaseURL = cfg.BaseURL
+		}
 		zaiCfg.MaxOutputTokens = classificationCeiling(cfg.Provider)
 		client := NewZAIClientWithConfig(zaiCfg)
 		client.SetModel(classificationModel(cfg))
@@ -392,6 +435,9 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 
 	case ProviderXAI:
 		xaiCfg := DefaultXAIConfig(cfg.APIKey)
+		if cfg.BaseURL != "" {
+			xaiCfg.BaseURL = cfg.BaseURL
+		}
 		xaiCfg.MaxOutputTokens = classificationCeiling(cfg.Provider)
 		client := NewXAIClientWithConfig(xaiCfg)
 		client.SetModel(classificationModel(cfg))
@@ -400,6 +446,9 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 
 	case ProviderOpenRouter:
 		orCfg := DefaultOpenRouterConfig(cfg.APIKey)
+		if cfg.BaseURL != "" {
+			orCfg.BaseURL = cfg.BaseURL
+		}
 		orCfg.MaxOutputTokens = classificationCeiling(cfg.Provider)
 		client := NewOpenRouterClientWithConfig(orCfg)
 		client.SetModel(classificationModel(cfg))
@@ -493,6 +542,7 @@ func newCompatClient(pc *ProviderConfig) (LLMClient, error) {
 	if pc.Provider == ProviderMeta && pc.ReasoningEffort != "" {
 		compatCfg.ReasoningEffort = pc.ReasoningEffort
 	}
+	compatCfg.MaxInputTokens = pc.MaxInputTokens
 	if pc.Provider == ProviderMeta {
 		metaCfg := pc.Meta
 		if metaCfg == nil {
@@ -550,14 +600,26 @@ func newRawClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 	case ProviderAnthropic:
 		cfg := DefaultAnthropicConfig(config.APIKey)
 		cfg.MaxOutputTokens = config.MaxOutputTokens
+		cfg.MaxInputTokens = config.MaxInputTokens
+		cfg.Model = config.Model
+		cfg.ReasoningEffort = config.ReasoningEffort
+		if config.BaseURL != "" {
+			cfg.BaseURL = config.BaseURL
+		}
+		if config.Anthropic != nil {
+			cfg.Options = *config.Anthropic
+		}
 		client := NewAnthropicClientWithConfig(cfg)
-		if config.Model != "" {
-			client.SetModel(config.Model)
+		if client.configErr != nil {
+			return nil, client.configErr
 		}
 		return client, nil
 
 	case ProviderOpenAI:
 		cfg := DefaultOpenAIConfig(config.APIKey)
+		if config.BaseURL != "" {
+			cfg.BaseURL = config.BaseURL
+		}
 		cfg.MaxOutputTokens = config.MaxOutputTokens
 		client := NewOpenAIClientWithConfig(cfg)
 		if config.Model != "" {
@@ -568,6 +630,9 @@ func newRawClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 	case ProviderGemini:
 		// Build GeminiConfig with user settings
 		geminiCfg := DefaultGeminiConfig(config.APIKey)
+		if config.BaseURL != "" {
+			geminiCfg.BaseURL = config.BaseURL
+		}
 		if config.Model != "" {
 			geminiCfg.Model = config.Model
 		}
@@ -591,6 +656,9 @@ func newRawClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 
 	case ProviderXAI:
 		cfg := DefaultXAIConfig(config.APIKey)
+		if config.BaseURL != "" {
+			cfg.BaseURL = config.BaseURL
+		}
 		cfg.MaxOutputTokens = config.MaxOutputTokens
 		client := NewXAIClientWithConfig(cfg)
 		if config.Model != "" {
@@ -600,6 +668,9 @@ func newRawClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 
 	case ProviderZAI:
 		cfg := DefaultZAIConfig(config.APIKey)
+		if config.BaseURL != "" {
+			cfg.BaseURL = config.BaseURL
+		}
 		cfg.MaxOutputTokens = config.MaxOutputTokens
 		client := NewZAIClientWithConfig(cfg)
 		if config.Model != "" {
@@ -609,6 +680,9 @@ func newRawClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 
 	case ProviderOpenRouter:
 		cfg := DefaultOpenRouterConfig(config.APIKey)
+		if config.BaseURL != "" {
+			cfg.BaseURL = config.BaseURL
+		}
 		cfg.MaxOutputTokens = config.MaxOutputTokens
 		client := NewOpenRouterClientWithConfig(cfg)
 		if config.Model != "" {
@@ -649,15 +723,18 @@ func NewWorkerClientFromUserConfig(userCfg *config.UserConfig) (LLMClient, error
 // NewRoutedClientFromUserConfig builds the client a shard profile routes to:
 // provider's, running model, with that provider's key from the same file. It is
 // built exactly as the worker and planner slots are, so whatever they support a
-// profile can name.
-func NewRoutedClientFromUserConfig(userCfg *config.UserConfig, provider, model string) (LLMClient, error) {
+// profile can name. serving is the slot whose call is routed (main, worker or
+// planner): the route carries its reasoning effort, and its provider options
+// and token ceilings where they apply (config.SecondaryLLMConfig.RouteTo). A
+// route built from no slot sent no effort at all, whatever the config said.
+func NewRoutedClientFromUserConfig(userCfg *config.UserConfig, serving *config.SecondaryLLMConfig, provider, model string) (LLMClient, error) {
 	if userCfg == nil {
 		return nil, fmt.Errorf("no user config to route provider %q from", provider)
 	}
 	if strings.TrimSpace(model) == "" {
 		return nil, fmt.Errorf("a shard profile routes to provider %q and names no model for it to run", provider)
 	}
-	return newSecondarySlotClient(userCfg, "shard_profile", &config.SecondaryLLMConfig{Provider: provider, Model: model})
+	return newSecondarySlotClient(userCfg, "shard_profile", serving.RouteTo(provider, model))
 }
 
 // NewPlannerClientFromUserConfig builds the high-reasoning planner client used
@@ -695,8 +772,12 @@ func newSecondarySlotClient(userCfg *config.UserConfig, slot string, w *config.S
 		} else {
 			return nil, fmt.Errorf("%s LLM: no model configured for ollama: set %s.model or ollama.model in .nerd/config.json", slot, slot)
 		}
+		client := NewOllamaClientWithConfig(cfg)
+		if err := slotInputCapEnforced(slot, provider, w.MaxInputTokens, client); err != nil {
+			return nil, err
+		}
 		logging.Perception("%s LLM: ollama model=%s endpoint=%s", slot, cfg.Model, cfg.Endpoint)
-		return NewOllamaClientWithConfig(cfg), nil
+		return client, nil
 	}
 
 	// Everything else delegates to the shared factory rather than
@@ -705,19 +786,25 @@ func newSecondarySlotClient(userCfg *config.UserConfig, slot string, w *config.S
 	// openrouter and every OpenAI-compatible vendor unusable as the worker — the
 	// exact slot a cheap bulk model belongs in. Delegating means the worker
 	// supports whatever the main client supports, now and for future providers.
+	poolKeys, poolErr := userCfg.ResolveAPIKeyPool(provider)
+	if poolErr != nil {
+		return nil, poolErr
+	}
 	apiKey := userCfg.APIKeyForProvider(provider)
 	if apiKey == "" {
 		return nil, fmt.Errorf("%s provider=%s but %s is empty", slot, provider, providerKeyFieldName(provider))
 	}
 
 	pc := &ProviderConfig{
-		Engine:   "api",
-		Provider: Provider(provider),
-		APIKey:   apiKey,
-		Model:    w.Model,
-		BaseURL:  userCfg.BaseURL,
-		Gemini:   userCfg.GetGeminiConfig(),
-		Meta:     userCfg.GetMetaConfig(),
+		Engine:    "api",
+		Provider:  Provider(provider),
+		APIKey:    apiKey,
+		APIKeys:   poolKeys,
+		Model:     w.Model,
+		BaseURL:   userCfg.BaseURL,
+		Gemini:    userCfg.GetGeminiConfig(),
+		Anthropic: userCfg.Anthropic,
+		Meta:      userCfg.GetMetaConfig(),
 	}
 	// For OpenAI-compatible vendors the slot's Endpoint doubles as a per-slot
 	// base-URL override, so slots can sit behind different gateways.
@@ -728,14 +815,40 @@ func newSecondarySlotClient(userCfg *config.UserConfig, slot string, w *config.S
 	// budget than a bulk worker, and before this the whole tier was pinned to
 	// the client's hardcoded default.
 	pc.MaxOutputTokens = w.MaxOutputTokens
+	// A per-slot input cap: a cheap bulk worker held to a smaller window than
+	// the main and planner models. The client enforces it and reports it, and
+	// the session executor sizes every request the slot serves to it.
+	pc.MaxInputTokens = w.MaxInputTokens
 	pc.ReasoningEffort = w.ReasoningEffort
+	if w.Anthropic != nil {
+		pc.Anthropic = w.Anthropic
+	}
 
 	client, err := NewClientFromConfig(pc)
 	if err != nil {
 		return nil, fmt.Errorf("%s provider=%s: %w", slot, provider, err)
 	}
-	logging.Perception("%s LLM: provider=%s model=%s", slot, provider, w.Model)
+	if err := slotInputCapEnforced(slot, provider, w.MaxInputTokens, client); err != nil {
+		return nil, err
+	}
+	logging.Perception("%s LLM: provider=%s model=%s max_input_tokens=%d", slot, provider, w.Model, w.MaxInputTokens)
 	return client, nil
+}
+
+// slotInputCapEnforced refuses a slot whose max_input_tokens the client built
+// for it does not report (broker.InputWindow) and so does not enforce. Built
+// anyway, the slot would run uncapped under a config that says otherwise: a
+// setting that does nothing. Which providers enforce a cap is the clients' to
+// say, not a list kept here.
+func slotInputCapEnforced(slot, provider string, want int, client LLMClient) error {
+	if want <= 0 {
+		return nil
+	}
+	if got := broker.InputWindow(client); got != want {
+		return fmt.Errorf("%s.max_input_tokens is %d and the %s client enforces %d (0 is none); remove %s.max_input_tokens or serve the slot from a provider whose client enforces an input cap",
+			slot, want, provider, got, slot)
+	}
+	return nil
 }
 
 // NewImageClientFromUserConfig builds the dedicated image-generation client
@@ -760,7 +873,7 @@ func NewImageClientFromUserConfig(userCfg *config.UserConfig) (LLMClient, error)
 		return nil, fmt.Errorf("image generation needs gemini_api_key (Nano Banana 2 / gemini-3.1-flash-image)")
 	}
 	if strings.TrimSpace(img.Model) == "" {
-		return nil, fmt.Errorf("image generation needs image.model in .nerd/config.json (for example %q); no model is invented", config.NanoBanana2ImageModel)
+		return nil, fmt.Errorf("image generation needs image.model in .nerd/config.json (the Gemini image model's API id); no model is invented")
 	}
 	gcfg := DefaultGeminiConfig(key)
 	gcfg.Model = img.Model
@@ -783,6 +896,9 @@ func NewImageClientFromUserConfig(userCfg *config.UserConfig) (LLMClient, error)
 // means a new provider case added below is metered automatically rather than
 // depending on whoever adds it remembering to wrap.
 func NewClientFromConfig(config *ProviderConfig) (LLMClient, error) {
+	if config != nil && len(config.APIKeys) > 0 && (config.Engine == "" || config.Engine == "api") {
+		return newPooledClient(config, false)
+	}
 	client, err := newRawClientFromConfig(config)
 	if err != nil {
 		return nil, err
@@ -797,6 +913,9 @@ func NewClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 // exactly the kind that used to vanish: small per call, large in aggregate, and
 // invisible because nothing counted it.
 func NewClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error) {
+	if cfg != nil && len(cfg.APIKeys) > 0 && (cfg.Engine == "" || cfg.Engine == "api") {
+		return newPooledClient(cfg, true)
+	}
 	client, err := newRawClassificationClientFromConfig(cfg)
 	if err != nil || client == nil {
 		return client, err

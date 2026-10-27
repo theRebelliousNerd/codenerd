@@ -38,7 +38,7 @@ python .codex/skills/stress-tester/scripts/run_suite.py --profile smoke --execut
 # Lower the registered whole-run ceiling when a shorter budget is required.
 python .codex/skills/stress-tester/scripts/run_suite.py --profile smoke --execute --max-wall-seconds 900
 
-# Build the current CLI and prove every invalid Mangle fixture is rejected.
+# Build the current CLI and check the documented Mangle pipeline stages.
 python .codex/skills/stress-tester/scripts/run_suite.py --profile adversarial --execute
 
 # Analyze current logs and emit Markdown plus a JSON sidecar.
@@ -61,7 +61,7 @@ python .codex/skills/stress-tester/scripts/verify_adversarial.py
 | `build` | Compile the current CLI with repository headers | bounded build | No |
 | `smoke` | Fast pre-handoff confidence | build + key packages | No |
 | `kernel` | Mangle, policy, VirtualStore, executive behavior | focused Go tests | No |
-| `adversarial` | Invalid Mangle rejection, crash, and timeout oracle | current CLI build + fixtures | No |
+| `adversarial` | Documented Mangle parse, analysis, stratification, and clean-stage outcomes | tagged current CLI build + fixtures | No |
 | `campaign` | assault orchestration and chat routing | focused Go tests | No |
 | `race` | shared-state and lifecycle concurrency | Go race detector | No |
 | `full` | repository-wide regression | `go test ./...` | No |
@@ -104,7 +104,7 @@ Use the `race` profile. For a newly isolated package, add a bounded profile entr
 
 ### 4. Adversarial inputs
 
-Use the registered `adversarial` profile for intentionally-invalid Mangle fixtures. A passing check means every invalid fixture produced the expected bounded checker rejection; parser crashes, hangs, unexpected nonzero exits, or accepted-invalid files fail the profile. Counts are discovered from the corpus at runtime and are never hard-coded.
+Use the registered `adversarial` profile for the documented Mangle corpus. The 24 fixtures comprise 18 static rejections at their expected pipeline stage and 6 valid static-scaffolding checks. This profile does not execute runtime hazards or prove executor termination containment. Crashes, timeouts, unexpected nonzero exits, and stage mismatches fail the profile; fixture counts come from the corpus and expected-stage manifest.
 
 ### 5. Cross-system assault
 
@@ -137,7 +137,7 @@ Do not patch the symptom at a downstream formatting or retry layer when the evid
 
 ## Log analysis
 
-`analyze_stress_logs.py` reuses the live log-analyzer parser from `.codex/skills/log-analyzer/scripts/parse_log.py`. It reads `.nerd/logs/*.log`, classifies critical/resource/concurrency signals, and emits bounded evidence with a JSON sidecar. It does not claim that a substring query proves a component was exercised.
+`analyze_stress_logs.py` uses the included bounded parser for the live text and JSON formats in `internal/logging`. It reads `.nerd/logs/*.log`, classifies critical/resource/concurrency signals, and emits bounded evidence with a JSON sidecar. It does not claim that a substring query proves a component was exercised.
 
 Interpretation rules:
 
@@ -147,7 +147,7 @@ Interpretation rules:
 - timeouts require attribution: an expected cancellation is not the same as a deadlock;
 - compare timestamps to the test window so old logs cannot contaminate the verdict.
 
-Use the `log-analyzer` skill for multi-category causal chains or Mangle queries beyond the bounded stress summary.
+The stress analyzer reports bounded signal counts. Preserve the source logs when a failure needs deeper causal analysis; signal counts alone do not establish event order or causation.
 
 ## Scenario library
 
@@ -162,7 +162,7 @@ Supporting references:
 - `references/panic-catalog.md` — symptom-to-owner hints; verify against live code (P0/P0c Close timeouts).
 - `references/resource-limits.md` — historical limits inventory; measure current defaults before citing values.
 - `references/subsystem-stress-points.md` — broad threat model, not authoritative commands.
-- `assets/mangle-adversarial/` — intentionally-invalid negative fixtures.
+- `assets/mangle-adversarial/` — 18 static negative fixtures plus 6 valid static-scaffolding examples documenting runtime hazards.
 
 ## Completion gate
 

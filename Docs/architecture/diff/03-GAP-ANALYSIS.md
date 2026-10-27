@@ -122,3 +122,10 @@ reused or deleted.
   caller for `ClearCache` / `Stats` / non-default `Options`) — consistent
   with the two-prod-importer shape, proven only by full-range reads, not
   positive witnesses; every granular test-line pin beyond the two files above.
+
+
+## Required contract: profiled content fingerprint throughput
+
+GAP-DIFF-FINGERPRINT-THROUGHPUT: Optimize the profiled secondary content fingerprint with a process-local independently seeded standard-library hash while retaining the primary FNV result, both content lengths, two independent 64-bit cache hashes, exact-content verification mode, cache output equivalence, collision handling and caller-owned deep clones. Cache keys are process-local and are not durable identities. No performance gain may relax source verification or mutation isolation. Acceptance requires representative verified-cache-hit before/after benchmarks in the same host window, unchanged allocation behavior, existing diff/cache/collision/mutation tests and focused concurrency race checks. A change with no measured improvement must not be retained.
+
+**Implemented; focused tests and race tests passed; aggregate verification pending.** `fingerprint` keeps the deterministic FNV primary and uses process-seeded `maphash.String` for the secondary (`internal/diff/diff.go:148`). Verified cache-hit benchmarks measured 12.1% lower latency in matched unprofiled 100 ms runs and 13.6% lower latency in matched profiled 1 s runs, with bytes and allocations unchanged (`internal/diff/benchmark_test.go:33`, `BenchmarkComputeDiff_CacheHitVerified`). Cache equivalence/collision/mutation tests and the focused `ComputeDiff`/`ClearCache` race tests passed (`internal/diff/diff_comprehensive_test.go:260`; `internal/diff/word_span_test.go:94-140`; `internal/diff/cache_test.go:15`, `:167`). Benchmarks are indicative under concurrent host load; the combined benchmark command's unrelated vet failure means aggregate verification remains pending.

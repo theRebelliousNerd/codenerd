@@ -71,16 +71,17 @@ func (i *Initializer) writeOrientationReport(nerdDir string, run orientationRun,
 	return nil
 }
 
-// Preserve the strategic/* categories consumed by intelligence and query_strategic.
-func strategicKnowledgeFromVision(vision *northstar.Vision, profile ProjectProfile) *StrategicKnowledge {
-	knowledge := &StrategicKnowledge{ArchitectureStyle: profile.Architecture, DesignPrinciples: append([]string{}, profile.Patterns...)}
+// strategicKnowledgeFromVision maps the vision of record onto the strategic/*
+// categories the intelligence layer and query_strategic read.
+func strategicKnowledgeFromVision(vision *northstar.Vision) *StrategicKnowledge {
 	if vision == nil {
-		knowledge.Limitations = []string{"No north star could be derived from the orientation evidence."}
-		return knowledge
+		return nil
 	}
-	knowledge.ProjectVision = vision.VisionStmt
-	knowledge.CorePhilosophy = vision.Mission
-	knowledge.SafetyConstraints = append([]string{}, vision.Constraints...)
+	knowledge := &StrategicKnowledge{
+		ProjectVision:     vision.VisionStmt,
+		CorePhilosophy:    vision.Mission,
+		SafetyConstraints: append([]string{}, vision.Constraints...),
+	}
 	for _, capability := range vision.Capabilities {
 		knowledge.CoreCapabilities = append(knowledge.CoreCapabilities, capability.Description)
 	}

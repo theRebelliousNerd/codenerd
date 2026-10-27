@@ -8,14 +8,16 @@
 
 ## 1. Decompose: goal → plan (LLM proposes, kernel disposes)
 
-`Decomposer.Decompose` (`internal/campaign/decomposer.go:242`) takes a
-`DecomposeRequest` (`:211` — goal, source paths, campaign type, hints, budgets)
-and runs: intelligence gathering (Step 0, optional injected gatherer) →
-source-document ingest → requirement extraction → LLM plan proposal → campaign
-build → advisory-board review (Step 4b, optional). Every LLM call prefers
-grounded completion with fallback to direct completion
-(`internal/campaign/decomposer.go:187`). Empty goals, nil kernels, and
-blank source paths are rejected up front (`:243`).
+Doors plan through `Orchestrator.Decompose` (`internal/campaign/orchestrator_planning.go`),
+which runs the orchestrator's own `Decomposer.Decompose` on the planning client
+(`OrchestratorConfig.PlanningLLMClient`). It takes a `DecomposeRequest` (goal,
+source paths, campaign type, hints, budgets) and runs: intelligence gathering
+(Step 0, the config's gatherer stamped with `campaign.intelligence`; its report
+goes into the planner prompt) → source-document ingest and layer taxonomy →
+requirement extraction → LLM plan proposal → campaign build → Mangle
+validation → refinement. Every LLM call prefers grounded completion with
+fallback to direct completion. Empty goals, nil kernels, and blank source
+paths are rejected up front.
 
 A plan the model leaves empty does not fail: it is synthesised as a generic
 three-task scaffold and marked `Campaign.PlanDegraded`
@@ -78,10 +80,12 @@ phase's `VerificationMethod` (`/tests_pass`, `/builds`, `/manual_review`,
 
 ## 5. Replan and rolling-wave refinement
 
-`Replanner.Replan` (`internal/campaign/replan.go:169`) gathers failed/blocked
-tasks and triggers, asks the LLM for fixes on a cloned campaign (cycle-checked),
-bumps `RevisionNumber`, and reloads kernel facts. `ReplanForNewRequirement`
-(`:237`) adds tasks with a per-phase duplicate guard. `RefineNextPhase`
+`Replanner.Replan` (`internal/campaign/replan.go`) gathers failed/blocked
+tasks and triggers, asks the planning client for fixes on a cloned campaign
+(cycle-checked), bumps `RevisionNumber`, reloads kernel facts, and retracts the
+`replan_trigger` facts it planned from. `ReplanForNewRequirement` (reached from
+chat `/campaign add` via `Orchestrator.HandleNewRequirement`) adds tasks with a
+per-phase duplicate guard and records a `/new_requirement` trigger. `RefineNextPhase`
 (`:417`) progressively elaborates the upcoming phase. Bounds that stop infinite
 loops: `Phase.CheckpointFailures` (`internal/campaign/types.go:260`) caps the
 fail→replan→re-check loop, and `Task.ReplannedAtCap` (`:335`) limits

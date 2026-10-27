@@ -42,13 +42,13 @@ func (i *Initializer) mergeTypeUAgents(recommended []RecommendedAgent) []Recomme
 	for _, agent := range userAgents {
 		if idx, clash := byName[strings.ToLower(agent.Name)]; clash {
 			logging.Boot("Type U agent %s overrides the auto-detected agent of the same name", agent.Name)
-			fmt.Printf("   • %s: user definition overrides the auto-detected agent\n", agent.Name)
+			fmt.Fprintf(i.output(), "   • %s: user definition overrides the auto-detected agent\n", agent.Name)
 			merged[idx] = agent
 			continue
 		}
 		byName[strings.ToLower(agent.Name)] = len(merged)
 		merged = append(merged, agent)
-		fmt.Printf("   • %s: %s\n", agent.Name, agent.Reason)
+		fmt.Fprintf(i.output(), "   • %s: %s\n", agent.Name, agent.Reason)
 	}
 	return merged
 }
@@ -69,21 +69,25 @@ func (i *Initializer) mergeTypeUAgents(recommended []RecommendedAgent) []Recomme
 // Any failure to read the user's answer degrades to the recommended set rather
 // than failing init — a broken stdin must not cost the user their workspace.
 func (i *Initializer) curateAgents(ctx context.Context, recommended []RecommendedAgent, profile ProjectProfile, result *InitResult) []RecommendedAgent {
-	if !i.config.Interactive || len(recommended) == 0 {
+	if len(recommended) == 0 {
 		return recommended
 	}
-
-	interactiveCfg, ok := i.resolveInteractiveConfig()
-	if !ok {
-		logging.Boot("Interactive agent selection skipped: stdin/stdout is not a terminal")
-		return recommended
-	}
-
 	previous, err := LoadAgentPreferences(i.config.Workspace)
 	if err != nil {
 		// A malformed preferences file must not block curation; we just lose
-		// the "auto accept" shortcut for this run.
-		logging.Boot("Could not load previous agent preferences: %v", err)
+		// the recorded choices for this run.
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Could not read earlier agent selection: %v", err))
+		previous = nil
+	}
+
+	interactiveCfg, ok := i.resolveInteractiveConfig()
+	if !i.config.Interactive || !ok {
+		if i.config.Interactive {
+			logging.Boot("Interactive agent selection skipped: stdin/stdout is not a terminal")
+		}
+		// Nobody is asked this run, so the user's recorded answer stands:
+		// an agent they declined is not created again behind their back.
+		return withoutRejectedAgents(recommended, previous, result)
 	}
 	interactiveCfg.PreviousPrefs = previous
 
@@ -116,6 +120,33 @@ func (i *Initializer) curateAgents(ctx context.Context, recommended []Recommende
 	curated := ConvertToRecommendedAgents(selected)
 	i.persistAgentSelection(recommended, curated, result)
 	return curated
+}
+
+// withoutRejectedAgents drops the agents an earlier interactive selection
+// declined. Type U agents are the user's own definitions and always stay.
+func withoutRejectedAgents(recommended []RecommendedAgent, previous *AgentSelectionPreferences, result *InitResult) []RecommendedAgent {
+	if previous == nil || len(previous.RejectedAgents) == 0 {
+		return recommended
+	}
+	rejected := make(map[string]bool, len(previous.RejectedAgents))
+	for _, name := range previous.RejectedAgents {
+		rejected[strings.ToLower(name)] = true
+	}
+	kept := make([]RecommendedAgent, 0, len(recommended))
+	var dropped []string
+	for _, agent := range recommended {
+		if rejected[strings.ToLower(agent.Name)] && agent.Type != typeUAgentType {
+			dropped = append(dropped, agent.Name)
+			continue
+		}
+		kept = append(kept, agent)
+	}
+	if len(dropped) > 0 {
+		result.Warnings = append(result.Warnings, fmt.Sprintf(
+			"Not creating %s: declined in an earlier agent selection (re-run `nerd init --force` in a terminal to choose again)",
+			strings.Join(dropped, ", ")))
+	}
+	return kept
 }
 
 // persistAgentSelection records which agents the user kept and which they

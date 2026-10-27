@@ -105,3 +105,50 @@ drains the admitted descendant, and retained-pipe collection failure cannot
 produce a passing receipt. Positive and nonzero controls also pass. Linux
 execution is still unverified; do not generalize the Windows receipt to another
 host or to unrelated process owners.
+
+
+## Required contract: Typed tool argument validation
+
+Explicit null for a declared nonempty property type must return ErrInvalidArgType before guard, handler or fact sink. Absent optional properties remain valid and untyped properties retain permissive semantics.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-TOOLS-TYPED-NULL | Typed tool argument validation | `Registry.validateArgs` rejects a present nil for a declared nonempty type before dispatch (`internal/tools/registry.go:462`, `validateArgs`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Production Registry.Execute tests reject required/optional typed null without effects and admit absent optional/untyped-null controls. |
+
+
+## Required contract: CodeDOM revision flow acceptance
+
+Registry-dispatched read/edit/read must carry the exact printed canonical reference and revision from get_element into edit_element, return refreshed source/revision, and reject previously read revisions after element or line mutation without changing bytes.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-TOOLS-CODEDOM-ROUNDTRIP | CodeDOM revision flow acceptance | Production element read/edit handlers exchange canonical refs and source revisions (`internal/tools/codedom/elements.go:742`, `executeGetElement`; `internal/tools/codedom/element_edit.go:331`, `executeEditElement`); the new registry tests carry them through the full round trip (`roundtrip_test.go:43`, `:87`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Real StructureIndex plus Registry.Execute read -> edit -> read verifies new source/revision; old revision is refused after element and line edits with no write. |
+
+
+## Required contract: Portable executable stress verification
+
+Stress validation and log analysis must run against shipped files from any cwd using repository marker discovery. Analyzer must parse the live logger JSON and text formats without an absent external parser, bound malformed input handling and honor timestamp filtering. Build/smoke/adversarial verification must build the sqlite_vec production variant with repository headers. Attached stress-agent skills must use portable repo-relative supported paths.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-TOOLS-STRESS-HARNESS | Portable executable stress verification | The local bounded parser handles live JSON/text records (`.codex/skills/stress-tester/scripts/log_parser.py:159`, `parse_log_file`); repository-root detection and CLI tools use marker discovery (`scripts/repo_paths.py`); production profiles build with `sqlite_vec`. | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Validator and tooling CLI fixture suite pass from foreign cwd, current-format log fixtures produce correct verdicts/filtering, build/adversarial commands include sqlite_vec, and skill attachment paths resolve in this checkout. |
+
+**Verified current:** `TestRegistry_Execute_RejectsNullForTypedArguments` and `TestRegistry_Execute_AllowsAbsentOptionalAndUntypedNull` (`internal/tools/registry_boundary_test.go:153`, `:205`) pass with the full `internal/tools` suite; the production `list_files` null-path guard also passes (`internal/tools/core/file_ops_edit_record_test.go`, `TestListFiles_RejectsNullPathBeforeDefaultingToWorkspaceRoot`).
+
+**Verified current:** `TestRegistryRoundTrip_ElementReadEditReadAndStaleRevision` and `TestRegistryRoundTrip_LineEditInvalidatesElementRevision` (`internal/tools/codedom/roundtrip_test.go:43`, `:87`) pass in the full `internal/tools/codedom` package. The registry/StructureIndex behavior is covered; broader session policy and live-provider wiring are outside this contract's gate.
+
+
+## Required contract: changed-element observations follow supported parsers
+
+GAP-TOOLS-CHANGED-LANGUAGES: ChangedElements must report edits for every language currently supported by codemodel.LanguageOf/Parse using that parser's canonical element identity and byte revisions. Languages without a parser return no invented spans. Acceptance covers real Python, TypeScript, TSX and JavaScript function edits plus Rust and unsupported-extension nil controls until a Rust parser is implemented; outdated tests must not erase supported functionality. This extends typed source-change observation acceptance and preserves multi-language CodeDOM capability.
+
+**Implemented; focused tests passed; aggregate verification pending.** `ChangedElements` parses supported source through the shared CodeDOM language mapping (`internal/tools/changed_elements.go:30`, `ChangedElements`). `TestChangedElements_SupportedScriptLanguagesTrackFunctionChanges` and `TestChangedElements_LanguagesWithoutParserReturnNil` (`internal/tools/changed_elements_test.go:169`, `:221`) pass in the full `internal/tools` suite.
+
+
+## Required contract: research search destination integrity
+
+GAP-TOOLS-RESEARCH-DESTINATION: DuckDuckGo redirect extraction must parse the outer query and decode only its uddg parameter, preserving the complete destination query and fragment while excluding redirect tracking parameters. Normal registered web_search dispatch through a local HTTP fixture must return exactly the target URL, including multiple destination query parameters, rather than truncate at an ampersand. Missing or malformed redirects must fail safely under the existing search contract.
+
+**Implemented; focused tests passed; aggregate verification pending.** `parseDuckDuckGoResults` decodes only the redirect's `uddg` query value (`internal/tools/research/web_search.go:138`). `TestParseDuckDuckGoResults_RedirectPreservesDestinationQueryAndFragment`, `TestParseDuckDuckGoResults_MissingOrMalformedRedirectDestinationIsSkipped`, and the registered local-HTTP dispatch round trip (`internal/tools/research/web_search_redirect_test.go:15`, `:32`, `:51`) pass with the full research package. The fixture does not qualify live provider HTML variants.
+
+**Verified current — stress tooling, static scope only:** 17 tooling tests pass, including foreign-working-directory CLIs, parser bounds, stage-manifest agreement, and build flags (`.codex/skills/stress-tester/tests/test_tooling.py:31-281`). Skill validators pass; structural, sqlite_vec build, and static adversarial profiles pass (24/24 assertions). The adversarial report explicitly excludes runtime hazards; executor termination containment and the broader smoke Go-test profile remain unverified.

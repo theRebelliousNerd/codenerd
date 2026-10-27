@@ -138,10 +138,17 @@ func TestCache_WhenVerifyDisabled_ShouldNotRetainContentOrCountCollisions(t *tes
 }
 
 func TestFingerprint_WhenContentDiffers_ShouldDifferInLengthOrBothHashes(t *testing.T) {
-	a := fingerprint("the quick brown fox")
+	const content = "the quick brown fox"
+	a := fingerprint(content)
+	if again := fingerprint(content); a != again {
+		t.Fatalf("fingerprint changed within the process: first=%+v second=%+v", a, again)
+	}
 	b := fingerprint("the quick brown fix")
 	if a == b {
 		t.Fatal("distinct content produced identical fingerprints")
+	}
+	if a.secondary == b.secondary {
+		t.Fatal("secondary fingerprint failed to distinguish sample content")
 	}
 	if got := fingerprint("abc").length; got != 3 {
 		t.Errorf("length=%d, want 3", got)

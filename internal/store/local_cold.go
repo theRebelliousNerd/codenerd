@@ -77,8 +77,8 @@ func (s *LocalStore) StoreFact(predicate string, args []any, factType string, pr
 	}
 
 	_, err = s.db.Exec(
-		`INSERT INTO cold_storage (predicate, args, fact_type, priority, updated_at)
-		 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+		`INSERT INTO cold_storage (predicate, args, fact_type, priority, updated_at, last_accessed)
+		 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		 ON CONFLICT(predicate, args) DO UPDATE SET
 		 fact_type = excluded.fact_type,
 		 priority = excluded.priority,

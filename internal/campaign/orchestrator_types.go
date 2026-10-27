@@ -25,14 +25,16 @@ type Orchestrator struct {
 	mu sync.RWMutex
 
 	// Core components
-	kernel       core.Kernel
-	kernelClock  atomic.Int64 // the current_time second last fed to the kernel; see tickKernelClock
-	llmClient    perception.LLMClient
-	shardMgr     *coreshards.ShardManager // For monitoring (GetActiveShards, GetBackpressureStatus). Use taskExecutor for task execution.
-	taskExecutor session.TaskExecutor     // For task execution (replaces direct shardMgr.Spawn calls)
-	executor     tactile.Executor
-	virtualStore *core.VirtualStore
-	transducer   perception.Transducer
+	kernel      core.Kernel
+	kernelClock atomic.Int64 // the current_time second last fed to the kernel; see tickKernelClock
+	llmClient   perception.LLMClient
+	// planningClient serves the planning the orchestrator does itself (assault
+	// remediation planning); the decomposer and replanner hold the same one.
+	planningClient perception.LLMClient
+	shardMgr       *coreshards.ShardManager // For monitoring (GetActiveShards, GetBackpressureStatus). Use taskExecutor for task execution.
+	taskExecutor   session.TaskExecutor     // For task execution (replaces direct shardMgr.Spawn calls)
+	executor       tactile.Executor
+	virtualStore   *core.VirtualStore
 
 	// attempts is each open attempt's record -- its turns' writes and the
 	// leases its write guard took -- by task ID
@@ -52,7 +54,6 @@ type Orchestrator struct {
 	intelligenceGatherer *IntelligenceGatherer // Pre-planning intelligence from 12 systems
 	advisoryBoard        *ShardAdvisoryBoard   // Domain expert consultation
 	edgeCaseDetector     *EdgeCaseDetector     // File action decisions
-	toolPregenerator     *ToolPregenerator     // Tool pre-generation via Ouroboros
 
 	// State
 	campaign     *Campaign
@@ -104,11 +105,6 @@ type Orchestrator struct {
 	// Resolved gate wiring (auto + overrides) used by deterministic risk gating.
 	riskGateState riskGateResolved
 
-	// Last preflight evaluation, including advisory findings that did NOT stop
-	// the run. Operator surfaces read it so soft findings are visible on a
-	// campaign that started successfully.
-	lastRiskEvaluation *RiskGateEvaluation
-
 	// Optional metrics sink. Nil = no observation (see metrics.go). Guarded by
 	// its own mutex because risk preflight observes while o.mu is held.
 	metricsMu   sync.RWMutex
@@ -131,16 +127,24 @@ type OrchestratorEvent struct {
 
 // OrchestratorConfig holds configuration for the orchestrator.
 type OrchestratorConfig struct {
-	Workspace    string
-	Kernel       core.Kernel
-	LLMClient    perception.LLMClient
-	Transducer   perception.Transducer    // Optional: Inject transducer for testing
-	ShardManager *coreshards.ShardManager // For monitoring. Use TaskExecutor for task execution.
-	TaskExecutor session.TaskExecutor     // For task execution (replaces direct ShardManager.Spawn calls)
-	Executor     tactile.Executor
-	VirtualStore *core.VirtualStore
-	ProgressChan chan Progress
-	EventChan    chan OrchestratorEvent
+	Workspace string
+	Kernel    core.Kernel
+	// LLMClient serves the orchestrator's execution-side calls: context
+	// paging and the document fallback.
+	LLMClient perception.LLMClient
+	// PlanningLLMClient serves every planning role: decomposition (with its
+	// document taxonomy and requirement extraction), replanning, rolling-wave
+	// refinement and assault remediation planning. Callers resolve it from
+	// config.json: the planner slot when one is configured, else main
+	// (Cortex.PlanningLLM). Required, so a door that forgot it fails at
+	// construction instead of planning on the execution client unnoticed.
+	PlanningLLMClient perception.LLMClient
+	ShardManager      *coreshards.ShardManager // For monitoring. Use TaskExecutor for task execution.
+	TaskExecutor      session.TaskExecutor     // For task execution (replaces direct ShardManager.Spawn calls)
+	Executor          tactile.Executor
+	VirtualStore      *core.VirtualStore
+	ProgressChan      chan Progress
+	EventChan         chan OrchestratorEvent
 	// Campaign is the policy: every knob that decides how the campaign runs
 	// (attempts, backoffs, checkpoints, acceptance, scheduling, command
 	// limits, context budgets), from the user's .nerd/config.json
@@ -176,10 +180,9 @@ type OrchestratorConfig struct {
 	RiskIntelligenceTimeout time.Duration   // Optional timeout for pre-run intelligence snapshot gathering
 
 	// Intelligence integration (Campaign Intelligence Plan)
-	IntelligenceGatherer *IntelligenceGatherer       // Pre-planning intelligence from 12 systems
-	AdvisoryBoard        *ShardAdvisoryBoard         // Domain expert consultation
-	EdgeCaseDetector     *EdgeCaseDetector           // File action decisions
-	ToolPregenerator     *ToolPregenerator           // Tool pre-generation via Ouroboros
+	IntelligenceGatherer *IntelligenceGatherer       // Pre-planning intelligence from 12 systems: the decomposer's Step 0 and the risk preflight
+	AdvisoryBoard        *ShardAdvisoryBoard         // Domain expert consultation for the risk preflight
+	EdgeCaseDetector     *EdgeCaseDetector           // File action decisions for the risk preflight
 	NorthstarObserver    *northstar.CampaignObserver // Vision guardian; required by the protected-surface risk gate. The orchestrator owns it: NewOrchestrator closes it on error, Close closes it.
 }
 

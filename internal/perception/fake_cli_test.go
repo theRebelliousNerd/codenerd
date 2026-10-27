@@ -164,7 +164,7 @@ func appendCallsLog(dir string) error {
 func emitFakeOutput(args []string) int {
 	switch os.Getenv("CLAUDE_TEST_MODE") {
 	case "rate_limit":
-		fmt.Fprint(os.Stderr, "rate limit reached, try later\n")
+		fmt.Fprintln(os.Stderr, fakeCLIRateLimitDetail("rate limit reached, try later"))
 		return 1
 	case "fallback":
 		return emitFakeFallback(args)
@@ -174,6 +174,13 @@ func emitFakeOutput(args []string) int {
 		fmt.Fprint(os.Stdout, os.Getenv("CLAUDE_TEST_PAYLOAD"))
 		return 0
 	}
+}
+
+func fakeCLIRateLimitDetail(fallback string) string {
+	if detail := os.Getenv("CLI_TEST_RATE_LIMIT_DETAIL"); detail != "" {
+		return detail
+	}
+	return fallback
 }
 
 func emitFakeFallback(args []string) int {
@@ -235,7 +242,7 @@ func runFakeCodex(args []string) int {
 	}
 	switch os.Getenv("CODEX_TEST_MODE") {
 	case "rate_limit":
-		fmt.Fprint(os.Stderr, "429 rate limit reached\n")
+		fmt.Fprintln(os.Stderr, fakeCLIRateLimitDetail("429 rate limit reached"))
 		return 1
 	case "auth":
 		fmt.Fprint(os.Stderr, "please login\n")

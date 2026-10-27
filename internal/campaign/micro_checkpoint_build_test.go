@@ -84,7 +84,7 @@ func TestRunPhase_ADoneTurnIsNotFailedByASecondBuild(t *testing.T) {
 		}},
 	}
 	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace: workspace, Kernel: kernel, LLMClient: &MockLLMClient{}, TaskExecutor: turns,
+		Workspace: workspace, Kernel: kernel, LLMClient: &MockLLMClient{}, PlanningLLMClient: &MockLLMClient{}, TaskExecutor: turns,
 		Executor: builds, VirtualStore: &core.VirtualStore{},
 		Campaign: testCampaignConfig(fastRetries(3)),
 	})

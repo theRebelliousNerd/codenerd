@@ -400,16 +400,16 @@ func TestMeasurementLogsAreInstalledAtBoot(t *testing.T) {
 	}
 }
 
-// TestLegacyClientPathIsMetered covers the one client construction that does not
-// go through the factory.
-func TestLegacyClientPathIsMetered(t *testing.T) {
+// TestBootBuildsNoUnmeteredVendorClient pins that boot constructs no vendor
+// client of its own: every client comes from perception's factory, which
+// meters it. The last exception, a bare --api-key building a Z.AI client, was
+// removed; --api-key now only overrides the configured provider's key.
+func TestBootBuildsNoUnmeteredVendorClient(t *testing.T) {
 	content := readRepoFile(t, "internal/system/factory.go")
-
-	if !strings.Contains(content, "perception.InstallBrokerForProvider(") {
-		t.Error("the legacy raw-apiKey client is no longer metered; it would spend off the books")
-	}
-	if strings.Contains(content, "baseLLMClient = perception.NewZAIClient(") {
-		t.Error("the legacy raw-apiKey path constructs a client directly again, bypassing metering")
+	for _, ctor := range []string{"NewZAIClient(", "NewOpenAIClient(", "NewAnthropicClient(", "NewGeminiClient(", "NewXAIClient(", "NewOpenRouterClient(", "NewOllamaClient("} {
+		if strings.Contains(content, "perception."+ctor) {
+			t.Errorf("internal/system/factory.go builds perception.%s directly, bypassing the metered factory", ctor)
+		}
 	}
 }
 

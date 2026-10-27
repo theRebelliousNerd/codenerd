@@ -48,14 +48,15 @@ func TestOrchestrator_PublishesTheCampaignPolicyAsConfigParams(t *testing.T) {
 	cfg.ReplanOnCheckpointFailure = &no
 
 	if _, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:    t.TempDir(),
-		Kernel:       kernel,
-		LLMClient:    &stubLLM{},
-		ShardManager: coreshards.NewShardManager(),
-		TaskExecutor: &MockTaskExecutor{},
-		Executor:     tactile.NewDirectExecutor(),
-		VirtualStore: &core.VirtualStore{},
-		Campaign:     cfg,
+		Workspace:         t.TempDir(),
+		Kernel:            kernel,
+		LLMClient:         &stubLLM{},
+		PlanningLLMClient: &stubLLM{},
+		ShardManager:      coreshards.NewShardManager(),
+		TaskExecutor:      &MockTaskExecutor{},
+		Executor:          tactile.NewDirectExecutor(),
+		VirtualStore:      &core.VirtualStore{},
+		Campaign:          cfg,
 	}); err != nil {
 		t.Fatalf("NewOrchestrator() error = %v", err)
 	}

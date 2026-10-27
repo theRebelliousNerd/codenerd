@@ -170,6 +170,9 @@ func (c *OpenAICompatClient) GroundedWebSearch(ctx context.Context, query string
 	if c.vendor != ProviderMeta {
 		return nil, fmt.Errorf("grounded web search is only supported for provider %q (got %q)", ProviderMeta, c.vendor)
 	}
+	if err := c.admit(ctx, "", userTurn(query), nil); err != nil {
+		return nil, err
+	}
 	c.clearGroundingSources()
 	trimmed := strings.TrimSpace(query)
 	if trimmed == "" {
@@ -194,13 +197,9 @@ func (c *OpenAICompatClient) GroundedWebSearch(ctx context.Context, query string
 		defer cancel()
 	}
 
-	// The same builder the tool loop uses. thinking=true so a capability hint
-	// is applied; an unhinted call still defaults to xhigh below, and an
-	// explicit "none" override stays omitted (Muse Spark rejects it).
-	reqBody := c.newResponsesRequest(ctx, []any{metaInputText("user", trimmed)}, true)
-	if reqBody.Reasoning == nil && c.reasoningEffortOverride != "none" {
-		reqBody.Reasoning = &metaReasoningConfig{Effort: "xhigh"}
-	}
+	// The same builder the tool loop uses, so a grounded search is sent the
+	// slot's configured effort (or a profile's) like every other request.
+	reqBody := c.newResponsesRequest(ctx, []any{metaInputText("user", trimmed)})
 	// Always attach search. This call is a search even when the config
 	// switch that grounds ordinary completions is off.
 	if err := c.forceWebSearch(&reqBody, nil); err != nil {

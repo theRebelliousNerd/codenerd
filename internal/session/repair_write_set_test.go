@@ -165,7 +165,7 @@ func TestRepairLoop_RefusesWritesOutsideTheWriteSet(t *testing.T) {
 	result := &ExecutionResult{WrittenPaths: []string{"main.go"}, SuccessfulWriteTools: 1}
 	history := []types.Message{{Role: "user", Text: "fix the tests"}}
 	allowCfg := &jitconfig.EffectiveAgentRuntimeConfig{AllowedTools: []string{"write_file", "read_file", "edit_file"}}
-	ctx, closeLoop, loopErr := executor.beginWorkingLoop(context.Background(), "fix the tests", &prompt.CompilationContext{ShardID: "probe"})
+	ctx, closeLoop, loopErr := executor.beginWorkingLoop(context.Background(), nil, "fix the tests", &prompt.CompilationContext{ShardID: "probe"})
 	if loopErr != nil {
 		t.Fatalf("beginWorkingLoop: %v", loopErr)
 	}
@@ -243,7 +243,7 @@ func TestRepairLoop_SecondAttemptMayEditAFileItCreated(t *testing.T) {
 	result := &ExecutionResult{WrittenPaths: []string{"main.go"}, SuccessfulWriteTools: 1}
 	history := []types.Message{{Role: "user", Text: "fix"}}
 	allowCfg := &jitconfig.EffectiveAgentRuntimeConfig{AllowedTools: []string{"write_file", "edit_file", "read_file"}}
-	ctx, closeLoop, loopErr := executor.beginWorkingLoop(context.Background(), "fix", &prompt.CompilationContext{ShardID: "probe"})
+	ctx, closeLoop, loopErr := executor.beginWorkingLoop(context.Background(), nil, "fix", &prompt.CompilationContext{ShardID: "probe"})
 	if loopErr != nil {
 		t.Fatalf("beginWorkingLoop: %v", loopErr)
 	}

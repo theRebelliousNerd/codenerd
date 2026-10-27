@@ -9,9 +9,9 @@ import (
 
 // Source-level guard: runCampaignResume must boot through the same Cortex
 // factory as runCampaignStart (GetOrBootCortex +
-// buildCampaignOrchestratorConfig + SetPromptProvider) instead of
-// hand-assembling a parallel stack with nil stores and no ToolPregenerator.
-// No Cortex boot here: these tests only parse cmd_campaign.go.
+// buildCampaignOrchestratorConfig + newCampaignOrchestrator, which sets the
+// prompt provider) instead of hand-assembling a parallel stack with nil
+// stores. No Cortex boot here: these tests only parse cmd_campaign.go.
 
 func parseCmdCampaign(t *testing.T) *ast.File {
 	t.Helper()
@@ -79,7 +79,7 @@ func resumeCallSet(t *testing.T) map[string]bool {
 
 func TestRunCampaignResumeBootsCortex(t *testing.T) {
 	got := resumeCallSet(t)
-	want := []string{"GetOrBootCortex", "buildCampaignOrchestratorConfig", "SetPromptProvider"}
+	want := []string{"GetOrBootCortex", "buildCampaignOrchestratorConfig", "newCampaignOrchestrator"}
 	for _, name := range want {
 		if !got[name] {
 			t.Errorf("runCampaignResume must call %s (same boot as runCampaignStart)", name)

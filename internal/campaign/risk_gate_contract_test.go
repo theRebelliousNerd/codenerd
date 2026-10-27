@@ -51,13 +51,14 @@ func riskContractCampaign(id string, paths ...string) *Campaign {
 func riskContractOrchestrator(t *testing.T, kernel core.Kernel, c *Campaign) *Orchestrator {
 	t.Helper()
 	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:    criticalWorkspace(t),
-		Kernel:       kernel,
-		LLMClient:    &MockLLMClient{},
-		TaskExecutor: &MockTaskExecutor{},
-		Executor:     tactile.NewDirectExecutor(),
-		VirtualStore: &core.VirtualStore{},
-		EventChan:    make(chan OrchestratorEvent, 64),
+		Workspace:         criticalWorkspace(t),
+		Kernel:            kernel,
+		LLMClient:         &MockLLMClient{},
+		PlanningLLMClient: &MockLLMClient{},
+		TaskExecutor:      &MockTaskExecutor{},
+		Executor:          tactile.NewDirectExecutor(),
+		VirtualStore:      &core.VirtualStore{},
+		EventChan:         make(chan OrchestratorEvent, 64),
 	})
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)
@@ -381,10 +382,6 @@ func TestRun_WhenRiskPreflightHardBlocks_ShouldReturnRenderableError(t *testing.
 		if !strings.Contains(rendered, want) {
 			t.Errorf("rendered block is missing %q:\n%s", want, rendered)
 		}
-	}
-
-	if orch.LastRiskEvaluation() == nil {
-		t.Error("LastRiskEvaluation should expose the evaluation after a refused start")
 	}
 }
 

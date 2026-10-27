@@ -11,6 +11,8 @@ import (
 
 // Config configures a broker.
 type Config struct {
+	Router          ClientRouter
+	CredentialAlias string
 	// Provider and Model name the backend, for receipts and counting.
 	Provider string
 	Model    string
@@ -46,7 +48,7 @@ type core struct {
 // — cmd/nerd/chat tags the Codex CLI engine this way so JIT can select
 // engine-specific prompt atoms. Those sites use Base to reach through the
 // decorator chain instead of asserting on whatever happens to be outermost.
-func (c *core) Unwrap() types.LLMClient { return c.underlying }
+func (c *core) Unwrap() types.LLMClient { return c.delegate() }
 
 // SetModel forwards to the underlying client when it supports it, and keeps the
 // broker's own idea of the model in step so receipts and counts stay correct
@@ -57,15 +59,29 @@ func (c *core) SetModel(model string) {
 		c.model = model
 		c.mu.Unlock()
 	}
-	if setter, ok := c.underlying.(interface{ SetModel(string) }); ok {
-		setter.SetModel(model)
-	}
+	c.eachClient(func(client types.LLMClient) {
+		if setter, ok := client.(interface{ SetModel(string) }); ok {
+			setter.SetModel(model)
+		}
+	})
 }
 
 // SetCachedContent forwards provider cached-content handles.
 func (c *core) SetCachedContent(handle string) {
-	if p, ok := c.underlying.(interface{ SetCachedContent(string) }); ok {
-		p.SetCachedContent(handle)
+	if router := c.cfg.Router; router != nil {
+		router.ConfigureCurrent(func(client types.LLMClient) {
+			if _, supported := Base(client).(interface{ SetCachedContent(string) }); !supported {
+				return
+			}
+			router.Pin(handle != "")
+			if setter, ok := client.(interface{ SetCachedContent(string) }); ok {
+				setter.SetCachedContent(handle)
+			}
+		})
+		return
+	}
+	if setter, ok := c.underlying.(interface{ SetCachedContent(string) }); ok {
+		setter.SetCachedContent(handle)
 	}
 }
 
@@ -74,7 +90,7 @@ func (c *core) SetCachedContent(handle string) {
 // answered for itself here would re-enable structured output on a client that
 // had deliberately switched it off.
 func (c *core) SchemaCapable() bool {
-	if checker, ok := c.underlying.(interface{ SchemaCapable() bool }); ok {
+	if checker, ok := c.delegate().(interface{ SchemaCapable() bool }); ok {
 		return checker.SchemaCapable()
 	}
 	return true
@@ -127,14 +143,15 @@ var _ usage.Observer = (*callObserver)(nil)
 func (c *core) admit(ctx context.Context, req *Request) (Receipt, *AdmissionError) {
 	purpose := PurposeFromContext(ctx)
 	receipt := Receipt{
-		Purpose:  purpose,
-		Provider: c.cfg.Provider,
-		Model:    req.Model,
-		Method:   req.Method,
-		Started:  time.Now(),
-		Scope:    usage.SessionIDFromContext(ctx),
-		Phase:    PhaseFromContext(ctx),
-		Prefix:   prefixFingerprint(req),
+		Purpose:         purpose,
+		CredentialAlias: c.cfg.CredentialAlias,
+		Provider:        c.cfg.Provider,
+		Model:           req.Model,
+		Method:          req.Method,
+		Started:         time.Now(),
+		Scope:           usage.SessionIDFromContext(ctx),
+		Phase:           PhaseFromContext(ctx),
+		Prefix:          prefixFingerprint(req),
 	}
 
 	count, err := c.cfg.Counter.Count(ctx, req)
@@ -263,6 +280,9 @@ func (c *core) observed(ctx context.Context) (context.Context, *callObserver) {
 
 // Complete implements types.LLMClient.
 func (c *core) Complete(ctx context.Context, prompt string) (string, error) {
+	if c.cfg.Router != nil {
+		return routeCall(ctx, c.cfg.Router, func(ctx context.Context, client types.LLMClient) (string, error) { return client.Complete(ctx, prompt) })
+	}
 	req := &Request{
 		Provider: c.cfg.Provider,
 		Model:    c.currentModel(),
@@ -278,6 +298,11 @@ func (c *core) Complete(ctx context.Context, prompt string) (string, error) {
 
 // CompleteWithSystem implements types.LLMClient.
 func (c *core) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	if c.cfg.Router != nil {
+		return routeCall(ctx, c.cfg.Router, func(ctx context.Context, client types.LLMClient) (string, error) {
+			return client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		})
+	}
 	req := &Request{
 		Provider: c.cfg.Provider,
 		Model:    c.currentModel(),
@@ -292,6 +317,11 @@ func (c *core) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt 
 
 // CompleteWithTools implements types.LLMClient.
 func (c *core) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	if c.cfg.Router != nil {
+		return routeCall(ctx, c.cfg.Router, func(ctx context.Context, client types.LLMClient) (*types.LLMToolResponse, error) {
+			return client.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
+		})
+	}
 	req := &Request{
 		Provider: c.cfg.Provider,
 		Model:    c.currentModel(),
@@ -312,6 +342,13 @@ func (c *core) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt s
 // receipt is emitted when the turn actually ends rather than when it starts,
 // which is also the only way a streamed turn's real cost is ever recorded.
 func (c *core) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+	if c.cfg.Router != nil {
+		content, _, errs := c.cfg.Router.Stream(ctx, func(ctx context.Context, client types.LLMClient) (<-chan string, <-chan string, <-chan error) {
+			content, errs := client.CompleteWithStreaming(ctx, systemPrompt, userPrompt, enableThinking)
+			return content, nil, errs
+		})
+		return content, errs
+	}
 	req := &Request{
 		Provider: c.cfg.Provider,
 		Model:    c.currentModel(),

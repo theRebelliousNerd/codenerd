@@ -675,6 +675,14 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 	if budget <= 0 {
 		budget = DefaultTokenBudget()
 	}
+	// A subagent served by a capped slot (a worker's max_input_tokens, which
+	// its client reports) is compiled for the window it will be sent, not the
+	// session's: the same min its executor applies to every request
+	// (slotCappedBudget). The client is the one servingIdentity names below.
+	s.mu.RLock()
+	served := s.llmClient
+	s.mu.RUnlock()
+	budget, _ = slotCappedBudget(budget, broker.InputWindow(served))
 	compilationCtx := &prompt.CompilationContext{
 		IntentVerb:      intentVerb,
 		OperationalMode: "/active",

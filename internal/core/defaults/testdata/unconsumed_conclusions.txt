@@ -165,8 +165,6 @@ unconsumed exclude_from_context
 unconsumed explicit_tool_request
 unconsumed failed_campaign_task
 unconsumed failed_edit
-unconsumed failed_request
-unconsumed failed_request_at
 unconsumed file_dependency
 unconsumed file_has_security_sensitive
 unconsumed file_in_project
@@ -241,7 +239,6 @@ unconsumed hidden_coupling
 unconsumed high_impact_edit
 unconsumed high_priority_review
 unconsumed higher_priority_repair
-unconsumed honeypot_detected
 unconsumed hotspot_file
 unconsumed immediate_capability
 unconsumed impact_warning
@@ -303,8 +300,6 @@ unconsumed intent_is_question
 unconsumed intent_ready_for_executive
 unconsumed intent_semantic_type
 unconsumed intent_state_category
-unconsumed interaction_blocked
-unconsumed interaction_blocked_at
 unconsumed is_api_handler_function
 unconsumed is_called
 unconsumed is_context_aware
@@ -336,23 +331,7 @@ unconsumed left_of
 unconsumed long_file_warning
 unconsumed long_term_capability
 unconsumed mcp_server_facet_available
-unconsumed mcp_shard_type
-unconsumed mcp_tool_available
-unconsumed mcp_tool_base_relevance
 unconsumed mcp_tool_browsable
-unconsumed mcp_tool_domain_boost
-unconsumed mcp_tool_domain_boost_candidate
-unconsumed mcp_tool_has_vector_score
-unconsumed mcp_tool_intent_boost
-unconsumed mcp_tool_intent_boost_candidate
-unconsumed mcp_tool_logic_score
-unconsumed mcp_tool_relevance
-unconsumed mcp_tool_selected
-unconsumed mcp_tool_success_rate
-unconsumed mcp_tool_usage_boost
-unconsumed mcp_tool_usage_boost_candidate
-unconsumed mcp_tool_usage_penalty
-unconsumed mcp_tool_usage_penalty_candidate
 unconsumed merge_allowed
 unconsumed method_in_scope
 unconsumed method_of
@@ -456,8 +435,6 @@ unconsumed review_passed
 unconsumed review_rejection_count
 unconsumed risk_addressing_requirement
 unconsumed risk_is_addressed
-unconsumed root_cause
-unconsumed root_cause_at
 unconsumed routing_blocked
 unconsumed routing_succeeded
 unconsumed rule_applied
@@ -479,8 +456,6 @@ unconsumed should_compress_phase
 unconsumed should_target_lazy_pattern
 unconsumed side_effect_attempted
 unconsumed simple_goal
-unconsumed slow_api
-unconsumed slow_api_at
 unconsumed source_file_failure
 unconsumed source_has_test_in_dir
 unconsumed spawn_subagent
@@ -563,7 +538,6 @@ unconsumed unsafe_deref
 unconsumed unserved_persona
 unconsumed unvalidated_side_effect
 unconsumed unwired_function
-unconsumed user_visible_error
 unconsumed uses_memoization
 unconsumed uses_side_effects
 unconsumed uses_state_management

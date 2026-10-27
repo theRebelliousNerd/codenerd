@@ -632,8 +632,10 @@ func (o *Orchestrator) executeAssaultTriageTask(ctx context.Context, task *Task)
 	}, nil
 }
 
+// llmAssaultRemediationPlan asks the planning client for the remediation
+// plan: planning, like decomposition and replanning, not task execution.
 func (o *Orchestrator) llmAssaultRemediationPlan(ctx context.Context, cfg AssaultConfig, summary string) []assaultRemediationTask {
-	if o.llmClient == nil {
+	if o.planningClient == nil {
 		return nil
 	}
 
@@ -642,7 +644,7 @@ func (o *Orchestrator) llmAssaultRemediationPlan(ctx context.Context, cfg Assaul
 		promptProvider = NewStaticPromptProvider()
 	}
 
-	assaultPrompt, err := promptProvider.GetPrompt(ctx, RoleAssault, o.campaign.ID)
+	assaultPrompt, err := promptProvider.GetPrompt(ctx, RoleAssault, o.campaign.ID, o.planningClient)
 	if err != nil || strings.TrimSpace(assaultPrompt) == "" {
 		assaultPrompt = AssaultLogic
 	}
@@ -674,7 +676,7 @@ Output ONLY valid JSON:
 `, summary, cfg.MaxRemediationTasks)
 
 	// Reply is unmarshalled directly; no Piggyback envelope schema.
-	resp, err := o.llmClient.Complete(types.WithStructuredOutputOnly(ctx), assaultPrompt+"\n\n"+userPrompt)
+	resp, err := o.planningClient.Complete(types.WithStructuredOutputOnly(ctx), assaultPrompt+"\n\n"+userPrompt)
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Warn("Assault triage LLM call failed: %v", err)
 		return nil

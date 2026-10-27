@@ -736,68 +736,6 @@ type EdgeCaseAnalysis struct {
 	NoTestFiles     []string `json:"no_test_files"`
 }
 
-// FormatForContext formats the analysis for LLM context injection.
-func (a *EdgeCaseAnalysis) FormatForContext() string {
-	var sb strings.Builder
-
-	sb.WriteString("# EDGE CASE ANALYSIS\n\n")
-	sb.WriteString(fmt.Sprintf("**Total Files:** %d\n", a.TotalFiles))
-	sb.WriteString(fmt.Sprintf("**Requires Pre-work:** %d files\n\n", a.RequiresPrework))
-
-	// Action breakdown
-	sb.WriteString("## Action Breakdown\n")
-	for action, count := range a.ActionCounts {
-		sb.WriteString(fmt.Sprintf("- %s: %d files\n", action.String(), count))
-	}
-	sb.WriteString("\n")
-
-	// Files requiring modularization
-	if len(a.ModularizeFiles) > 0 {
-		sb.WriteString("## ⚠️ Files Requiring Modularization\n")
-		sb.WriteString("These files are too large and should be split:\n")
-		for _, f := range a.ModularizeFiles {
-			sb.WriteString(fmt.Sprintf("- `%s`\n", f))
-		}
-		sb.WriteString("\n")
-	}
-
-	// Files requiring refactoring
-	if len(a.RefactorFiles) > 0 {
-		sb.WriteString("## ⚠️ Files Requiring Refactoring First\n")
-		sb.WriteString("These files have quality issues to address before modification:\n")
-		for _, f := range a.RefactorFiles {
-			sb.WriteString(fmt.Sprintf("- `%s`\n", f))
-		}
-		sb.WriteString("\n")
-	}
-
-	// High impact files
-	if len(a.HighImpactFiles) > 0 {
-		sb.WriteString("## 🔴 High Impact Files\n")
-		sb.WriteString("Changes to these files affect many dependents:\n")
-		for _, f := range a.HighImpactFiles {
-			sb.WriteString(fmt.Sprintf("- `%s`\n", f))
-		}
-		sb.WriteString("\n")
-	}
-
-	// Files needing tests
-	if len(a.NoTestFiles) > 0 {
-		sb.WriteString("## 📋 Files Without Tests\n")
-		sb.WriteString("Consider adding tests for:\n")
-		for i, f := range a.NoTestFiles {
-			if i >= 10 {
-				sb.WriteString(fmt.Sprintf("... and %d more\n", len(a.NoTestFiles)-10))
-				break
-			}
-			sb.WriteString(fmt.Sprintf("- `%s`\n", f))
-		}
-		sb.WriteString("\n")
-	}
-
-	return sb.String()
-}
-
 // HasBlockingIssues returns true if there are issues that should be resolved before proceeding.
 func (a *EdgeCaseAnalysis) HasBlockingIssues() bool {
 	return len(a.ModularizeFiles) > 0 || len(a.RefactorFiles) > 3

@@ -40,13 +40,14 @@ func acceptanceOrchestrator(t *testing.T, accept *Acceptance, exec tactile.Execu
 		t.Fatalf("new kernel: %v", err)
 	}
 	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:    t.TempDir(),
-		Kernel:       kernel,
-		LLMClient:    &MockLLMClient{},
-		TaskExecutor: &MockTaskExecutor{},
-		Executor:     exec,
-		VirtualStore: &core.VirtualStore{},
-		EventChan:    make(chan OrchestratorEvent, 64),
+		Workspace:         t.TempDir(),
+		Kernel:            kernel,
+		LLMClient:         &MockLLMClient{},
+		PlanningLLMClient: &MockLLMClient{},
+		TaskExecutor:      &MockTaskExecutor{},
+		Executor:          exec,
+		VirtualStore:      &core.VirtualStore{},
+		EventChan:         make(chan OrchestratorEvent, 64),
 	})
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)

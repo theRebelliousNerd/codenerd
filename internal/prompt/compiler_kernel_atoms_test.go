@@ -3,6 +3,7 @@ package prompt
 import (
 	"context"
 	"testing"
+	"time"
 
 	"codenerd/internal/core"
 
@@ -49,7 +50,19 @@ func TestDynamicKernelFingerprint_CanonicalContent(test *testing.T) {
 	secondAtoms, secondHash, err := compiler.collectDynamicKernelSnapshot(kernel, caller)
 	require.NoError(test, err)
 	require.Equal(test, firstHash, secondHash)
-	require.Equal(test, firstAtoms, secondAtoms)
+	// NewPromptAtom timestamps each materialization. Creation time is metadata,
+	// not part of canonical injected content or the snapshot fingerprint, so
+	// normalize only that field and compare every other atom field structurally.
+	normalizeCreationTime := func(atoms []*PromptAtom) []*PromptAtom {
+		normalized := make([]*PromptAtom, len(atoms))
+		for i, atom := range atoms {
+			copy := *atom
+			copy.CreatedAt = time.Time{}
+			normalized[i] = &copy
+		}
+		return normalized
+	}
+	require.Equal(test, normalizeCreationTime(firstAtoms), normalizeCreationTime(secondAtoms))
 	kernel.facts["specialist_knowledge"] = []Fact{{Predicate: "specialist_knowledge", Args: []any{"coder", "topic A", "knowledge changed"}}}
 	_, changedHash, err := compiler.collectDynamicKernelSnapshot(kernel, caller)
 	require.NoError(test, err)

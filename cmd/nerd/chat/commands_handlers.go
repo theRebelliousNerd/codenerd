@@ -625,7 +625,7 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 	if len(parts) < 2 {
 		m = m.addMessage(Message{
 			Role:    "assistant",
-			Content: "Usage: `/campaign <start|assault|recurse|status|pause|resume|list> [args]`",
+			Content: "Usage: `/campaign <start|assault|recurse|add|status|pause|resume|list> [args]`",
 			Time:    time.Now(),
 		})
 	} else {
@@ -687,6 +687,23 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 			m.textarea.Reset()
 			m.isLoading = true
 			return m, tea.Batch(m.spinner.Tick, m.startRecurseCampaign(parts[2:]))
+		case "add":
+			// The running campaign's plan takes the requirement on the
+			// planning tier (Orchestrator.HandleNewRequirement).
+			requirement := strings.TrimSpace(strings.Join(parts[2:], " "))
+			if requirement == "" {
+				m = m.addMessage(Message{Role: "assistant", Content: "Usage: `/campaign add <requirement>`", Time: time.Now()})
+				break
+			}
+			if _, controlErr := m.liveCampaignControlProgress(); controlErr != nil {
+				m = m.addMessage(Message{Role: "assistant", Content: "Requirement not added: " + controlErr.Error() + ".", Time: time.Now()})
+				break
+			}
+			m = m.addMessage(Message{Role: "assistant", Content: fmt.Sprintf("Adding to the running campaign: %s", requirement), Time: time.Now()})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textarea.Reset()
+			return m, m.addCampaignRequirement(requirement)
 		case "status":
 			content := m.renderCampaignStatus()
 			m = m.addMessage(Message{
@@ -697,38 +714,40 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 		case "pause":
 			if stopped, ok := m.stopRecurse(); ok {
 				m = stopped
-			} else if m.activeCampaign != nil {
-				m.activeCampaign.Status = campaign.StatusPaused
-				m = m.addMessage(Message{
-					Role:    "assistant",
-					Content: "Campaign paused.",
-					Time:    time.Now(),
-				})
 			} else {
-				m = m.addMessage(Message{
-					Role:    "assistant",
-					Content: "No active campaign to pause.",
-					Time:    time.Now(),
-				})
+				progress, controlErr := m.liveCampaignControlProgress()
+				if controlErr == nil && progress.CampaignStatus != string(campaign.StatusActive) && progress.CampaignStatus != string(campaign.StatusPaused) {
+					controlErr = fmt.Errorf("campaign is not running (live status %s)", progress.CampaignStatus)
+				}
+				if controlErr != nil {
+					m = m.addMessage(Message{Role: "assistant", Content: "Campaign not paused: " + controlErr.Error() + ".", Time: time.Now()})
+				} else {
+					m.campaignOrch.Pause()
+					progress = m.campaignOrch.GetProgress()
+					if progress.CampaignID == "" || progress.CampaignID != m.activeCampaign.ID || progress.CampaignStatus != string(campaign.StatusPaused) {
+						m = m.addMessage(Message{Role: "assistant", Content: "Campaign pause was not confirmed by the live orchestrator.", Time: time.Now()})
+					} else {
+						m.syncCampaignControlProgress(progress)
+						m = m.addMessage(Message{Role: "assistant", Content: "Campaign paused.", Time: time.Now()})
+					}
+				}
 			}
 		case "resume":
-			if m.activeCampaign != nil && m.activeCampaign.Status == campaign.StatusPaused {
-				m = m.addMessage(Message{
-					Role:    "assistant",
-					Content: "Resuming campaign...",
-					Time:    time.Now(),
-				})
-				m.viewport.SetContent(m.renderHistory())
-				m.viewport.GotoBottom()
-				m.textarea.Reset()
-				m.isLoading = true
-				return m, tea.Batch(m.spinner.Tick, m.resumeCampaign())
+			progress, controlErr := m.liveCampaignControlProgress()
+			if controlErr == nil && progress.CampaignStatus != string(campaign.StatusPaused) {
+				controlErr = fmt.Errorf("campaign is not paused (live status %s)", progress.CampaignStatus)
+			}
+			if controlErr != nil {
+				m = m.addMessage(Message{Role: "assistant", Content: "Campaign not resumed: " + controlErr.Error() + ".", Time: time.Now()})
 			} else {
-				m = m.addMessage(Message{
-					Role:    "assistant",
-					Content: "No paused campaign to resume.",
-					Time:    time.Now(),
-				})
+				m.campaignOrch.Resume()
+				progress = m.campaignOrch.GetProgress()
+				if progress.CampaignID == "" || progress.CampaignID != m.activeCampaign.ID || progress.CampaignStatus != string(campaign.StatusActive) {
+					m = m.addMessage(Message{Role: "assistant", Content: "Campaign resume was not confirmed by the live orchestrator.", Time: time.Now()})
+				} else {
+					m.syncCampaignControlProgress(progress)
+					m = m.addMessage(Message{Role: "assistant", Content: "Campaign resumed.", Time: time.Now()})
+				}
 			}
 		case "list":
 			content := m.renderCampaignList()
@@ -744,6 +763,33 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 	m.textarea.Reset()
 	return m, nil
 
+}
+
+// liveCampaignControlProgress requires the chat's active campaign and the
+// orchestrator's live state to identify the same campaign. The UI snapshot
+// alone is not proof that there is a running process to control.
+func (m Model) liveCampaignControlProgress() (campaign.Progress, error) {
+	if m.activeCampaign == nil {
+		return campaign.Progress{}, fmt.Errorf("no active campaign")
+	}
+	if m.campaignOrch == nil {
+		return campaign.Progress{}, fmt.Errorf("the live campaign orchestrator is unavailable")
+	}
+	progress := m.campaignOrch.GetProgress()
+	if progress.CampaignID == "" || progress.CampaignID != m.activeCampaign.ID {
+		return campaign.Progress{}, fmt.Errorf("the live orchestrator has no matching campaign")
+	}
+	return progress, nil
+}
+
+// syncCampaignControlProgress mirrors the control result from the orchestrator
+// into the chat's campaign view. The orchestrator owns the transition; this
+// copy only keeps the displayed state aligned with it.
+func (m *Model) syncCampaignControlProgress(progress campaign.Progress) {
+	m.campaignProgress = &progress
+	if m.activeCampaign != nil {
+		m.campaignPage.UpdateContent(m.campaignProgress, m.activeCampaign)
+	}
 }
 
 // handleToolCommand handles the corresponding chat slash-command.

@@ -82,7 +82,7 @@ func (e *Executor) runToolLoopPass(
 	// generation, the no-tool retry, and every tool-result follow-up — shares
 	// one conversation history, so they must all hit the same client.
 	client := e.llmForVerb(result.Intent.Verb)
-	ctx, closeWorking, workingErr := e.beginWorkingLoop(ctx, userInput, compilationCtx)
+	ctx, closeWorking, workingErr := e.beginWorkingLoop(ctx, client, userInput, compilationCtx)
 	if workingErr != nil {
 		return nil, nil, workingErr
 	}
@@ -1347,7 +1347,7 @@ func (e *Executor) withFileContext(ctx context.Context, systemPrompt, target str
 	// section renders whole rather than guessing a number.
 	section := ""
 	if loop := activeWorkingLoop(ctx); loop != nil && loop.set != nil {
-		section = p.PromptSectionWithBudget(ctx, target, e.holographicBudgetBytes(), loop.set.DecideRenderCount)
+		section = p.PromptSectionWithBudget(ctx, target, e.holographicBudgetBytes(loop), loop.set.DecideRenderCount)
 	} else {
 		section = p.PromptSection(ctx, target)
 	}
@@ -1359,15 +1359,13 @@ func (e *Executor) withFileContext(ctx context.Context, systemPrompt, target str
 }
 
 // holographicBudgetBytes is the render budget the holographic policy divides:
-// the turn's token window in bytes. It is workingWindow's number in the unit the
-// renderer measures its lines in, converted by the one BytesPerToken the
-// ledger ceiling derives from, not a second literal.
-func (e *Executor) holographicBudgetBytes() int {
-	window := e.configSnapshot().TokenBudget
-	if window <= 0 {
-		window = DefaultTokenBudget()
-	}
-	return window * nerdconfig.BytesPerToken
+// the loop's token window in bytes. It is the window prepareWorkingRequest
+// measures the loop's requests against (inputBudgetFor, capped by the serving
+// slot's max_input_tokens) in the unit the renderer measures its lines in,
+// converted by the one BytesPerToken the ledger ceiling derives from, not a
+// second literal.
+func (e *Executor) holographicBudgetBytes(loop *workingLoop) int {
+	return e.inputBudgetFor(loop.inputCap).tokens * nerdconfig.BytesPerToken
 }
 
 // projectDocPathArgs are the argument names a write-mutation tool may use to
@@ -2355,6 +2353,14 @@ const toolTimeoutGrace = 30 * time.Second
 // 2. Ouroboros tools (core.ToolRegistry) - compiled binary tools
 func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *config.EffectiveAgentRuntimeConfig) (string, error) {
 	executorCfg := e.configSnapshot()
+	// The effective JIT allowlist is authoritative for every execution backend,
+	// and it is checked first: a tool this turn may not use is refused for that
+	// reason, before any backend (the generated-execution bridge included) is
+	// consulted. Registry membership only proves that a handler exists; it does
+	// not grant the current agent the capability to invoke that handler.
+	if !e.isToolAllowed(call.Name, cfg) {
+		return "", fmt.Errorf("tool %s not allowed by effective JIT config", call.Name)
+	}
 	e.mu.RLock()
 	generatedRegistry := e.ouroborosRegistry
 	e.mu.RUnlock()
@@ -2402,12 +2408,6 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 			releaseAuthorization()
 		}
 	}()
-	// The effective JIT allowlist is authoritative for every execution backend.
-	// Registry membership only proves that a handler exists; it does not grant
-	// the current agent the capability to invoke that handler.
-	if !e.isToolAllowed(call.Name, cfg) {
-		return "", fmt.Errorf("tool %s not allowed by effective JIT config", call.Name)
-	}
 	// Under the commit regime the read tools are withheld from the catalog; a
 	// call to one anyway is answered with the regime, not run, and not counted
 	// as a failure: it is steering, and the stall span still governs.

@@ -132,16 +132,21 @@ func TestExecutorOuroborosRegistryDoesNotGrantCapability(t *testing.T) {
 		t.Fatalf("unlisted Ouroboros tool execution count = %d, want 0", deniedTool.ExecuteCount)
 	}
 
-	// The command intentionally receives a JSON argument that is not a valid Go
-	// subcommand. Reaching the registry (rather than an allowlist denial) and
-	// incrementing ExecuteCount proves the listed capability crossed this gate.
+	// A listed capability crosses the allowlist and reaches the generated
+	// execution backend. That backend is the governed bridge on the
+	// VirtualStore (mandatory since generated execution was bound to it); this
+	// store has none, so reaching it is the bridge refusal, and the registry
+	// never runs the tool directly.
 	_, err = executor.executeToolCall(context.Background(), ToolCall{Name: allowedName}, effective)
-	if err != nil && strings.Contains(err.Error(), "not allowed by effective JIT config") {
-		t.Fatalf("listed Ouroboros capability was denied: %v", err)
+	if err == nil || strings.Contains(err.Error(), "not allowed by effective JIT config") {
+		t.Fatalf("listed Ouroboros capability did not reach the generated backend: %v", err)
+	}
+	if !strings.Contains(err.Error(), "mandatory generated execution bridge disconnected") {
+		t.Fatalf("listed Ouroboros capability error = %v, want the generated bridge refusal", err)
 	}
 	allowedTool, _ := registry.GetTool(allowedName)
-	if allowedTool.ExecuteCount != 1 {
-		t.Fatalf("listed Ouroboros tool execution count = %d, want 1", allowedTool.ExecuteCount)
+	if allowedTool.ExecuteCount != 0 {
+		t.Fatalf("listed Ouroboros tool ran outside the generated bridge %d times", allowedTool.ExecuteCount)
 	}
 }
 

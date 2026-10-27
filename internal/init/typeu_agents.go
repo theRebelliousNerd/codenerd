@@ -154,12 +154,15 @@ func isAlphanumericRune(r rune) bool {
 	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
 }
 
+// typeUAgentType is the RecommendedAgent.Type of a user-defined agent.
+const typeUAgentType = "user"
+
 // ToRecommendedAgent converts a TypeUAgentDefinition to a RecommendedAgent.
 // Type U agents are marked as "user" type and given default permissions.
 func (def *TypeUAgentDefinition) ToRecommendedAgent() RecommendedAgent {
 	return RecommendedAgent{
 		Name:        def.Name,
-		Type:        "user", // Type U agents are marked as "user" type
+		Type:        typeUAgentType,
 		Description: def.Role,
 		Topics:      def.Topics,
 		Permissions: []string{"read_file", "code_graph", "exec_cmd"}, // Default permissions

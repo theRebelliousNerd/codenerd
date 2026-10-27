@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,6 +72,28 @@ func TestEditFile_RecordsTheElementWhoseBodyChanged(t *testing.T) {
 	got := declsOf(edits)
 	if len(got) != 1 || got[0].Name != "Add" || got[0].Kind != "function" || got[0].Package != "calc" || got[0].File != "calc.go" || got[0].Removed {
 		t.Fatalf("got %+v", edits)
+	}
+}
+
+func TestListFiles_RejectsNullPathBeforeDefaultingToWorkspaceRoot(t *testing.T) {
+	dir := resolvedTemp(t)
+	reg := tools.NewRegistry()
+	if err := RegisterAll(reg); err != nil {
+		t.Fatal(err)
+	}
+	reg.SetWorkspaceRoot(dir)
+	factSinkCalled := false
+	reg.SetFactSink(func(context.Context, tools.ExecutionRecord) { factSinkCalled = true })
+
+	result, err := reg.Execute(context.Background(), "list_files", map[string]any{"path": nil})
+	if !errors.Is(err, tools.ErrInvalidArgType) {
+		t.Fatalf("list_files with path=null error = %v; want ErrInvalidArgType", err)
+	}
+	if result == nil || !errors.Is(result.Error, tools.ErrInvalidArgType) {
+		t.Fatalf("list_files result = %+v; want typed argument rejection", result)
+	}
+	if factSinkCalled {
+		t.Fatal("rejected arguments reached the completed-execution fact sink")
 	}
 }
 

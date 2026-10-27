@@ -31,14 +31,20 @@ func TestConfigWiring(t *testing.T) {
 		{
 			TypeName:  "OrchestratorConfig",
 			FieldName: "NorthstarObserver",
-			MinSites:  3, // start and resume share one builder since 2026-09-04 (cmd/nerd/cmd_campaign.go); resume path literal deleted in run 47
+			MinSites:  2, // the chat doors share one method (cmd/nerd/chat/campaign_planning.go) since 2026-10-27, plus the campaign runner; the CLI builder assigns fields
 			Why:       "campaigns on protected roots refused when NorthstarObserver is nil (the workspace nerd.md critical: list, riskCriticalPaths in risk_scoring.go) - one campaign was refused 850 times in a day",
 		},
 		{
 			TypeName:  "OrchestratorConfig",
 			FieldName: "TaskExecutor",
-			MinSites:  3, // start and resume share one builder since 2026-09-04 (cmd/nerd/cmd_campaign.go); resume path literal deleted in run 47
+			MinSites:  2, // the chat doors share one method (cmd/nerd/chat/campaign_planning.go) since 2026-10-27, plus the campaign runner; the CLI builder assigns fields
 			Why:       "checkpoints reporting PASS without verifying when TaskExecutor is nil (runShardValidationCheckpoint and runNemesisGauntletCheckpoint in checkpoint.go cannot run and returned PASS for verifications that never ran)",
+		},
+		{
+			TypeName:  "OrchestratorConfig",
+			FieldName: "PlanningLLMClient",
+			MinSites:  2, // as above
+			Why:       "campaign planning ran on the main client while the planner slot sat unused: cmd/nerd/cmd_campaign.go fetched cortex.PlannerLLM() and discarded it",
 		},
 	}
 
@@ -159,12 +165,13 @@ func TestNewOrchestrator_WhenKernelIsReal_ShouldDefaultWireIntelligence(t *testi
 	}
 
 	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:    t.TempDir(),
-		Kernel:       kernel,
-		LLMClient:    &MockLLMClient{},
-		TaskExecutor: &MockTaskExecutor{},
-		Executor:     tactile.NewDirectExecutor(),
-		VirtualStore: &core.VirtualStore{},
+		Workspace:         t.TempDir(),
+		Kernel:            kernel,
+		LLMClient:         &MockLLMClient{},
+		PlanningLLMClient: &MockLLMClient{},
+		TaskExecutor:      &MockTaskExecutor{},
+		Executor:          tactile.NewDirectExecutor(),
+		VirtualStore:      &core.VirtualStore{},
 	})
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)
@@ -196,6 +203,7 @@ func TestNewOrchestrator_WhenIntelligenceSupplied_ShouldNotOverrideIt(t *testing
 		Workspace:            t.TempDir(),
 		Kernel:               kernel,
 		LLMClient:            &MockLLMClient{},
+		PlanningLLMClient:    &MockLLMClient{},
 		TaskExecutor:         &MockTaskExecutor{},
 		Executor:             tactile.NewDirectExecutor(),
 		VirtualStore:         &core.VirtualStore{},

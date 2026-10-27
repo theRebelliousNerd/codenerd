@@ -547,12 +547,21 @@ type ScoredAtom struct {
 	Source string
 }
 
+// selectorVectorConfig is one consistent view of the mutable vector-search
+// settings. The compiler pins it to a private context for each config generation.
+type selectorVectorConfig struct {
+	searcher VectorSearcher
+	weight   float64
+	timeout  time.Duration
+}
+
 // AtomSelector selects atoms based on context using Mangle rules + vector search.
 // It implements a hybrid selection strategy:
 // 1. Rule-based filtering using Mangle predicates
 // 2. Semantic scoring using vector embeddings
 // 3. Context matching using selector dimensions
 type AtomSelector struct {
+	vectorConfigMu sync.RWMutex
 	kernel         KernelQuerier
 	vectorSearcher VectorSearcher
 
@@ -582,7 +591,19 @@ func (s *AtomSelector) SetKernel(kernel KernelQuerier) {
 
 // SetVectorSearcher sets the vector searcher for semantic selection.
 func (s *AtomSelector) SetVectorSearcher(vs VectorSearcher) {
+	s.vectorConfigMu.Lock()
+	defer s.vectorConfigMu.Unlock()
 	s.vectorSearcher = vs
+}
+
+func (s *AtomSelector) vectorConfigSnapshot() selectorVectorConfig {
+	s.vectorConfigMu.RLock()
+	defer s.vectorConfigMu.RUnlock()
+	return selectorVectorConfig{
+		searcher: s.vectorSearcher,
+		weight:   s.vectorWeight,
+		timeout:  s.vectorSearchTimeout,
+	}
 }
 
 // SetVectorWeight sets the weight of vector scores in combined calculation.
@@ -593,7 +614,19 @@ func (s *AtomSelector) SetVectorWeight(weight float64) {
 	if weight > 1 {
 		weight = 1
 	}
+	s.vectorConfigMu.Lock()
 	s.vectorWeight = weight
+	s.vectorConfigMu.Unlock()
+}
+
+func (s *AtomSelector) vectorWeightFor(cc *CompilationContext) float64 {
+	if cc != nil && cc.HasVectorWeight {
+		return cc.VectorWeight
+	}
+	if cc != nil && cc.selectorVectorConfig != nil {
+		return cc.selectorVectorConfig.weight
+	}
+	return s.vectorConfigSnapshot().weight
 }
 
 // SetMinScoreThreshold sets the minimum score for atom inclusion.
@@ -606,7 +639,9 @@ func (s *AtomSelector) SetVectorSearchTimeout(timeout time.Duration) {
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
+	s.vectorConfigMu.Lock()
 	s.vectorSearchTimeout = timeout
+	s.vectorConfigMu.Unlock()
 }
 
 // SelectAtoms selects the best atoms from the candidates using System 2 bifurcation.
@@ -692,6 +727,14 @@ func (s *AtomSelector) runSelection(
 
 	if cc == nil {
 		cc = NewCompilationContext()
+	} else {
+		// Attach selection-local settings without changing caller-owned context.
+		contextCopy := *cc
+		cc = &contextCopy
+	}
+	if cc.selectorVectorConfig == nil {
+		settings := s.vectorConfigSnapshot()
+		cc.selectorVectorConfig = &settings
 	}
 
 	atoms = filterAtomsForStructuredOutput(atoms, cc)
@@ -736,7 +779,7 @@ func (s *AtomSelector) runSelection(
 			return
 		}
 		vectorSearch := func() map[string]float64 {
-			if s.vectorSearcher == nil || cc.SemanticQuery == "" {
+			if cc.SemanticQuery == "" {
 				return nil
 			}
 			// Fetch scores for the whole corpus, not just the global top-K:
@@ -745,7 +788,7 @@ func (s *AtomSelector) runSelection(
 			// are then discarded, while the relevant eligible atom ranked
 			// just below never receives a vector_hit. Reduction to the k
 			// highest eligible scores happens below.
-			return s.getVectorScores(ctx, cc.SemanticQuery, len(atoms))
+			return s.getVectorScoresWithConfig(ctx, cc.SemanticQuery, len(atoms), *cc.selectorVectorConfig)
 		}
 		var rawScores map[string]float64
 		if wantTiming {
@@ -876,19 +919,28 @@ func (s *AtomSelector) getVectorScores(
 	query string,
 	topK int,
 ) map[string]float64 {
-	if s.vectorSearcher == nil {
+	return s.getVectorScoresWithConfig(ctx, query, topK, s.vectorConfigSnapshot())
+}
+
+func (s *AtomSelector) getVectorScoresWithConfig(
+	ctx context.Context,
+	query string,
+	topK int,
+	config selectorVectorConfig,
+) map[string]float64 {
+	if config.searcher == nil {
 		return nil
 	}
 
 	// Use a sub-deadline to prevent vector search from blocking the entire compilation.
 	// If embedding/search takes too long, we skip vector scoring rather than failing.
-	searchCtx, cancel := context.WithTimeout(ctx, s.vectorSearchTimeout)
+	searchCtx, cancel := context.WithTimeout(ctx, config.timeout)
 	defer cancel()
 
-	results, err := s.vectorSearcher.Search(searchCtx, query, topK)
+	results, err := config.searcher.Search(searchCtx, query, topK)
 	if err != nil {
 		if searchCtx.Err() != nil {
-			logging.Get(logging.CategoryJIT).Warn("Vector search timed out (%v limit)", s.vectorSearchTimeout)
+			logging.Get(logging.CategoryJIT).Warn("Vector search timed out (%v limit)", config.timeout)
 		} else {
 			logging.Get(logging.CategoryJIT).Warn("Vector search failed: %v", err)
 		}
@@ -1147,10 +1199,7 @@ func (s *AtomSelector) queryFleshAtoms(
 		// Calculate combined score
 		vScore := vectorScores[atomID]
 		logicScore := 1.0
-		weight := s.vectorWeight
-		if cc != nil && cc.HasVectorWeight {
-			weight = cc.VectorWeight
-		}
+		weight := s.vectorWeightFor(cc)
 		combined := (1.0-weight)*logicScore + weight*vScore
 
 		selected = append(selected, &ScoredAtom{
@@ -1211,10 +1260,7 @@ func (s *AtomSelector) fallbackFleshSelection(
 
 		// Calculate score
 		vScore := vectorScores[atom.ID]
-		weight := s.vectorWeight
-		if cc != nil && cc.HasVectorWeight {
-			weight = cc.VectorWeight
-		}
+		weight := s.vectorWeightFor(cc)
 		combined := (1.0 - weight) + weight*vScore // Base logic score is implicitly 1.0 for the multiplier before vector weight
 		atom = applyMandatoryOverride(atom, forcedMandatory)
 

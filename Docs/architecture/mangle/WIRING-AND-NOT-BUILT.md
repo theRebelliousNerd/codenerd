@@ -121,3 +121,14 @@ records what this pass closed and the test that proves each.
 | stored LSP engine handle | `lsp.go:105-107` | built, empty, not read (declined) |
 | `MaterializeToFacts` reification | `proof_tree.go:352` | built, no production caller, no consumer (declined) |
 | `RepairLoop.ValidateAndRepair` | `grammar.go:744` | tests only (declined) |
+
+
+## Required contract: Cancelled query work
+
+Engine.Query cancellation must stop underlying direct and nested fact-store scans promptly and propagate the caller context error, including scans whose rows never pass filters. Wrap the captured read-only store with context-aware callback checks without changing logical results.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-MANGLE-QUERY-CANCELLATION | Cancelled query work | `Engine.Query` propagates cancellation through its direct and nested scan callbacks (`internal/mangle/engine.go:892`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Controlled counting stores prove canceled all-filtered EDB and derived-premise scans stop underlying work and preserve cancellation errors. |
+
+**Verified current:** `TestEngineQuery_CancellationStopsFilteredStoreScan` and `TestEngineQuery_CancellationStopsNestedPremiseScan` (`internal/mangle/engine_query_context_test.go:105`, `:123`) pass, including repeated focused runs and query regression controls.

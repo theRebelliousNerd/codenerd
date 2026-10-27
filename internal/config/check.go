@@ -115,6 +115,29 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		out = append(out, Problem{Severity: sev, Path: path, Message: msg, Fix: fix})
 	}
 	proxied := strings.TrimSpace(c.BaseURL) != ""
+	if err := c.CheckAPIKeyPools(); err != nil {
+		add(SeverityError, "api_key_pools", err.Error(), "")
+	}
+	if c.Anthropic != nil {
+		if err := c.Anthropic.Validate(); err != nil {
+			add(SeverityError, "anthropic", err.Error(), "")
+		}
+	}
+	if err := ValidateReasoningEffort(c.Provider, c.Model, c.ReasoningEffort); err != nil {
+		add(SeverityError, "reasoning_effort", err.Error(), "set an effort the main model accepts, or remove it for the default ("+DefaultReasoningEffort+")")
+	}
+	if effort := strings.TrimSpace(c.ClassificationReasoningEffort); effort != "" {
+		// Every tier that may classify is sent it: the worker's first, the
+		// main provider's fast tier as its failover.
+		for _, tier := range c.classificationTiers() {
+			if err := ValidateReasoningEffort(tier.provider, tier.model, effort); err != nil {
+				add(SeverityError, "classification_reasoning_effort",
+					fmt.Sprintf("%s classifies on %s: %v", tier.model, tier.provider, err),
+					"set an effort every classifying tier accepts, or remove it for each tier's lowest")
+				break
+			}
+		}
+	}
 
 	// --- vocabulary ---
 	if p := strings.TrimSpace(c.Provider); p != "" && !knownProviders[strings.ToLower(p)] {
@@ -146,7 +169,16 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 			add(SeverityWarning, "provider", "engine is api and no provider is named", "set provider")
 		}
 		if strings.TrimSpace(c.Model) == "" {
-			add(SeverityWarning, "model", "engine is api and no model is named; the client factory refuses to build without one", "set model")
+			// No model is ever filled in. With a named provider the main
+			// slot is built at boot and cannot be, so the file is refused;
+			// Ollama may name its tag in ollama.model instead.
+			switch p := strings.ToLower(strings.TrimSpace(c.Provider)); {
+			case p == "":
+				add(SeverityWarning, "model", "engine is api and no model is named; the client factory refuses to build without one", "set model")
+			case p == "ollama" && strings.TrimSpace(c.GetOllamaLLMConfig().Model) != "":
+			default:
+				add(SeverityError, "model", fmt.Sprintf("provider is %q and no model is named; codeNERD fills in no model", p), "set model to one "+p+" serves")
+			}
 		}
 		if p := strings.ToLower(strings.TrimSpace(c.Provider)); p != "" && p != "ollama" && c.keyFor(p) == "" {
 			add(SeverityWarning, p+"_api_key", fmt.Sprintf("provider is %q and it has no key in this file", p), "set "+p+"_api_key (or its environment variable)")
@@ -170,13 +202,26 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		if effective == "" {
 			effective = c.Provider
 		}
+		if slot.cfg.Anthropic != nil {
+			if err := slot.cfg.Anthropic.Validate(); err != nil {
+				add(SeverityError, slot.name+".anthropic", err.Error(), "")
+			}
+		}
+		if err := ValidateReasoningEffort(effective, slot.cfg.Model, slot.cfg.ReasoningEffort); err != nil {
+			add(SeverityError, slot.name+".reasoning_effort", err.Error(), "set an effort the slot's model accepts, or remove it for the slot's default")
+		}
+		checkSlotInputCap(slot.name, provider, slot.cfg.MaxInputTokens, add)
 		if strings.TrimSpace(slot.cfg.Endpoint) == "" && !(provider == "" && proxied) {
 			if why := modelBelongsElsewhere(effective, slot.cfg.Model); why != "" {
 				add(SeverityError, slot.name+".model", why, "name a model of that provider, or set "+slot.name+".provider")
 			}
 		}
-		if provider != "" && strings.TrimSpace(slot.cfg.Model) == "" {
-			add(SeverityWarning, slot.name+".model", "the slot names a provider and no model", "set "+slot.name+".model")
+		// A slot with a provider is built at boot; codeNERD fills in no model,
+		// so one without is refused. Ollama takes ollama.model when the slot
+		// names none (resolveSecondarySlot).
+		if provider != "" && strings.TrimSpace(slot.cfg.Model) == "" &&
+			!(strings.EqualFold(provider, "ollama") && strings.TrimSpace(c.GetOllamaLLMConfig().Model) != "") {
+			add(SeverityError, slot.name+".model", fmt.Sprintf("the slot names provider %q and no model; codeNERD fills in no model", provider), "set "+slot.name+".model")
 		}
 		if p := strings.ToLower(provider); p != "" && p != "ollama" && c.keyFor(p) == "" {
 			add(SeverityWarning, p+"_api_key", fmt.Sprintf("%s.provider is %q and it has no key in this file", slot.name, p), "set "+p+"_api_key")
@@ -222,6 +267,9 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		}
 		if p.TopP < 0 || p.TopP > 1 {
 			add(SeverityError, path+".top_p", fmt.Sprintf("%v is outside 0-1", p.TopP), "")
+		}
+		if own == "" || knownProviders[own] {
+			c.checkProfileEffort(path, own, p, add)
 		}
 	}
 
@@ -347,6 +395,11 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 	if c.Browser != nil {
 		out = append(out, c.Browser.Reaper.Check("browser.reaper")...)
 	}
+	// Browser policy defaults are checked through the same resolved view the
+	// factory publishes. A nil browser block therefore validates its effective
+	// defaults, while explicit zero values survive normalization and are
+	// reported as contradictions.
+	out = append(out, c.GetBrowserConfig().Policy.Check("browser.policy")...)
 
 	if c.Research != nil {
 		out = append(out, c.Research.Check("research")...)
@@ -383,8 +436,74 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 	return out
 }
 
+// checkProfileEffort judges the effort a shard profile's calls are sent with.
+// A profile that routes itself (own provider) is sent its own effort, judged
+// against its own model, or else the effort of whichever slot routed the call
+// (main, worker or planner, SecondaryLLMConfig.RouteTo), which its provider
+// must accept. A profile that does not route rides its effort on the request
+// to whichever slot serves the call, so every one of them must accept it.
+func (c *UserConfig) checkProfileEffort(path, own string, p ShardProfile, add func(sev Severity, path, msg, fix string)) {
+	field := path + ".reasoning_effort"
+	effort := strings.TrimSpace(p.ReasoningEffort)
+	if own != "" {
+		if effort != "" {
+			if err := ValidateReasoningEffort(own, p.Model, effort); err != nil {
+				add(SeverityError, field, err.Error(), "set an effort "+p.Model+" accepts")
+			}
+			return
+		}
+		for _, serving := range c.servingSlots() {
+			if err := ValidateReasoningEffort(own, "", serving.slot.ReasoningEffort); err != nil {
+				add(SeverityError, field,
+					fmt.Sprintf("the profile's route to %s inherits the %s slot's reasoning effort %q: %v", own, serving.name, serving.slot.ReasoningEffort, err),
+					"set "+field+" to an effort "+own+" accepts")
+				return
+			}
+		}
+		return
+	}
+	if effort == "" {
+		return
+	}
+	for _, serving := range c.servingSlots() {
+		model := strings.TrimSpace(p.Model)
+		if model == "" {
+			model = serving.slot.Model
+		}
+		if err := ValidateReasoningEffort(serving.slot.Provider, model, effort); err != nil {
+			add(SeverityError, field,
+				fmt.Sprintf("the %s slot (%s) may serve this shard: %v", serving.name, serving.slot.Provider, err),
+				"set an effort every slot that serves the shard accepts, or give the profile its own provider")
+			return
+		}
+	}
+}
+
+// checkSlotInputCap judges a worker or planner slot's max_input_tokens. A
+// negative cap is not a token count, and one below MinPromptTokens could not
+// be sent a compiled prompt, so every request the slot served would be
+// refused: both refuse the file. A cap on a slot that names no provider caps
+// nothing, because such a slot is not built (resolveSecondarySlot).
+func checkSlotInputCap(slot, provider string, tokens int, add func(sev Severity, path, msg, fix string)) {
+	path := slot + ".max_input_tokens"
+	switch {
+	case tokens < 0:
+		add(SeverityError, path, fmt.Sprintf("%d is negative; an input cap is a token count", tokens),
+			fmt.Sprintf("omit it for no slot cap, or set at least %d", MinPromptTokens))
+	case tokens > 0 && tokens < MinPromptTokens:
+		add(SeverityError, path,
+			fmt.Sprintf("%d is below %d, the smallest window a compiled prompt fits in; every request the slot served would be refused", tokens, MinPromptTokens),
+			fmt.Sprintf("set at least %d, or omit it for no slot cap", MinPromptTokens))
+	case tokens > 0 && provider == "":
+		add(SeverityWarning, path, "the slot names no provider, so it is not built and the cap applies to nothing", "set "+slot+".provider")
+	}
+}
+
 // keyFor is the API key this file holds for provider ("" when none).
 func (c *UserConfig) keyFor(provider string) string {
+	if len(c.APIKeyPools[provider]) > 0 {
+		return "configured-credential-pool"
+	}
 	keys := map[string]string{
 		"anthropic": c.AnthropicAPIKey, "openai": c.OpenAIAPIKey, "gemini": c.GeminiAPIKey,
 		"xai": c.XAIAPIKey, "zai": c.ZAIAPIKey, "openrouter": c.OpenRouterAPIKey,

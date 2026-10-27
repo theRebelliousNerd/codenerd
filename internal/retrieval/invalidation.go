@@ -1,6 +1,7 @@
 package retrieval
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -61,34 +62,52 @@ func (r *SparseRetriever) InvalidateFiles(paths ...string) int {
 	})
 }
 
+// fileWriteEventID identifies one file_written fact, including its path,
+// content hash, session, and second-precision timestamp. The kernel stores
+// file_written as a set, so an exact replay has the same identity while a
+// distinct same-second write remains observable.
+func fileWriteEventID(path, hash, session string, timestamp int64) string {
+	return fmt.Sprintf("%q\x00%q\x00%q\x00%d", path, hash, session, timestamp)
+}
+
 // InvalidateAll empties the keyword hit cache. Use it when the workspace moved
 // under the retriever wholesale (branch switch, checkout, bulk patch).
 func (r *SparseRetriever) InvalidateAll() {
 	r.cache.Clear()
 	r.mu.Lock()
 	r.lastWriteCursor = 0
+	r.lastWriteEvents = nil
 	r.mu.Unlock()
 }
 
 // InvalidateFromKernel reads the write log out of the EDB and drops the cache
 // entries it affects, returning the number of entries dropped.
 //
-// Only writes newer than the last call are considered: the cursor is the
-// file_written timestamp (unix seconds), kept under r.mu so two concurrent seeds
-// cannot both claim the same window and leave the other half of the writes
-// unapplied. file_modified_externally carries no timestamp, so it is always
-// replayed — it is rare and dropping a stale entry twice costs nothing.
+// Writes newer than the cursor are considered, along with unseen writes at the
+// cursor timestamp. Writers use Unix-second timestamps, so exact event
+// identities for the current timestamp are retained to distinguish a new
+// same-second write from an exact replay. file_modified_externally carries no
+// timestamp, so it is always replayed — it is rare and dropping a stale entry
+// twice costs nothing.
 func (r *SparseRetriever) InvalidateFromKernel(src FactSource) int {
 	if src == nil {
 		return 0
 	}
 
-	r.mu.RLock()
+	// Serialize query, invalidation, and cursor advancement. Otherwise parallel
+	// seeds could both observe the same new event before either records it.
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	cursor := r.lastWriteCursor
-	r.mu.RUnlock()
+	seenAtCursor := r.lastWriteEvents
+	if seenAtCursor == nil {
+		seenAtCursor = make(map[string]struct{})
+	}
 
 	var paths []string
 	newest := cursor
+	newestEvents := make(map[string]struct{})
+	newEventsAtCursor := make(map[string]struct{})
 
 	for _, pred := range invalidationPredicates {
 		facts, err := src.Query(pred)
@@ -108,12 +127,38 @@ func (r *SparseRetriever) InvalidateFromKernel(src FactSource) int {
 			if pred == "file_written" && len(f.Args) >= 4 {
 				ts, ok := types.ExtractInt64(f.Args[3])
 				if ok {
-					if ts <= cursor {
+					if ts < cursor {
+						continue
+					}
+					eventID := fileWriteEventID(
+						path,
+						types.ExtractString(f.Args[1]),
+						types.ExtractString(f.Args[2]),
+						ts,
+					)
+					if ts == cursor {
+						if _, alreadySeen := seenAtCursor[eventID]; alreadySeen {
+							continue
+						}
+						if _, alreadyObserved := newEventsAtCursor[eventID]; alreadyObserved {
+							continue
+						}
+						newEventsAtCursor[eventID] = struct{}{}
+						paths = append(paths, path)
 						continue
 					}
 					if ts > newest {
 						newest = ts
+						newestEvents = make(map[string]struct{})
 					}
+					if ts == newest {
+						if _, alreadyObserved := newestEvents[eventID]; alreadyObserved {
+							continue
+						}
+						newestEvents[eventID] = struct{}{}
+					}
+					paths = append(paths, path)
+					continue
 				}
 			}
 			paths = append(paths, path)
@@ -126,11 +171,15 @@ func (r *SparseRetriever) InvalidateFromKernel(src FactSource) int {
 
 	dropped := r.InvalidateFiles(paths...)
 
-	r.mu.Lock()
-	if newest > r.lastWriteCursor {
+	if newest > cursor {
 		r.lastWriteCursor = newest
+		r.lastWriteEvents = newestEvents
+	} else if len(newEventsAtCursor) > 0 {
+		for eventID := range newEventsAtCursor {
+			seenAtCursor[eventID] = struct{}{}
+		}
+		r.lastWriteEvents = seenAtCursor
 	}
-	r.mu.Unlock()
 
 	if dropped > 0 {
 		logging.Context("SparseRetriever: invalidated %d cached keyword results after %d workspace writes", dropped, len(paths))

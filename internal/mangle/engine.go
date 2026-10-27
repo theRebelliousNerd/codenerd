@@ -890,6 +890,9 @@ func convertValueToTypedTerm(value any, expectedType ast.ConstantType) (ast.Base
 // stable order so callers that take the first row get the same answer every
 // time.
 func (e *Engine) Query(ctx context.Context, query string) (*QueryResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	logging.KernelDebug("Query: %s", query)
 	shape, err := parseQueryShape(query)
 	if err != nil {
@@ -938,6 +941,12 @@ func (e *Engine) Query(ctx context.Context, query string) (*QueryResult, error) 
 		ctx, cancel = context.WithTimeout(ctx, timeoutDuration)
 		defer cancel()
 	}
+	// EvalQuery uses this same store for every nested premise. Keep the
+	// captured program and store snapshot, but make each store scan observe the
+	// caller's cancellation as it visits rows.
+	querySnapshot := *queryContext
+	querySnapshot.Store = contextBoundFactStore{ctx: ctx, store: queryContext.Store}
+	queryContext = &querySnapshot
 
 	start := time.Now()
 	resultChan := make(chan []map[string]any, 1)
@@ -964,6 +973,9 @@ func (e *Engine) Query(ctx context.Context, query string) (*QueryResult, error) 
 			return nil
 		}
 		accept := func(fact ast.Atom) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			// Constants in the query filter the rows. EvalQuery only
 			// binds args whose mode is input, and the modes in play
 			// here are all output, so without this an unfiltered
@@ -1024,6 +1036,9 @@ func (e *Engine) Query(ctx context.Context, query string) (*QueryResult, error) 
 
 	select {
 	case results := <-resultChan:
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		logging.KernelDebug("Query completed: %s -> %d results in %s", query, len(results), time.Since(start))
 		return &QueryResult{
 			Bindings: results,
@@ -1033,8 +1048,8 @@ func (e *Engine) Query(ctx context.Context, query string) (*QueryResult, error) 
 		logging.Get(logging.CategoryKernel).Error("Query execution failed: %s - %v", query, err)
 		return nil, err
 	case <-ctx.Done():
-		logging.Get(logging.CategoryKernel).Warn("Query timeout: %s after %v", query, time.Since(start))
-		return nil, fmt.Errorf("query execution timed out after %v: %w", time.Since(start), ctx.Err())
+		logging.Get(logging.CategoryKernel).Warn("Query canceled: %s after %v (%v)", query, time.Since(start), ctx.Err())
+		return nil, ctx.Err()
 	}
 }
 
@@ -1230,6 +1245,39 @@ func parseQueryShape(query string) (*queryShape, error) {
 		atom:      atom,
 		variables: variables,
 	}, nil
+}
+
+// contextBoundFactStore makes Query cancellation visible to every upstream
+// Mangle scan. EvalQuery resolves nested premises through ReadOnlyFactStore;
+// wrapping only the outer Query callback would leave those scans running after
+// the caller has stopped waiting.
+type contextBoundFactStore struct {
+	ctx   context.Context
+	store factstore.ReadOnlyFactStore
+}
+
+func (s contextBoundFactStore) GetFacts(query ast.Atom, yield func(ast.Atom) error) error {
+	if err := s.ctx.Err(); err != nil {
+		return err
+	}
+	return s.store.GetFacts(query, func(fact ast.Atom) error {
+		if err := s.ctx.Err(); err != nil {
+			return err
+		}
+		return yield(fact)
+	})
+}
+
+func (s contextBoundFactStore) Contains(query ast.Atom) bool {
+	return s.ctx.Err() == nil && s.store.Contains(query)
+}
+
+func (s contextBoundFactStore) ListPredicates() []ast.PredicateSym {
+	return s.store.ListPredicates()
+}
+
+func (s contextBoundFactStore) EstimateFactCount() int {
+	return s.store.EstimateFactCount()
 }
 
 // repeatedVariablesAgree enforces that a variable appearing more than once

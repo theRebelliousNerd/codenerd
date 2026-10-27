@@ -27,6 +27,7 @@ func TestStepPlan_MatchesOnShardedKernel(t *testing.T) {
 		open       = "/step_open"
 		covered    = "/step_covered"
 		done       = "/step_done"
+		reverted   = "/step_reverted"
 		unmeasured = "/step_unmeasured"
 	)
 
@@ -60,13 +61,21 @@ func TestStepPlan_MatchesOnShardedKernel(t *testing.T) {
 	)
 	both.assert(
 		stepExec(done, 1, "a.txt", 1, 1),
+		core.Fact{Predicate: "step_file_net", Args: []any{types.MangleAtom(done), int64(1), types.MangleString("a.txt"), types.MangleAtom("/changed")}},
 		stepExec(done, 2, "b.txt", 2, 3),
+		core.Fact{Predicate: "step_file_net", Args: []any{types.MangleAtom(done), int64(2), types.MangleString("b.txt"), types.MangleAtom("/changed")}},
+	)
+	// A later repair restored the file to its first-write preimage. The
+	// host's /unchanged fact makes that edit unresolved in policy.
+	both.assert(
+		stepExec(reverted, 1, "a.txt", 1, 2),
+		core.Fact{Predicate: "step_file_net", Args: []any{types.MangleAtom(reverted), int64(1), types.MangleString("a.txt"), types.MangleAtom("/unchanged")}},
 	)
 
 	both.parity(
-		"step_execution", "step_retried", "step_no_change_evidence",
+		"step_execution", "step_retried", "step_no_change_evidence", "step_file_net",
 		"step_cover_candidate", "step_file_covered",
-		"step_has_retried", "step_has_no_change", "step_has_cover",
+		"step_has_retried", "step_has_no_change", "step_has_cover", "step_reverted",
 		"step_unresolved", "step_next_action",
 		"turn_has_step", "turn_has_unresolved_step", "turn_steps_verdict",
 	)
@@ -96,6 +105,9 @@ func TestStepPlan_MatchesOnShardedKernel(t *testing.T) {
 	both.has("turn_steps_verdict", open, "/incomplete")
 	both.has("turn_steps_verdict", covered, "/complete")
 	both.has("turn_steps_verdict", done, "/complete")
+	both.has("step_reverted", reverted, "1\ta.txt")
+	both.has("turn_has_unresolved_step", reverted, "")
+	both.has("turn_steps_verdict", reverted, "/incomplete")
 	both.lacks("turn_steps_verdict", unmeasured, "/complete")
 	both.lacks("turn_steps_verdict", unmeasured, "/incomplete")
 }

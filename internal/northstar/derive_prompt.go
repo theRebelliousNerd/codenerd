@@ -11,12 +11,14 @@ import (
 	"codenerd/internal/prompt"
 )
 
-// CompileTokenBudget is the prompt budget shared by the wizard compile and
-// CompilePhasePrompt. The 0.75 share and 120000 fallback are the existing
-// PromptBudget call, not a new tunable. Reserved is a tenth of that budget
-// so Validate's reserved < budget holds.
-func CompileTokenBudget() (budget, reserved int) {
-	budget = broker.Default().PromptBudget(0.75, 120000)
+// CompileTokenBudget is the prompt budget shared by the derive phase compile
+// and init's own JIT compile. The 0.75 share and 120000 fallback are the
+// existing PromptBudget call, not a new tunable; inputWindow is the serving
+// client's input cap (broker.InputWindow; 0 when it reports none), which bounds
+// the share when it is smaller than the enforced window. Reserved is a tenth of
+// the budget so Validate's reserved < budget holds.
+func CompileTokenBudget(inputWindow int) (budget, reserved int) {
+	budget = broker.Default().PromptBudgetFor(0.75, 120000, inputWindow)
 	reserved = budget / 10
 	if reserved >= budget {
 		reserved = budget / 2
@@ -145,14 +147,31 @@ var (
 	derivePromptErr  error
 )
 
-// CompilePhasePrompt compiles one derive phase from the embedded atom
-// corpus. Init's own JIT compiler replaces that corpus with the init
-// atoms, so derive phases cannot go through it. The kernel is cached; a
-// boot failure stays cached for the process.
 // deriveIdentityAtom is the skeleton atom shared by the three derive phases.
 const deriveIdentityAtom = "northstar/derive/identity"
 
-func CompilePhasePrompt(ctx context.Context, phase string) (string, error) {
+// PhaseTarget names the model a derive prompt is compiled for. Provider and
+// Model pin atoms the way a session turn does: jit_compiler.mg treats both as
+// fail-closed dimensions, so an empty pair admits no provider- or model-pinned
+// atom. InputWindow is the serving client's input cap in tokens
+// (broker.InputWindow; 0 when it reports none) and bounds the prompt budget.
+type PhaseTarget struct {
+	Provider    string
+	Model       string
+	InputWindow int
+}
+
+// PhasePromptFor returns the PhasePrompt that compiles each derive phase for
+// target from the embedded northstar/derive atoms. Init's own JIT compiler
+// replaces that corpus with the init atoms, so derive phases cannot go through
+// it. The kernel is cached; a boot failure stays cached for the process.
+func PhasePromptFor(target PhaseTarget) PhasePrompt {
+	return func(ctx context.Context, phase string) (string, error) {
+		return compilePhasePrompt(ctx, phase, target)
+	}
+}
+
+func compilePhasePrompt(ctx context.Context, phase string, target PhaseTarget) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -185,8 +204,9 @@ func CompilePhasePrompt(ctx context.Context, phase string) (string, error) {
 	if derivePromptErr != nil {
 		return "", derivePromptErr
 	}
-	budget, reserved := CompileTokenBudget()
+	budget, reserved := CompileTokenBudget(target.InputWindow)
 	cc := prompt.NewCompilationContext()
+	cc.WithProviderModel(target.Provider, target.Model)
 	cc.NorthstarPhase = "/" + phase
 	cc.ShardType = "/researcher"
 	cc.OperationalMode = "/planning"

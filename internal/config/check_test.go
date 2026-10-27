@@ -92,10 +92,10 @@ func TestCheck_WhatIsNotAContradiction(t *testing.T) {
 		"openrouter serves router ids": {Provider: "openrouter", Model: "stealth/union-alpha"},
 		"ollama runs any tag":          {Provider: "ollama", Model: "qwen9:4b"},
 		"base_url may be a proxy":      {Provider: "openai", BaseURL: "https://proxy.example/v1", Model: "claude-x-1"},
-		"worker endpoint may be proxy": {Provider: "meta", Worker: &WorkerLLMConfig{Provider: "openai", Endpoint: "https://p.example", Model: "glm-9"}},
-		"shard follows the worker": {Provider: "meta", Worker: &WorkerLLMConfig{Provider: "openrouter", Model: "a/b"},
+		"worker endpoint may be proxy": {Provider: "meta", Model: "muse-1", Worker: &WorkerLLMConfig{Provider: "openai", Endpoint: "https://p.example", Model: "glm-9"}},
+		"shard follows the worker": {Provider: "meta", Model: "muse-1", Worker: &WorkerLLMConfig{Provider: "openrouter", Model: "a/b"},
 			ShardProfiles: map[string]ShardProfile{"coder": {Model: "stealth/union-alpha"}}},
-		"empty shard model": {Provider: "meta", ShardProfiles: map[string]ShardProfile{"coder": {}}},
+		"empty shard model": {Provider: "meta", Model: "muse-1", ShardProfiles: map[string]ShardProfile{"coder": {}}},
 	} {
 		if errs := Errors(cfg.Check(nil)); len(errs) != 0 {
 			t.Errorf("%s: refused: %v", name, errs)

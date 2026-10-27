@@ -84,7 +84,8 @@ func buildProductionDerivationMap(t *testing.T, shared []string) *core.Derivatio
 		sharedSet[p] = struct{}{}
 	}
 	// Rules live in schema files too (file_exists in schemas_world.mg).
-	dm, err := core.BuildDerivationMap(schemas+"\n"+policy, nil, owners, sharedSet, "cortex")
+	dm, err := core.BuildDerivationMapWithConsumerRoutes(
+		schemas+"\n"+policy, nil, owners, sharedSet, PredicateConsumerRoutes(), "cortex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,6 +133,25 @@ func describe(f core.RuleFinding) string {
 // outside acceptedSeams fails here.
 func TestShardJoin_EveryRuleCanFireOnTheShardedKernel(t *testing.T) {
 	dm := buildProductionDerivationMap(t, SharedPredicates())
+	assertPolicyRuleFires := func(head string, containsPositive string) {
+		t.Helper()
+		for _, rule := range dm.Rules {
+			if rule.File != "policy_mcp.mg" || rule.Head != head {
+				continue
+			}
+			if containsPositive != "" && !containsString(rule.Pos, containsPositive) {
+				continue
+			}
+			if !rule.Fires.Equals(core.SingleShardPresence("policy")) {
+				t.Errorf("MCP authority rule %s with %v fires in %v, want only the policy consumer", head, rule.Pos, shardList(rule.Fires))
+			}
+			return
+		}
+		t.Errorf("MCP authority rule %s with positive %q is missing from derivation map", head, containsPositive)
+	}
+	assertPolicyRuleFires("mcp_remote_confirmation_required", "mcp_tool_risk_source")
+	assertPolicyRuleFires("mcp_remote_subject_current", "mcp_tool_risk_source")
+	assertPolicyRuleFires("mcp_remote_permitted", "pending_action")
 	var bad []string
 	for _, f := range dm.SplitJoins {
 		if acceptedSeam(f) {
@@ -166,6 +186,15 @@ func TestShardJoin_EveryRuleCanFireOnTheShardedKernel(t *testing.T) {
 		}
 		t.Fatalf("%d rules cannot fire on the sharded kernel; share the per-turn fact, re-home the family, or restructure the rule (see shard_join_audit.py)", len(bad))
 	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 // TestShardJoin_DetectsTheOriginalDefect proves the analysis has teeth: with

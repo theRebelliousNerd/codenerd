@@ -67,13 +67,14 @@ func campaignRefOrchestrator(t *testing.T, kernel core.Kernel, c *Campaign) (*Or
 	t.Helper()
 	events := make(chan OrchestratorEvent, 64)
 	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:    t.TempDir(),
-		Kernel:       kernel,
-		LLMClient:    &MockLLMClient{},
-		TaskExecutor: &MockTaskExecutor{},
-		Executor:     tactile.NewDirectExecutor(),
-		VirtualStore: &core.VirtualStore{},
-		EventChan:    events,
+		Workspace:         t.TempDir(),
+		Kernel:            kernel,
+		LLMClient:         &MockLLMClient{},
+		PlanningLLMClient: &MockLLMClient{},
+		TaskExecutor:      &MockTaskExecutor{},
+		Executor:          tactile.NewDirectExecutor(),
+		VirtualStore:      &core.VirtualStore{},
+		EventChan:         events,
 		// One retry only, with a negligible backoff: the point is the terminal
 		// status the policy produces, not the retry schedule.
 		Campaign: testCampaignConfig(fastRetries(2)),

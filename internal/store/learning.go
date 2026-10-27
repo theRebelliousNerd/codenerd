@@ -10,6 +10,7 @@ import (
 	"codenerd/internal/types"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -143,7 +144,11 @@ func (ls *LearningStore) getDB(shardType string) (*sql.DB, error) {
 		return nil, err
 	}
 	if err := RunMigrations(db); err != nil {
-		logging.Get(logging.CategoryStore).Warn("LearningStore migrations failed for %s: %v", shardType, err)
+		logging.Get(logging.CategoryStore).Error("LearningStore migrations failed for %s: %v", shardType, err)
+		if closeErr := db.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close failed learning database for %s: %w", shardType, closeErr))
+		}
+		return nil, fmt.Errorf("failed to migrate learning database for %s: %w", shardType, err)
 	}
 	if err := ls.ensureLearningIndexes(db); err != nil {
 		logging.Get(logging.CategoryStore).Warn("LearningStore index ensure failed for %s: %v", shardType, err)

@@ -143,11 +143,17 @@ func (v *VirtualStore) RouteActionResult(ctx context.Context, action Fact) (Acti
 	actionDuration := time.Since(actionStart)
 	if err != nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Action execution failed: %s - %v", req.Type, err)
-		v.injectFact(Fact{
+		result.Success = false
+		result.Error = err.Error()
+		// A handler error is not a successful result; preserve the separate
+		// error fact, but do not admit any success evidence the handler may
+		// have accumulated before returning the error.
+		result.FactsToAdd = nil
+		v.recordActionCompletion(req, result, actionDuration, Fact{
 			Predicate: "execution_error",
 			Args:      []any{req.ActionID, err.Error()},
 		})
-		return ActionResult{}, err
+		return result, err
 	}
 
 	// Post-action validation: verify the action actually succeeded
@@ -171,10 +177,21 @@ func (v *VirtualStore) RouteActionResult(ctx context.Context, action Fact) (Acti
 		}
 	}
 
-	// Inject result facts into kernel (batched when possible).
+	v.recordActionCompletion(req, result, actionDuration)
+	return result, validationErr
+}
+
+// recordActionCompletion publishes the shared result lifecycle after a
+// permitted action reaches dispatch. Keeping this path shared ensures handler
+// errors receive the same correlated execution fact, audit completion, and UI
+// observations as a handler that returns a failed ActionResult without an
+// error.
+func (v *VirtualStore) recordActionCompletion(req ActionRequest, result ActionResult, actionDuration time.Duration, additionalFacts ...Fact) {
 	completedAt := time.Now()
-	factsToInject := make([]Fact, 0, len(result.FactsToAdd)+1)
+	// Inject result facts into kernel (batched when possible).
+	factsToInject := make([]Fact, 0, len(result.FactsToAdd)+len(additionalFacts)+1)
 	factsToInject = append(factsToInject, result.FactsToAdd...)
+	factsToInject = append(factsToInject, additionalFacts...)
 	factsToInject = append(factsToInject, Fact{
 		Predicate: "execution_result",
 		// Output is bounded before it becomes a fact argument. It used to be
@@ -202,8 +219,6 @@ func (v *VirtualStore) RouteActionResult(ctx context.Context, action Fact) (Acti
 	// TUI visibility: tool execution always shows in chat scrollback,
 	// Glass Box routing event always updates the activity line.
 	v.emitToolAndRoutingEvents(req, result, actionDuration)
-
-	return result, validationErr
 }
 
 func (v *VirtualStore) requestForValidation(req ActionRequest) ActionRequest {

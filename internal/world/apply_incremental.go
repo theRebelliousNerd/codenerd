@@ -1,6 +1,10 @@
 package world
 
-import "codenerd/internal/types"
+import (
+	"fmt"
+
+	"codenerd/internal/types"
+)
 
 // ApplyIncrementalResult updates the kernel with an incremental scan result.
 // For Full results, it replaces the scanner-owned world predicates.
@@ -8,6 +12,16 @@ import "codenerd/internal/types"
 func ApplyIncrementalResult(kernel types.Kernel, res *IncrementalResult) error {
 	if res == nil {
 		return nil
+	}
+	if res.Orientation != nil && res.Orientation.Refreshed {
+		if _, ok := types.TransactorOf(kernel); !ok {
+			return fmt.Errorf("apply orientation refresh: kernel %T does not support transactions", kernel)
+		}
+	}
+	if res.Unchanged {
+		// The source world has no delta to apply. Orientation is independent:
+		// publish its exact projection change without retracting world globals.
+		return applyOrientationDelta(kernel, res)
 	}
 
 	if res.Full {
@@ -19,11 +33,14 @@ func ApplyIncrementalResult(kernel types.Kernel, res *IncrementalResult) error {
 		// run. See the ownership matrix in world_predicates.go.
 		_ = kernel.RemoveFactsByPredicateSet(ScannerReplaceSet())
 		if len(res.NewFacts) == 0 {
-			return nil
+			return applyOrientationDelta(kernel, res)
 		}
 		// Convert world.Fact to types.Fact
 		typeFacts := toTypesFacts(res.NewFacts)
-		return kernel.LoadFacts(typeFacts)
+		if err := kernel.LoadFacts(typeFacts); err != nil {
+			return err
+		}
+		return applyOrientationDelta(kernel, res)
 	}
 
 	if len(res.RetractFacts) > 0 {
@@ -40,11 +57,25 @@ func ApplyIncrementalResult(kernel types.Kernel, res *IncrementalResult) error {
 	}
 
 	if len(res.NewFacts) == 0 {
-		return nil
+		return applyOrientationDelta(kernel, res)
 	}
 	// Convert world.Fact to types.Fact
 	typeFacts := toTypesFacts(res.NewFacts)
-	return kernel.LoadFacts(typeFacts)
+	if err := kernel.LoadFacts(typeFacts); err != nil {
+		return err
+	}
+	return applyOrientationDelta(kernel, res)
+}
+
+func applyOrientationDelta(kernel types.Kernel, res *IncrementalResult) error {
+	if res == nil || res.Orientation == nil || !res.Orientation.Refreshed {
+		return nil
+	}
+	transactor, ok := types.TransactorOf(kernel)
+	if !ok {
+		return fmt.Errorf("apply orientation refresh: kernel %T does not support transactions", kernel)
+	}
+	return res.Orientation.Apply(transactor)
 }
 
 func toTypesFacts(worldFacts []Fact) []types.Fact {

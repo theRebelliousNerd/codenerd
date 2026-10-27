@@ -165,3 +165,53 @@ Earlier auto stubs undercounted multi-lang CodeDOM and dataflow depth. This rebu
 The initial packet owns internal/world/incremental_scan.go and planned:internal/world/incremental_scan_failure_test.go. Canonical migration must wait for the successful census; this packet does not imply a redesign of deep workers, kernel transactions, or unrelated snapshot/storage lifecycles. The root verifies actual source and production wiring before closing this gap.
 
 **VERIFIED CURRENT — partial GAP-WORLD-L04-01 acceptance:** `artifact:.corpus-build/runs/all-features-20261002/round4-world.receipt.json` passes 101 focused PASS events including subtests against the modified scanner. It extends the earlier census/fallback receipt through delta read/hash failures, cancellation/admission, joined work and sibling-retry preservation; positive refresh/deletion/canonical migration remain intact. The old accepted row's ignored-error description is pre-packet history, superseded by this receipt. Mutation sensitivity, race, normal production ingestor consumption and scale performance remain open. Database write/manifest replacement failures after publication starts are outside this bounded preservation guarantee.
+
+
+## Required contract: Structure index source freshness
+
+Normal StructureIndex queries must reflect changed source and go.mod bytes even when size and mtime are preserved. Refresh must invalidate stale declarations, calls, and module resolution while unchanged content retains parsed cache entries.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-WORLD-STRUCTURE-REVISION | Structure index source freshness | structure_index.go: refreshLocked and refreshModuleLocked currently use size/mtime fingerprints. | Required contract above | P1 | Accepted; implementation pending | Existing package interfaces | Warm index, rewrite same-size source and module bytes, restore mtime, and verify current symbols/call graph/module path; unchanged refresh reparses zero entries. |
+
+## Required cross-subsystem contract: `GAP-ORIENT-23` scan refresh
+
+World's incremental scan now carries orientation freshness in its result.
+`IncrementalResult` includes the refresh projection and explicit
+not-initialized state (`internal/world/incremental_scan.go:34-55`), and
+`refreshOrientationForScan` runs for successful scans including unchanged world
+facts (`:643-667`). `ApplyIncrementalResult` publishes orientation changes
+transactionally and returns without retracting world snapshot globals when the
+world is unchanged (`internal/world/apply_incremental.go:12-24`, `:70-79`).
+
+Every successful scan, including a world-Unchanged result, carries the genuine
+`orient.RefreshResult`. Applying it publishes exact orientation additions and
+removals through the orientation transaction and does not retract world
+snapshot globals when world facts are unchanged. Missing orientation snapshot
+is a distinct not-initialized state tolerated for an initial scan; cancellation
+and every other refresh error surface. The affected production callers are
+`cmd/nerd/chat/helpers_scan.go:149` (`runScan`),
+`cmd/nerd/chat/process_dream_delegation.go:106` (`loadWorkspaceFacts`),
+`cmd/nerd/cmd_instruction.go:114`, and
+`internal/system/factory.go:1413` (`refreshWorldModelAtBoot`); each applies
+orientation even when it skips world-fact changes.
+
+The production callers apply orientation before handling an unchanged world
+result: chat scan, delegated workspace loading, instruction execution, and
+factory boot (`cmd/nerd/chat/helpers_scan.go:151-167`,
+`cmd/nerd/chat/process_dream_delegation.go:106-124`,
+`cmd/nerd/cmd_instruction.go:114-129`,
+`internal/system/factory.go:1417-1432`).
+
+**Verified current:** `TestIncrementalScanRefreshesOrientationOnWorldUnchanged`
+(`internal/world/orientation_scan_test.go:118`) commits a tracked-document-only
+change, scans and applies exact orientation additions/removals transactionally,
+then verifies a stable repeat without world-global retractions. Missing-snapshot
+initial state, cancellation, and malformed/missing-document failures are
+separate controls (`:267`, `:278`); transaction failure before world mutation
+is covered at `:93`. The focused world Orientation/Incremental suite and full
+system package passed. Preserve existing world source freshness; fixture scan
+timings are recorded in orient's
+[`GAP-ORIENT-23`](../orient/03-GAP-ANALYSIS.md) evidence and do not qualify
+large-repository cost.

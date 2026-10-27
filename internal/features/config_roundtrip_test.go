@@ -72,7 +72,7 @@ func TestLoadUserConfig_InstallsFeaturesIntoRegistry(t *testing.T) {
 	t.Run("absent_features_uses_compile_time_defaults", func(t *testing.T) {
 		resetActive(t)
 
-		uc := &config.UserConfig{Provider: "anthropic"} // no Features block
+		uc := &config.UserConfig{Provider: "anthropic", Model: "test-model"} // no Features block
 		path := writeUserConfig(t, uc)
 
 		_, err := config.LoadUserConfig(path)

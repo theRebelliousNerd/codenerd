@@ -34,13 +34,13 @@ func TestNewOllamaEngine(t *testing.T) {
 		}
 	})
 
-	t.Run("embeddinggemma defaults to tagged version", func(t *testing.T) {
+	t.Run("configured model is used as written", func(t *testing.T) {
 		engine, err := NewOllamaEngine("", "embeddinggemma", 768)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if engine.model != embeddingGemmaPullTag {
-			t.Errorf("expected model %s, got %s", embeddingGemmaPullTag, engine.model)
+		if engine.model != "embeddinggemma" {
+			t.Errorf("expected model embeddinggemma, got %s", engine.model)
 		}
 	})
 }

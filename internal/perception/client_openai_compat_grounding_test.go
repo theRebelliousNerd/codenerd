@@ -101,12 +101,10 @@ func TestGroundedWebSearch_ExactPayload(t *testing.T) {
 	if !jsonStringListHas(include, "web_search_call.results") || !jsonStringListHas(include, "reasoning.encrypted_content") {
 		t.Errorf("include = %v, want reasoning.encrypted_content and web_search_call.results", include)
 	}
-	// reasoning.effort default xhigh when no override nor hint
-	if gotBody.Reasoning == nil {
-		t.Fatal("reasoning is nil, want effort xhigh")
-	}
-	if gotBody.Reasoning.Effort != "xhigh" {
-		t.Errorf("reasoning.effort = %q, want xhigh", gotBody.Reasoning.Effort)
+	// A client configured with no effort is sent none: no effort is
+	// invented for a grounded search (it used to default to xhigh).
+	if gotBody.Reasoning != nil {
+		t.Errorf("reasoning = %+v, want it omitted for a client configured with no effort", gotBody.Reasoning)
 	}
 	// The shared builder omits stream (the API default is false). Sending
 	// stream:true would be the regression.
@@ -167,6 +165,9 @@ func TestGroundedWebSearch_ReasoningEffortOverride(t *testing.T) {
 	}
 }
 
+// A grounded search is sent the effort every request is: a shard profile's on
+// the context, else the slot's configured one. A capability hint chooses
+// nothing.
 func TestGroundedWebSearch_ReasoningEffortFromContext(t *testing.T) {
 	var efforts []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -183,22 +184,25 @@ func TestGroundedWebSearch_ReasoningEffortFromContext(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestCompatClient(t, ProviderMeta, srv.URL)
+	c.reasoningEffort = "medium"
 
-	// unhinted -> xhigh
-	_, _ = c.GroundedWebSearch(context.Background(), "q")
-	// high_reasoning -> high
-	ctx := types.WithModelCapability(context.Background(), types.CapabilityHighReasoning)
-	_, _ = c.GroundedWebSearch(ctx, "q")
-	// balanced -> medium
-	ctx2 := types.WithModelCapability(context.Background(), types.CapabilityBalanced)
-	_, _ = c.GroundedWebSearch(ctx2, "q")
-	// high_speed -> low
-	ctx3 := types.WithModelCapability(context.Background(), types.CapabilityHighSpeed)
-	_, _ = c.GroundedWebSearch(ctx3, "q")
+	for _, ctx := range []context.Context{
+		context.Background(),
+		types.WithModelCapability(context.Background(), types.CapabilityHighReasoning),
+		types.WithReasoningEffort(context.Background(), "minimal"),
+	} {
+		if _, err := c.GroundedWebSearch(ctx, "q"); err != nil {
+			t.Fatalf("GroundedWebSearch: %v", err)
+		}
+	}
+	// A profile effort Meta cannot take is refused before anything is sent.
+	if _, err := c.GroundedWebSearch(types.WithReasoningEffort(context.Background(), "max"), "q"); err == nil {
+		t.Error("a profile effort Meta rejects was sent")
+	}
 
-	want := []string{"xhigh", "high", "medium", "low"}
+	want := []string{"medium", "medium", "minimal"}
 	if len(efforts) != len(want) {
-		t.Fatalf("efforts len %d, want %d", len(efforts), len(want))
+		t.Fatalf("efforts = %v, want %v", efforts, want)
 	}
 	for i, w := range want {
 		if efforts[i] != w {

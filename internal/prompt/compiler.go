@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -301,44 +303,71 @@ type CompilationResult struct {
 // It combines rule-based selection (Mangle) with semantic search (vectors)
 // to select the most relevant prompt atoms for a given context.
 
-// privateResult hands a caller its own copy of a compilation.
-//
-// Every exit from Compile goes through here, and each of the three has the same
-// hazard for a different reason:
-//
-//   - a cache HIT returns the object the LRU holds, shared with every past and
-//     future hit on that context;
-//   - a cache MISS returns the object it has just STORED in the LRU, so a
-//     caller that edits it edits the cache;
-//   - a singleflight JOIN hands one object to two concurrent callers.
-//
-// internal/articulation walked into the second one: it appended the Piggyback
-// suffix to result.Prompt, which wrote into the cache entry, and every later
-// hit on that context served a prompt the compiler had not produced.
-// TestCompiledPromptIsByteStable cannot see that — it compares what the
-// compiler returns, not what a consumer did to it afterwards.
-//
-// cacheHit is a parameter rather than a field read because it is the one thing
-// that legitimately differs between two callers holding the same compilation,
-// and setting it on the shared object would mark the ORIGINAL compile as a hit
-// retroactively and race two callers writing one field.
-//
-// The copy is SHALLOW, and the limit is worth stating: Prompt is a string, so
-// a caller reassigning it cannot reach the original, but IncludedAtoms,
-// CategoryTokens and Manifest are still shared and a caller that mutates their
-// contents still reaches everyone. That exposure predates this function. What
-// it closes is the one that reaches a model — the prompt text itself.
-func privateResult(res *CompilationResult, cacheHit bool) *CompilationResult {
+// privateResult returns an independent copy for cache miss, hit, and
+// singleflight callers. cacheHit belongs to this caller, so changing it on
+// the copy cannot rewrite the stored result or another caller's statistics.
+func clonePromptAtom(atom *PromptAtom) *PromptAtom {
+	if atom == nil {
+		return nil
+	}
+	clone := *atom
+	clone.OperationalModes = slices.Clone(atom.OperationalModes)
+	clone.CampaignPhases = slices.Clone(atom.CampaignPhases)
+	clone.BuildLayers = slices.Clone(atom.BuildLayers)
+	clone.InitPhases = slices.Clone(atom.InitPhases)
+	clone.NorthstarPhases = slices.Clone(atom.NorthstarPhases)
+	clone.OuroborosStages = slices.Clone(atom.OuroborosStages)
+	clone.IntentVerbs = slices.Clone(atom.IntentVerbs)
+	clone.ShardTypes = slices.Clone(atom.ShardTypes)
+	clone.Languages = slices.Clone(atom.Languages)
+	clone.Frameworks = slices.Clone(atom.Frameworks)
+	clone.Models = slices.Clone(atom.Models)
+	clone.Providers = slices.Clone(atom.Providers)
+	clone.WorldStates = slices.Clone(atom.WorldStates)
+	clone.DependsOn = slices.Clone(atom.DependsOn)
+	clone.ConflictsWith = slices.Clone(atom.ConflictsWith)
+	clone.RequiresTools = slices.Clone(atom.RequiresTools)
+	clone.Embedding = slices.Clone(atom.Embedding)
+	return &clone
+}
+
+// cloneCompilationResult copies the mutable object graph exposed by result
+// APIs. Cache and last-result state remain private when a consumer edits atoms,
+// maps, manifests, or statistics returned by an observer.
+func cloneCompilationResult(res *CompilationResult) *CompilationResult {
 	if res == nil {
 		return nil
 	}
 	out := *res
+	if res.IncludedAtoms != nil {
+		out.IncludedAtoms = make([]*PromptAtom, len(res.IncludedAtoms))
+		for i, atom := range res.IncludedAtoms {
+			out.IncludedAtoms[i] = clonePromptAtom(atom)
+		}
+	}
+	if res.CategoryTokens != nil {
+		out.CategoryTokens = maps.Clone(res.CategoryTokens)
+	}
+	if res.Manifest != nil {
+		manifest := *res.Manifest
+		manifest.Selected = slices.Clone(res.Manifest.Selected)
+		manifest.Dropped = slices.Clone(res.Manifest.Dropped)
+		out.Manifest = &manifest
+	}
 	if res.Stats != nil {
 		stats := *res.Stats
-		stats.CacheHit = cacheHit
 		out.Stats = &stats
 	}
 	return &out
+}
+
+func privateResult(res *CompilationResult, cacheHit bool) *CompilationResult {
+	out := cloneCompilationResult(res)
+	if out != nil && out.Stats != nil {
+		// Cache status is per caller, so it must not rewrite the stored result.
+		out.Stats.CacheHit = cacheHit
+	}
+	return out
 }
 
 // promptCacheEntry holds a cached compilation result and its key.
@@ -350,6 +379,13 @@ type promptCacheEntry struct {
 type promptCompilationOutcome struct {
 	result   *CompilationResult
 	cacheHit bool
+}
+
+func promptCacheKey(contextHash string, configRevision uint64) string {
+	if configRevision == 0 {
+		return contextHash
+	}
+	return HashContent(contextHash + "\x00compiler_config_revision=" + strconv.FormatUint(configRevision, 10))
 }
 
 type JITPromptCompiler struct {
@@ -399,17 +435,18 @@ type JITPromptCompiler struct {
 	totalCompilations atomic.Int64
 
 	// Concurrency control
-	configMu     sync.RWMutex
-	dbMu         sync.RWMutex
-	shardMu      sync.RWMutex
-	compileGroup singleflight.Group
-	wg           sync.WaitGroup
-	lifecycleMu  sync.Mutex
-	closed       bool
-	stopContext  context.Context
-	stop         context.CancelFunc
-	closeOnce    sync.Once
-	closeErr     error
+	configMu       sync.RWMutex
+	dbMu           sync.RWMutex
+	shardMu        sync.RWMutex
+	compileGroup   singleflight.Group
+	wg             sync.WaitGroup
+	lifecycleMu    sync.Mutex
+	closed         bool
+	stopContext    context.Context
+	stop           context.CancelFunc
+	closeOnce      sync.Once
+	closeErr       error
+	configRevision uint64 // guarded by configMu; changes whenever SetConfig replaces compile behavior
 
 	// Configuration
 	config CompilerConfig
@@ -657,6 +694,12 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 	// (for example, by resolving available specialists), but caller-owned state
 	// and the cache identity remain stable and race-free.
 	cc = cc.Clone()
+	config, configRevision, selectorSettings := c.configSnapshot()
+	cc.selectorVectorConfig = &selectorSettings
+	if !cc.HasVectorWeight && config.VectorSearchWeight > 0 {
+		cc.VectorWeight = config.VectorSearchWeight
+		cc.HasVectorWeight = true
+	}
 	selectionKernel, releaseKernel, err := acquireCompilationKernel(c.kernel)
 	if err != nil {
 		return nil, fmt.Errorf("create isolated prompt compilation scope: %w", err)
@@ -680,7 +723,7 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 		}
 	}
 	snapshotCollectStart := time.Now()
-	dynamicAtoms, fingerprint, err := c.collectDynamicKernelSnapshot(selectionKernel, cc)
+	dynamicAtoms, fingerprint, err := c.collectDynamicKernelSnapshotWithConfig(selectionKernel, cc, config)
 	snapshotCollectDuration := time.Since(snapshotCollectStart)
 	snapshotDuration := time.Since(snapshotStart)
 	if err != nil {
@@ -697,7 +740,7 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 	}
 
 	// Bug #5 fix: Check cache before compilation
-	cacheKey := cc.Hash()
+	cacheKey := promptCacheKey(cc.Hash(), configRevision)
 	c.cacheMu.Lock()
 	if elem, ok := c.cache[cacheKey]; ok {
 		c.cacheList.MoveToFront(elem)
@@ -781,13 +824,13 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 
 		// 1.5c: Collect semantic knowledge atoms (Semantic Knowledge Bridge)
 		g.Go(func() error {
-			knowledgeAtoms = c.collectKnowledgeAtoms(gCtx, cc)
+			knowledgeAtoms = c.collectKnowledgeAtomsWithConfig(gCtx, cc, config)
 			return nil // Non-fatal
 		})
 
 		// 1.5d: Collect learning atoms from autopoiesis memory (Semantic Knowledge Bridge)
 		g.Go(func() error {
-			learningAtoms = c.collectLearningAtoms(gCtx, cc)
+			learningAtoms = c.collectLearningAtomsWithConfig(gCtx, cc, config)
 			return nil // Non-fatal
 		})
 
@@ -862,7 +905,7 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 		fitStart := time.Now()
 		budget := cc.AvailableTokens()
 		if budget <= 0 {
-			budget = c.config.DefaultTokenBudget
+			budget = config.DefaultTokenBudget
 		}
 		stats.TokenBudget = budget
 
@@ -944,7 +987,7 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 
 		// Log comprehensive stats using JIT category
 		c.logCompilationStats(stats, result)
-		if c.config.DebugMode {
+		if config.DebugMode {
 			c.logCompilationManifest(stats, result)
 		}
 
@@ -1130,6 +1173,10 @@ func renderKernelContextBlock(rows []string, lim kernelInjectionLimits) string {
 }
 
 func (c *JITPromptCompiler) collectDynamicKernelSnapshot(kernel KernelQuerier, cc *CompilationContext) (atoms []*PromptAtom, fingerprint string, err error) {
+	return c.collectDynamicKernelSnapshotWithConfig(kernel, cc, c.GetConfig())
+}
+
+func (c *JITPromptCompiler) collectDynamicKernelSnapshotWithConfig(kernel KernelQuerier, cc *CompilationContext, config CompilerConfig) (atoms []*PromptAtom, fingerprint string, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			atoms = nil
@@ -1137,7 +1184,7 @@ func (c *JITPromptCompiler) collectDynamicKernelSnapshot(kernel KernelQuerier, c
 			err = fmt.Errorf("dynamic prompt snapshot panic: %v", recovered)
 		}
 	}()
-	atoms, err = c.collectKernelInjectedAtomsFrom(kernel, cc)
+	atoms, err = c.collectKernelInjectedAtomsFromConfig(kernel, cc, config)
 	if err != nil {
 		return nil, "", err
 	}
@@ -1187,14 +1234,18 @@ func (c *JITPromptCompiler) collectDynamicKernelSnapshot(kernel KernelQuerier, c
 }
 
 func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) ([]*PromptAtom, error) {
-	return c.collectKernelInjectedAtomsFrom(c.kernel, cc)
+	return c.collectKernelInjectedAtomsFromConfig(c.kernel, cc, c.GetConfig())
 }
 
 func (c *JITPromptCompiler) collectKernelInjectedAtomsFrom(kernel KernelQuerier, cc *CompilationContext) ([]*PromptAtom, error) {
+	return c.collectKernelInjectedAtomsFromConfig(kernel, cc, c.GetConfig())
+}
+
+func (c *JITPromptCompiler) collectKernelInjectedAtomsFromConfig(kernel KernelQuerier, cc *CompilationContext, config CompilerConfig) ([]*PromptAtom, error) {
 	if kernel == nil || cc == nil {
 		return nil, nil
 	}
-	lim := c.config.kernelInjectionLimits()
+	lim := config.kernelInjectionLimits()
 
 	matchesShard := func(raw string) bool {
 		raw = strings.TrimSpace(raw)
@@ -1749,10 +1800,11 @@ func (c *JITPromptCompiler) logCompilationManifest(stats *CompilationStats, resu
 	logging.Get(logging.CategoryJIT).StructuredLog("info", "prompt_manifest", fields)
 }
 
-// GetLastResult returns the most recent compilation result.
-// This is used by the TUI Prompt Inspector for observability.
+// GetLastResult returns a caller-owned copy of the most recent compilation
+// result. The TUI Prompt Inspector and other observers cannot mutate cache or
+// last-result state through the returned pointer.
 func (c *JITPromptCompiler) GetLastResult() *CompilationResult {
-	return c.lastResult.Load()
+	return cloneCompilationResult(c.lastResult.Load())
 }
 
 // CompilerStats is what `nerd jit` prints.

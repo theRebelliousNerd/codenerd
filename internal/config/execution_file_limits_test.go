@@ -44,7 +44,7 @@ func TestLoadUserConfig_InstallsFileCeilings(t *testing.T) {
 func TestLoadUserConfig_AbsentFileCeilingsUseDefaults(t *testing.T) {
 	restoreProcessLimits(t)
 	path := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(path, []byte(`{"provider":"ollama"}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"provider":"ollama","model":"qwen9:4b"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := LoadUserConfig(path)

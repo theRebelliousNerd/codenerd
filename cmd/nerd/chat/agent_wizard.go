@@ -4,8 +4,10 @@ import (
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	coresys "codenerd/internal/system"
+	"codenerd/internal/types"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -116,7 +118,7 @@ func (m Model) handleAgentWizardInput(input string) (tea.Model, tea.Cmd) {
 func (m Model) runAgentResearch(wizard *AgentWizardState) tea.Cmd {
 	return func() tea.Msg {
 		// 1. Define Profile
-		config := coreshards.DefaultSpecialistConfig(wizard.Name, fmt.Sprintf("memory/shards/%s_knowledge.db", wizard.Name))
+		config := coreshards.DefaultSpecialistConfig(wizard.Name, types.AgentKnowledgeDBPath(filepath.Join(m.workspace, ".nerd"), wizard.Name))
 		m.shardMgr.DefineProfile(wizard.Name, config)
 
 		// 2. An existing definition is never clobbered, so decide up front

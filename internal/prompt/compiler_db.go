@@ -274,11 +274,18 @@ func (c *JITPromptCompiler) GetConfig() CompilerConfig {
 	return c.config
 }
 
+func (c *JITPromptCompiler) configSnapshot() (CompilerConfig, uint64, selectorVectorConfig) {
+	c.configMu.RLock()
+	defer c.configMu.RUnlock()
+	return c.config, c.configRevision, c.selector.vectorConfigSnapshot()
+}
+
 // SetConfig updates the compiler configuration.
 func (c *JITPromptCompiler) SetConfig(config CompilerConfig) {
 	c.configMu.Lock()
 	defer c.configMu.Unlock()
 	c.config = config
+	c.configRevision++
 	c.selector.SetVectorSearchTimeout(config.VectorSearchTimeout)
 	// The sibling knob, and it was wired nowhere. SetVectorWeight had no
 	// production caller and CompilerConfig.VectorSearchWeight had no
@@ -297,6 +304,7 @@ func (c *JITPromptCompiler) SetConfig(config CompilerConfig) {
 	if config.VectorSearchWeight > 0 {
 		c.selector.SetVectorWeight(config.VectorSearchWeight)
 	}
+	c.clearPromptCache("compiler configuration updated")
 }
 
 // SetLocalDB sets the LocalStore for semantic knowledge atom queries.
@@ -323,6 +331,11 @@ func (c *JITPromptCompiler) SetLearningStore(ls *store.LearningStore) {
 // is searched lexically through the shared handle. Sibling experts are never
 // consulted. Missing knowledge reads as missing (nil); nothing is fabricated.
 func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *CompilationContext) []*PromptAtom {
+	config, _, _ := c.configSnapshot()
+	return c.collectKnowledgeAtomsWithConfig(ctx, cc, config)
+}
+
+func (c *JITPromptCompiler) collectKnowledgeAtomsWithConfig(ctx context.Context, cc *CompilationContext, config CompilerConfig) []*PromptAtom {
 	if cc == nil {
 		return nil
 	}
@@ -330,9 +343,7 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 	db := c.localDB
 	c.dbMu.RUnlock()
 
-	c.configMu.RLock()
-	timeout := c.config.KnowledgeSearchTimeout
-	c.configMu.RUnlock()
+	timeout := config.KnowledgeSearchTimeout
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
@@ -474,13 +485,16 @@ func appendKnowledgePromptAtoms(dst []*PromptAtom, seen map[string]struct{}, ato
 
 // collectLearningAtoms queries the LearningStore for relevant past learnings.
 func (c *JITPromptCompiler) collectLearningAtoms(ctx context.Context, cc *CompilationContext) []*PromptAtom {
+	config, _, _ := c.configSnapshot()
+	return c.collectLearningAtomsWithConfig(ctx, cc, config)
+}
+
+func (c *JITPromptCompiler) collectLearningAtomsWithConfig(ctx context.Context, cc *CompilationContext, config CompilerConfig) []*PromptAtom {
 	c.dbMu.RLock()
 	ls := c.learningStore
 	c.dbMu.RUnlock()
 
-	c.configMu.RLock()
-	timeout := c.config.VectorSearchTimeout
-	c.configMu.RUnlock()
+	timeout := config.VectorSearchTimeout
 
 	if timeout <= 0 {
 		timeout = 10 * time.Second

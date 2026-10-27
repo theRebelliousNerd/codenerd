@@ -57,7 +57,7 @@ func TestCampaignRoles_HaveAtomCoverage(t *testing.T) {
 func TestStaticPromptProvider_ShouldStillServeEveryRole(t *testing.T) {
 	provider := NewStaticPromptProvider()
 	for _, role := range AllCampaignRoles() {
-		prompt, err := provider.GetPrompt(context.Background(), role, "/campaign_x")
+		prompt, err := provider.GetPrompt(context.Background(), role, "/campaign_x", nil)
 		if err != nil {
 			t.Errorf("role %s: %v", role, err)
 			continue
@@ -68,7 +68,7 @@ func TestStaticPromptProvider_ShouldStillServeEveryRole(t *testing.T) {
 	}
 
 	// An unknown role must not return an empty string either.
-	generic, err := provider.GetPrompt(context.Background(), CampaignRole("nonsense"), "/campaign_x")
+	generic, err := provider.GetPrompt(context.Background(), CampaignRole("nonsense"), "/campaign_x", nil)
 	if err != nil {
 		t.Fatalf("unknown role returned an error: %v", err)
 	}

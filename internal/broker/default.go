@@ -191,10 +191,12 @@ func (m *Meter) Ledger() *Ledger {
 // endpoint. Providers with no such endpoint leave it zero and get the
 // calibrating estimator.
 type ProviderCreds struct {
-	Provider string
-	Model    string
-	APIKey   string
-	BaseURL  string
+	HTTPClient  *http.Client
+	Provider    string
+	Model       string
+	APIKey      string
+	BaseURL     string
+	WorkspaceID string
 }
 
 // Calibrator returns the meter's shared calibrator.
@@ -229,7 +231,10 @@ func (m *Meter) CounterFor(creds ProviderCreds) Counter {
 	estimator := NewEstimatingCounter(cal)
 
 	if creds.Provider == "anthropic" && creds.APIKey != "" && creds.BaseURL != "" {
-		return NewAnthropicCounter(creds.APIKey, creds.BaseURL, httpClient, estimator)
+		if creds.HTTPClient != nil {
+			httpClient = creds.HTTPClient
+		}
+		return NewAnthropicCounterWithWorkspace(creds.APIKey, creds.BaseURL, creds.WorkspaceID, httpClient, estimator)
 	}
 	return estimator
 }

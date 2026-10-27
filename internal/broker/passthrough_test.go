@@ -43,9 +43,9 @@ func (r *richClient) GetLastThoughtSignature() string { return "sig-opaque-abc12
 func (r *richClient) GetLastGroundingSources() []string {
 	return []string{"https://example.test/a", "https://example.test/b"}
 }
-func (r *richClient) IsWebSearchEnabled() bool  { return r.searchEnabled }
+func (r *richClient) IsWebSearchEnabled() bool     { return r.searchEnabled }
 func (r *richClient) IsURLContextEnabled() bool    { return r.urlContextEnabled }
-func (r *richClient) SetEnableWebSearch(v bool) { r.searchEnabled = v }
+func (r *richClient) SetEnableWebSearch(v bool)    { r.searchEnabled = v }
 func (r *richClient) SetEnableURLContext(v bool)   { r.urlContextEnabled = v }
 func (r *richClient) SetURLContextURLs(u []string) { r.urls = u }
 func (r *richClient) SetCachedContent(h string)    { r.model = "cached:" + h }

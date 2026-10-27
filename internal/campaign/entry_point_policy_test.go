@@ -64,9 +64,10 @@ func TestEveryEntryPointTakesThePolicyFromTheUserConfig(t *testing.T) {
 			t.Fatalf("walk %s: %v", dir, err)
 		}
 	}
-	// start/resume/recurse (CLI builder), chat campaign/assault/recurse, and
-	// the campaign runner shard.
-	if len(sites) < 5 {
+	// start/resume/recurse/assault (CLI builder), chat
+	// campaign/assault/recurse/add (newCampaignOrchestrator), and the campaign
+	// runner shard.
+	if len(sites) < 3 {
 		t.Fatalf("found %d orchestrator construction sites (%v); the scan no longer sees them", len(sites), sites)
 	}
 }
@@ -98,7 +99,9 @@ func checkPolicySites(t *testing.T, path string, fd *ast.FuncDecl) []string {
 	ast.Inspect(fd.Body, func(n ast.Node) bool {
 		switch x := n.(type) {
 		case *ast.CompositeLit:
-			if !isOrchConfig(x.Type) {
+			// An empty literal is a zero value returned beside an error, not
+			// a construction (the same rule as orchestrator_callsite_test.go).
+			if !isOrchConfig(x.Type) || len(x.Elts) == 0 {
 				return true
 			}
 			site := path + ":" + fd.Name.Name

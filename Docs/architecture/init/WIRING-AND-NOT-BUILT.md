@@ -1,5 +1,31 @@
 # init WIRING-AND-NOT-BUILT — what is reachable, what is dead, what is assumed
 
+> **Status, 2026-10-27 (planner routing and init review).** Current; the
+> older blocks below are history.
+>
+> | Entry | Resolution |
+> |---|---|
+> | Planner slot unused by init | wired: `InitConfig.PlannerClient`; CLI `configureInitLLM`, chat `Cortex.PlannerLLM()`; routing table in README.md |
+> | 10-minute per-request hardcode (chat), `--timeout` copied into the per-request bound (CLI) | removed: callers pass 0, `withJITPrompt` reads `llm_timeouts.per_call_timeout` at call time |
+> | Init compiles named no model | fixed: init and northstar derive compiles carry the serving client's provider/model and input window |
+> | `createDefaultConfig` wrote provider `gemini` and a 1M-token window | removed: the seeded config.json names no LLM or embedding provider |
+> | Init started system shards and set the LLM client on the chat's shard manager | removed; only created agents' profiles are defined |
+> | Grounding helper, Files API / context-cache extraction | deleted (bad idea): mutated a session-shared client, never active behind the scheduler, and web grounding has no place in extracting a given document |
+> | Shared knowledge pool (`core_concepts.db`) | deleted (filler): static, Go-specific advice inherited by every agent; topic dedupe is now a per-run fetch cache |
+> | Codebase, campaign and core-shard KBs (7b, 7c, 7d) | deleted (no reader): duplicated profile facts or described removed shards; core-shard research spent Context7 calls on generic topics |
+> | Phase 3 "analysis" (print only), ETA guesses, KB "quality" scores, base identity atoms, knowledge.db prompt-atom copies | deleted (no reader or untrue) |
+> | Phase 7e fixed `missing_tool_for` list | replaced: autopoiesis treated it as a standing codegen order every boot; 7e now chooses project command tools from declared commands on the planner |
+> | `/refresh-docs` | fixed: engine retained (every refresh failed), extracted docs no longer re-extracted, `--force` wired, stale doc atoms retired, counters per run |
+> | Strategic knowledge appended on every init | fixed: replaced; no "unknown"/"no vision" filler |
+> | Roster ignored the north star; core pair only as a fallback | built: planner-proposed domain experts with grounded research; core pair kept on evidence; imports bounded |
+> | agents.json overwritten; grants for unregistered tools refused at boot | fixed: merged registry, grants limited to registered tools, tools for every measured language |
+> | Output written into the chat's alt screen; `/init` reported "Complete" over failures | fixed: `InitConfig.Output`; truthful completion with per-client LLM table |
+>
+> Config fields still owned by `internal/config` (report, not built here):
+> `OrientConfig.DomainAgentMax` (`/orient_domain_agent_max`),
+> `DomainAgentTopicMax`, `ImportedAgentMax`, `ResearchStaleDays`, so the
+> `orient_param` defaults become visible in `config full`.
+
 > **Status, 2026-09-25 (lane B wave 2).** Every entry below is resolved; the
 > entries are kept as written at `3463477` and this table is current.
 >

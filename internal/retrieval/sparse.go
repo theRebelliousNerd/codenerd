@@ -34,11 +34,13 @@ type SparseRetriever struct {
 	workDir string
 	cache   *KeywordHitCache
 
-	// mu guards lastWriteCursor. Invalidation is driven off the kernel's
-	// file_written timestamps, and two concurrent seeds must not both replay
-	// (or both skip) the same window of writes.
+	// mu guards the invalidation cursor and the exact file_written facts at its
+	// timestamp. Writers currently record Unix seconds, so a new fact can share
+	// the cursor timestamp; retaining only that boundary's identities avoids
+	// replaying those facts forever without keeping unbounded write history.
 	mu              sync.RWMutex
 	lastWriteCursor int64
+	lastWriteEvents map[string]struct{}
 
 	// activeSearches counts keyword searches currently in flight so each one
 	// can take a fair share of the shared file-worker budget instead of every

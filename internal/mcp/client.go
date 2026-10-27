@@ -20,6 +20,10 @@ type MCPClientManager struct {
 	reviewedEffects map[string]ReviewedToolEffect
 	resources       map[string][]MCPResource
 	prompts         map[string][]MCPPrompt
+	// catalogGenerations is protected by authorityMu. It advances when a
+	// resource/prompt refresh begins and on connection lifecycle changes, so a
+	// delayed operation cannot invalidate or publish over a newer catalog.
+	catalogGenerations map[string]uint64
 
 	servers  map[string]*MCPServerConnection
 	store    *MCPToolStore
@@ -32,8 +36,9 @@ type MCPClientManager struct {
 	discovering sync.WaitGroup
 
 	// Callbacks
-	onToolDiscovered func(tool *MCPTool)
-	onServerStatus   func(serverID string, status ServerStatus)
+	onToolDiscovered   func(tool *MCPTool)
+	onServerStatus     func(serverID string, status ServerStatus)
+	onCatalogLifecycle func(serverID string, preserveOfflineCache bool)
 }
 
 // MCPServerConnection holds the connection state for a single MCP server.
@@ -51,10 +56,51 @@ type ToolAnalyzerInterface interface {
 // NewMCPClientManager creates a new MCP client manager.
 func NewMCPClientManager(store *MCPToolStore, analyzer ToolAnalyzerInterface, config map[string]MCPServerConfig) *MCPClientManager {
 	return &MCPClientManager{
-		servers:  make(map[string]*MCPServerConnection),
-		store:    store,
-		analyzer: analyzer,
-		config:   config,
+		servers:            make(map[string]*MCPServerConnection),
+		store:              store,
+		analyzer:           analyzer,
+		config:             config,
+		catalogGenerations: make(map[string]uint64),
+	}
+}
+
+func catalogGenerationKey(operation RemoteOperation, serverID string) string {
+	return string(operation) + ":" + serverID
+}
+
+// bumpCatalogGenerationLocked advances one catalog generation. The caller
+// must hold authorityMu so catalog invalidation, connection replacement, and
+// discovery publication share one fence.
+func (m *MCPClientManager) bumpCatalogGenerationLocked(operation RemoteOperation, serverID string) uint64 {
+	if m.catalogGenerations == nil {
+		m.catalogGenerations = make(map[string]uint64)
+	}
+	key := catalogGenerationKey(operation, serverID)
+	m.catalogGenerations[key]++
+	return m.catalogGenerations[key]
+}
+
+func (m *MCPClientManager) catalogGenerationLocked(operation RemoteOperation, serverID string) uint64 {
+	return m.catalogGenerations[catalogGenerationKey(operation, serverID)]
+}
+
+func (m *MCPClientManager) setCatalogLifecycleHook(hook func(serverID string, preserveOfflineCache bool)) {
+	m.authorityMu.Lock()
+	defer m.authorityMu.Unlock()
+	m.mu.Lock()
+	m.onCatalogLifecycle = hook
+	m.mu.Unlock()
+}
+
+// notifyCatalogLifecycle reports a new manager generation to the attached
+// ControlPlane. The authority fence remains held while the cache moves to the
+// same generation.
+func (m *MCPClientManager) notifyCatalogLifecycle(serverID string, preserveOfflineCache bool) {
+	m.mu.RLock()
+	hook := m.onCatalogLifecycle
+	m.mu.RUnlock()
+	if hook != nil {
+		hook(serverID, preserveOfflineCache)
 	}
 }
 
@@ -234,7 +280,7 @@ func (m *MCPClientManager) Connect(ctx context.Context, serverID string) error {
 		Name:          serverID, // Will be updated from server info
 		Endpoint:      cfg.BaseURL,
 		Protocol:      Protocol(cfg.Protocol),
-		Status:        ServerStatusConnected,
+		Status:        ServerStatusConnecting,
 		DiscoveredAt:  time.Now(),
 		LastConnected: time.Now(),
 	}
@@ -250,13 +296,38 @@ func (m *MCPClientManager) Connect(ctx context.Context, serverID string) error {
 		}
 	}
 
-	// Store connection
+	// The authority lock fences lifecycle invalidation and catalog publication.
+	// A newly established transport must retract the old resource/prompt groups
+	// before it becomes current or its connected status reaches policy.
 	conn := &MCPServerConnection{
 		Server:    server,
 		Transport: transport,
 	}
 
 	m.authorityMu.Lock()
+	m.mu.RLock()
+	current := m.servers[serverID]
+	m.mu.RUnlock()
+	if current != nil && current.Transport != nil && current.Transport.IsConnected() {
+		statusErr := m.updateServerStatus(serverID, ServerStatusConnected)
+		m.authorityMu.Unlock()
+		return errors.Join(statusErr, transport.Disconnect())
+	}
+
+	emitter := m.factEmitter()
+	if err := emitter.EmitServer(server); err != nil {
+		m.authorityMu.Unlock()
+		return errors.Join(fmt.Errorf("publish MCP server %s: %w", serverID, err), transport.Disconnect())
+	}
+	if err := errors.Join(emitter.EmitResources(serverID, nil), emitter.EmitPrompts(serverID, nil)); err != nil {
+		_ = m.updateServerStatus(serverID, ServerStatusError)
+		m.authorityMu.Unlock()
+		return errors.Join(fmt.Errorf("invalidate MCP catalog for %s: %w", serverID, err), transport.Disconnect())
+	}
+	m.bumpCatalogGenerationLocked(RemoteResource, serverID)
+	m.bumpCatalogGenerationLocked(RemotePrompt, serverID)
+	m.notifyCatalogLifecycle(serverID, false)
+
 	m.mu.Lock()
 	m.servers[serverID] = conn
 	delete(m.resources, serverID)
@@ -267,19 +338,20 @@ func (m *MCPClientManager) Connect(ctx context.Context, serverID string) error {
 		}
 	}
 	m.mu.Unlock()
-	m.authorityMu.Unlock()
 
-	// Publish the server to the kernel before status, so the availability rule
-	// in policy_mcp.mg sees a registration to join against.
-	m.factEmitter().EmitServer(server)
-	if err := m.factEmitter().Error(); err != nil {
+	// Publish connected status only after the new connection is current and the
+	// previous resource/prompt catalog has been retracted.
+	server.Status = ServerStatusConnected
+	if err := m.updateServerStatus(serverID, ServerStatusConnected); err != nil {
 		m.mu.Lock()
-		delete(m.servers, serverID)
+		if m.servers[serverID] == conn {
+			delete(m.servers, serverID)
+		}
 		m.mu.Unlock()
-		return errors.Join(fmt.Errorf("publish MCP server %s: %w", serverID, err), transport.Disconnect())
+		m.authorityMu.Unlock()
+		return errors.Join(fmt.Errorf("publish MCP connected status for %s: %w", serverID, err), transport.Disconnect())
 	}
-
-	m.updateServerStatus(serverID, ServerStatusConnected)
+	m.authorityMu.Unlock()
 
 	// Persist server to store
 	if m.store != nil {
@@ -324,20 +396,21 @@ func (m *MCPClientManager) Disconnect(serverID string) error {
 		return fmt.Errorf("server not connected: %s", serverID)
 	}
 	delete(m.servers, serverID)
-	delete(m.resources, serverID)
-	delete(m.prompts, serverID)
 	for toolID := range m.reviewedEffects {
 		if boundServer, _ := parseToolID(toolID); boundServer == serverID {
 			delete(m.reviewedEffects, toolID)
 		}
 	}
 	m.mu.Unlock()
+	m.bumpCatalogGenerationLocked(RemoteResource, serverID)
+	m.bumpCatalogGenerationLocked(RemotePrompt, serverID)
+	m.notifyCatalogLifecycle(serverID, true)
+	statusErr := m.updateServerStatus(serverID, ServerStatusDisconnected)
 	m.authorityMu.Unlock()
 
 	disconnectErr := conn.Transport.Disconnect()
-	m.updateServerStatus(serverID, ServerStatusDisconnected)
 	logging.Get(logging.CategoryTools).Info("Disconnected from MCP server %s", serverID)
-	return errors.Join(disconnectErr, m.factEmitter().Error())
+	return errors.Join(disconnectErr, statusErr)
 }
 
 // DisconnectAll closes all server connections.
@@ -369,11 +442,13 @@ func (m *MCPClientManager) DiscoverTools(ctx context.Context, serverID string) e
 	// List tools from server
 	schemas, err := conn.Transport.ListTools(ctx)
 	if err != nil {
-		m.invalidateRemoteCatalog(RemoteTool, serverID)
-		return fmt.Errorf("failed to list tools: %w", err)
+		invalidateErr := m.invalidateRemoteCatalog(RemoteTool, serverID)
+		return errors.Join(fmt.Errorf("failed to list tools: %w", err), invalidateErr)
 	}
 	if len(schemas) == 0 {
-		m.invalidateRemoteCatalog(RemoteTool, serverID)
+		if err := m.invalidateRemoteCatalog(RemoteTool, serverID); err != nil {
+			return err
+		}
 		return m.factEmitter().Error()
 	}
 	if err := m.beginRemoteToolRefresh(serverID, conn, schemas); err != nil {
@@ -621,34 +696,55 @@ func (m *MCPClientManager) CallTool(ctx context.Context, toolID string, args map
 // already answers this?" is a question the executive should be able to ask
 // before it spends a tool call.
 func (m *MCPClientManager) DiscoverResources(ctx context.Context, serverID string) ([]MCPResource, error) {
-	m.invalidateRemoteCatalog(RemoteResource, serverID)
-	transport, err := m.transportFor(serverID)
-	if err != nil {
-		return nil, err
+	if serverID == "" {
+		return nil, fmt.Errorf("server ID cannot be empty")
 	}
-	provider, ok := transport.(ResourceCapableTransport)
+	m.authorityMu.Lock()
+	m.mu.RLock()
+	connection := m.servers[serverID]
+	emitter := m.facts
+	m.mu.RUnlock()
+	if connection == nil || connection.Transport == nil || !connection.Transport.IsConnected() {
+		m.authorityMu.Unlock()
+		return nil, fmt.Errorf("server not connected: %s", serverID)
+	}
+	provider, ok := connection.Transport.(ResourceCapableTransport)
 	if !ok {
+		m.authorityMu.Unlock()
 		return nil, fmt.Errorf("transport for %s does not support resources", serverID)
 	}
+	generation := m.bumpCatalogGenerationLocked(RemoteResource, serverID)
+	if err := emitter.EmitResources(serverID, nil); err != nil {
+		m.authorityMu.Unlock()
+		return nil, fmt.Errorf("retract MCP resources before discovery: %w", err)
+	}
+	m.mu.Lock()
+	delete(m.resources, serverID)
+	m.mu.Unlock()
+	m.authorityMu.Unlock()
 
 	resources, err := provider.ListResources(ctx)
 	if err != nil {
 		return nil, err
 	}
-	m.factEmitter().EmitResources(serverID, resources)
-	m.mu.Lock()
-	if connection := m.servers[serverID]; connection == nil || connection.Transport != transport {
-		m.mu.Unlock()
+	m.authorityMu.Lock()
+	defer m.authorityMu.Unlock()
+	m.mu.RLock()
+	current := m.servers[serverID]
+	currentEmitter := m.facts
+	m.mu.RUnlock()
+	if current != connection || currentEmitter != emitter || m.catalogGenerationLocked(RemoteResource, serverID) != generation {
 		return nil, fmt.Errorf("MCP connection changed during resource discovery")
 	}
+	if err := emitter.EmitResources(serverID, resources); err != nil {
+		return nil, fmt.Errorf("publish MCP resources: %w", err)
+	}
+	m.mu.Lock()
 	if m.resources == nil {
 		m.resources = make(map[string][]MCPResource)
 	}
 	m.resources[serverID] = append([]MCPResource(nil), resources...)
 	m.mu.Unlock()
-	if err := m.factEmitter().Error(); err != nil {
-		return nil, fmt.Errorf("publish MCP resources: %w", err)
-	}
 	logging.Get(logging.CategoryTools).Info("Discovered %d resources from %s", len(resources), serverID)
 	return resources, nil
 }
@@ -683,34 +779,55 @@ func (m *MCPClientManager) ReadResource(ctx context.Context, serverID, uri strin
 
 // DiscoverPrompts lists a server's prompt templates and publishes them.
 func (m *MCPClientManager) DiscoverPrompts(ctx context.Context, serverID string) ([]MCPPrompt, error) {
-	m.invalidateRemoteCatalog(RemotePrompt, serverID)
-	transport, err := m.transportFor(serverID)
-	if err != nil {
-		return nil, err
+	if serverID == "" {
+		return nil, fmt.Errorf("server ID cannot be empty")
 	}
-	provider, ok := transport.(PromptCapableTransport)
+	m.authorityMu.Lock()
+	m.mu.RLock()
+	connection := m.servers[serverID]
+	emitter := m.facts
+	m.mu.RUnlock()
+	if connection == nil || connection.Transport == nil || !connection.Transport.IsConnected() {
+		m.authorityMu.Unlock()
+		return nil, fmt.Errorf("server not connected: %s", serverID)
+	}
+	provider, ok := connection.Transport.(PromptCapableTransport)
 	if !ok {
+		m.authorityMu.Unlock()
 		return nil, fmt.Errorf("transport for %s does not support prompts", serverID)
 	}
+	generation := m.bumpCatalogGenerationLocked(RemotePrompt, serverID)
+	if err := emitter.EmitPrompts(serverID, nil); err != nil {
+		m.authorityMu.Unlock()
+		return nil, fmt.Errorf("retract MCP prompts before discovery: %w", err)
+	}
+	m.mu.Lock()
+	delete(m.prompts, serverID)
+	m.mu.Unlock()
+	m.authorityMu.Unlock()
 
 	prompts, err := provider.ListPrompts(ctx)
 	if err != nil {
 		return nil, err
 	}
-	m.factEmitter().EmitPrompts(serverID, prompts)
-	m.mu.Lock()
-	if connection := m.servers[serverID]; connection == nil || connection.Transport != transport {
-		m.mu.Unlock()
+	m.authorityMu.Lock()
+	defer m.authorityMu.Unlock()
+	m.mu.RLock()
+	current := m.servers[serverID]
+	currentEmitter := m.facts
+	m.mu.RUnlock()
+	if current != connection || currentEmitter != emitter || m.catalogGenerationLocked(RemotePrompt, serverID) != generation {
 		return nil, fmt.Errorf("MCP connection changed during prompt discovery")
 	}
+	if err := emitter.EmitPrompts(serverID, prompts); err != nil {
+		return nil, fmt.Errorf("publish MCP prompts: %w", err)
+	}
+	m.mu.Lock()
 	if m.prompts == nil {
 		m.prompts = make(map[string][]MCPPrompt)
 	}
 	m.prompts[serverID] = append([]MCPPrompt(nil), prompts...)
 	m.mu.Unlock()
-	if err := m.factEmitter().Error(); err != nil {
-		return nil, fmt.Errorf("publish MCP prompts: %w", err)
-	}
 	logging.Get(logging.CategoryTools).Info("Discovered %d prompts from %s", len(prompts), serverID)
 	return prompts, nil
 }
@@ -827,7 +944,7 @@ func (m *MCPClientManager) ListTools(ctx context.Context) ([]MCPToolSchema, erro
 }
 
 // updateServerStatus updates server status and notifies callback.
-func (m *MCPClientManager) updateServerStatus(serverID string, status ServerStatus) {
+func (m *MCPClientManager) updateServerStatus(serverID string, status ServerStatus) error {
 	m.mu.RLock()
 	cb := m.onServerStatus
 	emitter := m.facts
@@ -835,7 +952,7 @@ func (m *MCPClientManager) updateServerStatus(serverID string, status ServerStat
 
 	// Availability in policy_mcp.mg keys off mcp_server_status, so this is the
 	// fact that has to move on every transition — including disconnect.
-	emitter.EmitServerStatus(serverID, status)
+	emitErr := emitter.EmitServerStatus(serverID, status)
 
 	if cb != nil {
 		cb(serverID, status)
@@ -856,6 +973,7 @@ func (m *MCPClientManager) updateServerStatus(serverID string, status ServerStat
 			}
 		}()
 	}
+	return emitErr
 }
 
 // parseToolID parses a tool ID into server ID and tool name.

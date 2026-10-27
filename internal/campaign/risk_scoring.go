@@ -306,7 +306,7 @@ func (o *Orchestrator) runRiskPreflight(ctx context.Context) (*RiskGateEvaluatio
 			Results:        []RiskGateResult{},
 			ProtectedRoots: protectedRoots,
 		}
-		o.setLastRiskEvaluation(eval)
+		o.observeRiskEvaluation(eval)
 		return eval, nil
 	}
 
@@ -359,7 +359,7 @@ func (o *Orchestrator) runRiskPreflight(ctx context.Context) (*RiskGateEvaluatio
 			Allowed:        true,
 			ProtectedRoots: protectedRoots,
 		}
-		o.setLastRiskEvaluation(eval)
+		o.observeRiskEvaluation(eval)
 		return eval, nil
 	}
 
@@ -443,7 +443,7 @@ func (o *Orchestrator) finalizeRiskPreflight(decision *CampaignRiskDecision, mea
 			audit["snapshot_id"] = decision.SnapshotID
 		}
 		o.emitRiskAudit(EventRiskGatePassed, "Strict risk gates passed", audit)
-		o.setLastRiskEvaluation(eval)
+		o.observeRiskEvaluation(eval)
 		return eval, nil
 	}
 
@@ -473,27 +473,20 @@ func (o *Orchestrator) finalizeRiskPreflight(decision *CampaignRiskDecision, mea
 	}
 	o.emitRiskAudit(EventRiskGateBlocked, "Campaign blocked by hard risk finding", audit)
 
-	o.setLastRiskEvaluation(eval)
+	o.observeRiskEvaluation(eval)
 	return eval, &RiskBlockedError{CampaignID: measured.campaignID, Evaluation: eval}
 }
 
-// setLastRiskEvaluation runs with o.mu already held by Run.
-func (o *Orchestrator) setLastRiskEvaluation(eval *RiskGateEvaluation) {
-	o.lastRiskEvaluation = eval
+// observeRiskEvaluation hands the preflight's evaluation to the metrics sink.
+// It runs with o.mu already held by Run. Operators see the evaluation itself
+// through the run's outcome: a block as RiskBlockedError (FormatRiskBlock), an
+// advisory finding as an EventRiskGateAdvisory event.
+func (o *Orchestrator) observeRiskEvaluation(eval *RiskGateEvaluation) {
 	campaignID := ""
 	if o.campaign != nil {
 		campaignID = o.campaign.ID
 	}
 	o.observeRiskPreflight(campaignID, eval)
-}
-
-// LastRiskEvaluation returns the most recent preflight evaluation, including
-// advisory findings that did not stop the run. Operator surfaces use it to show
-// what the gates saw even on a campaign that started successfully.
-func (o *Orchestrator) LastRiskEvaluation() *RiskGateEvaluation {
-	o.mu.RLock()
-	defer o.mu.RUnlock()
-	return o.lastRiskEvaluation
 }
 
 func (o *Orchestrator) gatherRiskIntelligence(ctx context.Context, targetPaths []string) *IntelligenceReport {
@@ -733,13 +726,13 @@ func (o *Orchestrator) runEdgeRiskGate(ctx context.Context, targetPaths []string
 	if err != nil {
 		reason := fmt.Sprintf("edge analysis failed: %v", err)
 		return RiskGateResult{
-				Name:    RiskGateEdge,
-				Enabled: true,
-				Outcome: RiskGateOutcomeBlocked,
-				Reason:  reason,
-			}, []riskConcern{{
-				gate: RiskGateEdge, severity: riskConcernUnapproved, detail: reason,
-			}}
+			Name:    RiskGateEdge,
+			Enabled: true,
+			Outcome: RiskGateOutcomeBlocked,
+			Reason:  reason,
+		}, []riskConcern{{
+			gate: RiskGateEdge, severity: riskConcernUnapproved, detail: reason,
+		}}
 	}
 	if analysis == nil {
 		return RiskGateResult{
@@ -820,13 +813,13 @@ func (o *Orchestrator) runAdvisoryRiskGate(ctx context.Context, targetPaths []st
 	if err != nil {
 		reason := fmt.Sprintf("advisory consultation failed: %v", err)
 		return RiskGateResult{
-				Name:    RiskGateAdvisory,
-				Enabled: true,
-				Outcome: RiskGateOutcomeBlocked,
-				Reason:  reason,
-			}, []riskConcern{{
-				gate: RiskGateAdvisory, severity: riskConcernUnapproved, detail: reason,
-			}}
+			Name:    RiskGateAdvisory,
+			Enabled: true,
+			Outcome: RiskGateOutcomeBlocked,
+			Reason:  reason,
+		}, []riskConcern{{
+			gate: RiskGateAdvisory, severity: riskConcernUnapproved, detail: reason,
+		}}
 	}
 
 	synthesis := o.advisoryBoard.SynthesizeVotes(responses)

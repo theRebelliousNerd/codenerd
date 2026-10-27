@@ -16,15 +16,31 @@ import (
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
+	"github.com/google/uuid"
 )
 
 // startEventStream wires Rod CDP events into the fact sink.
-func (m *SessionManager) startEventStream(ctx context.Context, sessionID string, page *rod.Page) {
+func (m *SessionManager) startEventStream(ctx context.Context, sessionID string, page *rod.Page) error {
 	if page == nil {
 		logging.BrowserDebug("Event stream skipped - nil page for session %s", sessionID)
-		return
+		return fmt.Errorf("start browser event stream: nil page")
 	}
 	ctx = normalizeContext(ctx)
+	streamDone := make(chan struct{})
+	m.mu.Lock()
+	if record := m.sessions[sessionID]; record != nil {
+		record.streamDone = streamDone
+	}
+	m.mu.Unlock()
+	mainFrameMu := &sync.RWMutex{}
+	mainFrameID := ""
+	if tree, err := (proto.PageGetFrameTree{}).Call(page); err == nil && tree != nil && tree.FrameTree != nil && tree.FrameTree.Frame != nil {
+		mainFrameID = string(tree.FrameTree.Frame.ID)
+	}
+	probeToken := "__codenerd_event_stream_ready_" + uuid.NewString()
+	navReady := make(chan struct{})
+	var navReadyOnce sync.Once
+	notifyNavReady := func() { navReadyOnce.Do(func() { close(navReady) }) }
 	handleNavigation := func(ev *proto.PageFrameNavigated) {
 		if ev == nil || ev.Frame == nil || ev.Frame.ParentID != "" {
 			return
@@ -35,6 +51,9 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 		if info, infoErr := page.Context(ctx).Info(); infoErr == nil && info != nil && info.URL != "" && info.URL != ev.Frame.URL {
 			return
 		}
+		mainFrameMu.Lock()
+		mainFrameID = string(ev.Frame.ID)
+		mainFrameMu.Unlock()
 		now := time.Now()
 		safeURL := m.redactor.SanitizeString(ev.Frame.URL)
 		registry := m.Registry(sessionID)
@@ -76,12 +95,25 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 		// ingestion features. Keep the lightweight navigation stream alive for
 		// standalone managers too.
 		logging.BrowserDebug("Starting navigation-only event stream - no engine configured")
-		go page.Context(ctx).EachEvent(handleNavigation)()
-		return
+		waitNav := page.Context(ctx).EachEvent(
+			handleNavigation,
+			func(ev *proto.RuntimeConsoleAPICalled) {
+				if isEventStreamProbe(ev, probeToken) {
+					notifyNavReady()
+				}
+			},
+		)
+		go func() {
+			defer close(streamDone)
+			waitNav()
+		}()
+		return waitForEventListeners(ctx, page, probeToken, navReady)
 	}
 
 	logging.BrowserDebug("Starting event stream for session %s", sessionID)
+	eventReady := make(chan error, 1)
 	go func() {
+		defer close(streamDone)
 		var wg sync.WaitGroup
 
 		level := strings.ToLower(m.cfg.EventLoggingLevel)
@@ -182,7 +214,17 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 		})
 
 		// Navigation events
-		waitNav := page.Context(ctx).EachEvent(handleNavigation)
+		waitNav := page.Context(ctx).EachEvent(
+			handleNavigation,
+			func(ev *proto.RuntimeConsoleAPICalled) {
+				if isEventStreamProbe(ev, probeToken) {
+					notifyNavReady()
+				}
+			},
+		)
+		restReady := make(chan struct{})
+		var restReadyOnce sync.Once
+		notifyRestReady := func() { restReadyOnce.Do(func() { close(restReady) }) }
 
 		// Console, network, and DOM streams
 		type requestState struct {
@@ -190,12 +232,20 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 			method    string
 			url       string
 			initType  string
+			resource  string
+			frameID   string
 			factAdded bool
 		}
 		var requestMu sync.Mutex
 		requestStates := make(map[proto.NetworkRequestID]requestState)
+		wsURLs := make(map[proto.NetworkRequestID]string)
+		clock := &cdpEventClock{}
 		waitRest := page.Context(ctx).EachEvent(
 			func(ev *proto.RuntimeConsoleAPICalled) {
+				if isEventStreamProbe(ev, probeToken) {
+					notifyRestReady()
+					return
+				}
 				if consoleErrorsOnly && ev.Type != proto.RuntimeConsoleAPICalledTypeError && ev.Type != proto.RuntimeConsoleAPICalledTypeWarning {
 					return
 				}
@@ -204,16 +254,21 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 				}
 				now := time.Now()
 				msg := stringifyConsoleArgs(ev.Args)
+				eventTime, _ := fromRuntimeMillis(ev.Timestamp, now)
 				if err := m.addStreamFacts(sessionID, []mangle.Fact{{
 					Predicate: "console_event",
-					Args:      []any{sessionID, string(ev.Type), msg, now.UnixMilli()},
-					Timestamp: now,
+					Args:      []any{sessionID, string(ev.Type), msg, eventTime.UnixMilli()},
+					Timestamp: eventTime,
 				}}); err != nil {
 					logging.BrowserError("[session:%s] console fact error: %v", sessionID, err)
 				}
 			},
 			func(ev *proto.NetworkRequestWillBeSent) {
 				now := time.Now()
+				if ev == nil || ev.Request == nil {
+					return
+				}
+				clock.observe(ev.WallTime, ev.Timestamp)
 				initiatorType := ""
 				initiatorID := ""
 				initiatorScript := ""
@@ -247,7 +302,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 				requestMu.Lock()
 				requestStates[ev.RequestID] = requestState{
 					started: now, method: ev.Request.Method, url: ev.Request.URL,
-					initType: initiatorType, factAdded: addRequestFact,
+					initType: initiatorType, resource: string(ev.Type), frameID: string(ev.FrameID), factAdded: addRequestFact,
 				}
 				requestMu.Unlock()
 				if !addRequestFact {
@@ -290,6 +345,10 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 			},
 			func(ev *proto.NetworkResponseReceived) {
 				now := time.Now()
+				if ev == nil || ev.Response == nil {
+					return
+				}
+				eventTime, _ := clock.fromMonotonic(ev.Timestamp, now)
 				var latency, duration int64
 				if ev.Response != nil && ev.Response.Timing != nil {
 					latency = int64(ev.Response.Timing.ReceiveHeadersEnd)
@@ -319,8 +378,23 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 				facts = append(facts, mangle.Fact{
 					Predicate: "net_response",
 					Args:      []any{sessionID, string(ev.RequestID), int64(ev.Response.Status), latency, duration},
-					Timestamp: now,
+					Timestamp: eventTime,
 				})
+				if ev.Response.Status >= 400 {
+					url := ev.Response.URL
+					resourceType := string(ev.Type)
+					if tracked {
+						url = state.url
+						if state.resource != "" {
+							resourceType = state.resource
+						}
+					}
+					facts = append(facts, mangle.Fact{
+						Predicate: "net_http_error",
+						Args:      []any{sessionID, string(ev.RequestID), m.redactor.SanitizeString(url), int64(ev.Response.Status), resourceType, eventTime.UnixMilli()},
+						Timestamp: eventTime,
+					})
+				}
 				if err := m.addStreamFacts(sessionID, facts); err != nil {
 					logging.BrowserError("[session:%s] net_response fact error: %v", sessionID, err)
 				}
@@ -330,7 +404,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 						if err := m.addStreamFacts(sessionID, []mangle.Fact{{
 							Predicate: "net_header",
 							Args:      []any{sessionID, string(ev.RequestID), "res", strings.ToLower(k), fmt.Sprintf("%v", v)},
-							Timestamp: now,
+							Timestamp: eventTime,
 						}}); err != nil {
 							logging.BrowserError("[session:%s] res net_header fact error: %v", sessionID, err)
 						}
@@ -339,6 +413,10 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 			},
 			func(ev *proto.NetworkLoadingFailed) {
 				now := time.Now()
+				if ev == nil {
+					return
+				}
+				eventTime, _ := clock.fromMonotonic(ev.Timestamp, now)
 				requestMu.Lock()
 				state, tracked := requestStates[ev.RequestID]
 				delete(requestStates, ev.RequestID)
@@ -356,9 +434,115 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 					Args:      []any{sessionID, string(ev.RequestID), ev.ErrorText, string(ev.BlockedReason), now.UnixMilli()},
 					Timestamp: now,
 				})
+				facts = append(facts, mangle.Fact{
+					Predicate: "net_loading_failed",
+					Args:      []any{sessionID, string(ev.RequestID), m.redactor.SanitizeString(ev.ErrorText), fmt.Sprint(ev.Canceled), eventTime.UnixMilli()},
+					Timestamp: eventTime,
+				})
+				mainFrameMu.RLock()
+				isMainFrame := tracked && state.frameID != "" && state.frameID == mainFrameID
+				mainFrameMu.RUnlock()
+				if !ev.Canceled && tracked && state.resource == string(proto.NetworkResourceTypeDocument) && isMainFrame {
+					facts = append(facts, mangle.Fact{
+						Predicate: "page_load_failed",
+						Args:      []any{sessionID, m.redactor.SanitizeString(state.url), m.redactor.SanitizeString(ev.ErrorText), eventTime.UnixMilli()},
+						Timestamp: eventTime,
+					})
+				}
 				if err := m.addStreamFacts(sessionID, facts); err != nil {
 					logging.BrowserError("[session:%s] net_failure fact error: %v", sessionID, err)
 				}
+			},
+			func(ev *proto.NetworkWebSocketCreated) {
+				if ev == nil {
+					return
+				}
+				now := time.Now()
+				url := m.redactor.SanitizeString(ev.URL)
+				requestMu.Lock()
+				wsURLs[ev.RequestID] = url
+				requestMu.Unlock()
+				m.addWSEvent(sessionID, ev.RequestID, url, "created", "", now)
+			},
+			func(ev *proto.NetworkWebSocketHandshakeResponseReceived) {
+				if ev == nil || ev.Response == nil {
+					return
+				}
+				now := time.Now()
+				eventTime, _ := clock.fromMonotonic(ev.Timestamp, now)
+				requestMu.Lock()
+				url := wsURLs[ev.RequestID]
+				requestMu.Unlock()
+				detail := fmt.Sprintf("status=%d", ev.Response.Status)
+				if statusText := strings.TrimSpace(ev.Response.StatusText); statusText != "" {
+					detail += " " + statusText
+				}
+				m.addWSEvent(sessionID, ev.RequestID, url, "handshake_response", detail, eventTime)
+				if ev.Response.Status != 101 {
+					m.addWSEvent(sessionID, ev.RequestID, url, "error", detail, eventTime)
+				}
+			},
+			func(ev *proto.NetworkWebSocketFrameError) {
+				if ev == nil {
+					return
+				}
+				now := time.Now()
+				eventTime, _ := clock.fromMonotonic(ev.Timestamp, now)
+				requestMu.Lock()
+				url := wsURLs[ev.RequestID]
+				requestMu.Unlock()
+				m.addWSEvent(sessionID, ev.RequestID, url, "error", ev.ErrorMessage, eventTime)
+			},
+			func(ev *proto.NetworkWebSocketClosed) {
+				if ev == nil {
+					return
+				}
+				now := time.Now()
+				eventTime, _ := clock.fromMonotonic(ev.Timestamp, now)
+				requestMu.Lock()
+				url := wsURLs[ev.RequestID]
+				delete(wsURLs, ev.RequestID)
+				requestMu.Unlock()
+				m.addWSEvent(sessionID, ev.RequestID, url, "closed", "", eventTime)
+			},
+			func(ev *proto.LogEntryAdded) {
+				if ev == nil || ev.Entry == nil {
+					return
+				}
+				if probeToken != "" && strings.Contains(ev.Entry.Text, probeToken) {
+					return
+				}
+				if consoleErrorsOnly && ev.Entry.Level != proto.LogLogEntryLevelError && ev.Entry.Level != proto.LogLogEntryLevelWarning {
+					return
+				}
+				if !throttler.Allow("browser_log") {
+					return
+				}
+				now := time.Now()
+				eventTime, _ := fromRuntimeMillis(proto.RuntimeTimestamp(ev.Entry.Timestamp), now)
+				text := m.redactor.SanitizeString(strings.TrimSpace(ev.Entry.Text))
+				if len(text) > 1000 {
+					text = text[:1000]
+				}
+				url := m.redactor.SanitizeString(ev.Entry.URL)
+				m.addBrowserLog(sessionID, string(ev.Entry.Source), string(ev.Entry.Level), text, url, eventTime)
+			},
+			func(ev *proto.PageJavascriptDialogOpening) {
+				if ev == nil {
+					return
+				}
+				now := time.Now()
+				message := m.redactor.SanitizeString(strings.TrimSpace(ev.Message))
+				if len(message) > 500 {
+					message = message[:500]
+				}
+				handleErr := (proto.PageHandleJavaScriptDialog{Accept: false}).Call(page.Context(ctx))
+				handledBy := "default_deny"
+				if handleErr != nil {
+					handledBy = "default_deny_failed"
+					logging.BrowserWarn("[session:%s] dismiss JavaScript dialog: %v", sessionID, handleErr)
+				}
+				m.addDialogFact(sessionID, string(ev.Type), message, "false", handledBy, now)
 			},
 			func(ev *proto.DOMDocumentUpdated) {
 				if !captureDOM {
@@ -473,8 +657,61 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 				}
 			}
 		}()
+		if err := waitForEventListeners(ctx, page, probeToken, navReady, restReady); err != nil {
+			eventReady <- err
+			wg.Wait()
+			return
+		}
+		eventReady <- nil
 		wg.Wait()
 	}()
+	return <-eventReady
+}
+
+func (m *SessionManager) addWSEvent(sessionID string, requestID proto.NetworkRequestID, url, event, detail string, timestamp time.Time) {
+	if timestamp.IsZero() {
+		timestamp = time.Now()
+	}
+	detail = m.redactor.SanitizeString(strings.TrimSpace(detail))
+	if len(detail) > 500 {
+		detail = detail[:500]
+	}
+	fact := mangle.Fact{
+		Predicate: "ws_event",
+		Args:      []any{sessionID, string(requestID), m.redactor.SanitizeString(url), event, detail, timestamp.UnixMilli()},
+		Timestamp: timestamp,
+	}
+	if err := m.addStreamFacts(sessionID, []mangle.Fact{fact}); err != nil {
+		logging.BrowserError("[session:%s] WebSocket fact error: %v", sessionID, err)
+	}
+}
+
+func (m *SessionManager) addBrowserLog(sessionID, source, level, text, url string, timestamp time.Time) {
+	if timestamp.IsZero() {
+		timestamp = time.Now()
+	}
+	fact := mangle.Fact{
+		Predicate: "browser_log",
+		Args:      []any{sessionID, source, level, text, url, timestamp.UnixMilli()},
+		Timestamp: timestamp,
+	}
+	if err := m.addStreamFacts(sessionID, []mangle.Fact{fact}); err != nil {
+		logging.BrowserError("[session:%s] browser log fact error: %v", sessionID, err)
+	}
+}
+
+func (m *SessionManager) addDialogFact(sessionID, dialogType, message, accepted, handledBy string, timestamp time.Time) {
+	if timestamp.IsZero() {
+		timestamp = time.Now()
+	}
+	fact := mangle.Fact{
+		Predicate: "js_dialog",
+		Args:      []any{sessionID, dialogType, message, accepted, handledBy, timestamp.UnixMilli()},
+		Timestamp: timestamp,
+	}
+	if err := m.addStreamFacts(sessionID, []mangle.Fact{fact}); err != nil {
+		logging.BrowserError("[session:%s] JavaScript dialog fact error: %v", sessionID, err)
+	}
 }
 
 func stringifyConsoleArgs(args []*proto.RuntimeRemoteObject) string {

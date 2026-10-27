@@ -27,11 +27,13 @@ Decl profile_agent_topic(Name, Topic) bound [/string, /string].
 Decl profile_agent_permission(Name, Perm) bound [/string, /string].
 Decl profile_agent_description(Name, Description) bound [/string, /string].
 Decl profile_agent_priority(Name, Priority) bound [/string, /number].
-Decl fallback_agent(Name, Why) bound [/string, /string].
-Decl fallback_agent_topic(Name, Topic) bound [/string, /string].
-Decl fallback_agent_permission(Name, Perm) bound [/string, /string].
-Decl fallback_agent_description(Name, Description) bound [/string, /string].
-Decl fallback_agent_priority(Name, Priority) bound [/string, /number].
+Decl core_agent(Name, Why) bound [/string, /string].
+Decl core_agent_topic(Name, Topic) bound [/string, /string].
+Decl core_agent_permission(Name, Perm) bound [/string, /string].
+Decl core_agent_description(Name, Description) bound [/string, /string].
+Decl core_agent_priority(Name, Priority) bound [/string, /number].
+Decl core_agent_supported(Name) bound [/string].
+Decl security_surface(Kind, Key) bound [/name, /string].
 
 Decl imported_kind(Kind) bound [/name].
 Decl knowledge_kind(Kind) bound [/name].
@@ -86,7 +88,17 @@ Decl comp_has_undominated(MinOrd) bound [/number].
 Decl cycle_member(ID) bound [/string].
 Decl agent_source_winner_any(ID) bound [/string].
 Decl has_declared_tool(ID) bound [/string].
-Decl profile_matched(Yes) bound [/name].
+Decl imported_candidate(Name, ID) bound [/string, /string].
+Decl import_rank_member(Name, ID) bound [/string, /string].
+Decl imported_name(Name) bound [/string].
+Decl imported_name_ord(Name, Ord) bound [/string, /number].
+Decl imported_name_recency(Name, LastUnix) bound [/string, /number].
+Decl has_imported_recency(Name) bound [/string].
+Decl imported_before(A, B) bound [/string, /string].
+Decl has_imported_before(Name) bound [/string].
+Decl imported_rank(Name, Rank) bound [/string, /number].
+Decl imported_kept(Name) bound [/string].
+Decl imported_dropped(Name) bound [/string].
 Decl winning_skill(ID) bound [/string].
 Decl winning_skill_tag(ID, Tag) bound [/string, /string].
 Decl skill_tag_count(Tag, N) bound [/string, /number].
@@ -108,9 +120,8 @@ Decl orient_agent_prompt_better(Name, ID) bound [/string, /string].
 Decl orient_agent_prompt(Name, ID) bound [/string, /string].
 
 orient_agent_prompt_candidate(Name, ID) :-
-    agent_source_winner(ID, Why),
-    agent_source(ID, Tool, Kind, Name, Path, Tracked),
-    imported_kind(Kind).
+    imported_kept(Name),
+    imported_candidate(Name, ID).
 orient_agent_prompt_better(Name, ID) :-
     orient_agent_prompt_candidate(Name, ID),
     orient_agent_prompt_candidate(Name, Other),
@@ -349,25 +360,63 @@ profile_agent_topic("A2AExpert", "card-driven workflows").
 profile_agent_permission("A2AExpert", "read_file").
 profile_agent_permission("A2AExpert", "code_graph").
 
-fallback_agent("SecurityAuditor", "Security analysis is critical for all projects").
-fallback_agent_description("SecurityAuditor", "Security vulnerability detection and best practices").
-fallback_agent_priority("SecurityAuditor", 90).
-fallback_agent_topic("SecurityAuditor", "OWASP top 10").
-fallback_agent_topic("SecurityAuditor", "secure coding").
-fallback_agent_topic("SecurityAuditor", "vulnerability patterns").
-fallback_agent_topic("SecurityAuditor", "code injection").
-fallback_agent_permission("SecurityAuditor", "read_file").
-fallback_agent_permission("SecurityAuditor", "code_graph").
+# The core pair is always considered and kept when evidence supports it: the
+# north star (domain_experts.go asserts vision_core_support when the planner
+# cites a north-star or document claim) or the scan. It used to be a fallback
+# created only when no language matched, and then for every such project.
+core_agent("SecurityAuditor", "The project exposes a security-relevant surface").
+core_agent_description("SecurityAuditor", "Security vulnerability detection and best practices").
+core_agent_priority("SecurityAuditor", 90).
+core_agent_topic("SecurityAuditor", "OWASP top 10").
+core_agent_topic("SecurityAuditor", "secure coding").
+core_agent_topic("SecurityAuditor", "vulnerability patterns").
+core_agent_topic("SecurityAuditor", "code injection").
+core_agent_permission("SecurityAuditor", "read_file").
+core_agent_permission("SecurityAuditor", "code_graph").
 
-fallback_agent("TestArchitect", "Test quality directly impacts code reliability").
-fallback_agent_description("TestArchitect", "Test strategy, coverage analysis, and TDD patterns").
-fallback_agent_priority("TestArchitect", 85).
-fallback_agent_topic("TestArchitect", "unit testing").
-fallback_agent_topic("TestArchitect", "integration testing").
-fallback_agent_topic("TestArchitect", "test coverage").
-fallback_agent_topic("TestArchitect", "mocking patterns").
-fallback_agent_permission("TestArchitect", "read_file").
-fallback_agent_permission("TestArchitect", "exec_cmd").
+core_agent("TestArchitect", "The project carries tests whose strategy matters").
+core_agent_description("TestArchitect", "Test strategy, coverage analysis, and TDD patterns").
+core_agent_priority("TestArchitect", 85).
+core_agent_topic("TestArchitect", "unit testing").
+core_agent_topic("TestArchitect", "integration testing").
+core_agent_topic("TestArchitect", "test coverage").
+core_agent_topic("TestArchitect", "mocking patterns").
+core_agent_permission("TestArchitect", "read_file").
+core_agent_permission("TestArchitect", "exec_cmd").
+
+# Scan evidence. A framework that serves requests or renders untrusted
+# content, a data store, browser automation or credentials handling is a
+# surface a security review has to cover; tests on disk are a test strategy.
+security_surface(/framework, "gin").
+security_surface(/framework, "echo").
+security_surface(/framework, "fiber").
+security_surface(/framework, "chi").
+security_surface(/framework, "express").
+security_surface(/framework, "nextjs").
+security_surface(/framework, "react").
+security_surface(/framework, "django").
+security_surface(/framework, "flask").
+security_surface(/framework, "fastapi").
+security_surface(/framework, "rails").
+security_surface(/framework, "spring").
+security_surface(/dependency, "rod").
+security_surface(/dependency, "chromedp").
+security_surface(/dependency, "playwright").
+security_surface(/dependency, "puppeteer").
+security_surface(/dependency, "gorm").
+security_surface(/dependency, "sqlx").
+security_surface(/dependency, "prisma").
+security_surface(/dependency, "typeorm").
+security_surface(/dependency, "sqlite3").
+security_surface(/dependency, "pgx").
+security_surface(/dependency, "jwt").
+security_surface(/dependency, "oauth2").
+
+core_agent_supported("SecurityAuditor") :-
+    profile_signal(Kind, Key),
+    security_surface(Kind, Key).
+core_agent_supported("TestArchitect") :-
+    profile_signal(/tests, Key).
 
 # --- duplicates and which copy wins ---
 
@@ -629,27 +678,97 @@ agent_source_loser(Loser, Winner, Why) :-
 
 # --- which shard agents exist ---
 
-profile_matched(/yes) :-
-    profile_signal(Kind, Key),
-    profile_agent(Kind, Key, _, _).
-
 orient_agent(Name, Why) :-
     profile_signal(Kind, Key),
     profile_agent(Kind, Key, Name, Why).
 
 orient_agent(Name, Why) :-
-    !profile_matched(/yes),
-    fallback_agent(Name, Why).
+    core_agent(Name, Why),
+    core_agent_supported(Name).
+
+# Imported subagents and modes are bounded by /orient_imported_agent_max so a
+# repository with a large corpus cannot crowd the roster: recently maintained
+# definitions rank first, then the stable source order. Vision experts and the
+# stack catalog have their own rules and are never displaced by imports.
+imported_candidate(Name, ID) :-
+    agent_source_winner_any(ID),
+    agent_source(ID, _, Kind, Name, _, _),
+    imported_kind(Kind),
+    Name != "".
+
+# Skill clusters are imports too: they share the bound, ranked by their
+# skills' recency and order.
+import_rank_member(Name, ID) :- imported_candidate(Name, ID).
+import_rank_member(Tag, ID) :-
+    skill_cluster(Tag),
+    winning_skill_tag(ID, Tag).
+
+imported_name(Name) :- import_rank_member(Name, ID).
+
+imported_name_ord(Name, MinOrd) :-
+    import_rank_member(Name, ID),
+    agent_source_ord(ID, Ord)
+    |> do fn:group_by(Name), let MinOrd = fn:min(Ord).
+
+imported_name_recency(Name, Last) :-
+    import_rank_member(Name, ID),
+    source_last_unix(ID, LastUnix)
+    |> do fn:group_by(Name), let Last = fn:max(LastUnix).
+
+has_imported_recency(Name) :- imported_name_recency(Name, Last).
+
+imported_before(A, B) :-
+    imported_name_recency(A, LastA),
+    imported_name_recency(B, LastB),
+    LastA > LastB.
+imported_before(A, B) :-
+    imported_name_recency(A, Last),
+    imported_name_recency(B, Last),
+    imported_name_ord(A, OrdA),
+    imported_name_ord(B, OrdB),
+    OrdA < OrdB.
+imported_before(A, B) :-
+    has_imported_recency(A),
+    imported_name(B),
+    !has_imported_recency(B).
+imported_before(A, B) :-
+    imported_name(A),
+    !has_imported_recency(A),
+    imported_name(B),
+    !has_imported_recency(B),
+    imported_name_ord(A, OrdA),
+    imported_name_ord(B, OrdB),
+    OrdA < OrdB.
+
+has_imported_before(B) :- imported_before(A, B).
+
+imported_rank(B, Rank) :-
+    imported_before(A, B)
+    |> do fn:group_by(B), let Rank = fn:count().
+
+imported_kept(Name) :-
+    imported_name(Name),
+    !has_imported_before(Name),
+    orient_param(/orient_imported_agent_max, Max),
+    Max > 0.
+imported_kept(Name) :-
+    imported_rank(Name, Rank),
+    orient_param(/orient_imported_agent_max, Max),
+    Rank < Max.
+
+imported_dropped(Name) :-
+    imported_name(Name),
+    !imported_kept(Name).
 
 orient_agent(Name, "imported subagent") :-
-    agent_source_winner_any(ID),
-    agent_source(ID, _, /subagent, Name, _, _),
-    Name != "".
+    imported_kept(Name),
+    imported_candidate(Name, ID),
+    agent_source(ID, _, /subagent, Name, _, _).
 
 orient_agent(Name, "imported mode") :-
-    agent_source_winner_any(ID),
-    agent_source(ID, _, /mode, Name, _, _),
-    Name != "".
+    imported_kept(Name),
+    imported_candidate(Name, ID),
+    agent_source(ID, _, /mode, Name, _, _).
 
 winning_skill(ID) :-
     agent_source_winner_any(ID),
@@ -668,7 +787,7 @@ skill_cluster(Tag) :-
     config_param(/orient_skill_cluster_min, Min),
     N >= Min.
 
-orient_agent(Tag, "skill cluster") :- skill_cluster(Tag).
+orient_agent(Tag, "skill cluster") :- skill_cluster(Tag), imported_kept(Tag).
 
 orient_agent_topic(Name, Topic) :-
     profile_signal(Kind, Key),
@@ -676,17 +795,15 @@ orient_agent_topic(Name, Topic) :-
     profile_agent_topic(Name, Topic).
 
 orient_agent_topic(Name, Topic) :-
-    !profile_matched(/yes),
-    fallback_agent(Name, _),
-    fallback_agent_topic(Name, Topic).
+    core_agent_supported(Name),
+    core_agent_topic(Name, Topic).
 
 orient_agent_topic(Name, Topic) :-
-    agent_source_winner_any(ID),
-    agent_source(ID, _, Kind, Name, _, _),
-    imported_kind(Kind),
+    imported_kept(Name),
+    imported_candidate(Name, ID),
     agent_source_topic(ID, Topic).
 
-orient_agent_topic(Tag, Tag) :- skill_cluster(Tag).
+orient_agent_topic(Tag, Tag) :- skill_cluster(Tag), imported_kept(Tag).
 
 orient_agent_description(Name, Description) :-
     profile_signal(Kind, Key),
@@ -694,14 +811,12 @@ orient_agent_description(Name, Description) :-
     profile_agent_description(Name, Description).
 
 orient_agent_description(Name, Description) :-
-    !profile_matched(/yes),
-    fallback_agent(Name, _),
-    fallback_agent_description(Name, Description).
+    core_agent_supported(Name),
+    core_agent_description(Name, Description).
 
 orient_agent_description(Name, Description) :-
-    agent_source_winner_any(ID),
-    agent_source(ID, _, Kind, Name, _, _),
-    imported_kind(Kind),
+    imported_kept(Name),
+    imported_candidate(Name, ID),
     agent_source_description(ID, Description).
 
 orient_agent_permission(Name, Perm) :-
@@ -710,27 +825,25 @@ orient_agent_permission(Name, Perm) :-
     profile_agent_permission(Name, Perm).
 
 orient_agent_permission(Name, Perm) :-
-    !profile_matched(/yes),
-    fallback_agent(Name, _),
-    fallback_agent_permission(Name, Perm).
+    core_agent_supported(Name),
+    core_agent_permission(Name, Perm).
 
 has_declared_tool(ID) :- agent_source_declared_tool(ID, Tool).
 
 orient_agent_permission(Name, Perm) :-
-    agent_source_winner_any(ID),
-    agent_source(ID, _, Kind, Name, _, _),
-    imported_kind(Kind),
+    imported_kept(Name),
+    imported_candidate(Name, ID),
     agent_source_declared_tool(ID, Perm).
 
 orient_agent_permission(Name, Perm) :-
-    agent_source_winner_any(ID),
-    agent_source(ID, _, Kind, Name, _, _),
-    imported_kind(Kind),
+    imported_kept(Name),
+    imported_candidate(Name, ID),
     !has_declared_tool(ID),
     imported_default_permission(Perm).
 
 orient_agent_permission(Name, Perm) :-
     skill_cluster(Name),
+    imported_kept(Name),
     imported_default_permission(Perm).
 
 orient_agent_priority(Name, Priority) :-
@@ -739,27 +852,25 @@ orient_agent_priority(Name, Priority) :-
     profile_agent_priority(Name, Priority).
 
 orient_agent_priority(Name, Priority) :-
-    !profile_matched(/yes),
-    fallback_agent(Name, _),
-    fallback_agent_priority(Name, Priority).
+    core_agent_supported(Name),
+    core_agent_priority(Name, Priority).
 
 orient_agent_priority(Name, Priority) :-
-    agent_source_winner_any(ID),
-    agent_source(ID, _, Kind, Name, _, _),
-    imported_kind(Kind),
+    imported_kept(Name),
+    imported_candidate(Name, ID),
     imported_agent_priority(Priority).
 
 orient_agent_priority(Name, Priority) :-
     skill_cluster(Name),
+    imported_kept(Name),
     cluster_agent_priority(Priority).
 
 # The defining subagent or mode, plus winning skills, memories and rules that
 # share a topic with the agent. Instructions and commands are prompt atoms,
 # not knowledge rows.
 orient_agent_knowledge(Name, ID) :-
-    agent_source_winner_any(ID),
-    agent_source(ID, _, Kind, Name, _, _),
-    imported_kind(Kind).
+    imported_kept(Name),
+    imported_candidate(Name, ID).
 
 orient_agent_knowledge(Name, ID) :-
     orient_agent_topic(Name, Topic),
@@ -772,6 +883,9 @@ topic_covered(Name, Topic) :-
     orient_agent_knowledge(Name, ID),
     agent_source_topic(ID, Topic).
 
+# A vision expert's topics are researched by grounded web search on its own
+# questions (vision_agent_question), not by a library-documentation fetch.
 orient_research_topic(Name, Topic) :-
     orient_agent_topic(Name, Topic),
-    !topic_covered(Name, Topic).
+    !topic_covered(Name, Topic),
+    !vision_topic(Name, Topic).

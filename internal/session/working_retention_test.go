@@ -70,13 +70,13 @@ func TestJITExecutor_AnInlineTaskLeavesNoWorkingArchive(t *testing.T) {
 func TestRetireWorkingScopes_TheSessionKeepsItsArchiveAClonesGoes(t *testing.T) {
 	root := newWorkingLoopExecutor(t, &MockLLMClient{})
 	ws := root.config.WorkspaceRoot
-	_, closeRoot, err := root.beginWorkingLoop(context.Background(), "fix a", &prompt.CompilationContext{ShardID: "root"})
+	_, closeRoot, err := root.beginWorkingLoop(context.Background(), nil, "fix a", &prompt.CompilationContext{ShardID: "root"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	closeRoot()
 	clone := root.CloneForTask()
-	_, closeClone, err := clone.beginWorkingLoop(context.Background(), "fix b", &prompt.CompilationContext{ShardID: "task"})
+	_, closeClone, err := clone.beginWorkingLoop(context.Background(), nil, "fix b", &prompt.CompilationContext{ShardID: "task"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestRetireWorkingScopes_TheSessionKeepsItsArchiveAClonesGoes(t *testing.T) 
 		t.Fatalf("after the clone retired: %s, want the session's archive alone, still redeemable", r)
 	}
 	// A second turn of the session reopens the same scope's archive.
-	_, closeAgain, err := root.beginWorkingLoop(context.Background(), "fix c", &prompt.CompilationContext{ShardID: "root"})
+	_, closeAgain, err := root.beginWorkingLoop(context.Background(), nil, "fix c", &prompt.CompilationContext{ShardID: "root"})
 	if err != nil {
 		t.Fatal(err)
 	}

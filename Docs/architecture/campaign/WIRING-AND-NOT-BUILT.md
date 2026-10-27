@@ -10,6 +10,22 @@ lists was traced; each is kept below with what the code does today.
 
 ## Wired and reachable
 
+- **Planning runs on the planner tier (as built 2026-10-27).**
+  `OrchestratorConfig.PlanningLLMClient` is required and serves decomposition
+  (with document taxonomy and requirement extraction), replanning, rolling-wave
+  refinement, `/campaign add` requirements and assault remediation plans;
+  `LLMClient` keeps paging and the document fallback; tasks run on
+  `TaskExecutor` (worker tier). Every door resolves the client from config.json,
+  planner slot else main: CLI start/assault/resume/recurse via
+  `buildCampaignOrchestratorConfig` → `Cortex.PlanningLLM`; chat
+  start/assault/recurse/add via `Model.newCampaignOrchestrator` →
+  `campaignPlanningClient`; the campaign runner via the factory's
+  `SetPlanning`. Doors plan through `Orchestrator.Decompose`, so Step 0
+  intelligence reaches the planner prompt. Role prompts compile for the model
+  that consumes them (`PromptProvider.GetPrompt(..., servedBy)` → provider/model
+  pins). Pinned by `planning_tier_test.go`, `cmd_campaign_tiers_test.go`,
+  `cmd_campaign_boot_tier_test.go` (real Cortex boot, planner endpoint gets the
+  plan) and `campaign_planning_test.go`.
 - **Task execution requires `TaskExecutor`.** The config field
   (`internal/campaign/orchestrator_types.go`) is mandatory; `ShardManager` is
   monitoring only. With no executor, tasks cannot run and both reviewer
@@ -93,6 +109,21 @@ lists was traced; each is kept below with what the code does today.
   work itself; moving nested files would move legitimate output
   (`snapshotWorkspaceRoot`, `:744`, records the reasoning).
 
+## Removed as unreached (2026-10-27)
+
+- Orchestrator-owned decomposer fed every sensor but never planned; doors
+  planned with a bare second decomposer. Now the only decomposer.
+- Tool pregeneration (Step 9, `ToolPregenerator`): keyword guesses would
+  generate an Ouroboros tool for most plans; tool gaps already reach the planner
+  through Step 0 and generate on demand (`missing_tool_for`).
+- Plan-time advisory review (Step 4b, `IncorporateFeedback`, vote/context
+  formatters): its verdict reached a log; the risk preflight consults the same
+  board and gates on it.
+- Orchestrator setters for observer/board/detector/gatherer/executor, the
+  never-read transducer, `LastRiskEvaluation`, `ExportAssaultSummary`
+  (`nerd campaign report` builds it directly), `RunQuick`, `PruneIrrelevant`
+  (`ActivatePhase` suppresses the same schemas), Gemini thinking stats.
+
 ## Fixed in this pass (2026-09-25)
 
 - `TestTaskEvidence_ATasksOwnOutputIsNotItsEvidence` and
@@ -119,3 +150,14 @@ lists was traced; each is kept below with what the code does today.
 - **This file's 2026-09-20 version** listed four "unverified" items that were
   wired and tested, and "unknown verification methods pass", which had been
   fixed.
+
+
+## Required contract: Restart normalization
+
+Restart normalization must publish pending phase/task status to the kernel and live campaign atomically. A rejected kernel transaction must return its cause from Run before scheduling or effects, preserving the prior campaign state. Successful reset must still schedule the pending work.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-CAMPAIGN-RESET-ATOMICITY | Restart normalization | `resetInProgress` commits the reset transaction before changing live phase/task state and propagates rejection (`internal/campaign/orchestrator_lifecycle.go:171`, `resetInProgress`; `internal/campaign/orchestrator_execution.go`, `Run`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Injected transaction rejection leaves live statuses and kernel facts consistent, returns the cause, and invokes no executor; success still runs normally. |
+
+**Verified current:** `TestResetInProgress_KernelRejectionDoesNotDivergeLiveCampaign`, `TestRun_RestartResetRejectionStopsBeforeTaskEffects`, and `TestRun_SuccessfulRestartResetSchedulesInterruptedTask` (`internal/campaign/orchestrator_execution_test.go:118`, `:188`, `:227`) pass with `TestDurablePauseSurvivesSnapshotSaveAndStopsRun` (`internal/campaign/pause_durable_test.go:15`). The focused production `Run` gate passed; aggregate package verification remains pending because its separate nested-module soak build could not obtain VCS status.

@@ -44,6 +44,7 @@ func TestNewOrchestrator_MaxChurnHotspotsReachesTheGatherer(t *testing.T) {
 			Workspace:            t.TempDir(),
 			Kernel:               &MockKernel{},
 			LLMClient:            &MockLLMClient{},
+			PlanningLLMClient:    &MockLLMClient{},
 			TaskExecutor:         &MockTaskExecutor{},
 			Executor:             tactile.NewDirectExecutor(),
 			VirtualStore:         &core.VirtualStore{},
@@ -68,13 +69,14 @@ func TestNewOrchestrator_MaxChurnHotspotsReachesTheGatherer(t *testing.T) {
 			t.Skipf("real kernel unavailable: %v", err)
 		}
 		orch, err := NewOrchestrator(OrchestratorConfig{
-			Workspace:    t.TempDir(),
-			Kernel:       kernel,
-			LLMClient:    &MockLLMClient{},
-			TaskExecutor: &MockTaskExecutor{},
-			Executor:     tactile.NewDirectExecutor(),
-			VirtualStore: &core.VirtualStore{},
-			Campaign:     section,
+			Workspace:         t.TempDir(),
+			Kernel:            kernel,
+			LLMClient:         &MockLLMClient{},
+			PlanningLLMClient: &MockLLMClient{},
+			TaskExecutor:      &MockTaskExecutor{},
+			Executor:          tactile.NewDirectExecutor(),
+			VirtualStore:      &core.VirtualStore{},
+			Campaign:          section,
 		})
 		if err != nil {
 			t.Fatalf("NewOrchestrator: %v", err)

@@ -12,8 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"codenerd/internal/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/perception"
+	"codenerd/internal/types"
 
 	"gopkg.in/yaml.v3"
 )
@@ -50,21 +51,13 @@ type initResearchResult struct {
 
 const initFallbackNone = 0
 
-// agentPromptGenerationTimeout bounds each per-atom LLM generation for
-// prompts.yaml so a slow model cannot stall init. On timeout or cancellation
-// the caller falls back to the static (generic) template.
-func agentPromptGenerationTimeout() time.Duration {
-	timeout := config.GetLLMTimeouts().PerCallTimeout
-	if timeout <= 0 {
-		timeout = config.DefaultLLMTimeouts().PerCallTimeout
-	}
-	return timeout
-}
-
-// generateAgentPromptsYAMLWithContext generates prompts.yaml using LLM-generated methodology
-// and domain content when available, falling back to the static template on any failure.
-// LLM generation is bounded by a timeout derived from ctx so a slow model cannot stall init,
-// and generation is per-agent so one bad agent cannot poison the others.
+// generateAgentPromptsYAMLWithContext generates prompts.yaml with methodology
+// and domain content written by the planner client (the main client when no
+// planner is configured), falling back to the static template on any failure.
+// The atoms are the specialist's standing instructions for every later task,
+// which is why they are planner work. Each request is bounded by withJITPrompt's
+// per-call deadline, and generation is per-agent so one bad agent cannot poison
+// the others.
 func (i *Initializer) generateAgentPromptsYAMLWithContext(ctx context.Context, agent RecommendedAgent) error {
 	agentDir := filepath.Join(i.config.Workspace, ".nerd", "agents", strings.ToLower(agent.Name))
 	if err := os.MkdirAll(agentDir, 0755); err != nil {
@@ -107,8 +100,8 @@ func (i *Initializer) generateAgentPromptsYAMLWithContext(ctx context.Context, a
 	domainContent := staticDomainContent(topicsStr)
 	usingLLM := false
 
-	if i.config.LLMClient == nil {
-		logging.BootWarn("LLM client is nil for %s, using static prompts template", agent.Name)
+	if i.route(slotPlanner).client == nil {
+		logging.BootWarn("No LLM client for %s, using static prompts template", agent.Name)
 	} else {
 		// Methodology: per-atom bounded generation; failure of one atom does not poison the other.
 		if meth, err := i.generateMethodologyContent(ctx, agent); err != nil {
@@ -298,33 +291,29 @@ func buildPromptsYAML(agentNameLower, displayName, description, domainExpertise,
 	)
 }
 
-// generateAgentAtomContent runs a single per-atom LLM generation bounded by
-// agentPromptGenerationTimeout and routed through withJITPrompt so
-// InitLLMMetrics accounts for every provider attempt (retry accounting).
-// Timeout and cancellation are wrapped distinctly so callers fall back to the
-// generic (static) template with a clear reason while preserving
+// generateAgentAtomContent runs one per-atom generation on the planner route
+// through withJITPrompt, which bounds the request by the configured per-call
+// deadline and accounts for every provider attempt. Timeout and cancellation
+// are wrapped distinctly so callers fall back to the generic (static)
+// template with a clear reason while preserving
 // errors.Is(err, context.DeadlineExceeded) and errors.Is(err, context.Canceled).
 func (i *Initializer) generateAgentAtomContent(ctx context.Context, agent RecommendedAgent, kind, task string) (string, error) {
-	if i.config.LLMClient == nil {
-		return "", fmt.Errorf("nil LLM client")
-	}
 	if err := ctx.Err(); err != nil {
 		return "", fmt.Errorf("%s generation for %q skipped, parent context done, falling back to generic template: %w", kind, agent.Name, err)
 	}
-	genCtx, cancel := context.WithTimeout(ctx, agentPromptGenerationTimeout())
-	defer cancel()
-	res, err := i.withJITPrompt(genCtx, "kb_agent", task, nil, func(callCtx context.Context, compiledPrompt string) (string, error) {
-		systemPrompt := strings.TrimSuffix(compiledPrompt, "\n\nTask: "+task)
-		if systemPrompt == compiledPrompt {
-			systemPrompt = strings.TrimSuffix(compiledPrompt, "\nTask: "+task)
-		}
-		return i.config.LLMClient.CompleteWithSystem(callCtx, systemPrompt, task)
-	})
+	res, err := i.withJITPrompt(ctx, initCall{slot: slotPlanner, phase: "kb_agent", task: task},
+		func(callCtx context.Context, client perception.LLMClient, compiledPrompt string) (string, error) {
+			systemPrompt := strings.TrimSuffix(compiledPrompt, "\n\nTask: "+task)
+			if systemPrompt == compiledPrompt {
+				systemPrompt = strings.TrimSuffix(compiledPrompt, "\nTask: "+task)
+			}
+			return client.CompleteWithSystem(callCtx, systemPrompt, task)
+		})
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(genCtx.Err(), context.DeadlineExceeded) {
-			return "", fmt.Errorf("%s generation for %q timed out after %s, falling back to generic template: %w", kind, agent.Name, agentPromptGenerationTimeout(), err)
-		}
-		if errors.Is(err, context.Canceled) || errors.Is(genCtx.Err(), context.Canceled) {
+		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			return "", fmt.Errorf("%s generation for %q timed out, falling back to generic template: %w", kind, agent.Name, err)
+		case errors.Is(err, context.Canceled):
 			return "", fmt.Errorf("%s generation for %q canceled, falling back to generic template: %w", kind, agent.Name, err)
 		}
 		return "", err
@@ -380,29 +369,9 @@ type KnowledgeBaseStats struct {
 	// SkippedTopics is how many of the agent's topics an upgrade did not
 	// research again because its KB already covers them.
 	SkippedTopics int
-
-	// Legacy names retained for registry compatibility. These are atom-count
-	// population metrics, not semantic quality measurements.
-	QualityScore  float64
-	QualityRating string
-}
-
-// determineRequiredAgents reads the agents the profile catalog derives.
-// The language, framework and dependency table is data in the orientation
-// policy. A policy that does not start yields no agents: the old switch is
-// not kept beside it.
-func (i *Initializer) determineRequiredAgents(profile ProjectProfile) []RecommendedAgent {
-	agents, err := agentsFromProfile(context.Background(), profile)
-	if err != nil {
-		logging.Boot("profile agent policy failed: %v", err)
-		return nil
-	}
-	for idx := range agents {
-		tools, prefs := GetToolsForAgentType(agents[idx].Name, profile.Language)
-		agents[idx].Tools = tools
-		agents[idx].ToolPreferences = prefs
-	}
-	return agents
+	// Notes are research outcomes the init result reports: questions that
+	// could not be answered with a source, stale knowledge not refreshed.
+	Notes []string
 }
 
 // loadExistingAgentRegistry loads the agent registry from .nerd/agents.json if it exists.
@@ -442,218 +411,138 @@ type agentCreationResult struct {
 	KBPath      string
 	UpgradeMode bool
 	Error       error
+	// PromptErr is a prompts.yaml failure. The knowledge base still stands,
+	// so it is a warning, but it must reach the init result: an invalid
+	// curated prompts.yaml is the user's to fix.
+	PromptErr error
 }
 
-// createType3Agents creates the knowledge bases and registers Type 3 agents.
-// In upgrade mode (--force with existing KB), it appends new knowledge rather than overwriting.
-// Uses parallel creation with a worker pool for improved performance.
+// maxAgentWorkers bounds concurrent agent knowledge-base builds, and with them
+// concurrent Context7 fetches and specialist prompt requests.
+const maxAgentWorkers = 3
+
+// createType3Agents creates or upgrades the knowledge base, prompts.yaml and
+// registry entry of every recommended agent. An existing knowledge base is
+// upgraded: new knowledge is appended, covered topics are not researched again.
 func (i *Initializer) createType3Agents(ctx context.Context, nerdDir string, agents []RecommendedAgent, result *InitResult) ([]CreatedAgent, map[string]int) {
 	// The seed is read by the parallel KB workers. Clear it when they have
 	// all returned, not when the deriving phase returns.
 	defer clearEcosystemSeed(i.config.Workspace)
-	created := make([]CreatedAgent, 0)
-	kbSizes := make(map[string]int)
+	created := make([]CreatedAgent, 0, len(agents))
+	kbSizes := make(map[string]int, len(agents))
 
-	shardsDir := filepath.Join(nerdDir, "shards")
-
-	// Load existing agent registry for upgrade detection
 	existingAgents, err := i.loadExistingAgentRegistry(nerdDir)
 	if err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to load existing agent registry: %v", err))
 		existingAgents = nil
 	}
 
-	// Use parallel creation for better performance (3 concurrent workers)
-	const maxWorkers = 3
-	if len(agents) > 1 {
-		results := i.createAgentsParallel(ctx, shardsDir, agents, existingAgents, maxWorkers)
-
-		for _, res := range results {
-			if res.Error != nil {
-				result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to create KB for %s: %v", res.Agent.Name, res.Error))
-				i.sendAgentProgress(res.Agent.Name, res.Agent.Type, "failed", 0)
-				continue
-			}
-
-			kbSizes[res.Agent.Name] = res.KBSize
-			created = append(created, res.Agent)
-
-			if !res.UpgradeMode {
-				result.FilesCreated = append(result.FilesCreated, res.KBPath)
-			}
-
-			// Log result
-			if res.UpgradeMode {
-				fmt.Printf("     + %s upgraded (added %d new, skipped %d existing, total %d atoms)\n",
-					res.Agent.Name, res.Stats.NewAtoms, res.Stats.SkippedAtoms, res.Stats.TotalAtoms)
-			} else {
-				fmt.Printf("     + %s ready (%d knowledge atoms)\n", res.Agent.Name, res.KBSize)
-			}
+	for _, res := range i.createAgentsParallel(ctx, filepath.Join(nerdDir, "shards"), agents, existingAgents, maxAgentWorkers) {
+		result.Warnings = append(result.Warnings, res.Stats.Notes...)
+		if res.PromptErr != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("prompts.yaml for %s: %v", res.Agent.Name, res.PromptErr))
 		}
-
-		return created, kbSizes
-	}
-
-	// Sequential fallback for single agent
-	for idx, agent := range agents {
-		progress := 0.55 + (float64(idx)/float64(len(agents)))*0.25
-		i.sendProgress("kb_creation", fmt.Sprintf("Creating %s...", agent.Name), progress)
-		i.sendAgentProgress(agent.Name, agent.Type, "creating", 0)
-
-		kbPath := filepath.Join(shardsDir, fmt.Sprintf("%s_knowledge.db", strings.ToLower(agent.Name)))
-
-		upgradeMode := false
-		var existingAtomCount int
-		if _, statErr := os.Stat(kbPath); statErr == nil {
-			upgradeMode = true
-			existingAtomCount = i.getExistingAtomCount(kbPath)
-			logging.Boot("Upgrading %s (existing KB: %d atoms)", agent.Name, existingAtomCount)
-			fmt.Printf("   Upgrading %s knowledge base (existing: %d atoms)...\n", agent.Name, existingAtomCount)
-		} else {
-			logging.Boot("Creating fresh %s knowledge base", agent.Name)
-			fmt.Printf("   Creating %s knowledge base...\n", agent.Name)
-		}
-
-		stats, err := i.createAgentKnowledgeBase(ctx, kbPath, agent, upgradeMode)
-		if err != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to create KB for %s: %v", agent.Name, err))
-			i.sendAgentProgress(agent.Name, agent.Type, "failed", 0)
+		if res.Error != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to create KB for %s: %v", res.Agent.Name, res.Error))
+			i.sendAgentProgress(res.Agent.Name, res.Agent.Type, "failed", 0)
 			continue
 		}
 
-		// Generate prompts.yaml for the agent (only for new agents, not upgrades)
-		if !upgradeMode {
-			if promptErr := i.generateAgentPromptsYAMLWithContext(ctx, agent); promptErr != nil {
-				logging.Boot("Warning: failed to generate prompts.yaml for %s: %v", agent.Name, promptErr)
-			}
+		kbSizes[res.Agent.Name] = res.KBSize
+		created = append(created, res.Agent)
+		if !res.UpgradeMode {
+			result.FilesCreated = append(result.FilesCreated, res.KBPath)
 		}
-
-		totalKBSize := stats.TotalAtoms
-		kbSizes[agent.Name] = totalKBSize
-		i.sendAgentProgress(agent.Name, agent.Type, "ready", totalKBSize)
-
-		creationTime := time.Now()
-		if existingAgent, exists := existingAgents[agent.Name]; exists && upgradeMode {
-			creationTime = existingAgent.CreatedAt
-		}
-
-		createdAgent := CreatedAgent{
-			Name:            agent.Name,
-			Type:            agent.Type,
-			KnowledgePath:   kbPath,
-			KBSize:          totalKBSize,
-			CreatedAt:       creationTime,
-			Status:          "ready",
-			Tools:           agent.Tools,
-			ToolPreferences: agent.ToolPreferences,
-			QualityScore:    stats.QualityScore,
-			QualityRating:   stats.QualityRating,
-		}
-		created = append(created, createdAgent)
-
-		if !upgradeMode {
-			result.FilesCreated = append(result.FilesCreated, kbPath)
-		}
-
-		if upgradeMode {
-			fmt.Printf("     + %s upgraded (added %d new, skipped %d existing, total %d atoms)\n",
-				agent.Name, stats.NewAtoms, stats.SkippedAtoms, stats.TotalAtoms)
-		} else if stats.QualityScore > 0 {
-			fmt.Printf("     + %s ready (%d atoms, KB population: %.0f%% - %s)\n",
-				agent.Name, totalKBSize, stats.QualityScore, stats.QualityRating)
+		if res.UpgradeMode {
+			fmt.Fprintf(i.output(), "     + %s upgraded (added %d new, skipped %d existing, total %d atoms)\n",
+				res.Agent.Name, res.Stats.NewAtoms, res.Stats.SkippedAtoms, res.Stats.TotalAtoms)
 		} else {
-			fmt.Printf("     + %s ready (%d knowledge atoms)\n", agent.Name, totalKBSize)
+			fmt.Fprintf(i.output(), "     + %s ready (%d knowledge atoms)\n", res.Agent.Name, res.KBSize)
 		}
 	}
-
 	return created, kbSizes
 }
 
-// createAgentsParallel creates agent knowledge bases concurrently using a worker pool.
+// createAgentsParallel builds agent knowledge bases on at most maxWorkers
+// goroutines; every goroutine has returned when it returns.
 func (i *Initializer) createAgentsParallel(ctx context.Context, shardsDir string, agents []RecommendedAgent, existingAgents map[string]CreatedAgent, maxWorkers int) []agentCreationResult {
 	results := make([]agentCreationResult, len(agents))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, maxWorkers)
 
-	fmt.Printf("   Creating %d agent KBs in parallel (max %d workers)...\n", len(agents), maxWorkers)
+	fmt.Fprintf(i.output(), "   Creating %d agent KBs (max %d at a time)...\n", len(agents), maxWorkers)
+	total := len(agents)
+	var done int
+	var doneMu sync.Mutex
 
 	for idx, agent := range agents {
-		idx, agent := idx, agent
 		wg.Go(func() {
-			// Acquire semaphore
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			// Check context cancellation
 			select {
+			case sem <- struct{}{}:
 			case <-ctx.Done():
-				results[idx] = agentCreationResult{
-					Agent: CreatedAgent{Name: agent.Name, Type: agent.Type},
-					Error: ctx.Err(),
-				}
-				return
-			default:
-			}
-
-			kbPath := filepath.Join(shardsDir, fmt.Sprintf("%s_knowledge.db", strings.ToLower(agent.Name)))
-
-			// Check upgrade mode
-			upgradeMode := false
-			if _, statErr := os.Stat(kbPath); statErr == nil {
-				upgradeMode = true
-				existingCount := i.getExistingAtomCount(kbPath)
-				logging.Boot("Parallel: Upgrading %s (existing KB: %d atoms)", agent.Name, existingCount)
-			} else {
-				logging.Boot("Parallel: Creating fresh %s knowledge base", agent.Name)
-			}
-
-			// Create/upgrade knowledge base
-			stats, err := i.createAgentKnowledgeBase(ctx, kbPath, agent, upgradeMode)
-			if err != nil {
-				results[idx] = agentCreationResult{
-					Agent: CreatedAgent{Name: agent.Name, Type: agent.Type},
-					Error: err,
-				}
+				results[idx] = agentCreationResult{Agent: CreatedAgent{Name: agent.Name, Type: agent.Type}, Error: ctx.Err()}
 				return
 			}
+			defer func() { <-sem }()
+			results[idx] = i.createAgent(ctx, shardsDir, agent, existingAgents)
 
-			// Generate prompts.yaml for the agent (only for new agents, not upgrades)
-			if !upgradeMode {
-				if promptErr := i.generateAgentPromptsYAMLWithContext(ctx, agent); promptErr != nil {
-					logging.Boot("Warning: failed to generate prompts.yaml for %s: %v", agent.Name, promptErr)
-				}
-			}
-
-			// Determine creation time
-			creationTime := time.Now()
-			if existingAgent, exists := existingAgents[agent.Name]; exists && upgradeMode {
-				creationTime = existingAgent.CreatedAt
-			}
-
-			results[idx] = agentCreationResult{
-				Agent: CreatedAgent{
-					Name:            agent.Name,
-					Type:            agent.Type,
-					KnowledgePath:   kbPath,
-					KBSize:          stats.TotalAtoms,
-					CreatedAt:       creationTime,
-					Status:          "ready",
-					Tools:           agent.Tools,
-					ToolPreferences: agent.ToolPreferences,
-					QualityScore:    stats.QualityScore,
-					QualityRating:   stats.QualityRating,
-				},
-				KBSize:      stats.TotalAtoms,
-				Stats:       stats,
-				KBPath:      kbPath,
-				UpgradeMode: upgradeMode,
-				Error:       nil,
-			}
-
-			i.sendAgentProgress(agent.Name, agent.Type, "ready", stats.TotalAtoms)
+			doneMu.Lock()
+			done++
+			finished := done
+			doneMu.Unlock()
+			i.sendProgress("kb_creation", fmt.Sprintf("Agent knowledge bases: %d/%d (%s)", finished, total, agent.Name))
 		})
 	}
 
 	wg.Wait()
 	return results
+}
+
+// createAgent builds or upgrades one agent's knowledge base and makes sure it
+// has a prompts.yaml. prompts.yaml generation is attempted on every run: it
+// is a no-op when the file exists, and an earlier run that could not write
+// one is retried rather than skipped because the knowledge base exists.
+func (i *Initializer) createAgent(ctx context.Context, shardsDir string, agent RecommendedAgent, existingAgents map[string]CreatedAgent) agentCreationResult {
+	if err := ctx.Err(); err != nil {
+		return agentCreationResult{Agent: CreatedAgent{Name: agent.Name, Type: agent.Type}, Error: err}
+	}
+	i.sendAgentProgress(agent.Name, agent.Type, "creating", 0)
+	kbPath := types.AgentKnowledgeDBPath(filepath.Dir(shardsDir), agent.Name)
+
+	upgradeMode := false
+	if _, statErr := os.Stat(kbPath); statErr == nil {
+		upgradeMode = true
+		logging.Boot("Upgrading %s (existing KB: %d atoms)", agent.Name, i.getExistingAtomCount(kbPath))
+	} else {
+		logging.Boot("Creating fresh %s knowledge base", agent.Name)
+	}
+
+	stats, err := i.createAgentKnowledgeBase(ctx, kbPath, agent, upgradeMode)
+	if err != nil {
+		return agentCreationResult{Agent: CreatedAgent{Name: agent.Name, Type: agent.Type}, Error: err}
+	}
+	promptErr := i.generateAgentPromptsYAMLWithContext(ctx, agent)
+
+	creationTime := time.Now()
+	if existingAgent, exists := existingAgents[agent.Name]; exists && upgradeMode {
+		creationTime = existingAgent.CreatedAt
+	}
+	i.sendAgentProgress(agent.Name, agent.Type, "ready", stats.TotalAtoms)
+	return agentCreationResult{
+		Agent: CreatedAgent{
+			Name:            agent.Name,
+			Type:            agent.Type,
+			KnowledgePath:   kbPath,
+			KBSize:          stats.TotalAtoms,
+			CreatedAt:       creationTime,
+			Status:          "ready",
+			Tools:           agent.Tools,
+			ToolPreferences: agent.ToolPreferences,
+		},
+		KBSize:      stats.TotalAtoms,
+		Stats:       stats,
+		KBPath:      kbPath,
+		UpgradeMode: upgradeMode,
+		PromptErr:   promptErr,
+	}
 }

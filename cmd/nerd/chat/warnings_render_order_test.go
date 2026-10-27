@@ -19,8 +19,10 @@ import (
 // told.
 //
 // Testing the instances would not have caught it, because at the time neither
-// appended anything. So this pins the shape instead: every append must precede
-// the render.
+// appended anything. So this pins the shape instead: every append to the slice
+// the render reads must precede the render. A helper that builds its own local
+// `warnings` and returns it is a different slice, merged before the render by
+// its caller, so only appends inside the function that renders are checked.
 func TestWarningsAreAppendedBeforeTheyAreRendered(t *testing.T) {
 	const file = "process.go"
 	fset := token.NewFileSet()
@@ -30,19 +32,38 @@ func TestWarningsAreAppendedBeforeTheyAreRendered(t *testing.T) {
 	}
 
 	renderPos := token.NoPos
-	var appends []token.Pos
 	ast.Inspect(parsed, func(n ast.Node) bool {
-		switch node := n.(type) {
-		case *ast.CallExpr:
+		if call, ok := n.(*ast.CallExpr); ok {
 			// The render is the call that turns the slice into the block the
 			// user reads (and logs each entry): renderSystemWarnings in
-			// system_warnings.go. Matched on the call because that is the
-			// thing a reader recognises as "this is the render".
-			if fn, ok := node.Fun.(*ast.Ident); ok && fn.Name == "renderSystemWarnings" {
-				if renderPos == token.NoPos || node.Pos() < renderPos {
-					renderPos = node.Pos()
+			// system_warnings.go.
+			if fn, ok := call.Fun.(*ast.Ident); ok && fn.Name == "renderSystemWarnings" {
+				if renderPos == token.NoPos || call.Pos() < renderPos {
+					renderPos = call.Pos()
 				}
 			}
+		}
+		return true
+	})
+	if renderPos == token.NoPos {
+		t.Fatalf("could not find the warnings render in %s; if it moved or was "+
+			"renamed, this test needs to follow it rather than be deleted", file)
+	}
+
+	// The function declaration that renders: its slice is the one shown.
+	var renderFunc *ast.FuncDecl
+	for _, decl := range parsed.Decls {
+		if fd, ok := decl.(*ast.FuncDecl); ok && fd.Pos() <= renderPos && renderPos < fd.End() {
+			renderFunc = fd
+		}
+	}
+	if renderFunc == nil {
+		t.Fatalf("the warnings render in %s is outside any function", file)
+	}
+
+	var appends []token.Pos
+	ast.Inspect(renderFunc, func(n ast.Node) bool {
+		switch node := n.(type) {
 		case *ast.AssignStmt:
 			if len(node.Lhs) != 1 || len(node.Rhs) != 1 {
 				return true
@@ -62,10 +83,6 @@ func TestWarningsAreAppendedBeforeTheyAreRendered(t *testing.T) {
 		return true
 	})
 
-	if renderPos == token.NoPos {
-		t.Fatalf("could not find the warnings render in %s; if it moved or was "+
-			"renamed, this test needs to follow it rather than be deleted", file)
-	}
 	if len(appends) == 0 {
 		t.Fatalf("found no `warnings = append(...)` in %s, so this test is "+
 			"asserting nothing", file)

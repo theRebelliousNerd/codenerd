@@ -41,9 +41,11 @@ func TestGetImageLLMConfig_Defaults(t *testing.T) {
 	if img.Model != "" || img.Provider != "gemini" {
 		t.Fatalf("%+v", img)
 	}
+	// The model is image.model as written: no alias table translates a
+	// nickname into a model id.
 	cfg.Image = &ImageLLMConfig{Model: "nano-banana-2"}
 	img = cfg.GetImageLLMConfig()
-	if img.Model != NanoBanana2ImageModel {
-		t.Fatalf("alias normalize got %q", img.Model)
+	if img.Model != "nano-banana-2" {
+		t.Fatalf("image.model was rewritten to %q", img.Model)
 	}
 }

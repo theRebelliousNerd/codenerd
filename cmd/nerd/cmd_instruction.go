@@ -115,11 +115,15 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("world model error: %w", err)
 	}
-	if scanRes != nil && !scanRes.Unchanged {
+	if scanRes != nil {
 		if err := world.ApplyIncrementalResult(cortex.Kernel, scanRes); err != nil {
 			return fmt.Errorf("world model apply error: %w", err)
 		}
-		logger.Debug("Workspace scan applied", zap.Int("facts", len(scanRes.NewFacts)))
+		if scanRes.Unchanged {
+			logger.Debug("Workspace unchanged; refreshed orientation if needed")
+		} else {
+			logger.Debug("Workspace scan applied", zap.Int("facts", len(scanRes.NewFacts)))
+		}
 	} else {
 		logger.Debug("Workspace unchanged, using cached facts")
 	}

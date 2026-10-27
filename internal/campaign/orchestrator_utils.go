@@ -297,8 +297,10 @@ func (o *Orchestrator) countActiveTaskTypes(active map[string]bool, phase *Phase
 	return research, refactor, test
 }
 
-// HandleNewRequirement processes a dynamic requirement injection from an external system (e.g., Autopoiesis).
-// It wraps ReplanForNewRequirement.
+// HandleNewRequirement integrates a requirement into the running campaign's
+// plan: the replanner adds or modifies tasks on the planning client
+// (ReplanForNewRequirement), and the revised plan is persisted. The chat's
+// `/campaign add <requirement>` calls it on the live orchestrator.
 func (o *Orchestrator) HandleNewRequirement(ctx context.Context, requirement string) error {
 	logging.Campaign("New requirement received: %s", requirement[:min(100, len(requirement))])
 	timer := logging.StartTimer(logging.CategoryCampaign, "HandleNewRequirement")
@@ -336,6 +338,10 @@ func (o *Orchestrator) HandleNewRequirement(ctx context.Context, requirement str
 		o.emitEvent(EventNewRequirementFailed, "", "", err.Error(), nil)
 		return err
 	}
+
+	o.mu.Lock()
+	o.persistCampaign("new requirement")
+	o.mu.Unlock()
 
 	logging.Campaign("New requirement successfully integrated into plan")
 	o.emitEvent(EventNewRequirementDone, "", "", "Plan updated with new requirement", nil)

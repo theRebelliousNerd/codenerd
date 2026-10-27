@@ -154,7 +154,7 @@ func (m Model) handleCmdRefreshDocs(input string, parts []string) (tea.Model, te
 	}
 	m = m.addMessage(Message{
 		Role:    "assistant",
-		Content: "Scanning documentation for updates...\n\nThis will:\n- Discover new/changed docs\n- Use LLM to filter for relevance\n- Extract knowledge atoms incrementally\n- Update the strategic knowledge base",
+		Content: "Scanning documentation for updates...\n\nThis will:\n- Refresh the orientation read set against HEAD\n- Extract knowledge atoms from new and changed documents (all of them with --force)\n- Retire the atoms of documents orientation no longer reads\n- Re-synthesize the strategic knowledge base",
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())

@@ -61,7 +61,7 @@ func TestPrivateAtomicWritePreservesOriginalOnReplaceFailure(t *testing.T) {
 
 func TestUserConfigSaveIsPrivateAndRoundTrips(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".nerd", "config.json")
-	want := &UserConfig{Provider: "ollama", Context7APIKey: "secret"}
+	want := &UserConfig{Provider: "ollama", Model: "qwen9:4b", Context7APIKey: "secret"}
 	if err := want.Save(path); err != nil {
 		t.Fatal(err)
 	}

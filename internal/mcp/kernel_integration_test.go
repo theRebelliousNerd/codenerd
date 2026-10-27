@@ -2,6 +2,7 @@ package mcp_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -17,11 +18,15 @@ import (
 // end-to-end assertions meaningful: it exercises the same parse/query contract
 // the real adapter uses.
 type kernelUnderTest struct {
-	kernel *core.RealKernel
+	kernel core.Kernel
 }
 
 func (k *kernelUnderTest) Assert(fact string) error {
-	return k.kernel.AssertString(strings.TrimSuffix(strings.TrimSpace(fact), "."))
+	parsed, err := core.ParseFactString(strings.TrimSuffix(strings.TrimSpace(fact), "."))
+	if err != nil {
+		return err
+	}
+	return k.kernel.Assert(parsed)
 }
 
 func (k *kernelUnderTest) Retract(fact string) error {
@@ -53,6 +58,46 @@ func (k *kernelUnderTest) Query(query string) ([]map[string]any, error) {
 		for idx, name := range variables {
 			if idx < len(f.Args) {
 				binding[name] = f.Args[idx]
+			}
+		}
+		results = append(results, binding)
+	}
+	return results, nil
+}
+
+// QueryShard inspects a production Cortex shard's local fact store. It exists
+// only for the consumer-copy lifecycle regression: Cortex.Query intentionally
+// reads the canonical owner, which cannot show whether a policy replica was
+// installed or removed.
+func (k *kernelUnderTest) QueryShard(domain, query string) ([]map[string]any, error) {
+	cortex, ok := k.kernel.(*core.CortexKernel)
+	if !ok {
+		return nil, fmt.Errorf("kernel %T is not a production Cortex", k.kernel)
+	}
+	shard, ok := cortex.GetShard(domain)
+	if !ok || shard == nil || shard.Kernel() == nil {
+		return nil, fmt.Errorf("production Cortex has no shard %q", domain)
+	}
+	pattern, err := core.ParseFactString(query)
+	if err != nil {
+		return nil, err
+	}
+	variables := map[int]string{}
+	for i, arg := range pattern.Args {
+		if name, ok := arg.(string); ok && strings.HasPrefix(name, "?") {
+			variables[i] = name[1:]
+		}
+	}
+	facts, err := shard.Kernel().Query(query)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]map[string]any, 0, len(facts))
+	for _, fact := range facts {
+		binding := map[string]any{}
+		for idx, name := range variables {
+			if idx < len(fact.Args) {
+				binding[name] = fact.Args[idx]
 			}
 		}
 		results = append(results, binding)

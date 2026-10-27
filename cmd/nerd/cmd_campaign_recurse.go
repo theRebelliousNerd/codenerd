@@ -197,7 +197,14 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 		}()
 		attemptCfg := recurseAttemptConfig(orchCfg, attempts, func() *northstar.CampaignObserver { return campaignNorthstarObserver(cortex, cwd) })
 		attempts++
-		return executeCampaignPlan(ctx, cmd, attemptCfg, promptProvider, camp)
+		// Each attempt's orchestrator replans on orchCfg.PlanningLLMClient,
+		// like a started campaign.
+		orchestrator, err := newCampaignOrchestrator(attemptCfg, promptProvider)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = orchestrator.Close() }()
+		return executeCampaignPlan(ctx, cmd, orchestrator, camp)
 	}
 
 	fmt.Printf("\nRecurse: improving %s node by node (%s).\n", cwd, recurseBoundText(cfg))

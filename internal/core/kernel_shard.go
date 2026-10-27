@@ -149,8 +149,11 @@ func (s *KernelShard) getRouter() *ShardFactRouter {
 // Assert delegates to the inner kernel, or routes via the coordinator when
 // the shard does not own the predicate and a router has been installed.
 func (s *KernelShard) Assert(fact types.Fact) error {
-	if r := s.getRouter(); r != nil && !s.OwnsPredicate(barePredicate(fact.Predicate)) {
-		return r.AssertVia(s, fact)
+	if r := s.getRouter(); r != nil {
+		predicate := barePredicate(fact.Predicate)
+		if !s.OwnsPredicate(predicate) || r.hasConsumerRoute(predicate) {
+			return r.AssertVia(s, fact)
+		}
 	}
 	return s.assertLocal(fact)
 }
@@ -172,7 +175,8 @@ func (s *KernelShard) AssertBatch(facts []types.Fact) error {
 		// Fast path: every fact is owned by this shard.
 		allLocal := true
 		for _, f := range facts {
-			if !s.OwnsPredicate(barePredicate(f.Predicate)) {
+			predicate := barePredicate(f.Predicate)
+			if !s.OwnsPredicate(predicate) || r.hasConsumerRoute(predicate) {
 				allLocal = false
 				break
 			}
@@ -196,8 +200,11 @@ func (s *KernelShard) assertBatchLocal(facts []types.Fact) error {
 // Retract delegates to the inner kernel, or routes to the owning shard when
 // a router has been installed and this shard does not own the predicate.
 func (s *KernelShard) Retract(predicate string) error {
-	if r := s.getRouter(); r != nil && !s.OwnsPredicate(barePredicate(predicate)) {
-		return r.RetractVia(s, predicate)
+	if r := s.getRouter(); r != nil {
+		bare := barePredicate(predicate)
+		if !s.OwnsPredicate(bare) || r.hasConsumerRoute(bare) {
+			return r.RetractVia(s, predicate)
+		}
 	}
 	return s.retractLocal(predicate)
 }
@@ -213,8 +220,11 @@ func (s *KernelShard) retractLocal(predicate string) error {
 
 // RetractFact delegates to the inner kernel, or routes to the owning shard.
 func (s *KernelShard) RetractFact(fact types.Fact) error {
-	if r := s.getRouter(); r != nil && !s.OwnsPredicate(barePredicate(fact.Predicate)) {
-		return r.RetractFactVia(s, fact)
+	if r := s.getRouter(); r != nil {
+		predicate := barePredicate(fact.Predicate)
+		if !s.OwnsPredicate(predicate) || r.hasConsumerRoute(predicate) {
+			return r.RetractFactVia(s, fact)
+		}
 	}
 	return s.retractFactLocal(fact)
 }

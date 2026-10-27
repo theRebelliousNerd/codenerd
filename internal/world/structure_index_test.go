@@ -257,6 +257,198 @@ func TestStructureIndexFollowsEdits(t *testing.T) {
 	}
 }
 
+func TestStructureIndexFollowsSameSizeRewriteWithRestoredMtime(t *testing.T) {
+	root := t.TempDir()
+	oldSource := "package lib\n\nfunc OldName() {}\nfunc Caller() { OldName() }\n"
+	newSource := "package lib\n\nfunc NewName() {}\nfunc Caller() { NewName() }\n"
+	path := writeStructFile(t, root, "lib/lib.go", oldSource)
+	stamp := time.Unix(1_700_000_000, 0)
+	if err := os.Chtimes(path, stamp, stamp); err != nil {
+		t.Fatalf("set initial mtime: %v", err)
+	}
+
+	idx := NewStructureIndex(root)
+	ctx := context.Background()
+	old, _, err := idx.FindSymbol(ctx, SymbolFilter{Names: []string{"OldName"}})
+	if err != nil || len(old) != 1 {
+		t.Fatalf("warm old declaration: %+v, err=%v", old, err)
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The bytes change without moving either metadata field the index currently
+	// uses as its freshness key. This models editors, checkouts and generated
+	// files that preserve timestamps while replacing content.
+	if err := os.WriteFile(path, []byte(newSource), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, before.ModTime(), before.ModTime()); err != nil {
+		t.Fatalf("restore mtime: %v", err)
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Size() != after.Size() || !before.ModTime().Equal(after.ModTime()) {
+		t.Fatalf("fixture metadata moved: size %d -> %d, mtime %s -> %s", before.Size(), after.Size(), before.ModTime(), after.ModTime())
+	}
+
+	got, stats, err := idx.FindSymbol(ctx, SymbolFilter{Names: []string{"NewName"}})
+	if err != nil {
+		t.Fatalf("FindSymbol(NewName): %v", err)
+	}
+	if len(got) != 1 || stats.Reparsed != 1 {
+		t.Fatalf("same-size rewrite was not refreshed: symbols=%+v, reparsed=%d; want NewName and one reparsed file", got, stats.Reparsed)
+	}
+	stale, _, err := idx.FindSymbol(ctx, SymbolFilter{Names: []string{"OldName"}})
+	if err != nil || len(stale) != 0 {
+		t.Fatalf("old declaration survived source rewrite: %+v, err=%v", stale, err)
+	}
+	_, callers, _, err := idx.Callers(ctx, "lib.NewName")
+	if err != nil || len(callers) != 1 || callers[0].Caller != "lib.Caller" {
+		t.Fatalf("new call graph was not refreshed: callers=%+v, err=%v", callers, err)
+	}
+	_, staleCallers, _, err := idx.Callers(ctx, "lib.OldName")
+	if err != nil || len(staleCallers) != 0 {
+		t.Fatalf("old call graph survived source rewrite: callers=%+v, err=%v", staleCallers, err)
+	}
+	warm, err := idx.Refresh(ctx)
+	if err != nil || warm.Reparsed != 0 {
+		t.Fatalf("unchanged content missed parse cache: reparsed=%d, err=%v; want zero", warm.Reparsed, err)
+	}
+}
+
+func TestStructureIndexFollowsSymlinkTargetAndKeepsWorkspaceBoundary(t *testing.T) {
+	root := t.TempDir()
+	targetPath := writeStructFile(t, root, "target.txt", "package lib\n\nfunc OldName() {}\n")
+	aliasPath := filepath.Join(root, "alias.go")
+	if err := os.Symlink(targetPath, aliasPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	secretPath := writeStructFile(t, root, ".env", "package lib\n\nfunc SecretName() {}\n")
+	if err := os.Symlink(secretPath, filepath.Join(root, "secret.go")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	outsideRoot := t.TempDir()
+	outsidePath := writeStructFile(t, outsideRoot, "outside.txt", "package lib\n\nfunc OutsideName() {}\n")
+	if err := os.Symlink(outsidePath, filepath.Join(root, "outside.go")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	idx := NewStructureIndex(root)
+	ctx := context.Background()
+	old, _, err := idx.FindSymbol(ctx, SymbolFilter{Names: []string{"OldName"}})
+	if err != nil || len(old) != 1 || old[0].File != "alias.go" {
+		t.Fatalf("initial symlink symbol: %+v, err=%v; want alias.go", old, err)
+	}
+	for _, name := range []string{"SecretName", "OutsideName"} {
+		found, _, queryErr := idx.FindSymbol(ctx, SymbolFilter{Names: []string{name}})
+		if queryErr != nil || len(found) != 0 {
+			t.Fatalf("FindSymbol(%s) = %+v, err=%v; symlink target must stay outside the index", name, found, queryErr)
+		}
+	}
+
+	linkBefore, err := os.Lstat(aliasPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Let the link's own timestamp age past the trust quantum. The target
+	// rewrite below then leaves every symlink metadata field untouched, which
+	// reproduced the stale-cache path when the index stamped DirEntry.Info().
+	time.Sleep(symbolStampQuantum + 10*time.Millisecond)
+	targetBefore, err := os.Stat(targetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(targetPath, []byte("package lib\n\nfunc NewName() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(targetPath, targetBefore.ModTime(), targetBefore.ModTime()); err != nil {
+		t.Fatalf("restore target mtime: %v", err)
+	}
+	linkAfter, err := os.Lstat(aliasPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if linkBefore.Size() != linkAfter.Size() || !linkBefore.ModTime().Equal(linkAfter.ModTime()) {
+		t.Fatalf("symlink metadata moved: size %d -> %d, mtime %s -> %s", linkBefore.Size(), linkAfter.Size(), linkBefore.ModTime(), linkAfter.ModTime())
+	}
+
+	updated, stats, err := idx.FindSymbol(ctx, SymbolFilter{Names: []string{"NewName"}})
+	if err != nil || len(updated) != 1 || updated[0].File != "alias.go" || stats.Reparsed != 1 {
+		t.Fatalf("symlink target rewrite was not refreshed: symbols=%+v reparsed=%d err=%v; want NewName at alias.go and one parse", updated, stats.Reparsed, err)
+	}
+	stale, _, err := idx.FindSymbol(ctx, SymbolFilter{Names: []string{"OldName"}})
+	if err != nil || len(stale) != 0 {
+		t.Fatalf("old symlink declaration survived target rewrite: %+v, err=%v", stale, err)
+	}
+}
+
+func TestStructureIndexRefreshesModulePathAfterSameSizeRewriteWithRestoredMtime(t *testing.T) {
+	root := t.TempDir()
+	modulePath := writeStructFile(t, root, "go.mod", "module before\n\ngo 1.24\n")
+	clientPath := writeStructFile(t, root, "app/client.go", "package app\n\nimport lib \"before/lib\"\n\nfunc Run() { lib.Hello() }\n")
+	writeStructFile(t, root, "lib/lib.go", "package lib\n\nfunc Hello() {}\n")
+	stamp := time.Unix(1_700_000_000, 0)
+	for _, path := range []string{modulePath, clientPath} {
+		if err := os.Chtimes(path, stamp, stamp); err != nil {
+			t.Fatalf("set initial mtime for %s: %v", path, err)
+		}
+	}
+
+	idx := NewStructureIndex(root)
+	ctx := context.Background()
+	path, importers, _, err := idx.Importers(ctx, "lib")
+	if err != nil || path != "before/lib" || len(importers) != 1 {
+		t.Fatalf("initial import resolution: path=%q importers=%+v err=%v", path, importers, err)
+	}
+	moduleBefore, err := os.Stat(modulePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientBefore, err := os.Stat(clientPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(modulePath, []byte("module afterx\n\ngo 1.24\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(modulePath, moduleBefore.ModTime(), moduleBefore.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(clientPath, []byte("package app\n\nimport lib \"afterx/lib\"\n\nfunc Run() { lib.Hello() }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(clientPath, clientBefore.ModTime(), clientBefore.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	moduleAfter, err := os.Stat(modulePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientAfter, err := os.Stat(clientPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moduleBefore.Size() != moduleAfter.Size() || !moduleBefore.ModTime().Equal(moduleAfter.ModTime()) {
+		t.Fatalf("go.mod fixture metadata moved: size %d -> %d, mtime %s -> %s", moduleBefore.Size(), moduleAfter.Size(), moduleBefore.ModTime(), moduleAfter.ModTime())
+	}
+	if clientBefore.Size() != clientAfter.Size() || !clientBefore.ModTime().Equal(clientAfter.ModTime()) {
+		t.Fatalf("client fixture metadata moved: size %d -> %d, mtime %s -> %s", clientBefore.Size(), clientAfter.Size(), clientBefore.ModTime(), clientAfter.ModTime())
+	}
+
+	path, importers, stats, err := idx.Importers(ctx, "lib")
+	if err != nil || path != "afterx/lib" || len(importers) != 1 || importers[0].File != "app/client.go" || stats.Reparsed != 1 {
+		t.Fatalf("updated import resolution: path=%q importers=%+v reparsed=%d err=%v", path, importers, stats.Reparsed, err)
+	}
+	warm, err := idx.Refresh(ctx)
+	if err != nil || warm.Reparsed != 0 {
+		t.Fatalf("unchanged module/source missed parse cache: reparsed=%d, err=%v; want zero", warm.Reparsed, err)
+	}
+}
+
 // TestStructureIndexRepositoryScale measures the real tree: the cold build and
 // the warm refresh every query pays. It reports; the only assertions are the
 // ones that would mean the index is unusable.

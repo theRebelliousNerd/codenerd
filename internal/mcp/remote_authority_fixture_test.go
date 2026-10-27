@@ -6,13 +6,21 @@ import (
 )
 
 var RemoteAuthorityKernelForTest func(*testing.T) KernelInterface
+var RemoteAuthorityShardedKernelForTest func(*testing.T) KernelInterface
 
 func installRemoteAuthorityFixture(test *testing.T, manager *MCPClientManager, effects map[string]RemoteEffect) KernelInterface {
 	test.Helper()
 	if RemoteAuthorityKernelForTest == nil {
 		test.Fatal("real MCP authority kernel fixture is not installed")
 	}
-	kernel := RemoteAuthorityKernelForTest(test)
+	return installRemoteAuthorityFixtureWithKernel(test, manager, effects, RemoteAuthorityKernelForTest(test))
+}
+
+func installRemoteAuthorityFixtureWithKernel(test *testing.T, manager *MCPClientManager, effects map[string]RemoteEffect, kernel KernelInterface) KernelInterface {
+	test.Helper()
+	if kernel == nil {
+		test.Fatal("MCP authority kernel fixture returned nil")
+	}
 	emitter := NewFactEmitter(kernel)
 	manager.SetFactEmitter(emitter)
 	for serverID, connection := range manager.servers {

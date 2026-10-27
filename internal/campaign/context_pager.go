@@ -336,46 +336,6 @@ func (cp *ContextPager) PrefetchNextTasks(ctx context.Context, tasks []Task, lim
 	return nil
 }
 
-// PruneIrrelevant removes facts not relevant to current phase.
-func (cp *ContextPager) PruneIrrelevant(profile *ContextProfile) error {
-	logging.CampaignDebug("Pruning irrelevant facts based on context profile")
-
-	// Get all facts
-	allFacts, err := cp.kernel.QueryAll()
-	if err != nil {
-		logging.Get(logging.CategoryCampaign).Error("Failed to query all facts for pruning: %v", err)
-		return err
-	}
-
-	// Determine which predicates to suppress
-	irrelevantPredicates := []string{
-		"dom_node", "attr", "geometry", "computed_style", "interactable", "visible_text", // Browser
-	}
-
-	// Check if browser is needed
-	if contains(profile.RequiredSchemas, "browser") {
-		logging.CampaignDebug("Browser schema required, keeping browser facts")
-		irrelevantPredicates = []string{} // Keep browser facts
-	}
-
-	// Suppress irrelevant facts
-	suppressedCount := 0
-	facts := make([]core.Fact, 0, len(irrelevantPredicates))
-	for _, pred := range irrelevantPredicates {
-		if _, ok := allFacts[pred]; ok {
-			facts = append(facts, core.Fact{
-				Predicate: "activation",
-				Args:      []any{pred, -200}, // Heavy suppression
-			})
-			suppressedCount++
-		}
-	}
-	assertFactsWithFallback(cp.kernel, facts, "irrelevant-predicate pruning")
-
-	logging.CampaignDebug("Pruned %d irrelevant facts", suppressedCount)
-	return nil
-}
-
 // getContextProfile retrieves a context profile from the kernel.
 func (cp *ContextPager) getContextProfile(profileID string) (*ContextProfile, error) {
 	facts, err := cp.kernel.Query("context_profile")

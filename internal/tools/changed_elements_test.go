@@ -166,12 +166,64 @@ func TestChangedElements_MangleRuleBody(t *testing.T) {
 	}
 }
 
-func TestChangedElements_LanguagesWithoutSpansReturnNil(t *testing.T) {
-	before := "def add(a, b):\n    return a + b\n"
-	after := "def add(a, b):\n    return a + b + 1\n"
-	for _, rel := range []string{"calc.py", "calc.ts", "calc.rs"} {
+func TestChangedElements_SupportedScriptLanguagesTrackFunctionChanges(t *testing.T) {
+	tests := []struct {
+		name, path, language, function, before, after string
+	}{
+		{
+			name:     "python",
+			path:     "calc.py",
+			language: "python",
+			function: "add",
+			before:   "def add(a, b):\n    return a + b\n",
+			after:    "def add(a, b):\n    return a + b + 1\n",
+		},
+		{
+			name:     "typescript",
+			path:     "calc.ts",
+			language: "typescript",
+			function: "add",
+			before:   "export function add(a: number, b: number): number { return a + b; }\n",
+			after:    "export function add(a: number, b: number): number { return a + b + 1; }\n",
+		},
+		{
+			name:     "tsx",
+			path:     "calc.tsx",
+			language: "tsx",
+			function: "Counter",
+			before:   "export function Counter() { return <span>0</span>; }\n",
+			after:    "export function Counter() { return <span>1</span>; }\n",
+		},
+		{
+			name:     "javascript",
+			path:     "calc.js",
+			language: "javascript",
+			function: "add",
+			before:   "export function add(a, b) { return a + b; }\n",
+			after:    "export function add(a, b) { return a + b + 1; }\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := declarations(ChangedElements(tt.path, tt.before, tt.after))
+			if len(got) != 1 {
+				t.Fatalf("ChangedElements returned %+v; want only the changed function", got)
+			}
+			edit := got[0]
+			if edit.Language != tt.language || edit.Kind != "function" || edit.Name != tt.function || edit.Removed {
+				t.Fatalf("ChangedElements returned %+v; want changed %s function %q", edit, tt.language, tt.function)
+			}
+		})
+	}
+}
+
+func TestChangedElements_LanguagesWithoutParserReturnNil(t *testing.T) {
+	before := "fn add(a: i32, b: i32) -> i32 { a + b }\n"
+	after := "fn add(a: i32, b: i32) -> i32 { a + b + 1 }\n"
+	for _, rel := range []string{"calc.rs", "calc.unknown"} {
 		if eds := ChangedElements(rel, before, after); eds != nil {
-			t.Fatalf("%s has no codemodel spans: %+v", rel, eds)
+			t.Fatalf("%s has no codemodel parser: %+v", rel, eds)
 		}
 	}
 }

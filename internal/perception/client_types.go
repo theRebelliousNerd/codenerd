@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/types"
 )
 
@@ -118,6 +119,11 @@ type AnthropicConfig struct {
 	Model           string
 	Timeout         time.Duration
 	MaxOutputTokens int // completion ceiling; zero uses the client default
+	// MaxInputTokens is the slot's input cap (max_input_tokens); zero is none.
+	// A larger request is refused before it is sent (admitInput).
+	MaxInputTokens  int
+	Options         config.AnthropicProviderConfig
+	ReasoningEffort string
 }
 
 // OpenAIConfig holds configuration for OpenAI client.
@@ -276,24 +282,136 @@ type AnthropicContentBlock struct {
 	// loop sets it on the last block of the newest turn only, never on a
 	// thinking block (the endpoint rejects it there).
 	CacheControl *AnthropicCacheControl `json:"cache_control,omitzero"`
+	// Citations are the sources a text block cites (a web search result, a
+	// fetched page). Read for grounding; a text block replayed from the
+	// conversation history carries none.
+	Citations []AnthropicCitation `json:"citations,omitzero"`
+
+	// ServerContent is a server tool result's content as returned: a list of
+	// results on success, an error object on failure (anthropicServerResults
+	// branches on which).
+	ServerContent json.RawMessage `json:"-"`
+	// Raw is a server-tool block, or a cited text block, exactly as the
+	// response carried it. It is what the block is sent back as, byte for
+	// byte (MarshalJSON).
+	Raw json.RawMessage `json:"-"`
+}
+
+// AnthropicCitation is one source a text block cites. Only the location is
+// read; the rest of the citation rides the response's raw block.
+type AnthropicCitation struct {
+	Type  string `json:"type,omitzero"`
+	URL   string `json:"url,omitzero"`
+	Title string `json:"title,omitzero"`
+}
+
+// anthropicServerBlockTypes are the content blocks Anthropic's server-side
+// tools produce inside a request. The endpoint ran them; codeNERD keeps them
+// verbatim and never executes them.
+var anthropicServerBlockTypes = map[string]bool{
+	"server_tool_use":        true,
+	"web_search_tool_result": true,
+	"web_fetch_tool_result":  true,
+}
+
+// UnmarshalJSON keeps a server-tool block whole: its result content is a list
+// or an object, which no field of a text or tool block can hold, and it must
+// be replayed exactly as it came. Every other block decodes field by field.
+func (b *AnthropicContentBlock) UnmarshalJSON(data []byte) error {
+	var head struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(data, &head); err != nil {
+		return err
+	}
+	if anthropicServerBlockTypes[head.Type] {
+		var server struct {
+			ID        string          `json:"id"`
+			Name      string          `json:"name"`
+			ToolUseID string          `json:"tool_use_id"`
+			Content   json.RawMessage `json:"content"`
+		}
+		if err := json.Unmarshal(data, &server); err != nil {
+			return fmt.Errorf("decode Anthropic %s block: %w", head.Type, err)
+		}
+		*b = AnthropicContentBlock{
+			Type: head.Type, ID: server.ID, Name: server.Name, ToolUseID: server.ToolUseID,
+			ServerContent: server.Content,
+			Raw:           append(json.RawMessage(nil), data...),
+		}
+		return nil
+	}
+	type block AnthropicContentBlock
+	var decoded block
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	// A cited text block keeps its whole citations (cited text, encrypted
+	// index) only as returned, and a pause_turn resumption sends it back so.
+	if len(decoded.Citations) > 0 {
+		decoded.Raw = append(json.RawMessage(nil), data...)
+	}
+	*b = AnthropicContentBlock(decoded)
+	return nil
+}
+
+// MarshalJSON replays a server-tool block exactly as it was returned, and
+// preserves the required thinking field even when the provider returned an
+// empty summary (thinking.display=omitted). The signed block must be replayed
+// with its original empty text, rather than dropping the field.
+func (b AnthropicContentBlock) MarshalJSON() ([]byte, error) {
+	type block AnthropicContentBlock
+	if len(b.Raw) > 0 {
+		return b.Raw, nil
+	}
+	if b.Type == "thinking" {
+		return json.Marshal(struct {
+			block
+			Thinking string `json:"thinking"`
+		}{block: block(b), Thinking: b.Thinking})
+	}
+	return json.Marshal(block(b))
 }
 
 // AnthropicTool represents a tool definition for Anthropic API.
 type AnthropicTool struct {
+	// Type names a server tool's version (web_search_20250305, ...); a
+	// codeNERD tool has none.
+	Type        string         `json:"type,omitzero"`
 	Name        string         `json:"name"`
 	Description string         `json:"description,omitzero"`
-	InputSchema map[string]any `json:"input_schema"`
+	InputSchema map[string]any `json:"input_schema,omitzero"`
+	Strict      bool           `json:"strict,omitempty"`
+	// MaxUses caps a server tool's uses in one request.
+	MaxUses int `json:"max_uses,omitzero"`
+}
+
+type AnthropicThinking struct {
+	Type         string `json:"type"`
+	BudgetTokens int    `json:"budget_tokens,omitempty"`
+	Display      string `json:"display,omitempty"`
+}
+
+type AnthropicOutputConfig struct {
+	Effort string                 `json:"effort,omitempty"`
+	Format *AnthropicOutputFormat `json:"format,omitempty"`
+}
+
+type AnthropicOutputFormat struct {
+	Type   string         `json:"type"`
+	Schema map[string]any `json:"schema"`
 }
 
 // AnthropicRequest represents the Anthropic API request.
 type AnthropicRequest struct {
-	Model       string             `json:"model"`
-	MaxTokens   int                `json:"max_tokens"`
-	System      string             `json:"system,omitzero"`
-	Messages    []AnthropicMessage `json:"messages"`
-	Tools       []AnthropicTool    `json:"tools,omitzero"`
-	Temperature float64            `json:"temperature,omitzero"`
-	Stream      bool               `json:"stream,omitzero"`
+	Model        string                 `json:"model"`
+	MaxTokens    int                    `json:"max_tokens"`
+	System       string                 `json:"system,omitzero"`
+	Messages     []AnthropicMessage     `json:"messages"`
+	Tools        []AnthropicTool        `json:"tools,omitzero"`
+	Thinking     *AnthropicThinking     `json:"thinking,omitempty"`
+	OutputConfig *AnthropicOutputConfig `json:"output_config,omitempty"`
+	Stream       bool                   `json:"stream,omitzero"`
 }
 
 // NERD-EVOLVE-START: P1P2-prompt-caching
@@ -317,13 +435,14 @@ type AnthropicSystemCacheBlock struct {
 // by a structured []AnthropicSystemCacheBlock for prompt caching. It is only used
 // when building the actual HTTP payload — never exposed through public interfaces.
 type anthropicCachedRequest struct {
-	Model       string                      `json:"model"`
-	MaxTokens   int                         `json:"max_tokens"`
-	System      []AnthropicSystemCacheBlock `json:"system,omitzero"`
-	Messages    []AnthropicMessage          `json:"messages"`
-	Tools       []AnthropicTool             `json:"tools,omitzero"`
-	Temperature float64                     `json:"temperature,omitzero"`
-	Stream      bool                        `json:"stream,omitzero"`
+	Model        string                      `json:"model"`
+	MaxTokens    int                         `json:"max_tokens"`
+	System       []AnthropicSystemCacheBlock `json:"system,omitzero"`
+	Messages     []AnthropicMessage          `json:"messages"`
+	Tools        []AnthropicTool             `json:"tools,omitzero"`
+	Thinking     *AnthropicThinking          `json:"thinking,omitempty"`
+	OutputConfig *AnthropicOutputConfig      `json:"output_config,omitempty"`
+	Stream       bool                        `json:"stream,omitzero"`
 }
 
 // NERD-EVOLVE-END: P1P2-prompt-caching
@@ -336,6 +455,30 @@ type anthropicUsage struct {
 	OutputTokens             int `json:"output_tokens"`
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitzero"`
 	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitzero"`
+	// ServerToolUse counts the server tools a request ran, which are billed
+	// per use on top of tokens.
+	ServerToolUse anthropicServerToolUse `json:"server_tool_use,omitzero"`
+}
+
+// anthropicServerToolUse is the usage block's count of server tool runs.
+type anthropicServerToolUse struct {
+	WebSearchRequests int `json:"web_search_requests,omitzero"`
+	WebFetchRequests  int `json:"web_fetch_requests,omitzero"`
+}
+
+// plus is the usage of two requests that served one turn (a pause_turn
+// resumption): each was billed, so every count adds.
+func (u anthropicUsage) plus(v anthropicUsage) anthropicUsage {
+	return anthropicUsage{
+		InputTokens:              u.InputTokens + v.InputTokens,
+		OutputTokens:             u.OutputTokens + v.OutputTokens,
+		CacheCreationInputTokens: u.CacheCreationInputTokens + v.CacheCreationInputTokens,
+		CacheReadInputTokens:     u.CacheReadInputTokens + v.CacheReadInputTokens,
+		ServerToolUse: anthropicServerToolUse{
+			WebSearchRequests: u.ServerToolUse.WebSearchRequests + v.ServerToolUse.WebSearchRequests,
+			WebFetchRequests:  u.ServerToolUse.WebFetchRequests + v.ServerToolUse.WebFetchRequests,
+		},
+	}
 }
 
 // promptTokens is the whole prompt the request carried: the uncached
@@ -717,34 +860,3 @@ type XAIResponse = OpenAIResponse
 type OpenRouterRequest = OpenAIRequest
 type OpenRouterMessage = OpenAIMessage
 type OpenRouterResponse = OpenAIResponse
-
-// Popular OpenRouter models (use provider/model format)
-// Full list at: https://openrouter.ai/models
-var OpenRouterModels = []string{
-	// Anthropic
-	"anthropic/claude-3.5-sonnet",
-	"anthropic/claude-3.5-haiku",
-	"anthropic/claude-3-opus",
-	// OpenAI
-	"openai/gpt-4o",
-	"openai/gpt-4o-mini",
-	"openai/o1-preview",
-	"openai/o1-mini",
-	// Google
-	"google/gemini-3.1-flash-lite",
-	"google/gemini-3-flash-preview",
-	"google/gemini-3.1-pro-preview",
-	"google/gemini-3-pro-preview",
-	// Meta
-	"meta-llama/llama-3.1-405b-instruct",
-	"meta-llama/llama-3.1-70b-instruct",
-	// Mistral
-	"mistralai/mistral-large",
-	"mistralai/codestral-latest",
-	// DeepSeek
-	"deepseek/deepseek-chat",
-	"deepseek/deepseek-coder",
-	// Qwen
-	"qwen/qwen-2.5-72b-instruct",
-	"qwen/qwen-2.5-coder-32b-instruct",
-}

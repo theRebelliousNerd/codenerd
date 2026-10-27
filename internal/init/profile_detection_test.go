@@ -418,61 +418,33 @@ func TestComputeContentHash_WhenContentDiffersButLengthMatches_ShouldDiffer(t *t
 }
 
 // ---------------------------------------------------------------------------
-// Tool needs are recorded as Mangle facts instead of printed and discarded
+// profile.mg carries measurements, not standing orders
 // ---------------------------------------------------------------------------
 
-func TestProjectToolNeedFacts_WhenToolsDetected_ShouldEmitDeclaredMissingToolForFacts(t *testing.T) {
-	facts := projectToolNeedFacts([]ToolGenerationRequest{
-		{Name: "go_build_tool", Purpose: "build"},
-		{Name: "go_test_tool", Purpose: "test"},
-		{Name: "go_build_tool", Purpose: "duplicate"},
-	})
-
-	if len(facts) != 2 {
-		t.Fatalf("facts = %v, want the duplicate collapsed", facts)
-	}
-	for _, fact := range facts {
-		// missing_tool_for(Intent, Capability) bound [/name, /name]
-		if !strings.HasPrefix(fact, "missing_tool_for(/project_init, /") || !strings.HasSuffix(fact, ").") {
-			t.Errorf("fact %q does not match the Declared missing_tool_for shape", fact)
-		}
-	}
-}
-
-func TestGenerateFactsFile_WhenGoProject_ShouldRecordToolNeedsForTheKernel(t *testing.T) {
+// profile.mg used to carry missing_tool_for(/project_init, Cap) rows for a
+// fixed per-language list. autopoiesis.mg derives delegate_task(
+// /tool_generator, Cap, /pending) from any missing_tool_for row, and the chat
+// boot loads profile.mg, so every session started Ouroboros code generation
+// for wrappers around commands phase 10 already registers.
+func TestGenerateFactsFile_RecordsNoToolGenerationOrders(t *testing.T) {
 	workspace := t.TempDir()
 	ini := &Initializer{config: InitConfig{Workspace: workspace}}
 	path := filepath.Join(workspace, "profile.mg")
 
 	if _, err := ini.generateFactsFile(path, ProjectProfile{
-		ProjectID: "p1", Name: "demo", Language: "go",
+		ProjectID: "p1", Name: "demo", Language: "go", BuildSystem: "makefile",
 	}); err != nil {
 		t.Fatalf("generateFactsFile: %v", err)
 	}
-
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read facts: %v", err)
 	}
-	if !strings.Contains(string(data), "missing_tool_for(/project_init, /go_build_tool).") {
-		t.Errorf("profile.mg does not record the project's tool needs:\n%s", data)
+	if strings.Contains(string(data), "missing_tool_for") {
+		t.Errorf("profile.mg orders tool generation:\n%s", data)
 	}
-}
-
-func TestGenerateProjectTools_WhenGoProject_ShouldReportRecordedNeedsWithoutGeneratingTools(t *testing.T) {
-	ini := &Initializer{config: InitConfig{Workspace: t.TempDir()}}
-
-	recorded, err := ini.generateProjectTools(context.Background(), "", ProjectProfile{Language: "go"})
-	if err != nil {
-		t.Fatalf("generateProjectTools: %v", err)
-	}
-	if len(recorded) == 0 {
-		t.Fatal("no tool needs recorded for a Go project")
-	}
-	for _, name := range recorded {
-		if strings.TrimSpace(name) == "" {
-			t.Errorf("recorded need has an empty name: %v", recorded)
-		}
+	if !strings.Contains(string(data), "project_language(/go).") {
+		t.Errorf("profile.mg lost the measured language:\n%s", data)
 	}
 }
 

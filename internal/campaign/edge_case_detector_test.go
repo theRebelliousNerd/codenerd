@@ -159,37 +159,6 @@ func TestEdgeCaseAnalysis_Fields(t *testing.T) {
 	}
 }
 
-func TestEdgeCaseAnalysis_FormatForContext(t *testing.T) {
-	analysis := &EdgeCaseAnalysis{
-		TotalFiles:      5,
-		RequiresPrework: 2,
-		Decisions: []FileDecision{
-			{Path: "test.go", RecommendedAction: ActionExtend, Reasoning: "Small file"},
-			{Path: "large.go", RecommendedAction: ActionModularize, Reasoning: "Too large"},
-			{Path: "new.go", RecommendedAction: ActionCreate, Reasoning: "New file"},
-		},
-		ActionCounts: map[FileAction]int{
-			ActionCreate:     1,
-			ActionExtend:     1,
-			ActionModularize: 1,
-		},
-		ModularizeFiles: []string{"large.go"},
-		HighImpactFiles: []string{"large.go"},
-	}
-
-	formatted := analysis.FormatForContext()
-
-	if formatted == "" {
-		t.Fatal("FormatForContext should not return empty string")
-	}
-	if !strings.Contains(formatted, "EDGE CASE ANALYSIS") {
-		t.Error("should contain header")
-	}
-	if !strings.Contains(formatted, "Total Files") {
-		t.Error("should contain total files info")
-	}
-}
-
 func TestEdgeCaseAnalysis_ActionCountsTotals(t *testing.T) {
 	analysis := &EdgeCaseAnalysis{
 		ActionCounts: map[FileAction]int{

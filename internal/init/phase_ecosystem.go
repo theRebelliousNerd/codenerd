@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 
-	"codenerd/internal/config"
 	"codenerd/internal/orient"
 	"codenerd/internal/prompt"
 	"codenerd/internal/sqlpragmas"
@@ -39,6 +38,10 @@ type ecosystemWorkspace struct {
 	research    map[string][]string
 	knowledge   map[string][]ecosystemAtom
 	prompts     map[string]string
+	// domain holds each vision expert's research questions, answered by
+	// grounded web search; staleDays is when a fast-moving answer expires.
+	domain    map[string][]domainQuestion
+	staleDays int
 }
 
 var (
@@ -95,6 +98,19 @@ func ecosystemKnowledgeChunks(ws, name string) []ecosystemAtom {
 	return append([]ecosystemAtom{}, seed.knowledge[name]...)
 }
 
+// ecosystemDomainResearch returns a vision expert's research questions and
+// the staleness bound for fast-moving answers.
+func ecosystemDomainResearch(ws, name string) ([]domainQuestion, int) {
+	key := ecosystemWorkspaceKey(ws)
+	ecosystemMu.Lock()
+	defer ecosystemMu.Unlock()
+	seed := ecosystemSeeds[key]
+	if seed == nil {
+		return nil, 0
+	}
+	return append([]domainQuestion(nil), seed.domain[name]...), seed.staleDays
+}
+
 func ecosystemImportedPrompt(ws, name string) string {
 	key := ecosystemWorkspaceKey(ws)
 	ecosystemMu.Lock()
@@ -140,6 +156,42 @@ func (i *Initializer) integrateEcosystem(ctx context.Context, result *InitResult
 	}
 	warnEcosystemThresholds(eng, result)
 
+	// The stack catalog and the corpus decide the roster's first half; the
+	// planner, reading the north star and the oriented documents, proposes
+	// the domain experts the goal needs. Both meet in the same predicates.
+	stack, err := assembleAgents(eng)
+	if err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("agent ecosystem results were not read: %v", err))
+		return recommended
+	}
+	visionFacts, notes, err := i.proposeDomainExperts(ctx, eng, profile, stack)
+	result.Warnings = append(result.Warnings, notes...)
+	if err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("domain experts were not derived: %v", err))
+	}
+	if len(visionFacts) > 0 {
+		if err := eng.Assert(visionFacts); err != nil {
+			result.Failures = append(result.Failures, "domain expert facts: "+err.Error())
+			return recommended
+		}
+		i.orientationSnapshot.Facts = append(i.orientationSnapshot.Facts, visionFacts...)
+		if err := eng.Evaluate(ctx); err != nil {
+			result.Failures = append(result.Failures, "domain expert evaluation: "+err.Error())
+			return recommended
+		}
+		if err := i.orientationSnapshot.Save(ws, eng); err != nil {
+			result.Failures = append(result.Failures, "domain expert persistence: "+err.Error())
+		}
+	}
+	domain, err := domainQuestionsByAgent(eng)
+	if err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("domain research questions were not read: %v", err))
+	}
+	bounds, err := readDomainBounds(eng)
+	if err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("domain bounds were not read: %v", err))
+	}
+
 	derived, err := assembleAgents(eng)
 	if err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("agent ecosystem results were not read: %v", err))
@@ -151,6 +203,12 @@ func (i *Initializer) integrateEcosystem(ctx context.Context, result *InitResult
 		return recommended
 	}
 
+	agentRows, err := eng.Query("orient_agent")
+	if err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("agent ecosystem results were not read: %v", err))
+		return recommended
+	}
+	canonical := agentNameResolver(agentRows)
 	researchSet := map[string]bool{}
 	research := map[string][]string{}
 	for _, agent := range derived {
@@ -160,7 +218,7 @@ func (i *Initializer) integrateEcosystem(ctx context.Context, result *InitResult
 		if len(fact.Args) < 2 {
 			continue
 		}
-		name := types.ExtractString(fact.Args[0])
+		name := canonical(types.ExtractString(fact.Args[0]))
 		topic := types.ExtractString(fact.Args[1])
 		if name == "" || topic == "" {
 			continue
@@ -181,7 +239,7 @@ func (i *Initializer) integrateEcosystem(ctx context.Context, result *InitResult
 		if len(fact.Args) < 2 {
 			continue
 		}
-		name := types.ExtractString(fact.Args[0])
+		name := canonical(types.ExtractString(fact.Args[0]))
 		id := types.ExtractString(fact.Args[1])
 		src, ok := byID[id]
 		if !ok {
@@ -194,7 +252,12 @@ func (i *Initializer) integrateEcosystem(ctx context.Context, result *InitResult
 		result.Failures = append(result.Failures, "orientation prompt selection: "+err.Error())
 		return recommended
 	}
-	prompts := importedPrompts(sources, promptRows)
+	prompts := map[string]string{}
+	for name, body := range importedPrompts(sources, promptRows) {
+		if _, taken := prompts[canonical(name)]; !taken {
+			prompts[canonical(name)] = body
+		}
+	}
 
 	merged := mergeDerivedAgents(recommended, derived, profile.Language)
 	atoms := ecosystemPromptAtoms(sources, winners)
@@ -210,6 +273,8 @@ func (i *Initializer) integrateEcosystem(ctx context.Context, result *InitResult
 		research:    research,
 		knowledge:   knowledgeByAgent,
 		prompts:     prompts,
+		domain:      domain,
+		staleDays:   bounds.staleDays,
 	})
 	return merged
 }
@@ -287,25 +352,6 @@ func ecosystemRows(eng *orient.Engine) (winners map[string]string, knowledge, lo
 	return winners, knowledge, losers, research, params, nil
 }
 
-// agentsFromProfile is the profile half of determineRequiredAgents. The
-// language, framework and dependency table lives in the policy; this only
-// asserts the signals and reads the agents back.
-func agentsFromProfile(ctx context.Context, profile ProjectProfile) ([]RecommendedAgent, error) {
-	cfg := config.DefaultOrientConfig()
-	eng, err := orient.NewEngine(&cfg)
-	if err != nil {
-		return nil, err
-	}
-	defer eng.Close()
-	if err := eng.Assert(profileFacts(profile)); err != nil {
-		return nil, err
-	}
-	if err := eng.Evaluate(ctx); err != nil {
-		return nil, err
-	}
-	return assembleAgents(eng)
-}
-
 func assembleAgents(eng *orient.Engine) ([]RecommendedAgent, error) {
 	agents, err := eng.Query("orient_agent")
 	if err != nil {
@@ -336,9 +382,45 @@ type agentBag struct {
 	havePriority               bool
 }
 
+// agentNameResolver maps every roster name to its canonical spelling: names
+// that fold to the same letters and digits ("code-reviewer", "CodeReviewer")
+// are one agent. A catalog, core or vision name wins over an imported or
+// skill-cluster spelling, then the lexically first.
+func agentNameResolver(agentRows []types.Fact) func(string) string {
+	type candidate struct {
+		name     string
+		imported bool
+	}
+	best := map[string]candidate{}
+	for _, fact := range agentRows {
+		if len(fact.Args) < 2 {
+			continue
+		}
+		name := types.ExtractString(fact.Args[0])
+		key := normalizeAgentName(name)
+		if name == "" || key == "" {
+			continue
+		}
+		why := types.ExtractString(fact.Args[1])
+		imported := why == "imported subagent" || why == "imported mode" || why == "skill cluster"
+		current, ok := best[key]
+		if !ok || (current.imported && !imported) || (current.imported == imported && name < current.name) {
+			best[key] = candidate{name: name, imported: imported}
+		}
+	}
+	return func(name string) string {
+		if winner, ok := best[normalizeAgentName(name)]; ok {
+			return winner.name
+		}
+		return name
+	}
+}
+
 func buildAgents(agentRows, topicRows, descRows, permRows, priRows []types.Fact) []RecommendedAgent {
 	bags := map[string]*agentBag{}
+	canonical := agentNameResolver(agentRows)
 	ensure := func(name string) *agentBag {
+		name = canonical(name)
 		bag := bags[name]
 		if bag == nil {
 			bag = &agentBag{}
@@ -469,6 +551,9 @@ func profileFacts(profile ProjectProfile) []types.Fact {
 		}
 		seen[name] = true
 		facts = append(facts, types.Fact{Predicate: "profile_signal", Args: []any{types.MangleAtom("/dependency"), name}})
+	}
+	if profile.TestFileCount > 0 {
+		facts = append(facts, types.Fact{Predicate: "profile_signal", Args: []any{types.MangleAtom("/tests"), "present"}})
 	}
 	return facts
 }
@@ -659,13 +744,6 @@ func (i *Initializer) persistEcosystemAtoms(ctx context.Context, atoms []*store.
 	i.mu.Lock()
 	i.projectAtoms = append(i.projectAtoms, atoms...)
 	i.mu.Unlock()
-	if i.localDB != nil {
-		for _, atom := range atoms {
-			if err := i.localDB.StorePromptAtom(atom); err != nil {
-				result.Warnings = append(result.Warnings, fmt.Sprintf("prompt atom %s was not stored: %v", atom.AtomID, err))
-			}
-		}
-	}
 	// Phase 5c ingests project atoms before phase 6 runs, so a corpus that
 	// already exists will not see these unless they are stored here too.
 	corpus := filepath.Join(i.config.Workspace, ".nerd", "prompts", "corpus.db")

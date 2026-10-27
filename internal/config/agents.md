@@ -25,9 +25,15 @@
 - A section the kernel's rules read gives them `config_param` rows through a
   `Params` method (`params.go`); a threshold that fails open when absent is
   declared `config_param_required` next to its rule.
-- Root and secondary-slot `reasoning_effort` values are strict config fields.
-  Provider factories decide support; Meta accepts only
-  `minimal|low|medium|high|xhigh`, while other providers must omit the wire field.
+- Every request has a reasoning effort: the slot's, else its default (main
+  medium, worker medium, planner high, classification the provider's lowest).
+  `Check` refuses a value the provider or model cannot take (Meta
+  `minimal|low|medium|high|xhigh`, Anthropic `low..max` on effort models), and
+  a profile's against every slot that may serve it. `nerd config full` shows
+  the resolved values (`withResolvedDefaults`).
+- No model or provider is ever chosen here: a used slot without a model is an
+  error, and capability tables (`anthropic.go`) never substitute one.
+- `max_input_tokens` (worker/planner) is 0 or at least `MinPromptTokens`.
 - Native browser settings live under the top-level `browser` block, separate
   from `integrations.servers.browser` (an external MCP endpoint). Preserve
   pointer semantics for `multi_tab_default` so explicit isolation is not

@@ -17,6 +17,7 @@ func TestSaveConfigWizardPreservesUnownedSettings(t *testing.T) {
 
 	base := &internalconfig.UserConfig{
 		Provider: "openai",
+		Model:    "test-model",
 		Execution: &internalconfig.ExecutionConfig{
 			AllowedBinaries:  []string{"go", "git"},
 			AllowedEnvVars:   []string{"PATH", "GOCACHE"},

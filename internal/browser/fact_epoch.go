@@ -104,6 +104,9 @@ func (m *SessionManager) RollSessionEpoch(sessionID string) int64 {
 	if sessionID == "" {
 		return 0
 	}
+	// Serialize navigation retirement with progressive Observe replacements so
+	// an old-page snapshot cannot be asserted after the epoch is advanced.
+	m.progressiveMu.Lock()
 	m.budgetMu.Lock()
 	budget := m.budgetFor(sessionID)
 	budget.epoch++
@@ -114,6 +117,10 @@ func (m *SessionManager) RollSessionEpoch(sessionID string) int64 {
 	budget.tracked = nil
 	epoch := budget.epoch
 	m.budgetMu.Unlock()
+	if snapshot, ok := m.progressiveSnapshots[sessionID]; ok {
+		retired = append(retired, snapshot.facts...)
+		delete(m.progressiveSnapshots, sessionID)
+	}
 
 	if len(retired) > 0 {
 		if retractor := m.factRetractor(); retractor != nil {
@@ -133,15 +140,33 @@ func (m *SessionManager) RollSessionEpoch(sessionID string) int64 {
 	}}); err != nil {
 		logging.BrowserDebug("[session:%s] browser_epoch fact error: %v", sessionID, err)
 	}
+	m.progressiveMu.Unlock()
 	return epoch
 }
 
 // forgetSessionBudget drops accounting for a closed session so the map does not
 // grow with the tab count over a long-lived process.
 func (m *SessionManager) forgetSessionBudget(sessionID string) {
+	m.progressiveMu.Lock()
 	m.budgetMu.Lock()
-	defer m.budgetMu.Unlock()
+	var retired []mangle.Fact
+	if budget := m.budgets[sessionID]; budget != nil {
+		retired = append(retired, budget.tracked...)
+	}
 	delete(m.budgets, sessionID)
+	if snapshot, ok := m.progressiveSnapshots[sessionID]; ok {
+		retired = append(retired, snapshot.facts...)
+	}
+	delete(m.progressiveSnapshots, sessionID)
+	m.budgetMu.Unlock()
+	if len(retired) > 0 {
+		if retractor := m.factRetractor(); retractor != nil {
+			if err := retractor.RetractFacts(retired); err != nil {
+				logging.BrowserWarn("[session:%s] closing session left %d facts behind: %v", sessionID, len(retired), err)
+			}
+		}
+	}
+	m.progressiveMu.Unlock()
 }
 
 // addStreamFacts is the budgeted path for continuous event-stream assertions.

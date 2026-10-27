@@ -1,12 +1,8 @@
 package chat
 
 import (
-	"codenerd/internal/articulation"
 	"codenerd/internal/campaign"
-	"codenerd/internal/config"
-	"codenerd/internal/northstar"
 	"codenerd/internal/perception"
-	"codenerd/internal/world"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -45,85 +41,21 @@ func (m Model) startAssaultCampaign(args []string) tea.Cmd {
 
 		m.ReportStatus("Creating adversarial assault campaign...")
 
-		// JIT prompt provider for campaign roles (if compiler available)
-		var promptProvider campaign.PromptProvider
-		if m.jitCompiler != nil {
-			if pa, err := articulation.NewPromptAssemblerWithJIT(m.kernel, m.jitCompiler); err == nil {
-				jitCfg := config.DefaultJITConfig()
-				if m.Config != nil {
-					jitCfg = m.Config.GetEffectiveJITConfig()
-				}
-				pa.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK, jitCfg.ReservedTokensFallbackRatio)
-				pa.EnableJIT(jitCfg.Enabled)
-				promptProvider = &campaignJITProvider{assembler: pa}
-			}
-		}
-
 		camp := campaign.NewAdversarialAssaultCampaign(m.workspace, cfg)
 
-		// Larger buffers prevent backpressure during adversarial campaigns
+		// The assault's remediation plan comes from the planning client, like
+		// any campaign's plan; its batches run on the task executor, which is
+		// also what the nemesis and shard-validation checkpoints need. The
+		// policy is the user's campaign section, as for every other door.
+		// Larger buffers prevent backpressure during adversarial campaigns.
 		progressChan := make(chan campaign.Progress, 100)
 		eventChan := make(chan campaign.OrchestratorEvent, 200)
-		consultationProvider := newCampaignConsultationProvider(m.consultationMgr)
-		// Wire holographic provider for rich codebase context during intelligence gathering
-		var holographic *world.HolographicProvider
-		if m.kernel != nil {
-			holographic = world.NewHolographicProvider(m.kernel, m.workspace)
-		}
-		intelligenceGatherer := campaign.NewIntelligenceGatherer(
-			m.workspace,
-			m.kernel,
-			m.scanner,
-			holographic,
-			m.learningStore,
-			m.localDB,
-			nil,
-			nil,
-			consultationProvider,
-		)
-		edgeCaseDetector := campaign.NewEdgeCaseDetector(m.kernel, m.scanner)
-		var advisoryBoard *campaign.ShardAdvisoryBoard
-		if consultationProvider != nil {
-			advisoryBoard = campaign.NewShardAdvisoryBoard(consultationProvider)
-		}
-
-		orch, err := campaign.NewOrchestrator(campaign.OrchestratorConfig{
-			Workspace:    m.workspace,
-			Kernel:       m.kernel,
-			LLMClient:    m.client,
-			ShardManager: m.shardMgr,
-			// Required, or the Nemesis gauntlet and shard-validation checkpoints
-			// return "skipped => passed" (internal/campaign/checkpoint.go:206-209,
-			// :258-261). An assault campaign exists to be adversarially verified,
-			// so silently skipping that is the worst possible false green.
-			TaskExecutor: m.taskExecutor,
-			Executor:     m.executor,
-			VirtualStore: m.virtualStore,
-			ProgressChan: progressChan,
-			EventChan:    eventChan,
-			// The policy: the campaign section of the user's config. Assault
-			// used to hard-code one task at a time, auto-replan and
-			// checkpoint-on-fail here, so it ran differently from a campaign
-			// started anywhere else; campaign.max_parallel_tasks and
-			// campaign.checkpoint_on_task_failure say so now.
-			Campaign:             m.Config.GetCampaignConfig(),
-			IntelligenceGatherer: intelligenceGatherer,
-			AdvisoryBoard:        advisoryBoard,
-			EdgeCaseDetector:     edgeCaseDetector,
-			NorthstarObserver:    northstar.BuildCampaignObserver(m.workspace, m.client, m.kernel),
-		})
+		orch, err := m.newCampaignOrchestrator(progressChan, eventChan, m.campaignPromptProvider())
 		if err != nil {
-			return campaignErrorMsg{err: fmt.Errorf("failed to initialize assault orchestrator: %w", err)}
+			return campaignErrorMsg{err: err}
 		}
-		if promptProvider != nil {
-			orch.SetPromptProvider(promptProvider)
-		}
-
-		// Wire specialist knowledge provider for context injection
-		specialistKnowledgeProvider := campaign.NewLocalSpecialistKnowledgeProvider(m.workspace)
-		orch.SetSpecialistKnowledgeProvider(specialistKnowledgeProvider)
-
 		if err := orch.SetCampaign(camp); err != nil {
+			_ = orch.Close()
 			return campaignErrorMsg{err: fmt.Errorf("failed to set assault campaign: %w", err)}
 		}
 

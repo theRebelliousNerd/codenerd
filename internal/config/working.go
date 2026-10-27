@@ -82,6 +82,13 @@ type WorkingConfig struct {
 // facts and this derivation divide by the same number.
 const BytesPerToken = 4
 
+// MinPromptTokens is the smallest budget a compiled system prompt can carry
+// its mandatory atoms in. It floors the broker's prompt budget
+// (broker.Meter.PromptBudget) and a worker or planner slot's
+// max_input_tokens: a slot capped below it could not be sent a compiled
+// prompt, so every request it served would be refused. Not a config knob.
+const MinPromptTokens = 8000
+
 // LedgerCeilingBytesFromContext is the working-memory share of the serving
 // model's input budget, in bytes:
 //

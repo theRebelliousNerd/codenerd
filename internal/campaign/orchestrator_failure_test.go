@@ -26,14 +26,15 @@ func newPolicyFailureOrchestrator(t *testing.T, edit func(*config.CampaignConfig
 		t.Fatal(err)
 	}
 	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:    t.TempDir(),
-		Kernel:       kernel,
-		LLMClient:    &MockLLMClient{},
-		Executor:     tactile.NewDirectExecutor(),
-		VirtualStore: &core.VirtualStore{},
-		TaskExecutor: &MockTaskExecutor{},
-		EventChan:    make(chan OrchestratorEvent, 64),
-		Campaign:     testCampaignConfig(edit),
+		Workspace:         t.TempDir(),
+		Kernel:            kernel,
+		LLMClient:         &MockLLMClient{},
+		PlanningLLMClient: &MockLLMClient{},
+		Executor:          tactile.NewDirectExecutor(),
+		VirtualStore:      &core.VirtualStore{},
+		TaskExecutor:      &MockTaskExecutor{},
+		EventChan:         make(chan OrchestratorEvent, 64),
+		Campaign:          testCampaignConfig(edit),
 	})
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)
@@ -221,15 +222,16 @@ func newFailureTestOrchestrator(t *testing.T, maxRetries int) (*Orchestrator, *M
 	eventCh := make(chan OrchestratorEvent, 32)
 
 	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:    t.TempDir(),
-		Kernel:       kernel,
-		LLMClient:    &MockLLMClient{},
-		Executor:     tactile.NewDirectExecutor(),
-		VirtualStore: &core.VirtualStore{},
-		ShardManager: nil,
-		TaskExecutor: &MockTaskExecutor{},
-		EventChan:    eventCh,
-		Campaign:     testCampaignConfig(func(c *config.CampaignConfig) { c.MaxTaskAttempts = maxRetries + 1 }),
+		Workspace:         t.TempDir(),
+		Kernel:            kernel,
+		LLMClient:         &MockLLMClient{},
+		PlanningLLMClient: &MockLLMClient{},
+		Executor:          tactile.NewDirectExecutor(),
+		VirtualStore:      &core.VirtualStore{},
+		ShardManager:      nil,
+		TaskExecutor:      &MockTaskExecutor{},
+		EventChan:         eventCh,
+		Campaign:          testCampaignConfig(func(c *config.CampaignConfig) { c.MaxTaskAttempts = maxRetries + 1 }),
 	})
 	if err != nil {
 		t.Fatalf("NewOrchestrator() error = %v", err)
@@ -321,13 +323,14 @@ func TestOrchestratorFailure_NilError(t *testing.T) {
 // orchestrator refuses it at construction rather than computing waits from it.
 func TestOrchestratorFailure_NegativeBackoffIsRefused(t *testing.T) {
 	_, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:    t.TempDir(),
-		Kernel:       &MockKernel{},
-		LLMClient:    &MockLLMClient{},
-		TaskExecutor: &MockTaskExecutor{},
-		Executor:     tactile.NewDirectExecutor(),
-		VirtualStore: &core.VirtualStore{},
-		Campaign:     testCampaignConfig(func(c *config.CampaignConfig) { c.RetryBackoffBase = "-1ns" }),
+		Workspace:         t.TempDir(),
+		Kernel:            &MockKernel{},
+		LLMClient:         &MockLLMClient{},
+		PlanningLLMClient: &MockLLMClient{},
+		TaskExecutor:      &MockTaskExecutor{},
+		Executor:          tactile.NewDirectExecutor(),
+		VirtualStore:      &core.VirtualStore{},
+		Campaign:          testCampaignConfig(func(c *config.CampaignConfig) { c.RetryBackoffBase = "-1ns" }),
 	})
 	if err == nil || !strings.Contains(err.Error(), "retry_backoff_base") {
 		t.Fatalf("NewOrchestrator error = %v, want a refusal naming campaign.retry_backoff_base", err)

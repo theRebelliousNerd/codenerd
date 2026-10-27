@@ -24,9 +24,9 @@ import (
 // before empty is a new file: every element, none removed. after empty is a
 // deleted file: every element removed. The empty side is not parsed — an
 // empty buffer is a syntax_error element the file never had. Both empty
-// returns nil. A language codemodel does not model (Python, TypeScript,
-// Rust, and anything else LanguageOf leaves blank) returns nil: there is no
-// span to diff, and a guessed ref would not join code_element.
+// returns nil. Go, Mangle, Python, TypeScript, TSX and JavaScript use the
+// shared codemodel spans. A path whose language has no parser (such as Rust
+// today) returns nil rather than inventing element addresses.
 func ChangedElements(rel, before, after string) []EditedElement {
 	if codemodel.LanguageOf(rel) == "" {
 		return nil

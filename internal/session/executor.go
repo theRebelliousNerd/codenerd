@@ -494,7 +494,12 @@ func (e *Executor) llmForVerb(verb string) types.LLMClient {
 // unpinned atoms are unaffected. That is logged, because the symptom otherwise
 // is a quietly smaller prompt.
 func (e *Executor) servingIdentity(verb string) (provider, model string) {
-	client := e.llmForVerb(verb)
+	return clientIdentity(e.llmForVerb(verb))
+}
+
+// clientIdentity is the provider and model client reports through
+// types.ModelIdentifier anywhere in its decorator chain (servingIdentity).
+func clientIdentity(client types.LLMClient) (provider, model string) {
 	if client == nil {
 		return "", ""
 	}
@@ -994,6 +999,54 @@ func wrapToolLoopError(err error) error {
 	return fmt.Errorf("LLM generation failed: %w", err)
 }
 
+// embeddedBaselineCompilation is the only prompt degradation path. It keeps
+// the mandatory identity, safety, and protocol atoms when the JIT compiler is
+// unavailable or fails, and refuses when that baseline cannot fit the turn's
+// actual prompt budget. In particular, a failed mandatory-skeleton budget
+// check must never be converted into an ungoverned prompt that appears to fit.
+func embeddedBaselineCompilation(
+	ctx context.Context,
+	cc *prompt.CompilationContext,
+	compileErr error,
+) (*prompt.CompilationResult, error) {
+	if compileErr == nil {
+		compileErr = errors.New("JIT compiler unavailable")
+	}
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("JIT prompt compilation canceled: %w", err)
+		}
+	}
+	if errors.Is(compileErr, context.Canceled) || errors.Is(compileErr, context.DeadlineExceeded) {
+		return nil, fmt.Errorf("JIT prompt compilation canceled: %w", compileErr)
+	}
+	if cc == nil {
+		return nil, fmt.Errorf("JIT prompt compilation failed: %w; compilation context unavailable for embedded baseline", compileErr)
+	}
+
+	baseline, err := prompt.AssembleEmbeddedBaselinePrompt(cc)
+	if err != nil {
+		return nil, fmt.Errorf("JIT prompt compilation failed: %w; embedded mandatory baseline assembly failed: %v", compileErr, err)
+	}
+	if strings.TrimSpace(baseline) == "" {
+		return nil, fmt.Errorf("JIT prompt compilation failed: %w; embedded mandatory baseline is empty", compileErr)
+	}
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("JIT prompt compilation canceled: %w", err)
+		}
+	}
+	budget := cc.AvailableTokens()
+	if budget <= 0 {
+		return nil, fmt.Errorf("JIT prompt compilation failed: %w; no prompt budget remains for the embedded mandatory baseline", compileErr)
+	}
+	tokens := prompt.EstimateTokens(baseline)
+	if tokens > budget {
+		return nil, fmt.Errorf("JIT prompt compilation failed: %w; embedded mandatory baseline needs %d tokens, exceeding the %d-token prompt budget", compileErr, tokens, budget)
+	}
+	return &prompt.CompilationResult{Prompt: baseline, TotalTokens: tokens, BudgetUsed: float64(tokens) / float64(budget)}, nil
+}
+
 // ProcessWithIntent runs the clean loop with an optional pre-classified
 // intent. When preset is non-nil the OBSERVE phase is skipped entirely:
 //
@@ -1180,46 +1233,26 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 
 	// 3. JIT: Compile prompt with persona, skills, context
 	var compileResult *prompt.CompilationResult
+	var baselineErr error
 	if e.jitCompiler == nil {
-		logging.Get(logging.CategorySession).Warn("JIT compiler unavailable, using baseline prompt")
-		compileResult = &prompt.CompilationResult{
-			Prompt: "You are an AI assistant helping with software development.",
-		}
+		logging.Get(logging.CategorySession).Warn("JIT compiler unavailable, assembling embedded mandatory baseline")
+		compileResult, baselineErr = embeddedBaselineCompilation(ctx, compilationCtx, nil)
 	} else {
 		compiled, compileErr := e.jitCompiler.Compile(ctx, compilationCtx)
 		if compileErr != nil {
-			// FLAGGED, not changed: this fallback and main's 938cd87 disagree,
-			// and the disagreement is worth someone's decision rather than
-			// mine.
-			//
-			// That commit made the compiler REFUSE when the mandatory skeleton
-			// does not fit the budget, and its reasoning is explicit: "A cut
-			// identity or safety atom is not a smaller prompt, it is a
-			// different constitution, and a turn that runs on one is worse
-			// than a turn that refuses." This line catches that refusal and
-			// runs the turn on fifty-two characters — which is a different
-			// constitution by any reading, and the Warn above is the only
-			// trace.
-			//
-			// The compiler cannot help a caller tell those apart: the refusal
-			// is a plain fmt.Errorf, so "the budget cannot hold the skeleton"
-			// and "the corpus database is locked" arrive as the same error.
-			// Distinguishing them wants a typed error in internal/prompt and a
-			// decision about what a refused compile should do to a turn, which
-			// belongs with whoever owns this loop.
-			//
-			// The narrower improvement available without that decision is to
-			// degrade to prompt.AssembleEmbeddedBaselinePrompt, the embedded
-			// mandatory atoms, as internal/articulation already does in the
-			// same situation — a real constitution rather than one sentence.
-			logging.Get(logging.CategorySession).Warn("JIT compilation failed, using baseline: %v", compileErr)
-			// Fall back to baseline prompt if JIT fails
-			compileResult = &prompt.CompilationResult{
-				Prompt: "You are an AI assistant helping with software development.",
-			}
+			logging.Get(logging.CategorySession).Warn("JIT compilation failed, assembling embedded mandatory baseline: %v", compileErr)
+			compileResult, baselineErr = embeddedBaselineCompilation(ctx, compilationCtx, compileErr)
 		} else {
 			compileResult = compiled
 		}
+	}
+	if baselineErr != nil {
+		// Compiler cancellation and a baseline that cannot fit the remaining
+		// prompt budget both end the turn before configuration or provider work.
+		result.Error = baselineErr
+		result.Duration = time.Since(start)
+		e.closeAcceptanceEvidence(ctx, result)
+		return result, baselineErr
 	}
 
 	// 4. JIT: Compile config (tools, policies)
@@ -1335,15 +1368,15 @@ func (e *Executor) observe(ctx context.Context, input string) (perception.Intent
 
 // buildCompilationContext creates a CompilationContext from the current state.
 func (e *Executor) buildCompilationContext(ctx context.Context, intent perception.Intent) *prompt.CompilationContext {
-	budget := e.configSnapshot().TokenBudget
-	if budget <= 0 {
-		budget = DefaultTokenBudget()
-	}
+	// The client that will be sent this prompt, resolved once for the compile:
+	// its input cap (a slot's max_input_tokens) bounds the prompt's budget as
+	// it bounds every request of the turn, and its identity pins the atoms.
+	client := e.llmForVerb(intent.Verb)
 	cc := &prompt.CompilationContext{
 		IntentVerb:      intent.Verb,
 		IntentTarget:    intent.Target,
 		OperationalMode: "/active",
-		TokenBudget:     budget,
+		TokenBudget:     e.inputBudgetFor(broker.InputWindow(client)).tokens,
 	}
 
 	// Name the LLM that will consume this prompt, so provider/model-pinned
@@ -1352,7 +1385,7 @@ func (e *Executor) buildCompilationContext(ctx context.Context, intent perceptio
 	// context that leaves them empty blocks every pinned atom rather than
 	// admitting them all. Leaving this unset would silently retire the entire
 	// evolved corpus.
-	cc.Provider, cc.Model = e.servingIdentity(intent.Verb)
+	cc.Provider, cc.Model = clientIdentity(client)
 
 	if e.kernel != nil {
 		if langFacts, err := e.kernel.Query("project_language"); err != nil {

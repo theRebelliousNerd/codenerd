@@ -133,12 +133,11 @@ func (c *GeminiClient) mapToolsResponse(ctx context.Context, geminiResp *GeminiR
 		// Tool-call ids are minted positionally ("call_N"), as before.
 		applyGeminiBlocks(result, geminiResp)
 
+		// Sources reach callers through the client (GetLastGroundingSources),
+		// as on the text path, so a tool round's grounding is read like any
+		// other.
+		c.captureGroundingSources(geminiResp)
 		if gm := geminiResp.Candidates[0].GroundingMetadata; gm != nil {
-			for _, chunk := range gm.GroundingChunks {
-				if chunk.Web != nil && chunk.Web.URI != "" {
-					result.GroundingSources = append(result.GroundingSources, chunk.Web.URI)
-				}
-			}
 			if len(gm.GroundingChunks) > 0 {
 				logging.PerceptionDebug("[Gemini] %s: grounding sources=%d queries=%v",
 					method, len(gm.GroundingChunks), gm.WebSearchQueries)

@@ -95,3 +95,14 @@ another, worse way. Deleting them is a maintainer call; they are listed in
 | Display paths never pass through `ApplyConstitutionalOverride` | stale as a risk: those helpers have no production caller; every kernel-applying path filters | `FilterMangleUpdates` call sites above |
 | Three places must agree on the envelope shape, manually | built: an agreement test | `envelope_shape_agreement_test.go` |
 | `AppendReasoningDirective` unused | stale: deleted in `a5e12f0` | `grep` finds no definition |
+
+
+## Required contract: Streaming envelope partition invariance
+
+Every chunk partition of a valid envelope must emit exactly its decoded top-level string surface_response once, including splits within key, colon, whitespace and escape sequences. Non-string, nested and malformed decoys must not expose control-channel text.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-ARTICULATION-STREAM-PARTITIONS | Streaming envelope partition invariance | `StreamParser.ProcessChunk` carries incomplete top-level surface-key state across chunks (`internal/articulation/stream_parser.go:47`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | All split positions and byte-at-a-time input match the nonstream ResponseProcessor surface, with malformed/nested/non-string negative controls. |
+
+**Verified current:** `TestStreamParser_RecognizesSurfaceKeyAcrossChunkBoundaries` (`internal/articulation/articulation_uplift_test.go:42`), `TestStreamParser_IgnoresDecoyMarker` (`:29`), and `TestStreamParser_NonStringValueStreamsNothing` (`:89`) pass in the focused articulation suite. The full articulation package and focused race suite also pass; the separate chat-consumer round trip remains outside this contract's verification.

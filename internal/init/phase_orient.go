@@ -2,7 +2,9 @@ package init
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -10,19 +12,109 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/northstar"
 	"codenerd/internal/orient"
+	"codenerd/internal/perception"
+	"codenerd/internal/store"
 	"codenerd/internal/types"
 )
 
-// recordingCompleter keeps derivation calls on init's provider metrics.
-type recordingCompleter struct {
+// plannerCompleter sends northstar derivation through withJITPrompt on the
+// planner route. Northstar compiles its own system prompt, for the same
+// client, from its derive corpus; phase labels the attempts in the metrics.
+type plannerCompleter struct {
 	owner *Initializer
-	next  northstar.Completer
+	phase string
 }
 
-func (r recordingCompleter) CompleteWithSystem(ctx context.Context, system, user string) (string, error) {
-	return r.owner.withJITPrompt(ctx, "orientation", user, nil, func(ctx context.Context, prompt string) (string, error) {
-		return r.next.CompleteWithSystem(ctx, prompt, user)
-	}, system)
+func (r plannerCompleter) CompleteWithSystem(ctx context.Context, system, user string) (string, error) {
+	return r.owner.withJITPrompt(ctx, initCall{slot: slotPlanner, phase: r.phase, task: user, system: system},
+		func(ctx context.Context, client perception.LLMClient, prompt string) (string, error) {
+			return client.CompleteWithSystem(ctx, prompt, user)
+		})
+}
+
+// priorOrientation is what the last orientation of this workspace derived and
+// measured, for the parts of this run that only redo what changed.
+type priorOrientation struct {
+	exists  bool
+	digests map[string]string       // oriented_document(Path, Digest)
+	claims  map[string][]types.Fact // doc_role_claim and doc_theme rows by path
+}
+
+// loadPriorOrientation reads the last orientation snapshot. A workspace never
+// oriented has none; an unreadable snapshot is reported and reused for
+// nothing, so every document is classified again.
+func loadPriorOrientation(workspace string) (priorOrientation, error) {
+	prior := priorOrientation{digests: map[string]string{}, claims: map[string][]types.Fact{}}
+	snapshot, err := orient.LoadSnapshot(workspace)
+	if errors.Is(err, fs.ErrNotExist) {
+		return prior, nil
+	}
+	if err != nil {
+		return prior, fmt.Errorf("previous orientation unreadable; every document is classified again: %w", err)
+	}
+	prior.exists = true
+	for _, fact := range snapshot.Facts {
+		if len(fact.Args) < 2 {
+			continue
+		}
+		path := types.ExtractString(fact.Args[0])
+		switch fact.Predicate {
+		case "oriented_document":
+			prior.digests[path] = types.ExtractString(fact.Args[1])
+		case "doc_role_claim", "doc_theme":
+			prior.claims[path] = append(prior.claims[path], fact)
+		}
+	}
+	return prior, nil
+}
+
+// documentDigests are the oriented_document rows of a fresh measurement.
+func documentDigests(snapshot *orient.Snapshot) map[string]string {
+	digests := map[string]string{}
+	for _, fact := range snapshot.Facts {
+		if fact.Predicate == "oriented_document" && len(fact.Args) >= 2 {
+			digests[types.ExtractString(fact.Args[0])] = types.ExtractString(fact.Args[1])
+		}
+	}
+	return digests
+}
+
+// reusableClaims splits the read candidates into those whose body is
+// byte-identical to the last orientation and already carries a role claim,
+// whose claims are reused, and those that must be classified.
+func (p priorOrientation) reusableClaims(current map[string]string, documents []northstar.SourceDocument) (reused []types.Fact, reusedPaths []string, pending []northstar.SourceDocument) {
+	for _, doc := range documents {
+		rows := p.claims[doc.Path]
+		digest, measured := p.digests[doc.Path]
+		hasRole := false
+		for _, row := range rows {
+			if row.Predicate == "doc_role_claim" {
+				hasRole = true
+				break
+			}
+		}
+		if !p.exists || !measured || digest == "" || digest != current[doc.Path] || !hasRole {
+			pending = append(pending, doc)
+			continue
+		}
+		reused = append(reused, rows...)
+		reusedPaths = append(reusedPaths, doc.Path)
+	}
+	return reused, reusedPaths, pending
+}
+
+// documentsUnchanged reports whether the last orientation measured exactly
+// the documents measured now, with identical bodies.
+func (p priorOrientation) documentsUnchanged(current map[string]string) bool {
+	if !p.exists || len(p.digests) != len(current) {
+		return false
+	}
+	for path, digest := range current {
+		if p.digests[path] != digest {
+			return false
+		}
+	}
+	return true
 }
 
 type orientationRun struct {
@@ -41,6 +133,7 @@ func (i *Initializer) runOrientation(ctx context.Context, nerdDir string, result
 	if err != nil {
 		return err
 	}
+	prior, priorErr := loadPriorOrientation(i.config.Workspace)
 	snapshot, err := orient.Measure(ctx, i.config.Workspace, cfg, i.embedEngine)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -66,6 +159,9 @@ func (i *Initializer) runOrientation(ctx context.Context, nerdDir string, result
 	}
 	i.orientation, i.orientationSnapshot = eng, snapshot
 	run := orientationRun{Snapshot: snapshot}
+	if priorErr != nil {
+		run.Notes = append(run.Notes, priorErr.Error())
+	}
 	rows, err := eng.Query("orient_read_candidate")
 	if err != nil {
 		return err
@@ -94,56 +190,54 @@ func (i *Initializer) runOrientation(ctx context.Context, nerdDir string, result
 	if budgetErr != nil {
 		run.Notes = append(run.Notes, budgetErr.Error())
 	}
-	client := recordingCompleter{owner: i, next: i.config.LLMClient}
-	if len(documents) > 0 && i.config.LLMClient != nil && budgetErr == nil {
-		run.Class, err = northstar.ClassifyDocuments(ctx, client, northstar.CompilePhasePrompt, budget, documents)
+
+	// Document roles and the north star are planner work: everything after
+	// orientation reads them. Northstar compiles its derive prompts for the
+	// client that will read them.
+	planner := i.route(slotPlanner)
+	phasePrompt := northstar.PhasePromptFor(northstar.PhaseTarget{
+		Provider: planner.provider, Model: planner.model, InputWindow: planner.window,
+	})
+	current := documentDigests(snapshot)
+
+	// A document whose body is unchanged since the last orientation keeps
+	// the role claims it was given then; only new and changed documents are
+	// classified again.
+	reused, reusedPaths, pending := prior.reusableClaims(current, documents)
+	var claims []types.Fact
+	if len(reused) > 0 {
+		claims = append(claims, reused...)
+		run.Notes = append(run.Notes, fmt.Sprintf(
+			"%d document(s) unchanged since the last orientation kept their role claims: %s",
+			len(reusedPaths), strings.Join(reusedPaths, ", ")))
+	}
+	if len(pending) > 0 && planner.client != nil && budgetErr == nil {
+		run.Class, err = northstar.ClassifyDocuments(ctx, plannerCompleter{owner: i, phase: "document_roles"}, phasePrompt, budget, pending)
 		if err != nil {
 			run.Notes = append(run.Notes, "Role transduction failed: "+err.Error())
 		}
-		if run.Class != nil {
-			claims := run.Class.Facts()
-			if err := eng.Assert(claims); err != nil {
-				return err
-			}
-			snapshot.Facts = append(snapshot.Facts, claims...)
-			if err := eng.Evaluate(ctx); err != nil {
-				return err
-			}
-		}
-	} else if len(documents) > 0 {
+		claims = append(claims, run.Class.Facts()...)
+	} else if len(pending) > 0 {
 		run.Notes = append(run.Notes, "Role transduction unavailable; documents remain unclassified.")
+	}
+	if len(claims) > 0 {
+		if err := eng.Assert(claims); err != nil {
+			return err
+		}
+		snapshot.Facts = append(snapshot.Facts, claims...)
+		if err := eng.Evaluate(ctx); err != nil {
+			return err
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	run.Brief, err = orientationBrief(eng, snapshot, run.Class)
+	run.Brief, err = orientationBrief(eng, snapshot)
 	if err != nil {
 		return err
 	}
-	if len(run.Brief.Vision) > 0 && i.config.LLMClient != nil && budgetErr == nil {
-		run.Draft, err = northstar.DraftVision(ctx, client, northstar.CompilePhasePrompt, budget, run.Brief)
-		if err != nil {
-			run.Notes = append(run.Notes, "North star drafting failed: "+err.Error())
-		}
-		if run.Draft != nil {
-			store, err := northstar.NewStore(nerdDir)
-			if err != nil {
-				return err
-			}
-			run.Install, err = northstar.InstallDerivedVision(store, nerdDir, run.Draft)
-			if err != nil {
-				_ = store.Close()
-				return err
-			}
-			result.VisionDerived = run.Install.Installed
-			i.orientedVision, err = store.LoadVision()
-			_ = store.Close()
-			if err != nil {
-				return err
-			}
-		}
-	} else {
-		run.Notes = append(run.Notes, "No vision_source rows were available for drafting.")
+	if err := i.deriveNorthStar(ctx, nerdDir, &run, result, prior.documentsUnchanged(current), phasePrompt, budget, budgetErr); err != nil {
+		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -159,8 +253,64 @@ func (i *Initializer) runOrientation(ctx context.Context, nerdDir string, result
 	return nil
 }
 
-func orientationBrief(eng *orient.Engine, snapshot *orient.Snapshot, class *northstar.Classification) (northstar.OrientationBrief, error) {
+// deriveNorthStar drafts the north star from the orientation brief and
+// installs it when the workspace has none, then loads whatever vision the
+// store holds, drafted now, earlier, or written by the user, so strategic
+// knowledge is fed from the vision of record. A stored vision is not drafted
+// again while every oriented document is unchanged.
+func (i *Initializer) deriveNorthStar(ctx context.Context, nerdDir string, run *orientationRun, result *InitResult, documentsUnchanged bool, phasePrompt northstar.PhasePrompt, budget northstar.DeriveBudget, budgetErr error) error {
+	store, err := northstar.NewStore(nerdDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = store.Close() }()
+	stored, err := store.LoadVision()
+	if err != nil {
+		return err
+	}
+
+	planner := i.route(slotPlanner)
+	switch {
+	case len(run.Brief.Vision) == 0:
+		run.Notes = append(run.Notes, "No vision_source rows were available for drafting.")
+	case stored != nil && documentsUnchanged:
+		run.Notes = append(run.Notes, "Every oriented document is unchanged since the last orientation; the stored north star was kept without drafting again.")
+	case planner.client == nil || budgetErr != nil:
+		run.Notes = append(run.Notes, "North star drafting unavailable without an LLM client and a derive budget.")
+	default:
+		run.Draft, err = northstar.DraftVision(ctx, plannerCompleter{owner: i, phase: "north_star"}, phasePrompt, budget, run.Brief)
+		if err != nil {
+			run.Notes = append(run.Notes, "North star drafting failed: "+err.Error())
+		}
+		if run.Draft != nil {
+			run.Install, err = northstar.InstallDerivedVision(store, nerdDir, run.Draft)
+			if err != nil {
+				return err
+			}
+			result.VisionDerived = run.Install.Installed
+		}
+	}
+	i.orientedVision, err = store.LoadVision()
+	return err
+}
+
+// orientationBrief renders the engine's judgments as the north-star brief.
+// Source roles come from the engine's doc_role_claim rows, so claims reused
+// from an earlier orientation reach the brief like fresh ones.
+func orientationBrief(eng *orient.Engine, snapshot *orient.Snapshot) (northstar.OrientationBrief, error) {
 	brief := northstar.OrientationBrief{}
+	roles := map[string][]string{}
+	claimRows, err := eng.Query("doc_role_claim")
+	if err != nil {
+		return brief, err
+	}
+	for _, row := range claimRows {
+		if len(row.Args) < 2 {
+			continue
+		}
+		path := types.ExtractString(row.Args[0])
+		roles[path] = append(roles[path], strings.TrimPrefix(types.ExtractString(row.Args[1]), "/"))
+	}
 	months, err := eng.Query("repo_month")
 	if err != nil {
 		return brief, err
@@ -215,13 +365,8 @@ func orientationBrief(eng *orient.Engine, snapshot *orient.Snapshot, class *nort
 			} else {
 				src.Why = types.ExtractString(row.Args[1])
 			}
-			if class != nil {
-				for _, claim := range class.Claims {
-					if claim.Path == p {
-						src.Roles = append(src.Roles, claim.Role)
-					}
-				}
-			}
+			src.Roles = append(src.Roles, roles[p]...)
+			sort.Strings(src.Roles)
 			if pred == "origin_source" {
 				brief.Origins = append(brief.Origins, src)
 			} else {
@@ -255,14 +400,20 @@ func orientationBrief(eng *orient.Engine, snapshot *orient.Snapshot, class *nort
 
 func orientationNumber(value any) int64 { n, _ := factNumber(value); return n }
 
-func (i *Initializer) persistOrientationKnowledge(ctx context.Context, profile ProjectProfile, result *InitResult) {
+// persistOrientationKnowledge feeds the strategic/* atoms the intelligence
+// layer and query_strategic read: the vision of record as strategic
+// knowledge, and each orientation read candidate as strategic/source/<path>.
+// Both are replaced rather than appended, and an unchanged document is not
+// embedded again. Without a vision nothing is invented in its place.
+func (i *Initializer) persistOrientationKnowledge(ctx context.Context, _ ProjectProfile, result *InitResult) {
 	if i.localDB == nil {
 		result.Warnings = append(result.Warnings, "Orientation knowledge has no database")
 		return
 	}
-	knowledge := strategicKnowledgeFromVision(i.orientedVision, profile)
-	if _, err := i.PersistStrategicKnowledge(ctx, knowledge, i.localDB); err != nil {
-		result.Warnings = append(result.Warnings, err.Error())
+	if i.orientedVision != nil {
+		if _, err := i.PersistStrategicKnowledge(ctx, strategicKnowledgeFromVision(i.orientedVision), i.localDB); err != nil {
+			result.Warnings = append(result.Warnings, err.Error())
+		}
 	}
 	if i.orientation == nil || i.orientationSnapshot == nil {
 		return
@@ -272,19 +423,58 @@ func (i *Initializer) persistOrientationKnowledge(ctx context.Context, profile P
 		result.Warnings = append(result.Warnings, err.Error())
 		return
 	}
-	seen := map[string]bool{}
+	sources := map[string]string{}
 	for _, row := range rows {
 		p := types.ExtractString(row.Args[0])
-		if seen[p] {
-			continue
-		}
-		seen[p] = true
-		body, ok := i.orientationSnapshot.Bodies[p]
-		if !ok {
-			continue
-		}
-		if err := i.localDB.StoreKnowledgeAtomWithEmbedding(ctx, "strategic/source/"+p, body, 1); err != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("orientation source %s: %v", p, err))
+		if body, ok := i.orientationSnapshot.Bodies[p]; ok {
+			sources["strategic/source/"+p] = body
 		}
 	}
+	if err := syncStrategicSources(ctx, i.localDB, sources); err != nil {
+		result.Warnings = append(result.Warnings, err.Error())
+	}
+}
+
+// syncStrategicSources makes strategic/source/* hold exactly sources (concept
+// to body): atoms for documents no longer read are deleted, changed ones are
+// rewritten, and unchanged ones are left as they are.
+func syncStrategicSources(ctx context.Context, db *store.LocalStore, sources map[string]string) error {
+	existing, err := db.GetKnowledgeAtomsByPrefix("strategic/source/")
+	if err != nil {
+		return fmt.Errorf("read stored orientation sources: %w", err)
+	}
+	stored := map[string][]string{}
+	for _, atom := range existing {
+		stored[atom.Concept] = append(stored[atom.Concept], atom.Content)
+	}
+	pending := map[string]string{}
+	for concept, body := range sources {
+		pending[concept] = body
+	}
+	var stale []string
+	for concept, contents := range stored {
+		body, current := sources[concept]
+		if current && len(contents) == 1 && contents[0] == body {
+			delete(pending, concept)
+			continue
+		}
+		stale = append(stale, concept)
+	}
+	if len(stale) > 0 {
+		if _, err := db.DeleteKnowledgeAtomsByConcept(stale...); err != nil {
+			return fmt.Errorf("retire stale orientation sources: %w", err)
+		}
+	}
+	concepts := make([]string, 0, len(pending))
+	for concept := range pending {
+		concepts = append(concepts, concept)
+	}
+	sort.Strings(concepts)
+	var errs []error
+	for _, concept := range concepts {
+		if err := db.StoreKnowledgeAtomWithEmbedding(ctx, concept, pending[concept], 1); err != nil {
+			errs = append(errs, fmt.Errorf("orientation source %s: %w", strings.TrimPrefix(concept, "strategic/source/"), err))
+		}
+	}
+	return errors.Join(errs...)
 }

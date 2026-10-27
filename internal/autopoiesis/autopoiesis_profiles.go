@@ -105,9 +105,15 @@ func (o *Orchestrator) ExecuteGeneratedBackend(ctx context.Context, request type
 		refused.BackendError = fmt.Errorf("persisted execution exists but its live receipt is unavailable; crash replay requires reconciliation")
 		return refused
 	}
+	release, err := loop.toolOperations.acquire(ctx, request.Tool.Name)
+	if err != nil {
+		refused.BackendError = fmt.Errorf("wait to execute generated tool %s: %w", request.Tool.Name, err)
+		return refused
+	}
+	defer release()
 	if request.Tool.Protocol == types.GeneratedStdinV1 {
 		identity, err := o.GeneratedToolIdentity(request.Tool.Name)
-		if err != nil || identity.BinaryPath != request.Tool.BinaryPath || identity.BinaryHash != request.Tool.BinaryHash || identity.Protocol != request.Tool.Protocol {
+		if err != nil || identity != request.Tool {
 			refused.BackendError = fmt.Errorf("runtime/catalog generated identity mismatch: %v", err)
 			return refused
 		}

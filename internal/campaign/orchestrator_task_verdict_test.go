@@ -73,12 +73,13 @@ func TestSpawnTask_AnExecutorWithoutAVerdictIsRefused(t *testing.T) {
 		t.Fatalf("spawnTask = %v, want a refusal naming the missing observed result", err)
 	}
 	_, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:    t.TempDir(),
-		Kernel:       &MockKernel{},
-		LLMClient:    &MockLLMClient{},
-		Executor:     tactile.NewDirectExecutor(),
-		VirtualStore: &core.VirtualStore{},
-		TaskExecutor: proseOnlyExecutor{},
+		Workspace:         t.TempDir(),
+		Kernel:            &MockKernel{},
+		LLMClient:         &MockLLMClient{},
+		PlanningLLMClient: &MockLLMClient{},
+		Executor:          tactile.NewDirectExecutor(),
+		VirtualStore:      &core.VirtualStore{},
+		TaskExecutor:      proseOnlyExecutor{},
 	})
 	if err == nil || !strings.Contains(err.Error(), "observed result") {
 		t.Fatalf("NewOrchestrator = %v, want the prose-only executor refused", err)

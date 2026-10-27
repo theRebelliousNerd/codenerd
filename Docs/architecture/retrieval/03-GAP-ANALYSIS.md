@@ -93,3 +93,14 @@ Before deleting any “unused” type (`TieredContextBuilder`, `parseRipgrepOutp
 - Agent “knows” mentioned files from text but **does not evidence** other relevant files via search.
 - Operators believe sparse retriever is active (boot log line) when it is idle.
 - Activation engine underfed → weaker issue-aware context selection.
+
+
+## Required contract: Same-second cache invalidation
+
+Every distinct file_written fact must invalidate cached keyword hits even when multiple writes share the Unix-second timestamp. Exact duplicate replay remains idempotent. Event identity must include path/hash/content identity rather than relying solely on time.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-RETRIEVAL-EVENT-IDENTITY | Same-second cache invalidation | `SparseRetriever.InvalidateFromKernel` tracks unseen write identities at the timestamp boundary and serializes cursor advancement (`internal/retrieval/invalidation.go:92`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Real-kernel equal-timestamp different-hash events each invalidate a repopulated cache; exact duplicate event replay does not invalidate again. |
+
+**Verified current:** `TestInvalidateFromKernel_WhenAnotherWriteSharesTheTimestamp_ShouldDropCachedHits` (`internal/retrieval/wiring_test.go:68`) passes with replay-idempotence controls in the full retrieval package suite.

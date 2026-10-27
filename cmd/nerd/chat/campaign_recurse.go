@@ -8,11 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"codenerd/internal/articulation"
 	"codenerd/internal/campaign"
-	"codenerd/internal/config"
-	"codenerd/internal/northstar"
-	"codenerd/internal/world"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -147,22 +143,10 @@ func (m Model) startRecurseCampaign(args []string) tea.Cmd {
 		if err != nil {
 			return campaignErrorMsg{err: err}
 		}
-		var promptProvider campaign.PromptProvider
-		if m.jitCompiler != nil {
-			if pa, err := articulation.NewPromptAssemblerWithJIT(m.kernel, m.jitCompiler); err == nil {
-				jitCfg := config.DefaultJITConfig()
-				if m.Config != nil {
-					jitCfg = m.Config.GetEffectiveJITConfig()
-				}
-				pa.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK, jitCfg.ReservedTokensFallbackRatio)
-				pa.EnableJIT(jitCfg.Enabled)
-				promptProvider = &campaignJITProvider{assembler: pa}
-			}
-		}
 
 		ctx, cancel := context.WithCancel(context.Background())
 		st := &recurseState{cancel: cancel, lines: make(chan string, 64)}
-		return recurseStartedMsg{state: st, run: m.runRecurseLoop(ctx, st, cfg, promptProvider)}
+		return recurseStartedMsg{state: st, run: m.runRecurseLoop(ctx, st, cfg, m.campaignPromptProvider())}
 	}
 }
 
@@ -206,11 +190,16 @@ func (m Model) runRecurseLoop(ctx context.Context, st *recurseState, cfg campaig
 					}
 				}()
 				defer func() { close(done); <-drained }()
-				orch, err := m.buildRecurseOrchestrator(camp, progress, events, promptProvider)
+				// Each attempt's orchestrator replans on the planning
+				// client, like a started campaign.
+				orch, err := m.newCampaignOrchestrator(progress, events, promptProvider)
 				if err != nil {
-					return err
+					return fmt.Errorf("recurse attempt: %w", err)
 				}
 				defer func() { _ = orch.Close() }()
+				if err := orch.SetCampaign(camp); err != nil {
+					return fmt.Errorf("failed to set recurse campaign: %w", err)
+				}
 				return orch.Run(ctx)
 			},
 		})
@@ -323,60 +312,4 @@ func (m Model) handleRecurseMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 	return m, nil, false
-}
-
-// buildRecurseOrchestrator constructs one attempt's orchestrator over the
-// attempt's own channels, with the attempt's campaign set.
-func (m Model) buildRecurseOrchestrator(camp *campaign.Campaign, progressChan chan campaign.Progress, eventChan chan campaign.OrchestratorEvent, promptProvider campaign.PromptProvider) (*campaign.Orchestrator, error) {
-	consultationProvider := newCampaignConsultationProvider(m.consultationMgr)
-	var holographic *world.HolographicProvider
-	if m.kernel != nil {
-		holographic = world.NewHolographicProvider(m.kernel, m.workspace)
-	}
-	intelligenceGatherer := campaign.NewIntelligenceGatherer(
-		m.workspace,
-		m.kernel,
-		m.scanner,
-		holographic,
-		m.learningStore,
-		m.localDB,
-		nil,
-		nil,
-		consultationProvider,
-	)
-	edgeCaseDetector := campaign.NewEdgeCaseDetector(m.kernel, m.scanner)
-	var advisoryBoard *campaign.ShardAdvisoryBoard
-	if consultationProvider != nil {
-		advisoryBoard = campaign.NewShardAdvisoryBoard(consultationProvider)
-	}
-
-	orch, err := campaign.NewOrchestrator(campaign.OrchestratorConfig{
-		Workspace:    m.workspace,
-		Kernel:       m.kernel,
-		LLMClient:    m.client,
-		ShardManager: m.shardMgr,
-		TaskExecutor: m.taskExecutor,
-		Executor:     m.executor,
-		VirtualStore: m.virtualStore,
-		ProgressChan: progressChan,
-		EventChan:    eventChan,
-		// The policy: the campaign section of the user's config, the same on
-		// every door a campaign starts through.
-		Campaign:             m.Config.GetCampaignConfig(),
-		IntelligenceGatherer: intelligenceGatherer,
-		AdvisoryBoard:        advisoryBoard,
-		EdgeCaseDetector:     edgeCaseDetector,
-		NorthstarObserver:    northstar.BuildCampaignObserver(m.workspace, m.client, m.kernel),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize recurse orchestrator: %w", err)
-	}
-	if promptProvider != nil {
-		orch.SetPromptProvider(promptProvider)
-	}
-	orch.SetSpecialistKnowledgeProvider(campaign.NewLocalSpecialistKnowledgeProvider(m.workspace))
-	if err := orch.SetCampaign(camp); err != nil {
-		return nil, fmt.Errorf("failed to set recurse campaign: %w", err)
-	}
-	return orch, nil
 }

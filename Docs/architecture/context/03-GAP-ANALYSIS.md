@@ -102,3 +102,14 @@ done until resolved:
 
 A closed gap stays in the §1 table, marked closed with the commit that closed
 it; it is never deleted. R7 recursion picks its next item from this table.
+
+
+## Required contract: Unverifiable revision freshness
+
+A saved or current file/element revision of unavailable or absent cannot establish current evidence, even when sentinels compare equal. Recall must mark it stale/unverifiable and Ledger must exclude it from live/recalled-held protection. Preserve meaningful nonfile observations.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-CTX-UNRESOLVED-REVISION | Unverifiable revision freshness | `sameWorkingRevision` rejects equal `absent` and `unavailable` sentinels while retaining `nonfile` (`internal/context/working_set.go:179`); `working_stale` applies the same rule in the Mangle ledger (`internal/context/working_set.mg:192`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Unavailable/absent saved-and-current revisions are stale through Recall and Ledger; nonfile and resolvable unchanged controls remain current. |
+
+**Verified current:** `TestWorkingSetRecall_UnresolvableRevisionIsStale` (`internal/context/working_set_test.go:178`) and `TestWorkingLedger_ARecalledUnresolvableResultStillDrops` (`internal/context/working_ledger_test.go:288`) pass with absent/unavailable negatives and nonfile/unchanged-file controls. Recall returns the stale flag; consumers still have to honor it when using archived bodies.

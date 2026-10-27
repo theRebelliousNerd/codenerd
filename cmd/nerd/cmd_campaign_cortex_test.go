@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 
 	"codenerd/internal/campaign"
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/northstar"
+	"codenerd/internal/observation"
 	"codenerd/internal/session"
 	coresys "codenerd/internal/system"
 	"codenerd/internal/tactile"
@@ -16,13 +18,17 @@ import (
 
 // stubCampaignTaskExecutor is a no-op session.TaskExecutor so the config test
 // can supply a non-nil TaskExecutor without booting any provider.
-type stubCampaignTaskExecutor struct{}
+type stubCampaignTaskExecutor struct {
+	runs atomic.Int32
+}
 
 func (s *stubCampaignTaskExecutor) Execute(ctx context.Context, req session.TaskRequest) (string, error) {
+	s.runs.Add(1)
 	return "", nil
 }
 
 func (s *stubCampaignTaskExecutor) ExecuteWithContext(ctx context.Context, req session.TaskRequest, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
+	s.runs.Add(1)
 	return "", nil
 }
 
@@ -36,6 +42,17 @@ func (s *stubCampaignTaskExecutor) GetResult(taskID string) (string, bool, error
 
 func (s *stubCampaignTaskExecutor) WaitForResult(ctx context.Context, taskID string) (string, error) {
 	return "", nil
+}
+
+// ExecuteObserved and ExecuteObservedWithContext make the stub an observed
+// executor, which NewOrchestrator requires: it counts every task run on it.
+func (s *stubCampaignTaskExecutor) ExecuteObserved(ctx context.Context, req session.TaskRequest) (observation.Return, error) {
+	s.runs.Add(1)
+	return observation.Return{Outcome: "/done"}, nil
+}
+
+func (s *stubCampaignTaskExecutor) ExecuteObservedWithContext(ctx context.Context, req session.TaskRequest, sessionCtx *types.SessionContext, priority types.SpawnPriority) (observation.Return, error) {
+	return s.ExecuteObserved(ctx, req)
 }
 
 // TestBuildCampaignOrchestratorConfig_CortexBacked proves the extracted builder
@@ -56,8 +73,8 @@ func TestBuildCampaignOrchestratorConfig_CortexBacked(t *testing.T) {
 	var taskExec session.TaskExecutor = &stubCampaignTaskExecutor{}
 
 	// Optional fields (Orchestrator, Scanner, LLM tiers, JIT, persistence)
-	// are deliberately nil: ToolGenerator/OuroborosLoop/MCPStore must handle
-	// that via their nil-safe accessors.
+	// are deliberately nil: ToolGenerator/MCPStore must handle that via their
+	// nil-safe accessors.
 	cortex := &coresys.Cortex{
 		Kernel:       kern,
 		RealKernel:   kern,
@@ -75,9 +92,6 @@ func TestBuildCampaignOrchestratorConfig_CortexBacked(t *testing.T) {
 		t.Fatalf("buildCampaignOrchestratorConfig: %v", err)
 	}
 
-	if cfg.ToolPregenerator == nil {
-		t.Fatalf("ToolPregenerator is nil: builder must always construct it (nil-safe on missing Ouroboros)")
-	}
 	if cfg.Kernel != cortex.Kernel {
 		t.Fatalf("Kernel not from Cortex")
 	}

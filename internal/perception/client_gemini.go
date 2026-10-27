@@ -79,9 +79,9 @@ var (
 	_ interface{ GetThinkingLevel() string }          = (*GeminiClient)(nil) // ThinkingProvider
 	_ interface{ GetLastThoughtSignature() string }   = (*GeminiClient)(nil) // ThoughtSignatureProvider
 	_ interface{ GetLastGroundingSources() []string } = (*GeminiClient)(nil) // GroundingProvider
-	_ interface{ IsWebSearchEnabled() bool }       = (*GeminiClient)(nil) // GroundingProvider
+	_ interface{ IsWebSearchEnabled() bool }          = (*GeminiClient)(nil) // GroundingProvider
 	_ interface{ IsURLContextEnabled() bool }         = (*GeminiClient)(nil) // GroundingProvider
-	_ interface{ SetEnableWebSearch(bool) }        = (*GeminiClient)(nil) // GroundingController
+	_ interface{ SetEnableWebSearch(bool) }           = (*GeminiClient)(nil) // GroundingController
 	_ interface{ SetEnableURLContext(bool) }          = (*GeminiClient)(nil) // GroundingController
 	_ interface{ SetURLContextURLs([]string) }        = (*GeminiClient)(nil) // GroundingController
 	_ interface{ ShouldUsePiggybackTools() bool }     = (*GeminiClient)(nil) // PiggybackToolProvider
@@ -93,18 +93,17 @@ type geminiToolCall struct {
 	signature string
 }
 
-// DefaultGeminiConfig returns sensible defaults.
+// DefaultGeminiConfig returns the endpoint, thinking and output defaults. It
+// names no model: the workspace's config does.
 //
-// Model choice — gemini-3.5-flash:
+// Model capability — structured output with grounding:
 //
 //	codeNERD uses structured output (responseJsonSchema) together with
 //	grounding tools (Google Search + URL Context) for chat articulation.
-//	Per the Gemini docs, that combination is currently a Preview feature
-//	supported ONLY on `gemini-3.1-pro-preview` and `gemini-3.5-flash`. On
-//	models outside that list (notably `gemini-3.1-flash-lite`), the API
-//	exhibits undefined behavior — most commonly mid-stream truncation of
-//	the JSON envelope, which surfaces to users as raw control_packet
-//	dumps. Flash is the right default: structured-output capable and fast.
+//	Per the Gemini docs, that combination is a Preview feature only some
+//	models support; on others the API exhibits undefined behavior — most
+//	commonly mid-stream truncation of the JSON envelope, which surfaces to
+//	users as raw control_packet dumps. Configure a model that supports it.
 //
 // Thinking level — "medium":
 //

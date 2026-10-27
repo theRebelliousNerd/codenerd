@@ -2,6 +2,7 @@ package orient
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -249,11 +250,13 @@ func TestPolicy_CatalogMatchesTheOldSwitch(t *testing.T) {
 		{name: "typescript", facts: []types.Fact{signal("/language", "typescript")}, want: []string{"TSExpert"}},
 		{name: "javascript", facts: []types.Fact{signal("/language", "javascript")}, want: []string{"TSExpert"}},
 		{name: "kotlin", facts: []types.Fact{signal("/language", "kotlin")}, want: []string{"AndroidExpert"}},
-		{name: "haskell", facts: []types.Fact{signal("/language", "haskell")}, want: []string{"SecurityAuditor", "TestArchitect"}, missing: []string{"GoExpert"}},
-		{name: "empty", want: []string{"SecurityAuditor", "TestArchitect"}},
+		{name: "haskell", facts: []types.Fact{signal("/language", "haskell")}, missing: []string{"GoExpert", "SecurityAuditor", "TestArchitect"}},
+		{name: "haskell with tests", facts: []types.Fact{signal("/language", "haskell"), signal("/tests", "present")}, want: []string{"TestArchitect"}, missing: []string{"SecurityAuditor"}},
+		{name: "empty"},
+		{name: "go with tests keeps the stack expert and the test architect", facts: []types.Fact{signal("/language", "go"), signal("/tests", "present")}, want: []string{"GoExpert", "TestArchitect"}},
 		{name: "go+gin", facts: []types.Fact{signal("/language", "go"), signal("/framework", "gin")}, want: []string{"GoExpert", "WebAPIExpert"}},
 		{name: "go+rod", facts: []types.Fact{signal("/language", "go"), signal("/dependency", "rod")}, want: []string{"GoExpert", "RodExpert"}},
-		{name: "chromedp", facts: []types.Fact{signal("/dependency", "chromedp")}, want: []string{"BrowserAutomationExpert"}, missing: []string{"RodExpert", "SecurityAuditor"}},
+		{name: "chromedp is a security surface", facts: []types.Fact{signal("/dependency", "chromedp")}, want: []string{"BrowserAutomationExpert", "SecurityAuditor"}, missing: []string{"RodExpert", "TestArchitect"}},
 		{name: "react", facts: []types.Fact{signal("/language", "typescript"), signal("/framework", "react")}, want: []string{"TSExpert", "FrontendExpert"}},
 	}
 	for _, tc := range cases {
@@ -277,8 +280,8 @@ func TestPolicy_CatalogMatchesTheOldSwitch(t *testing.T) {
 				requireRow(t, out.OrientAgentPriority, "GoExpert", "100")
 				requireRow(t, out.OrientResearchTopic, "GoExpert", "go testing")
 			}
-			if tc.name == "empty" && len(got) != 2 {
-				t.Fatalf("fallback agents:\n%s", factText(out.OrientAgent))
+			if tc.name == "empty" && len(got) != 0 {
+				t.Fatalf("nothing measured, nothing supported, yet agents were derived:\n%s", factText(out.OrientAgent))
 			}
 		})
 	}
@@ -339,4 +342,91 @@ func TestNewEngineLoadsEcosystemRules(t *testing.T) {
 	}
 	requireRow(t, rows, "GoExpert", "Go project detected - expert knowledge improves code quality")
 	forbidArg0(t, rows, "SecurityAuditor")
+}
+
+func visionFacts(name, why, description string, topics, questions []string) []types.Fact {
+	facts := []types.Fact{
+		{Predicate: "vision_agent", Args: []any{name, why}},
+		{Predicate: "vision_agent_description", Args: []any{name, description}},
+	}
+	for _, topic := range topics {
+		facts = append(facts, types.Fact{Predicate: "vision_agent_topic", Args: []any{name, topic}})
+	}
+	for _, question := range questions {
+		facts = append(facts, types.Fact{Predicate: "vision_agent_question", Args: []any{name, question}})
+	}
+	return facts
+}
+
+// Vision experts join the roster through the same predicates as stack
+// experts; their topics are researched from their own questions, not by a
+// documentation fetch; an expert named like a stack expert merges with it.
+func TestPolicy_VisionExpertsJoinTheRoster(t *testing.T) {
+	facts := []types.Fact{signal("/language", "go")}
+	facts = append(facts, visionFacts("AgentFailureModesExpert", "north star: the product is a coding agent",
+		"Expert in how coding agents fail", []string{"coding agent failure modes"}, []string{"How do coding agents fail to wire new code?"})...)
+	facts = append(facts, visionFacts("GoExpert", "north star: the agent is written in Go",
+		"Go for agent runtimes", []string{"goroutine leaks in long-running agents"}, nil)...)
+	out := evalPolicy(t, facts)
+
+	requireRow(t, out.OrientAgent, "AgentFailureModesExpert", "north star: the product is a coding agent")
+	requireRow(t, out.OrientAgentTopic, "AgentFailureModesExpert", "coding agent failure modes")
+	requireRow(t, out.OrientAgentDescription, "AgentFailureModesExpert", "Expert in how coding agents fail")
+	requireRow(t, out.OrientAgentPriority, "AgentFailureModesExpert", "95")
+	requireRow(t, out.OrientAgentPermission, "AgentFailureModesExpert", "read_file")
+	requireRow(t, out.OrientAgentTopic, "GoExpert", "go concurrency")
+	requireRow(t, out.OrientAgentTopic, "GoExpert", "goroutine leaks in long-running agents")
+	for _, fact := range out.OrientResearchTopic {
+		if topic := types.ExtractString(fact.Args[1]); topic == "coding agent failure modes" || topic == "goroutine leaks in long-running agents" {
+			t.Fatalf("a vision topic went to the documentation fetch:\n%s", factText(out.OrientResearchTopic))
+		}
+	}
+	requireRow(t, out.OrientResearchTopic, "GoExpert", "go concurrency")
+}
+
+// The north star keeps a core expert the scan alone would not.
+func TestPolicy_VisionSupportsCoreExpert(t *testing.T) {
+	facts := []types.Fact{
+		signal("/language", "haskell"),
+		{Predicate: "vision_core_support", Args: []any{"SecurityAuditor", "north star: agents execute tools on the user's machine"}},
+	}
+	out := evalPolicy(t, facts)
+	got := namesOf(out.OrientAgent)
+	if !got["SecurityAuditor"] || got["TestArchitect"] {
+		t.Fatalf("roster:\n%s", factText(out.OrientAgent))
+	}
+	requireRow(t, out.OrientAgentTopic, "SecurityAuditor", "OWASP top 10")
+}
+
+// Imported subagents are bounded and ranked by recency, then source order,
+// so a large corpus cannot crowd the roster.
+func TestPolicy_ImportedAgentsAreBounded(t *testing.T) {
+	var facts []types.Fact
+	for index, name := range []string{"alpha", "bravo", "charlie", "delta"} {
+		path := ".claude/agents/" + name + ".md"
+		facts = append(facts, sourceFacts(name, "claude", "subagent", name, path, "yes", "d-"+name, name, 10, int64(index))...)
+	}
+	facts = append(facts, history(".claude/agents/delta.md", 500), history(".claude/agents/alpha.md", 100))
+	facts = append(facts, types.Fact{Predicate: "config_param", Args: []any{atom("/orient_imported_agent_max"), int64(2)}})
+	out := evalPolicy(t, facts)
+	got := namesOf(out.OrientAgent)
+	if !got["delta"] || !got["alpha"] || got["bravo"] || got["charlie"] || len(got) != 2 {
+		t.Fatalf("want the two most recently maintained subagents, got:\n%s", factText(out.OrientAgent))
+	}
+}
+
+// Skill clusters count against the same import bound.
+func TestPolicy_SkillClustersShareTheImportBound(t *testing.T) {
+	var facts []types.Fact
+	for index, tag := range []string{"alpha", "alpha", "bravo", "bravo"} {
+		id := fmt.Sprintf("skill-%d", index)
+		facts = append(facts, sourceFacts(id, "claude", "skill", id, ".claude/skills/"+id+"/SKILL.md", "yes", "d-"+id, id, 10, int64(index), tag)...)
+	}
+	facts = append(facts, clusterMin(2))
+	facts = append(facts, types.Fact{Predicate: "config_param", Args: []any{atom("/orient_imported_agent_max"), int64(1)}})
+	out := evalPolicy(t, facts)
+	got := namesOf(out.OrientAgent)
+	if len(got) != 1 || !got["alpha"] {
+		t.Fatalf("want one skill-cluster agent under a bound of 1, got:\n%s", factText(out.OrientAgent))
+	}
 }

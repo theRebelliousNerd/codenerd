@@ -88,7 +88,7 @@ func TestVerifyAndRepairBuild_ClosesReadingOnTheSecondRound(t *testing.T) {
 	e.config.WorkspaceRoot = ws
 	e.config.VerifyBuildAfterEdits = true
 	e.virtualStore = &testExecutiveStore{}
-	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), "fix main.go", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "main.go"})
+	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), nil, "fix main.go", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "main.go"})
 	if err != nil {
 		t.Fatalf("beginWorkingLoop: %v", err)
 	}

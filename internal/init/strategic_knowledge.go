@@ -5,11 +5,13 @@ package init
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
+	"sort"
 	"strings"
 
 	"codenerd/internal/core"
-	"codenerd/internal/logging"
 	"codenerd/internal/store"
 )
 
@@ -60,84 +62,149 @@ type PatternInfo struct {
 	Why         string `json:"why"`     // Why this pattern was chosen
 }
 
-// PersistStrategicKnowledge saves the knowledge to the main knowledge.db.
-// Uses embedding-enabled storage for semantic search capability.
-func (i *Initializer) PersistStrategicKnowledge(ctx context.Context, knowledge *StrategicKnowledge, db *store.LocalStore) (int, error) {
-	atomCount := 0
+// strategicConcepts are the knowledge.db concepts PersistStrategicKnowledge
+// owns. Each write replaces all of them, so the set always describes one
+// derivation. strategic/source/* belongs to persistOrientationKnowledge.
+var strategicConcepts = []string{
+	"strategic/vision", "strategic/philosophy", "strategic/architecture_style",
+	"strategic/data_flow", "strategic/communication", "strategic/principle",
+	"strategic/component", "strategic/pattern", "strategic/capability",
+	"strategic/extension_point", "strategic/safety_constraint", "strategic/limitation",
+	"strategic/learning", "strategic/future", "strategic/full_knowledge",
+}
 
-	// Helper to store with embedding for semantic search
-	storeAtom := func(concept, content string, confidence float64) {
-		if content == "" {
+// knowledgeAtom is one atom PersistStrategicKnowledge writes.
+type knowledgeAtom struct {
+	concept    string
+	content    string
+	confidence float64
+}
+
+// atoms renders the knowledge as strategic atoms. Empty values and the
+// profile's "unknown" placeholder are not knowledge and are not written.
+func (knowledge *StrategicKnowledge) atoms() ([]knowledgeAtom, error) {
+	var out []knowledgeAtom
+	add := func(concept, content string, confidence float64) {
+		content = strings.TrimSpace(content)
+		if content == "" || strings.EqualFold(content, "unknown") {
 			return
 		}
-		if err := db.StoreKnowledgeAtomWithEmbedding(ctx, concept, content, confidence); err == nil {
-			atomCount++
-		} else {
-			logging.Get(logging.CategoryBoot).Debug("Failed to store atom %s: %v", concept, err)
+		out = append(out, knowledgeAtom{concept: concept, content: content, confidence: confidence})
+	}
+	add("strategic/vision", knowledge.ProjectVision, 1.0)
+	add("strategic/philosophy", knowledge.CorePhilosophy, 1.0)
+	add("strategic/architecture_style", knowledge.ArchitectureStyle, 0.95)
+	add("strategic/data_flow", knowledge.DataFlowPattern, 0.95)
+	add("strategic/communication", knowledge.CommunicationFlow, 0.95)
+	for _, principle := range knowledge.DesignPrinciples {
+		add("strategic/principle", principle, 0.9)
+	}
+	for _, comp := range knowledge.KeyComponents {
+		add("strategic/component", fmt.Sprintf("%s: %s (location: %s, interfaces: %s)",
+			comp.Name, comp.Purpose, comp.Location, comp.Interfaces), 0.9)
+	}
+	for _, pattern := range knowledge.CorePatterns {
+		add("strategic/pattern", fmt.Sprintf("%s: %s. Used in: %s. Why: %s",
+			pattern.Name, pattern.Description, pattern.UsedIn, pattern.Why), 0.9)
+	}
+	for _, capability := range knowledge.CoreCapabilities {
+		add("strategic/capability", capability, 0.85)
+	}
+	for _, ext := range knowledge.ExtensionPoints {
+		add("strategic/extension_point", ext, 0.85)
+	}
+	for _, constraint := range knowledge.SafetyConstraints {
+		add("strategic/safety_constraint", constraint, 0.95)
+	}
+	for _, limit := range knowledge.Limitations {
+		add("strategic/limitation", limit, 0.8)
+	}
+	for _, mech := range knowledge.LearningMechanisms {
+		add("strategic/learning", mech, 0.85)
+	}
+	for _, dir := range knowledge.FutureDirections {
+		add("strategic/future", dir, 0.7)
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	full, err := json.MarshalIndent(knowledge, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("encode strategic knowledge: %w", err)
+	}
+	add("strategic/full_knowledge", string(full), 1.0)
+	return out, nil
+}
+
+// PersistStrategicKnowledge replaces the strategic atoms in knowledge.db with
+// knowledge, embedding each for semantic search, and returns how many it
+// stored. The atoms already stored are compared first: an identical set is
+// left alone rather than re-embedded. Knowledge with nothing in it writes
+// nothing and keeps what is stored.
+func (i *Initializer) PersistStrategicKnowledge(ctx context.Context, knowledge *StrategicKnowledge, db *store.LocalStore) (int, error) {
+	if db == nil {
+		return 0, fmt.Errorf("persist strategic knowledge: no knowledge database")
+	}
+	if knowledge == nil {
+		return 0, nil
+	}
+	atoms, err := knowledge.atoms()
+	if err != nil {
+		return 0, err
+	}
+	if len(atoms) == 0 {
+		return 0, nil
+	}
+	existing, err := db.GetKnowledgeAtomsByPrefix("strategic/")
+	if err != nil {
+		return 0, fmt.Errorf("read stored strategic knowledge: %w", err)
+	}
+	if sameAtomSet(atoms, ownedStrategicAtoms(existing)) {
+		return len(atoms), nil
+	}
+	if _, err := db.DeleteKnowledgeAtomsByConcept(strategicConcepts...); err != nil {
+		return 0, fmt.Errorf("replace strategic knowledge: %w", err)
+	}
+	stored := 0
+	var errs []error
+	for _, atom := range atoms {
+		if err := db.StoreKnowledgeAtomWithEmbedding(ctx, atom.concept, atom.content, atom.confidence); err != nil {
+			errs = append(errs, fmt.Errorf("store %s: %w", atom.concept, err))
+			continue
+		}
+		stored++
+	}
+	if len(errs) > 0 {
+		return stored, fmt.Errorf("strategic knowledge partly stored (%d/%d): %w", stored, len(atoms), errors.Join(errs...))
+	}
+	return stored, nil
+}
+
+// ownedStrategicAtoms keeps the stored atoms PersistStrategicKnowledge owns.
+func ownedStrategicAtoms(stored []store.KnowledgeAtom) []knowledgeAtom {
+	var out []knowledgeAtom
+	for _, atom := range stored {
+		if slices.Contains(strategicConcepts, atom.Concept) {
+			out = append(out, knowledgeAtom{concept: atom.Concept, content: atom.Content})
 		}
 	}
+	return out
+}
 
-	// Store core identity (highest confidence)
-	storeAtom("strategic/vision", knowledge.ProjectVision, 1.0)
-	storeAtom("strategic/philosophy", knowledge.CorePhilosophy, 1.0)
-	storeAtom("strategic/architecture_style", knowledge.ArchitectureStyle, 0.95)
-	storeAtom("strategic/data_flow", knowledge.DataFlowPattern, 0.95)
-	storeAtom("strategic/communication", knowledge.CommunicationFlow, 0.95)
-
-	// Store design principles
-	for _, principle := range knowledge.DesignPrinciples {
-		storeAtom("strategic/principle", principle, 0.9)
+// sameAtomSet compares two atom lists as multisets of concept and content.
+func sameAtomSet(a, b []knowledgeAtom) bool {
+	if len(a) != len(b) {
+		return false
 	}
-
-	// Store components
-	for _, comp := range knowledge.KeyComponents {
-		content := fmt.Sprintf("%s: %s (location: %s, interfaces: %s)",
-			comp.Name, comp.Purpose, comp.Location, comp.Interfaces)
-		storeAtom("strategic/component", content, 0.9)
+	key := func(atoms []knowledgeAtom) []string {
+		keys := make([]string, len(atoms))
+		for index, atom := range atoms {
+			keys[index] = atom.concept + "\x00" + atom.content
+		}
+		sort.Strings(keys)
+		return keys
 	}
-
-	// Store patterns
-	for _, pattern := range knowledge.CorePatterns {
-		content := fmt.Sprintf("%s: %s. Used in: %s. Why: %s",
-			pattern.Name, pattern.Description, pattern.UsedIn, pattern.Why)
-		storeAtom("strategic/pattern", content, 0.9)
-	}
-
-	// Store capabilities
-	for _, cap := range knowledge.CoreCapabilities {
-		storeAtom("strategic/capability", cap, 0.85)
-	}
-
-	// Store extension points
-	for _, ext := range knowledge.ExtensionPoints {
-		storeAtom("strategic/extension_point", ext, 0.85)
-	}
-
-	// Store safety constraints (high confidence - these are critical)
-	for _, constraint := range knowledge.SafetyConstraints {
-		storeAtom("strategic/safety_constraint", constraint, 0.95)
-	}
-
-	// Store limitations
-	for _, limit := range knowledge.Limitations {
-		storeAtom("strategic/limitation", limit, 0.8)
-	}
-
-	// Store learning mechanisms
-	for _, mech := range knowledge.LearningMechanisms {
-		storeAtom("strategic/learning", mech, 0.85)
-	}
-
-	// Store future directions
-	for _, dir := range knowledge.FutureDirections {
-		storeAtom("strategic/future", dir, 0.7)
-	}
-
-	// Also persist as JSON for easy loading
-	jsonBytes, _ := json.MarshalIndent(knowledge, "", "  ")
-	storeAtom("strategic/full_knowledge", string(jsonBytes), 1.0)
-
-	return atomCount, nil
+	return slices.Equal(key(a), key(b))
 }
 
 // extractJSON extracts JSON from a string that might have markdown code blocks.

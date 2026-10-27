@@ -3,15 +3,11 @@
 package chat
 
 import (
-	"codenerd/internal/articulation"
 	"codenerd/internal/broker"
 	"codenerd/internal/campaign"
-	"codenerd/internal/config"
 	"codenerd/internal/logging"
-	"codenerd/internal/northstar"
 	"codenerd/internal/types"
 	"codenerd/internal/usage"
-	"codenerd/internal/world"
 	"context"
 	"encoding/json"
 	"errors"
@@ -55,105 +51,29 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 
 		m.ReportStatus("Analyzing goal and docs...")
 
-		// JIT prompt provider for campaign roles (if compiler available)
-		var promptProvider campaign.PromptProvider
-		if m.jitCompiler != nil {
-			if pa, err := articulation.NewPromptAssemblerWithJIT(m.kernel, m.jitCompiler); err == nil {
-				jitCfg := config.DefaultJITConfig()
-				if m.Config != nil {
-					jitCfg = m.Config.GetEffectiveJITConfig()
-				}
-				pa.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK, jitCfg.ReservedTokensFallbackRatio)
-				pa.EnableJIT(jitCfg.Enabled)
-				promptProvider = &campaignJITProvider{assembler: pa}
-			}
+		// The orchestrator plans the campaign too: decomposition and every
+		// replan run on the planning client, tasks on the task executor.
+		// Larger buffers prevent backpressure during long campaigns (100+
+		// phases).
+		progressChan := make(chan campaign.Progress, 100)
+		eventChan := make(chan campaign.OrchestratorEvent, 200)
+		orch, err := m.newCampaignOrchestrator(progressChan, eventChan, m.campaignPromptProvider())
+		if err != nil {
+			return campaignErrorMsg{err: err}
 		}
 
-		// Create decomposer to break down the goal
-		decomposer := campaign.NewDecomposer(m.kernel, m.client, m.workspace)
-		decomposer.SetShardLister(m.shardMgr) // Enable shard-aware planning
-		if promptProvider != nil {
-			decomposer.SetPromptProvider(promptProvider)
-		}
-
-		// Build request
-		req := campaign.DecomposeRequest{
+		m.ReportStatus("Decomposing into phases...")
+		result, err := orch.Decompose(ctx, campaign.DecomposeRequest{
 			Goal:         goal,
 			CampaignType: campaign.CampaignTypeCustom,
 			SourcePaths:  []string{}, // Will scan workspace
-		}
-
-		// Decompose the goal into a campaign
-		m.ReportStatus("Decomposing into phases...")
-		result, err := decomposer.Decompose(ctx, req)
-		if err != nil {
-			return campaignErrorMsg{err: fmt.Errorf("failed to create campaign plan: %w", err)}
-		}
-
-		// Create channels for real-time orchestrator feedback
-		// Larger buffers prevent backpressure during long campaigns (100+ phases)
-		progressChan := make(chan campaign.Progress, 100)
-		eventChan := make(chan campaign.OrchestratorEvent, 200)
-		consultationProvider := newCampaignConsultationProvider(m.consultationMgr)
-		// Wire holographic provider for rich codebase context during intelligence gathering
-		var holographic *world.HolographicProvider
-		if m.kernel != nil {
-			holographic = world.NewHolographicProvider(m.kernel, m.workspace)
-		}
-		intelligenceGatherer := campaign.NewIntelligenceGatherer(
-			m.workspace,
-			m.kernel,
-			m.scanner,
-			holographic,
-			m.learningStore,
-			m.localDB,
-			nil,
-			nil,
-			consultationProvider,
-		)
-		edgeCaseDetector := campaign.NewEdgeCaseDetector(m.kernel, m.scanner)
-		var advisoryBoard *campaign.ShardAdvisoryBoard
-		if consultationProvider != nil {
-			advisoryBoard = campaign.NewShardAdvisoryBoard(consultationProvider)
-		}
-
-		// Create orchestrator with channels for real-time progress/event streaming
-		orch, err := campaign.NewOrchestrator(campaign.OrchestratorConfig{
-			Workspace:    m.workspace,
-			Kernel:       m.kernel,
-			LLMClient:    m.client,
-			ShardManager: m.shardMgr,
-			// Without this the orchestrator's taskExecutor stays nil, and both
-			// verification checkpoints treat that as "skip and pass"
-			// (internal/campaign/checkpoint.go:206-209, :258-261). In-chat
-			// campaigns then reported every phase as verified while running no
-			// verification at all — a false green. Config validation did not
-			// catch it because a non-nil ShardManager satisfies the check.
-			TaskExecutor: m.taskExecutor,
-			Executor:     m.executor,
-			VirtualStore: m.virtualStore,
-			ProgressChan: progressChan,
-			EventChan:    eventChan,
-			// The policy: the campaign section of the user's config, the same
-			// on every door a campaign starts through.
-			Campaign:             m.Config.GetCampaignConfig(),
-			IntelligenceGatherer: intelligenceGatherer,
-			AdvisoryBoard:        advisoryBoard,
-			EdgeCaseDetector:     edgeCaseDetector,
-			NorthstarObserver:    northstar.BuildCampaignObserver(m.workspace, m.client, m.kernel),
 		})
 		if err != nil {
-			return campaignErrorMsg{err: fmt.Errorf("failed to initialize campaign orchestrator: %w", err)}
+			_ = orch.Close()
+			return campaignErrorMsg{err: fmt.Errorf("failed to create campaign plan: %w", err)}
 		}
-		if promptProvider != nil {
-			orch.SetPromptProvider(promptProvider)
-		}
-
-		// Wire specialist knowledge provider for context injection
-		specialistKnowledgeProvider := campaign.NewLocalSpecialistKnowledgeProvider(m.workspace)
-		orch.SetSpecialistKnowledgeProvider(specialistKnowledgeProvider)
-
 		if err := orch.SetCampaign(result.Campaign); err != nil {
+			_ = orch.Close()
 			return campaignErrorMsg{err: fmt.Errorf("failed to set campaign: %w", err)}
 		}
 
@@ -207,6 +127,10 @@ func (m Model) runCampaignOrchestrator() tea.Cmd {
 			defer m.goroutineWg.Done()
 		}
 		defer cancel()
+		// The orchestrator owns the northstar observer it was built with;
+		// once Run returns nothing else drives it, and the chat only drops
+		// its reference.
+		defer func() { _ = orch.Close() }()
 		if err := orch.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			// The event channel and campaign status are the user-facing report.
 			// This log is the one that survives when the orchestrator fails
@@ -344,31 +268,6 @@ func (m *Model) captureCampaignIntent(goal, clarifierAnswers string) {
 		},
 	}); err != nil {
 		logging.Kernel("[campaign] failed to assert campaign intent: %v", err)
-	}
-}
-
-// resumeCampaign continues execution of a paused campaign
-func (m Model) resumeCampaign() tea.Cmd {
-	return func() tea.Msg {
-		if m.activeCampaign == nil || m.campaignOrch == nil {
-			return campaignErrorMsg{err: fmt.Errorf("no campaign to resume")}
-		}
-
-		// Resume execution - orchestrator handles its own context lifecycle
-		// (set when Run() was called). Resume() simply flips the paused flag.
-		m.campaignOrch.Resume()
-
-		return campaignProgressMsg(&campaign.Progress{
-			CampaignID:      m.activeCampaign.ID,
-			CampaignStatus:  string(campaign.StatusActive),
-			CurrentPhase:    fmt.Sprintf("%d", m.activeCampaign.CompletedPhases),
-			CompletedPhases: m.activeCampaign.CompletedPhases,
-			TotalPhases:     m.activeCampaign.TotalPhases,
-			CompletedTasks:  m.activeCampaign.CompletedTasks,
-			TotalTasks:      m.activeCampaign.TotalTasks,
-			CampaignTitle:   m.activeCampaign.Title,
-			OverallProgress: float64(m.activeCampaign.CompletedTasks) / float64(m.activeCampaign.TotalTasks),
-		})
 	}
 }
 

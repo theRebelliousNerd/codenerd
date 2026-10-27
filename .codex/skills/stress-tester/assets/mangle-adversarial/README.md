@@ -96,6 +96,15 @@ Every fixture is pinned to the pipeline stage where it must fail by
 `internal/mangle/corpus_gate_test.go` (parse, then AnalyzeOneUnit, then
 Stratify — the same stages the engine runs):
 
+The harness-facing stage map is in `expected-stages.json`. The bounded
+stress checker requires exact fixture coverage and applies the same distinction
+between static failures and documented-clean runtime examples.
+
+The 24 fixtures comprise 18 static rejections at their pinned pipeline stages
+and 6 valid static-scaffolding checks. The stress checker only loads the clean
+fixtures through static stages; it does not execute their runtime hazards or
+prove executor termination containment.
+
 | Category | Verdict | Meaning |
 |----------|---------|---------|
 | `syntactic/*` | must NOT parse | demonstrated notations are syntax errors |

@@ -455,11 +455,18 @@ func (m Model) lastUserUtterance() string {
 // pinned atom sits out rather than a Gemini workaround landing in a Claude
 // prompt.
 func (m Model) servingIdentity() (provider, model string) {
-	if m.client == nil {
+	return clientIdentity(m.client)
+}
+
+// clientIdentity is the provider and model a client chain reports: the
+// outermost layer implementing types.ModelIdentifier answers, so scheduling,
+// tracing and metering decorators are walked through. Empty when none does.
+func clientIdentity(client types.LLMClient) (provider, model string) {
+	if client == nil {
 		return "", ""
 	}
 	var identifier types.ModelIdentifier
-	broker.Walk(m.client, func(layer types.LLMClient) bool {
+	broker.Walk(client, func(layer types.LLMClient) bool {
 		if id, ok := layer.(types.ModelIdentifier); ok {
 			identifier = id
 			return false

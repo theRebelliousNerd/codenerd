@@ -135,3 +135,30 @@ and a later Start owns a fresh run context.
 | observer restart | fresh generation verified under race; drops counted, assessments returned as copies (2026-09-25) | render the drop counter in operator diagnostics |
 | direct session tool calls | bypass tactile router, but should not bypass VirtualStore permission | constitutional negative integration test |
 | scanner empty-context factories | structural registration only | fail-visible spawn dependency tests |
+
+## MCP remote-authority predicate placement
+
+`GAP-MCP-AUTHORITY-COLOCATION` is the source of truth for the exact allowlist
+and exit criteria. The shard manifest currently declares fourteen bounded
+base-fact replicas for `mcp_remote_permitted`; it preserves the canonical
+predicate owner and mirrors only the facts that the MCP decision joins
+(`internal/shards/registration.go:265-275`):
+`mcp_tool_registered/3`, `mcp_tool_risk/2`, `mcp_tool_risk_source/2`,
+`mcp_server_status/2`, `mcp_tool_name/2`, `mcp_tool_schema_hash/2`,
+`mcp_server_registered/4`, `mcp_remote_request/13`,
+`mcp_remote_reviewed/5`, `mcp_remote_operation/2`,
+`mcp_remote_resource/4`, `mcp_resource_registered/2`,
+`mcp_remote_prompt/4`, and `mcp_prompt_registered/2`. The policy owns
+`pending_action/5` and `permitted/3`, and computes remote-authority IDB
+predicates locally; routing must not copy derived allows. `SetPredicateConsumerRoutes`
+installs the explicit destinations, and derivation analysis uses the same route
+list (`internal/core/predicate_consumers.go:154-177`,
+`internal/core/derivation_map.go:843-884`).
+`TestCortexPredicateConsumerRoutes_PlaceRuleAndMirrorEveryMutationPath` covers
+assert, load, batch, transaction, and exact/bulk retractions
+(`internal/core/predicate_consumers_test.go:89-197`). The production sharded
+initialize → effect → metadata-removal regression proves stale authority
+disappears (`internal/mcp/remote_authority_test.go:145-192`), and
+`TestShardJoin_EveryRuleCanFireOnTheShardedKernel` verifies the authority rules
+are placed on policy (`internal/shards/shard_join_audit_test.go:128-170`).
+These focused gates passed; aggregate verification remains pending.

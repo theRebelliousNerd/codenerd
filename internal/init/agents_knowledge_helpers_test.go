@@ -86,36 +86,6 @@ func TestFilterTopicsNeedingResearch_WhenCovered_ShouldSkip(t *testing.T) {
 	}
 }
 
-func TestGenerateBaseKnowledgeAtoms_ShouldIncludeIdentityAndTopics(t *testing.T) {
-	init := &Initializer{}
-	agent := RecommendedAgent{
-		Name:        "go-expert",
-		Description: "Go specialist",
-		Reason:      "project is Go",
-		Topics:      []string{"goroutines", "generics"},
-	}
-	atoms := init.generateBaseKnowledgeAtoms(agent)
-	var hasIdentity, hasMission bool
-	for _, a := range atoms {
-		switch a.Concept {
-		case "agent_identity":
-			hasIdentity = true
-			if !strings.Contains(a.Content, "go-expert") {
-				t.Errorf("identity atom missing agent name: %q", a.Content)
-			}
-		case "agent_mission":
-			hasMission = true
-		}
-	}
-	if !hasIdentity || !hasMission {
-		t.Errorf("expected identity and mission atoms, got %d atoms", len(atoms))
-	}
-	// At least one atom per expertise topic should be present.
-	if len(atoms) < 2+len(agent.Topics) {
-		t.Errorf("expected >= %d atoms (identity+mission+topics), got %d", 2+len(agent.Topics), len(atoms))
-	}
-}
-
 func TestComputeDocHash_ShouldBeDeterministicAnd16Chars(t *testing.T) {
 	a := computeDocHash("hello world")
 	b := computeDocHash("hello world")

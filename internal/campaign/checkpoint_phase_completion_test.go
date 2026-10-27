@@ -55,9 +55,10 @@ func newCheckpointPolicyOrchestrator(t *testing.T, review string, edit func(*con
 	}
 
 	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace: workspace,
-		Kernel:    kernel,
-		LLMClient: &MockLLMClient{},
+		Workspace:         workspace,
+		Kernel:            kernel,
+		LLMClient:         &MockLLMClient{},
+		PlanningLLMClient: &MockLLMClient{},
 		// A failed checkpoint appends a remediation task the next attempt
 		// runs; the executor edits the phase's file, as the task asks, and
 		// reports the write as a production executor does.

@@ -9,11 +9,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
 	"codenerd/internal/sqlpragmas"
+	"codenerd/internal/types"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -90,7 +90,7 @@ func (s *AgentSynchronizer) SyncAll(ctx context.Context) error {
 		}
 
 		// Track discovered agent for JIT registration
-		dbPath := filepath.Join(s.shardsDir, fmt.Sprintf("%s_knowledge.db", strings.ToLower(agentID)))
+		dbPath := types.AgentKnowledgeDBPath(filepath.Dir(s.shardsDir), agentID)
 		s.discoveredAgents = append(s.discoveredAgents, DiscoveredAgent{
 			ID:     agentID,
 			DBPath: dbPath,
@@ -124,7 +124,7 @@ func (s *AgentSynchronizer) syncAgent(ctx context.Context, agentID string, yamlP
 	contentHash := hex.EncodeToString(hash[:])
 
 	// 2. Open Shard Database
-	dbPath := filepath.Join(s.shardsDir, fmt.Sprintf("%s_knowledge.db", strings.ToLower(agentID)))
+	dbPath := types.AgentKnowledgeDBPath(filepath.Dir(s.shardsDir), agentID)
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return false, fmt.Errorf("db open failed: %w", err)

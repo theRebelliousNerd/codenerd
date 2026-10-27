@@ -180,12 +180,13 @@ type Decision struct {
 // what was actually sent — an audit artifact generated separately from the
 // thing it audits always drifts eventually.
 type Receipt struct {
-	Purpose  Purpose       `json:"purpose"`
-	Provider string        `json:"provider"`
-	Model    string        `json:"model"`
-	Method   string        `json:"method"`
-	Started  time.Time     `json:"started"`
-	Duration time.Duration `json:"duration"`
+	CredentialAlias string        `json:"credential_alias,omitempty"`
+	Purpose         Purpose       `json:"purpose"`
+	Provider        string        `json:"provider"`
+	Model           string        `json:"model"`
+	Method          string        `json:"method"`
+	Started         time.Time     `json:"started"`
+	Duration        time.Duration `json:"duration"`
 
 	// Scope is the session this call belonged to, or "" when untagged. Epoch
 	// segmentation groups by it so two concurrent sessions are not spliced into

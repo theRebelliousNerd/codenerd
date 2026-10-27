@@ -192,7 +192,7 @@ func TestNoSilentCutsInAssembledMessages_LeavesAnIntactTurnAlone(t *testing.T) {
 	e := newWorkingLoopExecutor(t, &MockLLMClient{})
 	e.config.TokenBudget = 200000
 
-	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), "fix target.go",
+	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), nil, "fix target.go",
 		&prompt.CompilationContext{ShardID: "probe", IntentTarget: "target.go"})
 	if err != nil {
 		t.Fatalf("beginWorkingLoop: %v", err)

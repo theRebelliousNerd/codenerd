@@ -91,3 +91,14 @@ fresh-scope controls. A clean parent requires first-read materialization in
 `internal/core/kernel_eval.go:428`; copying its clean flag into an empty clone
 store loses evidence. Neither this adapter nor the component tests establish
 all factory integrations or multi-workspace policy isolation.
+
+
+## Required contract: Complete effective boot configuration identity
+
+Cortex cache identity must bind all normalized effective configuration that changes live wiring, including execution working directory, environment, timeouts, binary policy and provider credentials loaded from workspace config. Equivalent effective inputs may reuse; changed inputs must boot distinct Cortex. Credentials must enter identity only as a nonreversible digest, never plaintext serialization/logging.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-SYSTEM-CACHE-EFFECTIVE-CONFIG | Complete effective boot configuration identity | `newCortexIdentity` hashes canonical validated `UserConfig` and credential values; `getOrBootCortexWithConfig` passes that same snapshot into boot (`internal/system/factory.go:102-142`, `:287-382`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Two same-workspace calls with changed execution policy or configured provider key boot twice; equivalent normalized inputs reuse; identity serialization and diagnostics contain no credentials. |
+
+**Verified current:** provider-key, Context7-environment, execution-policy, canonical-config reuse/secret-redaction, and invalid-config regressions pass (`internal/system/factory_effective_identity_test.go:14`, `:40`, `:67`, `:93`, `:145`). The full `internal/system` suite and `internal/shards/system` suite pass. Race and broader aggregate verification remain pending; canonicalization conservatively distinguishes some equivalent explicit-versus-default representations.

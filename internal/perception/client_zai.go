@@ -125,9 +125,6 @@ func NewZAIClientWithConfig(config ZAIConfig) *ZAIClient {
 	if config.BaseURL == "" {
 		config.BaseURL = defaults.BaseURL
 	}
-	if config.Model == "" {
-		config.Model = defaults.Model
-	}
 	if config.Timeout <= 0 {
 		config.Timeout = defaults.Timeout
 	}

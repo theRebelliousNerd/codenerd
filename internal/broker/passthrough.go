@@ -31,7 +31,7 @@ import "codenerd/internal/types"
 // rather than only forwarding, because the broker tracks the model for counting
 // and is authoritative after a SetModel that the underlying client ignored.
 func (c *core) GetModel() string {
-	if getter, ok := c.underlying.(interface{ GetModel() string }); ok {
+	if getter, ok := c.delegate().(interface{ GetModel() string }); ok {
 		if model := getter.GetModel(); model != "" {
 			return model
 		}
@@ -41,14 +41,16 @@ func (c *core) GetModel() string {
 
 // DisableSemaphore forwards a concurrency-limit opt-out.
 func (c *core) DisableSemaphore() {
-	if d, ok := c.underlying.(interface{ DisableSemaphore() }); ok {
-		d.DisableSemaphore()
-	}
+	c.eachClient(func(client types.LLMClient) {
+		if p, ok := client.(interface{ DisableSemaphore() }); ok {
+			p.DisableSemaphore()
+		}
+	})
 }
 
 // GetLastThinkingTokens forwards the last turn's thinking token count.
 func (c *core) GetLastThinkingTokens() int {
-	if p, ok := c.underlying.(interface{ GetLastThinkingTokens() int }); ok {
+	if p, ok := c.delegate().(interface{ GetLastThinkingTokens() int }); ok {
 		return p.GetLastThinkingTokens()
 	}
 	return 0
@@ -56,7 +58,7 @@ func (c *core) GetLastThinkingTokens() int {
 
 // GetThinkingLevel forwards the configured thinking level.
 func (c *core) GetThinkingLevel() string {
-	if p, ok := c.underlying.(interface{ GetThinkingLevel() string }); ok {
+	if p, ok := c.delegate().(interface{ GetThinkingLevel() string }); ok {
 		return p.GetThinkingLevel()
 	}
 	return ""
@@ -64,7 +66,7 @@ func (c *core) GetThinkingLevel() string {
 
 // GetLastThoughtSummary forwards the last turn's reasoning summary.
 func (c *core) GetLastThoughtSummary() string {
-	if p, ok := c.underlying.(interface{ GetLastThoughtSummary() string }); ok {
+	if p, ok := c.delegate().(interface{ GetLastThoughtSummary() string }); ok {
 		return p.GetLastThoughtSummary()
 	}
 	return ""
@@ -75,7 +77,7 @@ func (c *core) GetLastThoughtSummary() string {
 // This value is provider-bound continuation state, not text. It is forwarded
 // verbatim and never inspected, rewritten, or synthesized here.
 func (c *core) GetLastThoughtSignature() string {
-	if p, ok := c.underlying.(interface{ GetLastThoughtSignature() string }); ok {
+	if p, ok := c.delegate().(interface{ GetLastThoughtSignature() string }); ok {
 		return p.GetLastThoughtSignature()
 	}
 	return ""
@@ -83,7 +85,7 @@ func (c *core) GetLastThoughtSignature() string {
 
 // GetLastGroundingSources implements types.GroundingProvider.
 func (c *core) GetLastGroundingSources() []string {
-	if p, ok := c.underlying.(interface{ GetLastGroundingSources() []string }); ok {
+	if p, ok := c.delegate().(interface{ GetLastGroundingSources() []string }); ok {
 		return p.GetLastGroundingSources()
 	}
 	return nil
@@ -91,7 +93,7 @@ func (c *core) GetLastGroundingSources() []string {
 
 // IsWebSearchEnabled implements types.GroundingProvider.
 func (c *core) IsWebSearchEnabled() bool {
-	if p, ok := c.underlying.(interface{ IsWebSearchEnabled() bool }); ok {
+	if p, ok := c.delegate().(interface{ IsWebSearchEnabled() bool }); ok {
 		return p.IsWebSearchEnabled()
 	}
 	return false
@@ -99,7 +101,7 @@ func (c *core) IsWebSearchEnabled() bool {
 
 // IsURLContextEnabled implements types.GroundingProvider.
 func (c *core) IsURLContextEnabled() bool {
-	if p, ok := c.underlying.(interface{ IsURLContextEnabled() bool }); ok {
+	if p, ok := c.delegate().(interface{ IsURLContextEnabled() bool }); ok {
 		return p.IsURLContextEnabled()
 	}
 	return false
@@ -119,10 +121,10 @@ func (c *core) SupportsGrounding() bool {
 	// client) implements the controller for every vendor and answers this
 	// itself. Believe that over the method set: the method set is true for
 	// every client this wrapper meters.
-	if cap, ok := c.underlying.(types.GroundingCapable); ok {
+	if cap, ok := c.delegate().(types.GroundingCapable); ok {
 		return cap.SupportsGrounding()
 	}
-	_, ok := c.underlying.(types.GroundingController)
+	_, ok := c.delegate().(types.GroundingController)
 	return ok
 }
 
@@ -142,7 +144,7 @@ func (c *core) SupportsGrounding() bool {
 // first tool round failed with "does not implement ToolResultsProvider", and
 // sent a grounded Gemini through function calling, which drops grounding.
 func (c *core) ShouldUsePiggybackTools() bool {
-	if p, ok := c.underlying.(types.PiggybackToolProvider); ok {
+	if p, ok := c.delegate().(types.PiggybackToolProvider); ok {
 		return p.ShouldUsePiggybackTools()
 	}
 	return false
@@ -150,21 +152,27 @@ func (c *core) ShouldUsePiggybackTools() bool {
 
 // SetEnableWebSearch implements types.GroundingController.
 func (c *core) SetEnableWebSearch(enable bool) {
-	if p, ok := c.underlying.(interface{ SetEnableWebSearch(bool) }); ok {
-		p.SetEnableWebSearch(enable)
-	}
+	c.eachClient(func(client types.LLMClient) {
+		if p, ok := client.(interface{ SetEnableWebSearch(bool) }); ok {
+			p.SetEnableWebSearch(enable)
+		}
+	})
 }
 
 // SetEnableURLContext implements types.GroundingController.
 func (c *core) SetEnableURLContext(enable bool) {
-	if p, ok := c.underlying.(interface{ SetEnableURLContext(bool) }); ok {
-		p.SetEnableURLContext(enable)
-	}
+	c.eachClient(func(client types.LLMClient) {
+		if p, ok := client.(interface{ SetEnableURLContext(bool) }); ok {
+			p.SetEnableURLContext(enable)
+		}
+	})
 }
 
 // SetURLContextURLs implements types.GroundingController.
 func (c *core) SetURLContextURLs(urls []string) {
-	if p, ok := c.underlying.(interface{ SetURLContextURLs([]string) }); ok {
-		p.SetURLContextURLs(urls)
-	}
+	c.eachClient(func(client types.LLMClient) {
+		if p, ok := client.(interface{ SetURLContextURLs([]string) }); ok {
+			p.SetURLContextURLs(urls)
+		}
+	})
 }

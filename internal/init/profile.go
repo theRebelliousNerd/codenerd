@@ -8,7 +8,6 @@ import (
 	"codenerd/internal/session"
 	"codenerd/internal/sqlpragmas"
 	"codenerd/internal/store"
-	"codenerd/internal/world"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -76,7 +75,8 @@ func (i *Initializer) saveProfile(path string, profile ProjectProfile) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	// Atomic: IsInitialized and every later init read this file.
+	return atomicfile.WriteFile(path, data, 0o644)
 }
 
 // generateFactsFile creates a Mangle facts file for the project.
@@ -125,11 +125,6 @@ func (i *Initializer) generateFactsFile(path string, profile ProjectProfile) (in
 		facts = append(facts, fmt.Sprintf(`entry_point("%s").`, escapeString(entry)))
 	}
 
-	// Project tool needs. Init measures which tools this project's shape
-	// implies; the kernel decides whether and when to build them. See
-	// generateProjectTools for why init does not generate them itself.
-	facts = append(facts, projectToolNeedFacts(i.determineRequiredTools(profile))...)
-
 	// Write facts file
 	var content strings.Builder
 	content.WriteString("# codeNERD Project Profile Facts\n")
@@ -140,7 +135,8 @@ func (i *Initializer) generateFactsFile(path string, profile ProjectProfile) (in
 		content.WriteString(fact + "\n")
 	}
 
-	if err := os.WriteFile(path, []byte(content.String()), 0644); err != nil {
+	// Atomic: every chat boot loads profile.mg, and a torn file fails it.
+	if err := atomicfile.WriteFile(path, []byte(content.String()), 0o644); err != nil {
 		return 0, err
 	}
 
@@ -268,42 +264,21 @@ func (i *Initializer) savePreferences(path string, prefs UserPreferences) (UserP
 	return effective, nil
 }
 
-// populateProjectAtoms stores the project-specific prompt atoms in
-// `.nerd/knowledge.db` and keeps them for corpus ingestion.
-//
-// Storing them in knowledge.db alone made them invisible to prompt assembly:
-// the JIT compiler collects from `.nerd/prompts/corpus.db` and the per-agent
-// `.nerd/shards/{agent}_knowledge.db`, never from the LocalStore. So the
-// project's own language/framework/testing guidance was generated on every init
-// and then never selected. Phase 5c ingests the same atoms into corpus.db.
+// populateProjectAtoms builds the project-specific prompt atoms and keeps
+// them for phase 5c, which ingests them into .nerd/prompts/corpus.db, the
+// corpus the JIT compiler selects from. They used to be written to
+// knowledge.db as well, where nothing reads prompt atoms.
 func (i *Initializer) populateProjectAtoms(profile ProjectProfile) error {
-	if i.localDB == nil {
-		return fmt.Errorf("local database not initialized")
-	}
-
-	atomsToStore := i.buildProjectAtoms(profile)
-
+	atoms := i.buildProjectAtoms(profile)
 	i.mu.Lock()
-	i.projectAtoms = atomsToStore
+	i.projectAtoms = atoms
 	i.mu.Unlock()
-
-	storedCount := 0
-	for _, atom := range atomsToStore {
-		if err := i.localDB.StorePromptAtom(atom); err != nil {
-			// Log error but continue with other atoms
-			fmt.Printf("   ⚠ Failed to store atom %s: %v\n", atom.AtomID, err)
-		} else {
-			storedCount++
-		}
-	}
-
-	fmt.Printf("   ✓ Populated %d project-specific prompt atoms\n", storedCount)
+	fmt.Fprintf(i.output(), "   ✓ Built %d project-specific prompt atoms for the corpus\n", len(atoms))
 	return nil
 }
 
 // buildProjectAtoms creates project-specific prompt atoms based on detected
-// language, frameworks, and conventions. It performs no I/O so both the
-// knowledge.db write and the corpus.db ingestion see exactly the same atoms.
+// language, frameworks, and conventions. It performs no I/O.
 func (i *Initializer) buildProjectAtoms(profile ProjectProfile) []*store.PromptAtom {
 	var atomsToStore []*store.PromptAtom
 
@@ -714,8 +689,15 @@ func (i *Initializer) ingestProjectAtomsIntoCorpus(ctx context.Context, db *sql.
 	return ingested, nil
 }
 
-// initSessionState creates the initial session state file.
-func (i *Initializer) initSessionState(path string) error {
+// seedSessionState writes the initial session state when the workspace has
+// none, and reports whether it did. An existing session.json is never
+// replaced: it is the user's current or resumable session.
+func (i *Initializer) seedSessionState(path string) (bool, error) {
+	if _, err := os.Stat(path); err == nil {
+		return false, nil
+	} else if !os.IsNotExist(err) {
+		return false, fmt.Errorf("inspect session state: %w", err)
+	}
 	state := session.SessionState{
 		SessionID:    generateSessionID(),
 		StartedAt:    time.Now(),
@@ -728,7 +710,10 @@ func (i *Initializer) initSessionState(path string) error {
 	if workspace == "" {
 		workspace = filepath.Dir(filepath.Dir(path))
 	}
-	return session.SaveSessionState(workspace, &state)
+	if err := session.SaveSessionState(workspace, &state); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // LoadProjectProfile loads the project profile from .nerd/profile.json
@@ -785,142 +770,6 @@ func IsInitialized(workspace string) bool {
 		return true
 	}
 	return false
-}
-
-// createCodebaseKnowledgeBase creates a knowledge base with project-specific facts.
-func (i *Initializer) createCodebaseKnowledgeBase(_ context.Context, nerdDir string, profile ProjectProfile, scanResult *world.ScanResult) (string, int, error) {
-	kbPath := filepath.Join(nerdDir, "shards", "codebase_knowledge.db")
-
-	// Create the knowledge store
-	codebaseDB, err := store.NewLocalStore(kbPath)
-	if err != nil {
-		return "", 0, fmt.Errorf("failed to create codebase KB: %w", err)
-	}
-	if err := i.ensureEmbeddingEngine(); err != nil {
-		return "", 0, err
-	}
-	codebaseDB.SetEmbeddingEngine(i.embedEngine)
-	defer codebaseDB.Close()
-
-	atomCount := 0
-
-	// Store project identity
-	if err := codebaseDB.StoreKnowledgeAtom("project_identity", fmt.Sprintf(
-		"This is %s, a %s project. %s",
-		profile.Name, profile.Language, profile.Description), 1.0); err == nil {
-		atomCount++
-	}
-
-	// Store language and framework
-	if profile.Language != "" && profile.Language != "unknown" {
-		if err := codebaseDB.StoreKnowledgeAtom("primary_language", profile.Language, 1.0); err == nil {
-			atomCount++
-		}
-	}
-	if profile.Framework != "" && profile.Framework != "unknown" {
-		if err := codebaseDB.StoreKnowledgeAtom("framework", profile.Framework, 0.95); err == nil {
-			atomCount++
-		}
-	}
-
-	// Store file topology summary
-	if scanResult != nil {
-		summary := fmt.Sprintf("Project contains %d files in %d directories (%d test files).",
-			scanResult.FileCount, scanResult.DirectoryCount, scanResult.TestFileCount)
-		if err := codebaseDB.StoreKnowledgeAtom("file_topology_summary", summary, 0.9); err == nil {
-			atomCount++
-		}
-
-		// Store language breakdown
-		for lang, count := range scanResult.Languages {
-			content := fmt.Sprintf("Language %s: %d files", lang, count)
-			if err := codebaseDB.StoreKnowledgeAtom("language_stats", content, 0.85); err == nil {
-				atomCount++
-			}
-		}
-	}
-
-	// Store entry points
-	for _, entry := range profile.EntryPoints {
-		if err := codebaseDB.StoreKnowledgeAtom("entry_point", entry, 0.95); err == nil {
-			atomCount++
-		}
-	}
-
-	// Store dependencies
-	for _, dep := range profile.Dependencies {
-		content := fmt.Sprintf("Dependency: %s (%s)", dep.Name, dep.Type)
-		if err := codebaseDB.StoreKnowledgeAtom("dependency", content, 0.9); err == nil {
-			atomCount++
-		}
-	}
-
-	// Store architectural patterns
-	for _, pattern := range profile.Patterns {
-		if err := codebaseDB.StoreKnowledgeAtom("architectural_pattern", pattern, 0.85); err == nil {
-			atomCount++
-		}
-	}
-
-	return kbPath, atomCount, nil
-}
-
-// createCampaignKnowledgeBase creates a knowledge base for campaign orchestration.
-func (i *Initializer) createCampaignKnowledgeBase(_ context.Context, nerdDir string, profile ProjectProfile) (string, int, error) {
-	kbPath := filepath.Join(nerdDir, "shards", "campaign_knowledge.db")
-
-	campaignDB, err := store.NewLocalStore(kbPath)
-	if err != nil {
-		return "", 0, fmt.Errorf("failed to create campaign KB: %w", err)
-	}
-	if err := i.ensureEmbeddingEngine(); err != nil {
-		return "", 0, err
-	}
-	campaignDB.SetEmbeddingEngine(i.embedEngine)
-	defer campaignDB.Close()
-
-	atomCount := 0
-
-	// Campaign orchestration concepts
-	concepts := []struct{ Key, Value string }{
-		{"campaign_identity", "I am the Campaign orchestrator. I manage multi-phase development tasks."},
-		{"capability_planning", "I can break complex tasks into phases with dependencies."},
-		{"capability_delegation", "I can delegate tasks to specialized shards (Coder, Reviewer, Tester)."},
-		{"capability_checkpoints", "I validate phase completion before proceeding."},
-		{"capability_replanning", "I can replan when tasks fail or requirements change."},
-		{"phase_types", "Common phases: research, design, implement, test, review, integrate."},
-		{"safety_rule", "Failed checkpoints block phase advancement."},
-		{"safety_rule", "Critical security findings block campaign completion."},
-		{"learning_rule", "Successful patterns are promoted to long-term memory."},
-		{"learning_rule", "Repeated failures trigger strategy adjustment."},
-	}
-
-	for _, concept := range concepts {
-		if err := campaignDB.StoreKnowledgeAtom(concept.Key, concept.Value, 0.95); err == nil {
-			atomCount++
-		}
-	}
-
-	// Store project-specific campaign context
-	if err := campaignDB.StoreKnowledgeAtom("project_context",
-		fmt.Sprintf("Campaigns for %s (%s project)", profile.Name, profile.Language), 0.9); err == nil {
-		atomCount++
-	}
-
-	// Store build system info for execution
-	if profile.BuildSystem != "" {
-		if err := campaignDB.StoreKnowledgeAtom("build_system", profile.BuildSystem, 0.9); err == nil {
-			atomCount++
-		}
-	}
-
-	// Research campaign patterns - STUBBED (JIT refactor)
-	// Research is now handled on-demand via session.Executor with /researcher persona
-	if i.config.LLMClient != nil && !i.config.SkipResearch {
-		logging.Boot("Campaign research stubbed (JIT refactor) - using base atoms only")
-	}
-
-	return kbPath, atomCount, nil
 }
 
 // Helper functions
@@ -1026,10 +875,10 @@ func (i *Initializer) initializePromptDatabase(ctx context.Context, nerdDir stri
 		return fmt.Errorf("failed to ingest project prompt atoms: %w", err)
 	} else if ingested > 0 {
 		logging.Boot("Ingested %d project prompt atoms into corpus.db", ingested)
-		fmt.Printf("   ✓ Ingested %d project-specific atoms into the JIT corpus\n", ingested)
+		fmt.Fprintf(i.output(), "   ✓ Ingested %d project-specific atoms into the JIT corpus\n", ingested)
 	}
 
 	logging.Boot("Prompt corpus database initialized successfully")
-	fmt.Println("   ✓ Prompt corpus database ready")
+	fmt.Fprintln(i.output(), "   ✓ Prompt corpus database ready")
 	return nil
 }

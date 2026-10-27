@@ -4,16 +4,17 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import re
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
+from log_parser import parse_log_file
+from repo_paths import find_repo_root
 
-ROOT = Path(__file__).resolve().parents[4]
-PARSER = ROOT / ".codex" / "skills" / "log-analyzer" / "scripts" / "parse_log.py"
+
+ROOT = find_repo_root(__file__)
 
 CRITICAL = {
     "panic": re.compile(r"(?:^|\s)panic(?::|\s|$)", re.IGNORECASE),
@@ -30,17 +31,6 @@ RESOURCE = {
 STRESS_SIGNAL = re.compile(r"assault|stress|soak|race|campaign|kernel|derivation|mangle", re.IGNORECASE)
 
 
-def load_parser():
-    if not PARSER.exists():
-        raise FileNotFoundError(f"log parser not found: {PARSER}")
-    spec = importlib.util.spec_from_file_location("codenerd_log_parser", PARSER)
-    if spec is None or spec.loader is None:
-        raise RuntimeError("could not load log parser module")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 def parse_after(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -51,7 +41,6 @@ def parse_after(value: str | None) -> datetime | None:
 
 
 def analyze(logs_dir: Path, after: datetime | None, max_examples: int) -> dict:
-    parser = load_parser()
     files = sorted(logs_dir.glob("*.log")) if logs_dir.exists() else []
     levels: Counter[str] = Counter()
     categories: Counter[str] = Counter()
@@ -61,7 +50,7 @@ def analyze(logs_dir: Path, after: datetime | None, max_examples: int) -> dict:
     total = 0
     stress_events = 0
     for path in files:
-        for entry in parser.parse_log_file(str(path), after=after):
+        for entry in parse_log_file(path, after=after):
             total += 1
             levels[entry.level.lower()] += 1
             categories[entry.category] += 1
@@ -144,7 +133,7 @@ def markdown(report: dict) -> str:
         "",
         "## Interpretation",
         "",
-        "This receipt is a bounded signal summary. `NO_SIGNAL` means the available logs do not prove the target path was exercised. Use the log-analyzer skill for causal multi-category queries.",
+        "This receipt is a bounded signal summary. `NO_SIGNAL` means the available logs do not prove the target path was exercised. The bundled parser reads live logger formats with a time bound; verify subsystem causality against the run's commands and source logs.",
     ])
     return "\n".join(lines) + "\n"
 

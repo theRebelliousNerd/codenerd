@@ -4,6 +4,9 @@ package autopoiesis
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -395,7 +398,9 @@ func TestNewRuntimeRegistry(t *testing.T) {
 }
 
 func TestRuntimeRegistry_Register(t *testing.T) {
-	registry := NewRuntimeRegistry()
+	workspace := t.TempDir()
+	registry := NewRuntimeRegistry(workspace)
+	binaryPath, hash := writeRegistryBinaryFixture(t, workspace, "test_tool")
 
 	tool := &GeneratedTool{
 		Name:        "test_tool",
@@ -408,8 +413,8 @@ func TestRuntimeRegistry_Register(t *testing.T) {
 
 	compiled := &CompileResult{
 		Success:    true,
-		OutputPath: "/tmp/test_tool",
-		Hash:       "abc123",
+		OutputPath: binaryPath,
+		Hash:       hash,
 	}
 
 	handle, err := registry.Register(tool, compiled)
@@ -420,11 +425,14 @@ func TestRuntimeRegistry_Register(t *testing.T) {
 	if handle.Name != "test_tool" {
 		t.Errorf("Name = %q, want %q", handle.Name, "test_tool")
 	}
-	if handle.BinaryPath != "/tmp/test_tool" {
-		t.Errorf("BinaryPath = %q, want %q", handle.BinaryPath, "/tmp/test_tool")
+	if handle.BinaryPath != binaryPath {
+		t.Errorf("BinaryPath = %q, want %q", handle.BinaryPath, binaryPath)
 	}
-	if handle.Hash != "abc123" {
-		t.Errorf("Hash = %q, want %q", handle.Hash, "abc123")
+	if handle.Hash != hash {
+		t.Errorf("Hash = %q, want %q", handle.Hash, hash)
+	}
+	if handle.Workspace != workspace {
+		t.Errorf("Workspace = %q, want %q", handle.Workspace, workspace)
 	}
 	if handle.RegisteredAt.IsZero() {
 		t.Error("RegisteredAt should be set")
@@ -432,12 +440,16 @@ func TestRuntimeRegistry_Register(t *testing.T) {
 }
 
 func TestRuntimeRegistry_Get(t *testing.T) {
-	registry := NewRuntimeRegistry()
+	workspace := t.TempDir()
+	registry := NewRuntimeRegistry(workspace)
 
 	// Register a tool
 	tool := &GeneratedTool{Name: "existing_tool"}
-	compiled := &CompileResult{Success: true, OutputPath: "/tmp/existing"}
-	registry.Register(tool, compiled)
+	binaryPath, hash := writeRegistryBinaryFixture(t, workspace, "existing_tool")
+	compiled := &CompileResult{Success: true, OutputPath: binaryPath, Hash: hash}
+	if _, err := registry.Register(tool, compiled); err != nil {
+		t.Fatal(err)
+	}
 
 	// Get existing tool
 	handle, exists := registry.Get("existing_tool")
@@ -456,19 +468,49 @@ func TestRuntimeRegistry_Get(t *testing.T) {
 }
 
 func TestRuntimeRegistry_List(t *testing.T) {
-	registry := NewRuntimeRegistry()
+	workspace := t.TempDir()
+	registry := NewRuntimeRegistry(workspace)
 
 	// Register multiple tools
 	for i := range 3 {
-		tool := &GeneratedTool{Name: "tool_" + string(rune('a'+i))}
-		compiled := &CompileResult{Success: true}
-		registry.Register(tool, compiled)
+		name := "tool_" + string(rune('a'+i))
+		tool := &GeneratedTool{Name: name}
+		binaryPath, hash := writeRegistryBinaryFixture(t, workspace, name)
+		compiled := &CompileResult{Success: true, OutputPath: binaryPath, Hash: hash}
+		if _, err := registry.Register(tool, compiled); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	tools := registry.List()
 	if len(tools) != 3 {
 		t.Errorf("Expected 3 tools, got %d", len(tools))
 	}
+}
+
+func writeRegistryBinaryFixture(t *testing.T, workspace, name string) (string, string) {
+	t.Helper()
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiledDir := filepath.Join(workspace, "compiled")
+	if err := os.MkdirAll(compiledDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(compiledDir, name)
+	if runtime.GOOS == "windows" {
+		path += ".exe"
+	}
+	if err := os.WriteFile(path, data, 0700); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(data)
+	return path, hex.EncodeToString(digest[:])
 }
 
 // =============================================================================
@@ -519,7 +561,12 @@ func compileRuntimeTool(t *testing.T, source, name string) string {
 
 func registerRuntimeToolForLoop(t *testing.T, loop *OuroborosLoop, name, binaryPath string) {
 	t.Helper()
-	_, err := loop.registry.Register(
+	content, err := os.ReadFile(binaryPath)
+	if err != nil {
+		t.Fatalf("failed to read runtime test binary: %v", err)
+	}
+	digest := sha256.Sum256(content)
+	_, err = loop.registry.Register(
 		&GeneratedTool{
 			Name:        name,
 			Description: "runtime test tool",
@@ -528,7 +575,7 @@ func registerRuntimeToolForLoop(t *testing.T, loop *OuroborosLoop, name, binaryP
 		&CompileResult{
 			Success:    true,
 			OutputPath: binaryPath,
-			Hash:       "test-hash-" + name,
+			Hash:       hex.EncodeToString(digest[:]),
 		},
 	)
 	if err != nil {
@@ -644,8 +691,9 @@ func main() {
 	if err == nil {
 		t.Fatal("expected parse error for non-JSON-prefixed output")
 	}
-	if !strings.Contains(strings.ToLower(err.Error()), "parse") {
-		t.Fatalf("expected parse-related error, got: %v", err)
+	var syntaxErr *json.SyntaxError
+	if !strings.Contains(err.Error(), "invalid generated output envelope") || !errors.As(err, &syntaxErr) {
+		t.Fatalf("expected typed invalid-envelope syntax error, got: %v", err)
 	}
 }
 

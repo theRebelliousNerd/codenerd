@@ -419,52 +419,6 @@ func TestPrefetchNextTasks(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Area 8 - User Request Extremes - PruneIrrelevant memory spike testing QueryAll() when DB has 1,000,000 facts.
-// TODO: TEST_GAP: Area 9 - User Request Extremes - estimatePhaseTokens scaling linearly with no total bounds check logic blocking an overloaded phase activation.
-// TODO: TEST_GAP: Area 9 - Boundary Values - Zero tasks, Zero artifacts (empty phase) consuming exactly base token rate, scaled to 10,000 runs.
-func TestPruneIrrelevant(t *testing.T) {
-	kernel := &MockKernel{}
-	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
-
-	// Setup some facts to prune
-	kernel.Assert(core.Fact{Predicate: "dom_node", Args: []any{"div"}})
-	kernel.Assert(core.Fact{Predicate: "visible_text", Args: []any{"hello"}})
-	kernel.Assert(core.Fact{Predicate: "other_fact", Args: []any{"keep"}})
-
-	// Profile that does NOT require browser
-	profile := &ContextProfile{
-		ID:              "backend_profile",
-		RequiredSchemas: []string{"file_topology"},
-	}
-
-	err := cp.PruneIrrelevant(profile)
-	if err != nil {
-		t.Fatalf("PruneIrrelevant failed: %v", err)
-	}
-
-	// Verify suppression
-	domSuppressed := false
-	textSuppressed := false
-
-	for _, f := range kernel.Facts {
-		if f.Predicate == "activation" && fmt.Sprintf("%v", f.Args[1]) == "-200" {
-			if f.Args[0] == "dom_node" {
-				domSuppressed = true
-			}
-			if f.Args[0] == "visible_text" {
-				textSuppressed = true
-			}
-			if f.Args[0] == "other_fact" {
-				t.Error("Should not have suppressed other_fact")
-			}
-		}
-	}
-
-	if !domSuppressed || !textSuppressed {
-		t.Error("Expected browser predicates to be suppressed")
-	}
-}
-
 // -----------------------------------------------------------------------------
 // Marathon 23: Context Pager Gaps
 // -----------------------------------------------------------------------------
@@ -1283,7 +1237,6 @@ func (m *MockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt,
 
 // TODO: TEST_GAP: [Null/Undefined/Empty] Verify CompressPhase handles a nil kernel or llmClient gracefully by returning a clean error instead of panicking.
 // TODO: TEST_GAP: [Type Coercion] Verify PrefetchNextTasks behaves safely when passed a negative limit or extremely large limit (e.g., math.MaxInt32).
-// TODO: TEST_GAP: [State Conflicts] Verify PruneIrrelevant operates correctly when context profiles contain completely nil slices and the kernel returns 0 facts.
 // TODO: TEST_GAP: [User Request Extremes] Verify SetBudget properly clamps or handles 0 and negative values (-1) without corrupting phase and history reserves into negative integers.
 // TODO: TEST_GAP: [Type Coercion] Verify scopedDocsForPhase safely parses badly malformed facts from the kernel (e.g., missing expected argument types or incorrect argument counts) without panicking.
 // TODO: TEST_GAP: [Behavioral Edge Case] Verify ResetPhaseContext doesn't crash if it executes concurrently with phase activation resulting in a data race.

@@ -60,6 +60,11 @@ type CortexKernel struct {
 	// cross-domain rules can join them locally. Must be disjoint from owned.
 	sharedPredicates map[string]struct{}
 
+	// predicateConsumers stores narrow, explicit EDB copies in addition to
+	// each predicate's canonical owner. Unlike shared facts these copies go
+	// only to named consumers and cannot overlap shared predicates.
+	predicateConsumers map[string]map[string]struct{}
+
 	// derivationMap, when non-nil, narrows shared replication to the shards
 	// whose rules consume the predicate (plus the catch-all, which answers
 	// shared reads) and restricts unowned query fan-out to ShardsFor. Nil
@@ -110,11 +115,12 @@ type CortexKernel struct {
 // on their inner kernel and behavior matches pre-Track-D code exactly.
 func NewCortexKernel(cortexDomain string) *CortexKernel {
 	c := &CortexKernel{
-		shards:           make(map[string]*KernelShard),
-		predicateOwner:   make(map[string]string),
-		sharedPredicates: make(map[string]struct{}),
-		cortexDomain:     cortexDomain,
-		eventBus:         NewFactEventBus(),
+		shards:             make(map[string]*KernelShard),
+		predicateOwner:     make(map[string]string),
+		sharedPredicates:   make(map[string]struct{}),
+		predicateConsumers: make(map[string]map[string]struct{}),
+		cortexDomain:       cortexDomain,
+		eventBus:           NewFactEventBus(),
 	}
 	if features.IsPerShardFactsEnabled() {
 		c.factRouter = NewShardFactRouter()
@@ -136,6 +142,9 @@ func (c *CortexKernel) SetSharedPredicates(preds []string) error {
 		}
 		if owner, owned := c.predicateOwner[p]; owned {
 			return fmt.Errorf("[cortex] predicate '%s' cannot be shared: owned by '%s'", p, owner)
+		}
+		if _, routed := c.predicateConsumers[p]; routed {
+			return fmt.Errorf("[cortex] predicate '%s' cannot be shared: it has consumer replicas", p)
 		}
 		shared[p] = struct{}{}
 	}
@@ -206,11 +215,23 @@ func (c *CortexKernel) targetShards(predicate string) []*KernelShard {
 	dm := c.derivationMap
 	catchAll := c.cortexDomain
 	if !shared {
-		c.mu.RUnlock()
-		if s := c.routeToShard(predicate); s != nil {
-			return []*KernelShard{s}
+		owner := c.predicateOwner[bare]
+		if owner == "" {
+			owner = c.cortexDomain
 		}
-		return nil
+		wanted := map[string]struct{}{owner: {}}
+		for consumer := range c.predicateConsumers[bare] {
+			wanted[consumer] = struct{}{}
+		}
+		out := make([]*KernelShard, 0, len(wanted))
+		for domain := range wanted {
+			if shard, ok := c.shards[domain]; ok {
+				out = append(out, shard)
+			}
+		}
+		c.mu.RUnlock()
+		sort.Slice(out, func(i, j int) bool { return out[i].Domain() < out[j].Domain() })
+		return out
 	}
 	// Shared without a map: every shard (today's behaviour).
 	if dm == nil {
@@ -276,6 +297,8 @@ func (c *CortexKernel) SetFactRouter(r *ShardFactRouter) {
 	for _, s := range c.shards {
 		shards = append(shards, s)
 	}
+	owners, _, byDomain := runtimeRouteDomains(c)
+	consumerTargets := resolveConsumerTargets(c.predicateConsumers, owners, byDomain, c.cortexDomain)
 	c.mu.Unlock()
 	// Push to shards outside the cortex lock to avoid lock-order inversion
 	// with KernelShard.mu (which SetRouter takes).
@@ -294,6 +317,7 @@ func (c *CortexKernel) SetFactRouter(r *ShardFactRouter) {
 					"[cortex] SetFactRouter: re-register '%s' failed: %v", s.Domain(), err)
 			}
 		}
+		r.setConsumerTargets(consumerTargets)
 	}
 }
 
@@ -340,6 +364,11 @@ func (c *CortexKernel) RegisterShard(shard *KernelShard) error {
 			return fmt.Errorf("failed to register shard '%s' with fact router: %w", domain, err)
 		}
 		shard.SetRouter(router)
+		c.mu.RLock()
+		owners, _, byDomain := runtimeRouteDomains(c)
+		routes := copyConsumerRouteIndex(c.predicateConsumers)
+		c.mu.RUnlock()
+		router.setConsumerTargets(resolveConsumerTargets(routes, owners, byDomain, c.cortexDomain))
 	}
 
 	logging.Kernel("[cortex] registered shard '%s' (owned=%d predicates, router=%v)",

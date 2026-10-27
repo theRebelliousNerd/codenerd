@@ -131,7 +131,6 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_PartialPipelineFailure(t 
 	t.Log("Testing partial pipeline failure handling.")
 }
 
-
 // TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario1
 // Verifies boundary interaction scenario 1 to prevent cascading failures.
 func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario1(t *testing.T) {

@@ -4,12 +4,16 @@ package campaign
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
+	"codenerd/internal/types"
 )
 
 // SpecialistKnowledgeProvider retrieves relevant knowledge from specialist databases.
@@ -29,23 +33,21 @@ type KnowledgeAtom struct {
 	Specialist string  // Which specialist provided it
 }
 
-// LocalSpecialistKnowledgeProvider implements SpecialistKnowledgeProvider using local stores.
+// LocalSpecialistKnowledgeProvider implements SpecialistKnowledgeProvider using
+// the specialists' local stores. Semantic search embeds with each store's own
+// configured engine; the provider names no model of its own.
 type LocalSpecialistKnowledgeProvider struct {
-	workspace      string
-	embeddingModel string
+	workspace string
 }
 
 // NewLocalSpecialistKnowledgeProvider creates a provider for specialist knowledge.
 func NewLocalSpecialistKnowledgeProvider(workspace string) *LocalSpecialistKnowledgeProvider {
-	return &LocalSpecialistKnowledgeProvider{
-		workspace:      workspace,
-		embeddingModel: "nomic-embed-text:latest",
-	}
+	return &LocalSpecialistKnowledgeProvider{workspace: workspace}
 }
 
 // GetSpecialistPath returns the knowledge DB path for a specialist.
 func (p *LocalSpecialistKnowledgeProvider) GetSpecialistPath(specialistName string) string {
-	return filepath.Join(p.workspace, ".nerd", "agents", specialistName, "knowledge.db")
+	return types.AgentKnowledgeDBPath(filepath.Join(p.workspace, ".nerd"), specialistName)
 }
 
 // GetRelevantKnowledge retrieves knowledge atoms from a specialist's database.
@@ -56,12 +58,20 @@ func (p *LocalSpecialistKnowledgeProvider) GetRelevantKnowledge(ctx context.Cont
 
 	dbPath := p.GetSpecialistPath(specialistName)
 
-	// Try to open the specialist's knowledge store
+	// A specialist without a knowledge DB has no knowledge. Opening the path
+	// anyway would create an empty store under .nerd/agents for every
+	// specialist a task names (store.NewLocalStore creates what it opens).
+	if _, err := os.Stat(dbPath); err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("specialist %s knowledge DB: %w", specialistName, err)
+		}
+		logging.CampaignDebug("No knowledge DB for specialist %s", specialistName)
+		return nil, nil
+	}
+
 	localStore, err := store.NewLocalStore(dbPath)
 	if err != nil {
-		// Not an error if specialist doesn't have a knowledge DB yet
-		logging.CampaignDebug("No knowledge DB for specialist %s: %v", specialistName, err)
-		return nil, nil
+		return nil, fmt.Errorf("open specialist %s knowledge DB: %w", specialistName, err)
 	}
 	defer localStore.Close()
 
@@ -167,7 +177,10 @@ func (o *Orchestrator) buildTaskInputWithSpecialistKnowledge(ctx context.Context
 	// If we have a knowledge provider and a specialist, inject their knowledge
 	if o.specialistKnowledgeProvider != nil && specialist != "" {
 		atoms, err := o.specialistKnowledgeProvider.GetRelevantKnowledge(ctx, specialist, task.Description, 5)
-		if err == nil && len(atoms) > 0 {
+		if err != nil {
+			// Enrichment, not the task: the task runs without it, and says why.
+			logging.Get(logging.CategoryCampaign).Warn("Specialist %s knowledge unavailable for task %s: %v", specialist, task.ID, err)
+		} else if len(atoms) > 0 {
 			input += FormatSpecialistKnowledge(atoms)
 			logging.Campaign("Injected %d knowledge atoms from specialist %s into task %s", len(atoms), specialist, task.ID)
 		}

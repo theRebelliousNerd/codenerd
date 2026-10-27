@@ -26,12 +26,14 @@ type StreamParser struct {
 	escape             bool
 	completed          bool
 	lastDetectionIndex int
-	// Structural tracking for the pre-surface scan: depth counts braces
-	// outside strings so a "surface_response" mentioned inside reasoning text
-	// is not mistaken for the real top-level key.
-	depth    int
-	inString bool
-	strEsc   bool
+	// Structural tracking for the pre-surface scan: depth counts object braces
+	// outside strings, arrayDepth excludes array values, and topLevelExpectKey
+	// accepts surface_response only in a top-level object key position.
+	depth             int
+	arrayDepth        int
+	topLevelExpectKey bool
+	inString          bool
+	strEsc            bool
 }
 
 // NewStreamParser creates a new streaming parser.
@@ -142,42 +144,80 @@ loop:
 				p.inSurface = true
 				continue
 			}
-			// A candidate key: accept it only at envelope depth, followed
-			// by a colon. Anything quoted inside reasoning text fails the
-			// depth test and is skipped as a string instead.
-			if p.depth == 1 && strings.HasPrefix(data[i:], surfaceKeyMarker) {
-				rest := data[i+len(surfaceKeyMarker):]
-				trimmed := strings.TrimLeft(rest, " \t\r\n")
-				if strings.HasPrefix(trimmed, ":") {
+			// A key candidate was followed by another string without a colon.
+			// Treat the new string as ordinary input, even if it repeats the
+			// surface key, because the envelope is malformed at this point.
+			if p.markerFound {
+				p.markerFound = false
+				p.colonFound = false
+				p.inString = true
+				continue
+			}
+			// A provider can split anywhere, including inside this key or
+			// between the key, colon, whitespace, and value quote. Retain only
+			// an incomplete key prefix; once the marker is complete, the parser
+			// advances through the colon and whitespace in its normal state.
+			if p.depth == 1 && p.arrayDepth == 0 && p.topLevelExpectKey {
+				candidate := data[i:]
+				if len(candidate) < len(surfaceKeyMarker) && strings.HasPrefix(surfaceKeyMarker, candidate) {
+					end = i
+					break loop
+				}
+				if strings.HasPrefix(candidate, surfaceKeyMarker) {
+					p.topLevelExpectKey = false
 					p.markerFound = true
-					p.colonFound = true
-					// Skip past the marker; the colon is consumed logically
-					// by colonFound, and any whitespace/colon bytes ahead are
-					// inert to the structural scan.
 					i += len(surfaceKeyMarker) - 1
 					continue
 				}
+				p.topLevelExpectKey = false
 			}
+			// This is another complete string key/value. Skip it as ordinary
+			// JSON.
 			p.inString = true
 			continue
 		}
-		// Once the key matched, the value's opening quote must come before any
-		// structural byte. A comma or brace first means the value is not a
-		// string (a number, an object, a missing value) — release the match
-		// rather than streaming some later field's string as the surface.
+		// Track the bytes after a complete surface key across chunk calls.
+		// This keeps arbitrarily split whitespace linear: the key prefix is
+		// held only while incomplete, then each byte is consumed once.
 		if p.markerFound {
-			switch c {
-			case ',', '{', '}', '[', ']':
+			if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
+				continue
+			}
+			if !p.colonFound && c == ':' {
+				p.colonFound = true
+				continue
+			}
+			// The key is not followed by a string value, or the would-be
+			// surface value is a non-string JSON value.
+			if p.colonFound {
 				p.markerFound = false
 				p.colonFound = false
+			} else if c != ':' {
+				p.markerFound = false
 			}
 		}
 		switch c {
 		case '{':
+			if p.depth == 0 && p.arrayDepth == 0 {
+				p.topLevelExpectKey = true
+			}
 			p.depth++
 		case '}':
 			if p.depth > 0 {
 				p.depth--
+			}
+			if p.depth == 0 {
+				p.topLevelExpectKey = false
+			}
+		case '[':
+			p.arrayDepth++
+		case ']':
+			if p.arrayDepth > 0 {
+				p.arrayDepth--
+			}
+		case ',':
+			if p.depth == 1 && p.arrayDepth == 0 {
+				p.topLevelExpectKey = true
 			}
 		}
 	}

@@ -3,9 +3,9 @@ package core
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
+	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
 
@@ -62,15 +62,20 @@ func (v *VirtualStore) ExecuteGeneratedToolCall(ctx context.Context, request typ
 }
 
 func verifyGeneratedAuthorization(kernel Kernel, request types.GeneratedToolRequest) error {
+	auditAction := "generated authorization " + string(request.Action)
+	deny := func(err error, reason string) error {
+		logging.Audit().SafetyCheck(auditAction, false, reason)
+		return err
+	}
 	pending, err := kernel.Query("pending_action")
 	if err != nil {
-		return fmt.Errorf("generated authorization query: %w", err)
+		return deny(fmt.Errorf("generated authorization query: %w", err), "pending authorization query failed")
 	}
 	matched := false
 	for _, fact := range pending {
 		if len(fact.Args) == 5 && types.ExtractString(fact.Args[0]) == request.AuthorizationID &&
 			(types.ExtractString(fact.Args[1]) != string(request.Action) || types.ExtractString(fact.Args[2]) != request.Target || types.ExtractString(fact.Args[3]) != request.CanonicalArgs) {
-			return fmt.Errorf("conflicting pending generated authorization identity")
+			return deny(fmt.Errorf("conflicting pending generated authorization identity"), "pending authorization identity conflicted")
 		}
 		if len(fact.Args) == 5 && types.ExtractString(fact.Args[0]) == request.AuthorizationID &&
 			types.ExtractString(fact.Args[1]) == string(request.Action) && types.ExtractString(fact.Args[2]) == request.Target &&
@@ -79,20 +84,24 @@ func verifyGeneratedAuthorization(kernel Kernel, request types.GeneratedToolRequ
 		}
 	}
 	if !matched {
-		return fmt.Errorf("exact pending generated authorization unavailable")
+		return deny(fmt.Errorf("exact pending generated authorization unavailable"), "exact pending authorization unavailable")
 	}
-	query := fmt.Sprintf("permitted(%s, %s, %s)", request.Action, strconv.Quote(request.Target), strconv.Quote(request.CanonicalArgs))
+	// Keep target and payload out of the query audit record. The kernel derives
+	// permitted/3; this gate admits only the exact returned row for the pending
+	// target and canonical payload.
+	query := fmt.Sprintf("permitted(%s, Target, Payload)", request.Action)
 	permitted, err := kernel.Query(query)
 	if err != nil {
-		return fmt.Errorf("generated permission query: %w", err)
+		return deny(fmt.Errorf("generated permission query: %w", err), "permitted/3 query failed")
 	}
 	for _, fact := range permitted {
 		if len(fact.Args) == 3 && types.ExtractString(fact.Args[0]) == string(request.Action) &&
 			types.ExtractString(fact.Args[1]) == request.Target && types.ExtractString(fact.Args[2]) == request.CanonicalArgs {
+			logging.Audit().SafetyCheck(auditAction, true, "exact pending authorization and permitted/3 fact matched")
 			return nil
 		}
 	}
-	return fmt.Errorf("exact generated permission unavailable")
+	return deny(fmt.Errorf("exact generated permission unavailable"), "exact permitted/3 fact unavailable")
 }
 
 func (v *VirtualStore) RetryGeneratedToolFeedback(ctx context.Context, request types.GeneratedToolRequest) (types.GeneratedToolReceipt, error) {

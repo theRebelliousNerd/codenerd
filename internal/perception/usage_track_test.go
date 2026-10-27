@@ -168,8 +168,10 @@ func TestClients_WhenCompletionSucceeds_ShouldTrackUsageUnderCanonicalProvider(t
 			wantProvider: "anthropic",
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				_ = json.NewEncoder(w).Encode(map[string]any{
-					"content": []map[string]any{{"type": "text", "text": "hi"}},
-					"usage":   map[string]any{"input_tokens": 11, "output_tokens": 7},
+					"type":        "message",
+					"stop_reason": "end_turn",
+					"content":     []map[string]any{{"type": "text", "text": "hi"}},
+					"usage":       map[string]any{"input_tokens": 11, "output_tokens": 7},
 				})
 			},
 			call: func(ctx context.Context, baseURL string) error {
@@ -306,8 +308,8 @@ func TestStreamingClients_WhenStreamCompletes_ShouldTrackOnceWithFinalBilledToke
 				for _, d := range deltas {
 					fmt.Fprintf(w, "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":%q}}\n\n", d)
 				}
-				fmt.Fprint(w, "data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":7}}\n\n")
-				fmt.Fprint(w, "data: [DONE]\n\n")
+				fmt.Fprint(w, "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":7}}\n\n")
+				fmt.Fprint(w, "data: {\"type\":\"message_stop\"}\n\n")
 				if flusher != nil {
 					flusher.Flush()
 				}

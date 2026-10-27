@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -67,6 +68,209 @@ func TestMarkingAHitDoesNotRewriteTheCompilationThatFilledTheCache(t *testing.T)
 			"filled the cache; the caller still holding that result now believes " +
 			"its own compile was free")
 	}
+}
+
+func TestSetConfigInvalidatesCompiledPromptCache(t *testing.T) {
+	compiler := cacheProbeCompiler(t)
+	ctxFor := func() *CompilationContext { return NewCompilationContext().WithTokenBudget(10000, 1000) }
+
+	_, err := compiler.Compile(context.Background(), ctxFor())
+	require.NoError(t, err)
+	warm, err := compiler.Compile(context.Background(), ctxFor())
+	require.NoError(t, err)
+	require.True(t, warm.Stats.CacheHit)
+	require.Equal(t, int64(1), compiler.GetStats().TotalCompilations)
+
+	config := compiler.GetConfig()
+	config.VectorSearchWeight = 0.81
+	compiler.SetConfig(config)
+
+	updated, err := compiler.Compile(context.Background(), ctxFor())
+	require.NoError(t, err)
+	require.False(t, updated.Stats.CacheHit, "a config update must compile against the new settings")
+	require.Equal(t, int64(2), compiler.GetStats().TotalCompilations)
+
+	reused, err := compiler.Compile(context.Background(), ctxFor())
+	require.NoError(t, err)
+	require.True(t, reused.Stats.CacheHit, "the cache should be reusable within the new config generation")
+	require.Equal(t, int64(2), compiler.GetStats().TotalCompilations)
+}
+
+type configUpdateBarrierSearcher struct {
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (s *configUpdateBarrierSearcher) Search(ctx context.Context, _ string, _ int) ([]SearchResult, error) {
+	s.once.Do(func() { close(s.entered) })
+	select {
+	case <-s.release:
+		return []SearchResult{{AtomID: "context/slow", Score: 0.9}}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (s *configUpdateBarrierSearcher) EmbedQuery(context.Context, string) ([]float32, error) {
+	return []float32{1}, nil
+}
+
+func TestSetConfigDuringCompileKeepsOldGenerationOutOfNewCache(t *testing.T) {
+	atoms := []*PromptAtom{
+		{ID: "identity/coder", Category: CategoryIdentity, Content: "You are the Coder Shard.", Priority: 100, IsMandatory: true},
+		{ID: "safety/scope", Category: CategorySafety, Content: "Keep the change scoped.", Priority: 60, IsMandatory: true},
+		{ID: "context/slow", Category: CategoryContext, Content: "Slow semantic result.", Priority: 10},
+	}
+	for _, atom := range atoms {
+		atom.TokenCount = EstimateTokens(atom.Content)
+		atom.ContentHash = HashContent(atom.Content)
+	}
+	searcher := &configUpdateBarrierSearcher{entered: make(chan struct{}), release: make(chan struct{})}
+	config := DefaultCompilerConfig()
+	config.VectorSearchTimeout = time.Minute
+	compiler, err := NewJITPromptCompiler(
+		WithEmbeddedCorpus(NewEmbeddedCorpus(atoms)),
+		WithKernel(&mockKernel{facts: atomsToFacts(atoms)}),
+		WithVectorSearcher(searcher),
+		WithConfig(config),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = compiler.Close() })
+	t.Cleanup(func() {
+		select {
+		case <-searcher.release:
+		default:
+			close(searcher.release)
+		}
+	})
+	ctxFor := func() *CompilationContext {
+		return NewCompilationContext().WithTokenBudget(10000, 1000).WithSemanticQuery("slow semantic result", 5)
+	}
+
+	firstResult := make(chan error, 1)
+	go func() {
+		_, compileErr := compiler.Compile(context.Background(), ctxFor())
+		firstResult <- compileErr
+	}()
+	select {
+	case <-searcher.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("compile did not reach semantic search barrier")
+	}
+
+	updatedConfig := config
+	updatedConfig.VectorSearchWeight = 0.82
+	compiler.SetConfig(updatedConfig)
+	close(searcher.release)
+	require.NoError(t, <-firstResult)
+
+	updated, err := compiler.Compile(context.Background(), ctxFor())
+	require.NoError(t, err)
+	require.False(t, updated.Stats.CacheHit,
+		"a compile started under the old config generation repopulated the cache used by new settings")
+	require.Equal(t, int64(2), compiler.GetStats().TotalCompilations)
+}
+
+type configSnapshotBarrierKernel struct {
+	inner      KernelQuerier
+	entered    chan struct{}
+	release    chan struct{}
+	blockFirst atomic.Bool
+}
+
+func (k *configSnapshotBarrierKernel) Query(predicate string) ([]Fact, error) {
+	if k.blockFirst.CompareAndSwap(false, true) {
+		close(k.entered)
+		<-k.release
+	}
+	return k.inner.Query(predicate)
+}
+
+func (k *configSnapshotBarrierKernel) AssertBatch(facts []any) error {
+	return k.inner.AssertBatch(facts)
+}
+
+type vectorDeadlineSearcher struct {
+	deadlines chan time.Duration
+}
+
+func (s *vectorDeadlineSearcher) Search(ctx context.Context, _ string, _ int) ([]SearchResult, error) {
+	if deadline, ok := ctx.Deadline(); ok {
+		s.deadlines <- time.Until(deadline)
+	}
+	return []SearchResult{{AtomID: "context/slow", Score: 0.9}}, nil
+}
+
+func (s *vectorDeadlineSearcher) EmbedQuery(context.Context, string) ([]float32, error) {
+	return []float32{1}, nil
+}
+
+func TestSetConfigDoesNotChangeSelectorSettingsOfInFlightCompile(t *testing.T) {
+	atoms := []*PromptAtom{
+		{ID: "identity/coder", Category: CategoryIdentity, Content: "You are the Coder Shard.", Priority: 100, IsMandatory: true},
+		{ID: "safety/scope", Category: CategorySafety, Content: "Keep the change scoped.", Priority: 60, IsMandatory: true},
+		{ID: "context/slow", Category: CategoryContext, Content: "Slow semantic result.", Priority: 10},
+	}
+	for _, atom := range atoms {
+		atom.TokenCount = EstimateTokens(atom.Content)
+		atom.ContentHash = HashContent(atom.Content)
+	}
+	barrier := &configSnapshotBarrierKernel{
+		inner:   &mockKernel{facts: atomsToFacts(atoms)},
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	searcher := &vectorDeadlineSearcher{deadlines: make(chan time.Duration, 2)}
+	config := DefaultCompilerConfig()
+	config.VectorSearchTimeout = 30 * time.Second
+	compiler, err := NewJITPromptCompiler(
+		WithEmbeddedCorpus(NewEmbeddedCorpus(atoms)),
+		WithKernel(barrier),
+		WithVectorSearcher(searcher),
+		WithConfig(config),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = compiler.Close() })
+	t.Cleanup(func() {
+		select {
+		case <-barrier.release:
+		default:
+			close(barrier.release)
+		}
+	})
+	ctxFor := func() *CompilationContext {
+		return NewCompilationContext().WithTokenBudget(10000, 1000).WithSemanticQuery("slow semantic result", 5)
+	}
+
+	firstResult := make(chan error, 1)
+	go func() {
+		_, compileErr := compiler.Compile(context.Background(), ctxFor())
+		firstResult <- compileErr
+	}()
+	select {
+	case <-barrier.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("compile did not reach dynamic snapshot barrier")
+	}
+
+	updatedConfig := config
+	updatedConfig.VectorSearchTimeout = 2 * time.Minute
+	updatedConfig.VectorSearchWeight = 0.82
+	compiler.SetConfig(updatedConfig)
+	close(barrier.release)
+	require.NoError(t, <-firstResult)
+
+	oldTimeout := <-searcher.deadlines
+	require.Greater(t, oldTimeout, 0*time.Second)
+	require.Less(t, oldTimeout, time.Minute,
+		"the in-flight compile observed the vector timeout from the later configuration")
+
+	_, err = compiler.Compile(context.Background(), ctxFor())
+	require.NoError(t, err)
+	newTimeout := <-searcher.deadlines
+	require.Greater(t, newTimeout, time.Minute,
+		"a compile started after SetConfig did not use the new vector timeout")
 }
 
 func cacheProbeCompiler(t *testing.T) *JITPromptCompiler {
@@ -295,4 +499,105 @@ func TestACallerEditingItsResultCannotReachTheCache(t *testing.T) {
 		t.Errorf("the cached prompt changed after a consumer edited its copy:\n got %d bytes\nwant %d bytes",
 			len(second.Prompt), len(original))
 	}
+}
+
+// GetLastResult is the TUI's prompt-inspector path. A cache miss currently
+// stores one result pointer in both the LRU and lastResult, so returning that
+// pointer lets an observer rewrite the prompt that a later cache hit serves.
+func TestGetLastResultCannotMutateCachedPrompt(t *testing.T) {
+	compiler := cacheProbeCompiler(t)
+	ctxFor := func() *CompilationContext { return NewCompilationContext().WithTokenBudget(10000, 1000) }
+
+	first, err := compiler.Compile(context.Background(), ctxFor())
+	require.NoError(t, err)
+	original := first.Prompt
+	require.NotEmpty(t, original)
+
+	observed := compiler.GetLastResult()
+	require.NotNil(t, observed)
+	observed.Prompt += "\n\nREWRITTEN THROUGH THE PROMPT INSPECTOR"
+	require.NotEmpty(t, observed.IncludedAtoms)
+	require.NotEmpty(t, observed.Manifest.Selected)
+	expectedAtomContent := observed.IncludedAtoms[0].Content
+	expectedCategoryTokens := observed.CategoryTokens[observed.IncludedAtoms[0].Category]
+	expectedManifestID := observed.Manifest.Selected[0].ID
+	expectedTokensUsed := observed.Stats.TokensUsed
+	observed.IncludedAtoms[0].Content = "REWRITTEN ATOM CONTENT"
+	observed.CategoryTokens[observed.IncludedAtoms[0].Category] = -1
+	observed.Manifest.Selected[0].ID = "rewritten/manifest"
+	observed.Stats.TokensUsed = -1
+
+	second, err := compiler.Compile(context.Background(), ctxFor())
+	require.NoError(t, err)
+	require.True(t, second.Stats.CacheHit, "the same context should reuse its cached compile")
+	require.Equal(t, original, second.Prompt,
+		"GetLastResult exposed the cached result; an observer's edit changed the prompt served to a later caller")
+	require.Equal(t, expectedAtomContent, second.IncludedAtoms[0].Content,
+		"GetLastResult exposed the cached atom graph")
+	require.Equal(t, expectedCategoryTokens, second.CategoryTokens[second.IncludedAtoms[0].Category],
+		"GetLastResult exposed the cached category map")
+	require.Equal(t, expectedManifestID, second.Manifest.Selected[0].ID,
+		"GetLastResult exposed the cached manifest")
+	require.Equal(t, expectedTokensUsed, second.Stats.TokensUsed,
+		"GetLastResult exposed cached statistics")
+}
+
+func TestClonePromptAtomCopiesEveryMutableSlice(t *testing.T) {
+	atom := &PromptAtom{
+		OperationalModes: []string{"/active"}, CampaignPhases: []string{"/planning"},
+		BuildLayers: []string{"/service"}, InitPhases: []string{"/analysis"},
+		NorthstarPhases: []string{"/vision"}, OuroborosStages: []string{"/testing"},
+		IntentVerbs: []string{"/fix"}, ShardTypes: []string{"/coder"},
+		Languages: []string{"/go"}, Frameworks: []string{"/gin"},
+		Models: []string{"/gpt_4o"}, Providers: []string{"/openai"},
+		WorldStates: []string{"failing_tests"}, DependsOn: []string{"identity/base"},
+		ConflictsWith: []string{"methodology/unsafe"}, RequiresTools: []string{"read_file"},
+		Embedding: []float32{0.25, 0.75},
+	}
+	clone := clonePromptAtom(atom)
+
+	clone.OperationalModes[0] = "changed"
+	clone.CampaignPhases[0] = "changed"
+	clone.BuildLayers[0] = "changed"
+	clone.InitPhases[0] = "changed"
+	clone.NorthstarPhases[0] = "changed"
+	clone.OuroborosStages[0] = "changed"
+	clone.IntentVerbs[0] = "changed"
+	clone.ShardTypes[0] = "changed"
+	clone.Languages[0] = "changed"
+	clone.Frameworks[0] = "changed"
+	clone.Models[0] = "changed"
+	clone.Providers[0] = "changed"
+	clone.WorldStates[0] = "changed"
+	clone.DependsOn[0] = "changed"
+	clone.ConflictsWith[0] = "changed"
+	clone.RequiresTools[0] = "changed"
+	clone.Embedding[0] = -1
+
+	for _, values := range [][]string{
+		atom.OperationalModes, atom.CampaignPhases, atom.BuildLayers, atom.InitPhases,
+		atom.NorthstarPhases, atom.OuroborosStages, atom.IntentVerbs, atom.ShardTypes,
+		atom.Languages, atom.Frameworks, atom.Models, atom.Providers, atom.WorldStates,
+		atom.DependsOn, atom.ConflictsWith, atom.RequiresTools,
+	} {
+		require.NotEqual(t, "changed", values[0], "cloned atom slice aliases the source")
+	}
+	require.Equal(t, float32(0.25), atom.Embedding[0], "cloned embedding aliases the source")
+}
+
+func TestSelectorUsesCompilerPinnedVectorWeight(t *testing.T) {
+	selector := NewAtomSelector()
+	selector.SetVectorWeight(0.9)
+	cc := NewCompilationContext()
+	cc.selectorVectorConfig = &selectorVectorConfig{weight: 0.25}
+
+	selected := selector.fallbackFleshSelection(
+		[]*PromptAtom{{ID: "context/a", Category: CategoryContext}},
+		map[string]float64{"context/a": 0.2},
+		cc,
+		nil,
+	)
+	require.Len(t, selected, 1)
+	require.InDelta(t, 0.8, selected[0].Combined, 1e-9,
+		"the compile's pinned weight must win over a later selector update")
 }

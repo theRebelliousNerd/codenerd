@@ -165,3 +165,55 @@ Two design points worth keeping:
 
 All three hydrate `mcpctl.RegisterAll`, so the control-plane verbs are inside
 the gates rather than beside them.
+
+## 9. Sharded remote-authority placement contract
+
+`GAP-MCP-AUTHORITY-COLOCATION` in
+[`03-GAP-ANALYSIS.md`](03-GAP-ANALYSIS.md) closes the production sharded-query
+boundary. `mcp_remote_permitted` is an IDB decision over request, review,
+operation, resource/prompt registration, tool/server metadata, status, risk,
+name, and schema evidence (`internal/core/defaults/policy/policy_mcp.mg:111`).
+When those EDB inputs live in another shard, the policy consumer must receive
+an exact bounded mirror of these fourteen base predicates: `mcp_tool_registered/3`,
+`mcp_tool_risk/2`, `mcp_tool_risk_source/2`, `mcp_server_status/2`,
+`mcp_tool_name/2`, `mcp_tool_schema_hash/2`, `mcp_server_registered/4`,
+`mcp_remote_request/13`, `mcp_remote_reviewed/5`,
+`mcp_remote_operation/2`, `mcp_remote_resource/4`,
+`mcp_resource_registered/2`, `mcp_remote_prompt/4`, and
+`mcp_prompt_registered/2`. The canonical owner remains authoritative; copies
+exist only at the policy consumer, and per-call plus metadata removal retracts
+both copies. `pending_action/5` and `permitted/3` already belong to policy.
+`mcp_remote_permitted` and its other derived `mcp_remote_*` authority facts
+remain IDB results and must be derived again there. No derived authority fact is
+part of the mirror allowlist. Missing, stale, denied, or conflicting evidence
+must not become an allow.
+
+The runtime now installs these exact bounded routes from the shard manifest and
+uses the same routes in derivation placement (`internal/shards/registration.go:265-275,418-437`,
+`internal/system/factory.go:1311-1314,1545`,
+`internal/core/derivation_map.go:843-884`). Canonical ownership is preserved;
+`TestRegisterAllShardFactories` pins the 14-row allowlist and owners
+(`internal/shards/registration_manifest_test.go:59-100`). The production
+sharded `TestRemoteAuthority_ProductionShardsAuthorizeEffectAndRevokeRemovedMetadata`
+proves the policy copy participates in authorization and becomes unavailable
+after metadata removal (`internal/mcp/remote_authority_test.go:145-192`), while
+`TestShardJoin_EveryRuleCanFireOnTheShardedKernel` checks MCP authority rules
+are derived only on the policy shard (`internal/shards/shard_join_audit_test.go:128-170`).
+Focused mutation-routing, production integration, and shard-join gates passed;
+the fleet aggregate remains pending.
+
+## 10. Resource and prompt catalog generation contract
+
+`GAP-MCP-CATALOG-GENERATION` in [`03-GAP-ANALYSIS.md`](03-GAP-ANALYSIS.md)
+governs the freshness of `mcp_remote_resource/4`,
+`mcp_resource_registered/2`, `mcp_remote_prompt/4`, and
+`mcp_prompt_registered/2`. Preserve tool, resource, and prompt manager/EDB/
+control-plane catalogs on disconnect so they remain available for offline
+reasoning; the disconnected server status continues to fail closed for remote
+execution. Only a successfully established new connection generation
+invalidates and retracts the exact resource/prompt groups and control-plane
+cache, before the manager publishes that connection as connected. Generation
+fences must reject stale discovery responses and cache fills, and fresh
+rediscovery may publish only facts from the current connection. Tool catalog
+cache behavior remains intact, and these catalog rules do not change host-side
+exact-authorization checks for resource reads or prompt calls.

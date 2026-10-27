@@ -1,114 +1,89 @@
 # init INTERNALS — how the cold-start pipeline decides and stores
 
-Companion to README.md (what init creates) and WIRING-AND-NOT-BUILT.md
-(what is wired vs. dead). Everything below is read from the phase functions
-and helpers cited; behaviors whose wiring is partial or absent are named in
-the companion file, not here.
+Companion to README.md. Everything below is read from the code it cites.
 
-## 1. Detection: profile first, everything else follows
+## 1. Orientation first, and only what changed
 
-The scan (phase 2, `runPhase2Scanning`, `internal/init/initializer.go:790`)
-feeds `ProjectProfile` (`internal/init/initializer.go:130`, with per-module
-breakdown in `ModuleProfile`, `:167`, and `DependencyInfo`, `:187`), which
-carries `Language`, `Framework`, and `Dependencies`. Dependency names come
-from lockfile parsers in `internal/init/scanner_dependencies.go` (go.sum,
-yarn/pnpm, cargo, pipfile/poetry, package-lock/package.json — each pinned by
-its `TestParse*` case in `internal/init/init_coverage_test.go`). Every later
-decision — which agents, which tools, which facts — reads the profile, never
-the raw tree.
+`runOrientation` (`internal/init/phase_orient.go:130`) measures the repository
+(`orient.Measure`), keeps the engine for every later phase, and asks the
+planner what each read-candidate document is. A document whose body is
+byte-identical to the last orientation (`oriented_document` digests in the
+previous `snapshot.json`) keeps its role claims and is not sent again.
+`deriveNorthStar` (`:261`) drafts the north star from the brief unless a
+vision is stored and every oriented document is unchanged, then loads the
+vision of record (drafted now, earlier, or written by the user) into
+`orientedVision`. Derive prompts compile for the planner via
+`northstar.PhasePromptFor`.
 
-## 2. Agent recommendation is a fixed switch table
+## 2. The roster is derived in Mangle, from evidence
 
-`determineRequiredAgents` (`internal/init/agents.go:380`) appends agents by
-three exact matches:
+Phase 6 (`integrateEcosystem`, `internal/init/phase_ecosystem.go:131`)
+asserts profile signals (language, framework, dependencies, `/tests` when the
+scan found test files) into the orientation engine, reads the stack roster,
+then asks the planner for domain experts (`proposeDomainExperts`,
+`internal/init/domain_experts.go:115`). The request carries the north star,
+the oriented documents with their roles, the measured stack and the roster so
+far; the reply is validated strictly: PascalCase names, a mission, a why
+citing `north_star` or an oriented document path, bounded topics, failure
+modes and research questions. Valid experts become `vision_agent*` facts that
+`internal/orient/vision_agents.mg` merges into `orient_agent*`. The proposal
+and its request digest are kept in `.nerd/orientation/domain_experts.json`;
+an unchanged request reuses it.
 
-- **Language** (`:384`): go→`GoExpert`, python→`PythonExpert`,
-  typescript/javascript→`TSExpert`, rust→`RustExpert`, kotlin→`AndroidExpert`.
-- **Framework** (`:443`): gin/echo/fiber→`WebAPIExpert`,
-  react/nextjs/vue→`FrontendExpert`.
-- **Dependency names** (`:467`): rod→`RodExpert`,
-  chromedp/puppeteer/playwright→`BrowserAutomationExpert`, mangle→`MangleExpert`,
-  openai/anthropic→`LLMIntegrationExpert`, bubbletea→`BubbleTeaExpert`,
-  cobra→`CobraExpert`, gorm/sqlx/sql/prisma/typeorm→`DatabaseExpert`,
-  arangodb→`ArangoExpert`, adk→`ADKExpert`, a2a→`A2AExpert`. The `sql` match is
-  a literal dependency name, not SQL detection in general (`:548`).
+`internal/orient/ecosystem_agents.mg` keeps SecurityAuditor and TestArchitect
+when the north star supports them (`vision_core_support`) or the scan does
+(a security surface: request-serving frameworks, data stores, browser
+automation, credentials libraries; tests on disk). Imported subagents and
+modes are bounded by `orient_imported_agent_max`, most recently maintained
+first. Names that fold to the same letters are one agent
+(`agentNameResolver`, `phase_ecosystem.go:389`). Recorded rejections from an
+earlier interactive selection are honored on non-interactive runs.
 
-If nothing matched, two generic agents are added (`SecurityAuditor`,
-`TestArchitect`) — and only then (`:599`). Finally every agent gets
-`Tools`/`ToolPreferences` from `GetToolsForAgentType`
-(`internal/init/agents.go:625`, switch in `internal/init/tools.go:452`).
+Bounds are `orient_param` rows with defaults in `vision_agents.mg`
+(`orient_domain_agent_max` 6, `orient_domain_agent_topic_max` 8,
+`orient_imported_agent_max` 8, `orient_research_stale_days` 30); a
+`config_param` of the same key overrides once `config.OrientConfig` carries it.
 
-## 3. Curation happens in phase 6, before any KB is built
+## 3. Agent knowledge bases
 
-`runPhase6AnalyzeAgents` (`internal/init/initializer.go:881`) runs three
-steps in order (`:885`): recommend, `mergeTypeUAgents`
-(`internal/init/agents_curation.go:30`) — a `--define-agent` name that
-collides with a detected agent **replaces** it (`:43`) because both would
-fight over one KB file — then `curateAgents` (`:71`), then records the result
-(`:897`). Curation prompts only when the run opted into `Interactive` **and**
-a real terminal is present (`resolveInteractiveConfig`,
-`internal/init/agents_curation.go:143`; both stdin and stdout must be
-character devices, `stdioIsTerminal`, `:174`). Anything else — non-interactive
-runs, no TTY, read failure, empty selection, a saved auto-accept — degrades
-to the recommended set with a warning, never a failed init (`:72`, `:97`).
-Kept/rejected names persist to `preferences.json` (`persistAgentSelection`,
-`:115`) so a later `--force` run honors the same choices.
+`createType3Agents` (`internal/init/agents.go:426`) builds each agent on a
+bounded worker pool (`createAgent`, `:504`):
 
-## 4. One agent KB holds three layers
+1. Corpus knowledge from winning imported sources (paragraphs, whole).
+2. Stack topics through Context7 (`createAgentKnowledgeBase`,
+   `internal/init/agents_knowledge.go:34`): no pass deadline (each fetch has
+   `research.context7_timeout`), covered topics skipped on upgrade, and a
+   topic two agents share is fetched once per run.
+3. A vision expert's research questions by grounded web search on the main
+   client (`researchDomainQuestions`, `internal/init/domain_research.go:90`).
+   An answer with no source is not stored. Atoms carry `Question:`,
+   `Sources:` and `Retrieved:`; a fast-moving answer older than the
+   staleness bound is researched again and replaced only once a grounded
+   answer is in hand.
 
-`createAgentKnowledgeBase` (`internal/init/agents_knowledge.go:33`):
+`prompts.yaml` is generated on the planner when absent (on every run, so a
+failed earlier attempt is retried) and never replaces a curated file.
 
-1. **Inheritance** (fresh KBs only): copies the shared pool via
-   `InheritSharedKnowledge`, and a failed inherit only logs (`:60`).
-   Hashes are re-fetched after inheriting so shared atoms dedup correctly
-   (`:67`). Upgrade mode instead loads existing atoms for dedup
-   (`buildAtomHashSet`, `:54`).
-2. **Base atoms** from `generateBaseKnowledgeAtoms` (`:76`), appended with
-   content-hash dedup (`appendKnowledgeAtom`, `:78`).
-3. **Research** unless `--skip-research`: every topic runs through
-   `context7_fetch` on a throwaway tool registry with a 2-minute deadline,
-   results over 100 chars are chunked into atoms by `parseResearchResult`
-   (`:95`). Research failures log and continue per topic (`:109`).
+## 4. Strategic knowledge is replaced, not appended
 
-`QualityScore`/`QualityRating` are atom-count thresholds explicitly labeled a
-"legacy population proxy" (`:132`); `SkipResearch` forces the bottom bucket
-(`:143`).
+`PersistStrategicKnowledge` (`internal/init/strategic_knowledge.go:144`)
+owns the `strategic/*` concepts except `strategic/source/*`: an identical set
+is left alone, a changed one replaces the old, empty values and "unknown" are
+not knowledge. `syncStrategicSources` keeps `strategic/source/<path>` equal to
+the current read set without re-embedding unchanged documents.
+`/refresh-docs` extracts only new or changed admitted documents (all with
+`--force`), retires the atoms of a changed or no-longer-admitted document,
+and stores nothing for a reply that is not the requested JSON.
 
-Agents are built concurrently by a worker pool in `createAgentsParallel`
-(`internal/init/agents.go:797`); existing registry entries are reused
-(`loadExistingAgentRegistry`, `:637`), results are registered with the shard
-manager (`registerAgentsWithShardManager`,
-`internal/init/agents_registration.go:42`), and the registry is saved
-(`saveAgentRegistry`, `:73`).
+## 5. Tools
 
-## 5. Prompts prefer curated LLM content, fall back to static
-
-`generateAgentPromptsYAMLWithContext` (`internal/init/agents.go:78`) tries
-LLM-generated methodology/domain content first (`:106`, `:115`, via
-`generateAgentAtomContent`, `:299`), validates the YAML
-(`validatePromptsYAML`, `:130`), and on any failure rebuilds from the static
-template (`staticMethodologyContent`/`staticDomainContent`, `:132`) — so a nil
-or hostile LLM still yields a parseable file. Generation honors the provider
-and parent-context deadlines, and curated prompts survive even when no
-knowledge DB exists (both pinned in
-`internal/init/agent_generation_contract_test.go:29,69`).
-
-## 6. The shared pool is base atoms only, by removal of research
-
-`CreateSharedKnowledgePool` (`internal/init/shared_kb.go:105`) stores exactly
-`BaseSharedAtoms` (`:128`) — shared principles, reusable agent configs,
-prompting strategies. `SharedKnowledgeTopics` (`:18`) names what *would* be
-researched, but each topic is only logged for a future JIT pass (`:136`).
-Research lives in per-agent KB creation (section 4), not here.
-
-## 7. The static tool catalog is language + framework only
-
-Phase 10 (`runPhase10Tools`, `internal/init/initializer.go:1047`) passes
-`GenerateToolsForProject` just the language plus the framework when known
-(`:1051`) and saves the result to `tools/available_tools.json` (`:1056`).
-The `ToolDefinition` shape (`IsMCPTool` in `internal/init/tools.go:43`)
-supports dependency- and framework-specific entries, but on this path the
-dependency list never arrives — see WIRING-AND-NOT-BUILT.md.
+Phase 7e (`selectProjectTools`, `internal/init/project_tools.go:82`) reads the
+commands the repository declares (root Makefile targets, package.json scripts
+with the lockfile's runner) and asks the planner which an agent should run;
+only declared commands are accepted. Phase 10 writes language tools for every
+measured language (primary and per-module) plus those project tools; phase 11
+limits agent tool grants to that set, because boot refuses an agent naming an
+unregistered tool.
 
 ---
-Verified 2026-09-21 against commit `34634770970153e78c1e250fdab7abd888dcce6f`.
+Verified 2026-10-27 against the working tree.

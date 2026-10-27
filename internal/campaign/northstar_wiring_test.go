@@ -42,16 +42,3 @@ func TestWireIntelligenceComponents_NilObserverKeepsGateClosed(t *testing.T) {
 		t.Error("a config with no observer produced a non-nil observer; the risk gate would pass while nothing is guarding")
 	}
 }
-
-// SetNorthstarObserver is the other way in. It must reach the same field the
-// risk gate reads, or wiring through it silently does nothing.
-func TestSetNorthstarObserver_ReachesTheFieldTheRiskGateReads(t *testing.T) {
-	observer := northstar.NewCampaignObserver(nil)
-
-	o := &Orchestrator{}
-	o.SetNorthstarObserver(observer)
-
-	if o.configuredNorthstarObserver != observer {
-		t.Error("SetNorthstarObserver did not set configuredNorthstarObserver, which is the field risk_scoring.go checks")
-	}
-}

@@ -276,3 +276,19 @@ also propagate through Mangle dependency prohibition. Clean-parent first-read
 fidelity is separately pinned by `internal/core/kernel_clone_snapshot_test.go:8`.
 This is component acceptance, not proof of every prompt source or production
 model workflow.
+
+
+## Required contract: Compiler configuration cache freshness
+
+SetConfig must invalidate compiled output selected or rendered using the previous compiler configuration before the next Compile. Configuration updates must remain synchronized with compilation.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-PROMPT-CONFIG-CACHE | Compiler configuration cache freshness | `SetConfig` advances the config revision and invalidates cached prompts; `Compile` captures config and selector settings together and includes the revision in its cache key (`internal/prompt/compiler_db.go:277-302`; `internal/prompt/compiler.go:693-700`, `:742-755`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Warm a deterministic selection, change vector weighting through SetConfig, then same-context compilation misses cache and reflects current selection; unchanged configuration normal cache hits still work. |
+
+**Verified current:** `TestSetConfigInvalidatesCompiledPromptCache`, `TestSetConfigDuringCompileKeepsOldGenerationOutOfNewCache`, `TestSetConfigDoesNotChangeSelectorSettingsOfInFlightCompile`, `TestGetLastResultCannotMutateCachedPrompt`, and `TestSelectorUsesCompilerPinnedVectorWeight` (`internal/prompt/compiler_cachehit_test.go:73`, `:119`, `:209`, `:507`, `:588`) pass in the focused and broader related suites, including the focused race run. The complete `internal/prompt` package also passes; broader corpus verification remains pending.
+
+
+## G6 acceptance: caller-owned observed compilation results
+
+Every CompilationResult escaping compiler observability APIs, including GetLastResult, must be caller-owned: mutating prompt text or mutable nested fields must not change the compiler cache or another result. Regression acceptance warms the cache, mutates the observed result, and verifies the next same-context cache hit preserves the original output. This strengthens G6 cached-result ownership without weakening cache correctness.

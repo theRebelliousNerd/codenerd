@@ -40,18 +40,66 @@ import (
 // ShardFactRouter maps predicate names to the shard that owns them.
 // It is safe for concurrent use after construction.
 type ShardFactRouter struct {
-	mu        sync.RWMutex
-	owners    map[string]*KernelShard // bare predicate name -> owning shard
-	hitCount  int64                   // routed to a specific owner
-	missCount int64                   // no owner found
-	loopCount int64                   // routed back to the calling shard (no-op)
+	mu              sync.RWMutex
+	owners          map[string]*KernelShard   // bare predicate name -> owning shard
+	consumerTargets map[string][]*KernelShard // explicit canonical owner + consumer copies
+	hitCount        int64
+	missCount       int64
+	loopCount       int64
 }
 
 // NewShardFactRouter returns a router with no owners registered.
 func NewShardFactRouter() *ShardFactRouter {
 	return &ShardFactRouter{
-		owners: make(map[string]*KernelShard),
+		owners:          make(map[string]*KernelShard),
+		consumerTargets: make(map[string][]*KernelShard),
 	}
+}
+
+// setConsumerTargets installs exact mutation recipients for predicates with
+// bounded replicas. Each slice includes the canonical owner first, followed
+// by the named consumers. Query routing remains owner-only.
+func (r *ShardFactRouter) setConsumerTargets(targets map[string][]*KernelShard) {
+	copied := make(map[string][]*KernelShard, len(targets))
+	for predicate, shards := range targets {
+		if len(shards) == 0 {
+			continue
+		}
+		copied[predicate] = append([]*KernelShard(nil), shards...)
+	}
+	r.mu.Lock()
+	r.consumerTargets = copied
+	r.mu.Unlock()
+}
+
+func (r *ShardFactRouter) hasConsumerRoute(predicate string) bool {
+	bare := barePredicate(predicate)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.consumerTargets[bare]) > 1
+}
+
+func (r *ShardFactRouter) mutationTargets(caller *KernelShard, predicate string) []*KernelShard {
+	bare := barePredicate(predicate)
+	r.mu.RLock()
+	if targets := r.consumerTargets[bare]; len(targets) > 0 {
+		out := append([]*KernelShard(nil), targets...)
+		r.mu.RUnlock()
+		if len(out) > 0 {
+			if out[0] == caller {
+				atomic.AddInt64(&r.loopCount, 1)
+			} else {
+				atomic.AddInt64(&r.hitCount, 1)
+			}
+			return out
+		}
+	}
+	r.mu.RUnlock()
+	owner := r.Route(caller, predicate)
+	if owner == nil || owner == caller {
+		return []*KernelShard{caller}
+	}
+	return []*KernelShard{owner}
 }
 
 // RegisterOwner records that the given shard is the authoritative owner of
@@ -126,14 +174,12 @@ func (r *ShardFactRouter) Route(caller *KernelShard, predicate string) *KernelSh
 // `caller` is the shard whose Assert was called; it is passed so we can
 // avoid re-entry when the caller IS the owner.
 func (r *ShardFactRouter) AssertVia(caller *KernelShard, fact types.Fact) error {
-	owner := r.Route(caller, fact.Predicate)
-	if owner == nil || owner == caller {
-		// No remote owner or owner is the caller itself — local store.
-		return caller.assertLocal(fact)
+	for _, target := range r.mutationTargets(caller, fact.Predicate) {
+		if err := target.assertLocal(fact); err != nil {
+			return fmt.Errorf("[shard-router] Assert into '%s' failed: %w", target.Domain(), err)
+		}
 	}
-	logging.KernelDebug("[shard-router] Assert routed %s '%s' -> '%s'",
-		fact.Predicate, caller.Domain(), owner.Domain())
-	return owner.assertLocal(fact)
+	return nil
 }
 
 // QueryVia routes a Query through the router. If a different shard owns the
@@ -158,12 +204,9 @@ func (r *ShardFactRouter) AssertBatchVia(caller *KernelShard, facts []types.Fact
 	}
 	batches := make(map[*KernelShard][]types.Fact, 2)
 	for _, f := range facts {
-		owner := r.Route(caller, f.Predicate)
-		if owner == nil {
-			batches[caller] = append(batches[caller], f)
-			continue
+		for _, target := range r.mutationTargets(caller, f.Predicate) {
+			batches[target] = append(batches[target], f)
 		}
-		batches[owner] = append(batches[owner], f)
 	}
 	for shard, batch := range batches {
 		if err := shard.assertBatchLocal(batch); err != nil {
@@ -176,20 +219,22 @@ func (r *ShardFactRouter) AssertBatchVia(caller *KernelShard, facts []types.Fact
 
 // RetractVia routes a Retract(predicate) call to the predicate's owner.
 func (r *ShardFactRouter) RetractVia(caller *KernelShard, predicate string) error {
-	owner := r.Route(caller, predicate)
-	if owner == nil || owner == caller {
-		return caller.retractLocal(predicate)
+	for _, target := range r.mutationTargets(caller, predicate) {
+		if err := target.retractLocal(predicate); err != nil {
+			return fmt.Errorf("[shard-router] Retract from '%s' failed: %w", target.Domain(), err)
+		}
 	}
-	return owner.retractLocal(predicate)
+	return nil
 }
 
 // RetractFactVia routes a RetractFact(fact) call to the predicate's owner.
 func (r *ShardFactRouter) RetractFactVia(caller *KernelShard, fact types.Fact) error {
-	owner := r.Route(caller, fact.Predicate)
-	if owner == nil || owner == caller {
-		return caller.retractFactLocal(fact)
+	for _, target := range r.mutationTargets(caller, fact.Predicate) {
+		if err := target.retractFactLocal(fact); err != nil {
+			return fmt.Errorf("[shard-router] RetractFact from '%s' failed: %w", target.Domain(), err)
+		}
 	}
-	return owner.retractFactLocal(fact)
+	return nil
 }
 
 // Metrics returns observability counters for the router.

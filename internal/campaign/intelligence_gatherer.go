@@ -661,11 +661,3 @@ func (g *IntelligenceGatherer) detectArchitectureHints(topology map[string]FileI
 func (g *IntelligenceGatherer) boundSystem(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, g.config.PerSystemTimeout)
 }
-
-// truncateField truncates a string to maxLen for safe context injection.
-func truncateField(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
-}

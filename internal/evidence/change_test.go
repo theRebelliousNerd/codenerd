@@ -2,8 +2,12 @@ package evidence
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -43,7 +47,7 @@ func TestChangeCarriesExecutedRevisionBoundEvidence(t *testing.T) {
 		t.Fatalf("missing evidence: %+v", r)
 	}
 	for _, w := range r.Witnesses {
-		if w.Snapshot != r.After || w.Toolchain == "" || w.OutputHash == "" {
+		if w.Snapshot != r.After || w.Toolchain == "" || w.ExecutableSHA256 == "" || w.ExecutableSHA256 != w.ExecutableAfterSHA256 || w.ExecutableSHA256 != r.Baseline[0].ExecutableSHA256 || w.OutputHash == "" {
 			t.Fatalf("incomplete witness: %+v", w)
 		}
 	}
@@ -72,6 +76,115 @@ func TestChangeCarriesExecutedRevisionBoundEvidence(t *testing.T) {
 	}
 	if weakened := tx.Verify(ctx); weakened.Status == "verified" {
 		t.Fatal("weakened acceptance accepted")
+	}
+}
+
+func TestVerify_RejectsReplacedGoExecutableWithSameVersionAndEnvironment(t *testing.T) {
+	root, c := fixture(t)
+	realGo, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shimDir := t.TempDir()
+	shimSource := `package main
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+)
+
+var mode string
+const realGo = @REAL_GO@
+
+func main() {
+	args := os.Args[1:]
+	if len(args) == 0 {
+		os.Exit(2)
+	}
+	switch args[0] {
+	case "version":
+		fmt.Println("go version go1.99.0 test-shim")
+		return
+	case "env":
+		fmt.Println(` + "`" + `{"GOGCCFLAGS":""}` + "`" + `)
+		return
+	case "test":
+		if mode == "fake" {
+			name := ""
+			for i, arg := range args {
+				if arg == "-run" && i+1 < len(args) {
+					name = strings.Trim(args[i+1], "^$")
+					break
+				}
+			}
+			fmt.Printf("{\"Action\":\"pass\",\"Test\":%q}\n", name)
+			fmt.Println(` + "`" + `{"Action":"pass"}` + "`" + `)
+			return
+		}
+	}
+	cmd := exec.Command(realGo, args...)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	err := cmd.Run()
+	if err == nil {
+		return
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		os.Exit(exitErr.ExitCode())
+	}
+	fmt.Fprintln(os.Stderr, err)
+	os.Exit(1)
+}
+`
+	shimSource = strings.Replace(shimSource, "@REAL_GO@", fmt.Sprintf("%q", realGo), 1)
+	sourcePath := filepath.Join(shimDir, "main.go")
+	if err := os.WriteFile(sourcePath, []byte(shimSource), 0600); err != nil {
+		t.Fatal(err)
+	}
+	goName := "go"
+	if runtime.GOOS == "windows" {
+		goName += ".exe"
+	}
+	buildShim := func(mode string) string {
+		t.Helper()
+		path := filepath.Join(shimDir, mode, goName)
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command(realGo, "build", "-o", path, "-ldflags", "-X=main.mode="+mode, sourcePath)
+		cmd.Dir = shimDir
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("build %s go shim: %v\n%s", mode, err, output)
+		}
+		return path
+	}
+	baselineShim := buildShim("real")
+	fakeShim := buildShim("fake")
+	t.Setenv("PATH", filepath.Dir(baselineShim)+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	tx, err := Begin(t.Context(), root, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "add.go"), []byte("package fixture\nfunc Add(a,b int) int { return a+b }\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fake, err := os.ReadFile(fakeShim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tx.goPath, fake, 0700); err != nil {
+		t.Fatal(err)
+	}
+	got := tx.Verify(t.Context())
+	if got.Status == "verified" {
+		t.Fatal("replacement Go executable synthesized passing test evidence")
+	}
+	if len(got.Witnesses) != len(got.Baseline) || got.Witnesses[0].ExecutableSHA256 == got.Baseline[0].ExecutableSHA256 {
+		t.Fatalf("report did not bind the replacement executable identity: %+v", got)
 	}
 }
 

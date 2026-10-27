@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -293,8 +295,8 @@ func TestDouble(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ProcessWithIntent: %v", err)
 		}
-		if !strings.Contains(prompt, "main.go:3-5") {
-			t.Fatalf("the round must hand the model the unexecuted lines by the path it wrote; prompt:\n%s", prompt)
+		if !coverageBlockWithin(prompt, "main.go", 3, 5) {
+			t.Fatalf("the round must hand the model the unexecuted lines by the path it wrote (main.go, inside lines 3-5); prompt:\n%s", prompt)
 		}
 		if len(result.UncoveredBlocks) != 0 {
 			t.Fatalf("after the model's test the changed code must be executed, still unexecuted: %+v", result.UncoveredBlocks)
@@ -492,4 +494,21 @@ func TestVetRound_ARepairThatBreaksTheTestsIsUndone(t *testing.T) {
 	if data, readErr := os.ReadFile(mainPath); readErr != nil || string(data) != code {
 		t.Fatalf("main.go must be as the round found it, got %q (%v)", data, readErr)
 	}
+}
+
+// coverageBlockWithin reports whether prompt names an unexecuted block of file,
+// by the workspace-relative path the model wrote, lying inside lines lo..hi.
+// Where a block starts is the toolchain's choice (Go 1.27 starts it at the
+// first statement, earlier releases at the function's opening line), so the
+// check is containment, not an exact range.
+func coverageBlockWithin(prompt, file string, lo, hi int) bool {
+	re := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(file) + `:(\d+)-(\d+) `)
+	for _, m := range re.FindAllStringSubmatch(prompt, -1) {
+		start, _ := strconv.Atoi(m[1])
+		end, _ := strconv.Atoi(m[2])
+		if start >= lo && end <= hi && start <= end {
+			return true
+		}
+	}
+	return false
 }

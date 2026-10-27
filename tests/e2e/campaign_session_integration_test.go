@@ -108,14 +108,14 @@ func setupCampaignEnvironment(t *testing.T) (*campaign.Orchestrator, *campaignMo
 	workspace := t.TempDir()
 
 	orchCfg := campaign.OrchestratorConfig{
-		Workspace:    workspace,
-		Kernel:       kernel,
-		LLMClient:    llm,
-		Transducer:   trans,
-		Executor:     tactile.NewDirectExecutor(),
-		VirtualStore: &core.VirtualStore{},
-		ShardManager: coreshards.NewShardManager(),
-		TaskExecutor: taskExec,
+		Workspace:         workspace,
+		Kernel:            kernel,
+		LLMClient:         llm,
+		PlanningLLMClient: llm,
+		Executor:          tactile.NewDirectExecutor(),
+		VirtualStore:      &core.VirtualStore{},
+		ShardManager:      coreshards.NewShardManager(),
+		TaskExecutor:      taskExec,
 		// One retry after the first attempt: two attempts.
 		Campaign:        nerdconfig.CampaignConfig{MaxParallelTasks: 3, MaxTaskAttempts: 2},
 		CampaignTimeout: 5 * time.Minute,

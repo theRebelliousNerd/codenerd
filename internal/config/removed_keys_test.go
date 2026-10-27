@@ -33,7 +33,7 @@ func TestLoadUserConfig_RejectsRemovedDiffEvalKey(t *testing.T) {
 // features block still loads.
 func TestLoadUserConfig_AcceptsLiveFeatureKeys(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(path, []byte(`{"provider":"gemini","features":{"provenance":true}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"provider":"gemini","model":"gemini-9-flash","features":{"provenance":true}}`), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -152,7 +152,7 @@ func TestLoadUserConfig_RejectsRemovedLoggingJSONFormatKey(t *testing.T) {
 		}
 	}
 
-	cfg, err := LoadUserConfig(writeCoreLimitsTestConfig(t, `{"provider":"gemini","logging": {"format": "json"}}`))
+	cfg, err := LoadUserConfig(writeCoreLimitsTestConfig(t, `{"provider":"gemini","model":"gemini-9-flash","logging": {"format": "json"}}`))
 	if err != nil {
 		t.Fatalf("a config with the live logging.format key was refused: %v", err)
 	}

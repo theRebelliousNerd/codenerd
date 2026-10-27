@@ -472,7 +472,7 @@ func TestRepairLoop_GiveUpRecord(t *testing.T) {
 	allowCfg := &jitconfig.EffectiveAgentRuntimeConfig{AllowedTools: []string{"write_file", "read_file", "edit_file"}}
 	// A repair runs inside the turn's working loop, as every production
 	// verification does: its rounds are the working policy's to end.
-	ctx, closeLoop, loopErr := executor.beginWorkingLoop(context.Background(), "fix the tests", &prompt.CompilationContext{ShardID: "probe"})
+	ctx, closeLoop, loopErr := executor.beginWorkingLoop(context.Background(), nil, "fix the tests", &prompt.CompilationContext{ShardID: "probe"})
 	if loopErr != nil {
 		t.Fatalf("beginWorkingLoop: %v", loopErr)
 	}

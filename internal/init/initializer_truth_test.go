@@ -9,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/embedding"
+	"codenerd/internal/perception"
 )
 
 func TestCreateMangleTemplatesPreservesUserContent(t *testing.T) {
@@ -63,25 +65,77 @@ func TestCreateDirectoryStructurePreservesUserGitignore(t *testing.T) {
 
 func TestInitTimeoutBoundsOneModelRequest(t *testing.T) {
 	parent := context.Background()
-	initializer := &Initializer{config: InitConfig{Timeout: 2 * time.Second}}
+	initializer := &Initializer{config: InitConfig{Timeout: 2 * time.Second, LLMClient: &MockLLMClient{}}}
 	for range 2 {
-		_, err := initializer.withJITPrompt(parent, "orientation", "fixture", nil, func(ctx context.Context, _ string) (string, error) {
-			deadline, ok := ctx.Deadline()
-			if !ok {
-				t.Fatal("model request has no deadline")
-			}
-			remaining := time.Until(deadline)
-			if remaining <= 0 || remaining > 2*time.Second {
-				t.Fatalf("request deadline remaining = %s, want (0s, 2s]", remaining)
-			}
-			return "ok", nil
-		}, "compiled fixture guidance")
+		_, err := initializer.withJITPrompt(parent, initCall{slot: slotPlanner, phase: "document_roles", task: "fixture", system: "compiled fixture guidance"},
+			func(ctx context.Context, _ perception.LLMClient, _ string) (string, error) {
+				deadline, ok := ctx.Deadline()
+				if !ok {
+					t.Fatal("model request has no deadline")
+				}
+				remaining := time.Until(deadline)
+				if remaining <= 0 || remaining > 2*time.Second {
+					t.Fatalf("request deadline remaining = %s, want (0s, 2s]", remaining)
+				}
+				return "ok", nil
+			})
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
 	if _, hasDeadline := parent.Deadline(); hasDeadline {
 		t.Fatal("request deadline leaked into the initialization context")
+	}
+}
+
+// TestZeroTimeoutReadsConfiguredPerCallTimeout covers the callers' contract:
+// neither the chat /init nor `nerd init` sets InitConfig.Timeout, so the
+// configured llm_timeouts.per_call_timeout, as installed when the request is
+// made, is what bounds each model request; a non-positive configured value
+// adds no clock of its own.
+func TestZeroTimeoutReadsConfiguredPerCallTimeout(t *testing.T) {
+	saved := config.GetLLMTimeouts()
+	t.Cleanup(func() { config.SetLLMTimeouts(saved) })
+
+	tests := []struct {
+		name        string
+		perCall     time.Duration
+		wantBound   time.Duration
+		wantNoClock bool
+	}{
+		{name: "configured value bounds the request", perCall: 90 * time.Second, wantBound: 90 * time.Second},
+		{name: "a larger configured value is honored, not the old 10m hardcode", perCall: 45 * time.Minute, wantBound: 45 * time.Minute},
+		{name: "non-positive configured value adds no clock", perCall: 0, wantNoClock: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			timeouts := saved
+			timeouts.PerCallTimeout = tt.perCall
+			config.SetLLMTimeouts(timeouts)
+
+			initializer := &Initializer{config: InitConfig{LLMClient: &MockLLMClient{}}}
+			_, err := initializer.withJITPrompt(context.Background(), initCall{slot: slotMain, phase: "kb_agent", task: "fixture", system: "guidance"},
+				func(ctx context.Context, _ perception.LLMClient, _ string) (string, error) {
+					deadline, ok := ctx.Deadline()
+					if tt.wantNoClock {
+						if ok {
+							t.Fatalf("request has a deadline %s away; a non-positive per_call_timeout adds none", time.Until(deadline))
+						}
+						return "ok", nil
+					}
+					if !ok {
+						t.Fatal("model request has no deadline")
+					}
+					remaining := time.Until(deadline)
+					if remaining <= 0 || remaining > tt.wantBound || remaining < tt.wantBound-5*time.Second {
+						t.Fatalf("request deadline remaining = %s, want about %s", remaining, tt.wantBound)
+					}
+					return "ok", nil
+				})
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
@@ -117,22 +171,11 @@ func TestEnsureEmbeddingEngineRejectsCorruptWorkspaceConfig(t *testing.T) {
 }
 
 func TestWithJITPromptRecordsProviderFailure(t *testing.T) {
-	initializer := &Initializer{
-		config: InitConfig{LLMClient: &MockLLMClient{}},
-		llmMetrics: InitLLMMetrics{
-			Provider: "test-provider",
-			Model:    "test-model",
-		},
-	}
+	initializer := &Initializer{config: InitConfig{LLMClient: &identifiedClient{provider: "test-provider", model: "test-model"}}}
 	wantErr := errors.New("provider unavailable")
 
-	_, gotErr := initializer.withJITPrompt(
-		context.Background(),
-		"analysis",
-		"test metrics",
-		nil,
-		func(context.Context, string) (string, error) { return "", wantErr },
-	)
+	_, gotErr := initializer.withJITPrompt(context.Background(), initCall{slot: slotMain, phase: "analysis", task: "test metrics"},
+		func(context.Context, perception.LLMClient, string) (string, error) { return "", wantErr })
 	if !errors.Is(gotErr, wantErr) {
 		t.Fatalf("withJITPrompt() error = %v, want %v", gotErr, wantErr)
 	}
@@ -144,21 +187,30 @@ func TestWithJITPromptRecordsProviderFailure(t *testing.T) {
 	if metrics.LastError != wantErr.Error() {
 		t.Fatalf("LastError = %q, want %q", metrics.LastError, wantErr)
 	}
-	if got := formatLLMIdentity(metrics); got != "test-provider/test-model" {
-		t.Fatalf("formatLLMIdentity() = %q", got)
+	if len(metrics.Clients) != 1 || metrics.Clients[0].Identity() != "test-provider/test-model" || metrics.Clients[0].Slot != "main" {
+		t.Fatalf("Clients = %+v, want one main row for test-provider/test-model", metrics.Clients)
+	}
+	if warnings := degradedEnrichmentWarnings(metrics); len(warnings) != 1 || !strings.Contains(warnings[0], "main client (test-provider/test-model)") {
+		t.Fatalf("degraded warnings = %v, want one naming the main client", warnings)
 	}
 }
 
 func TestRecordLLMCallIsConcurrentAndInternallyConsistent(t *testing.T) {
 	initializer := &Initializer{}
+	main := llmRoute{slot: slotMain}
+	planner := llmRoute{slot: slotPlanner}
 	const calls = 100
 	done := make(chan struct{}, calls)
 	for n := 0; n < calls; n++ {
 		go func(n int) {
+			route := main
+			if n%4 == 0 {
+				route = planner
+			}
 			if n%2 == 0 {
-				initializer.recordLLMCall(nil)
+				initializer.recordLLMCall(route, "phase", nil)
 			} else {
-				initializer.recordLLMCall(errors.New("failed"))
+				initializer.recordLLMCall(route, "phase", errors.New("failed"))
 			}
 			done <- struct{}{}
 		}(n)
@@ -170,6 +222,13 @@ func TestRecordLLMCallIsConcurrentAndInternallyConsistent(t *testing.T) {
 	metrics := initializer.snapshotLLMMetrics()
 	if metrics.Attempts != calls || metrics.Succeeded != calls/2 || metrics.Failed != calls/2 {
 		t.Fatalf("metrics = %+v, want %d attempts split evenly", metrics, calls)
+	}
+	total := 0
+	for _, row := range metrics.Clients {
+		total += row.Attempts
+	}
+	if total != calls || len(metrics.Clients) != 2 {
+		t.Fatalf("client rows = %+v, want two rows summing to %d", metrics.Clients, calls)
 	}
 }
 
@@ -190,10 +249,12 @@ func TestRecordValidationOutcomeAffectsRequiredFailures(t *testing.T) {
 		name    string
 		summary *ValidationSummary
 		err     error
+		created int
 		failed  bool
 	}{
 		{name: "valid", summary: &ValidationSummary{TotalDBs: 3, ValidDBs: 3, OverallValid: true}},
-		{name: "zero databases", summary: &ValidationSummary{OverallValid: true}, failed: true},
+		{name: "zero databases and no agents created", summary: &ValidationSummary{OverallValid: true}},
+		{name: "zero databases for created agents", summary: &ValidationSummary{OverallValid: true}, created: 2, failed: true},
 		{name: "invalid", summary: &ValidationSummary{TotalDBs: 3, InvalidDBs: 1}, failed: true},
 		{name: "nil summary", failed: true},
 		{name: "validator error", err: errors.New("read failed"), failed: true},
@@ -201,7 +262,7 @@ func TestRecordValidationOutcomeAffectsRequiredFailures(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := &InitResult{}
+			result := &InitResult{CreatedAgents: make([]CreatedAgent, tt.created)}
 			recordValidationOutcome(result, tt.summary, tt.err)
 			if got := len(result.Failures) > 0; got != tt.failed {
 				t.Fatalf("has failure = %t, want %t; failures=%v", got, tt.failed, result.Failures)

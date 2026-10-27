@@ -3,6 +3,7 @@
 package diff
 
 import (
+	"hash/maphash"
 	"strings"
 	"time"
 
@@ -116,8 +117,9 @@ type Engine struct {
 // Two independent 64-bit hashes plus both content lengths, rather than one hash
 // per side: a single FNV-1a collision would serve one file's hunks as another
 // file's diff, and the caller has no way to notice. Widening the key is free
-// (both hashes come from one pass over the content) and drops the collision
-// probability to the point where it stops being a correctness argument.
+// and drops the collision probability to the point where it stops being a
+// correctness argument. The secondary hash uses a process-local maphash seed;
+// keys never leave the in-memory cache.
 type cacheKey struct {
 	oldHash      uint64
 	oldHash2     uint64
@@ -135,25 +137,20 @@ type contentFingerprint struct {
 	length    int
 }
 
-// fingerprint hashes s twice in one pass: FNV-1a and a differently seeded
-// FNV-1a variant that also mixes position, so inputs that collide under one are
-// overwhelmingly unlikely to collide under both.
+// secondaryFingerprintSeed makes the second cache hash independent of the
+// deterministic FNV-1a primary. Cache keys are process-local, so the seed and
+// resulting secondary values do not need to be persisted or stable across runs.
+var secondaryFingerprintSeed = maphash.MakeSeed()
+
+// fingerprint hashes s with the stable FNV-1a primary and a process-seeded
+// maphash secondary. The maphash implementation handles large byte strings
+// more efficiently than the custom per-byte secondary recurrence it replaces.
 func fingerprint(s string) contentFingerprint {
-	const (
-		offset64  = 14695981039346656037
-		prime64   = 1099511628211
-		offsetAlt = 1469598103934665603
-		primeAlt  = 31
-	)
-	h1 := uint64(offset64)
-	h2 := uint64(offsetAlt)
-	for i := 0; i < len(s); i++ {
-		c := uint64(s[i])
-		h1 ^= c
-		h1 *= prime64
-		h2 = (h2+c+uint64(i))*primeAlt ^ (h2 >> 29)
+	return contentFingerprint{
+		primary:   hash(s),
+		secondary: maphash.String(secondaryFingerprintSeed, s),
+		length:    len(s),
 	}
-	return contentFingerprint{primary: h1, secondary: h2, length: len(s)}
 }
 
 // Options tunes an Engine. The zero value is valid and selects the defaults

@@ -145,10 +145,10 @@ type fakeGrounding struct {
 	urls          []string
 }
 
-func (f *fakeGrounding) SetEnableWebSearch(v bool)      { f.searchEnabled = v }
+func (f *fakeGrounding) SetEnableWebSearch(v bool)         { f.searchEnabled = v }
 func (f *fakeGrounding) SetEnableURLContext(v bool)        { f.urlContext = v }
 func (f *fakeGrounding) SetURLContextURLs(u []string)      { f.urls = u }
-func (f *fakeGrounding) IsWebSearchEnabled() bool       { return f.searchEnabled }
+func (f *fakeGrounding) IsWebSearchEnabled() bool          { return f.searchEnabled }
 func (f *fakeGrounding) IsURLContextEnabled() bool         { return f.urlContext }
 func (f *fakeGrounding) GetLastGroundingSources() []string { return f.urls }
 

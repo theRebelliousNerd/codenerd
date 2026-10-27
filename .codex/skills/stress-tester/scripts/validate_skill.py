@@ -7,12 +7,17 @@ import argparse
 import json
 import re
 from pathlib import Path
+from pathlib import PurePosixPath, PureWindowsPath
+import tomllib
+
+from repo_paths import find_repo_root
 
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = find_repo_root(__file__)
 SKILL = ROOT / ".codex" / "skills" / "stress-tester" / "SKILL.md"
 REGISTRY = SKILL.parent / "references" / "profile-registry.json"
 AGENT = ROOT / ".codex" / "agents" / "stress-tester.toml"
+DISCOVERABLE_SKILL = ROOT / ".agents" / "skills" / "stress-tester" / "SKILL.md"
 
 
 def validate() -> dict:
@@ -20,18 +25,21 @@ def validate() -> dict:
     warnings: list[str] = []
     required = [
         SKILL,
+        DISCOVERABLE_SKILL,
         SKILL.parent / "AGENTS.md",
         REGISTRY,
         SKILL.parent / "scripts" / "preflight.py",
         SKILL.parent / "scripts" / "run_suite.py",
         SKILL.parent / "scripts" / "analyze_stress_logs.py",
+        SKILL.parent / "scripts" / "log_parser.py",
+        SKILL.parent / "scripts" / "repo_paths.py",
         SKILL.parent / "scripts" / "assert_receipt.py",
         SKILL.parent / "scripts" / "verify_adversarial.py",
+        SKILL.parent / "assets" / "mangle-adversarial" / "expected-stages.json",
         SKILL.parent / "references" / "artifact-contract.md",
         SKILL.parent / "references" / "testing-strategy.md",
         SKILL.parent / "references" / "workflows" / "README.md",
         SKILL.parent / "agents" / "openai.yaml",
-        ROOT / ".codex" / "skills" / "log-analyzer" / "scripts" / "parse_log.py",
     ]
     for path in required:
         if not path.exists():
@@ -50,6 +58,16 @@ def validate() -> dict:
     for banned in (".claude/skills/stress-tester", "/tmp/stress", "799 predicates"):
         if banned in skill_text:
             errors.append(f"active SKILL.md contains stale literal: {banned}")
+
+    discoverable_text = DISCOVERABLE_SKILL.read_text(encoding="utf-8") if DISCOVERABLE_SKILL.exists() else ""
+    if ".codex/skills/stress-tester/scripts/" not in discoverable_text:
+        errors.append(".agents stress-tester entry does not point to the native .codex control plane")
+    for stale in (".claude/skills/log-analyzer", "rm .nerd/logs/*", "C:/CodeProjects/codeNERD"):
+        if stale in discoverable_text:
+            errors.append(f".agents stress-tester entry contains unsupported or unsafe procedure: {stale}")
+    for reference in re.findall(r"\]\((references/[^)]+)\)", discoverable_text):
+        if not (DISCOVERABLE_SKILL.parent / reference).is_file():
+            errors.append(f".agents stress-tester reference does not resolve: {reference}")
 
     try:
         registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
@@ -81,6 +99,26 @@ def validate() -> dict:
             if any(re.search(r"[;&|><]", part) for part in command):
                 errors.append(f"profile {name} contains shell metacharacters")
 
+    for name in ("build", "smoke"):
+        profile = profiles.get(name, {})
+        production_builds = [
+            command for command in profile.get("commands", [])
+            if command[:2] == ["go", "build"] and "./cmd/nerd" in command
+        ]
+        if not production_builds:
+            errors.append(f"profile {name} has no current CLI build")
+        elif not any(_has_sqlite_vec_tag(command) for command in production_builds):
+            errors.append(f"profile {name} must build ./cmd/nerd with -tags sqlite_vec")
+
+    adversarial = profiles.get("adversarial", {})
+    if not any(
+        command and command[0] == "python"
+        and any(part.endswith("verify_adversarial.py") for part in command)
+        and "--execute" in command
+        for command in adversarial.get("commands", [])
+    ):
+        errors.append("adversarial profile must execute the production checker build")
+
     for script in (SKILL.parent / "scripts").glob("*.py"):
         try:
             compile(script.read_text(encoding="utf-8"), str(script), "exec")
@@ -90,10 +128,28 @@ def validate() -> dict:
     agent_text = AGENT.read_text(encoding="utf-8") if AGENT.exists() else ""
     if not AGENT.exists():
         errors.append("missing .codex/agents/stress-tester.toml")
-    if 'path = "C:/CodeProjects/codeNERD/.codex/skills/stress-tester"' not in agent_text:
-        errors.append("stress-tester agent is not attached to the upgraded .codex skill")
-    if 'path = "C:/CodeProjects/codeNERD/.codex/skills/log-analyzer"' not in agent_text:
-        errors.append("stress-tester agent is not attached to the native Codex log-analyzer skill")
+    try:
+        agent = tomllib.loads(agent_text) if agent_text else {}
+    except tomllib.TOMLDecodeError as exc:
+        errors.append(f"invalid stress-tester agent TOML: {exc}")
+        agent = {}
+    attachments = agent.get("skills", {}).get("config", [])
+    attached_paths: set[str] = set()
+    for attachment in attachments:
+        raw_path = attachment.get("path") if isinstance(attachment, dict) else None
+        if not isinstance(raw_path, str) or not raw_path:
+            errors.append("stress-tester agent has a malformed skill attachment")
+            continue
+        posix_path = PurePosixPath(raw_path)
+        if posix_path.is_absolute() or PureWindowsPath(raw_path).is_absolute() or ".." in posix_path.parts:
+            errors.append(f"stress-tester agent skill path must be repository-relative: {raw_path}")
+            continue
+        attached_paths.add(raw_path)
+        target = ROOT.joinpath(*posix_path.parts)
+        if not target.is_dir():
+            errors.append(f"stress-tester agent skill path does not resolve: {raw_path}")
+    if ".codex/skills/stress-tester" not in attached_paths:
+        errors.append("stress-tester agent is not attached to the local .codex skill")
     if not re.search(r'^model = "gpt-5\.6(?:-terra)?"$', agent_text, re.MULTILINE):
         warnings.append("stress-tester agent does not use the current gpt-5.6 family")
 
@@ -116,6 +172,13 @@ def validate() -> dict:
             "adversarial_mangle_file_count": adversarial_files,
         },
     }
+
+
+def _has_sqlite_vec_tag(command: list[str]) -> bool:
+    if "-tags" in command:
+        index = command.index("-tags")
+        return index + 1 < len(command) and "sqlite_vec" in command[index + 1].split(",")
+    return any(part == "-tags=sqlite_vec" for part in command)
 
 
 def main() -> int:

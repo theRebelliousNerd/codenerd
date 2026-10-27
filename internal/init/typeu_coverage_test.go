@@ -1,6 +1,7 @@
 package init
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -264,167 +265,54 @@ func TestFormatDomainExpertise_WhenTopics_ShouldFormatBullets(t *testing.T) {
 	assert.Contains(t, result, "    - Error handling")
 }
 
-func TestDetermineRequiredAgents_WhenGo_ShouldIncludeGoExpert(t *testing.T) {
-	init := &Initializer{config: InitConfig{}}
-	profile := ProjectProfile{Language: "go"}
-	agents := init.determineRequiredAgents(profile)
-
-	names := make(map[string]bool)
-	for _, a := range agents {
-		names[a.Name] = true
+// The roster is derived from measured profile signals by the orientation
+// policy's catalog: the same derivation phase 6 runs on the live engine.
+func TestProfileCatalog_DerivesAgentsFromMeasuredSignals(t *testing.T) {
+	tests := []struct {
+		name    string
+		profile ProjectProfile
+		want    []string
+	}{
+		{name: "go", profile: ProjectProfile{Language: "go"}, want: []string{"GoExpert"}},
+		{name: "python", profile: ProjectProfile{Language: "python"}, want: []string{"PythonExpert"}},
+		{name: "typescript", profile: ProjectProfile{Language: "typescript"}, want: []string{"TSExpert"}},
+		{name: "rust", profile: ProjectProfile{Language: "rust"}, want: []string{"RustExpert"}},
+		{name: "kotlin", profile: ProjectProfile{Language: "kotlin"}, want: []string{"AndroidExpert"}},
+		{name: "unknown language with tests keeps the test architect", profile: ProjectProfile{Language: "haskell", TestFileCount: 2}, want: []string{"TestArchitect"}},
+		{name: "gin", profile: ProjectProfile{Language: "go", Framework: "gin"}, want: []string{"WebAPIExpert"}},
+		{name: "react", profile: ProjectProfile{Language: "typescript", Framework: "react"}, want: []string{"FrontendExpert"}},
+		{name: "rod dependency", profile: ProjectProfile{Language: "go", Dependencies: []DependencyInfo{{Name: "rod", Type: "direct"}}}, want: []string{"RodExpert"}},
+		{name: "bubbletea dependency", profile: ProjectProfile{Language: "go", Dependencies: []DependencyInfo{{Name: "bubbletea", Type: "direct"}}}, want: []string{"BubbleTeaExpert"}},
+		{name: "mangle dependency", profile: ProjectProfile{Language: "go", Dependencies: []DependencyInfo{{Name: "mangle", Type: "direct"}}}, want: []string{"MangleExpert"}},
 	}
-	assert.True(t, names["GoExpert"])
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			agents, err := agentsFromProfile(context.Background(), tt.profile)
+			require.NoError(t, err)
+			names := make(map[string]bool)
+			for _, a := range agents {
+				names[a.Name] = true
+			}
+			for _, want := range tt.want {
+				assert.True(t, names[want], "%s missing from %v", want, names)
+			}
+		})
+	}
 }
 
-func TestDetermineRequiredAgents_WhenPython_ShouldIncludePythonExpert(t *testing.T) {
-	init := &Initializer{config: InitConfig{}}
-	profile := ProjectProfile{Language: "python"}
-	agents := init.determineRequiredAgents(profile)
-
-	names := make(map[string]bool)
-	for _, a := range agents {
-		names[a.Name] = true
-	}
-	assert.True(t, names["PythonExpert"])
-}
-
-func TestDetermineRequiredAgents_WhenTypeScript_ShouldIncludeTSExpert(t *testing.T) {
-	init := &Initializer{config: InitConfig{}}
-	profile := ProjectProfile{Language: "typescript"}
-	agents := init.determineRequiredAgents(profile)
-
-	names := make(map[string]bool)
-	for _, a := range agents {
-		names[a.Name] = true
-	}
-	assert.True(t, names["TSExpert"])
-}
-
-func TestDetermineRequiredAgents_WhenRust_ShouldIncludeRustExpert(t *testing.T) {
-	init := &Initializer{config: InitConfig{}}
-	profile := ProjectProfile{Language: "rust"}
-	agents := init.determineRequiredAgents(profile)
-
-	names := make(map[string]bool)
-	for _, a := range agents {
-		names[a.Name] = true
-	}
-	assert.True(t, names["RustExpert"])
-}
-
-func TestDetermineRequiredAgents_WhenKotlin_ShouldIncludeAndroidExpert(t *testing.T) {
-	init := &Initializer{config: InitConfig{}}
-	profile := ProjectProfile{Language: "kotlin"}
-	agents := init.determineRequiredAgents(profile)
-
-	names := make(map[string]bool)
-	for _, a := range agents {
-		names[a.Name] = true
-	}
-	assert.True(t, names["AndroidExpert"])
-}
-
-func TestDetermineRequiredAgents_WhenUnknownLang_ShouldFallbackToCore(t *testing.T) {
-	init := &Initializer{config: InitConfig{}}
-	profile := ProjectProfile{Language: "haskell"}
-	agents := init.determineRequiredAgents(profile)
-
-	names := make(map[string]bool)
-	for _, a := range agents {
-		names[a.Name] = true
-	}
-	assert.True(t, names["SecurityAuditor"])
-	assert.True(t, names["TestArchitect"])
-}
-
-func TestDetermineRequiredAgents_WhenGinFramework_ShouldIncludeWebAPIExpert(t *testing.T) {
-	init := &Initializer{config: InitConfig{}}
-	profile := ProjectProfile{Language: "go", Framework: "gin"}
-	agents := init.determineRequiredAgents(profile)
-
-	names := make(map[string]bool)
-	for _, a := range agents {
-		names[a.Name] = true
-	}
-	assert.True(t, names["WebAPIExpert"])
-}
-
-func TestDetermineRequiredAgents_WhenReactFramework_ShouldIncludeFrontendExpert(t *testing.T) {
-	init := &Initializer{config: InitConfig{}}
-	profile := ProjectProfile{Language: "typescript", Framework: "react"}
-	agents := init.determineRequiredAgents(profile)
-
-	names := make(map[string]bool)
-	for _, a := range agents {
-		names[a.Name] = true
-	}
-	assert.True(t, names["FrontendExpert"])
-}
-
-func TestDetermineRequiredAgents_WhenRodDep_ShouldIncludeRodExpert(t *testing.T) {
-	init := &Initializer{config: InitConfig{}}
-	profile := ProjectProfile{
-		Language:     "go",
-		Dependencies: []DependencyInfo{{Name: "rod", Type: "direct"}},
-	}
-	agents := init.determineRequiredAgents(profile)
-
-	names := make(map[string]bool)
-	for _, a := range agents {
-		names[a.Name] = true
-	}
-	assert.True(t, names["RodExpert"])
-}
-
-func TestDetermineRequiredAgents_WhenBubbleteaDep_ShouldIncludeBubbleTeaExpert(t *testing.T) {
-	init := &Initializer{config: InitConfig{}}
-	profile := ProjectProfile{
-		Language:     "go",
-		Dependencies: []DependencyInfo{{Name: "bubbletea", Type: "direct"}},
-	}
-	agents := init.determineRequiredAgents(profile)
-
-	names := make(map[string]bool)
-	for _, a := range agents {
-		names[a.Name] = true
-	}
-	assert.True(t, names["BubbleTeaExpert"])
-}
-
-func TestDetermineRequiredAgents_WhenMangleDep_ShouldIncludeMangleExpert(t *testing.T) {
-	init := &Initializer{config: InitConfig{}}
-	profile := ProjectProfile{
-		Language:     "go",
-		Dependencies: []DependencyInfo{{Name: "mangle", Type: "direct"}},
-	}
-	agents := init.determineRequiredAgents(profile)
-
-	names := make(map[string]bool)
-	for _, a := range agents {
-		names[a.Name] = true
-	}
-	assert.True(t, names["MangleExpert"])
-}
-
-func TestDetermineRequiredAgents_WhenToolsAssigned_ShouldHaveToolPrefs(t *testing.T) {
-	init := &Initializer{config: InitConfig{}}
-	profile := ProjectProfile{Language: "go"}
-	agents := init.determineRequiredAgents(profile)
-
-	for _, a := range agents {
+// mergeDerivedAgents is where phase 6 grants derived agents their tools.
+func TestMergeDerivedAgents_GrantsLanguageTools(t *testing.T) {
+	derived, err := agentsFromProfile(context.Background(), ProjectProfile{Language: "go"})
+	require.NoError(t, err)
+	for _, a := range mergeDerivedAgents(nil, derived, "go") {
 		if a.Name == "GoExpert" {
 			assert.NotEmpty(t, a.Tools, "GoExpert should have tools")
 			assert.NotEmpty(t, a.ToolPreferences, "GoExpert should have tool preferences")
 			return
 		}
 	}
-	t.Fatal("GoExpert not found in agents")
+	t.Fatal("GoExpert was not derived for a Go profile")
 }
-
-// ===========================================================================
-// hasMainFunction tests
-// ===========================================================================
-
 func TestHasMainFunction_WhenMainGoExists_ShouldReturnTrue(t *testing.T) {
 	tmpDir := t.TempDir()
 	mainContent := `package main

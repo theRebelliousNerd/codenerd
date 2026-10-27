@@ -67,6 +67,12 @@ var priceTable = map[string]Price{
 	"gemini-1.5-pro":   {InputPerMTok: 1.25, OutputPerMTok: 5.00},
 	"gemini-1.5-flash": {InputPerMTok: 0.075, OutputPerMTok: 0.30},
 
+	// Meta. The contributor tier's cached input is $0.002/MTok; this table
+	// prices every input token at the uncached rate, so a cache-heavy session
+	// is overestimated. The standard tier (muse-spark-1.3) is unpriced: no
+	// source for its rate is on record.
+	"muse-spark-1.3-contributor": {InputPerMTok: 0.10, OutputPerMTok: 0.20},
+
 	// DeepSeek / Z.AI / open-weight hosted
 	"deepseek-chat":     {InputPerMTok: 0.27, OutputPerMTok: 1.10},
 	"deepseek-reasoner": {InputPerMTok: 0.55, OutputPerMTok: 2.19},

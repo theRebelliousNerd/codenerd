@@ -36,6 +36,41 @@ func TestStreamParser_IgnoresDecoyMarker(t *testing.T) {
 	}
 }
 
+// Provider chunk boundaries are arbitrary, including inside JSON object keys.
+// Every partition through the surface key and its value separator must produce
+// the same decoded surface as the complete response.
+func TestStreamParser_RecognizesSurfaceKeyAcrossChunkBoundaries(t *testing.T) {
+	raw := `{"control_packet":{"reasoning_trace":"\"surface_response\": \"decoy\""},"surface_response":"A\u00e9 says \"go\" \uD83D\uDE00"}`
+	parsed, err := NewResponseProcessor().Process(raw)
+	if err != nil {
+		t.Fatalf("nonstream parse: %v", err)
+	}
+	want := parsed.Surface
+	if want != `Aé says "go" 😀` {
+		t.Fatalf("unexpected reference surface %q", want)
+	}
+
+	for split := 0; split <= len(raw); split++ {
+		t.Run(fmt.Sprintf("split_%d", split), func(t *testing.T) {
+			out, _ := feed(t, []string{raw[:split], raw[split:]})
+			if out != want {
+				t.Fatalf("streamed = %q, want %q", out, want)
+			}
+		})
+	}
+
+	// One-byte provider chunks exercise every possible boundary, including the
+	// opening quote and escaped Unicode sequence.
+	chunks := make([]string, len(raw))
+	for i := 0; i < len(raw); i++ {
+		chunks[i] = raw[i : i+1]
+	}
+	out, _ := feed(t, chunks)
+	if out != want {
+		t.Fatalf("one-byte chunks streamed %q, want %q", out, want)
+	}
+}
+
 // \uXXXX escapes decode — even when the escape itself straddles two chunks —
 // including astral-plane surrogate pairs.
 func TestStreamParser_DecodesUnicodeEscapes(t *testing.T) {
@@ -52,9 +87,23 @@ func TestStreamParser_DecodesUnicodeEscapes(t *testing.T) {
 // A non-string surface value releases the match instead of streaming some
 // later field's string under its name.
 func TestStreamParser_NonStringValueStreamsNothing(t *testing.T) {
-	out, _ := feed(t, []string{`{"surface_response": 123, "other": "nope"}`})
-	if out != "" {
-		t.Errorf("streamed = %q, want nothing", out)
+	tests := []struct {
+		name string
+		raw  string
+	}{
+		{name: "number value", raw: `{"surface_response": 123, "other": "nope"}`},
+		{name: "missing colon", raw: `{"surface_response" "decoy", "other": "nope"}`},
+		{name: "key-looking string value", raw: `{"other":"value" "surface_response":"nope"}`},
+		{name: "key-looking array content", raw: `{"other":["first", "surface_response":"nope"]}`},
+		{name: "nested key only", raw: `{"control_packet":{"surface_response":"decoy"},"other":"nope"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, _ := feed(t, []string{tt.raw[:len(tt.raw)/2], tt.raw[len(tt.raw)/2:]})
+			if out != "" {
+				t.Errorf("streamed = %q, want nothing", out)
+			}
+		})
 	}
 }
 

@@ -35,21 +35,38 @@ func (m Model) runInitialization(force bool) tea.Cmd {
 			context7Key = os.Getenv("CONTEXT7_API_KEY")
 		}
 
-		// Create the comprehensive initializer with all components
-		progressCh := make(chan nerdinit.InitProgress, 10)
+		// Ensure .nerd directory exists
+		if err := createDirIfNotExists(m.workspace + "/.nerd"); err != nil {
+			return errorMsg(fmt.Errorf("failed to create .nerd directory: %w", err))
+		}
 
-		// Forward progress to status bar
+		// Progress goes to the status bar. The forwarder exits when the
+		// channel closes, which the deferred close guarantees on every
+		// return path, after Initialize (the only sender) has returned.
+		progressCh := make(chan nerdinit.InitProgress, 32)
+		forwarded := make(chan struct{})
 		go func() {
+			defer close(forwarded)
 			for p := range progressCh {
-				m.ReportStatus(p.Message)
+				m.ReportStatus(initProgressStatus(p))
 			}
 		}()
+		defer func() {
+			close(progressCh)
+			<-forwarded
+		}()
 
+		// The session's own clients, embedding engine and shard manager: the
+		// planner slot Cortex booted, never a second client. Timeout stays
+		// zero so each request reads llm_timeouts.per_call_timeout. Output
+		// stays nil: init must not write into the TUI's screen; its progress
+		// arrives on progressCh.
 		initConfig := nerdinit.InitConfig{
 			Workspace:       m.workspace,
 			LLMClient:       m.client,
+			PlannerClient:   m.cortex.PlannerLLM(),
 			ShardManager:    m.shardMgr,
-			Timeout:         10 * time.Minute,
+			EmbeddingEngine: m.embeddingEngine,
 			Interactive:     false, // Non-interactive in chat mode
 			SkipResearch:    false, // Do full research
 			SkipAgentCreate: false, // Create Type 3 agents
@@ -57,20 +74,13 @@ func (m Model) runInitialization(force bool) tea.Cmd {
 			ProgressChan:    progressCh,
 		}
 
-		// Ensure .nerd directory exists
-		if err := createDirIfNotExists(m.workspace + "/.nerd"); err != nil {
-			return errorMsg(fmt.Errorf("failed to create .nerd directory: %w", err))
-		}
-
 		initializer, err := nerdinit.NewInitializer(initConfig)
 		if err != nil {
-			close(progressCh)
 			return errorMsg(fmt.Errorf("failed to create initializer: %w", err))
 		}
 
 		// Run the comprehensive initialization
 		result, err := initializer.Initialize(ctx)
-		close(progressCh) // Stop progress forwarder
 		if closeErr := initializer.Close(); err == nil && closeErr != nil {
 			err = fmt.Errorf("close initializer: %w", closeErr)
 		}
@@ -102,7 +112,9 @@ func (m Model) runInitialization(force bool) tea.Cmd {
 			// Also scan workspace to load fresh AST facts (supplemental, incremental)
 			if m.scanner != nil {
 				res, scanErr := m.scanner.ScanWorkspaceIncremental(ctx, m.workspace, m.localDB, world.IncrementalOptions{SkipWhenUnchanged: false})
-				if scanErr == nil && res != nil && !res.Unchanged {
+				if scanErr != nil {
+					logging.Routing("[helpers] incremental workspace scan failed: %v", scanErr)
+				} else if res != nil {
 					if err := world.ApplyIncrementalResult(m.kernel, res); err != nil {
 						logging.Routing("[helpers] failed to apply incremental result: %v", err)
 					}
@@ -123,6 +135,16 @@ func (m Model) runInitialization(force bool) tea.Cmd {
 			learningStore: learningStore,
 		}
 	}
+}
+
+// initProgressStatus is one init progress update as a status line: the phase
+// position and elapsed time are measured, so they are shown; init's remaining
+// time is a guess from fixed per-phase estimates, so it is not.
+func initProgressStatus(p nerdinit.InitProgress) string {
+	if p.CurrentPhaseNo <= 0 || p.TotalPhases <= 0 {
+		return p.Message
+	}
+	return fmt.Sprintf("[init %d/%d, %s] %s", p.CurrentPhaseNo, p.TotalPhases, p.ElapsedTime.Round(time.Second), p.Message)
 }
 
 // scanCompleteMsg is sent when scan completes
@@ -150,6 +172,9 @@ func (m Model) runScan(deep bool) tea.Cmd {
 		if err != nil {
 			return scanCompleteMsg{err: err}
 		}
+		if applyErr := world.ApplyIncrementalResult(m.kernel, res); applyErr != nil {
+			return scanCompleteMsg{err: applyErr}
+		}
 
 		if res != nil && res.Unchanged {
 			m.ReportStatus("Workspace unchanged")
@@ -162,9 +187,6 @@ func (m Model) runScan(deep bool) tea.Cmd {
 		}
 
 		m.ReportStatus("Updating kernel...")
-		if applyErr := world.ApplyIncrementalResult(m.kernel, res); applyErr != nil {
-			return scanCompleteMsg{err: applyErr}
-		}
 
 		// Persist delta facts to knowledge DB and KG links
 		if m.virtualStore != nil && res != nil && len(res.NewFacts) > 0 {
@@ -233,18 +255,26 @@ func (m Model) runDocRefresh(force bool) tea.Cmd {
 		ctx, cancel := m.sessionOperationContext()
 		defer cancel()
 
-		// Create initializer for doc processing (reuses init infrastructure)
+		// Create initializer for doc processing (reuses init infrastructure):
+		// extraction runs on the session's main client and synthesis on its
+		// planner slot, as in init.
 		initConfig := nerdinit.InitConfig{
-			Workspace:    m.workspace,
-			LLMClient:    m.client,
-			ShardManager: m.shardMgr,
-			Interactive:  false,
+			Workspace:       m.workspace,
+			LLMClient:       m.client,
+			PlannerClient:   m.cortex.PlannerLLM(),
+			EmbeddingEngine: m.embeddingEngine,
+			Interactive:     false,
 		}
 
 		initializer, err := nerdinit.NewInitializer(initConfig)
 		if err != nil {
 			return docRefreshCompleteMsg{err: fmt.Errorf("failed to create initializer: %w", err)}
 		}
+		defer func() {
+			if closeErr := initializer.Close(); closeErr != nil {
+				logging.Routing("[helpers] close document refresh initializer: %v", closeErr)
+			}
+		}()
 
 		// The documents are the orientation read set, refreshed against HEAD
 		// first; the changed projection is published to the running kernel.
@@ -272,7 +302,7 @@ func (m Model) runDocRefresh(force bool) tea.Cmd {
 		m.ReportStatus(fmt.Sprintf("Found %d docs, processing with Mangle tracking...", len(allDocs)))
 
 		// Process with tracking (handles resumption, change detection, incremental storage)
-		state, err := initializer.ProcessDocumentsWithTracking(ctx, allDocs, m.localDB, m.kernel)
+		state, err := initializer.ProcessDocumentsWithTracking(ctx, allDocs, m.localDB, m.kernel, force)
 		if err != nil {
 			return docRefreshCompleteMsg{err: fmt.Errorf("document processing failed: %w", err)}
 		}
@@ -296,7 +326,7 @@ func (m Model) runDocRefresh(force bool) tea.Cmd {
 		return docRefreshCompleteMsg{
 			docsDiscovered: state.TotalDiscovered,
 			docsProcessed:  state.TotalProcessed,
-			atomsStored:    state.TotalStored,
+			atomsStored:    state.AtomsStored,
 			duration:       time.Since(startTime),
 		}
 	}

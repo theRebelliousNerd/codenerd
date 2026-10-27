@@ -93,3 +93,23 @@ World is **precondition** for high-quality Orient, not part of Act side-effects 
 4. Wire caller (chat helper / scope / campaign / CLI).
 5. Persist path if incremental needs DB cache (`store` APIs).
 6. Tests at unit + at least one integration caller if boot-critical.
+
+## Accepted orientation refresh integration (`GAP-ORIENT-23`)
+
+World scan callers carry and apply the same orientation result as their world
+delta. Current consumers are chat rescan (`cmd/nerd/chat/helpers_scan.go:149`,
+`runScan`), delegation freshness
+(`cmd/nerd/chat/process_dream_delegation.go:106`, `loadWorkspaceFacts`),
+instruction execution (`cmd/nerd/cmd_instruction.go:114`), and boot refresh
+(`internal/system/factory.go:1413`, `refreshWorldModelAtBoot`). Each applies
+orientation even when the scanner reports no changed source files; the
+`IncrementalResult` carries the genuine `orient.RefreshResult`, rather than
+reconstructing its facts or running a second refresh.
+
+For a world-Unchanged result, application publishes only the orientation
+addition/removal delta and does not retract `SnapshotGlobalPredicates`. A
+missing orientation snapshot is explicitly not initialized and permits the
+initial scan. Cancellation and other refresh failures follow each caller's
+visible error path. The seeded commit/doc-only change, repeat-stability,
+missing-snapshot, and cancellation controls are specified under
+[`GAP-ORIENT-23`](../orient/03-GAP-ANALYSIS.md).

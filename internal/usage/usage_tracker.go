@@ -231,6 +231,8 @@ func newUsageData() UsageData {
 	return UsageData{
 		Version: "1.0",
 		Aggregate: AggregatedStats{
+			ByCredential: make(map[string]TokenCounts),
+
 			ByProvider:  make(map[string]TokenCounts),
 			ByModel:     make(map[string]TokenCounts),
 			ByShardType: make(map[string]TokenCounts),
@@ -272,6 +274,9 @@ func (t *tracker) Load() error {
 // ensureMapsLocked initializes any nil aggregate map. Caller holds mu.
 func (t *tracker) ensureMapsLocked() {
 	a := &t.data.Aggregate
+	if a.ByCredential == nil {
+		a.ByCredential = make(map[string]TokenCounts)
+	}
 	if a.ByProvider == nil {
 		a.ByProvider = make(map[string]TokenCounts)
 	}
@@ -296,12 +301,17 @@ func cloneAggregates(a AggregatedStats) AggregatedStats {
 	out := AggregatedStats{
 		TotalProject:   a.TotalProject,
 		UnpricedTokens: a.UnpricedTokens,
-		ByProvider:     copyTokenCountsMap(a.ByProvider),
-		ByModel:        copyTokenCountsMap(a.ByModel),
-		ByShardType:    copyTokenCountsMap(a.ByShardType),
-		ByOperation:    copyTokenCountsMap(a.ByOperation),
-		BySession:      copyTokenCountsMap(a.BySession),
-		ByShardName:    copyTokenCountsMap(a.ByShardName),
+		ByCredential:   copyTokenCountsMap(a.ByCredential),
+
+		ByProvider:  copyTokenCountsMap(a.ByProvider),
+		ByModel:     copyTokenCountsMap(a.ByModel),
+		ByShardType: copyTokenCountsMap(a.ByShardType),
+		ByOperation: copyTokenCountsMap(a.ByOperation),
+		BySession:   copyTokenCountsMap(a.BySession),
+		ByShardName: copyTokenCountsMap(a.ByShardName),
+	}
+	if out.ByCredential == nil {
+		out.ByCredential = make(map[string]TokenCounts)
 	}
 	if out.ByProvider == nil {
 		out.ByProvider = make(map[string]TokenCounts)
@@ -363,6 +373,8 @@ func contributionSince(current, baseline AggregatedStats) AggregatedStats {
 	}
 
 	out := AggregatedStats{
+		ByCredential: make(map[string]TokenCounts, len(current.ByCredential)),
+
 		ByProvider:  make(map[string]TokenCounts, len(current.ByProvider)),
 		ByModel:     make(map[string]TokenCounts, len(current.ByModel)),
 		ByShardType: make(map[string]TokenCounts, len(current.ByShardType)),
@@ -378,6 +390,13 @@ func contributionSince(current, baseline AggregatedStats) AggregatedStats {
 		out.UnpricedTokens = current.UnpricedTokens
 	}
 
+	for k, curVal := range current.ByCredential {
+		if baseVal, ok := baseline.ByCredential[k]; ok {
+			out.ByCredential[k] = diff(curVal, baseVal)
+		} else {
+			out.ByCredential[k] = curVal
+		}
+	}
 	for k, curVal := range current.ByProvider {
 		if baseVal, ok := baseline.ByProvider[k]; ok {
 			out.ByProvider[k] = diff(curVal, baseVal)
@@ -428,8 +447,16 @@ func mergeAggregates(base, delta AggregatedStats) AggregatedStats {
 	addTokenCounts(&out.TotalProject, delta.TotalProject)
 	out.UnpricedTokens += delta.UnpricedTokens
 
+	if out.ByCredential == nil {
+		out.ByCredential = make(map[string]TokenCounts)
+	}
 	if out.ByProvider == nil {
 		out.ByProvider = make(map[string]TokenCounts)
+	}
+	for k, v := range delta.ByCredential {
+		cur := out.ByCredential[k]
+		addTokenCounts(&cur, v)
+		out.ByCredential[k] = cur
 	}
 	for k, v := range delta.ByProvider {
 		cur := out.ByProvider[k]
@@ -629,6 +656,9 @@ func (t *tracker) Track(ctx context.Context, model, provider string, input, outp
 	a := &t.data.Aggregate
 	a.TotalProject.AddCost(input, output, cost)
 
+	if alias := CredentialAliasFromContext(ctx); alias != "" {
+		addToMap(a.ByCredential, alias, input, output, cost)
+	}
 	addToMap(a.ByProvider, provider, input, output, cost)
 	addToMap(a.ByModel, model, input, output, cost)
 	addToMap(a.ByShardType, shardType, input, output, cost)
@@ -648,16 +678,17 @@ func (t *tracker) Track(ctx context.Context, model, provider string, input, outp
 
 	if t.keepEvents {
 		t.appendEventLocked(UsageEvent{
-			Timestamp:     time.Now().UTC(),
-			Model:         model,
-			Provider:      provider,
-			InputTokens:   input,
-			OutputTokens:  output,
-			ShardType:     shardType,
-			ShardName:     shardName,
-			SessionID:     sessionID,
-			OperationType: operation,
-			CostUSD:       cost,
+			CredentialAlias: CredentialAliasFromContext(ctx),
+			Timestamp:       time.Now().UTC(),
+			Model:           model,
+			Provider:        provider,
+			InputTokens:     input,
+			OutputTokens:    output,
+			ShardType:       shardType,
+			ShardName:       shardName,
+			SessionID:       sessionID,
+			OperationType:   operation,
+			CostUSD:         cost,
 		})
 	}
 
@@ -818,6 +849,7 @@ func (t *tracker) Stats() AggregatedStats {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	stats := t.data.Aggregate
+	stats.ByCredential = copyTokenCountsMap(stats.ByCredential)
 	stats.ByProvider = copyTokenCountsMap(stats.ByProvider)
 	stats.ByModel = copyTokenCountsMap(stats.ByModel)
 	stats.ByShardType = copyTokenCountsMap(stats.ByShardType)

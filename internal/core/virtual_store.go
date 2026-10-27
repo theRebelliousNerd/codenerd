@@ -162,9 +162,9 @@ func (v *VirtualStore) SetGlassBoxBus(bus *transparency.GlassBoxEventBus) {
 	v.glassBoxBus = bus
 }
 
-// SetToolEventBus attaches the always-on tool event bus. Each
-// successful RouteAction emits a ToolEvent with name=req.Type so the
-// TUI prints a "🔧 actionType (xms) output" milestone in chat.
+// SetToolEventBus attaches the always-on tool event bus. Each dispatched
+// RouteAction emits one ToolEvent with name=req.Type and its outcome so the
+// TUI prints successful output and failed action details in chat.
 func (v *VirtualStore) SetToolEventBus(bus *transparency.ToolEventBus) {
 	v.mu.Lock()
 	defer v.mu.Unlock()

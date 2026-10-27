@@ -79,3 +79,203 @@ In accordance with the Parity Contract (`13-BROWSERNERD-PARITY.md`), a capabilit
 | GAP-BROWSER-17 | Constitutional Action Partitioning and Dialog Default-Deny | `constitution.mg:161-162` defines blanket `safe_action(/browser_act)`. Dialogs lack default-deny policy. | `14-BROWSERNERD-1.2-PORT-SPEC.md#53-the-gomangle-split-and-even-better-design` | Critical | Lane 9 (Wave 5) | GAP-BROWSER-13 | `go test ./internal/core/defaults/policy/...` verifies that `upload` and dialog accepts are denied without explicit permission, and unhandled dialogs auto-dismiss. |
 | GAP-BROWSER-18 | JIT Prompt Atoms and Tool Definition Token Budget Gate | `browser_progressive.yaml:13-25` is missing 1.2.0 modes. No automated test limits tool definition schema length. | `14-BROWSERNERD-1.2-PORT-SPEC.md#81-implementation-details` | Medium | Lane 9 (Wave 5) | GAP-BROWSER-08, GAP-BROWSER-14 | `TestBrowserToolDefinitions_TokenBudget` passes, asserting that marshaled tool schemas do not exceed token limits (`len(json)/4`). |
 | GAP-BROWSER-19 | Live Chrome End-to-End Proof and Acceptance Gate | Missing live Chrome integration test covering 1.2.0 probe suite on production routes. | `14-BROWSERNERD-1.2-PORT-SPEC.md#10-test-verification-strategy-and-upstream-traceability` | Critical | Lane 10 (Wave 5) | GAP-BROWSER-01 through GAP-BROWSER-18 | `internal/browser/browser_probe_live_test.go` passes against Chrome using upstream probe pages, verifying full end-to-end parity. |
+
+## Accepted browser configuration-to-policy contract
+
+The browser manager and its Mangle policy now share validated operator
+configuration. `BrowserAutomationConfig.Policy` carries the typed settings
+(`internal/config/user_config.go:1475-1520`), and the policy requires seventeen
+browser parameters and derives `slow_api` and `action_candidate` from them
+(`internal/core/defaults/policy/browser.mg:58-62`, `:122`, `:263-291`). The
+factory asserts the configured values on the live kernel before constructing
+the manager (`internal/system/factory.go:1885-1889`, `:1950-1964`, then
+`:1933`). `TestBootPublishesConfiguredBrowserPolicyBeforeManagerUse` verifies
+all parameters and configured derivations through normal boot
+(`internal/system/factory_browser_policy_test.go:16`); invalid configuration
+is rejected before browser binding at `:99`, and rejected kernel publication
+is surfaced before either runtime binds at `:116`. The factory and config
+focused tests passed; aggregate verification remains pending.
+[`../config/05-BROWSER-REAPER-CONFIG.md`](../config/05-BROWSER-REAPER-CONFIG.md)
+owns the accepted contract and `GAP-BROWSER-PARAM-BRIDGE` exit criteria. This
+bridge is implemented and focused-tested. The separate candidate-observation
+gap below remains open: this configuration test does not prove that live
+browser snapshots publish the policy's control facts.
+
+## Required contract: Fresh policy-ranked interactive observations
+
+`GAP-BROWSER-09` remains open for hydration detection and broad candidate
+ranking. The narrower `GAP-BROWSER-CANDIDATE-OBSERVATION` contract makes each
+current interactive observation usable by policy without inventing readiness
+signals. The live JS snapshot now reads native/ARIA disabled state, computed
+style and bounding-box floats (`internal/browser/progressive_observe.go:831-865`).
+`materializeInteractive` builds the policy facts, exact decimal geometry and
+integer projection (`:567-640`), while `Observe` replaces the bounded control
+snapshot and queries/filters `action_candidate` rows by current session and refs
+(`internal/browser/progressive_observe.go:394-440`). The headless real-kernel
+acceptance test `TestProgressiveObservePolicyRoundTrip`
+(`internal/browser/progressive_observe_policy_live_test.go:30`) passes.
+
+For one successful bounded interactive/composite observation, publish a
+measured `browser_observed_at(SessionID, UnixMillis)` and, for each current
+registry ref, `interactive(SessionID, Ref, Type, SanitizedLabel, Action)` plus
+`element_enabled(SessionID, Ref, "true"|"false")` based on the actual native
+disabled property or `aria-disabled`. Publish actual computed display,
+visibility and opacity plus exact x/y/width/height geometry under the
+session-qualified opaque ref (`SessionID:Ref`), the same key used by the
+policy's honeypot guards (`internal/core/defaults/policy/browser.mg:24-42`).
+Preserve the browser's fractional CSS-pixel measurement in
+`browser_geometry_css_px(SessionID, Ref, XCss, YCss, WidthCss, HeightCss)`;
+all four coordinates are canonical decimal strings measured from
+`getBoundingClientRect()`, so decoding them recovers the measured float64
+values. The existing `geometry/5` remains an integer CSS-pixel projection for
+policy guards and ordering: round x/y to the nearest integer, preserve an exact
+zero width or height as zero, and ensure every positive measured dimension
+projects to at least one. The raw decimal predicate is ground truth; do not
+change `geometry/5` to 1/64-pixel units or mix integer and fixed-point
+producers. Tests must cover fractional positive dimensions versus exact zero
+and exact decimal query round trips. Emit `browser_control_attribute` only for a finite safe
+allowlist of explicitly observed control metadata (including `type` for the
+submit rule); do not copy arbitrary attributes, input values, or secret
+content. Respect normalized `max_items` (`progressive_observe.go:358`,
+`normalizeObserveOptions`). Query the live kernel's `action_candidate` result
+and expose `data.action_candidates` only for the current session and current
+registry generation. Preserve Mangle's `Priority` and `Reason`; Go does not
+rank or authorize actions.
+
+The production `FactRetractor` must replace/retract the previous bounded
+control-fact snapshot before publishing the next one so removed or newly
+disabled elements cannot stay eligible. If no retractor is available, result
+filtering must still exclude refs absent from the current snapshot and report
+that the kernel may retain stale control facts; it must not return those old
+candidates as current. Existing retractor support is optional today
+(`internal/browser/fact_epoch.go:34-53`, `FactRetractor` and
+`SetFactRetractor`), so this limitation must remain explicit. Do not derive
+hydration or JavaScript readiness from the snapshot: those remain separate
+unfinished signals and `GAP-BROWSER-09` stays open.
+
+| Gap ID | Capability | Current state / deficiency | Target state | Severity | Phase | Blocking dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-BROWSER-CANDIDATE-OBSERVATION | Fresh policy-ranked interactive observations | `materializeInteractive` publishes the measured policy facts, canonical `browser_geometry_css_px/6` decimals and integer projection (`internal/browser/progressive_observe.go:567-640`); `Observe` replaces the snapshot and returns only live-kernel candidates for current refs (`:394-440`). | Required contract above; `GAP-BROWSER-09` hydration and broader ranking remain separate. | P1 | Implemented; focused tests passed; aggregate verification pending | Configured browser params; live policy query and snapshot retraction boundary | The local HTTP + headless-browser + real-kernel `Observe` round trip derives the enabled submit candidate with configured Mangle rank, excludes disabled and measured honeypot controls, preserves exact fractional CSS coordinates, keeps exact-zero geometry at zero and positive subpixel dimensions nonzero, and retracts the first snapshot after a second observation disables/removes controls. Timestamp and bounded-output behavior remain under the normalized `max_items` contract; no hydration/readiness is fabricated. |
+
+**Verified current:** `TestProgressiveObservePolicyRoundTrip`
+(`internal/browser/progressive_observe_policy_live_test.go:30`) passes with the
+headless HTTP fixture and real kernel. It checks the configured rank and Mangle
+reason, explicit measured style/disabled facts, exact `0.25` CSS-pixel geometry
+alongside its positive integer projection, the exact-zero control, disabled and
+CSS trap exclusion, and old-fact/candidate removal after the second observation
+(`:34-40`, `:85-107`, `:113-136`, `:220-239`). The full feature remains partial:
+hydration evidence is not emitted, and aggregate verification remains pending.
+
+## Required contract: Bounded CDP failure and interaction telemetry
+
+The schemas and policy declare `net_http_error/6`, `net_loading_failed/5`, `page_load_failed/4`, `ws_event/6`, `browser_log/6`, `js_dialog/6`, and `dialog_answer/2` (`internal/core/defaults/schemas_browser.mg:55-62`, `:129`; rules in `internal/core/defaults/policy/browser.mg:76-119`, `:188-193`, `:330-345`). The live event callbacks now publish typed HTTP/loading/page failures and WebSocket, log, and dialog facts while retaining the legacy network facts (`internal/browser/session_manager_dom.go:383-398`, `:414-455`, `:671-715`). `cdpEventClock` converts network monotonic timestamps only after pairing them with request wall time and uses documented runtime epoch milliseconds or callback time as appropriate (`internal/browser/event_telemetry.go:14-73`). Event listener readiness is probed before first navigation (`:102-142`, called from `session_manager_dom.go:660-666`). `browser_reason` reads the typed facts through its finite predicate map (`internal/tools/research/browser_reasoning.go:60-90`, `:391-407`, `:438-447`). The real-CDP provenance, clock-unit, privacy, cleanup, and consumer gates are authored, but focused pass evidence is still pending.
+
+Publish `net_http_error(Session, Request, URL, Status, ResourceType, Timestamp)` only for a real response with status at least 400. Publish `net_loading_failed(Session, Request, Error, Canceled, Timestamp)` from actual CDP loading-failure fields, preserving canceled as an explicit string. Publish `page_load_failed` only for a tracked main-frame `Document` request with a real non-canceled loading error; do not infer page failure from an asset or canceled request. Record WebSocket lifecycle/error metadata in `ws_event` without frame payloads. Record actual sanitized `Log.EntryAdded` data in `browser_log`. Record only a genuine JavaScript dialog event in `js_dialog`; use the existing kernel-derived `dialog_answer` and default-deny policy, and never accept without separate exact typed authority.
+
+Subscribe and finish event-listener setup before first navigation. Retire the exact stream-fact set on navigation and session close through the epoch `FactRetractor` where available, and keep the existing per-epoch fact bound (`internal/browser/fact_epoch.go:34-53`, `:95-145`; `internal/browser/session_lifecycle.go:397-430`, `:521-538`). Preserve failure evidence needed for policy within that bound. For event time, use console/Log epoch milliseconds directly. For network events, pair the request's epoch-seconds `WallTime` with its monotonic `Timestamp` to establish the measured offset, then convert later response, loading-failure, and WebSocket monotonic timestamps through that offset. A dialog or WebSocket-created event without a CDP timestamp, or an event without a valid offset, uses host callback observation time; never reinterpret monotonic seconds as Unix milliseconds. Tests must assert units and provenance.
+
+Extend the real `browser_reason`/`browser_mangle` finite surface with the typed timestamp slots and compact batch, error, correlation, and unattended diagnostics needed to inspect these facts. Keep summaries useful for unattended reasoning without proof-clutter or invented/fake query roots. Storage changes and `act_batch` temporal attribution remain separate accepted work; hydration remains explicitly unimplemented. A real local HTTP/CDP fixture must cover first response, HTTP error, canceled request, asset failure exclusion from page failure, WebSocket event/error without payload, actual dialog and default dismissal, and close/navigation cleanup, including audit privacy.
+
+| Gap ID | Capability | Current state / deficiency | Target state | Severity | Phase | Blocking dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-BROWSER-TELEMETRY-OBSERVATIONS | Bounded CDP failure and interaction telemetry | Typed producer, clock, listener-readiness, and finite `browser_reason` read paths are present (`internal/browser/session_manager_dom.go:383-455`, `:660-715`; `internal/browser/event_telemetry.go:14-142`; `internal/tools/research/browser_reasoning.go:391-447`). The focused live CDP verification has not yet passed. | Required contract above; storage, `act_batch` attribution, and hydration remain separate. | P1 | Accepted; implementation pending | CDP stream lifecycle and epoch retraction; finite browser reasoning read surface | Local HTTP/CDP tests prove real event provenance, typed timestamps, main-frame/document-only page failures, no WebSocket frames, default-denied dialogs, bounded fact retention, and exact cleanup on navigation/session close. Audit output excludes payload secrets. |
+
+## Accepted implementation refinement for GAP-BROWSER-08: Bounded storage metadata
+
+The broad storage/JWT capability remains part of `GAP-BROWSER-08`; this
+refinement pins a safe, bounded metadata-only slice for the existing `Observe`
+route. `Observe` currently handles screenshot, React, DOM snapshot, and the
+bounded DOM modes but has no storage mode (`internal/browser/progressive_observe.go:245`,
+`Observe`; `:278-314`). The kernel already declares `storage_entry/5` and
+`auth_expired/3` (`internal/core/defaults/schemas_browser.mg:101-105`), and the
+policy derives expiry from `storage_entry` and the observed session clock
+(`internal/core/defaults/policy/browser.mg:216-237`). The public typed tool
+schema and JIT capability atom are the normal model-facing route
+(`internal/tools/research/browser_progressive.go:13-36`, `BrowserObserveTool`;
+`internal/prompt/atoms/capability/browser_progressive.yaml:13-22`).
+
+Add `mode: "storage"` to the existing `browser_observe` tool schema,
+registration, mode validator, and existing JIT capability atom; do not add an
+ad-hoc Go prompt. The mode inspects only page-visible `localStorage`,
+`sessionStorage`, and the non-HttpOnly `document.cookie` view. Never use CDP to
+fetch cookie values, never return raw storage/cookie values to Go, Mangle,
+tool output, flight-recorder evidence, or logs, and never infer native cookie
+expiry. The page-side probe returns only projected metadata.
+
+Normalize `max_items` to the existing 1..100 range and enforce all three
+per-call bounds: at most `max_items` rows, at most 64 KiB inspected per value,
+and at most 256 KiB total inspected UTF-8 bytes. Bound JSON parsing and JWT
+claim decoding by those byte limits. Return each key, store, kind, measured
+UTF-8 byte count, and only the unverified JWT `iat`, `exp`, and `iss` claims in
+a clearly unverified metadata object. Convert `exp` to milliseconds only when
+the claim is actually decoded as a valid numeric epoch-seconds value; do not
+infer it from key names, token age, or host time. Use `ExpMs = 0` in
+`storage_entry(SessionID, Store, Key, Kind, ExpMs)` when no expiry was
+measured, including opaque values and native cookies. When a value exceeds its
+limit or the total scan reaches its byte/item cap, return explicit per-row or
+aggregate skipped/truncated metadata without returning the value.
+
+Treat storage facts as a replaceable session snapshot: retract the prior exact
+`storage_entry` set before asserting the next snapshot, and retire it on
+navigation and session close. Use the production `FactRetractor`. If exact
+retraction is unavailable or fails, surface the error/limitation and do not
+claim that `auth_expired` reflects only the current snapshot. Mangle remains
+the sole owner of expiry/authentication derivation from measured session time.
+
+**Exit evidence required:** a headless local page and real kernel exercise
+`Registry.Execute` for `browser_observe` with `mode: "storage"`, proving the
+public schema, JIT atom, real Observe route, and facts are connected. Cover
+decoded JWT metadata, opaque values, per-value and total byte limits, `max_items`,
+changed and removed keys, HttpOnly absence from the page view, explicit
+skipped/truncated results, exact replacement/retraction, and absence of
+canary secrets from facts, returned JSON, evidence, and logs.
+
+## Accepted implementation refinement for GAP-BROWSER-12: Closed action windows
+
+The current batch policy attributes every later event to every historical
+`act_batch` start because it has no end fact (`internal/core/defaults/policy/browser.mg:298-328`).
+`ExecuteActions` records one wall-clock start/finish around the request
+(`internal/browser/progressive_action.go:69-75`, `ActionExecution`; `:80-100`,
+`ExecuteActions`), while the declared kernel surface contains only
+`act_batch/3` and `act_effect/6` (`internal/core/defaults/schemas_browser.mg:127-128`).
+This refinement supplies bounded temporal association; it does not claim
+causality and does not close the rest of `GAP-BROWSER-12`'s read-back/effects
+digest contract.
+
+For every session touched by an action call, assert a unique
+`act_batch(SessionID, BatchID, StartedMs)` at the measured start and add
+`act_batch_end(SessionID, BatchID, FinishedMs, Outcome)`, where `Outcome` is
+`/settled` only after a bounded network-settle phase observes its quiet
+condition, or `/interrupted` after cancellation, operation failure, session
+closure, or the finite settle deadline. The settle phase must have a finite
+quiet interval and hard maximum; tests must exercise both and the source must
+name the bounds. Add `act_batch_window(SessionID, BatchID, StartedMs, FinishedMs,
+Outcome)` as a Mangle-derived closed interval only when both timestamps are
+measured and `FinishedMs >= StartedMs`.
+
+Mangle may derive the existing `act_effect/6` only for an event timestamp in
+exactly one closed `[StartedMs, FinishedMs]` window and only when no other
+same-session batch started by that event is still open. If multiple closed
+windows overlap an event, or a started batch remains open and could overlap it,
+derive an explicit `act_effect_ambiguous(SessionID, Kind, Subject, Timestamp)`
+and emit no `act_effect` for that event. Events outside a closed window have no
+batch attribution. A failed end-fact assertion, missing timestamp, or missing
+end measurement must produce a visible unverified-effects result; it must not
+invent `/settled` or a window. `/interrupted` is truthful partial execution
+metadata and is not a completion or causal verdict.
+
+The host emits measured starts, ends, and status only. Mangle selects windows,
+marks overlap ambiguity, and derives effects; Go does not pick an event's
+winning batch or emit a causal claim. Do not impose global or cross-session
+serialization in Go to hide ambiguity. Expose bounded compact effects and
+ambiguity through the action result and the existing finite `browser_reason`
+reader only after the window closes; `browser_mangle` adds the exact
+timestamped `act_effect` consumer.
+
+**Exit evidence required:** deterministic tests cover one settled batch,
+interrupted and missing-end cases, event-before/start/inside/after boundaries,
+same-session overlapping closed windows, a second still-open batch, concurrent
+different sessions, session switches, failed measurement/assertion, and no
+cross-session attribution. The production action result reports unverified
+effects when it cannot publish a valid end; the real kernel returns no effect
+for ambiguous events and preserves ordinary action completion policy.

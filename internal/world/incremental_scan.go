@@ -3,6 +3,7 @@ package world
 import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/orient"
 	"codenerd/internal/store"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
@@ -44,6 +45,13 @@ type IncrementalResult struct {
 
 	// New fields for Mangle integration
 	ProjectLanguage string
+
+	// Orientation is the exact projection delta observed by orient.Refresh.
+	// It is present even when the workspace source census is unchanged.
+	Orientation *orient.RefreshResult `json:"-"`
+	// OrientationNotInitialized means no orientation snapshot exists yet. An
+	// initial world scan remains useful before `nerd init` creates one.
+	OrientationNotInitialized bool `json:"-"`
 }
 
 // isNonCanonicalWorldPath reports whether a cached world file path was written
@@ -195,7 +203,6 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		retireLegacyRows()
 		fullFacts := prepared.result.Facts
 		res := &IncrementalResult{
 			Full:            true,
@@ -205,6 +212,10 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 			Duration:        time.Since(start),
 			ProjectLanguage: detectProjectLanguage(fullFacts),
 		}
+		if err := refreshOrientationForScan(ctx, root, res); err != nil {
+			return nil, err
+		}
+		retireLegacyRows()
 
 		// project_language / entry_point are emitted by ScanDirectory itself
 		// now. They used to be appended here, which meant `nerd scan` (which
@@ -268,14 +279,18 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		retireLegacyRows()
-		saveCache()
-		return &IncrementalResult{
+		res := &IncrementalResult{
 			Unchanged:      true,
 			FileCount:      fileCount,
 			DirectoryCount: dirCount,
-			Duration:       time.Since(start),
-		}, nil
+		}
+		if err := refreshOrientationForScan(ctx, root, res); err != nil {
+			return nil, err
+		}
+		res.Duration = time.Since(start)
+		retireLegacyRows()
+		saveCache()
+		return res, nil
 	}
 
 	// A Go file's code_calls rows are spelled from the package's symbols, and
@@ -556,6 +571,20 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	res := &IncrementalResult{
+		NewFacts:        newFacts,
+		RetractFacts:    retractFacts,
+		ChangedFiles:    changed,
+		NewFiles:        newFiles,
+		DeletedFiles:    deleted,
+		FileCount:       fileCount,
+		DirectoryCount:  dirCount,
+		ProjectLanguage: globals.projectLanguage,
+	}
+	if err := refreshOrientationForScan(ctx, root, res); err != nil {
+		return nil, err
+	}
+	res.Duration = time.Since(start)
 	retireLegacyRows()
 
 	if db != nil {
@@ -604,22 +633,37 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 	// ApplyIncrementalResult retracts it before loading (see
 	// SnapshotGlobalPredicates); entry_point is per-file and retracts with its
 	// file.
-	res := &IncrementalResult{
-		NewFacts:       newFacts,
-		RetractFacts:   retractFacts,
-		ChangedFiles:   changed,
-		NewFiles:       newFiles,
-		DeletedFiles:   deleted,
-		FileCount:      fileCount,
-		DirectoryCount: dirCount,
-		Duration:       time.Since(start),
-	}
 	cache.LogStats("incremental")
-
-	res.ProjectLanguage = globals.projectLanguage
+	res.Duration = time.Since(start)
 	saveCache()
 
 	return res, nil
+}
+
+// refreshOrientationForScan attaches the orientation projection observed for
+// this source census. A missing snapshot is normal before initialization;
+// cancellation and every other refresh failure prevent the scan from being
+// reported as successful.
+func refreshOrientationForScan(ctx context.Context, root string, res *IncrementalResult) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	snapshotPath := filepath.Join(root, ".nerd", "orientation", "snapshot.json")
+	if _, err := os.Stat(snapshotPath); errors.Is(err, os.ErrNotExist) {
+		res.OrientationNotInitialized = true
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("check orientation snapshot: %w", err)
+	}
+	refreshed, err := orient.Refresh(ctx, root, nil)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return fmt.Errorf("incremental orientation refresh: %w", err)
+	}
+	res.Orientation = refreshed
+	return nil
 }
 
 // snapshotGlobals holds the whole-snapshot derivations that cannot be computed

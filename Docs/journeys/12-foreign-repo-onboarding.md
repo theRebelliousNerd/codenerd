@@ -129,9 +129,7 @@ Across the onboarding journey, knowledge injection is strictly governed by the h
 Following completion of Journey 12, the repository contains a durable, complete world model:
 
 1. **SQLite Knowledge Bases** (`.nerd/shards/`):
-   - `core_concepts.db`: Shared architecture and system concepts.
-   - `codebase_knowledge.db`: Synthesized codebase architecture and conventions.
-   - `{agent}_knowledge.db`: Specialized domain knowledge for each derived shard agent, seeded with winning foreign skill atoms.
+   - `{agent}_knowledge.db`: Specialized knowledge for each derived agent: winning foreign skill atoms, Context7 documentation for stack topics, and, for planner-proposed domain experts, grounded web research with sources and retrieval dates.
    - `northstar_knowledge.db`: Canonical North Star specification (`Mission`, `Problem`, `Personas`, `Capabilities`, `Risks`, `Requirements`, `Constraints`).
 2. **Declarative Mangle Facts**:
    - `.nerd/orientation/orientation.mg`: Ground EDB facts establishing repository eras, document lineages, origin sources, private system boundaries, and native spec templates (loaded on every boot).

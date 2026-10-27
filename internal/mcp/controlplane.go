@@ -42,6 +42,10 @@ type ControlPlane struct {
 
 	mu       sync.RWMutex
 	catalogs map[string]*serverCatalog
+	// catalogEpochs fences in-flight catalog fills against disconnect and
+	// reconnect events. A disconnect advances the epoch while retagging the
+	// existing cache so offline reasoning keeps its last known catalog.
+	catalogEpochs map[string]uint64
 	// catalogTTL bounds how stale a cached resource/prompt catalog may be.
 	catalogTTL time.Duration
 	// gate is the policy hook consulted before any call. See RiskGate.
@@ -60,6 +64,7 @@ type serverCatalog struct {
 	resources []MCPResource
 	prompts   []MCPPrompt
 	fetchedAt time.Time
+	epoch     uint64
 	// err records why a catalog is empty, so a server that does not support
 	// resources is reported as such rather than as one with none.
 	err string
@@ -68,13 +73,17 @@ type serverCatalog struct {
 // NewControlPlane builds a control plane over an existing client manager.
 func NewControlPlane(manager *MCPClientManager, store *MCPToolStore, facts *FactEmitter) *ControlPlane {
 	cp := &ControlPlane{
-		manager:    manager,
-		store:      store,
-		handles:    NewHandleStore(DefaultHandleStoreConfig()),
-		facts:      facts,
-		catalogs:   make(map[string]*serverCatalog),
-		catalogTTL: 5 * time.Minute,
-		now:        time.Now,
+		manager:       manager,
+		store:         store,
+		handles:       NewHandleStore(DefaultHandleStoreConfig()),
+		facts:         facts,
+		catalogs:      make(map[string]*serverCatalog),
+		catalogEpochs: make(map[string]uint64),
+		catalogTTL:    5 * time.Minute,
+		now:           time.Now,
+	}
+	if manager != nil {
+		manager.setCatalogLifecycleHook(cp.catalogLifecycleChanged)
 	}
 	// An evicted payload must lose its fact. Otherwise the kernel goes on
 	// asserting that an expandable result exists, policy goes on recommending
@@ -495,7 +504,7 @@ func (cp *ControlPlane) cachedCatalog(serverID string) *serverCatalog {
 	cp.mu.RLock()
 	defer cp.mu.RUnlock()
 	cat, ok := cp.catalogs[serverID]
-	if !ok || cp.now().Sub(cat.fetchedAt) > cp.catalogTTL {
+	if !ok || cat.epoch != cp.catalogEpochs[serverID] || cp.now().Sub(cat.fetchedAt) > cp.catalogTTL {
 		return nil
 	}
 	return cat
@@ -508,10 +517,17 @@ func (cp *ControlPlane) cachedCatalog(serverID string) *serverCatalog {
 // failing round-trips per context lookup is how a cheap operation becomes an
 // expensive one.
 func (cp *ControlPlane) catalogFor(ctx context.Context, serverID string) *serverCatalog {
-	if cat := cp.cachedCatalog(serverID); cat != nil {
+	cp.mu.Lock()
+	if _, exists := cp.catalogEpochs[serverID]; !exists {
+		cp.catalogEpochs[serverID] = 1
+	}
+	epoch := cp.catalogEpochs[serverID]
+	if cat, ok := cp.catalogs[serverID]; ok && cat.epoch == epoch && cp.now().Sub(cat.fetchedAt) <= cp.catalogTTL {
+		cp.mu.Unlock()
 		return cat
 	}
-	cat := &serverCatalog{fetchedAt: cp.now()}
+	cp.mu.Unlock()
+	cat := &serverCatalog{fetchedAt: cp.now(), epoch: epoch}
 	if cp.manager != nil {
 		if resources, err := cp.manager.DiscoverResources(ctx, serverID); err == nil {
 			cat.resources = resources
@@ -526,9 +542,43 @@ func (cp *ControlPlane) catalogFor(ctx context.Context, serverID string) *server
 		}
 	}
 	cp.mu.Lock()
+	if cp.catalogEpochs[serverID] != epoch {
+		current := cp.catalogs[serverID]
+		if current != nil && current.epoch == cp.catalogEpochs[serverID] && cp.now().Sub(current.fetchedAt) <= cp.catalogTTL {
+			cp.mu.Unlock()
+			return current
+		}
+		cp.mu.Unlock()
+		return &serverCatalog{fetchedAt: cp.now(), err: "MCP catalog generation changed during discovery"}
+	}
 	cp.catalogs[serverID] = cat
 	cp.mu.Unlock()
 	return cat
+}
+
+// catalogLifecycleChanged advances the ControlPlane view in step with the
+// manager while its authority fence is held. Disconnect preserves and retags
+// the last known catalog for offline reasoning; a successfully current new
+// connection drops it before connected status is published.
+func (cp *ControlPlane) catalogLifecycleChanged(serverID string, preserveOfflineCache bool) {
+	if serverID == "" {
+		return
+	}
+	cp.mu.Lock()
+	if cp.catalogEpochs == nil {
+		cp.catalogEpochs = make(map[string]uint64)
+	}
+	cp.catalogEpochs[serverID]++
+	if preserveOfflineCache {
+		if previous := cp.catalogs[serverID]; previous != nil {
+			copyOfPrevious := *previous
+			copyOfPrevious.epoch = cp.catalogEpochs[serverID]
+			cp.catalogs[serverID] = &copyOfPrevious
+		}
+	} else {
+		delete(cp.catalogs, serverID)
+	}
+	cp.mu.Unlock()
 }
 
 // InvalidateCatalog drops a cached catalog, so a reconnect or an explicit
@@ -537,8 +587,15 @@ func (cp *ControlPlane) InvalidateCatalog(serverID string) {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
 	if serverID == "" {
+		for id := range cp.catalogEpochs {
+			cp.catalogEpochs[id]++
+		}
 		cp.catalogs = make(map[string]*serverCatalog)
 		return
 	}
+	if cp.catalogEpochs == nil {
+		cp.catalogEpochs = make(map[string]uint64)
+	}
+	cp.catalogEpochs[serverID]++
 	delete(cp.catalogs, serverID)
 }

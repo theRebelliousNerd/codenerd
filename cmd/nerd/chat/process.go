@@ -447,9 +447,26 @@ func (m Model) processInput(input string) tea.Cmd {
 			// Build session context for shard injection (Blackboard Pattern)
 			sessionCtx := m.buildSessionContext(ctx)
 
+			// A mutation is never delegated unless the kernel derived its
+			// verification obligation and the verifier is wired. Falling through
+			// to the ordinary response formatter would describe an unverified
+			// shard return as a completed fix/refactor.
+			if intent.Category == "/mutation" && !route.Verify {
+				return assistantMsg{Surface: m.appendSystemSummary(
+					formatUnverifiedDelegationResponse(intent, shardType, "the kernel did not derive the required verification obligation", false),
+					m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount),
+				)}
+			}
+			if route.Verify && m.verifier == nil {
+				return assistantMsg{Surface: m.appendSystemSummary(
+					formatUnverifiedDelegationResponse(intent, shardType, "no task verifier is configured for this session", false),
+					m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount),
+				)}
+			}
+
 			// The verification loop (the persona's attempts, each judged) when
 			// the kernel derived route_verifies: a delegated mutation.
-			if m.verifier != nil && route.Verify {
+			if route.Verify {
 				// Set session context for verification persistence
 				m.verifier.SetSessionContext(m.sessionID, m.turnCount)
 
@@ -487,6 +504,13 @@ func (m Model) processInput(input string) tea.Cmd {
 						}
 					}
 					return errorMsg(fmt.Errorf("verified execution failed: %w", verifyErr))
+				}
+				if verdict == nil || !verdict.Success {
+					response := formatUnverifiedDelegationResponse(intent, shardType, "the verifier returned no successful verdict", true)
+					return assistantMsg{
+						Surface:     m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)),
+						ShardResult: srPayload,
+					}
 				}
 
 				// Format response with verification confidence
@@ -869,76 +893,26 @@ func (m Model) processInput(input string) tea.Cmd {
 				}
 			}
 
-			// KNOWLEDGE REQUEST HANDLING
-			// The gathered results are synthesized into a final answer with one
-			// follow-up LLM call (see knowledgeGatheredMsg in model_update.go) —
-			// the pipeline is never re-entered, so a knowledge round cannot loop.
-			// The old `len(m.pendingKnowledge) == 0` guard is gone with it: it
-			// silently disabled knowledge gathering for the whole session after
-			// its first use (pendingKnowledge was never cleared).
-			if len(artOutput.KnowledgeRequests) > 0 && !m.awaitingKnowledge {
-				logging.Get(logging.CategoryContext).Info(
-					"LLM requested knowledge: %d specialists to consult",
-					len(artOutput.KnowledgeRequests),
-				)
-				resultChan <- m.handleKnowledgeRequests(streamCtx, artOutput.KnowledgeRequests, input, response)
-				return
-			}
+			// Apply articulation effects before knowledge consultation. The
+			// compressor records the sanitized metadata through its
+			// already-applied-controls path and does not repeat any effect.
+			controlWarnings, recordedUpdates := m.applyArticulationControlPacket(artOutput)
+			warnings = append(warnings, controlWarnings...)
+			response += renderSystemWarnings(warnings)
 
-			// SEMANTIC COMPRESSION
+			// Semantic compression records every completed articulation turn.
+			// Only the sanitized controls are retained; the compressor skips
+			// their effects because the governed chat path applied them above.
 			if m.compressor != nil {
-				var memOps []articulation.MemoryOperation
-				for _, op := range artOutput.MemoryOperations {
-					memOps = append(memOps, articulation.MemoryOperation(op))
-				}
-
-				allMangleUpdates := mangleUpdates
-				if len(artOutput.MangleUpdates) > 0 {
-					allMangleUpdates = append(allMangleUpdates, artOutput.MangleUpdates...)
-
-					var newFacts []core.Fact
-					var learnedFacts []core.Fact
-
-					for _, s := range artOutput.MangleUpdates {
-						if f, err := core.ParseSingleFact(s); err == nil {
-							if strings.HasPrefix(f.Predicate, "candidate_action") {
-								learnedFacts = append(learnedFacts, f)
-							} else {
-								newFacts = append(newFacts, f)
-							}
-						}
-					}
-
-					if len(newFacts) > 0 {
-						_ = m.kernel.LoadFacts(newFacts)
-					}
-
-					if len(learnedFacts) > 0 {
-						_ = m.kernel.LoadFacts(learnedFacts)
-						validatedActions, _ := m.kernel.Query("final_action")
-						if len(validatedActions) > 0 {
-							warnings = append(warnings, fmt.Sprintf("[Stratified Trust] %d learned actions validated", len(validatedActions)))
-						}
-						deniedActions, _ := m.kernel.Query("action_denied")
-						if len(deniedActions) > 0 {
-							warnings = append(warnings, fmt.Sprintf("[Stratified Trust] %d learned actions BLOCKED by Constitution", len(deniedActions)))
-						}
-					}
-				}
-
 				controlPacket := &articulation.ControlPacket{
 					IntentClassification: articulation.IntentClassification{
 						Category: intent.Category,
 						Verb:     intent.Verb,
 						Target:   intent.Target,
 					},
-					MemoryOperations: memOps,
-					MangleUpdates:    allMangleUpdates,
+					MemoryOperations: append([]articulation.MemoryOperation(nil), artOutput.MemoryOperations...),
+					MangleUpdates:    recordedUpdates,
 				}
-
-				// Note: Compressor call needs ctxcompress.Turn but we don't have all fields easily here
-				// so we'll just log and let the main loop handle compression later or let processInputWithKnowledge handle it.
-				// We actually DO need to construct ctxcompress.Turn here:
 				turn := ctxcompress.Turn{
 					Number:          m.turnCount,
 					Role:            "assistant",
@@ -947,64 +921,19 @@ func (m Model) processInput(input string) tea.Cmd {
 					ControlPacket:   controlPacket,
 					Timestamp:       time.Now(),
 				}
-				// ProcessTurn is a multi-step job (atoms, kernel, summary, persist)
-				// started so the turn can answer without waiting. A child
-				// context cancelled when this goroutine returns — the old
-				// defer cancel — dropped the turn's compressed state as soon
-				// as the reply was sent. It stops when the session shuts down.
-				go m.compressor.ProcessTurn(dialogueCompressionContext(m.shutdownCtx), turn)
+				go m.compressor.ProcessTurnWithAppliedControls(dialogueCompressionContext(m.shutdownCtx), turn)
 			}
 
-			// These two kernel writes sit ABOVE the warnings render on
-			// purpose. They are the last thing in the turn that can add a
-			// warning, and the render below is the only thing that shows one
-			// to the user -- so appending after it is a dead write, which is
-			// how their failures stayed invisible in the first place.
-			if len(artOutput.MangleUpdates) > 0 && m.kernel != nil {
-				// This is the one place in the turn where the model's own
-				// conclusions enter the kernel. A fact that does not parse, or
-				// that the kernel refuses, is a decision the agent will not
-				// make later -- and with both failures dropped, the only
-				// visible symptom was the agent behaving as though it had
-				// never been told.
-				//
-				// Warnings rather than errors: one bad atom must not cost the
-				// user their turn, and the surviving atoms are still worth
-				// asserting.
-				//
-				// The same allowlist the session executor applies: the model
-				// reports what it observed and did, and nothing else. This
-				// path used to parse and assert any fact at all, so a model
-				// that wrote user_intent(...) or permitted(...) into its
-				// envelope was rewriting the kernel's own decisions.
-				facts, blocked := core.FilterMangleUpdates(m.kernel, artOutput.MangleUpdates, core.ModelObservationPolicy())
-				for _, b := range blocked {
-					warnings = append(warnings, fmt.Sprintf(
-						"[Kernel] Mangle update dropped: %q: %s", b.Update, b.Reason))
-				}
-				for _, f := range facts {
-					if assertErr := m.kernel.Assert(f); assertErr != nil {
-						warnings = append(warnings, fmt.Sprintf(
-							"[Kernel] Mangle update rejected: %s: %v", f.Predicate, assertErr))
-					}
-				}
+			// Knowledge consultation runs only after control effects above have
+			// landed. Synthesis does not re-enter this turn pipeline.
+			if len(artOutput.KnowledgeRequests) > 0 && !m.awaitingKnowledge {
+				logging.Get(logging.CategoryContext).Info(
+					"LLM requested knowledge: %d specialists to consult",
+					len(artOutput.KnowledgeRequests),
+				)
+				resultChan <- m.handleKnowledgeRequests(streamCtx, artOutput.KnowledgeRequests, input, response)
+				return
 			}
-
-			if artOutput.SelfCorrection != nil && artOutput.SelfCorrection.Triggered && m.kernel != nil {
-				// A self-correction the kernel refused means the agent
-				// believes it caught its own mistake and the record of that
-				// belief did not land.
-				hypothesis := core.Fact{
-					Predicate: "self_correction_hypothesis",
-					Args:      []any{artOutput.SelfCorrection.Hypothesis},
-				}
-				if assertErr := m.kernel.Assert(hypothesis); assertErr != nil {
-					warnings = append(warnings, fmt.Sprintf(
-						"[Kernel] Self-correction hypothesis rejected: %v", assertErr))
-				}
-			}
-
-			response += renderSystemWarnings(warnings)
 
 			thoughtSummary := ""
 			if artOutput.Envelope.Control.ReasoningTrace != "" {
@@ -1029,6 +958,193 @@ func (m Model) processInput(input string) tea.Cmd {
 			errChan:      errChan,
 		}
 	}
+}
+
+// applyArticulationControlPacket is the only chat consumer for model-authored
+// control effects. Observations are policy-filtered before Assert; candidate
+// actions are temporary proposals checked by the constitution; memory
+// operations use the shared scoped implementation; self-correction has its
+// own structured field. The compressor records the turn separately and never
+// receives these effects.
+func (m Model) applyArticulationControlPacket(output *ArticulationOutput) ([]string, []string) {
+	if output == nil {
+		return nil, nil
+	}
+
+	var warnings []string
+	var recordedUpdates []string
+	recordedSet := make(map[string]struct{}, len(output.MangleUpdates))
+	recordUpdate := func(fact core.Fact) {
+		serialized := fact.String()
+		if _, seen := recordedSet[serialized]; seen {
+			return
+		}
+		recordedSet[serialized] = struct{}{}
+		recordedUpdates = append(recordedUpdates, serialized)
+	}
+	var observationUpdates []string
+	var candidateUpdates []string
+	for _, update := range output.MangleUpdates {
+		fact, err := core.ParseSingleFact(update)
+		if err == nil && fact.Predicate == "candidate_action" {
+			candidateUpdates = append(candidateUpdates, update)
+			continue
+		}
+		observationUpdates = append(observationUpdates, update)
+	}
+
+	if len(observationUpdates) > 0 {
+		if m.kernel == nil {
+			for _, update := range observationUpdates {
+				warnings = append(warnings, fmt.Sprintf("[Kernel] Mangle update dropped: %q: no chat kernel is configured", update))
+			}
+		} else {
+			facts, blocked := core.FilterMangleUpdates(m.kernel, observationUpdates, core.ModelObservationPolicy())
+			for _, b := range blocked {
+				warnings = append(warnings, fmt.Sprintf("[Kernel] Mangle update dropped: %q: %s", b.Update, b.Reason))
+			}
+			for _, fact := range facts {
+				if err := m.kernel.Assert(fact); err != nil {
+					warnings = append(warnings, fmt.Sprintf("[Kernel] Mangle update rejected: %s: %v", fact.Predicate, err))
+				} else {
+					recordUpdate(fact)
+				}
+			}
+		}
+	}
+
+	if len(candidateUpdates) > 0 {
+		if m.kernel == nil {
+			for _, update := range candidateUpdates {
+				warnings = append(warnings, fmt.Sprintf("[Stratified Trust] candidate proposal dropped: %q: no chat kernel is configured", update))
+			}
+		} else {
+			candidatePolicy := core.MangleUpdatePolicy{
+				AllowedPredicates: map[string]struct{}{"candidate_action": {}},
+				MaxUpdates:        100,
+			}
+			proposals, blocked := core.FilterMangleUpdates(m.kernel, candidateUpdates, candidatePolicy)
+			for _, b := range blocked {
+				warnings = append(warnings, fmt.Sprintf("[Stratified Trust] candidate proposal dropped: %q: %s", b.Update, b.Reason))
+			}
+
+			existing, queryErr := m.kernel.Query("candidate_action")
+			if queryErr != nil {
+				warnings = append(warnings, fmt.Sprintf("[Stratified Trust] candidate proposals could not be checked: %v", queryErr))
+			} else {
+				existingByFact := make(map[string]struct{}, len(existing))
+				for _, fact := range existing {
+					existingByFact[fact.String()] = struct{}{}
+				}
+
+				var temporary []core.Fact
+				var proposalsToValidate []core.Fact
+				for _, proposal := range proposals {
+					proposalsToValidate = append(proposalsToValidate, proposal)
+					if _, found := existingByFact[proposal.String()]; found {
+						continue
+					}
+					if err := m.kernel.Assert(proposal); err != nil {
+						warnings = append(warnings, fmt.Sprintf("[Stratified Trust] candidate proposal rejected: %v", err))
+						proposalsToValidate = proposalsToValidate[:len(proposalsToValidate)-1]
+						continue
+					}
+					temporary = append(temporary, proposal)
+				}
+
+				if len(proposalsToValidate) > 0 {
+					validated, validationErr := m.kernel.Query("final_action")
+					denied, denialErr := m.kernel.Query("action_denied")
+					if validationErr != nil {
+						warnings = append(warnings, fmt.Sprintf("[Stratified Trust] candidate validation query failed: %v", validationErr))
+					}
+					if denialErr != nil {
+						warnings = append(warnings, fmt.Sprintf("[Stratified Trust] candidate denial query failed: %v", denialErr))
+					}
+					if validationErr == nil && denialErr == nil {
+						validatedCount, deniedCount, unvalidatedCount := 0, 0, 0
+						for _, proposal := range proposalsToValidate {
+							proposalKey := fmt.Sprint(proposal.Args[0])
+							isDenied := false
+							for _, fact := range denied {
+								if len(fact.Args) > 0 && fmt.Sprint(fact.Args[0]) == proposalKey {
+									isDenied = true
+									break
+								}
+							}
+							if isDenied {
+								deniedCount++
+								continue
+							}
+							isValidated := false
+							for _, fact := range validated {
+								if len(fact.Args) > 0 && fmt.Sprint(fact.Args[0]) == proposalKey {
+									isValidated = true
+									break
+								}
+							}
+							if isValidated {
+								validatedCount++
+								recordUpdate(proposal)
+							} else {
+								unvalidatedCount++
+							}
+						}
+						if validatedCount > 0 {
+							warnings = append(warnings, fmt.Sprintf("[Stratified Trust] %d learned actions validated", validatedCount))
+						}
+						if deniedCount > 0 {
+							warnings = append(warnings, fmt.Sprintf("[Stratified Trust] %d learned actions BLOCKED by Constitution", deniedCount))
+						}
+						if unvalidatedCount > 0 {
+							warnings = append(warnings, fmt.Sprintf("[Stratified Trust] %d candidate proposals were not validated", unvalidatedCount))
+						}
+					}
+				}
+
+				if len(temporary) > 0 {
+					for _, proposal := range temporary {
+						if err := m.kernel.RetractFact(proposal); err != nil {
+							warnings = append(warnings, fmt.Sprintf("[Stratified Trust] temporary candidate cleanup failed: %v", err))
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if output.SelfCorrection != nil && output.SelfCorrection.Triggered {
+		if m.kernel == nil {
+			warnings = append(warnings, "[Kernel] Self-correction hypothesis dropped: no chat kernel is configured")
+		} else {
+			hypothesis := core.Fact{
+				Predicate: "self_correction_hypothesis",
+				Args:      []any{output.SelfCorrection.Hypothesis},
+			}
+			if err := m.kernel.Assert(hypothesis); err != nil {
+				warnings = append(warnings, fmt.Sprintf("[Kernel] Self-correction hypothesis rejected: %v", err))
+			}
+		}
+	}
+
+	for _, op := range output.MemoryOperations {
+		ctxcompress.ApplyMemoryOperation(m.kernel, m.localDB, op)
+	}
+
+	return warnings, recordedUpdates
+}
+
+func formatUnverifiedDelegationResponse(intent perception.Intent, shardType, reason string, attempted bool) string {
+	status := "was not started"
+	title := "## Verification Required"
+	next := "Configure a task verifier and retry."
+	if attempted {
+		status = "could not be verified"
+		title = "## Verification Incomplete"
+		next = "Review the result and run the required checks before treating the task as complete."
+	}
+	return fmt.Sprintf("%s\n\nThe %s request for %s %s because %s. No completion is claimed. %s",
+		title, strings.TrimPrefix(intent.Verb, "/"), shardType, status, reason, next)
 }
 
 // dialogueCompressionContext is the context for background turn compression.

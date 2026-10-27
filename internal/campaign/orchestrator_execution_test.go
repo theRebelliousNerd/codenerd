@@ -1,12 +1,36 @@
 package campaign
 
 import (
+	"codenerd/internal/core"
+	"codenerd/internal/session"
+	"codenerd/internal/types"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 )
+
+type rejectedCampaignResetKernel struct {
+	core.Kernel
+	cause error
+}
+
+func (k *rejectedCampaignResetKernel) Transaction() types.KernelTransaction {
+	return rejectedCampaignResetTransaction{cause: k.cause}
+}
+
+type rejectedCampaignResetTransaction struct{ cause error }
+
+func (rejectedCampaignResetTransaction) Retract(string)                          {}
+func (rejectedCampaignResetTransaction) RetractFact(types.Fact)                  {}
+func (rejectedCampaignResetTransaction) RetractExactFact(types.Fact)             {}
+func (rejectedCampaignResetTransaction) RetractPredicateSet(map[string]struct{}) {}
+func (rejectedCampaignResetTransaction) Assert(types.Fact)                       {}
+func (tx rejectedCampaignResetTransaction) Commit() error                        { return tx.cause }
 
 // TODO: Null/Undefined/Empty: What happens if o.campaign is initialized but has an empty ID or title?
 // TODO: Null/Undefined/Empty: What if o.config is partially initialized (e.g., CampaignTimeout == 0 vs negative timeout)?
@@ -88,5 +112,218 @@ func TestFinalizeCancellationDoesNotPauseWithoutCancellation(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(o.nerdDir, "campaigns", "campaign_active.json")); !os.IsNotExist(err) {
 		t.Fatalf("ordinary return unexpectedly persisted cancellation state: %v", err)
+	}
+}
+
+func TestResetInProgress_KernelRejectionDoesNotDivergeLiveCampaign(t *testing.T) {
+	commitErr := errors.New("kernel reset transaction rejected")
+	kernel := &MockKernel{AssertErr: commitErr}
+	kernel.Facts = []core.Fact{
+		{Predicate: "campaign_phase", Args: []any{"phase_live", "campaign_reset_failure", "Live phase", 0, string(PhaseInProgress), ""}},
+		{Predicate: "campaign_task", Args: []any{"task_live", "phase_live", "work", string(TaskInProgress), string(TaskTypeResearch)}},
+	}
+	o := &Orchestrator{
+		kernel:  kernel,
+		nerdDir: filepath.Join(t.TempDir(), ".nerd"),
+		campaign: &Campaign{
+			ID:     "campaign_reset_failure",
+			Status: StatusActive,
+			Phases: []Phase{{
+				ID:     "phase_live",
+				Status: PhaseInProgress,
+				Tasks: []Task{{
+					ID:      "task_live",
+					PhaseID: "phase_live",
+					Status:  TaskInProgress,
+					Type:    TaskTypeResearch,
+				}},
+			}},
+		},
+	}
+
+	// A restart reset is a single kernel transaction. If it is rejected, the
+	// orchestrator must not publish its proposed /pending state to memory or the
+	// snapshot while the executive still holds /in_progress.
+	o.mu.Lock()
+	if err := o.saveCampaign(); err != nil {
+		o.mu.Unlock()
+		t.Fatalf("save pre-reset snapshot: %v", err)
+	}
+	err := o.resetInProgress()
+	o.mu.Unlock()
+	if !errors.Is(err, commitErr) {
+		t.Fatalf("reset error = %v, want kernel cause %v", err, commitErr)
+	}
+
+	if got := o.campaign.Phases[0].Tasks[0].Status; got != TaskInProgress {
+		t.Fatalf("task status after rejected kernel reset = %s, want unchanged %s", got, TaskInProgress)
+	}
+	if got := o.campaign.Phases[0].Status; got != PhaseInProgress {
+		t.Fatalf("phase status after rejected kernel reset = %s, want unchanged %s", got, PhaseInProgress)
+	}
+	assertCampaignStateFact(t, kernel, "campaign_phase", "phase_live", 4, string(PhaseInProgress))
+	tasks, err := kernel.Query("campaign_task")
+	if err != nil || len(tasks) != 1 {
+		t.Fatalf("query kernel task after rejected reset: rows=%v err=%v", tasks, err)
+	}
+	if got := tasks[0].Args[3]; got != string(TaskInProgress) {
+		t.Fatalf("kernel task status = %v, want unchanged %s", got, TaskInProgress)
+	}
+	data, err := os.ReadFile(filepath.Join(o.nerdDir, "campaigns", "campaign_reset_failure.json"))
+	if err != nil {
+		t.Fatalf("read persisted campaign: %v", err)
+	}
+	var persisted Campaign
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		t.Fatalf("decode persisted campaign: %v", err)
+	}
+	if got := persisted.Phases[0].Tasks[0].Status; got != TaskInProgress {
+		t.Fatalf("persisted task status after rejected kernel reset = %s, want unchanged %s", got, TaskInProgress)
+	}
+	if got := persisted.Phases[0].Status; got != PhaseInProgress {
+		t.Fatalf("persisted phase status after rejected kernel reset = %s, want unchanged %s", got, PhaseInProgress)
+	}
+}
+
+func TestRun_RestartResetRejectionStopsBeforeTaskEffects(t *testing.T) {
+	orch, kernel := newPolicyFailureOrchestrator(t, nil, Task{
+		ID: "/task_restart_reject", Description: "recover interrupted work", Type: TaskTypeResearch,
+	})
+	markCampaignTaskInProgress(t, orch, kernel, "/task_restart_reject")
+	orch.mu.Lock()
+	if err := orch.saveCampaign(); err != nil {
+		orch.mu.Unlock()
+		t.Fatalf("save pre-run snapshot: %v", err)
+	}
+	orch.mu.Unlock()
+
+	commitErr := errors.New("restart transaction refused")
+	orch.kernel = &rejectedCampaignResetKernel{Kernel: kernel, cause: commitErr}
+	var executions atomic.Int32
+	orch.taskExecutor = &MockTaskExecutor{ExecuteFunc: func(context.Context, session.TaskRequest) (string, error) {
+		executions.Add(1)
+		return "recovered findings", nil
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	err := orch.Run(ctx)
+	if !errors.Is(err, commitErr) {
+		t.Fatalf("Run error = %v, want reset commit cause %v", err, commitErr)
+	}
+	if got := executions.Load(); got != 0 {
+		t.Fatalf("executor calls after rejected reset = %d, want 0", got)
+	}
+	if got := orch.campaign.Phases[0].Status; got != PhaseInProgress {
+		t.Fatalf("live phase status after rejected reset = %s, want unchanged %s", got, PhaseInProgress)
+	}
+	if got := orch.campaign.Phases[0].Tasks[0].Status; got != TaskInProgress {
+		t.Fatalf("live task status after rejected reset = %s, want unchanged %s", got, TaskInProgress)
+	}
+	assertCampaignStateFact(t, kernel, "campaign_phase", "/phase_failure_policy", 4, string(PhaseInProgress))
+	assertCampaignStateFact(t, kernel, "campaign_task", "/task_restart_reject", 3, string(TaskInProgress))
+	assertPersistedCampaignStatus(t, orch, PhaseInProgress, TaskInProgress)
+}
+
+func TestRun_SuccessfulRestartResetSchedulesInterruptedTask(t *testing.T) {
+	orch, kernel := newPolicyFailureOrchestrator(t, nil, Task{
+		ID: "/task_restart_success", Description: "recover interrupted work", Type: TaskTypeResearch,
+	})
+	markCampaignTaskInProgress(t, orch, kernel, "/task_restart_success")
+	orch.mu.Lock()
+	if err := orch.saveCampaign(); err != nil {
+		orch.mu.Unlock()
+		t.Fatalf("save interrupted campaign before restart: %v", err)
+	}
+	campaignID := orch.campaign.ID
+	orch.mu.Unlock()
+	if err := orch.LoadCampaign(campaignID); err != nil {
+		t.Fatalf("reload interrupted campaign before restart: %v", err)
+	}
+	var executions atomic.Int32
+	orch.taskExecutor = &MockTaskExecutor{ExecuteFunc: func(context.Context, session.TaskRequest) (string, error) {
+		executions.Add(1)
+		return "recovered findings", nil
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := orch.Run(ctx); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := executions.Load(); got != 1 {
+		t.Fatalf("executor calls after successful reset = %d, want 1", got)
+	}
+	if got := orch.campaign.Status; got != StatusCompleted {
+		t.Fatalf("campaign status = %s, want %s", got, StatusCompleted)
+	}
+	if got := orch.campaign.Phases[0].Status; got != PhaseCompleted {
+		t.Fatalf("phase status = %s, want %s", got, PhaseCompleted)
+	}
+	if got := orch.campaign.Phases[0].Tasks[0].Status; got != TaskCompleted {
+		t.Fatalf("task status = %s, want %s", got, TaskCompleted)
+	}
+	assertCampaignStateFact(t, kernel, "campaign_phase", "/phase_failure_policy", 4, string(PhaseCompleted))
+	assertCampaignStateFact(t, kernel, "campaign_task", "/task_restart_success", 3, string(TaskCompleted))
+	assertPersistedCampaignStatus(t, orch, PhaseCompleted, TaskCompleted)
+}
+
+func markCampaignTaskInProgress(t *testing.T, orch *Orchestrator, kernel core.Kernel, taskID string) {
+	t.Helper()
+	orch.mu.Lock()
+	var fact core.Fact
+	for pi := range orch.campaign.Phases {
+		phase := &orch.campaign.Phases[pi]
+		for ti := range phase.Tasks {
+			task := &phase.Tasks[ti]
+			if task.ID != taskID {
+				continue
+			}
+			task.Status = TaskInProgress
+			fact = core.Fact{Predicate: "campaign_task", Args: []any{task.ID, task.PhaseID, task.Description, string(TaskInProgress), string(task.Type)}}
+		}
+	}
+	orch.mu.Unlock()
+	if len(fact.Args) == 0 {
+		t.Fatalf("task %s not found in campaign", taskID)
+	}
+	if err := kernel.RetractFact(core.Fact{Predicate: "campaign_task", Args: []any{taskID}}); err != nil {
+		t.Fatalf("retract pending task fact: %v", err)
+	}
+	if err := kernel.Assert(fact); err != nil {
+		t.Fatalf("assert in-progress task fact: %v", err)
+	}
+}
+
+func assertCampaignStateFact(t *testing.T, kernel core.Kernel, predicate, id string, statusArg int, want string) {
+	t.Helper()
+	facts, err := kernel.Query(predicate)
+	if err != nil {
+		t.Fatalf("query %s: %v", predicate, err)
+	}
+	for _, fact := range facts {
+		if len(fact.Args) > statusArg && types.ExtractString(fact.Args[0]) == id {
+			if got := types.ExtractString(fact.Args[statusArg]); got != want {
+				t.Fatalf("%s(%s) status = %s, want %s", predicate, id, got, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("%s(%s) fact not found in kernel: %v", predicate, id, facts)
+}
+
+func assertPersistedCampaignStatus(t *testing.T, orch *Orchestrator, wantPhase PhaseStatus, wantTask TaskStatus) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(orch.nerdDir, "campaigns", orch.campaign.ID+".json"))
+	if err != nil {
+		t.Fatalf("read persisted campaign: %v", err)
+	}
+	var persisted Campaign
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		t.Fatalf("decode persisted campaign: %v", err)
+	}
+	if got := persisted.Phases[0].Status; got != wantPhase {
+		t.Fatalf("persisted phase status = %s, want %s", got, wantPhase)
+	}
+	if got := persisted.Phases[0].Tasks[0].Status; got != wantTask {
+		t.Fatalf("persisted task status = %s, want %s", got, wantTask)
 	}
 }

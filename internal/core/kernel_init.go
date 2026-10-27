@@ -488,10 +488,10 @@ func (k *RealKernel) loadMangleFiles() error {
 				_, refreshErr := orient.Refresh(context.Background(), k.workspaceRoot, nil)
 				if refreshErr != nil {
 					logging.Get(logging.CategoryKernel).Warn("Orientation refresh failed; projection withheld: %v", refreshErr)
-				} else if res, err := LoadHybridMangleFile(orientationPath); err == nil {
+				} else if decls, facts, err := loadOrientationProjection(orientationPath); err == nil {
 					schemasBuilder.WriteString("\n\n# Repository Orientation\n")
-					schemasBuilder.WriteString(res.Logic)
-					k.bootFacts = append(k.bootFacts, res.Facts...)
+					schemasBuilder.WriteString(decls)
+					k.bootFacts = append(k.bootFacts, facts...)
 					userExtensionsLoaded++
 				} else {
 					logging.Get(logging.CategoryKernel).Warn("Failed to load repository orientation: %v", err)

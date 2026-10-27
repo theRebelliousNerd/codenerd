@@ -77,11 +77,12 @@ func TestRunPhase_WhileTheOnlyRunnableTaskRunsTheLoopDoesNotPoll(t *testing.T) {
 		return os.WriteFile(filepath.Join(workspace, name), []byte("# "+name+"\n"), 0o644)
 	}
 	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:    workspace,
-		Kernel:       kernel,
-		LLMClient:    &MockLLMClient{},
-		Executor:     tactile.NewDirectExecutor(),
-		VirtualStore: &core.VirtualStore{},
+		Workspace:         workspace,
+		Kernel:            kernel,
+		LLMClient:         &MockLLMClient{},
+		PlanningLLMClient: &MockLLMClient{},
+		Executor:          tactile.NewDirectExecutor(),
+		VirtualStore:      &core.VirtualStore{},
 		TaskExecutor: &MockTaskExecutor{ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
 			if strings.Contains(req.Task, "a.md") {
 				time.Sleep(1500 * time.Millisecond)

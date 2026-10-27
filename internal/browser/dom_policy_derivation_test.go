@@ -29,6 +29,7 @@ func TestDOMPolicy_WhenFedRealSnapshotFacts_ShouldDeriveHoneypotAndTargetCheckbo
 	for _, p := range []string{
 		"internal/core/defaults/schemas_browser.mg",
 		"internal/core/defaults/policy/browser_honeypot.mg",
+		"internal/core/defaults/policy/config_params.mg",
 		"internal/core/defaults/policy/browser.mg",
 	} {
 		if err := engine.LoadSchema(filepath.Join(root, p)); err != nil {

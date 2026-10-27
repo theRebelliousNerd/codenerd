@@ -199,6 +199,12 @@ type CompilationContext struct {
 	// HasVectorWeight indicates if VectorWeight is explicitly set for this context
 	HasVectorWeight bool
 
+	// selectorVectorConfig is pinned by the compiler for one config generation.
+	// It keeps an in-flight compile from observing selector settings installed by
+	// a later SetConfig call. Direct selector callers leave it nil and use a
+	// snapshot captured at selection start.
+	selectorVectorConfig *selectorVectorConfig
+
 	// =========================================================================
 	// External References (opaque to avoid circular imports)
 	// =========================================================================

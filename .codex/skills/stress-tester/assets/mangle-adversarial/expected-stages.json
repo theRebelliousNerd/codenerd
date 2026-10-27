@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "stages": {
+    "parse-fail": [
+      "syntactic/*.mg",
+      "structures/*.mg"
+    ],
+    "analyze-fail": [
+      "safety/anonymous_misuse.mg",
+      "safety/negation_order.mg",
+      "safety/unbound_head_vars.mg",
+      "safety/unsafe_negation.mg",
+      "types/atom_vs_string.mg",
+      "types/hallucinated_functions.mg"
+    ],
+    "stratify-fail": [
+      "safety/stratification_cycles.mg"
+    ],
+    "clean": [
+      "loops/*.mg",
+      "types/int_vs_float.mg",
+      "types/list_in_scalar.mg"
+    ]
+  }
+}

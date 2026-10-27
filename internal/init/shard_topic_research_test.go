@@ -2,85 +2,111 @@ package init
 
 import (
 	"context"
+	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
-
-	"codenerd/internal/tools"
 )
 
-func fakeContext7(t *testing.T, exec tools.ExecuteFunc) *tools.Registry {
-	t.Helper()
-	reg := tools.NewRegistry()
-	if err := reg.Register(&tools.Tool{
-		Name:    "context7_fetch",
-		Execute: exec,
-	}); err != nil {
-		t.Fatalf("register context7_fetch: %v", err)
-	}
-	return reg
+// countingFetcher answers every topic with two storable sections and counts
+// how often each topic is fetched and under what deadline.
+type countingFetcher struct {
+	mu        sync.Mutex
+	fetches   map[string]int
+	deadlined []string
+	onFetch   func(topic string)
 }
 
-// TestRunShardTopicResearch_NoOuterDeadline pins that a pass over several
-// shard topics adds no clock of its own. Each context7_fetch keeps
-// research.context7_timeout inside the tool; this fake records the context
-// the loop handed it.
-func TestRunShardTopicResearch_NoOuterDeadline(t *testing.T) {
-	const body = "context7 documentation body that is long enough to be stored as a knowledge atom for this shard topic."
-	var calls int
-	var accepted int
-	reg := fakeContext7(t, func(ctx context.Context, args map[string]any) (string, error) {
-		calls++
-		if _, ok := ctx.Deadline(); ok {
-			t.Errorf("topic %v ran under a deadline", args["topic"])
-		}
-		return body, nil
-	})
+func (f *countingFetcher) fetch(ctx context.Context, topic string) (string, error) {
+	f.mu.Lock()
+	if f.fetches == nil {
+		f.fetches = map[string]int{}
+	}
+	f.fetches[topic]++
+	if _, ok := ctx.Deadline(); ok {
+		f.deadlined = append(f.deadlined, topic)
+	}
+	hook := f.onFetch
+	f.mu.Unlock()
+	if hook != nil {
+		hook(topic)
+	}
+	section := "Notes on " + topic + ": " + strings.Repeat("the idiomatic way to use it, with examples. ", 3)
+	return section + "\n\n" + section + " Second section.", nil
+}
 
-	runShardTopicResearch(context.Background(), reg, []string{"go", "mangle", "sqlite"}, func(topic, got string) {
-		accepted++
-		if got != body {
-			t.Errorf("topic %s body = %q", topic, got)
-		}
-	})
-	if calls != 3 || accepted != 3 {
-		t.Fatalf("calls=%d accepted=%d, want 3 and 3", calls, accepted)
+// An agent's research pass has no clock of its own: each context7_fetch is
+// bounded by research.context7_timeout. A two-minute pass deadline used to
+// drop every topic after the first few.
+func TestCreateAgentKnowledgeBase_ResearchHasNoPassDeadline(t *testing.T) {
+	fetcher := &countingFetcher{}
+	ini := &Initializer{
+		config:      InitConfig{Workspace: t.TempDir()},
+		embedEngine: fixedInitEngine{},
+		fetchTopic:  fetcher.fetch,
+	}
+	agent := RecommendedAgent{Name: "GoExpert", Topics: []string{"go", "mangle", "sqlite"}}
+	if _, err := ini.createAgentKnowledgeBase(context.Background(), filepath.Join(t.TempDir(), "goexpert_knowledge.db"), agent, false); err != nil {
+		t.Fatal(err)
+	}
+	if len(fetcher.fetches) != 3 {
+		t.Fatalf("fetched %v, want all three topics", fetcher.fetches)
+	}
+	if len(fetcher.deadlined) != 0 {
+		t.Fatalf("topics %v ran under a pass deadline", fetcher.deadlined)
 	}
 }
 
-// TestRunShardTopicResearch_StopsWhenCallerCancels pins that init
-// cancellation ends the topic loop between queries. A query already in
-// flight keeps the tool's own request bound; the next topic does not start.
-func TestRunShardTopicResearch_StopsWhenCallerCancels(t *testing.T) {
+// Init cancellation ends the research pass between topics.
+func TestCreateAgentKnowledgeBase_ResearchStopsWhenCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	var seen []string
-	reg := fakeContext7(t, func(ctx context.Context, args map[string]any) (string, error) {
-		topic, _ := args["topic"].(string)
-		seen = append(seen, topic)
+	defer cancel()
+	fetcher := &countingFetcher{onFetch: func(topic string) {
 		if topic == "first" {
 			cancel()
 		}
-		return strings.Repeat("d", 120), nil
-	})
-
-	var accepted int
-	runShardTopicResearch(ctx, reg, []string{"first", "second"}, func(string, string) { accepted++ })
-	if len(seen) != 1 || seen[0] != "first" {
-		t.Fatalf("topics fetched = %v, want only first", seen)
+	}}
+	ini := &Initializer{
+		config:      InitConfig{Workspace: t.TempDir()},
+		embedEngine: fixedInitEngine{},
+		fetchTopic:  fetcher.fetch,
 	}
-	if accepted != 1 {
-		t.Fatalf("accepted %d bodies, want 1", accepted)
+	agent := RecommendedAgent{Name: "GoExpert", Topics: []string{"first", "second"}}
+	_, _ = ini.createAgentKnowledgeBase(ctx, filepath.Join(t.TempDir(), "goexpert_knowledge.db"), agent, false)
+	if fetcher.fetches["second"] != 0 {
+		t.Fatalf("fetched %v after cancellation, want only the first topic", fetcher.fetches)
 	}
+}
 
-	done, cancelDone := context.WithCancel(context.Background())
-	cancelDone()
-	started := 0
-	runShardTopicResearch(done, reg, []string{"later"}, func(string, string) { started++ })
-	if started != 0 || len(seen) != 1 {
-		t.Fatalf("cancelled context fetched more topics: seen=%v accepted=%d", seen, started)
+// A topic two specialists both research is fetched once per run.
+func TestCreateType3Agents_SharedTopicIsFetchedOnce(t *testing.T) {
+	ws := t.TempDir()
+	nerdDir := filepath.Join(ws, ".nerd")
+	fetcher := &countingFetcher{}
+	ini := &Initializer{
+		config:      InitConfig{Workspace: ws},
+		embedEngine: fixedInitEngine{},
+		fetchTopic:  fetcher.fetch,
 	}
-
-	runShardTopicResearch(context.Background(), nil, []string{"x"}, func(string, string) {
-		t.Fatal("nil registry called accept")
-	})
-	runShardTopicResearch(context.Background(), reg, []string{"x"}, nil)
+	agents := []RecommendedAgent{
+		{Name: "GoExpert", Type: "persistent", Topics: []string{"go testing", "go concurrency"}},
+		{Name: "TestArchitect", Type: "persistent", Topics: []string{"Go Testing", "coverage"}},
+	}
+	result := &InitResult{}
+	created, _ := ini.createType3Agents(context.Background(), nerdDir, agents, result)
+	if len(created) != 2 {
+		t.Fatalf("created %d agents, want 2 (warnings %v)", len(created), result.Warnings)
+	}
+	topics := make([]string, 0, len(fetcher.fetches))
+	for topic, n := range fetcher.fetches {
+		if n != 1 {
+			t.Fatalf("topic %q fetched %d times, want once", topic, n)
+		}
+		topics = append(topics, strings.ToLower(topic))
+	}
+	slices.Sort(topics)
+	if !slices.Equal(topics, []string{"coverage", "go concurrency", "go testing"}) {
+		t.Fatalf("fetched topics %v, want each distinct topic once", topics)
+	}
 }

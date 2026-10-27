@@ -62,7 +62,7 @@ func oneWorkingRound(t *testing.T, window int) (*Executor, context.Context, []ty
 		t.Fatal(err)
 	}
 
-	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), "fix target.go", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "target.go"})
+	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), nil, "fix target.go", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "target.go"})
 	if err != nil {
 		t.Fatalf("beginWorkingLoop: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestPrepareWorkingRequest_CarriesEveryRoundUntilTheCeiling(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(e.config.WorkspaceRoot, "target.go"), []byte("package target\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), "fix target.go", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "target.go"})
+	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), nil, "fix target.go", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "target.go"})
 	if err != nil {
 		t.Fatalf("beginWorkingLoop: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestPrepareWorkingRequest_KeepsEarlierFilesInViewAfterTheFocusMoves(t *test
 			t.Fatal(err)
 		}
 	}
-	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), "fix the flaky test", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "loop_test.go"})
+	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), nil, "fix the flaky test", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "loop_test.go"})
 	if err != nil {
 		t.Fatalf("beginWorkingLoop: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestRecordWorkingResult_RecallRestoresTheOriginalObservation(t *testing.T) 
 			t.Fatal(err)
 		}
 	}
-	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), "fix the flaky test", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "loop_test.go"})
+	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), nil, "fix the flaky test", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "loop_test.go"})
 	if err != nil {
 		t.Fatalf("beginWorkingLoop: %v", err)
 	}
@@ -381,7 +381,7 @@ func TestCompleteWithWorkingContext_RendersTheRecalledFileUnderTheCommitRegime(t
 	}
 	files := &stubFileContext{section: "outline"}
 	e.SetFileContextProvider(files)
-	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), "fix the duplicate", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "fix.go"})
+	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), nil, "fix the duplicate", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "fix.go"})
 	if err != nil {
 		t.Fatalf("beginWorkingLoop: %v", err)
 	}
@@ -432,7 +432,7 @@ func TestWorkingLoop_AWriteMakesItsFileHot(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), "edit a.go", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "a.go"})
+	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), nil, "edit a.go", &prompt.CompilationContext{ShardID: "probe", IntentTarget: "a.go"})
 	if err != nil {
 		t.Fatalf("beginWorkingLoop: %v", err)
 	}

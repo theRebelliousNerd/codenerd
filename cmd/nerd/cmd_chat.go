@@ -209,10 +209,15 @@ func runChatWith(cmd *cobra.Command, args []string, dependencies chatDependencie
 		return fmt.Errorf("chat: session executor is not available (cortex boot did not provide one)")
 	}
 
-	src := newChatTurnSource(args, dependencies.input)
+	var turnInput io.Reader = dependencies.input
+	closeInputOnCancel := false
+	if len(args) == 0 && dependencies.input != nil {
+		turnInput, closeInputOnCancel = newChatInputReader(processCtx, dependencies.input)
+	}
+	src := newChatTurnSource(args, turnInput)
 	src.errWriter = dependencies.errOutput
 	src.context = processCtx
-	if len(args) == 0 && dependencies.input != nil {
+	if closeInputOnCancel {
 		readerDone := make(chan struct{})
 		var readerCloseErr error
 		stopReader := context.AfterFunc(processCtx, func() {

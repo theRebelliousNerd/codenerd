@@ -65,7 +65,6 @@ core/VirtualStore
 ## 7. Campaign adjacency
 
 ```
-ToolPregenerator.mcpStore *mcp.MCPToolStore
 IntelligenceGatherer.mcpStore *mcp.MCPToolStore
   calculateToolAffinity(*mcp.MCPTool, goal)
 ```

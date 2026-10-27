@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"codenerd/internal/sqlpragmas"
+	"codenerd/internal/types"
 )
 
 // AgentOnDisk represents a user-defined agent discovered under .nerd/agents/.
@@ -51,7 +52,7 @@ func DiscoverAgentsOnDisk(workspace string) ([]AgentOnDisk, error) {
 			continue
 		}
 
-		dbPath := filepath.Join(workspace, ".nerd", "shards", fmt.Sprintf("%s_knowledge.db", strings.ToLower(agentID)))
+		dbPath := types.AgentKnowledgeDBPath(filepath.Join(workspace, ".nerd"), agentID)
 		discovered = append(discovered, AgentOnDisk{ID: agentID, DBPath: dbPath})
 	}
 

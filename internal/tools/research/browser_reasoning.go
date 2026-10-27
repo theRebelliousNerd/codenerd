@@ -69,6 +69,12 @@ var browserPredicateSpecs = map[string]browserPredicateSpec{
 	"browser_page_state":     {timestampIndex: 4},
 	"net_request":            {timestampIndex: 5},
 	"net_response":           {timestampIndex: -1},
+	"net_http_error":         {timestampIndex: 5},
+	"net_loading_failed":     {timestampIndex: 4},
+	"page_load_failed":       {timestampIndex: 3},
+	"ws_event":               {timestampIndex: 5},
+	"browser_log":            {timestampIndex: 5},
+	"js_dialog":              {timestampIndex: 5},
 	"net_header":             {timestampIndex: -1},
 	"request_initiator":      {timestampIndex: -1},
 	"net_failure":            {timestampIndex: 4},
@@ -78,6 +84,10 @@ var browserPredicateSpecs = map[string]browserPredicateSpec{
 	"slow_api_at":            {timestampIndex: 4},
 	"root_cause":             {timestampIndex: -1},
 	"root_cause_at":          {timestampIndex: 4},
+	"caused_by":              {timestampIndex: -1},
+	"foreign_control":        {timestampIndex: -1},
+	"dialog_answer":          {timestampIndex: -1},
+	"unattended_navigation":  {timestampIndex: 2},
 	"user_visible_error":     {timestampIndex: 3},
 	"interaction_blocked":    {timestampIndex: -1},
 	"interaction_blocked_at": {timestampIndex: 2},
@@ -379,7 +389,12 @@ func executeBrowserReason(ctx context.Context, args map[string]any) (string, err
 	}
 
 	sections := map[string][]types.Fact{}
-	for _, predicate := range []string{"root_cause_at", "failed_request_at", "slow_api_at", "user_visible_error", "net_failure", "interaction_blocked_at", "console_event", "toast_notification"} {
+	for _, predicate := range []string{
+		"root_cause_at", "failed_request_at", "slow_api_at", "user_visible_error", "net_failure",
+		"interaction_blocked_at", "console_event", "toast_notification", "net_http_error",
+		"net_loading_failed", "page_load_failed", "ws_event", "browser_log", "js_dialog",
+		"caused_by", "foreign_control", "dialog_answer", "unattended_navigation",
+	} {
 		facts, queryErr := queryScopedBrowserFacts(ctx, kernel, predicate, predicate, sessionID)
 		if queryErr != nil {
 			return "", fmt.Errorf("browser reason: query %s: %w", predicate, queryErr)
@@ -399,6 +414,11 @@ func executeBrowserReason(ctx context.Context, args map[string]any) (string, err
 	rootCauses := sections["root_cause_at"]
 	slow := sections["slow_api_at"]
 	blocked := sections["interaction_blocked_at"]
+	causalCorrelations := sections["caused_by"]
+	foreignControls := sections["foreign_control"]
+	unattendedNavigations := sections["unattended_navigation"]
+	dialogAnswers := sections["dialog_answer"]
+	observedDialogs := sections["js_dialog"]
 	if state, ok := stateObservation.Data["state"].(browser.PageState); !ok || !state.HasDialog {
 		blocked = nil
 	}
@@ -407,7 +427,7 @@ func executeBrowserReason(ctx context.Context, args map[string]any) (string, err
 	status := "ok"
 	if len(rootCauses)+len(failed)+len(netFailures)+len(errorConsole)+len(errorToasts) > 0 {
 		status = "error"
-	} else if len(slow)+len(blocked)+len(warningConsole)+len(warningToasts) > 0 {
+	} else if len(slow)+len(blocked)+len(warningConsole)+len(warningToasts)+len(foreignControls)+len(unattendedNavigations)+len(observedDialogs) > 0 {
 		status = "warning"
 	}
 	correlations := correlateBrowserFailures(failed, visibleErrors, 5*time.Second)
@@ -420,22 +440,31 @@ func executeBrowserReason(ctx context.Context, args map[string]any) (string, err
 		"slow_apis": len(slow), "blocking_issues": len(blocked), "console_errors": len(errorConsole),
 		"console_warnings": len(warningConsole), "error_toasts": len(errorToasts), "warning_toasts": len(warningToasts),
 		"correlations": len(correlations), "contradictions": len(contradictions),
+		"http_errors": len(sections["net_http_error"]), "loading_failures": len(sections["net_loading_failed"]),
+		"page_load_failures": len(sections["page_load_failed"]), "websocket_errors": countBrowserFactValue(sections["ws_event"], 3, "error"),
+		"browser_log_errors": countBrowserFactValue(sections["browser_log"], 2, "error"), "dialogs_observed": len(observedDialogs),
+		"policy_correlations": len(causalCorrelations), "foreign_control_warnings": len(foreignControls),
+		"unattended_navigations": len(unattendedNavigations), "dialog_answers": len(dialogAnswers),
 	}
 	if len(containerResult.Correlations) > 0 || len(containerResult.Notes) > 0 {
 		counts["container_correlations"] = len(containerResult.Correlations)
 	}
 	data := map[string]any{
-		"root_causes":         publicBrowserFacts(getBrowserManager(), rootCauses, true),
-		"failed_requests":     publicBrowserFacts(getBrowserManager(), failed, true),
-		"network_failures":    publicBrowserFacts(getBrowserManager(), netFailures, true),
-		"slow_apis":           publicBrowserFacts(getBrowserManager(), slow, true),
-		"blocking_issues":     publicBrowserFacts(getBrowserManager(), blocked, true),
-		"user_visible_errors": publicBrowserFacts(getBrowserManager(), visibleErrors, true),
-		"console_errors":      publicBrowserFacts(getBrowserManager(), errorConsole, true),
-		"console_warnings":    publicBrowserFacts(getBrowserManager(), warningConsole, true),
-		"error_toasts":        publicBrowserFacts(getBrowserManager(), errorToasts, true),
-		"warning_toasts":      publicBrowserFacts(getBrowserManager(), warningToasts, true),
-		"correlations":        correlations, "contradictions": contradictions, "recommendations": recommendations,
+		"root_causes":              publicBrowserFacts(getBrowserManager(), rootCauses, true),
+		"failed_requests":          publicBrowserFacts(getBrowserManager(), failed, true),
+		"network_failures":         publicBrowserFacts(getBrowserManager(), netFailures, true),
+		"slow_apis":                publicBrowserFacts(getBrowserManager(), slow, true),
+		"blocking_issues":          publicBrowserFacts(getBrowserManager(), blocked, true),
+		"user_visible_errors":      publicBrowserFacts(getBrowserManager(), visibleErrors, true),
+		"console_errors":           publicBrowserFacts(getBrowserManager(), errorConsole, true),
+		"console_warnings":         publicBrowserFacts(getBrowserManager(), warningConsole, true),
+		"error_toasts":             publicBrowserFacts(getBrowserManager(), errorToasts, true),
+		"warning_toasts":           publicBrowserFacts(getBrowserManager(), warningToasts, true),
+		"policy_correlations":      publicBrowserFacts(getBrowserManager(), causalCorrelations, true),
+		"foreign_control_warnings": publicBrowserFacts(getBrowserManager(), foreignControls, true),
+		"unattended_navigations":   publicBrowserFacts(getBrowserManager(), unattendedNavigations, true),
+		"dialog_answers":           publicBrowserFacts(getBrowserManager(), dialogAnswers, true),
+		"correlations":             correlations, "contradictions": contradictions, "recommendations": recommendations,
 	}
 	if len(containerResult.Correlations) > 0 || len(containerResult.Notes) > 0 {
 		data["container_correlations"] = containerResult.Correlations
@@ -454,7 +483,9 @@ func executeBrowserReason(ctx context.Context, args map[string]any) (string, err
 		"reason:" + sessionID + ":root_causes", "reason:" + sessionID + ":failed_requests",
 		"reason:" + sessionID + ":network_failures", "reason:" + sessionID + ":slow_apis",
 		"reason:" + sessionID + ":blocking_issues", "reason:" + sessionID + ":user_visible_errors",
-		"reason:" + sessionID + ":correlations", "reason:" + sessionID + ":recommendations",
+		"reason:" + sessionID + ":correlations", "reason:" + sessionID + ":policy_correlations",
+		"reason:" + sessionID + ":foreign_control_warnings", "reason:" + sessionID + ":unattended_navigations",
+		"reason:" + sessionID + ":dialog_answers", "reason:" + sessionID + ":recommendations",
 	}
 	if len(containerResult.Correlations) > 0 || len(containerResult.Notes) > 0 {
 		evidenceHandles = append(evidenceHandles, "reason:"+sessionID+":container_correlations")
@@ -462,7 +493,7 @@ func executeBrowserReason(ctx context.Context, args map[string]any) (string, err
 	output := map[string]any{
 		"success": true, "session_id": sessionID, "topic": topic, "view": view, "status": status,
 		"evidence_scope": "bounded_live_kernel", "counts": counts,
-		"summary":    fmt.Sprintf("status=%s root_causes=%d failed_requests=%d network_failures=%d slow_apis=%d blocking_issues=%d", status, len(rootCauses), len(failed), len(netFailures), len(slow), len(blocked)),
+		"summary":    fmt.Sprintf("status=%s root_causes=%d failed_requests=%d page_load_failures=%d websocket_errors=%d unattended_navigations=%d", status, len(rootCauses), len(failed), len(sections["page_load_failed"]), counts["websocket_errors"], len(unattendedNavigations)),
 		"page_state": stateObservation.Data["state"], "time_window_ms": windowMs,
 		"since_navigation": sinceNavigation, "navigation_since_ms": navigationSince, "effective_since_ms": since,
 		"evidence_handles": evidenceHandles,
@@ -846,6 +877,26 @@ func splitConsoleLevels(facts []types.Fact) (errors, warnings []types.Fact) {
 		}
 	}
 	return errors, warnings
+}
+
+func countBrowserFactValue(facts []types.Fact, argIndex int, values ...string) int {
+	if len(values) == 0 {
+		return 0
+	}
+	count := 0
+	for _, fact := range facts {
+		if len(fact.Args) <= argIndex {
+			continue
+		}
+		value := strings.ToLower(fmt.Sprint(fact.Args[argIndex]))
+		for _, candidate := range values {
+			if value == strings.ToLower(candidate) {
+				count++
+				break
+			}
+		}
+	}
+	return count
 }
 
 func splitToastLevels(facts []types.Fact) (errors, warnings []types.Fact) {

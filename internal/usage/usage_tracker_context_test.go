@@ -105,3 +105,32 @@ func TestTrackFromContext(t *testing.T) {
 		t.Errorf("expected total to be 30, got %d", stats.TotalProject.Total)
 	}
 }
+
+func TestCredentialUsagePersistsAndMergesAcrossWriters(t *testing.T) {
+	dir := t.TempDir()
+	first, err := NewTracker(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewTracker(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.Track(WithCredentialAlias(context.Background(), "anthropic/alpha"), "model", "anthropic", 3, 2, "chat")
+	second.Track(WithCredentialAlias(context.Background(), "anthropic/beta"), "model", "anthropic", 4, 1, "chat")
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := NewTracker(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer loaded.Close()
+	stats := loaded.Stats()
+	if stats.ByCredential["anthropic/alpha"].Total != 5 || stats.ByCredential["anthropic/beta"].Total != 5 || stats.TotalProject.Total != 10 {
+		t.Fatalf("credential usage merge lost counts: %+v", stats)
+	}
+}

@@ -146,3 +146,49 @@ before any assertion; the production prompt adapter exercises the same path.
 | Host silence when a guard is never released; no guard diagnostics | stale for `VirtualStore` (its error names the guard; every cortex boot releases it); the executive guard is passive outside chat by design | `virtual_store_routing.go:46`, `factory.go:1420` |
 | Learned rules could promote into the grant path and host witnesses | built | `internal/core/learned_grant_path_test.go` |
 | (handed over by lane B) The Cortex read a predicate that fires everywhere from the catch-all alone, so rows local to another shard were lost: no modified file reached `should_include_context` | fixed: locality-aware `QueryTargets` and `Consumes` | `TestDomainCortex_AModifiedFileIsIncludedInContext`, `TestDerivationMap_AnEverywhereRuleOverLocalFactsIsReadWhereTheyAre` |
+
+
+## Required contract: Typed query constants
+
+RealKernel.Query and QueryCallback must preserve Mangle Name versus String identity when filtering. /alice and a quoted string with the same spelling are distinct terms; wildcard queries retain both. No predicate or permission semantics may be widened.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-CORE-TYPED-QUERY | Typed query constants | `RealKernel.Query` and `QueryCallback` preserve parsed AST literal identity while selecting rows (`internal/core/kernel_query.go:22`, `:197`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Real-kernel mixed Name/String facts under an Any declaration return exactly one correctly typed row for each literal through both APIs and both rows for wildcard. |
+
+**Verified current:** `TestKernelQueryPatternPreservesLiteralType` (`internal/core/kernel_query_literal_type_test.go:13`) and `TestQueryPatternPreservesMangleLiteralIdentity` (`internal/core/kernel_query_test.go:152`) pass with the query-arity and differential controls. Public `Fact.Args` still represents Mangle names and strings as Go strings, so this closes selection semantics without changing result-shape compatibility.
+
+
+## Required contract: Dispatched action failure observations
+
+After executive permission gates pass and dispatch begins, handler failure must preserve the original error and execution_error and emit one correlated execution_result with success false plus completion/event/summary observations and duration. Denials before dispatch must not fabricate execution.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-CORE-FAILED-ACTION-OBSERVATION | Dispatched action failure observations | `VirtualStore.RouteActionResult` publishes correlated failed completion observations for dispatched handler errors (`internal/core/virtual_store_routing.go:35`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Real-kernel permitted handler-error round trip proves failed correlated outcome and event/summary visibility, no success/effect, and unchanged default-deny controls. |
+
+**Verified current:** `TestRouteActionResult_DispatchedHandlerErrorHasCorrelatedFailureObservations` (`internal/core/virtual_store_routing_observations_test.go:17`) passes with default-deny and failure-path controls in the focused core route suite.
+
+
+## Required contract: Executive conclusion scanner query roots
+
+The conclusion-consumption audit must recognize real production query dataflow
+without treating unrelated literals as consumers. Follow function-local query
+strings created by `:=`, `var`, or assignment, including `fmt.Sprintf` templates,
+into registered kernel `Query` calls. Recognize the existing finite
+`queryScopedBrowserFacts` wrapper only as a registered query wrapper whose
+finite predicates are extracted from the actual `browserPredicateSpecs` map
+literal; do not add hard-coded browser predicate roots or accept broad package
+string literals.
+
+Preserve rule-body closure and the checked-in baseline's budget. Tests must
+prove a function-local query and the map-backed wrapper make their real
+predicates live, while an unrelated literal and a genuinely dormant rule head
+remain unconsumed. Genuine dormant conclusions stay visible until a real
+production consumer is wired; the scanner must not whitelist them.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-CORE-CONCLUSION-SCANNER-READS | Detect production query roots in conclusion audit | `goQueryRoots` propagates function-local query strings through query-shaped calls and invalidates unknown assignments (`internal/core/defaults/executive_conclusions_test.go:209-265`, `queryRootsInFunction` at `:268-429`, `goQueryRoots` at `:547-615`). The registered finite wrapper derives roots only from the live `browserPredicateSpecs` map after confirming the wrapper queries the kernel and has a production callsite (`finiteWrapperRoots`, `:462-544`). The strict inventory still reports genuinely dormant heads; this audit change does not mark them consumed. | Required contract above. | P1 | Implemented; focused tests passed; aggregate verification pending | Existing conclusion inventory; browser and MCP readers remain their source owners | `TestConclusionScanner` proves local `:=`/`var`/assignment Sprintf queries and the actual map-backed wrapper are roots, unrelated literals are not, rule-body closure remains intact, and a dormant head stays visible. The strict inventory gate reports only the currently genuine unconsumed heads; no false roots or hard-coded browser predicates are introduced. |
+
+**Verified current:** `TestConclusionScannerTracksFunctionLocalQueryAssignments`, `TestConclusionScannerFiniteWrapperRootsPreserveDormantHeads`, and `TestConclusionScannerUsesCurrentBrowserAllowlistAndMCPLocalQuery` (`internal/core/defaults/executive_conclusions_scanner_test.go:28`, `:51`, `:89`) pass. The production browser root is `progressive_observe.go`'s current-session `action_candidate` query (`internal/browser/progressive_observe.go:405-435`); MCP selection reaches `mcp_tool_selected` through `JITToolCompiler.mangleSelect` (`internal/mcp/compiler.go:198-218`). `TestExecutiveConclusionsAreConsumed` still reports ten genuinely dormant heads after the 26 proven-consumed baseline entries were removed; those conclusions remain visible for their owners to wire, rather than being added as scanner roots.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	memorycontext "codenerd/internal/context"
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
 )
@@ -54,18 +55,27 @@ func (m Model) clearStaleKernelFacts() {
 func (m Model) processMemoryOperations(intent perception.Intent, warnings *[]string) {
 	// 1.3.1 MEMORY OPERATIONS: Process promote_to_long_term, forget, etc.
 	// This enables "remember X" and "learn that Y" instructions
-	if len(intent.MemoryOperations) > 0 && m.localDB != nil {
-		for _, memOp := range intent.MemoryOperations {
-			switch memOp.Op {
-			case "promote_to_long_term":
-				if err := m.localDB.StoreFact(memOp.Key, []any{memOp.Value}, "learned", 10); err != nil {
-					*warnings = append(*warnings, fmt.Sprintf("[Memory] failed to store: %v", err))
-				}
-			case "forget":
-				if m.kernel != nil {
-					m.kernel.Retract(memOp.Key)
-				}
+	for _, memOp := range intent.MemoryOperations {
+		switch memOp.Op {
+		case "promote_to_long_term":
+			if m.localDB == nil {
+				*warnings = append(*warnings, "[Memory] failed to store: no long-term memory store is available")
+				continue
 			}
+			if err := m.localDB.StoreFact(memOp.Key, []any{memOp.Value}, "learned", 10); err != nil {
+				*warnings = append(*warnings, fmt.Sprintf("[Memory] failed to store: %v", err))
+			}
+		case "forget":
+			if m.kernel == nil {
+				*warnings = append(*warnings, "[Memory] failed to forget: kernel is not available")
+				continue
+			}
+			memoryKernel, ok := m.kernel.(memorycontext.MemoryKernel)
+			if !ok {
+				*warnings = append(*warnings, "[Memory] failed to forget: kernel does not support scoped memory retraction")
+				continue
+			}
+			memorycontext.ApplyMemoryOperation(memoryKernel, nil, memOp)
 		}
 	}
 }

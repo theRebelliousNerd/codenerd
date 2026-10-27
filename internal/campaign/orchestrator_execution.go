@@ -70,7 +70,10 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	}
 
 	// Normalize any dangling in-progress tasks/phases (e.g., after restart)
-	o.resetInProgress()
+	if err := o.resetInProgress(); err != nil {
+		o.mu.Unlock()
+		return fmt.Errorf("campaign restart normalization failed: %w", err)
+	}
 
 	// Set up cancellation
 	ctx, cancel := context.WithCancel(ctx)

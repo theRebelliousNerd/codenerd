@@ -318,6 +318,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.listenCampaignEvents()
 		}
 
+	case campaignRequirementMsg:
+		m = m.handleCampaignRequirementMsg(msg)
+
 	case recurseStartedMsg, recurseLineMsg, recurseFinishedMsg:
 		next, cmd, _ := m.handleRecurseMsg(msg)
 		return next, cmd

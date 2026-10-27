@@ -48,3 +48,52 @@ outside B3 ownership and remains required for operator overrides.
 Absent values use the config defaults. Invalid explicit values are errors,
 not fallback candidates. Do not add a model process-killing tool or an agent-run
 timeout while wiring these settings.
+
+## Accepted browser policy parameters contract
+
+`BrowserAutomationConfig` must also own a typed, JSON-configurable browser
+policy section. It supplies the four millisecond windows consumed by policy
+(`browser_slow_api_ms`, `browser_causal_bucket_ms`,
+`browser_unhydrated_age_ms`, `browser_attended_navigation_window_ms`) and all
+thirteen explicit action priorities (`browser_priority_primary` plus the twelve
+`browser_action_rank` keys). Defaults preserve the values already pinned by
+`internal/core/defaults/policy/browser_port_test.go:19` and `:231`; positive
+thresholds and priorities are validated as config input. The attended
+navigation window preserves its pinned zero default; zero is allowed and
+negative values are rejected. Existing policy-required keys must stay
+complete: all seventeen
+`config_param_required(/browser, Key)` keys in
+`internal/core/defaults/policy/browser.mg:58-62` and `:275` receive a value.
+
+Before browser policy is queried or `SessionManager` is constructed, the normal
+factory path must turn the typed config into `config_param` rows and call the
+real parameter assertion boundary (`config.EnsureParams` / `ParamFacts`) on the
+live kernel. Missing/invalid values or assertion failures are surfaced and
+stop browser manager initialization. `slow_api` thresholds and
+`action_candidate` ranks are derived from those configured rows, so operator
+values affect normal boot rather than only a policy test fixture.
+
+### Verified current implementation
+
+`BrowserAutomationConfig.Policy` now carries the typed policy settings and its
+defaults (`internal/config/user_config.go:1475-1520`). The config conversion and
+validation are in `internal/config/browser_policy.go`; the browser-specific
+factory seam renders/asserts parameters before manager construction
+(`internal/system/factory.go:1885-1889`, `:1950-1964`), with the manager created
+afterward at `:1933`. `TestBootPublishesConfiguredBrowserPolicyBeforeManagerUse`
+asserts that all seventeen values reach a real kernel before manager use and
+that configured priorities and thresholds change `action_candidate` and
+`slow_api` (`internal/system/factory_browser_policy_test.go:16`). Invalid
+values are rejected before browser binding by
+`TestInitAutopoiesisAndBrowserRejectsInvalidPolicyBeforeBinding`
+(`factory_browser_policy_test.go:99`), and a rejected `config_param` assertion
+is surfaced before either runtime binds by
+`TestInitAutopoiesisAndBrowserPropagatesPolicyPublicationFailure`
+(`factory_browser_policy_test.go:116`). Config-level tests cover defaults,
+custom values, invalid thresholds/priorities, the zero-window case, and JSON
+conversion (`internal/config/browser_policy_test.go:13-169`). Focused factory
+and config tests passed; aggregate verification remains pending.
+
+| Gap ID | Capability | Current state / deficiency | Target state | Severity | Phase | Blocking dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-BROWSER-PARAM-BRIDGE | Browser policy configuration reaches Mangle before manager use | Typed `BrowserAutomationConfig.Policy` and the factory parameter assertion seam are implemented (`internal/config/user_config.go:1475-1520`; `internal/system/factory.go:1885-1889`, `:1950-1964`). The seventeen required policy keys remain declared in `internal/core/defaults/policy/browser.mg:58-62`, `:275`. | Required contract above. | P1 | Implemented; focused tests passed; aggregate verification pending | Aggregate verification | `TestBootPublishesConfiguredBrowserPolicyBeforeManagerUse` proves all 17 keys reach a real kernel before manager use and configured thresholds/priorities affect derivations; invalid-policy boot refusal and config default/custom/invalid-value tests pass. |

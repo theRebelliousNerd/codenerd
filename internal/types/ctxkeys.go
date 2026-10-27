@@ -32,12 +32,14 @@ type spawnPriorityKeyType struct{}
 type modelCapabilityKeyType struct{}
 type modelNameKeyType struct{}
 type providerKeyType struct{}
+type reasoningEffortKeyType struct{}
 
 var (
 	spawnPriorityKey   = spawnPriorityKeyType{}
 	modelCapabilityKey = modelCapabilityKeyType{}
 	modelNameKey       = modelNameKeyType{}
 	providerKey        = providerKeyType{}
+	reasoningEffortKey = reasoningEffortKeyType{}
 )
 
 // WithSpawnPriority attaches a scheduling priority to ctx for the spawn/API
@@ -60,8 +62,11 @@ func SpawnPriorityFromContext(ctx context.Context) (SpawnPriority, bool) {
 	return PriorityNormal, false
 }
 
-// WithModelCapability attaches a per-call reasoning-class hint to ctx. A shared
-// LLM client reads it to pick a model tier without a per-shard client.
+// WithModelCapability attaches a per-call reasoning-class hint to ctx. Only the
+// Codex CLI engine reads it, to pick among its configured per-class efforts
+// (codex_cli.reasoning_effort_*). The API clients do not: their effort is the
+// config's (a slot's reasoning_effort, or a profile's via WithReasoningEffort),
+// never a tier guessed from a hint.
 func WithModelCapability(ctx context.Context, c ModelCapability) context.Context {
 	return context.WithValue(ctx, modelCapabilityKey, c)
 }
@@ -165,4 +170,23 @@ func TopPFor(ctx context.Context, fallback float64) float64 {
 		return s.TopP
 	}
 	return fallback
+}
+
+// WithReasoningEffort attaches a configured reasoning effort to ctx: a shard
+// profile's reasoning_effort (config.ShardProfileContext), which wins over the
+// serving client's own for the calls made under ctx. A client that takes an
+// effort validates it like its own and sends it where its model accepts one.
+func WithReasoningEffort(ctx context.Context, effort string) context.Context {
+	return context.WithValue(ctx, reasoningEffortKey, effort)
+}
+
+// ReasoningEffortFromContext returns the effort attached to ctx, if any.
+func ReasoningEffortFromContext(ctx context.Context) (string, bool) {
+	if ctx == nil {
+		return "", false
+	}
+	if v, ok := ctx.Value(reasoningEffortKey).(string); ok && v != "" {
+		return v, true
+	}
+	return "", false
 }

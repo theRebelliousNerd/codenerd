@@ -283,6 +283,47 @@ func TestWorkingLedger_ARecalledStaleResultStillDrops(t *testing.T) {
 	require.Empty(t, decision.Restate)
 }
 
+// Unavailable/absent revisions cannot make a recalled observation live and
+// hold it out of eviction. Stable nonfile and unchanged file revisions can.
+func TestWorkingLedger_ARecalledUnresolvableResultStillDrops(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		entity      string
+		wantRev     string
+		wantEvicted bool
+	}{
+		{name: "unavailable file", entity: "missing.go", wantRev: "unavailable", wantEvicted: true},
+		{name: "absent element", entity: ElementEntity("a.go", "Missing"), wantRev: "absent", wantEvicted: true},
+		{name: "nonfile", entity: "", wantRev: "nonfile"},
+		{name: "unchanged file", entity: "a.go"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w, _ := ledgerSet(t, 4096, 1, "a.go")
+			id := "unresolvable"
+			revision := w.Revision(tc.entity)
+			if tc.wantRev != "" {
+				require.Equal(t, tc.wantRev, revision)
+			}
+			require.NoError(t, w.Save(t.Context(), WorkingRecord{
+				ID: id, Entity: tc.entity, Revision: revision,
+				Kind: "read_file/observation", Step: 1, Body: "historical bytes",
+			}))
+
+			decision, err := w.Ledger(t.Context(), []LedgerEntry{{
+				Call: "call-" + id, ID: id, Bytes: 5000, Round: 1,
+			}}, 2, nil, nil, []string{id})
+			require.NoError(t, err)
+			if tc.wantEvicted {
+				require.Equal(t, []string{"call-" + id}, decision.Evict,
+					"an unresolved source cannot make a recalled result live or hold it out of eviction")
+			} else {
+				require.Empty(t, decision.Evict,
+					"a stable revision keeps a recalled live result out of eviction")
+			}
+		})
+	}
+}
+
 // A ledger row with no observation is not live. It leaves before an older
 // live result of a hot file: liveness is the fact, not the age.
 func TestWorkingLedger_AnUnobservedRowLeavesBeforeALiveOne(t *testing.T) {

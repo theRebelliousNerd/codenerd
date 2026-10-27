@@ -303,7 +303,7 @@ func (d *Decomposer) llmProposePlan(ctx context.Context, campaignID string, req 
 	contextStr := d.buildPlanProposalContext(ctx, campaignID, req, kbPath, files, requirements)
 
 	// Get Planner prompt (JIT or static)
-	plannerPrompt, err := d.promptProvider.GetPrompt(ctx, RolePlanner, campaignID)
+	plannerPrompt, err := d.promptProvider.GetPrompt(ctx, RolePlanner, campaignID, d.llmClient)
 	if err != nil {
 		logging.CampaignDebug("Failed to get Planner prompt, using fallback: %v", err)
 		plannerPrompt = PlannerLogic

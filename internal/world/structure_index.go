@@ -106,6 +106,7 @@ type StructCallerMatch struct {
 
 type structFile struct {
 	fingerprint string
+	sourcePath  string // resolved filesystem identity; canonical remains the workspace-facing alias
 	lang        string
 	pkg         string
 	dir         string
@@ -169,9 +170,12 @@ func (s *StructureIndex) Refresh(ctx context.Context) (StructureStats, error) {
 
 func (s *StructureIndex) refreshLocked(ctx context.Context) (StructureStats, error) {
 	started := time.Now()
-	type candidate struct{ fsPath, canonical, fingerprint string }
+	type candidate struct{ fsPath, modelPath, canonical, sourcePath, fingerprint string }
 	var stale []candidate
 	seen := make(map[string]struct{}, len(s.files))
+	fingerprintUpdates := make(map[string]string)
+	var generations dirGenSnapshot
+	now := time.Now().UnixNano()
 
 	mem, err := workspace.For(s.root)
 	if err != nil {
@@ -213,23 +217,76 @@ func (s *StructureIndex) refreshLocked(ctx context.Context) (StructureStats, err
 		if err != nil {
 			return nil
 		}
+		fsPath := path
+		if info.Mode()&fs.ModeSymlink != 0 {
+			// WalkDir admits the link by its workspace path, but DirEntry.Info
+			// reports link metadata while parsing follows the link. Resolve and
+			// gate the target before reading so the cache stamp describes the
+			// bytes we index without opening a path outside workspace membership.
+			resolved, resolveErr := tools.ResolveWorkspacePath(ctx, s.root, path)
+			if resolveErr != nil {
+				return nil
+			}
+			targetCanonical := types.CanonicalPath(s.root, resolved)
+			if tools.IsSecretPath(targetCanonical) {
+				return nil
+			}
+			targetMember, admitErr := mem.Admit(resolved, false)
+			if admitErr != nil {
+				return admitErr
+			}
+			if !targetMember {
+				return nil
+			}
+			targetInfo, statErr := os.Stat(resolved)
+			if statErr != nil || targetInfo.IsDir() {
+				return nil
+			}
+			fsPath, info = resolved, targetInfo
+		}
 		seen[canonical] = struct{}{}
-		fp := fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
-		if prev, ok := s.files[canonical]; ok && prev.fingerprint == fp {
+		current := stampFromInfo(fsPath, info, generations.of(filepath.Dir(fsPath)))
+		var previous contentStamp
+		prev, exists := s.files[canonical]
+		if exists {
+			previous, _ = parseContentFingerprint(prev.fingerprint)
+			if prev.sourcePath != fsPath {
+				// A link can be retargeted without changing its own metadata.
+				// Do not trust a stamp captured from a different target.
+				previous = contentStamp{}
+			}
+		}
+		hash, changed, hashErr := resolveContent(fsPath, current, previous, now)
+		if hashErr != nil {
+			return fmt.Errorf("structure index content %s: %w", canonical, hashErr)
+		}
+		fp := formatContentFingerprint(current, hash)
+		if exists && !changed {
+			// Metadata-only changes such as a touch need to update the stored
+			// content stamp so a later refresh can take the warm path, but they
+			// do not require reparsing the source.
+			if prev.fingerprint != fp {
+				fingerprintUpdates[canonical] = fp
+			}
 			return nil
 		}
-		stale = append(stale, candidate{fsPath: path, canonical: canonical, fingerprint: fp})
+		stale = append(stale, candidate{fsPath: fsPath, modelPath: path, canonical: canonical, sourcePath: fsPath, fingerprint: fp})
 		return nil
 	})
 	if err != nil {
 		return StructureStats{}, err
+	}
+	for canonical, fingerprint := range fingerprintUpdates {
+		if f, ok := s.files[canonical]; ok {
+			f.fingerprint = fingerprint
+		}
 	}
 	for canonical := range s.files {
 		if _, ok := seen[canonical]; !ok {
 			delete(s.files, canonical)
 		}
 	}
-	s.refreshModuleLocked()
+	s.refreshModuleLocked(&generations, now)
 
 	if len(stale) > 0 {
 		parsed := make([]*structFile, len(stale))
@@ -240,7 +297,7 @@ func (s *StructureIndex) refreshLocked(ctx context.Context) (StructureStats, err
 			wg.Go(func() {
 				sem <- struct{}{}
 				defer func() { <-sem }()
-				parsed[i] = parseStructFile(c.fsPath, c.canonical, c.fingerprint)
+				parsed[i] = parseStructFile(c.fsPath, c.modelPath, c.canonical, c.fingerprint)
 			})
 		}
 		wg.Wait()
@@ -250,6 +307,7 @@ func (s *StructureIndex) refreshLocked(ctx context.Context) (StructureStats, err
 				delete(s.files, c.canonical)
 				continue
 			}
+			next.sourcePath = c.sourcePath
 			if !next.parsed {
 				if prev, ok := s.files[c.canonical]; ok {
 					if prev.parsed {
@@ -282,23 +340,33 @@ func (s *StructureIndex) refreshLocked(ctx context.Context) (StructureStats, err
 }
 
 // refreshModuleLocked reads the module path from go.mod when it changed.
-func (s *StructureIndex) refreshModuleLocked() {
+func (s *StructureIndex) refreshModuleLocked(generations *dirGenSnapshot, now int64) {
 	path := filepath.Join(s.root, "go.mod")
 	info, err := os.Stat(path)
 	if err != nil {
 		s.module, s.moduleFP = "", ""
 		return
 	}
-	fp := fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
-	if fp == s.moduleFP {
+	current := stampFromInfo(path, info, generations.of(filepath.Dir(path)))
+	var previous contentStamp
+	previous, _ = parseContentFingerprint(s.moduleFP)
+	hash, changed, err := resolveContent(path, current, previous, now)
+	if err != nil {
+		// Keep the last known module path when a transient read failure prevents
+		// checking whether go.mod changed.
 		return
 	}
-	s.moduleFP = fp
+	fp := formatContentFingerprint(current, hash)
+	if !changed {
+		s.moduleFP = fp
+		return
+	}
 	s.module = ""
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return
 	}
+	s.moduleFP = fp
 	for line := range strings.SplitSeq(string(data), "\n") {
 		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
 			s.module = strings.Trim(strings.TrimSpace(rest), `"`)
@@ -364,7 +432,7 @@ func dirRefPrefix(dir string) string {
 	return dir + "."
 }
 
-func parseStructFile(fsPath, canonical, fingerprint string) *structFile {
+func parseStructFile(fsPath, modelPath, canonical, fingerprint string) *structFile {
 	data, err := os.ReadFile(fsPath)
 	if err != nil {
 		return nil
@@ -377,7 +445,7 @@ func parseStructFile(fsPath, canonical, fingerprint string) *structFile {
 		idents:      make(map[string]int),
 	}
 	if codemodel.IsScriptLang(f.lang) {
-		indexScriptFile(f, fsPath, canonical, string(data))
+		indexScriptFile(f, modelPath, canonical, string(data))
 		return f
 	}
 	if f.lang == codemodel.LangMangle {

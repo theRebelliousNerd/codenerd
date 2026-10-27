@@ -55,6 +55,49 @@ func TestDefaultShardPredicateManifestsAreUnambiguous(t *testing.T) {
 	if _, ok := sharedSet["user_intent"]; !ok {
 		t.Fatal("user_intent must be a shared predicate")
 	}
+
+	wantConsumerPredicates := []string{
+		"mcp_prompt_registered", "mcp_remote_operation", "mcp_remote_prompt",
+		"mcp_remote_request", "mcp_remote_resource", "mcp_remote_reviewed",
+		"mcp_resource_registered", "mcp_server_registered", "mcp_server_status",
+		"mcp_tool_name", "mcp_tool_registered", "mcp_tool_risk",
+		"mcp_tool_risk_source", "mcp_tool_schema_hash",
+	}
+	routes := PredicateConsumerRoutes()
+	if len(routes) != len(wantConsumerPredicates) {
+		t.Fatalf("consumer route count = %d, want exactly %d: %+v", len(routes), len(wantConsumerPredicates), routes)
+	}
+	wantOwners := map[string]string{
+		"mcp_tool_registered":     "world",
+		"mcp_tool_risk":           "world",
+		"mcp_tool_risk_source":    "world",
+		"mcp_server_status":       "world",
+		"mcp_tool_name":           "cortex",
+		"mcp_tool_schema_hash":    "cortex",
+		"mcp_server_registered":   "cortex",
+		"mcp_remote_request":      "cortex",
+		"mcp_remote_reviewed":     "cortex",
+		"mcp_remote_operation":    "cortex",
+		"mcp_remote_resource":     "cortex",
+		"mcp_resource_registered": "cortex",
+		"mcp_remote_prompt":       "cortex",
+		"mcp_prompt_registered":   "cortex",
+	}
+	for i, route := range routes {
+		if route.Predicate != wantConsumerPredicates[i] || route.Consumer != "policy" {
+			t.Fatalf("consumer route[%d] = %+v, want %q -> policy", i, route, wantConsumerPredicates[i])
+		}
+		owner := owners[route.Predicate]
+		if owner == "" {
+			owner = "cortex"
+		}
+		if owner != wantOwners[route.Predicate] {
+			t.Fatalf("canonical owner for %q changed to %q, want %q", route.Predicate, owner, wantOwners[route.Predicate])
+		}
+		if _, isShared := sharedSet[route.Predicate]; isShared {
+			t.Fatalf("consumer-routed predicate %q must not become globally shared", route.Predicate)
+		}
+	}
 	if owner, owned := owners["next_action"]; owned {
 		t.Fatalf("next_action must be unowned so queries fan out to every shard that derives it, got owner %q", owner)
 	}

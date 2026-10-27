@@ -180,3 +180,23 @@ reverse-order acquisition registry. Caller-owned DI override semantics,
 all-resource close-order fault injection, and a cleanup receipt remain open.
 Chat's direct-boot path intentionally remains outside the cache and automatic
 maintenance lifecycle.
+
+## Browser configuration and policy boot order
+
+The accepted `GAP-BROWSER-PARAM-BRIDGE` contract is specified in
+[`../config/05-BROWSER-REAPER-CONFIG.md`](../config/05-BROWSER-REAPER-CONFIG.md).
+`initAutopoiesisAndBrowser` now validates the configured browser policy,
+publishes/asserts its parameters on the live kernel, and constructs the manager
+only afterward (`internal/system/factory.go:1885-1889`, `:1933`, `:1950-1964`).
+The 17 required policy keys are declared in
+`internal/core/defaults/policy/browser.mg:58-62`, `:275`. The focused real-boot
+test `TestBootPublishesConfiguredBrowserPolicyBeforeManagerUse` verifies
+parameter publication and configured `slow_api`/`action_candidate` results;
+`TestInitAutopoiesisAndBrowserRejectsInvalidPolicyBeforeBinding` verifies
+invalid config stops boot, and
+`TestInitAutopoiesisAndBrowserPropagatesPolicyPublicationFailure` verifies a
+kernel assertion error stops boot before either runtime binds
+(`internal/system/factory_browser_policy_test.go:16`, `:99`, `:116`). The
+factory and config policy tests passed. Aggregate verification remains pending;
+browser observation facts are covered by a separate open contract.
+

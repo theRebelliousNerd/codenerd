@@ -63,7 +63,6 @@ internal/campaign/
   intelligence_gathering_methods.go / intelligence_formatting.go
   shard_advisory_board.go          # advisor consultation + vote synthesis
   edge_case_detector.go            # create/extend/modularize file decisions
-  tool_pregenerator.go             # fill tool gaps before execution
   specialist_knowledge.go          # specialist DB atoms into task context
 
   assault_campaign.go              # deterministic 4-phase assault plan
@@ -75,6 +74,8 @@ internal/campaign/
   journal_ops.go                   # verify + replay operator API
   metrics.go                       # optional backend-agnostic MetricsSink
   campaign_prompts.go              # PromptProvider + role -> atom family map
+  jit_prompt_provider.go           # JIT role prompts, compiled for the serving model
+  orchestrator_planning.go         # Orchestrator.Decompose: doors plan through the orchestrator
   prompts.go                       # frozen last-resort fallback prompts
   document_ingestor.go             # source document ingestion
 ```
@@ -88,13 +89,18 @@ Sizes: `replan.go` (1342), `risk_scoring.go` (1181), `assault_tasks.go` (1222),
 `NewOrchestrator` refuses to build without **all** of:
 
 - `Kernel`, `LLMClient`, `Executor` (tactile), `VirtualStore`, non-empty `Workspace`
+- **`PlanningLLMClient`** — decomposition, replanning, rolling-wave refinement,
+  new requirements and assault remediation plans run on it; doors pass the
+  planner slot when config.json configures one, else main (`Cortex.PlanningLLM`).
+  `LLMClient` keeps paging and the document fallback.
 - **`TaskExecutor`** — required, not "TaskExecutor or ShardManager". `ShardManager`
   is monitoring only; without a task executor nothing can run and both
   verification checkpoints have nothing to run on. Typed nils are rejected too.
 
 Optional collaborators (`IntelligenceGatherer`, `AdvisoryBoard`,
-`EdgeCaseDetector`, `ToolPregenerator`, `NorthstarObserver`, `MetricsSink`,
-`PromptProvider`) are dependency-injected. When the kernel is a
+`EdgeCaseDetector`, `NorthstarObserver`, `MetricsSink`, `PromptProvider`) are
+dependency-injected; the specialist knowledge provider is built from the
+workspace. When the kernel is a
 `*core.RealKernel` and a workspace is set, `IntelligenceGatherer` and
 `EdgeCaseDetector` are **default-wired** from those two ingredients so a caller
 cannot silently lose pre-planning intelligence and the edge risk gate.
@@ -114,8 +120,9 @@ decides what stops the campaign.
 | Anything else blocked (edge prework, requested changes, no consensus, consultation failure) | **SOFT** — recorded, emitted as `risk_gate_advisory`, campaign proceeds |
 
 A hard finding returns a `*RiskBlockedError`; `campaign.FormatRiskBlock(err)`
-renders the full gate report for CLI and chat. `Orchestrator.LastRiskEvaluation()`
-exposes the soft findings on a campaign that did start.
+renders the full gate report for CLI and chat. Soft findings on a campaign that
+did start are emitted as `risk_gate_advisory` events, which both the CLI event
+printer and the chat transcript show.
 
 If `campaign_rules.mg` is not loaded, Go falls back to a mirror of the same
 contract rather than treating "no rules" as "no blocks";

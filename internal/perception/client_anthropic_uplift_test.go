@@ -2,6 +2,7 @@ package perception
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -103,8 +104,8 @@ func TestAnthropicChat_CancelledBackoffExitsFast(t *testing.T) {
 	_, err := c.CompleteWithSystem(ctx, "sys", "hi")
 	elapsed := time.Since(start)
 
-	if err == nil || !strings.Contains(err.Error(), "cancelled during retry backoff") {
-		t.Fatalf("err = %v, want cancellation during backoff", err)
+	if err == nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context cancellation", err)
 	}
 	if elapsed > 3*time.Second {
 		t.Errorf("cancelled turn took %v, want fast exit (old code slept 7s)", elapsed)
@@ -219,9 +220,13 @@ func TestAnthropicToolResults_Retries429AndMapsHistory(t *testing.T) {
 // The extracted rateLimit must enforce the 100ms inter-request spacing.
 func TestAnthropicRateLimit_EnforcesSpacing(t *testing.T) {
 	c := anthropicTestClient("http://127.0.0.1:1")
-	c.rateLimit()
+	if err := c.rateLimit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	start := time.Now()
-	c.rateLimit()
+	if err := c.rateLimit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	if gap := time.Since(start); gap < 90*time.Millisecond {
 		t.Errorf("rateLimit gap = %v, want >= 90ms", gap)
 	}

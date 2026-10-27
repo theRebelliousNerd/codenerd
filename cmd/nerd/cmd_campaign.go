@@ -1,7 +1,6 @@
 package main
 
 import (
-	"codenerd/cmd/nerd/chat"
 	"codenerd/internal/articulation"
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
@@ -140,13 +139,17 @@ var campaignListCmd = &cobra.Command{
 // construction site.
 //
 // It is pure construction: no boot, no LLM calls. All factory-owned objects
-// (kernel, store, shards, executors, scanner, persistence, transducer) come
-// from the Cortex; only campaign-specific pieces (intelligence gatherer,
-// advisory board, northstar observer, edge-case detector, tool pregenerator,
-// JIT prompt provider) are built here. Optional Cortex pieces (Orchestrator,
-// MCP bridge, scanner, JIT compiler, planner/worker tiers) may be nil — the
-// accessors ToolGenerator/OuroborosLoop/MCPStore are nil-safe and every other
-// nil is degraded gracefully, never panicked.
+// (kernel, store, shards, executors, scanner, persistence, transducer, LLM
+// tiers) come from the Cortex; only campaign-specific pieces (intelligence
+// gatherer, advisory board, northstar observer, edge-case detector, JIT
+// prompt provider) are built here. Optional Cortex pieces (Orchestrator, MCP
+// bridge, scanner, JIT compiler, planner/worker tiers) may be nil — the
+// accessors ToolGenerator/MCPStore are nil-safe and every other nil is
+// degraded gracefully, never panicked.
+//
+// Planning runs on cortex.PlanningLLM (the planner slot when config.json
+// configures one, else main); tasks run on the worker tier inside
+// cortex.TaskExecutor.
 //
 // The campaign policy is the workspace config's campaign section, read here
 // and nowhere else on the CLI: a config that does not load is an error, never
@@ -162,16 +165,15 @@ func buildCampaignOrchestratorConfig(cortex *coresys.Cortex, cwd string, progres
 	}
 	cfg.Campaign = appCfg.GetCampaignConfig()
 	if cortex == nil {
-		cfg.ToolPregenerator = campaign.NewToolPregenerator(nil, nil, nil)
 		return cfg, nil, nil
 	}
 	cfg.Kernel = cortex.Kernel
 	cfg.LLMClient = cortex.LLMClient
+	cfg.PlanningLLMClient = cortex.PlanningLLM()
 	cfg.ShardManager = cortex.ShardManager
 	cfg.TaskExecutor = cortex.TaskExecutor
 	cfg.Executor = cortex.Executor
 	cfg.VirtualStore = cortex.VirtualStore
-	cfg.Transducer = cortex.Transducer
 
 	worldScanner := cortex.Scanner
 	if worldScanner == nil {
@@ -217,31 +219,32 @@ func buildCampaignOrchestratorConfig(cortex *coresys.Cortex, cwd string, progres
 
 	edgeCaseDetector := campaign.NewEdgeCaseDetector(kern, worldScanner)
 
-	// Always constructed: its methods are nil-safe per tool_pregenerator.go,
-	// so a nil Ouroboros loop degrades to gap detection instead of a nil
-	// ToolPregenerator that the orchestrator would have to nil-check.
-	toolPregenerator := campaign.NewToolPregenerator(
-		cortex.ToolGenerator(),
-		cortex.OuroborosLoop(),
-		cortex.MCPStore(),
-	)
-
 	cfg.IntelligenceGatherer = intelligenceGatherer
 	cfg.AdvisoryBoard = advisoryBoard
 	cfg.NorthstarObserver = northstarObserver
 	cfg.EdgeCaseDetector = edgeCaseDetector
-	cfg.ToolPregenerator = toolPregenerator
 
-	var promptProvider campaign.PromptProvider
-	if cortex.PromptAssembler != nil {
-		promptProvider = chat.NewCampaignJITProvider(cortex.PromptAssembler)
-	} else if cortex.JITCompiler != nil && kern != nil {
-		if pa, err := articulation.NewPromptAssemblerWithJIT(kern, cortex.JITCompiler); err == nil && pa != nil {
-			promptProvider = chat.NewCampaignJITProvider(pa)
+	assembler := cortex.PromptAssembler
+	if assembler == nil && cortex.JITCompiler != nil && kern != nil {
+		if pa, err := articulation.NewPromptAssemblerWithJIT(kern, cortex.JITCompiler); err == nil {
+			assembler = pa
 		}
 	}
+	return cfg, campaign.NewJITPromptProvider(assembler), nil
+}
 
-	return cfg, promptProvider, nil
+// newCampaignOrchestrator builds the orchestrator one campaign plans and runs
+// on, with the JIT prompt provider when there is one. The caller owns it and
+// closes it, which closes the northstar observer the config carries.
+func newCampaignOrchestrator(orchCfg campaign.OrchestratorConfig, promptProvider campaign.PromptProvider) (*campaign.Orchestrator, error) {
+	orchestrator, err := campaign.NewOrchestrator(orchCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize campaign orchestrator: %w", err)
+	}
+	if promptProvider != nil {
+		orchestrator.SetPromptProvider(promptProvider)
+	}
+	return orchestrator, nil
 }
 
 // campaignNorthstarObserver builds the vision-guardian observer for one
@@ -298,30 +301,6 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		cortex.VirtualStore.DisableBootGuard() // CLI commands are user-initiated, disable boot guard
 	}
 
-	llmClient := cortex.LLMClient
-	if llmClient == nil {
-		return fmt.Errorf("campaign start: cortex boot did not provide an LLM client")
-	}
-	kern := cortex.Kernel
-	if kern == nil && cortex.RealKernel != nil {
-		kern = cortex.RealKernel
-	}
-	if kern == nil {
-		return fmt.Errorf("campaign start: cortex boot did not provide a kernel")
-	}
-	// Worker/planner routing lives in the factory: cortex.TaskExecutor already
-	// runs bulk work on the worker tier and reasoning turns on the planner
-	// tier. The locals below document the fallback (nil means share the main
-	// client, same as the old two-slot split) for the planning pieces kept in
-	// this command.
-	shardLLM := llmClient
-	if w := cortex.WorkerLLM(); w != nil {
-		shardLLM = w
-	}
-	_ = shardLLM
-	plannerLLM := cortex.PlannerLLM()
-	_ = plannerLLM
-
 	fmt.Println("╔═══════════════════════════════════════════════════════════╗")
 	fmt.Println("║          CAMPAIGN ORCHESTRATOR - INITIALIZING             ║")
 	fmt.Println("╚═══════════════════════════════════════════════════════════╝")
@@ -347,22 +326,17 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	fmt.Println("   ✓ Advisory board initialized")
 	// The northstar observer prints its own ✓/⚠ inside BuildCampaignObserver.
 	fmt.Println("   ✓ Edge case detector initialized")
-	if cortex.OuroborosLoop() == nil {
-		fmt.Println("   Tool pregenerator: autopoiesis disabled, gap detection only")
-	} else {
-		fmt.Println("   ✓ Tool pregenerator initialized")
-	}
 	fmt.Println("   ✓ Intelligence systems initialized")
 
-	// Create decomposer (planning stays on the main client; task execution
-	// rides the worker tier inside cortex.TaskExecutor).
-	decomposer := campaign.NewDecomposer(kern, llmClient, cwd)
-	if cortex.ShardManager != nil {
-		decomposer.SetShardLister(cortex.ShardManager)
+	// One orchestrator plans and runs the campaign: decomposition and every
+	// replan run on orchCfg.PlanningLLMClient, tasks on the worker tier inside
+	// cortex.TaskExecutor. Built before planning so it owns the northstar
+	// observer on every path, a failed decomposition included.
+	orchestrator, err := newCampaignOrchestrator(orchCfg, campaignPromptProvider)
+	if err != nil {
+		return err
 	}
-	if campaignPromptProvider != nil {
-		decomposer.SetPromptProvider(campaignPromptProvider)
-	}
+	defer func() { _ = orchestrator.Close() }()
 
 	// Build request with context budget from config (request param, not boot).
 	nerdDir := filepath.Join(cwd, ".nerd")
@@ -391,7 +365,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		fmt.Println("📋 Decomposing goal into phases and tasks...")
 
 		var derr error
-		result, derr = decomposer.Decompose(ctx, req)
+		result, derr = orchestrator.Decompose(ctx, req)
 		if derr != nil {
 			return fmt.Errorf("failed to decompose campaign: %w", derr)
 		}
@@ -430,15 +404,16 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 
 	startCampaignEventPrinter(eventChan)
 
-	return executeCampaignPlan(ctx, cmd, orchCfg, campaignPromptProvider, result.Campaign)
+	return executeCampaignPlan(ctx, cmd, orchestrator, result.Campaign)
 }
 
-// executeCampaignPlan runs one fully-planned campaign: summary, orchestrator
-// construction, Run, and outcome translation. runCampaignStart calls it once;
-// runCampaignRecurse calls it per wave, so every wave gets the identical boot
-// and outcome handling. Event printing is the caller's job: one printer serves
-// a whole command over a shared channel, since waves run sequentially.
-func executeCampaignPlan(ctx context.Context, cmd *cobra.Command, orchCfg campaign.OrchestratorConfig, promptProvider campaign.PromptProvider, camp *campaign.Campaign) error {
+// executeCampaignPlan runs one fully-planned campaign on orchestrator:
+// summary, Run, and outcome translation. runCampaignStart calls it once;
+// runCampaignRecurse calls it per wave on a fresh orchestrator, so every wave
+// gets the identical outcome handling. The caller owns and closes the
+// orchestrator. Event printing is the caller's job too: one printer serves a
+// whole command over a shared channel, since waves run sequentially.
+func executeCampaignPlan(ctx context.Context, cmd *cobra.Command, orchestrator *campaign.Orchestrator, camp *campaign.Campaign) error {
 	// Display plan summary
 	fmt.Printf("\n📊 Campaign Plan: %s\n", camp.Title)
 	fmt.Printf("   Confidence: %.0f%%\n", camp.Confidence*100)
@@ -451,15 +426,6 @@ func executeCampaignPlan(ctx context.Context, cmd *cobra.Command, orchCfg campai
 			status := "⏳"
 			fmt.Printf("  %s %d.%d %s\n", status, i+1, j+1, task.Description)
 		}
-	}
-
-	orchestrator, err := campaign.NewOrchestrator(orchCfg)
-	if err != nil {
-		return fmt.Errorf("failed to initialize campaign orchestrator: %w", err)
-	}
-	defer func() { _ = orchestrator.Close() }()
-	if promptProvider != nil {
-		orchestrator.SetPromptProvider(promptProvider)
 	}
 
 	if err := orchestrator.SetCampaign(camp); err != nil {
@@ -532,6 +498,10 @@ func startCampaignEventPrinter(eventChan chan campaign.OrchestratorEvent) {
 				fmt.Printf("\n\U0001F3C6 %s\n", event.Message)
 			case "replan_triggered":
 				fmt.Printf("\U0001F504 Replanning: %s\n", event.Message)
+			case campaign.EventRiskGateAdvisory:
+				// A soft risk finding: the campaign continues, and the
+				// operator still sees what the preflight found.
+				fmt.Printf("⚠️  %s\n", event.Message)
 			case "snapshot_write_failed":
 				// The campaign is running from memory only. Silence here is how
 				// an operator ends up believing finished phases were saved.
@@ -727,7 +697,7 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	// inherits every factory improvement (session identity, Ouroboros registry,
 	// hydration, Dreamer gate adapter, worker/planner routing) and the JIT
 	// prompt provider instead of hand-assembling a parallel stack with nil
-	// stores and no ToolPregenerator.
+	// stores.
 	key := resolveAPIKey(apiKey, workspace)
 	cortex, err := coresys.GetOrBootCortex(ctx, cwd, key, disableSystemShards)
 	if err != nil {
@@ -746,14 +716,11 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	orchestrator, err := campaign.NewOrchestrator(orchCfg)
+	orchestrator, err := newCampaignOrchestrator(orchCfg, campaignPromptProvider)
 	if err != nil {
-		return fmt.Errorf("failed to initialize campaign orchestrator: %w", err)
+		return err
 	}
 	defer func() { _ = orchestrator.Close() }()
-	if campaignPromptProvider != nil {
-		orchestrator.SetPromptProvider(campaignPromptProvider)
-	}
 
 	if err := orchestrator.SetCampaign(pausedCampaign); err != nil {
 		return fmt.Errorf("failed to load campaign: %w", err)
@@ -768,25 +735,9 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Start event listener
-	go func() {
-		for event := range eventChan {
-			switch event.Type {
-			case "task_started":
-				fmt.Printf("🔄 %s\n", event.Message)
-			case "task_completed":
-				fmt.Printf("✅ %s\n", event.Message)
-			case "task_failed":
-				fmt.Printf("❌ %s\n", event.Message)
-			case "phase_completed":
-				fmt.Printf("🎉 Phase completed: %s\n", event.Message)
-			case "campaign_completed":
-				fmt.Printf("\n🏆 %s\n", event.Message)
-			case "snapshot_write_failed":
-				fmt.Printf("⚠️  Campaign snapshot NOT written — progress is not on disk: %s\n", event.Message)
-			}
-		}
-	}()
+	// The same printer start uses: a resumed run replans and starts phases
+	// too, and its own copy of the switch dropped both events.
+	startCampaignEventPrinter(eventChan)
 
 	// Run campaign
 	if err := orchestrator.Run(ctx); err != nil {

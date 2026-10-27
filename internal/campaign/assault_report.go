@@ -89,26 +89,6 @@ type AssaultSummary struct {
 
 const assaultSummaryFailureSamples = 25
 
-// ExportAssaultSummary aggregates the campaign's assault evidence and writes
-// both a JSON and a Markdown report under assault/. It returns the Markdown
-// path, which is the one an operator opens.
-func (o *Orchestrator) ExportAssaultSummary() (string, *AssaultSummary, error) {
-	o.mu.RLock()
-	c := o.campaign
-	workspace := o.workspace
-	o.mu.RUnlock()
-
-	if c == nil {
-		return "", nil, ErrNilCampaign
-	}
-	summary, err := BuildAssaultSummary(workspace, c.ID)
-	if err != nil {
-		return "", nil, err
-	}
-	path, err := WriteAssaultSummary(workspace, summary)
-	return path, summary, err
-}
-
 // BuildAssaultSummary reads the on-disk assault evidence for a campaign.
 func BuildAssaultSummary(workspace, campaignID string) (*AssaultSummary, error) {
 	slug := sanitizeCampaignID(campaignID)

@@ -162,6 +162,10 @@ type DerivationMap struct {
 	Arities map[string]int
 	// Presence: where a predicate's facts can exist.
 	Presence map[string]Presence
+	// ConsumerReplicas records explicit bounded EDB copies by predicate.
+	// Presence includes these shards so joins and query placement account for
+	// the copy; owners remain canonical and the copies are never verdicts.
+	ConsumerReplicas map[string]Presence
 	// QueryTargets: where a query for a derived predicate must look (a rule
 	// that fires everywhere contributes the catch-all, plus every shard
 	// where its premises' facts are local).
@@ -297,16 +301,17 @@ func clauseBodyPreds(clause ast.Clause) (pos []string, neg []string) {
 }
 
 type derivationBuilder struct {
-	arities    map[string]int
-	owners     map[string]string
-	shared     map[string]struct{}
-	catchAll   string
-	programEDB map[string]struct{}
-	declSet    map[string]struct{}
-	rules      []parsedRule
-	derived    map[string]struct{}
-	presence   map[string]Presence
-	leafMemo   map[string]map[string]struct{}
+	arities          map[string]int
+	owners           map[string]string
+	shared           map[string]struct{}
+	consumerReplicas map[string]map[string]struct{}
+	catchAll         string
+	programEDB       map[string]struct{}
+	declSet          map[string]struct{}
+	rules            []parsedRule
+	derived          map[string]struct{}
+	presence         map[string]Presence
+	leafMemo         map[string]map[string]struct{}
 	// adds / cuts: per derived predicate, the shards whose own facts can add
 	// facts to, or remove facts from, the copy every shard derives alike
 	// (localFixpoint). Presence cannot say this: All means "can exist in
@@ -315,25 +320,29 @@ type derivationBuilder struct {
 	cuts map[string]map[string]struct{}
 }
 
-func newDerivationBuilder(owners map[string]string, shared map[string]struct{}, catchAll string) *derivationBuilder {
+func newDerivationBuilder(owners map[string]string, shared map[string]struct{}, consumerReplicas map[string]map[string]struct{}, catchAll string) *derivationBuilder {
 	if owners == nil {
 		owners = map[string]string{}
 	}
 	if shared == nil {
 		shared = map[string]struct{}{}
 	}
+	if consumerReplicas == nil {
+		consumerReplicas = map[string]map[string]struct{}{}
+	}
 	if catchAll == "" {
 		catchAll = "cortex"
 	}
 	return &derivationBuilder{
-		arities:    make(map[string]int),
-		owners:     owners,
-		shared:     shared,
-		catchAll:   catchAll,
-		programEDB: make(map[string]struct{}),
-		declSet:    make(map[string]struct{}),
-		presence:   make(map[string]Presence),
-		leafMemo:   make(map[string]map[string]struct{}),
+		arities:          make(map[string]int),
+		owners:           owners,
+		shared:           shared,
+		consumerReplicas: consumerReplicas,
+		catchAll:         catchAll,
+		programEDB:       make(map[string]struct{}),
+		declSet:          make(map[string]struct{}),
+		presence:         make(map[string]Presence),
+		leafMemo:         make(map[string]map[string]struct{}),
 	}
 }
 
@@ -346,10 +355,16 @@ func (b *derivationBuilder) edbPresence(p string) Presence {
 	if _, ok := b.shared[p]; ok {
 		return AllPresence()
 	}
+	var presence Presence
 	if owner, ok := b.owners[p]; ok {
-		return SingleShardPresence(owner)
+		presence = SingleShardPresence(owner)
+	} else {
+		presence = SingleShardPresence(b.catchAll)
 	}
-	return SingleShardPresence(b.catchAll)
+	for consumer := range b.consumerReplicas[p] {
+		presence = presence.Join(SingleShardPresence(consumer))
+	}
+	return presence
 }
 
 func (b *derivationBuilder) getPresence(p string) Presence {
@@ -822,7 +837,21 @@ func (b *derivationBuilder) sharedLeaves(p string, out map[string]struct{}, stac
 // BuildDerivationMap analyzes concatenated policy text with the real Mangle
 // parser and computes the static cross-shard derivation map.
 func BuildDerivationMap(policyText string, programFacts map[string]struct{}, owners map[string]string, shared map[string]struct{}, catchAll string) (*DerivationMap, error) {
-	b := newDerivationBuilder(owners, shared, catchAll)
+	return BuildDerivationMapWithConsumerRoutes(policyText, programFacts, owners, shared, nil, catchAll)
+}
+
+// BuildDerivationMapWithConsumerRoutes analyzes policy placement while
+// accounting for explicitly routed EDB copies. The route list must match the
+// one installed on the Cortex before its first mutation.
+func BuildDerivationMapWithConsumerRoutes(policyText string, programFacts map[string]struct{}, owners map[string]string, shared map[string]struct{}, routes []PredicateConsumerRoute, catchAll string) (*DerivationMap, error) {
+	indexed, err := normalizedConsumerRouteIndex(routes)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateConsumerRouteIndex(indexed, owners, shared, routeDomains(owners, catchAll), catchAll); err != nil {
+		return nil, err
+	}
+	b := newDerivationBuilder(owners, shared, indexed, catchAll)
 	if err := b.parse(policyText, programFacts); err != nil {
 		return nil, err
 	}
@@ -842,15 +871,16 @@ func BuildDerivationMap(policyText string, programFacts map[string]struct{}, own
 		local[p] = Presence{Shards: shards}
 	}
 	return &DerivationMap{
-		Arities:        b.arities,
-		Presence:       b.presence,
-		QueryTargets:   b.queryTargets(),
-		Local:          local,
-		Consumes:       b.consumes(),
-		SplitJoins:     splits,
-		BlindNegations: blinds,
-		CatchAll:       b.catchAll,
-		Rules:          summaries,
+		Arities:          b.arities,
+		Presence:         b.presence,
+		ConsumerReplicas: consumerReplicaPresence(indexed),
+		QueryTargets:     b.queryTargets(),
+		Local:            local,
+		Consumes:         b.consumes(),
+		SplitJoins:       splits,
+		BlindNegations:   blinds,
+		CatchAll:         b.catchAll,
+		Rules:            summaries,
 	}, nil
 }
 

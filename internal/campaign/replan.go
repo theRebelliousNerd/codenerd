@@ -28,9 +28,8 @@ type Replanner struct {
 	promptProvider PromptProvider // Optional JIT prompt provider
 	workspace      string         // Campaign workspace for filesystem-backed type defenses (see applyTaskTypeDefenses)
 
-	// Gemini advanced features (nil if not Gemini or features unavailable)
+	// Gemini grounding (nil if the client cannot ground)
 	grounding *research.GroundingHelper // Google Search / URL Context grounding
-	thinking  *research.ThinkingHelper  // Thinking mode metadata capture
 
 	// limits bound the replan context: campaign.replan_context_* in the
 	// user's config (SetContextLimits). Guarded by limitsMu, not mu: the
@@ -80,12 +79,9 @@ func NewReplanner(kernel core.Kernel, llmClient perception.LLMClient, workspace 
 		r.SetContextLimits(def)
 	}
 
-	// Initialize Gemini advanced features helpers
+	// Ground replanning calls in Google Search when the client can.
 	if llmClient != nil {
 		r.grounding = research.NewGroundingHelper(llmClient)
-		r.thinking = research.NewThinkingHelper(llmClient)
-
-		// Enable Google Search grounding for research-intensive replanning
 		if r.grounding.IsGroundingAvailable() {
 			r.grounding.EnableGoogleSearch()
 			logging.CampaignDebug("Gemini grounding enabled for replanner (Google Search active)")
@@ -117,10 +113,6 @@ func (r *Replanner) completeWithGrounding(ctx context.Context, prompt string) (s
 		}
 		if len(sources) > 0 {
 			logging.CampaignDebug("Replanner LLM call grounded with %d sources", len(sources))
-		}
-		// Capture thinking metadata after grounded call
-		if r.thinking != nil {
-			r.thinking.CaptureThinkingMetadata()
 		}
 		return response, nil
 	}
@@ -255,6 +247,16 @@ func (r *Replanner) Replan(ctx context.Context, campaign *Campaign, failedTaskID
 	campaign.LastRevision = workingCampaign.LastRevision
 	campaign.TotalTasks = workingCampaign.TotalTasks
 	campaign.CompletedTasks = workingCampaign.CompletedTasks
+
+	// 7. The triggers this revision planned from are consumed.
+	if len(replanTriggers) > 0 {
+		if err := r.clearReplanTriggers(campaign.ID); err != nil {
+			// The revision stands; a trigger left behind only repeats in the
+			// next replan's context.
+			logging.Get(logging.CategoryCampaign).Warn("Replan: revision %d applied but its %d trigger(s) were not cleared: %v",
+				campaign.RevisionNumber, len(replanTriggers), err)
+		}
+	}
 
 	return nil
 }
@@ -528,7 +530,7 @@ func (r *Replanner) RefineNextPhase(ctx context.Context, campaign *Campaign, com
 	}
 
 	// Get Replanner prompt (JIT or static)
-	replannerPrompt, err := r.promptProvider.GetPrompt(ctx, RoleReplanner, campaign.ID)
+	replannerPrompt, err := r.promptProvider.GetPrompt(ctx, RoleReplanner, campaign.ID, r.llmClient)
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Warn("Failed to get Replanner prompt, using fallback: %v", err)
 		replannerPrompt = ReplannerLogic
@@ -1368,8 +1370,11 @@ func resolveReplannerContextFrom(phase *Phase, deps []string) []string {
 	return out
 }
 
-// ClearReplanTriggers clears all replan triggers for a campaign.
-func (r *Replanner) ClearReplanTriggers(campaignID string) error {
+// clearReplanTriggers retracts every replan trigger of a campaign. Replan
+// calls it once the triggers it planned from are in the new revision: a
+// trigger is an event to plan from once, not a standing order to re-read in
+// every later replan.
+func (r *Replanner) clearReplanTriggers(campaignID string) error {
 	if r.kernel == nil {
 		return ErrNilKernel
 	}

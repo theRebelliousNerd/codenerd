@@ -17,7 +17,8 @@ single OODA turn. The split of responsibilities is the whole design:
 
 | Concern | Owner |
 |---------|-------|
-| Proposing a plan, replanning, summarising | LLM: `Decomposer.Decompose` (`internal/campaign/decomposer.go:242`), `Replanner.Replan` (`internal/campaign/replan.go:169`) |
+| Proposing a plan, replanning | Planning LLM (planner slot, else main): `Orchestrator.Decompose` → `Decomposer.Decompose`, `Replanner.Replan` |
+| Summarising, document fallback | `OrchestratorConfig.LLMClient` (main, or the worker on the campaign runner) |
 | Deciding what runs next, what is blocked, what stops a campaign | Mangle policy over facts emitted by `Campaign.ToFacts` / `Phase.ToFacts` / `Task.ToFacts` (`internal/campaign/types.go:496`, `:555`, `:618`) |
 | Running effectful work | `session.TaskExecutor` + `tactile.Executor`, carried on `OrchestratorConfig` (`internal/campaign/orchestrator_types.go:126`) |
 | Durability | JSON snapshot + append-only journal under `.nerd/campaigns/` (`internal/campaign/orchestrator_lifecycle.go:132`, `internal/campaign/journal_ops.go:96`) |
@@ -44,7 +45,8 @@ context_pager.go                          # ContextPager (:18), NewContextPager 
 checkpoint.go                             # CheckpointRunner (:24), Run (:72)
 risk_scoring.go / risk_gate_contract.go   # preflight measurement + hard/soft contract
 intelligence_gatherer.go / intelligence_gathering_methods.go / intelligence_formatting.go
-shard_advisory_board.go / edge_case_detector.go / tool_pregenerator.go / specialist_knowledge.go
+shard_advisory_board.go / edge_case_detector.go / specialist_knowledge.go
+jit_prompt_provider.go / orchestrator_planning.go   # JIT role prompts per serving model; Orchestrator.Decompose
 assault_campaign.go (:19) / assault_types.go / assault_tasks.go / assault_prompts.go / assault_report.go
 recurse_runner.go                         # RecurseLoop (:46), RecurseRunner (:117)
 journal_ops.go                            # VerifyCampaignJournal (:208), ReplayCampaignJournal (:293)

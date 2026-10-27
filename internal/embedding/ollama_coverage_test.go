@@ -67,8 +67,8 @@ func TestOllamaEngine_Name_ShouldIncludeModel(t *testing.T) {
 		model    string
 		expected string
 	}{
-		// bare embeddinggemma is normalized to the tagged default
-		{"bare embeddinggemma", "embeddinggemma", "ollama:" + embeddingGemmaPullTag},
+		// the configured name is used as written, never rewritten
+		{"bare embeddinggemma", "embeddinggemma", "ollama:embeddinggemma"},
 		{"custom model", "nomic-embed-text", "ollama:nomic-embed-text"},
 	}
 

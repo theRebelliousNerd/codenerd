@@ -1,6 +1,10 @@
 package broker
 
-import "unicode/utf8"
+import (
+	"unicode/utf8"
+
+	"codenerd/internal/config"
+)
 
 // TextCounter estimates tokens for a bare string using the shared calibrator.
 //
@@ -95,5 +99,6 @@ func (m *Meter) PromptBudget(share float64, fallback int) int {
 }
 
 // minPromptBudget is the floor below which a compiled prompt stops being able
-// to carry its mandatory atoms.
-const minPromptBudget = 8000
+// to carry its mandatory atoms. It is config.MinPromptTokens, the same number
+// that floors a slot's max_input_tokens, so the two cannot disagree.
+const minPromptBudget = config.MinPromptTokens

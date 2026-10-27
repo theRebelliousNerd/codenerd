@@ -103,7 +103,7 @@ func installGeneratedSystemFixture(t *testing.T, workspace string) types.Generat
 		t.Fatal(err)
 	}
 	digest := sha256.Sum256(data)
-	identity := types.GeneratedToolIdentity{Name: generatedSystemFixtureName, BinaryPath: binary, BinaryHash: hex.EncodeToString(digest[:]), Protocol: types.GeneratedStdinV1}
+	identity := types.GeneratedToolIdentity{Name: generatedSystemFixtureName, BinaryPath: binary, BinaryHash: hex.EncodeToString(digest[:]), Protocol: types.GeneratedStdinV1, Workspace: workspace}
 	encoded, err := json.Marshal(identity)
 	if err != nil {
 		t.Fatal(err)

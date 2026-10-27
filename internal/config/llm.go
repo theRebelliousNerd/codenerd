@@ -60,9 +60,8 @@ type ClaudeCLIConfig struct {
 // - Sandbox is always "read-only" (codeNERD has its own Tactile Layer)
 // - Single completion per call, no agentic loops
 type CodexCLIConfig struct {
-	// Model: "gpt-5.4" (recommended), "gpt-5.3-codex", "gpt-5.3-codex-spark",
-	// "gpt-5.2-codex", "gpt-5.2", "gpt-5.1-codex-max", "gpt-5.1",
-	// "gpt-5.1-codex", "gpt-5-codex", "gpt-5"
+	// Model is the Codex model, as the Codex CLI names it. Required: none is
+	// filled in.
 	Model string `json:"model,omitempty"`
 
 	// Sandbox is retained for config compatibility but is forced to "read-only".
@@ -72,9 +71,9 @@ type CodexCLIConfig struct {
 	// Timeout in seconds for CLI execution (default: 300)
 	Timeout int `json:"timeout,omitempty"`
 
-	// FallbackModel is used when the primary model is rate-limited or overloaded
-	// Example: "o4-mini" as fallback for "gpt-5"
-	// NOTE: This is handled in Go code, not via CLI flag
+	// FallbackModel is used when the primary model is rate-limited or
+	// overloaded; empty means no fallback. Handled in Go code, not via a CLI
+	// flag.
 	FallbackModel string `json:"fallback_model,omitempty"`
 
 	// Streaming enables real-time streaming output
@@ -94,9 +93,10 @@ type CodexCLIConfig struct {
 	// Codex usage.
 	MaxConcurrentCalls int `json:"max_concurrent_calls,omitempty"`
 
-	// ReasoningEffortDefault overrides Codex CLI `model_reasoning_effort` when no
-	// per-capability override applies. Example values seen in the wild: "low",
-	// "medium", "high", "xhigh".
+	// ReasoningEffortDefault is Codex CLI's `model_reasoning_effort` when no
+	// per-capability override applies; unset is the main slot's
+	// reasoning_effort (GetCodexCLIConfig), so every Codex request carries one.
+	// Values seen in the wild: "low", "medium", "high", "xhigh".
 	ReasoningEffortDefault string `json:"reasoning_effort_default,omitempty"`
 
 	// Per-capability reasoning effort overrides. These are selected based on the

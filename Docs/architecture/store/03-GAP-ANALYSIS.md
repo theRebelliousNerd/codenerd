@@ -97,3 +97,21 @@ acceptance in `internal/store/learned_constructor_context_test.go:230` and
 contention, cancellation/drain, unchanged-data, retry, and perception-path
 controls. This establishes the named bootstrap contract, not all storage or
 whole-session acceptance.
+
+
+## Required contract: Migration failure visibility
+
+Existing-table schema inspection, row iteration and additive ALTER errors must propagate. Missing tables retain supported skip behavior. An add-column race may succeed only if reinspection proves the desired column exists. LearningStore must close and decline publication on migration failure.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-STORE-MIGRATION-FAILURES | Migration failure visibility | `RunMigrations` returns schema and migration failures; LearningStore declines publication when migration fails (`internal/store/migrations.go:86`, `internal/store/learning.go:64`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Real SQLite failure through read-only/query_only cannot yield success or an admitted partial store; legacy migration succeeds through close/reopen with fields usable. |
+
+**Verified current:** `TestRunMigrations_WhenExistingTableCannotBeAltered_ShouldReturnError` (`internal/store/migrations_test.go:49`), `TestLearningStore_WhenMigrationFails_ShouldNotPublishShardDB` (`internal/store/learning_migration_failure_test.go:15`), and `TestLocalStore_MigratesPopulatedLegacyColdStorageAcrossReopen` (`internal/store/legacy_migration_test.go:12`) pass with migration-race and legacy-reopen controls in the focused store suite.
+
+
+### Legacy-row compatibility of strict migration failure handling
+
+GAP-STORE-MIGRATION-FAILURES must also preserve populated legacy cold_storage databases. SQLite cannot add a non-constant CURRENT_TIMESTAMP default to such a table: add the missing nullable last_accessed field, backfill missing values from existing update/create time with current-time fallback, and initialize last_accessed explicitly for new facts. Backfill must be restartable and errors visible. A populated legacy database must migrate, reopen, retrieve and store facts with usable access timestamps.
+
+**Verified current:** `RunMigrations` performs restartable timestamp backfill (`internal/store/migrations.go:179`), while cold-storage writes initialize access time (`internal/store/local_cold.go:80`). The populated legacy close/reopen regression at `internal/store/legacy_migration_test.go:12` passes.

@@ -43,7 +43,7 @@ func (m *mockThinkingProvider) GetLastThoughtSummary() string     { return m.tho
 func (m *mockThinkingProvider) GetLastThinkingTokens() int        { return m.thinkingTokens }
 func (m *mockThinkingProvider) GetLastThoughtSignature() string   { return m.thoughtSig }
 func (m *mockThinkingProvider) GetLastGroundingSources() []string { return m.groundingSrc }
-func (m *mockThinkingProvider) IsWebSearchEnabled() bool       { return m.googleSearch }
+func (m *mockThinkingProvider) IsWebSearchEnabled() bool          { return m.googleSearch }
 func (m *mockThinkingProvider) IsURLContextEnabled() bool         { return m.urlContext }
 
 func TestTracingLLMClient_PassThroughInterfaces(t *testing.T) {

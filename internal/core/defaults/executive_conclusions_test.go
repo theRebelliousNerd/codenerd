@@ -48,6 +48,7 @@ const conclusionsBaselinePath = "testdata/unconsumed_conclusions.txt"
 // shows up as unconsumed.
 var queryCalls = map[string]bool{
 	"Query":                true,
+	"QueryCallback":        true,
 	"QueryFacts":           true,
 	"GetFacts":             true,
 	"QueryRouting":         true,
@@ -64,6 +65,22 @@ var queryCalls = map[string]bool{
 	"queryOrBlock":         true,
 	// The repair episode's rows (session/repair_policy.go nextRepairMove).
 	"episodeRows": true,
+}
+
+// finiteQueryWrappers are narrow production wrappers whose query predicate
+// space is constrained by a named, finite map literal. The predicates are
+// always extracted from the source map; this registry never contains a list
+// of predicate names.
+type finiteQueryWrapper struct {
+	function string
+	mapName  string
+}
+
+var finiteQueryWrappers = map[string]finiteQueryWrapper{
+	"internal/tools/research/browser_reasoning.go": {
+		function: "queryScopedBrowserFacts",
+		mapName:  "browserPredicateSpecs",
+	},
 }
 
 var predicateNameRe = regexp.MustCompile(`^\s*([a-z_][a-zA-Z0-9_]*)`)
@@ -124,6 +141,10 @@ func mangleRules(t *testing.T, corpusDir string) []mgRule {
 // ("p" or "p(X)"), a const holding one, a Sprintf template starting with one,
 // a concatenation starting with one, or (SubscribeToFacts) a literal list.
 func predicateFromExpr(expr ast.Expr, consts map[string]string) []string {
+	return predicateFromExprWithLocals(expr, consts, nil)
+}
+
+func predicateFromExprWithLocals(expr ast.Expr, consts map[string]string, locals map[string][]string) []string {
 	switch e := expr.(type) {
 	case *ast.BasicLit:
 		if e.Kind != token.STRING {
@@ -137,6 +158,9 @@ func predicateFromExpr(expr ast.Expr, consts map[string]string) []string {
 			return []string{m[1]}
 		}
 	case *ast.Ident:
+		if preds, ok := locals[e.Name]; ok {
+			return append([]string(nil), preds...)
+		}
 		if s, ok := consts[e.Name]; ok {
 			if m := predicateNameRe.FindStringSubmatch(s); m != nil {
 				return []string{m[1]}
@@ -144,18 +168,379 @@ func predicateFromExpr(expr ast.Expr, consts map[string]string) []string {
 		}
 	case *ast.CallExpr:
 		if sel, ok := e.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Sprintf" && len(e.Args) > 0 {
-			return predicateFromExpr(e.Args[0], consts)
+			return predicateFromExprWithLocals(e.Args[0], consts, locals)
 		}
 	case *ast.BinaryExpr:
-		return predicateFromExpr(e.X, consts)
+		return predicateFromExprWithLocals(e.X, consts, locals)
 	case *ast.CompositeLit:
 		var out []string
 		for _, el := range e.Elts {
-			out = append(out, predicateFromExpr(el, consts)...)
+			out = append(out, predicateFromExprWithLocals(el, consts, locals)...)
 		}
-		return out
+		return uniquePredicates(out)
 	}
 	return nil
+}
+
+func uniquePredicates(predicates []string) []string {
+	seen := make(map[string]struct{}, len(predicates))
+	out := make([]string, 0, len(predicates))
+	for _, predicate := range predicates {
+		if _, ok := seen[predicate]; ok {
+			continue
+		}
+		seen[predicate] = struct{}{}
+		out = append(out, predicate)
+	}
+	return out
+}
+
+func queryCallName(call *ast.CallExpr) string {
+	switch fn := call.Fun.(type) {
+	case *ast.Ident:
+		return fn.Name
+	case *ast.SelectorExpr:
+		return fn.Sel.Name
+	default:
+		return ""
+	}
+}
+
+func addQueryCallRoots(call *ast.CallExpr, consts map[string]string, locals map[string][]string, roots map[string]struct{}) {
+	if !queryCalls[queryCallName(call)] {
+		return
+	}
+	// The predicate is the first argument that names one; a context, a kernel
+	// handle or an action ID comes before it in some helpers.
+	for i, arg := range call.Args {
+		if i > 2 {
+			break
+		}
+		if predicates := predicateFromExprWithLocals(arg, consts, locals); len(predicates) > 0 {
+			for _, predicate := range predicates {
+				roots[predicate] = struct{}{}
+			}
+			return
+		}
+	}
+}
+
+func cloneLocalPredicates(locals map[string][]string) map[string][]string {
+	cloned := make(map[string][]string, len(locals))
+	for name, predicates := range locals {
+		cloned[name] = append([]string(nil), predicates...)
+	}
+	return cloned
+}
+
+// queryRootsInExpr recognizes only query-shaped calls in an expression. A
+// nested function literal is scanned as its own function, so its assignments
+// cannot leak into the enclosing function's local environment.
+func queryRootsInExpr(expr ast.Node, consts map[string]string, locals map[string][]string, roots map[string]struct{}) {
+	ast.Inspect(expr, func(n ast.Node) bool {
+		if n == nil {
+			return false
+		}
+		if _, ok := n.(*ast.FuncLit); ok {
+			return false
+		}
+		if call, ok := n.(*ast.CallExpr); ok {
+			addQueryCallRoots(call, consts, locals, roots)
+		}
+		return true
+	})
+}
+
+func assignLocalPredicates(lhs ast.Expr, rhs ast.Expr, consts map[string]string, locals map[string][]string) {
+	id, ok := lhs.(*ast.Ident)
+	if !ok || id.Name == "_" {
+		return
+	}
+	// An unknown assignment invalidates an older statically known query value.
+	// This avoids carrying a stale root through a reassignment.
+	var predicates []string
+	if rhs != nil {
+		predicates = predicateFromExprWithLocals(rhs, consts, locals)
+	}
+	locals[id.Name] = predicates
+}
+
+func queryRootsInBlock(block *ast.BlockStmt, consts map[string]string, locals map[string][]string, roots map[string]struct{}) {
+	for _, stmt := range block.List {
+		queryRootsInStmt(stmt, consts, locals, roots)
+	}
+}
+
+func queryRootsInStmt(stmt ast.Stmt, consts map[string]string, locals map[string][]string, roots map[string]struct{}) {
+	switch s := stmt.(type) {
+	case *ast.AssignStmt:
+		for _, rhs := range s.Rhs {
+			queryRootsInExpr(rhs, consts, locals, roots)
+		}
+		for i, lhs := range s.Lhs {
+			var rhs ast.Expr
+			if len(s.Rhs) == len(s.Lhs) {
+				rhs = s.Rhs[i]
+			} else if len(s.Rhs) == 1 && len(s.Lhs) == 1 {
+				rhs = s.Rhs[0]
+			}
+			assignLocalPredicates(lhs, rhs, consts, locals)
+		}
+	case *ast.DeclStmt:
+		decl, ok := s.Decl.(*ast.GenDecl)
+		if !ok {
+			return
+		}
+		for _, spec := range decl.Specs {
+			values, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for _, value := range values.Values {
+				queryRootsInExpr(value, consts, locals, roots)
+			}
+			for i, name := range values.Names {
+				var rhs ast.Expr
+				if len(values.Values) == len(values.Names) {
+					rhs = values.Values[i]
+				}
+				assignLocalPredicates(name, rhs, consts, locals)
+			}
+		}
+	case *ast.ExprStmt:
+		queryRootsInExpr(s.X, consts, locals, roots)
+	case *ast.ReturnStmt:
+		for _, result := range s.Results {
+			queryRootsInExpr(result, consts, locals, roots)
+		}
+	case *ast.DeferStmt:
+		queryRootsInExpr(s.Call, consts, locals, roots)
+	case *ast.GoStmt:
+		queryRootsInExpr(s.Call, consts, locals, roots)
+	case *ast.SendStmt:
+		queryRootsInExpr(s.Value, consts, locals, roots)
+	case *ast.IncDecStmt:
+		queryRootsInExpr(s.X, consts, locals, roots)
+	case *ast.BlockStmt:
+		queryRootsInBlock(s, consts, cloneLocalPredicates(locals), roots)
+	case *ast.IfStmt:
+		scope := cloneLocalPredicates(locals)
+		if s.Init != nil {
+			queryRootsInStmt(s.Init, consts, scope, roots)
+		}
+		queryRootsInExpr(s.Cond, consts, scope, roots)
+		queryRootsInBlock(s.Body, consts, cloneLocalPredicates(scope), roots)
+		if s.Else != nil {
+			queryRootsInStmt(s.Else, consts, cloneLocalPredicates(scope), roots)
+		}
+	case *ast.ForStmt:
+		scope := cloneLocalPredicates(locals)
+		if s.Init != nil {
+			queryRootsInStmt(s.Init, consts, scope, roots)
+		}
+		if s.Cond != nil {
+			queryRootsInExpr(s.Cond, consts, scope, roots)
+		}
+		queryRootsInBlock(s.Body, consts, cloneLocalPredicates(scope), roots)
+		if s.Post != nil {
+			queryRootsInStmt(s.Post, consts, scope, roots)
+		}
+	case *ast.RangeStmt:
+		queryRootsInExpr(s.X, consts, locals, roots)
+		scope := cloneLocalPredicates(locals)
+		if id, ok := s.Key.(*ast.Ident); ok {
+			scope[id.Name] = nil
+		}
+		if id, ok := s.Value.(*ast.Ident); ok {
+			scope[id.Name] = nil
+		}
+		queryRootsInBlock(s.Body, consts, scope, roots)
+	case *ast.SwitchStmt:
+		scope := cloneLocalPredicates(locals)
+		if s.Init != nil {
+			queryRootsInStmt(s.Init, consts, scope, roots)
+		}
+		if s.Tag != nil {
+			queryRootsInExpr(s.Tag, consts, scope, roots)
+		}
+		for _, item := range s.Body.List {
+			clause := item.(*ast.CaseClause)
+			clauseScope := cloneLocalPredicates(scope)
+			for _, expr := range clause.List {
+				queryRootsInExpr(expr, consts, clauseScope, roots)
+			}
+			for _, nested := range clause.Body {
+				queryRootsInStmt(nested, consts, clauseScope, roots)
+			}
+		}
+	case *ast.TypeSwitchStmt:
+		scope := cloneLocalPredicates(locals)
+		if s.Init != nil {
+			queryRootsInStmt(s.Init, consts, scope, roots)
+		}
+		queryRootsInStmt(s.Assign, consts, scope, roots)
+		for _, item := range s.Body.List {
+			clause := item.(*ast.CaseClause)
+			clauseScope := cloneLocalPredicates(scope)
+			for _, nested := range clause.Body {
+				queryRootsInStmt(nested, consts, clauseScope, roots)
+			}
+		}
+	case *ast.SelectStmt:
+		for _, item := range s.Body.List {
+			clause := item.(*ast.CommClause)
+			clauseScope := cloneLocalPredicates(locals)
+			if clause.Comm != nil {
+				queryRootsInStmt(clause.Comm, consts, clauseScope, roots)
+			}
+			for _, nested := range clause.Body {
+				queryRootsInStmt(nested, consts, clauseScope, roots)
+			}
+		}
+	case *ast.LabeledStmt:
+		queryRootsInStmt(s.Stmt, consts, locals, roots)
+	case *ast.BranchStmt:
+		// No query expression.
+	default:
+		// Preserve query detection for statement forms not requiring local
+		// environment updates, while avoiding traversal into nested scopes.
+		queryRootsInExpr(stmt, consts, locals, roots)
+	}
+}
+
+func queryRootsInFunction(fn *ast.FuncDecl, consts map[string]string) map[string]struct{} {
+	roots := make(map[string]struct{})
+	if fn == nil || fn.Body == nil {
+		return roots
+	}
+	queryRootsInBlock(fn.Body, consts, make(map[string][]string), roots)
+	// Function literals have independent local environments. Scan them too so
+	// direct literal/const query arguments inside callbacks remain visible.
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		literal, ok := n.(*ast.FuncLit)
+		if !ok {
+			return true
+		}
+		queryRootsInBlock(literal.Body, consts, make(map[string][]string), roots)
+		return true
+	})
+	return roots
+}
+
+func queryRootsInFile(file *ast.File, consts map[string]string) map[string]struct{} {
+	roots := make(map[string]struct{})
+	if file == nil {
+		return roots
+	}
+	// Package-level initializers retain the previous direct-expression scan.
+	// Function bodies are handled separately with local assignment tracking.
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok == token.CONST {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			values, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for _, value := range values.Values {
+				queryRootsInExpr(value, consts, nil, roots)
+			}
+		}
+	}
+	for _, decl := range file.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Body != nil {
+			for predicate := range queryRootsInFunction(fn, consts) {
+				roots[predicate] = struct{}{}
+			}
+		}
+	}
+	return roots
+}
+
+func finiteWrapperRoots(files []*ast.File, wrapper finiteQueryWrapper) map[string]struct{} {
+	roots := make(map[string]struct{})
+	var wrapperDecl *ast.FuncDecl
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == wrapper.function {
+				wrapperDecl = fn
+			}
+		}
+	}
+	if wrapperDecl == nil || wrapperDecl.Body == nil {
+		return roots
+	}
+	called := false
+	for _, file := range files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if ok && queryCallName(call) == wrapper.function &&
+				(call.Pos() < wrapperDecl.Body.Pos() || call.Pos() > wrapperDecl.Body.End()) {
+				called = true
+			}
+			return true
+		})
+	}
+	if !called {
+		return roots
+	}
+	queriesKernel := false
+	ast.Inspect(wrapperDecl.Body, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok && queryCalls[queryCallName(call)] {
+			queriesKernel = true
+			return false
+		}
+		return true
+	})
+	if !queriesKernel {
+		return roots
+	}
+	for _, file := range files {
+		for _, topLevelDecl := range file.Decls {
+			decl, ok := topLevelDecl.(*ast.GenDecl)
+			if !ok || decl.Tok != token.VAR {
+				continue
+			}
+			for _, spec := range decl.Specs {
+				values, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				containsMap := false
+				for _, name := range values.Names {
+					if name.Name == wrapper.mapName {
+						containsMap = true
+					}
+				}
+				if !containsMap {
+					continue
+				}
+				for _, value := range values.Values {
+					literal, ok := value.(*ast.CompositeLit)
+					if !ok {
+						continue
+					}
+					for _, elt := range literal.Elts {
+						pair, ok := elt.(*ast.KeyValueExpr)
+						if !ok {
+							continue
+						}
+						key, ok := pair.Key.(*ast.BasicLit)
+						if !ok || key.Kind != token.STRING {
+							continue
+						}
+						predicate := predicateFromExpr(key, nil)
+						for _, name := range predicate {
+							roots[name] = struct{}{}
+						}
+					}
+				}
+			}
+		}
+	}
+	return roots
 }
 
 // goQueryRoots returns every predicate production Go asks the kernel for.
@@ -209,37 +594,21 @@ func goQueryRoots(t *testing.T, root string) map[string]struct{} {
 			})
 		}
 		for _, f := range files {
-			ast.Inspect(f, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if !ok {
-					return true
+			for predicate := range queryRootsInFile(f, consts) {
+				roots[predicate] = struct{}{}
+			}
+		}
+		packageFile := fset.Position(files[0].Pos()).Filename
+		relativeDir, relErr := filepath.Rel(root, filepath.Dir(packageFile))
+		if relErr == nil {
+			for path, wrapper := range finiteQueryWrappers {
+				if filepath.Dir(filepath.FromSlash(path)) != filepath.Clean(relativeDir) {
+					continue
 				}
-				var name string
-				switch fn := call.Fun.(type) {
-				case *ast.Ident:
-					name = fn.Name
-				case *ast.SelectorExpr:
-					name = fn.Sel.Name
+				for predicate := range finiteWrapperRoots(files, wrapper) {
+					roots[predicate] = struct{}{}
 				}
-				if !queryCalls[name] {
-					return true
-				}
-				// The predicate is the first argument that names one; a
-				// context, a kernel handle or an action ID comes before it in
-				// some helpers (queryOrBlock takes both of the last two).
-				for i, arg := range call.Args {
-					if i > 2 {
-						break
-					}
-					if preds := predicateFromExpr(arg, consts); len(preds) > 0 {
-						for _, p := range preds {
-							roots[p] = struct{}{}
-						}
-						break
-					}
-				}
-				return true
-			})
+			}
 		}
 	}
 	return roots

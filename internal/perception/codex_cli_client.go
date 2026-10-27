@@ -254,7 +254,14 @@ func (c *CodexCLIClient) buildPrompt(systemPrompt, userPrompt string) string {
 	return fmt.Sprintf("$%s\n\n%s", c.skillName, prompt)
 }
 
+// reasoningEffortForContext is the effort a Codex call is sent with: a shard
+// profile's on the context, else the configured per-capability effort for the
+// context's capability class, else the configured default (which config
+// resolves from the main slot when codex_cli names none).
 func (c *CodexCLIClient) reasoningEffortForContext(ctx context.Context) string {
+	if effort, ok := types.ReasoningEffortFromContext(ctx); ok {
+		return effort
+	}
 	capHint, _ := types.ModelCapabilityFromContext(ctx)
 
 	switch capHint {

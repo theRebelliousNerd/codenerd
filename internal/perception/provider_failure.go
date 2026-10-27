@@ -65,6 +65,10 @@ func ClassifyProviderFailure(err error) ProviderFailureClass {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return FailureCanceled
 	}
+	var rateLimitErr *RateLimitError
+	if errors.As(err, &rateLimitErr) && rateLimitErr != nil {
+		return FailureRateLimited
+	}
 	switch status := providerFailureStatus(err); {
 	case status == 429:
 		return FailureRateLimited

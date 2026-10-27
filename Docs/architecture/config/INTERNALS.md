@@ -79,6 +79,57 @@ compiles and a foreign default would die with "exec format error"
 tools; its comment (:10-27) records that the grant was documented but
 unreachable until this field existed.
 
+## 7. Per-slot input cap (`max_input_tokens`) — as built 2026-10-27
+
+`SecondaryLLMConfig.MaxInputTokens` (`user_config.go:832`, worker/planner):
+0 is no cap; `checkSlotInputCap` (`check.go:487`) refuses negative or
+`< MinPromptTokens` (`working.go:90`, also the broker's prompt floor) and
+warns when the slot names no provider. Units are the session's ruler,
+`prompt.EstimateRequestTokens` (`internal/prompt/request_tokens.go:19`).
+Layer 1: the turn's resolved client is threaded into `beginWorkingLoop`, whose
+`inputCap` is `broker.InputWindow` of it (`internal/session/working_context.go:244`);
+`inputBudgetFor` (:661) is min(TokenBudget-or-default, cap) for every working
+request, the compile budget (`executor.go:1379`), the holographic render and a
+spawned subagent's compile (`spawner.go:685`); `inputBudgetExceeded` (:683)
+names the slot cap when it binds. Layer 2: Anthropic and OpenAI-compatible
+clients report the cap (`types.InputWindowReporter`) and refuse a larger
+request before any send (`internal/perception/input_window.go:26`, same
+measure, so an executor-fit request is never refused). A slot whose client
+cannot enforce it is refused at construction (`client_factory.go:843`). The
+measure, like the executor's, does not count replayed thinking or server-tool
+blocks.
+
+## 8. Reasoning effort — as built 2026-10-27
+
+Every request carries one (`reasoning_effort.go`): main `reasoning_effort`
+(default medium), `worker`/`planner.reasoning_effort` (medium/high, filled by
+`resolveSecondarySlot`), `classification_reasoning_effort` (default the
+classifying provider's lowest: Meta minimal, Anthropic low), and
+`shard_profiles.*.reasoning_effort` (rides the context; unset inherits the
+serving slot, and a profile route inherits the routing slot via
+`SecondaryLLMConfig.RouteTo`, one router per slot in `internal/system`).
+`Check` validates each against its provider and model
+(`ValidateReasoningEffort`, `check.go:126`, profiles `:445`). Clients send it
+where the model accepts one (`config.AnthropicSupportsEffort`; Meta always);
+the capability-hint mappings are gone. `nerd config full` writes the resolved
+values (`withResolvedDefaults`, `reasoning_effort.go:195`).
+
+## 9. Anthropic server web tools — as built 2026-10-27
+
+`anthropic.web_search`/`web_fetch` (off), `web_search_max_uses`/
+`web_fetch_max_uses` (1-20, default 5 while on), per slot through
+`worker|planner.anthropic`. `AnthropicWebToolVersions` (`anthropic.go:171`)
+picks the dynamic (20260209) or basic versions by model. The client
+(`internal/perception/anthropic_web_tools.go`) declares them on non-streaming
+requests, resumes `pause_turn` (bounded, :18), keeps server blocks verbatim
+(`types.BlockServerTool`, never a tool call), and records result and citation
+URLs for `GetLastGroundingSources`, the one grounding channel production reads
+(scheduler, tracing and broker forward it to chat articulation, delegation and
+campaign planning). The tools follow the config alone: no run-time grounding
+control. Search counts are logged, not priced: the token meter has no per-use
+charge. Boot-path proof: `internal/system/factory_slot_policy_boot_test.go`.
+
 ---
-*Verified 2026-09-20 against `b63e848`. All line ranges are 1-indexed file
-ranges in `internal/config`.*
+*Verified 2026-09-20 against `b63e848`; §7-9 against the 2026-10-27 working
+tree. All line ranges are 1-indexed file ranges in `internal/config` unless a
+path is given.*

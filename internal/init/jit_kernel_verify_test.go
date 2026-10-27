@@ -99,7 +99,7 @@ func TestCreateJITCompiler_WiresKernel(t *testing.T) {
 	}
 
 	// Full compile smoke test on the expert phase: must not fall back to error.
-	cc := BuildInitCompilationContext("agents", "recommend experts", nil)
+	cc := initCompilationContext(llmRoute{slot: slotPlanner}, "agents", "recommend experts", nil)
 	if _, err := compiler.Compile(context.Background(), cc); err != nil {
 		t.Fatalf("JIT compile for expert phase failed: %v", err)
 	}
@@ -135,9 +135,9 @@ func TestAssembleJITPrompt_ExpertFallbackIsReported(t *testing.T) {
 	defer func() { init.kernel = live }()
 
 	for _, phase := range []string{"analysis", "agents"} {
-		prompt, err := init.assembleJITPrompt(t.Context(), phase, "build the team", nil)
-		if err != nil || prompt != init.buildFallbackPrompt(phase, "build the team") {
-			t.Fatalf("phase %s: got %q, %v; want the static fallback", phase, prompt, err)
+		prompt := init.assembleJITPrompt(t.Context(), init.route(slotPlanner), phase, "build the team", nil)
+		if prompt != init.buildFallbackPrompt(phase, "build the team") {
+			t.Fatalf("phase %s: got %q; want the static fallback", phase, prompt)
 		}
 	}
 	if got := init.snapshotLLMMetrics().StaticPromptPhases; len(got) != 1 || got[0] != "agents" {

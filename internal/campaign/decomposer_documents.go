@@ -239,7 +239,7 @@ func (d *Decomposer) classifyDocument(ctx context.Context, filename, content str
 	}
 
 	// Get prompt (JIT or static)
-	basePrompt, err := d.promptProvider.GetPrompt(ctx, RoleLibrarian, "")
+	basePrompt, err := d.promptProvider.GetPrompt(ctx, RoleLibrarian, "", d.llmClient)
 	if err != nil {
 		logging.CampaignDebug("Failed to get Librarian prompt, using fallback: %v", err)
 		basePrompt = LibrarianLogic

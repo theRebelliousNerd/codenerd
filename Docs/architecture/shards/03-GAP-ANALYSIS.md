@@ -100,3 +100,14 @@ The four packets now carry resolved status and the exact regressions that closed
 them. They remain incident evidence; they are not open backlog. Boot readiness,
 full factory/profile descriptor parity, JIT inventory, drop telemetry, cache
 ownership, and result retention remain genuine residuals.
+
+
+## Required contract: Cancelled synchronous waiter retention
+
+When SpawnWithContext loses its synchronous caller to cancellation, it must atomically relinquish stored results and suppress a late result while retaining execution cleanup and JIT unregistration. Successful waiters and explicit result retrieval retain their normal semantics.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-SHARDS-CANCELLED-WAITER | Cancelled synchronous waiter retention | `ShardManager.SpawnWithContext` relinquishes the cancelled waiter result and suppresses late retention (`internal/core/shards/manager_spawn.go:139`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | A gated late-returning shard leaves zero active shard, detached marker, and retained result entries after caller cancellation and execution cleanup. |
+
+**Verified current:** `TestShardManager_CanceledSynchronousWaiterDoesNotRetainResult` (`internal/core/shards/manager_spawn_context_test.go:125`) passes repeatedly, with the full `internal/core/shards` package and race suite also passing.

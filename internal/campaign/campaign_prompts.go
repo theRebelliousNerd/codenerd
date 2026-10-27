@@ -4,16 +4,15 @@ import (
 	"context"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/perception"
 )
 
 // =============================================================================
 // CAMPAIGN PROMPT PROVIDER INTERFACE
 // =============================================================================
-// This file defines interfaces for prompt generation to avoid circular dependencies.
-// The actual JIT integration will be provided by the articulation package.
-//
-// This allows campaign roles to use either JIT compilation (if available) or
-// fall back to the static prompts defined in prompts.go.
+// Campaign roles take their prompts from a PromptProvider: the JIT provider
+// (jit_prompt_provider.go) when a prompt assembler was built, else the static
+// prompts in prompts.go.
 
 // CampaignRole represents the different specialized roles in campaign orchestration.
 type CampaignRole string
@@ -28,13 +27,13 @@ const (
 	RoleAssault   CampaignRole = "assault"
 )
 
-// PromptProvider is an interface for generating prompts for campaign roles.
-// This abstraction allows the campaign package to use JIT-compiled prompts
-// without directly depending on the articulation package (avoiding circular imports).
+// PromptProvider generates the prompts of the campaign roles.
 type PromptProvider interface {
-	// GetPrompt returns a prompt for the specified campaign role.
-	// Returns the prompt string and an error if prompt generation fails.
-	GetPrompt(ctx context.Context, role CampaignRole, campaignID string) (string, error)
+	// GetPrompt returns the prompt for role, compiled for servedBy: the client
+	// that will consume it, whose provider and model select the model-pinned
+	// prompt atoms. Every caller passes the client it is about to send the
+	// prompt to, so the pins match the model that actually runs them.
+	GetPrompt(ctx context.Context, role CampaignRole, campaignID string, servedBy perception.LLMClient) (string, error)
 }
 
 // CampaignRoleAtomFamily maps a campaign role to the prompt-atom family that
@@ -84,11 +83,13 @@ func NewStaticPromptProvider() *StaticPromptProvider {
 	return &StaticPromptProvider{}
 }
 
-// GetPrompt returns the static prompt for the specified campaign role.
+// GetPrompt returns the static prompt for the specified campaign role. The
+// frozen prompt pins no model, so servedBy changes nothing.
 func (spp *StaticPromptProvider) GetPrompt(
 	ctx context.Context,
 	role CampaignRole,
 	campaignID string,
+	servedBy perception.LLMClient,
 ) (string, error) {
 	if family := CampaignRoleAtomFamily(role); family != "" {
 		logging.Get(logging.CategoryCampaign).Warn(

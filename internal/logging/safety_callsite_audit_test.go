@@ -75,6 +75,16 @@ var safetyGateInventory = map[string]struct {
 			"sole caller, routeAction",
 		"internal/core/virtual_store_routing.go",
 	},
+	"internal/core/virtual_store_generated.go": {
+		classGate,
+		"exact generated-tool authorization: execution requires the matching permitted(action, target, canonicalArgs) row",
+		"internal/core/virtual_store_generated.go",
+	},
+	"internal/mcp/remote_authority.go": {
+		classGate,
+		"exact remote-call authorization: transport invocation requires the matching permitted(action, target, permissionPayload) row",
+		"internal/mcp/remote_authority.go",
+	},
 	"internal/shards/system/constitution.go": {
 		classGate,
 		"ConstitutionGateShard gates every pending action; both branches of the verdict are recorded by SafetyCheck in this file, alongside the Mangle facts that serve policy",

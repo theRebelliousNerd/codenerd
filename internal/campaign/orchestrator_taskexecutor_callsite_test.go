@@ -82,10 +82,11 @@ func TestOrchestratorTaskExecutorCallsite(t *testing.T) {
 		t.Fatalf("walking repo: %v", err)
 	}
 
-	// Four since 2026-09-04: nerd campaign start and resume build their config
-	// through one function (cmd/nerd/cmd_campaign.go buildCampaignOrchestratorConfig).
-	if checked < 3 {
-		t.Fatalf("found only %d OrchestratorConfig literals; expected at least 3. "+
+	// Two since 2026-10-27: the chat doors build through one method
+	// (cmd/nerd/chat/campaign_planning.go newCampaignOrchestrator), the runner
+	// through another, and the CLI builder assigns fields.
+	if checked < 2 {
+		t.Fatalf("found only %d OrchestratorConfig literals; expected at least 2. "+
 			"If construction moved, update this test rather than deleting it", checked)
 	}
 

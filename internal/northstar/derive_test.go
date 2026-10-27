@@ -387,15 +387,34 @@ func TestInstallDerivedVision_PreservesExistingAuthority(t *testing.T) {
 	}
 }
 
-func TestCompilePhasePrompt_DeriveAtomsOnly(t *testing.T) {
-	for _, phase := range []string{"derive_classify", "derive_vision", "derive_requirements"} {
-		text, err := CompilePhasePrompt(context.Background(), phase)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(text, `"summary"`) || strings.Contains(text, "control_packet") {
-			t.Fatalf("wrong protocol for %s", phase)
-		}
+func TestPhasePromptFor_DeriveAtomsOnly(t *testing.T) {
+	targets := map[string]PhaseTarget{
+		"unnamed model":                      {},
+		"named planner with a capped window": {Provider: "anthropic", Model: "planner-model", InputWindow: 64000},
+	}
+	for name, target := range targets {
+		t.Run(name, func(t *testing.T) {
+			for _, phase := range []string{"derive_classify", "derive_vision", "derive_requirements"} {
+				text, err := PhasePromptFor(target)(context.Background(), phase)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(text, `"summary"`) || strings.Contains(text, "control_packet") {
+					t.Fatalf("wrong protocol for %s", phase)
+				}
+			}
+		})
+	}
+}
+
+func TestCompileTokenBudget_SlotCapBoundsTheBudget(t *testing.T) {
+	uncapped, _ := CompileTokenBudget(0)
+	capped, reserved := CompileTokenBudget(20000)
+	if capped > 20000 || capped > uncapped {
+		t.Fatalf("CompileTokenBudget(20000) = %d, want at most the 20000-token slot cap and the uncapped %d", capped, uncapped)
+	}
+	if reserved <= 0 || reserved >= capped {
+		t.Fatalf("reserved = %d, want 0 < reserved < budget %d", reserved, capped)
 	}
 }
 

@@ -80,6 +80,7 @@ type RuntimeTool struct {
 	Description  string
 	BinaryPath   string
 	Hash         string
+	Workspace    string
 	Schema       ToolSchema
 	RegisteredAt time.Time
 	ExecuteCount int64

@@ -133,6 +133,6 @@ Impact map: high→100, medium→50, low→20, default 50.
 |-----------------|---------------|
 | Boot guardian | `NewStore` → `NewGuardian` → `SetLLMClient` → `SetParentKernel` → `Initialize` |
 | Manual check | `CheckAlignment(..., TriggerManual, ...)` |
-| Campaign | `NewCampaignObserver` + orchestrator `SetNorthstarObserver` |
+| Campaign | `BuildCampaignObserver` → `OrchestratorConfig.NorthstarObserver` |
 | Background | `NewBackgroundEventHandler` + adapter to `shards.NorthstarHandler` |
 | Mutate vision | `Guardian.UpdateVision` (not raw SQL) |

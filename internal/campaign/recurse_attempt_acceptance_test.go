@@ -89,13 +89,14 @@ func attemptOrchestrator(t *testing.T, ws string, a RecurseAttempt) *Orchestrato
 		t.Fatalf("new kernel: %v", err)
 	}
 	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:    ws,
-		Kernel:       kernel,
-		LLMClient:    &MockLLMClient{},
-		TaskExecutor: &MockTaskExecutor{},
-		Executor:     tactile.NewDirectExecutor(),
-		VirtualStore: &core.VirtualStore{},
-		EventChan:    make(chan OrchestratorEvent, 64),
+		Workspace:         ws,
+		Kernel:            kernel,
+		LLMClient:         &MockLLMClient{},
+		PlanningLLMClient: &MockLLMClient{},
+		TaskExecutor:      &MockTaskExecutor{},
+		Executor:          tactile.NewDirectExecutor(),
+		VirtualStore:      &core.VirtualStore{},
+		EventChan:         make(chan OrchestratorEvent, 64),
 	})
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)

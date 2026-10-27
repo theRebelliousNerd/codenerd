@@ -174,6 +174,9 @@ func TestNewClientFromConfig_MetaReasoningEffort_XHigh(t *testing.T) {
 	if req.ReasoningEffort != "xhigh" {
 		t.Fatalf("main request reasoning_effort = %q, want xhigh", req.ReasoningEffort)
 	}
+	// The classifier is sent the config's classification effort, never the
+	// main slot's working effort.
+	cfg.ClassificationReasoningEffort = "minimal"
 	class, err := NewClassificationClientFromConfig(cfg)
 	if err != nil {
 		t.Fatalf("NewClassificationClientFromConfig: %v", err)
@@ -183,8 +186,8 @@ func TestNewClientFromConfig_MetaReasoningEffort_XHigh(t *testing.T) {
 		t.Fatalf("classification got %T, want *OpenAICompatClient", class)
 	}
 	creq := classCompat.buildRequest(context.Background(), nil, false)
-	if creq.ReasoningEffort != "xhigh" {
-		t.Fatalf("classification reasoning_effort = %q, want xhigh", creq.ReasoningEffort)
+	if creq.ReasoningEffort != "minimal" {
+		t.Fatalf("classification reasoning_effort = %q, want minimal (the classification effort, not the main slot's xhigh)", creq.ReasoningEffort)
 	}
 }
 
@@ -281,41 +284,57 @@ func TestProviderConfigFromUserConfig_MetaXHigh_FullRootRoute(t *testing.T) {
 	if !ok {
 		t.Fatalf("classification client got %T, want *OpenAICompatClient", classClient)
 	}
+	// classification_reasoning_effort is unset, so the classifier on Meta is
+	// sent Meta's lowest effort, with thinking off: the main slot's xhigh does
+	// not leak into the per-turn label.
+	if pc.ClassificationReasoningEffort != "minimal" {
+		t.Fatalf("ClassificationReasoningEffort = %q, want minimal", pc.ClassificationReasoningEffort)
+	}
 	creq := classCompat.buildRequest(context.Background(), nil, false)
-	if creq.ReasoningEffort != "xhigh" {
-		t.Fatalf("classification request reasoning_effort = %q, want xhigh (thinking=false)", creq.ReasoningEffort)
-	}
-}
-
-func TestNewClassificationClientFromConfig_MetaDefaultsMinimal(t *testing.T) {
-	cfg := &ProviderConfig{Model: metaContributorModel, Provider: ProviderMeta, APIKey: "k"}
-	class, err := NewClassificationClientFromConfig(cfg)
-	if err != nil {
-		t.Fatalf("NewClassificationClientFromConfig: %v", err)
-	}
-	compat, ok := broker.Base(class).(*OpenAICompatClient)
-	if !ok {
-		t.Fatalf("classification got %T, want *OpenAICompatClient", class)
-	}
-	creq := compat.buildRequest(context.Background(), nil, false)
 	if creq.ReasoningEffort != "minimal" {
-		t.Fatalf("classification reasoning_effort = %q, want minimal", creq.ReasoningEffort)
+		t.Fatalf("classification request reasoning_effort = %q, want minimal (thinking=false)", creq.ReasoningEffort)
 	}
 }
 
-func TestNewClassificationClientFromConfig_MetaHonorsExplicitLow(t *testing.T) {
-	cfg := &ProviderConfig{Model: metaContributorModel, Provider: ProviderMeta, APIKey: "k", ReasoningEffort: "low"}
-	class, err := NewClassificationClientFromConfig(cfg)
+// The Meta classifier is sent the classification effort config resolves:
+// classification_reasoning_effort when set, else Meta's lowest (minimal). The
+// default lives in config, so a ProviderConfig that carries none sends none.
+func TestNewClassificationClientFromConfig_MetaSendsTheClassificationEffort(t *testing.T) {
+	tests := []struct {
+		name string
+		user *config.UserConfig
+		want string
+	}{
+		{name: "unset defaults to Meta's lowest", want: "minimal",
+			user: &config.UserConfig{Provider: "meta", MetaAPIKey: "k", Model: metaContributorModel, ReasoningEffort: "xhigh"}},
+		{name: "an explicit effort is sent", want: "low",
+			user: &config.UserConfig{Provider: "meta", MetaAPIKey: "k", Model: metaContributorModel, ClassificationReasoningEffort: "low"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pc, err := ProviderConfigFromUserConfig(tt.user)
+			if err != nil {
+				t.Fatalf("ProviderConfigFromUserConfig: %v", err)
+			}
+			class, err := NewClassificationClientFromConfig(pc)
+			if err != nil {
+				t.Fatalf("NewClassificationClientFromConfig: %v", err)
+			}
+			compat, ok := broker.Base(class).(*OpenAICompatClient)
+			if !ok {
+				t.Fatalf("classification got %T, want *OpenAICompatClient", class)
+			}
+			if got := compat.buildRequest(context.Background(), nil, false).ReasoningEffort; got != tt.want {
+				t.Fatalf("classification reasoning_effort = %q, want %q", got, tt.want)
+			}
+		})
+	}
+	bare, err := NewClassificationClientFromConfig(&ProviderConfig{Model: metaContributorModel, Provider: ProviderMeta, APIKey: "k"})
 	if err != nil {
 		t.Fatalf("NewClassificationClientFromConfig: %v", err)
 	}
-	compat, ok := broker.Base(class).(*OpenAICompatClient)
-	if !ok {
-		t.Fatalf("classification got %T, want *OpenAICompatClient", class)
-	}
-	creq := compat.buildRequest(context.Background(), nil, false)
-	if creq.ReasoningEffort != "low" {
-		t.Fatalf("classification reasoning_effort = %q, want low", creq.ReasoningEffort)
+	if got := broker.Base(bare).(*OpenAICompatClient).buildRequest(context.Background(), nil, false).ReasoningEffort; got != "" {
+		t.Errorf("a config carrying no classification effort was sent %q; perception invents none", got)
 	}
 }
 

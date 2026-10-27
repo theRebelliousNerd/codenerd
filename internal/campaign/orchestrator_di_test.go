@@ -3,56 +3,44 @@ package campaign
 import (
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
-	"codenerd/internal/perception"
 	"codenerd/internal/tactile"
-	"context"
 	"testing"
 )
 
+// NewOrchestrator keeps the collaborators it is given, and gives every door
+// the workspace's specialist knowledge without being asked.
 func TestOrchestrator_DependencyInjection(t *testing.T) {
-	// Setup mocks
 	mockKernel := &MockKernel{}
-	mockLLM := &MockLLMClient{}
+	execution := &MockLLMClient{}
+	planning := &MockLLMClient{}
+	worker := &MockTaskExecutor{}
+	workspace := t.TempDir()
 
-	// specialized mock transducer to verify it's being called
-	mockTransducer := &MockTransducer{
-		ParseIntentFunc: func(ctx context.Context, input string) (perception.Intent, error) {
-			return perception.Intent{Verb: "/mocked"}, nil
-		},
-	}
-
-	// Initialize Orchestrator with injected dependencies
-	config := OrchestratorConfig{
-		Workspace:  t.TempDir(),
-		Kernel:     mockKernel,
-		LLMClient:  mockLLM,
-		Transducer: mockTransducer,
-	}
-
-	config.Executor = tactile.NewDirectExecutor()
-	config.VirtualStore = &core.VirtualStore{}
-	config.ShardManager = coreshards.NewShardManager()
-	config.TaskExecutor = &MockTaskExecutor{}
-
-	orch, err := NewOrchestrator(config)
+	orch, err := NewOrchestrator(OrchestratorConfig{
+		Workspace:         workspace,
+		Kernel:            mockKernel,
+		LLMClient:         execution,
+		PlanningLLMClient: planning,
+		Executor:          tactile.NewDirectExecutor(),
+		VirtualStore:      &core.VirtualStore{},
+		ShardManager:      coreshards.NewShardManager(),
+		TaskExecutor:      worker,
+	})
 	if err != nil {
 		t.Fatalf("NewOrchestrator() error = %v", err)
 	}
 
-	// Verify dependencies were injected correctly
 	if orch.kernel != mockKernel {
-		t.Errorf("Kernel injection failed")
+		t.Error("kernel injection failed")
 	}
-	if orch.transducer != mockTransducer {
-		t.Errorf("Transducer injection failed")
+	if orch.llmClient != execution || orch.planningClient != planning {
+		t.Error("LLM client injection failed")
 	}
-
-	// Verify behaviour of injected component
-	intent, err := orch.transducer.ParseIntent(context.Background(), "test")
-	if err != nil {
-		t.Fatalf("ParseIntent failed: %v", err)
+	if orch.taskExecutor != worker || orch.checkpoint.taskExecutor != worker {
+		t.Error("task executor injection failed")
 	}
-	if intent.Verb != "/mocked" {
-		t.Errorf("Expected verb /mocked, got %s", intent.Verb)
+	local, ok := orch.specialistKnowledgeProvider.(*LocalSpecialistKnowledgeProvider)
+	if !ok || local.workspace != workspace {
+		t.Errorf("specialist knowledge provider = %#v, want the workspace's local provider", orch.specialistKnowledgeProvider)
 	}
 }

@@ -9,10 +9,14 @@ import (
 	"strings"
 	"testing"
 
+	"codenerd/internal/config"
+	"codenerd/internal/orient"
 	"codenerd/internal/store"
 	"codenerd/internal/types"
 )
 
+// The stack catalog still maps measured signals to experts; the core pair is
+// kept on evidence (a security surface, tests on disk), never as a fallback.
 func TestAgentsFromProfile_ReproducesTheOldSwitch(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -20,16 +24,17 @@ func TestAgentsFromProfile_ReproducesTheOldSwitch(t *testing.T) {
 		want    []string
 	}{
 		{name: "go", profile: ProjectProfile{Language: "go"}, want: []string{"GoExpert"}},
-		{name: "go+gin", profile: ProjectProfile{Language: "go", Framework: "gin"}, want: []string{"GoExpert", "WebAPIExpert"}},
-		{name: "go+rod", profile: ProjectProfile{Language: "go", Dependencies: []DependencyInfo{{Name: "rod"}}}, want: []string{"GoExpert", "RodExpert"}},
+		{name: "go+gin serves requests", profile: ProjectProfile{Language: "go", Framework: "gin"}, want: []string{"GoExpert", "SecurityAuditor", "WebAPIExpert"}},
+		{name: "go+rod drives a browser", profile: ProjectProfile{Language: "go", Dependencies: []DependencyInfo{{Name: "rod"}}}, want: []string{"GoExpert", "RodExpert", "SecurityAuditor"}},
 		{name: "javascript", profile: ProjectProfile{Language: "javascript"}, want: []string{"TSExpert"}},
 		{name: "kotlin", profile: ProjectProfile{Language: "kotlin"}, want: []string{"AndroidExpert"}},
-		{name: "empty", profile: ProjectProfile{}, want: []string{"SecurityAuditor", "TestArchitect"}},
-		{name: "haskell", profile: ProjectProfile{Language: "haskell"}, want: []string{"SecurityAuditor", "TestArchitect"}},
-		{name: "unknown", profile: ProjectProfile{Language: "unknown"}, want: []string{"SecurityAuditor", "TestArchitect"}},
-		{name: "chromedp", profile: ProjectProfile{Dependencies: []DependencyInfo{{Name: "chromedp"}}}, want: []string{"BrowserAutomationExpert"}},
-		{name: "go+chromedp", profile: ProjectProfile{Language: "go", Dependencies: []DependencyInfo{{Name: "chromedp"}}}, want: []string{"BrowserAutomationExpert", "GoExpert"}},
-		{name: "module path is not rod", profile: ProjectProfile{Dependencies: []DependencyInfo{{Name: "github.com/go-rod/rod"}}}, want: []string{"SecurityAuditor", "TestArchitect"}},
+		{name: "empty", profile: ProjectProfile{}},
+		{name: "haskell", profile: ProjectProfile{Language: "haskell"}},
+		{name: "haskell with tests", profile: ProjectProfile{Language: "haskell", TestFileCount: 3}, want: []string{"TestArchitect"}},
+		{name: "unknown", profile: ProjectProfile{Language: "unknown"}},
+		{name: "chromedp", profile: ProjectProfile{Dependencies: []DependencyInfo{{Name: "chromedp"}}}, want: []string{"BrowserAutomationExpert", "SecurityAuditor"}},
+		{name: "go+chromedp", profile: ProjectProfile{Language: "go", Dependencies: []DependencyInfo{{Name: "chromedp"}}}, want: []string{"BrowserAutomationExpert", "GoExpert", "SecurityAuditor"}},
+		{name: "module path is not rod", profile: ProjectProfile{Dependencies: []DependencyInfo{{Name: "github.com/go-rod/rod"}}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -57,7 +62,9 @@ func TestAgentsFromProfile_SamePrioritySortsByName(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := agentNames(agents)
-	want := []string{"GoExpert", "MangleExpert", "RodExpert"}
+	// rod drives a browser, a security surface, so SecurityAuditor (90)
+	// follows the 100-priority catalog experts, which sort by name.
+	want := []string{"GoExpert", "MangleExpert", "RodExpert", "SecurityAuditor"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("order = %v, want %v", got, want)
 	}
@@ -206,14 +213,16 @@ func TestIntegrateEcosystem_MaterializesAgentsKnowledgeAndReport(t *testing.T) {
 		fetchTopic:  rec.fetch,
 		localDB:     db,
 	}
-	profile := ProjectProfile{Language: "haskell"}
+	// jwt is a security surface the scan measured; nothing measures tests.
+	profile := ProjectProfile{Language: "haskell", Dependencies: []DependencyInfo{{Name: "jwt", Type: "direct"}}}
 	if err := ini.runOrientation(context.Background(), filepath.Join(ws, ".nerd"), &InitResult{}); err != nil {
 		t.Fatal(err)
 	}
 	defer ini.orientation.Close()
-	recommended := ini.determineRequiredAgents(profile)
+	// Phase 6 passes no base list: the engine already carries the profile
+	// catalog once integrateEcosystem asserts the profile signals.
 	result := &InitResult{}
-	recommended = ini.integrateEcosystem(context.Background(), result, profile, recommended)
+	recommended := ini.integrateEcosystem(context.Background(), result, profile, nil)
 
 	names := map[string]bool{}
 	var reviewer RecommendedAgent
@@ -223,7 +232,9 @@ func TestIntegrateEcosystem_MaterializesAgentsKnowledgeAndReport(t *testing.T) {
 			reviewer = agent
 		}
 	}
-	if !names["reviewer"] || !names["SecurityAuditor"] || !names["TestArchitect"] {
+	// The security surface keeps SecurityAuditor; with no tests measured
+	// TestArchitect is not kept; the imported subagent joins on its own.
+	if !names["reviewer"] || !names["SecurityAuditor"] || names["TestArchitect"] {
 		t.Fatalf("agents = %v warnings = %v", agentNames(recommended), result.Warnings)
 	}
 	if reviewer.Reason != "imported subagent" {
@@ -241,9 +252,16 @@ func TestIntegrateEcosystem_MaterializesAgentsKnowledgeAndReport(t *testing.T) {
 		}
 	}
 
-	atom, err := db.GetPromptAtom("project/ecosystem/agents/rule/packaging_notes")
-	if err != nil || atom == nil {
-		t.Fatalf("prompt atom: %v", err)
+	// The rule's prompt atom is handed to the corpus ingestion (phase 5c or,
+	// when the corpus exists, directly); knowledge.db holds no prompt atoms.
+	var atom *store.PromptAtom
+	for _, candidate := range ini.projectAtoms {
+		if candidate.AtomID == "project/ecosystem/agents/rule/packaging_notes" {
+			atom = candidate
+		}
+	}
+	if atom == nil {
+		t.Fatal("the rule's prompt atom was not handed to corpus ingestion")
 	}
 	if !strings.Contains(atom.Content, "RULE_BODY_PACKAGING") || !strings.Contains(atom.Content, ".agents/rules/packaging.md") {
 		t.Fatalf("atom content = %q", atom.Content)
@@ -331,4 +349,23 @@ func writeInitFile(t *testing.T, root, rel, body string) {
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// agentsFromProfile evaluates the orientation policy's profile catalog alone:
+// it asserts the profile signals into a fresh engine and reads the agents
+// back, the same derivation integrateEcosystem runs on the live engine.
+func agentsFromProfile(ctx context.Context, profile ProjectProfile) ([]RecommendedAgent, error) {
+	cfg := config.DefaultOrientConfig()
+	eng, err := orient.NewEngine(&cfg)
+	if err != nil {
+		return nil, err
+	}
+	defer eng.Close()
+	if err := eng.Assert(profileFacts(profile)); err != nil {
+		return nil, err
+	}
+	if err := eng.Evaluate(ctx); err != nil {
+		return nil, err
+	}
+	return assembleAgents(eng)
 }

@@ -11,8 +11,10 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from repo_paths import find_repo_root
 
-ROOT = Path(__file__).resolve().parents[4]
+
+ROOT = find_repo_root(__file__)
 
 
 def probe(argv: list[str], timeout: int = 10) -> dict[str, object]:

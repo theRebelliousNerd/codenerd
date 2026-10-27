@@ -151,7 +151,7 @@ func verifyGateExecutor(t *testing.T) (*Executor, *ExecutionResult) {
 // outside one refuses, as the tool loop does).
 func inTurnWorkingLoop(t *testing.T, e *Executor) context.Context {
 	t.Helper()
-	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), "verify the change", &prompt.CompilationContext{ShardID: "probe"})
+	ctx, closeLoop, err := e.beginWorkingLoop(context.Background(), nil, "verify the change", &prompt.CompilationContext{ShardID: "probe"})
 	if err != nil {
 		t.Fatalf("beginWorkingLoop: %v", err)
 	}

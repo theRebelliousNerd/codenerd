@@ -134,7 +134,15 @@ func TestBuildAssaultSummary_WhenBatchesNeverRan_ShouldReportIncomplete(t *testi
 	}
 }
 
-func TestExportAssaultSummary_ShouldWriteJSONAndMarkdown(t *testing.T) {
+func TestBuildAssaultSummary_WhenNoEvidence_ShouldError(t *testing.T) {
+	if _, err := BuildAssaultSummary(t.TempDir(), "/campaign_missing"); err == nil {
+		t.Fatal("expected an error for a campaign with no assault directory")
+	}
+}
+
+// The report `nerd campaign report` writes: BuildAssaultSummary then
+// WriteAssaultSummary, a Markdown report plus its JSON twin.
+func TestWriteAssaultSummary_ShouldWriteJSONAndMarkdown(t *testing.T) {
 	ws := t.TempDir()
 	slug := "campaign_assault_export"
 
@@ -146,18 +154,22 @@ func TestExportAssaultSummary_ShouldWriteJSONAndMarkdown(t *testing.T) {
 		Summary:          "total_results=1 success=0 failures=1",
 		RecommendedTasks: []assaultRemediationTask{{Type: "/shard_task", Description: "fix alpha"}},
 	}
-	td, _ := json.MarshalIndent(triage, "", "  ")
+	td, err := json.MarshalIndent(triage, "", "  ")
+	if err != nil {
+		t.Fatalf("encode triage: %v", err)
+	}
 	triagePath := filepath.Join(ws, ".nerd", "campaigns", slug, "assault", "triage", "latest.json")
 	if err := os.WriteFile(triagePath, td, 0o644); err != nil {
 		t.Fatalf("write triage: %v", err)
 	}
 
-	orch := journalOpsOrchestrator(t, ws)
-	orch.campaign = &Campaign{ID: "/" + slug, Type: CampaignTypeAdversarialAssault, Title: "assault"}
-
-	path, summary, err := orch.ExportAssaultSummary()
+	summary, err := BuildAssaultSummary(ws, "/"+slug)
 	if err != nil {
-		t.Fatalf("ExportAssaultSummary: %v", err)
+		t.Fatalf("BuildAssaultSummary: %v", err)
+	}
+	path, err := WriteAssaultSummary(ws, summary)
+	if err != nil {
+		t.Fatalf("WriteAssaultSummary: %v", err)
 	}
 	if summary.RemediationTasks != 1 {
 		t.Errorf("RemediationTasks = %d, want 1", summary.RemediationTasks)
@@ -176,8 +188,7 @@ func TestExportAssaultSummary_ShouldWriteJSONAndMarkdown(t *testing.T) {
 		}
 	}
 
-	jsonPath := filepath.Join(filepath.Dir(path), "summary.json")
-	data, err := os.ReadFile(jsonPath)
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(path), "summary.json"))
 	if err != nil {
 		t.Fatalf("read json report: %v", err)
 	}
@@ -187,11 +198,5 @@ func TestExportAssaultSummary_ShouldWriteJSONAndMarkdown(t *testing.T) {
 	}
 	if roundTrip.CampaignID != summary.CampaignID {
 		t.Errorf("round-tripped campaign id = %q, want %q", roundTrip.CampaignID, summary.CampaignID)
-	}
-}
-
-func TestBuildAssaultSummary_WhenNoEvidence_ShouldError(t *testing.T) {
-	if _, err := BuildAssaultSummary(t.TempDir(), "/campaign_missing"); err == nil {
-		t.Fatal("expected an error for a campaign with no assault directory")
 	}
 }

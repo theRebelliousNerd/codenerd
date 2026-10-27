@@ -62,17 +62,28 @@ func TestExecutor_Process_SimpleInput(t *testing.T) {
 }
 
 func TestExecutor_Process_NilJITCompilerUsesBaselinePrompt(t *testing.T) {
+	assertMandatoryBaseline := func(system string, toolDefs []types.ToolDefinition) {
+		t.Helper()
+		for _, required := range []string{
+			"You are codeNERD, a logic-first coding agent",
+			"CONSTITUTIONAL PRIME DIRECTIVE",
+			"OUTPUT PROTOCOL: PIGGYBACK ENVELOPE",
+		} {
+			if !strings.Contains(system, required) {
+				t.Errorf("embedded mandatory baseline missing %q", required)
+			}
+		}
+		if len(toolDefs) != 0 {
+			t.Errorf("empty capabilities must remain no tools, got %d: %+v", len(toolDefs), toolDefs)
+		}
+	}
 	mockLLM := &MockLLMClient{
 		CompleteWithToolsFunc: func(ctx context.Context, sys, user string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
-			if sys != "You are an AI assistant helping with software development." {
-				t.Fatalf("expected baseline prompt, got %q", sys)
-			}
+			assertMandatoryBaseline(sys, tools)
 			return &types.LLMToolResponse{Text: "baseline ok"}, nil
 		},
 		CompleteWithSystemFunc: func(ctx context.Context, sys, user string) (string, error) {
-			if sys != "You are an AI assistant helping with software development." {
-				t.Fatalf("expected baseline prompt, got %q", sys)
-			}
+			assertMandatoryBaseline(sys, nil)
 			return "baseline ok", nil
 		},
 	}
@@ -97,6 +108,152 @@ func TestExecutor_Process_NilJITCompilerUsesBaselinePrompt(t *testing.T) {
 	}
 	if result.Response != "baseline ok" {
 		t.Fatalf("expected baseline response, got %q", result.Response)
+	}
+}
+
+func TestExecutor_Process_JITFailureUsesMandatoryBaseline(t *testing.T) {
+	var configPrompt string
+	configFactory := &MockConfigFactory{GenerateFunc: func(ctx context.Context, compiled *prompt.CompilationResult, _ ...string) (*config.EffectiveAgentRuntimeConfig, error) {
+		if compiled == nil {
+			t.Fatal("config factory received nil compilation result")
+		}
+		configPrompt = compiled.Prompt
+		return &config.EffectiveAgentRuntimeConfig{}, nil
+	}}
+	llm := &MockLLMClient{
+		CompleteWithToolsFunc: func(_ context.Context, system, _ string, toolDefs []types.ToolDefinition) (*types.LLMToolResponse, error) {
+			assertContainsMandatoryBaseline(t, system)
+			if len(toolDefs) != 0 {
+				t.Errorf("empty capabilities must remain no tools, got %+v", toolDefs)
+			}
+			return &types.LLMToolResponse{Text: "degraded safely"}, nil
+		},
+		CompleteWithSystemFunc: func(_ context.Context, system, _ string) (string, error) {
+			assertContainsMandatoryBaseline(t, system)
+			return "degraded safely", nil
+		},
+	}
+	executor := NewExecutor(
+		&MockKernel{}, &MockVirtualStore{}, llm,
+		&MockJITCompiler{CompileFunc: func(context.Context, *prompt.CompilationContext) (*prompt.CompilationResult, error) {
+			return nil, errors.New("corpus unavailable")
+		}},
+		configFactory,
+		&MockTransducer{ParseIntentWithContextFunc: func(context.Context, string, []perception.ConversationTurn) (perception.Intent, error) {
+			return perception.Intent{Verb: "/greet", Category: "/chat"}, nil
+		}},
+	)
+
+	result, err := executor.Process(context.Background(), "hello")
+	if err != nil || result == nil || result.Response != "degraded safely" {
+		t.Fatalf("Process result=%+v err=%v", result, err)
+	}
+	assertContainsMandatoryBaseline(t, configPrompt)
+}
+
+func TestExecutor_Process_JITCancellationStopsBeforeConfigOrProvider(t *testing.T) {
+	entered := make(chan struct{})
+	var configCalls, providerCalls int
+	configFactory := &MockConfigFactory{GenerateFunc: func(context.Context, *prompt.CompilationResult, ...string) (*config.EffectiveAgentRuntimeConfig, error) {
+		configCalls++
+		return &config.EffectiveAgentRuntimeConfig{}, nil
+	}}
+	llm := &MockLLMClient{
+		CompleteWithToolsFunc: func(context.Context, string, string, []types.ToolDefinition) (*types.LLMToolResponse, error) {
+			providerCalls++
+			return &types.LLMToolResponse{Text: "should not run"}, nil
+		},
+		CompleteWithSystemFunc: func(context.Context, string, string) (string, error) {
+			providerCalls++
+			return "should not run", nil
+		},
+	}
+	executor := NewExecutor(
+		&MockKernel{}, &MockVirtualStore{}, llm,
+		&MockJITCompiler{CompileFunc: func(ctx context.Context, _ *prompt.CompilationContext) (*prompt.CompilationResult, error) {
+			close(entered)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}},
+		configFactory,
+		&MockTransducer{ParseIntentWithContextFunc: func(context.Context, string, []perception.ConversationTurn) (perception.Intent, error) {
+			return perception.Intent{Verb: "/greet", Category: "/chat"}, nil
+		}},
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	type processResult struct {
+		result *ExecutionResult
+		err    error
+	}
+	done := make(chan processResult, 1)
+	go func() {
+		result, err := executor.Process(ctx, "hello")
+		done <- processResult{result: result, err: err}
+	}()
+	<-entered
+	cancel()
+	completed := <-done
+	if !errors.Is(completed.err, context.Canceled) {
+		t.Fatalf("Process error=%v, want context cancellation", completed.err)
+	}
+	if completed.result == nil || completed.result.Error == nil || !errors.Is(completed.result.Error, context.Canceled) {
+		t.Fatalf("cancelled Process result did not retain cancellation: %+v", completed.result)
+	}
+	if configCalls != 0 || providerCalls != 0 {
+		t.Fatalf("cancelled JIT reached config/provider: config=%d provider=%d", configCalls, providerCalls)
+	}
+}
+
+func TestExecutor_Process_MandatoryBaselineBudgetRefusalStopsBeforeConfigOrProvider(t *testing.T) {
+	var configCalls, providerCalls int
+	configFactory := &MockConfigFactory{GenerateFunc: func(context.Context, *prompt.CompilationResult, ...string) (*config.EffectiveAgentRuntimeConfig, error) {
+		configCalls++
+		return &config.EffectiveAgentRuntimeConfig{}, nil
+	}}
+	llm := &MockLLMClient{
+		CompleteWithToolsFunc: func(context.Context, string, string, []types.ToolDefinition) (*types.LLMToolResponse, error) {
+			providerCalls++
+			return &types.LLMToolResponse{Text: "should not run"}, nil
+		},
+		CompleteWithSystemFunc: func(context.Context, string, string) (string, error) {
+			providerCalls++
+			return "should not run", nil
+		},
+	}
+	executor := NewExecutor(
+		&MockKernel{}, &MockVirtualStore{}, llm,
+		&MockJITCompiler{CompileFunc: func(context.Context, *prompt.CompilationContext) (*prompt.CompilationResult, error) {
+			return nil, errors.New("ordinary JIT failure")
+		}},
+		configFactory,
+		&MockTransducer{ParseIntentWithContextFunc: func(context.Context, string, []perception.ConversationTurn) (perception.Intent, error) {
+			return perception.Intent{Verb: "/greet", Category: "/chat"}, nil
+		}},
+	)
+	executor.SetConfig(ExecutorConfig{TokenBudget: 1})
+
+	result, err := executor.Process(context.Background(), "hello")
+	if err == nil || !strings.Contains(err.Error(), "embedded mandatory baseline") {
+		t.Fatalf("Process error=%v, want visible mandatory baseline budget refusal", err)
+	}
+	if result == nil || result.Error == nil {
+		t.Fatalf("budget refusal should be visible on execution result too: %+v", result)
+	}
+	if configCalls != 0 || providerCalls != 0 {
+		t.Fatalf("budget refusal reached config/provider: config=%d provider=%d", configCalls, providerCalls)
+	}
+}
+
+func assertContainsMandatoryBaseline(t *testing.T, system string) {
+	t.Helper()
+	for _, required := range []string{
+		"You are codeNERD, a logic-first coding agent",
+		"CONSTITUTIONAL PRIME DIRECTIVE",
+		"OUTPUT PROTOCOL: PIGGYBACK ENVELOPE",
+	} {
+		if !strings.Contains(system, required) {
+			t.Errorf("embedded mandatory baseline missing %q", required)
+		}
 	}
 }
 

@@ -18,14 +18,10 @@ import (
 // UserConfig holds ALL codeNERD configuration from .nerd/config.json.
 // This is the single source of truth for configuration.
 //
-// Supported models by provider:
-//   - anthropic:   claude-sonnet-4-5-20250514, claude-opus-4-20250514, claude-3-5-sonnet-20241022
-//   - openai:      gpt-5.4 (default), gpt-5.3-codex, gpt-5.3-codex-spark, gpt-5.2-codex, gpt-5.1-codex-max, gpt-5-codex, gpt-4o
-//   - gemini:      gemini-3.5-flash (default), gemini-3.1-flash-lite, gemini-3-pro-preview
-//   - xai:         grok-2-latest (default), grok-2, grok-beta
-//   - zai:         GLM-4.6 (default)
-//   - openrouter:  anthropic/claude-3.5-sonnet, openai/gpt-4o, google/gemini-pro, etc.
-//   - ollama:      any local tag (e.g. gemma4:12b) — no API key required
+// Every provider and model is the file's choice: codeNERD keeps no model list
+// and fills no model in. Each slot names its own (model, worker.model,
+// planner.model, classification_model, shard_profiles.*.model, image.model),
+// and a slot that will be used without one is refused at load (Check).
 type UserConfig struct {
 	// =========================================================================
 	// LLM PROVIDER CONFIGURATION
@@ -33,6 +29,9 @@ type UserConfig struct {
 
 	// Provider selection (anthropic, openai, gemini, xai, zai, openrouter, ollama)
 	Provider string `json:"provider,omitempty"`
+
+	// APIKeyPools optionally load-balances named credentials for each API provider.
+	APIKeyPools map[string][]ProviderAPIKey `json:"api_key_pools,omitempty"`
 
 	// API keys for each provider
 	APIKey           string `json:"api_key,omitempty"`            // Legacy: single key
@@ -50,19 +49,22 @@ type UserConfig struct {
 	MetaAPIKey      string `json:"meta_api_key,omitempty"`      // Meta Model API (Muse Spark)
 	MoonshotAPIKey  string `json:"moonshot_api_key,omitempty"`  // Moonshot AI (Kimi)
 
-	// BaseURL overrides the endpoint for OpenAI-compatible providers. Each known
+	// BaseURL overrides the endpoint for Anthropic and OpenAI-compatible providers. Each known
 	// vendor ships a default, so this is only needed for a proxy, a regional
 	// endpoint, or an OpenAI-compatible vendor codeNERD has no name for yet.
 	BaseURL string `json:"base_url,omitempty"`
 	// Ollama needs no API key; presence of provider=ollama or worker.provider=ollama is enough.
 
-	// Optional model override (see supported models above)
+	// Model is the main slot's model, as the provider names it. Required for
+	// an API engine with a named provider; there is no default.
 	Model string `json:"model,omitempty"`
 
-	// ReasoningEffort overrides Meta (Muse Spark) reasoning effort.
-	// Accepted values: minimal, low, medium, high, xhigh. When set, it wins
-	// for every request (including unhinted ones) and bypasses capability-tier
-	// defaults. Non-Meta vendors ignore it.
+	// ReasoningEffort is the main slot's reasoning effort, sent with every
+	// request it serves; unset is DefaultReasoningEffort (medium). Anthropic
+	// accepts low, medium, high, xhigh, max on models that take an effort
+	// (AnthropicSupportsEffort); Meta accepts minimal, low, medium, high,
+	// xhigh. Other vendors' clients omit the field. A value the provider or
+	// model cannot accept refuses the file.
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 
 	// MaxOutputTokens caps the completion length for the MAIN client. Zero means
@@ -74,14 +76,19 @@ type UserConfig struct {
 	// share that budget.
 	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
 	// ClassificationModel is the fast/cheap model used for perception intent
-	// classification (the transducer's Understand call). Every interactive turn
-	// pays this call before anything else happens, so it should be the
-	// provider's fastest tier, NOT the main model. When empty, codeNERD picks a
-	// per-provider default (Anthropic: claude-haiku-4-5, Gemini:
-	// gemini-3.1-flash-lite, OpenAI: gpt-4o-mini); providers without a known
-	// fast tier (zai, xai, openrouter) fall back to the main client unless this
-	// is set explicitly. The main Model setting never applies to classification.
+	// classification (the transducer's Understand call) on the main
+	// provider's tier. Every interactive turn pays this call before anything
+	// else happens, so it should be the provider's fastest model. When empty
+	// the classifier runs on the main model: no fast tier is invented for a
+	// provider (perception.NewClassificationClientFromConfig). A configured
+	// worker classifies first, on its own model.
 	ClassificationModel string `json:"classification_model,omitempty"`
+	// ClassificationReasoningEffort is the classifier's reasoning effort, on
+	// whichever tier classifies. Unset is the lowest effort that tier's
+	// provider accepts (DefaultClassificationReasoningEffort: Meta minimal,
+	// Anthropic low). A value one of the classifying tiers cannot accept
+	// refuses the file.
+	ClassificationReasoningEffort string `json:"classification_reasoning_effort,omitempty"`
 
 	// =========================================================================
 	// CLI ENGINE CONFIGURATION
@@ -93,6 +100,9 @@ type UserConfig struct {
 
 	// Gemini-specific configuration (thinking mode, grounding tools)
 	Gemini *GeminiProviderConfig `json:"gemini,omitempty"`
+
+	// Direct Anthropic Messages API settings, independent of claude_cli.
+	Anthropic *AnthropicProviderConfig `json:"anthropic,omitempty"`
 
 	// Meta-specific configuration (Muse Spark web search grounding).
 	Meta *MetaProviderConfig `json:"meta,omitempty"`
@@ -808,11 +818,26 @@ type SecondaryLLMConfig struct {
 	// differ in what they need: a bulk worker wants a small budget for cost, a
 	// planner wants a large one, so this belongs per-slot rather than global.
 	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
-	// ReasoningEffort overrides Meta (Muse Spark) reasoning effort for this
-	// slot. Accepted values: minimal, low, medium, high, xhigh. When set it
-	// wins for every request in this slot, bypassing capability-tier defaults.
-	// Non-Meta vendors ignore it.
+	// MaxInputTokens caps the input this slot is sent, in the tokens
+	// prompt.EstimateRequestTokens counts (system prompt, transcript and tool
+	// catalog at bytes/4, the session's own ruler). Zero means no slot cap:
+	// the session budget (half of context_window.max_tokens) applies, as it
+	// does to the main slot. A cheap bulk worker can be held to a smaller
+	// window than the main and planner models without shrinking theirs. The
+	// session executor fits every request the slot serves to the smaller of
+	// the two, and the slot's client refuses a larger one before sending it;
+	// a provider whose client cannot enforce a cap fails the slot at
+	// construction rather than run it uncapped. Below MinPromptTokens is
+	// refused.
+	MaxInputTokens int `json:"max_input_tokens,omitempty"`
+	// ReasoningEffort is this slot's reasoning effort, sent with every request
+	// it serves; unset is the slot's default (DefaultWorkerReasoningEffort,
+	// DefaultPlannerReasoningEffort). Anthropic also accepts max, but does not
+	// accept minimal; Meta the reverse. Other vendors' clients omit the field.
+	// A value the slot's provider or model cannot accept refuses the file.
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	// Anthropic overrides the shared direct-API settings for this slot.
+	Anthropic *AnthropicProviderConfig `json:"anthropic,omitempty"`
 }
 
 // WorkerLLMConfig selects a secondary LLM for non-main work (shards, spawn,
@@ -851,10 +876,6 @@ func DefaultImageLLMConfig() ImageLLMConfig {
 	}
 }
 
-// NanoBanana2ImageModel is the API id the nano-banana-2 aliases map to. It is
-// an alias target, not a default: image.model must be set.
-const NanoBanana2ImageModel = "gemini-3.1-flash-image"
-
 // IsImageShardType reports shard type names reserved for image generation.
 func IsImageShardType(typeName string) bool {
 	t := strings.ToLower(strings.TrimSpace(typeName))
@@ -869,9 +890,11 @@ func IsImageShardType(typeName string) bool {
 }
 
 // GetImageLLMConfig returns image-generation settings. The provider defaults
-// to gemini (the only one supported) and the timeout to 120s; the model does
-// not default, so an unset image.model fails at client construction instead
-// of quietly picking a tier. A non-positive timeout means unset.
+// to gemini (the only one the image slot supports) and the timeout to 120s;
+// the model is image.model exactly as written -- no default, and no alias
+// table translating a nickname into a model id -- so an unset image.model
+// fails at client construction instead of quietly picking one. A
+// non-positive timeout means unset.
 func (c *UserConfig) GetImageLLMConfig() ImageLLMConfig {
 	def := DefaultImageLLMConfig()
 	if c == nil || c.Image == nil {
@@ -883,13 +906,6 @@ func (c *UserConfig) GetImageLLMConfig() ImageLLMConfig {
 	}
 	if out.Timeout <= 0 {
 		out.Timeout = def.Timeout
-	}
-	// Normalize friendly aliases to API ids.
-	switch strings.ToLower(out.Model) {
-	case "nano-banana-2", "nano_banana_2", "nano-banana", "nanobanana2", "gemini-image":
-		out.Model = NanoBanana2ImageModel
-	case "nano-banana-2-lite", "nano_banana_2_lite", "nanobanana2-lite":
-		out.Model = "gemini-3.1-flash-lite-image"
 	}
 	return out
 }
@@ -964,38 +980,46 @@ func (c *UserConfig) GetOllamaLLMConfig() OllamaLLMConfig {
 }
 
 // GetWorkerLLMConfig returns the secondary worker LLM config, or nil if unset.
+// Its reasoning effort is resolved: unset is DefaultWorkerReasoningEffort.
 func (c *UserConfig) GetWorkerLLMConfig() *WorkerLLMConfig {
 	if c == nil {
 		return nil
 	}
-	return c.resolveSecondarySlot(c.Worker)
+	return c.resolveSecondarySlot(c.Worker, DefaultWorkerReasoningEffort)
 }
 
 // GetPlannerLLMConfig returns the high-reasoning planner LLM config, or nil if
-// unset. A planner slot pointing at the same provider+model as the worker is
-// treated as unset, since a distinct client would buy nothing but a second
-// connection pool.
+// unset. Its reasoning effort is resolved: unset is
+// DefaultPlannerReasoningEffort. A planner that resolves to exactly the
+// worker -- provider, model and effort alike -- is treated as unset, since a
+// distinct client would buy nothing but a second connection pool; one that
+// differs only by its (default) effort is the high-effort tier of the same
+// model and stays.
 func (c *UserConfig) GetPlannerLLMConfig() *PlannerLLMConfig {
 	if c == nil {
 		return nil
 	}
-	p := c.resolveSecondarySlot(c.Planner)
+	p := c.resolveSecondarySlot(c.Planner, DefaultPlannerReasoningEffort)
 	if p == nil {
 		return nil
 	}
-	if w := c.resolveSecondarySlot(c.Worker); w != nil && *w == *p {
+	if w := c.resolveSecondarySlot(c.Worker, DefaultWorkerReasoningEffort); w != nil && *w == *p {
 		return nil
 	}
 	return p
 }
 
-// resolveSecondarySlot applies Ollama's endpoint/model defaults to a slot and
-// treats a provider-less slot as absent.
-func (c *UserConfig) resolveSecondarySlot(slot *SecondaryLLMConfig) *SecondaryLLMConfig {
+// resolveSecondarySlot applies Ollama's endpoint/model defaults and the slot's
+// default reasoning effort to a slot, and treats a provider-less slot as
+// absent.
+func (c *UserConfig) resolveSecondarySlot(slot *SecondaryLLMConfig, defaultEffort string) *SecondaryLLMConfig {
 	if slot == nil || slot.Provider == "" {
 		return nil
 	}
 	out := *slot
+	if strings.TrimSpace(out.ReasoningEffort) == "" {
+		out.ReasoningEffort = defaultEffort
+	}
 	if out.Provider == "ollama" {
 		ollama := c.GetOllamaLLMConfig()
 		if out.Endpoint == "" {
@@ -1018,6 +1042,13 @@ func (c *UserConfig) APIKeyForProvider(provider string) string {
 	if c == nil {
 		return ""
 	}
+	if entries := c.APIKeyPools[strings.ToLower(strings.TrimSpace(provider))]; len(entries) > 0 {
+		if entries[0].Env != "" {
+			return os.Getenv(entries[0].Env)
+		}
+		return entries[0].APIKey
+	}
+
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "anthropic":
 		return c.AnthropicAPIKey
@@ -1098,31 +1129,11 @@ func (c *UserConfig) GetActiveProvider() (provider string, apiKey string) {
 	// If provider is explicitly set, ONLY that provider's key is considered.
 	// No silent fallback to another provider — that would violate config-is-boss.
 	if c.Provider != "" {
-		switch c.Provider {
-		case "anthropic":
-			return "anthropic", c.AnthropicAPIKey
-		case "openai":
-			return "openai", c.OpenAIAPIKey
-		case "gemini":
-			return "gemini", c.GeminiAPIKey
-		case "xai":
-			return "xai", c.XAIAPIKey
-		case "zai":
-			return "zai", c.ZAIAPIKey
-		case "openrouter":
-			return "openrouter", c.OpenRouterAPIKey
-		case "dashscope":
-			return "dashscope", c.DashScopeAPIKey
-		case "meta":
-			return "meta", c.MetaAPIKey
-		case "moonshot":
-			return "moonshot", c.MoonshotAPIKey
-		case "ollama":
-			// Local Ollama: no cloud key; non-empty sentinel satisfies callers
-			// that check apiKey != "" before NewClientFromConfig.
-			return "ollama", "ollama"
-		default:
-			return c.Provider, ""
+		return c.Provider, c.APIKeyForProvider(c.Provider)
+	}
+	for _, provider := range []string{"anthropic", "openai", "gemini", "xai", "zai", "openrouter", "dashscope", "meta", "moonshot"} {
+		if len(c.APIKeyPools[provider]) > 0 {
+			return provider, c.APIKeyForProvider(provider)
 		}
 	}
 
@@ -1179,7 +1190,7 @@ func (c *UserConfig) HasExplicitLLMSelection() bool {
 	if c == nil {
 		return false
 	}
-	return c.Engine != "" || c.Provider != "" || c.APIKey != "" ||
+	return len(c.APIKeyPools) > 0 || c.Engine != "" || c.Provider != "" || c.APIKey != "" ||
 		c.AnthropicAPIKey != "" || c.OpenAIAPIKey != "" || c.GeminiAPIKey != "" ||
 		c.XAIAPIKey != "" || c.ZAIAPIKey != "" || c.OpenRouterAPIKey != "" ||
 		c.DashScopeAPIKey != "" || c.MetaAPIKey != "" || c.MoonshotAPIKey != "" ||
@@ -1224,16 +1235,22 @@ func (c *UserConfig) GetCodexCLIConfig() *CodexCLIConfig {
 		enableSchema := true
 		skillEnabled := true
 		return &CodexCLIConfig{
-			Sandbox:            "read-only",
-			Timeout:            300,
-			SkillEnabled:       &skillEnabled,
-			SkillName:          DefaultCodexExecSkillName,
-			MaxConcurrentCalls: DefaultCodexMaxConcurrentCalls,
-			DisableShellTool:   &disableShell,
-			EnableOutputSchema: &enableSchema,
+			Sandbox:                "read-only",
+			Timeout:                300,
+			SkillEnabled:           &skillEnabled,
+			SkillName:              DefaultCodexExecSkillName,
+			MaxConcurrentCalls:     DefaultCodexMaxConcurrentCalls,
+			DisableShellTool:       &disableShell,
+			EnableOutputSchema:     &enableSchema,
+			ReasoningEffortDefault: c.GetReasoningEffort(),
 		}
 	}
 	cfg := *c.CodexCLI
+	// Codex serves the main slot, so its default effort is the main slot's
+	// unless codex_cli names its own: every request carries one.
+	if strings.TrimSpace(cfg.ReasoningEffortDefault) == "" {
+		cfg.ReasoningEffortDefault = c.GetReasoningEffort()
+	}
 	// Codex CLI is a completion backend, never an effect executor. Force both
 	// controls even when an older or hand-edited config requests otherwise.
 	cfg.Sandbox = "read-only"
@@ -1474,7 +1491,10 @@ func (c *UserConfig) GetIntegrations() IntegrationsConfig {
 
 // BrowserAutomationConfig controls codeNERD's native Rod browser manager.
 type BrowserAutomationConfig struct {
-	Reaper              BrowserReaperConfig `json:"reaper,omitempty"`
+	Reaper BrowserReaperConfig `json:"reaper,omitempty"`
+	// Policy contains the thresholds and action ranking browser.mg reads.
+	// It is emitted as config_param facts before the browser manager starts.
+	Policy              BrowserPolicyConfig `json:"policy,omitempty"`
 	DebuggerURL         string              `json:"debugger_url,omitempty"`
 	Launch              []string            `json:"launch,omitempty"`
 	Headless            bool                `json:"headless,omitempty"`
@@ -1504,6 +1524,7 @@ func DefaultBrowserAutomationConfig() BrowserAutomationConfig {
 	sharedTabs := true
 	return BrowserAutomationConfig{
 		Reaper:               DefaultBrowserReaperConfig(),
+		Policy:               DefaultBrowserPolicyConfig(),
 		ViewportWidth:        1920,
 		ViewportHeight:       1080,
 		NavigationTimeoutMs:  30000,
@@ -1527,6 +1548,7 @@ func (c *UserConfig) GetBrowserConfig() BrowserAutomationConfig {
 	}
 	cfg := *c.Browser
 	cfg.Reaper = cfg.Reaper.WithDefaults()
+	cfg.Policy = cfg.Policy.WithDefaults()
 	if cfg.ViewportWidth <= 0 {
 		cfg.ViewportWidth = defaults.ViewportWidth
 	}

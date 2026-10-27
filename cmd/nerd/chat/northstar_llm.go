@@ -7,21 +7,42 @@ import (
 	"os"
 	"path/filepath"
 
+	"codenerd/internal/broker"
 	"codenerd/internal/northstar"
+	"codenerd/internal/types"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// northstarClient is the client north-star derivation runs on: the planner
+// slot the session booted, else the main client. It is the same work init's
+// north-star draft does on the planner, and its prompts are compiled for the
+// model that will read them.
+func (m Model) northstarClient() (types.LLMClient, northstar.PhasePrompt) {
+	client := m.cortex.PlannerLLM()
+	if client == nil {
+		client = m.client
+	}
+	if client == nil {
+		return nil, nil
+	}
+	provider, model := clientIdentity(client)
+	return client, northstar.PhasePromptFor(northstar.PhaseTarget{
+		Provider: provider, Model: model, InputWindow: broker.InputWindow(client),
+	})
+}
+
 func (m Model) generateRequirementsWithLLM() tea.Cmd {
 	return func() tea.Msg {
-		if m.client == nil || m.northstarWizard == nil {
+		client, phasePrompt := m.northstarClient()
+		if client == nil || m.northstarWizard == nil {
 			return requirementsGeneratedMsg{err: fmt.Errorf("northstar wizard or LLM client not available")}
 		}
 		budget, err := northstar.ResolveDeriveBudget(m.workspace)
 		if err != nil {
 			return requirementsGeneratedMsg{err: err}
 		}
-		reqs, err := northstar.DeriveRequirements(m.northstarContext(), m.client, nil, budget, northstarRequirementsInput(m.northstarWizard))
+		reqs, err := northstar.DeriveRequirements(m.northstarContext(), client, phasePrompt, budget, northstarRequirementsInput(m.northstarWizard))
 		if err != nil {
 			return requirementsGeneratedMsg{err: err}
 		}
@@ -38,7 +59,8 @@ func (m Model) generateRequirementsWithLLM() tea.Cmd {
 
 func (m Model) analyzeNorthstarDocs(docPaths []string) tea.Cmd {
 	return func() tea.Msg {
-		if m.client == nil {
+		client, phasePrompt := m.northstarClient()
+		if client == nil {
 			return northstarDocsAnalyzedMsg{err: fmt.Errorf("LLM client not available")}
 		}
 		if len(docPaths) == 0 {
@@ -60,7 +82,7 @@ func (m Model) analyzeNorthstarDocs(docPaths []string) tea.Cmd {
 		if err != nil {
 			return northstarDocsAnalyzedMsg{err: err}
 		}
-		class, err := northstar.ClassifyDocuments(m.northstarContext(), m.client, nil, budget, docs)
+		class, err := northstar.ClassifyDocuments(m.northstarContext(), client, phasePrompt, budget, docs)
 		if err != nil {
 			return northstarDocsAnalyzedMsg{err: err}
 		}

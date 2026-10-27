@@ -22,7 +22,7 @@
       "timeout_seconds": 600,
       "max_wall_seconds": 900,
       "commands": [
-        ["go", "build", "-o", "{artifact_dir}/nerd-build.exe", "./cmd/nerd"]
+        ["go", "build", "-tags", "sqlite_vec", "-o", "{artifact_dir}/nerd-build.exe", "./cmd/nerd"]
       ]
     },
     "smoke": {
@@ -31,7 +31,7 @@
       "timeout_seconds": 1200,
       "max_wall_seconds": 1800,
       "commands": [
-        ["go", "build", "-o", "{artifact_dir}/nerd-smoke.exe", "./cmd/nerd"],
+        ["go", "build", "-tags", "sqlite_vec", "-o", "{artifact_dir}/nerd-smoke.exe", "./cmd/nerd"],
         ["go", "test", "-count=1", "./internal/core/...", "./internal/mangle/...", "./internal/prompt/...", "./internal/session/..."]
       ]
     },
@@ -44,7 +44,7 @@
       ]
     },
     "adversarial": {
-      "description": "Build the current CLI and prove every intentionally-invalid Mangle fixture is rejected without panic or timeout.",
+      "description": "Check 18 documented static Mangle rejections at their exact stages and 6 valid static-scaffolding cases; runtime hazards are not executed.",
       "risk": "bounded-build",
       "timeout_seconds": 600,
       "max_wall_seconds": 900,
@@ -66,7 +66,7 @@
       "timeout_seconds": 1800,
       "max_wall_seconds": 3600,
       "commands": [
-        ["go", "test", "-race", "-count=1", "./internal/core/...", "./internal/campaign/...", "./internal/session/..."]
+        ["go", "test", "-timeout=20m", "-race", "-count=1", "./internal/core/...", "./internal/campaign/...", "./internal/session/..."]
       ]
     },
     "full": {

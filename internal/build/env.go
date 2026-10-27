@@ -20,6 +20,7 @@
 //	internal/gates       — run.go (a workspace's go gates, via GoInvocation; WorkspaceUserConfig)
 //	internal/tools/shell — verification.go (run_build / run_tests, via GoInvocation)
 //	internal/tools/codedom — run_impacted_tests.go (via GoInvocation)
+//	internal/tools       — build_exclusion.go (build-constraint tag detection via TestTagsForWorkspace)
 //
 // The historical list in this comment named preflight, attack_runner and tester,
 // none of which ever imported the package; that fiction is what the inventory
@@ -183,18 +184,27 @@ func DetectionRootFor(moduleDir string) string {
 			abs = resolved
 		}
 	}
+	return walkDetectionRoot(abs, func(dir string) bool {
+		info, err := os.Stat(filepath.Join(dir, "sqlite_headers"))
+		return err == nil && info.IsDir()
+	}, isRepoBoundary)
+}
 
-	dir := abs
+// walkDetectionRoot isolates the ancestor walk from the host filesystem probes.
+// The callbacks keep production tied to real markers while letting the
+// no-marker contract be tested without assumptions about temp-dir ancestors.
+func walkDetectionRoot(startDir string, hasHeaders, hasRepoBoundary func(string) bool) string {
+	dir := startDir
 	for {
-		if info, err := os.Stat(filepath.Join(dir, "sqlite_headers")); err == nil && info.IsDir() {
+		if hasHeaders(dir) {
 			return dir
 		}
-		if isRepoBoundary(dir) {
+		if hasRepoBoundary(dir) {
 			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return abs
+			return startDir
 		}
 		dir = parent
 	}

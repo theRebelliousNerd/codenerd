@@ -149,58 +149,23 @@ func TestBaseTermToValue_Fallback(t *testing.T) {
 	}
 }
 
-func TestFactMatchesPattern_StringVsName(t *testing.T) {
-	// String /alice vs Name /alice
-	// factString := Fact{Predicate: "foo", Args: []interface{}{"alice"}}
-
-	// Create an atom representing ast.Name("alice") which would be parsed as /alice
-	// Our baseTermToValue converts Name atoms to plain Go strings currently,
-	// BUT they shouldn't match if one is explicitly meant to be a string type
-	// wait, if baseTermToValue returns string for both, does factMatchesPattern differentiate?
-
-	// Let's test the kernel query flow to see if it differentiates
-	k := setupMockKernel(t)
-	k.AppendPolicy("Decl foo(Name).")
-	k.AppendPolicy(`foo(/alice).`)
-	k.AppendPolicy(`foo("alice").`) // Might be invalid if schema is Name, let's just use Any
-
-	err := k.Evaluate()
-	if err != nil {
-		t.Logf("Evaluate err (expected if strict schema): %v", err)
-	}
-
-	// Wait, Mangle schema is strict, so we should test with a loose schema if we want both
-	k2 := setupMockKernel(t)
-	k2.AppendPolicy("Decl bar(Any).")
-	k2.AppendPolicy(`bar(/alice).`)
-	k2.AppendPolicy(`bar("alice").`)
-	k2.Evaluate()
-
-	_, err = k2.Query(`bar("alice")`)
+func TestQueryPatternPreservesMangleLiteralIdentity(t *testing.T) {
+	nameAtom, err := parseAtom(`bar(/alice)`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// It should only return 1 result: the string "alice", NOT the atom /alice
-	// Mangle's internal query will handle this, but what if we query all and filter using factMatchesPattern?
-	k2.mu.RLock()
-	var count int
-	k2.store.GetFacts(ast.NewQuery(ast.PredicateSym{Symbol: "bar", Arity: 1}), func(a ast.Atom) error {
-		f := atomToFact(a)
-		// Try to match against a string "alice" pattern
-		if factMatchesPattern(f, Fact{Predicate: "bar", Args: []any{"alice"}}) {
-			count++
-		}
-		return nil
-	})
-	k2.mu.RUnlock()
-
-	// Since both NameType and StringType convert to Go `string` in baseTermToValue,
-	// factMatchesPattern will match BOTH.
-	// The QA report mentions: "Verify factMatchesPattern differentiates between String ("alice") and Name Atom (/alice)."
-	// This means our test must verify if it differentiates them, and if not, we highlight it.
-
-	if count != 2 {
-		t.Logf("factMatchesPattern currently does NOT differentiate String vs Name, count = %d", count)
+	stringAtom, err := parseAtom(`bar("/alice")`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if atomMatchesQueryPattern(nameAtom, stringAtom) {
+		t.Fatal("a Mangle name atom matched a quoted string query")
+	}
+	if atomMatchesQueryPattern(stringAtom, nameAtom) {
+		t.Fatal("a quoted string matched a Mangle name query")
+	}
+	if !atomMatchesQueryPattern(nameAtom, nameAtom) || !atomMatchesQueryPattern(stringAtom, stringAtom) {
+		t.Fatal("typed query pattern failed to match an identical Mangle constant")
 	}
 }
 

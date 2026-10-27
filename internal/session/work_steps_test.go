@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -123,7 +124,18 @@ func registerStepTools(t *testing.T) (readTool, writeTool string) {
 	})
 	registerTestTool(t, &tools.Tool{
 		Effect: tools.EffectWrite, Name: writeTool, Category: tools.CategoryGeneral,
-		Execute: func(_ context.Context, args map[string]any) (string, error) {
+		Execute: func(ctx context.Context, args map[string]any) (string, error) {
+			path, err := tools.ResolveWorkspacePath(ctx, "", args["path"].(string))
+			if err != nil {
+				return "", err
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				return "", err
+			}
+			content, _ := args["content"].(string)
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				return "", err
+			}
 			return "written " + args["path"].(string), nil
 		},
 	})
@@ -437,6 +449,229 @@ func TestRunPlannedSteps_NoKernelDoesNotDecide(t *testing.T) {
 	if err == nil || errors.Is(err, ErrStepsIncomplete) {
 		t.Fatalf("err = %v, want a refusal to decide, not a Go completeness verdict", err)
 	}
+}
+
+// stepRepairRestoreKernel models a repair made during the post-edit gate. It
+// restores the exact initial bytes as the verifier begins, after the planned
+// write has landed and before runPlannedSteps measures its final state.
+type stepRepairRestoreKernel struct {
+	types.Kernel
+	t        *testing.T
+	path     string
+	initial  []byte
+	restored bool
+}
+
+func (k *stepRepairRestoreKernel) Query(predicate string) ([]types.Fact, error) {
+	if predicate == "turn_next_round" && !k.restored {
+		k.restored = true
+		current, err := os.ReadFile(k.path)
+		if err != nil {
+			k.t.Errorf("read step output before simulated repair: %v", err)
+		} else if string(current) != "temporary" {
+			k.t.Errorf("step output before simulated repair = %q, want temporary", current)
+		}
+		if err := os.WriteFile(k.path, k.initial, 0o644); err != nil {
+			k.t.Errorf("simulated repair restore: %v", err)
+		}
+	}
+	return k.Kernel.Query(predicate)
+}
+
+func TestRunPlannedSteps_FinalRepairRestoreIsIncomplete(t *testing.T) {
+	_, writeTool := registerStepTools(t)
+	client := newStepScriptProvider("", map[string][]types.ToolCall{
+		"a.txt": {{ID: "w-a", Name: writeTool, Input: map[string]any{"path": "a.txt", "content": "temporary"}}},
+	})
+	e := newPlannedStepsExecutor(t, client)
+	path := filepath.Join(e.config.WorkspaceRoot, "a.txt")
+	initial := []byte("initial bytes")
+	if err := os.WriteFile(path, initial, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	restoring := &stepRepairRestoreKernel{Kernel: e.kernel, t: t, path: path, initial: initial}
+	e.kernel = restoring
+
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
+	_, toolErrs, err := e.runPlannedSteps(context.Background(), "system", "edit a.txt",
+		[]workStep{{File: "a.txt", Change: "replace its content"}},
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{writeTool}},
+		&prompt.CompilationContext{ShardID: "probe"}, result)
+	if !errors.Is(err, ErrStepsIncomplete) {
+		t.Fatalf("runPlannedSteps: %v (tool errors: %q), want ErrStepsIncomplete; report:\n%s", err, toolErrs, result.StepReport)
+	}
+	if !restoring.restored {
+		t.Fatal("post-edit verifier did not trigger the simulated repair restore")
+	}
+	if got, readErr := os.ReadFile(path); readErr != nil || string(got) != string(initial) {
+		t.Fatalf("final a.txt = %q, err=%v; want exact initial bytes %q", got, readErr, initial)
+	}
+	if !strings.Contains(result.StepReport, "[1] a.txt :: replace its content — edit reverted") {
+		t.Fatalf("report = %q, want the Mangle-derived reverted outcome", result.StepReport)
+	}
+
+	turn := result.turnAtom()
+	netRows, err := e.kernel.Query("step_file_net")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasStepNetFact(netRows, turn, 1, "a.txt", "/unchanged") {
+		t.Fatalf("step_file_net rows = %+v, want /unchanged after final repair", netRows)
+	}
+	revertedRows, err := e.kernel.Query("step_reverted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasStepRevertedFact(revertedRows, turn, 1, "a.txt") {
+		t.Fatalf("step_reverted rows = %+v, want the planned step", revertedRows)
+	}
+	verdicts, err := e.kernel.Query("turn_steps_verdict")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasTurnVerdict(verdicts, turn, "/incomplete") || hasTurnVerdict(verdicts, turn, "/complete") {
+		t.Fatalf("turn_steps_verdict rows = %+v, want only /incomplete", verdicts)
+	}
+}
+
+func TestAssertPlannedStepFileNetComparesExistenceAndBytes(t *testing.T) {
+	tests := []struct {
+		name   string
+		before PreImage
+		final  *string
+		want   string
+	}{
+		{name: "absent to empty is changed", before: PreImage{}, final: ptrString(""), want: "/changed"},
+		{name: "empty to absent is changed", before: existed(""), final: nil, want: "/changed"},
+		{name: "same bytes are unchanged", before: existed("same"), final: ptrString("same"), want: "/unchanged"},
+		{name: "different bytes are changed", before: existed("before"), final: ptrString("after"), want: "/changed"},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			workspace := t.TempDir()
+			path := filepath.Join(workspace, "a.txt")
+			if tt.final != nil {
+				if err := os.WriteFile(path, []byte(*tt.final), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			kernel, err := core.NewRealKernel()
+			if err != nil {
+				t.Fatal(err)
+			}
+			e := &Executor{kernel: kernel, config: ExecutorConfig{WorkspaceRoot: workspace}}
+			turn := types.MangleAtom(fmt.Sprintf("/step_net_case_%d", i))
+			result := &ExecutionResult{PreWriteContents: map[string]PreImage{"a.txt": tt.before}}
+			steps := []workStep{{File: "a.txt", Edited: true}}
+			if err := e.assertPlannedStepFileNet(turn, steps, result); err != nil {
+				t.Fatalf("assertPlannedStepFileNet: %v", err)
+			}
+			rows, err := kernel.Query("step_file_net")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !hasStepNetFact(rows, turn, 1, "a.txt", tt.want) {
+				t.Fatalf("step_file_net rows = %+v, want %s", rows, tt.want)
+			}
+		})
+	}
+}
+
+func TestAssertPlannedStepFileNetFailsClosedWithoutACompleteMeasurement(t *testing.T) {
+	tests := []struct {
+		name    string
+		before  map[string]PreImage
+		final   func(string) error
+		wantErr string
+	}{
+		{
+			name:    "missing preimage",
+			before:  map[string]PreImage{},
+			final:   func(path string) error { return os.WriteFile(path, []byte("after"), 0o644) },
+			wantErr: "no first-write preimage",
+		},
+		{
+			name:    "unknown preimage",
+			before:  map[string]PreImage{"a.txt": {Unknown: "permission denied"}},
+			final:   func(path string) error { return os.WriteFile(path, []byte("after"), 0o644) },
+			wantErr: "preimage for \"a.txt\" is unknown",
+		},
+		{
+			name:    "unreadable final state",
+			before:  map[string]PreImage{"a.txt": existed("before")},
+			final:   func(path string) error { return os.Mkdir(path, 0o755) },
+			wantErr: "final state of \"a.txt\" is unreadable",
+		},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			workspace := t.TempDir()
+			if err := tt.final(filepath.Join(workspace, "a.txt")); err != nil {
+				t.Fatal(err)
+			}
+			kernel, err := core.NewRealKernel()
+			if err != nil {
+				t.Fatal(err)
+			}
+			e := &Executor{kernel: kernel, config: ExecutorConfig{WorkspaceRoot: workspace}}
+			turn := types.MangleAtom(fmt.Sprintf("/step_net_failure_%d", i))
+			steps := []workStep{{File: "a.txt", Edited: true}}
+			err = e.assertPlannedStepFileNet(turn, steps, &ExecutionResult{PreWriteContents: tt.before})
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("assertPlannedStepFileNet error = %v, want text %q", err, tt.wantErr)
+			}
+			if steps[0].MeasurementError == "" {
+				t.Fatal("the report did not retain the measurement failure")
+			}
+			rows, queryErr := kernel.Query("step_file_net")
+			if queryErr != nil {
+				t.Fatal(queryErr)
+			}
+			if hasStepNetFact(rows, turn, 1, "a.txt", "/unchanged") || hasStepNetFact(rows, turn, 1, "a.txt", "/changed") {
+				t.Fatalf("failed measurement asserted a net-state fact: %+v", rows)
+			}
+		})
+	}
+}
+
+func ptrString(value string) *string { return &value }
+
+func hasStepNetFact(rows []types.Fact, turn types.MangleAtom, step int, file, net string) bool {
+	for _, fact := range rows {
+		if factTurn(fact) != string(turn) || len(fact.Args) < 4 {
+			continue
+		}
+		n, ok := factNumber(fact, 1)
+		if !ok || n != int64(step) || types.ExtractString(fact.Args[2]) != file {
+			continue
+		}
+		if net == "" || types.ExtractString(fact.Args[3]) == net {
+			return true
+		}
+	}
+	return false
+}
+
+func hasStepRevertedFact(rows []types.Fact, turn types.MangleAtom, step int, file string) bool {
+	for _, fact := range rows {
+		if factTurn(fact) != string(turn) || len(fact.Args) < 3 {
+			continue
+		}
+		n, ok := factNumber(fact, 1)
+		if ok && n == int64(step) && types.ExtractString(fact.Args[2]) == file {
+			return true
+		}
+	}
+	return false
+}
+
+func hasTurnVerdict(rows []types.Fact, turn types.MangleAtom, verdict string) bool {
+	for _, fact := range rows {
+		if factTurn(fact) == string(turn) && len(fact.Args) > 1 && types.ExtractString(fact.Args[1]) == verdict {
+			return true
+		}
+	}
+	return false
 }
 
 // One STEP line, or none, is the single pass the loop always ran: the task

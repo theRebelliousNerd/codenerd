@@ -23,7 +23,9 @@ type Completer interface {
 }
 
 // PhasePrompt returns the system prompt for one northstar derive phase
-// ("derive_classify", "derive_vision", "derive_requirements").
+// ("derive_classify", "derive_vision", "derive_requirements"). PhasePromptFor
+// builds one for the model that will be sent the prompt; a nil PhasePrompt
+// compiles for no named model, which admits no provider- or model-pinned atom.
 type PhasePrompt func(ctx context.Context, phase string) (string, error)
 
 // DeriveBudget bounds the complete user message, including framing and the
@@ -243,7 +245,7 @@ func ClassifyDocuments(ctx context.Context, client Completer, prompt PhasePrompt
 		seen[doc.Path] = true
 	}
 	if prompt == nil {
-		prompt = CompilePhasePrompt
+		prompt = PhasePromptFor(PhaseTarget{})
 	}
 	system, err := prompt(ctx, "derive_classify")
 	if err != nil {
@@ -401,7 +403,7 @@ func DraftVision(ctx context.Context, client Completer, prompt PhasePrompt, budg
 		return nil, fmt.Errorf("draft vision: no source documents supplied")
 	}
 	if prompt == nil {
-		prompt = CompilePhasePrompt
+		prompt = PhasePromptFor(PhaseTarget{})
 	}
 	system, err := prompt(ctx, "derive_vision")
 	if err != nil {
@@ -444,7 +446,7 @@ func DeriveRequirements(ctx context.Context, client Completer, prompt PhasePromp
 		return nil, fmt.Errorf("derive requirements: request budget is %d bytes (%s)", budget.MaxRequestBytes, budget.Source)
 	}
 	if prompt == nil {
-		prompt = CompilePhasePrompt
+		prompt = PhasePromptFor(PhaseTarget{})
 	}
 	system, err := prompt(ctx, "derive_requirements")
 	if err != nil {

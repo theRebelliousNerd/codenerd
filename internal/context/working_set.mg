@@ -11,6 +11,9 @@ Decl working_digest(ID, Digest) bound [/string, /string].
 Decl working_span(ID, Start, End) bound [/string, /number, /number].
 Decl working_stale(ID) bound [/string].
 Decl working_superseded(ID) bound [/string].
+Decl working_unresolvable_revision(Revision) bound [/string].
+working_unresolvable_revision("absent").
+working_unresolvable_revision("unavailable").
 Decl working_control(Cycle, FailedRounds) bound [/name, /number].
 # The loop's report at each round boundary. Intent is /write for a
 # write-oriented verb and /read otherwise; Rounds counts completed rounds;
@@ -183,6 +186,17 @@ working_nudge(/conclude) :-
 working_stale(ID) :-
     working_observation(ID, Entity, Old, _, _),
     working_revision(Entity, Current), Old != Current.
+# An equal lookup sentinel is not a freshness witness. The source must have
+# a resolvable content revision for an observation to count as live; the
+# explicit nonfile revision is resolvable because it names that stable case.
+working_stale(ID) :-
+    working_observation(ID, Entity, Old, _, _),
+    working_revision(Entity, _),
+    working_unresolvable_revision(Old).
+working_stale(ID) :-
+    working_observation(ID, Entity, _, _, _),
+    working_revision(Entity, Current),
+    working_unresolvable_revision(Current).
 
 working_superseded(ID) :-
     working_observation(ID, Entity, Revision, Kind, Step),

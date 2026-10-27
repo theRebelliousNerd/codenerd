@@ -233,7 +233,7 @@ func TestCriticUplift_ItsNewCodeGetsTheCoverageRound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProcessWithIntent: %v", err)
 	}
-	if !strings.Contains(coveragePrompt, "main.go:7-9") {
+	if !coverageBlockWithin(coveragePrompt, "main.go", 7, 9) {
 		t.Fatalf("the coverage round was not handed the uplift's Half (main.go:7-9); prompt:\n%s", coveragePrompt)
 	}
 	if len(result.UncoveredBlocks) != 0 || result.TestCheck.Verdict() != VerifyPassed {

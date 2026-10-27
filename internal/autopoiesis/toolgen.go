@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"codenerd/internal/atomicfile"
 	"codenerd/internal/logging"
 )
 
@@ -73,28 +74,21 @@ func (tg *ToolGenerator) WriteTool(tool *GeneratedTool) error {
 	}
 
 	// Write test code
-	testPath := strings.TrimSuffix(tool.FilePath, ".go") + "_test.go"
+	testPath := toolTestPath(tool.FilePath)
 	if err := writeFileAtomic(testPath, []byte(tool.TestCode), 0644); err != nil {
-		// Non-fatal
 		tool.Errors = append(tool.Errors, fmt.Sprintf("failed to write test code: %v", err))
+		return fmt.Errorf("failed to write test code: %w", err)
 	}
 
 	return nil
 }
 
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, perm); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		_ = os.Remove(path)
-		if retryErr := os.Rename(tmpPath, path); retryErr != nil {
-			_ = os.Remove(tmpPath)
-			return retryErr
-		}
-	}
-	return nil
+	return atomicfile.WriteFile(path, data, perm)
+}
+
+func toolTestPath(toolPath string) string {
+	return strings.TrimSuffix(toolPath, ".go") + "_test.go"
 }
 
 // RegisterTool adds the tool to the registry (in-memory for hot reload)

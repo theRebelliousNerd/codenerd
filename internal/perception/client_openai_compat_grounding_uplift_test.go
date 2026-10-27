@@ -111,25 +111,41 @@ func TestGroundedWebSearch_RetryAbsorbsPoisonedTransientBody(t *testing.T) {
 	}
 }
 
-// "none" is rejected by Muse Spark, so the override must be dropped from the
-// wire payload rather than forwarded — parity with newResponsesRequest.
-func TestGroundedWebSearch_NoneEffortOmitsReasoning(t *testing.T) {
-	var sawNil = false
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req metaResponsesRequest
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		sawNil = req.Reasoning == nil
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(groundedOKBody))
-	}))
-	defer srv.Close()
-
-	c := newTestCompatClient(t, ProviderMeta, srv.URL)
-	c.reasoningEffortOverride = "none"
-	if _, err := c.GroundedWebSearch(context.Background(), "q"); err != nil {
-		t.Fatalf("GroundedWebSearch: %v", err)
+// A grounded search is sent the slot's configured effort like every other
+// request, and a client configured with none sends none: no effort is
+// invented for it (it used to default to xhigh).
+func TestGroundedWebSearch_SendsTheConfiguredEffortOnly(t *testing.T) {
+	tests := []struct {
+		name   string
+		effort string
+		want   string // "" means the reasoning block is omitted
+	}{
+		{name: "configured effort", effort: "low", want: "low"},
+		{name: "no effort configured", effort: "", want: ""},
 	}
-	if !sawNil {
-		t.Error("reasoning block was sent with effort \"none\", want it omitted")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got *metaReasoningConfig
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req metaResponsesRequest
+				_ = json.NewDecoder(r.Body).Decode(&req)
+				got = req.Reasoning
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(groundedOKBody))
+			}))
+			defer srv.Close()
+
+			c := newTestCompatClient(t, ProviderMeta, srv.URL)
+			c.reasoningEffort = tt.effort
+			if _, err := c.GroundedWebSearch(context.Background(), "q"); err != nil {
+				t.Fatalf("GroundedWebSearch: %v", err)
+			}
+			switch {
+			case tt.want == "" && got != nil:
+				t.Errorf("reasoning = %+v, want it omitted", got)
+			case tt.want != "" && (got == nil || got.Effort != tt.want):
+				t.Errorf("reasoning = %+v, want effort %q", got, tt.want)
+			}
+		})
 	}
 }

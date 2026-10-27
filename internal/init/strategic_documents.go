@@ -5,14 +5,19 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	"codenerd/internal/atomicfile"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/perception"
 	"codenerd/internal/store"
 	"codenerd/internal/types"
 )
@@ -47,15 +52,19 @@ const (
 // DocIngestionState tracks the entire ingestion campaign state.
 // Persisted to .nerd/doc_ingestion_state.json for resumption.
 type DocIngestionState struct {
-	CampaignID      string                         `json:"campaign_id"`
-	StartedAt       time.Time                      `json:"started_at"`
-	LastUpdated     time.Time                      `json:"last_updated"`
-	Phase           string                         `json:"phase"` // "discovery", "analysis", "extraction", "synthesis"
-	Documents       map[string]*DocProcessingEntry `json:"documents"`
-	TotalDiscovered int                            `json:"total_discovered"`
-	TotalProcessed  int                            `json:"total_processed"`
-	TotalStored     int                            `json:"total_stored"`
-	SynthesisReady  bool                           `json:"synthesis_ready"`
+	CampaignID  string                         `json:"campaign_id"`
+	StartedAt   time.Time                      `json:"started_at"`
+	LastUpdated time.Time                      `json:"last_updated"`
+	Phase       string                         `json:"phase"` // "discovery", "analysis", "extraction", "synthesis"
+	Documents   map[string]*DocProcessingEntry `json:"documents"`
+	// TotalDiscovered, TotalProcessed, TotalStored and AtomsStored describe
+	// the latest run: documents offered, documents orientation admitted,
+	// documents extracted, and the atoms those extractions stored.
+	TotalDiscovered int  `json:"total_discovered"`
+	TotalProcessed  int  `json:"total_processed"`
+	TotalStored     int  `json:"total_stored"`
+	AtomsStored     int  `json:"atoms_stored"`
+	SynthesisReady  bool `json:"synthesis_ready"`
 }
 
 // DocProcessingEntry tracks individual document processing state.
@@ -87,6 +96,11 @@ func (i *Initializer) assertDocFact(kernel core.Kernel, status DocProcessingStat
 	}
 }
 
+// extracted reports whether a document's atoms are in the knowledge base.
+func extracted(status DocProcessingStatus) bool {
+	return status == DocStatusStored || status == DocStatusSynthesized
+}
+
 // computeDocHash generates a SHA256 hash for document content deduplication.
 func computeDocHash(content string) string {
 	h := sha256.New()
@@ -94,21 +108,29 @@ func computeDocHash(content string) string {
 	return hex.EncodeToString(h.Sum(nil))[:16] // First 16 chars sufficient
 }
 
-// loadIngestionState loads previous ingestion state for resumption.
-func (i *Initializer) loadIngestionState() *DocIngestionState {
+// loadIngestionState loads previous ingestion state for resumption. A missing
+// file is a first run; an unreadable one starts over and says so.
+func (i *Initializer) loadIngestionState() (*DocIngestionState, error) {
 	statePath := filepath.Join(i.config.Workspace, ".nerd", "doc_ingestion_state.json")
 	data, err := os.ReadFile(statePath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("read document ingestion state: %w", err)
 	}
 	var state DocIngestionState
 	if err := json.Unmarshal(data, &state); err != nil {
-		return nil
+		return nil, fmt.Errorf("document ingestion state is unreadable; every document is extracted again: %w", err)
 	}
-	return &state
+	if state.Documents == nil {
+		state.Documents = make(map[string]*DocProcessingEntry)
+	}
+	return &state, nil
 }
 
-// saveIngestionState persists ingestion state for resumption.
+// saveIngestionState persists ingestion state for resumption, atomically: a
+// torn write would make the next refresh extract every document again.
 func (i *Initializer) saveIngestionState(state *DocIngestionState) error {
 	state.LastUpdated = time.Now()
 	statePath := filepath.Join(i.config.Workspace, ".nerd", "doc_ingestion_state.json")
@@ -116,11 +138,12 @@ func (i *Initializer) saveIngestionState(state *DocIngestionState) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(statePath, data, 0644)
+	return atomicfile.WriteFile(statePath, data, 0o644)
 }
 
 // ProcessDocumentsWithTracking processes documents with Mangle fact tracking
-// and incremental knowledge persistence. Uses campaign patterns:
+// and incremental knowledge persistence. An unchanged, already extracted
+// document is skipped unless force is set. Uses campaign patterns:
 // 1. Assert doc_discovered for each found doc
 // 2. Assert doc_analyzing when LLM analyzes
 // 3. Store atoms incrementally and assert doc_stored
@@ -130,9 +153,13 @@ func (i *Initializer) ProcessDocumentsWithTracking(
 	docs []DocumentInfo,
 	db *store.LocalStore,
 	kernel core.Kernel,
+	force bool,
 ) (*DocIngestionState, error) {
 	// Load or create ingestion state
-	state := i.loadIngestionState()
+	state, loadErr := i.loadIngestionState()
+	if loadErr != nil {
+		logging.Get(logging.CategoryBoot).Warn("%v", loadErr)
+	}
 	if state == nil {
 		state = &DocIngestionState{
 			CampaignID: fmt.Sprintf("doc_init_%d", time.Now().Unix()),
@@ -142,13 +169,17 @@ func (i *Initializer) ProcessDocumentsWithTracking(
 		}
 	}
 
+	// The counters describe this run, not every run the state file has seen.
+	state.TotalDiscovered, state.TotalProcessed, state.TotalStored, state.AtomsStored = len(docs), 0, 0, 0
+
 	// Phase 1: Discovery - assert all discovered docs
 	for _, doc := range docs {
 		hash := computeDocHash(doc.Content)
 
-		// Check if already processed (for resumption)
-		if existing, ok := state.Documents[doc.Path]; ok {
-			if existing.ContentHash == hash && existing.Status == DocStatusStored {
+		// An unchanged document already extracted (and perhaps synthesized)
+		// is not extracted again, unless the caller forces a full pass.
+		if existing, ok := state.Documents[doc.Path]; ok && !force {
+			if existing.ContentHash == hash && extracted(existing.Status) {
 				logging.Get(logging.CategoryBoot).Debug("Skipping already processed: %s", doc.Path)
 				continue
 			}
@@ -164,10 +195,11 @@ func (i *Initializer) ProcessDocumentsWithTracking(
 			Status:      DocStatusDiscovered,
 			Priority:    doc.Priority,
 		}
-		state.TotalDiscovered++
 	}
 	state.Phase = "analysis"
-	i.saveIngestionState(state)
+	if err := i.saveIngestionState(state); err != nil {
+		return state, fmt.Errorf("save document ingestion state: %w", err)
+	}
 
 	// The orientation fixpoint owns admission; extraction cannot re-elect docs.
 	if i.orientation == nil {
@@ -192,6 +224,12 @@ func (i *Initializer) ProcessDocumentsWithTracking(
 		if entry, ok := state.Documents[doc.Path]; ok {
 			entry.IsRelevant = true
 			entry.Reasoning = doc.Reasoning
+			// An unchanged document already extracted keeps its status: this
+			// used to reset every admitted document to analyzing, so the
+			// extraction loop below re-extracted all of them on every refresh.
+			if extracted(entry.Status) && entry.ContentHash == computeDocHash(doc.Content) && !force {
+				continue
+			}
 			entry.Status = DocStatusAnalyzing
 			i.assertDocFact(kernel, DocStatusAnalyzing, doc.Path, entry.ContentHash)
 		}
@@ -202,14 +240,32 @@ func (i *Initializer) ProcessDocumentsWithTracking(
 		relevantPaths[doc.Path] = true
 	}
 	for path, entry := range state.Documents {
-		if !relevantPaths[path] && entry.Status == DocStatusDiscovered {
+		if relevantPaths[path] {
+			continue
+		}
+		switch entry.Status {
+		case DocStatusDiscovered:
 			entry.Status = DocStatusSkipped
 			entry.Reasoning = "Not admitted by orientation policy"
+			i.assertDocFact(kernel, DocStatusSkipped, path, entry.ContentHash)
+		case DocStatusStored, DocStatusSynthesized:
+			// A document orientation no longer admits (deleted, demoted,
+			// superseded) takes its extracted atoms with it.
+			if db != nil {
+				if _, err := db.DeleteKnowledgeAtomsByPrefix("doc/" + path + "/"); err != nil {
+					return state, fmt.Errorf("retire atoms of %s: %w", path, err)
+				}
+			}
+			entry.Status = DocStatusSkipped
+			entry.AtomsStored = 0
+			entry.Reasoning = "No longer admitted by orientation policy; its atoms were retired"
 			i.assertDocFact(kernel, DocStatusSkipped, path, entry.ContentHash)
 		}
 	}
 	state.Phase = "extraction"
-	i.saveIngestionState(state)
+	if err := i.saveIngestionState(state); err != nil {
+		return state, fmt.Errorf("save document ingestion state: %w", err)
+	}
 
 	// Phase 3: Extraction - process each relevant doc and store atoms incrementally
 	for _, doc := range relevantDocs {
@@ -220,7 +276,7 @@ func (i *Initializer) ProcessDocumentsWithTracking(
 		}
 
 		entry := state.Documents[doc.Path]
-		if entry.Status == DocStatusStored {
+		if extracted(entry.Status) {
 			continue // Already processed
 		}
 
@@ -242,53 +298,59 @@ func (i *Initializer) ProcessDocumentsWithTracking(
 		entry.AtomsStored = atomCount
 		entry.ProcessedAt = &now
 		state.TotalStored++
+		state.AtomsStored += atomCount
 		i.assertDocFact(kernel, DocStatusStored, doc.Path, entry.ContentHash)
 
 		// Save state after each doc for resumption
-		i.saveIngestionState(state)
+		if err := i.saveIngestionState(state); err != nil {
+			return state, fmt.Errorf("save document ingestion state: %w", err)
+		}
 		logging.Get(logging.CategoryBoot).Debug("Stored %d atoms from %s", atomCount, doc.Path)
 	}
 
 	state.TotalProcessed = len(relevantDocs)
 	state.SynthesisReady = true
 	state.Phase = "synthesis"
-	i.saveIngestionState(state)
-
+	if err := i.saveIngestionState(state); err != nil {
+		return state, fmt.Errorf("save document ingestion state: %w", err)
+	}
 	return state, nil
 }
 
-// extractAndStoreDocKnowledge uses LLM to extract knowledge atoms from a document
-// and stores them incrementally to the database.
+// extractAndStoreDocKnowledge transduces one document into knowledge atoms on
+// the main route and stores them under doc/<path>/. Per-chunk extraction is
+// bulk curation, one request per chunk of every admitted document, so it runs
+// on the main client; the synthesis that turns all atoms into strategic
+// knowledge is planner work (SynthesizeFromStoredAtoms). Every document is
+// paged in text chunks, as orientation pages them; a provider file upload or
+// context cache would mutate state on a client the whole session shares.
+// The document's atoms from an earlier extraction are retired first, so a
+// changed document does not keep the claims of the text it replaced.
 func (i *Initializer) extractAndStoreDocKnowledge(
 	ctx context.Context,
 	doc DocumentInfo,
 	db *store.LocalStore,
 ) (int, error) {
-	if i.config.LLMClient == nil || db == nil {
+	if i.route(slotMain).client == nil || db == nil {
 		return 0, fmt.Errorf("LLM client and database required")
 	}
-
-	// For large docs or PDFs, use Files API + Context Caching if available
-	ext := strings.ToLower(filepath.Ext(doc.Path))
-	if ext == ".pdf" || doc.Size > 100*1024 { // >100KB
-		if fileProvider, ok := i.config.LLMClient.(types.FileProvider); ok {
-			// Check if we also support caching
-			if cacheProvider, ok := i.config.LLMClient.(types.CacheProvider); ok {
-				return i.extractFromLargeDoc(ctx, doc, db, fileProvider, cacheProvider)
-			}
-		}
-		// Fallback to chunking if provider doesn't support files (though PDF chunking might fail if raw content is binary)
-		if ext == ".pdf" {
-			logging.Get(logging.CategoryBoot).Warn("Skipping PDF %s: Files API not supported by client", doc.Path)
-			return 0, nil
-		}
+	if !utf8.ValidString(doc.Content) {
+		return 0, fmt.Errorf("%s is not UTF-8 text", doc.Path)
+	}
+	if _, err := db.DeleteKnowledgeAtomsByPrefix("doc/" + doc.Path + "/"); err != nil {
+		return 0, fmt.Errorf("retire earlier atoms of %s: %w", doc.Path, err)
+	}
+	if _, err := db.DeleteKnowledgeAtomsByConcept("doc/" + doc.Path); err != nil {
+		return 0, fmt.Errorf("retire earlier atoms of %s: %w", doc.Path, err)
 	}
 
-	content := doc.Content
-	chunks := chunkDocument(content, 8000) // ~2k tokens per chunk
-
+	chunks := chunkDocument(doc.Content, 8000) // ~2k tokens per chunk
 	atomCount := 0
+	var failures []error
 	for chunkIdx, chunk := range chunks {
+		if err := ctx.Err(); err != nil {
+			return atomCount, err
+		}
 		prompt := fmt.Sprintf(`Extract key knowledge atoms from this documentation chunk.
 
 Document: %s (chunk %d/%d)
@@ -310,148 +372,53 @@ Categories to use:
 - "constraint/..." for limitations or invariants
 - "integration/..." for how components connect
 
-Be specific and extract only genuinely useful insights. Skip boilerplate.
+Every atom must state something this chunk says. Be specific and extract only genuinely useful insights. Skip boilerplate. An empty array is a valid answer.
 `, doc.Path, chunkIdx+1, len(chunks), doc.Title, chunk)
 
-		// Use grounded completion if available
-		var response string
-		var err error
-		if i.grounding != nil && i.grounding.IsGroundingAvailable() {
-			response, err = i.withJITPrompt(ctx, "kb_agent", prompt, nil, func(ctx context.Context, p string) (string, error) {
-				resp, _, err := i.grounding.CompleteWithGrounding(ctx, p)
-				return resp, err
+		response, err := i.withJITPrompt(ctx, initCall{slot: slotMain, phase: "kb_agent", task: prompt},
+			func(ctx context.Context, client perception.LLMClient, p string) (string, error) {
+				return client.Complete(ctx, p)
 			})
-			// Capture grounding sources
-			sources := i.grounding.CaptureGroundingSources()
-			if len(sources) > 0 {
-				i.mu.Lock()
-				i.groundingSources = append(i.groundingSources, sources...)
-				i.mu.Unlock()
-			}
-		} else {
-			response, err = i.withJITPrompt(ctx, "kb_agent", prompt, nil, func(ctx context.Context, p string) (string, error) {
-				return i.config.LLMClient.Complete(ctx, p)
-			})
-		}
 		if err != nil {
-			logging.Get(logging.CategoryBoot).Debug("LLM extraction failed for chunk %d: %v", chunkIdx, err)
+			failures = append(failures, fmt.Errorf("chunk %d/%d: %w", chunkIdx+1, len(chunks), err))
 			continue
 		}
 
-		// Parse atoms from response
-		type ExtractedAtom struct {
+		var atoms []struct {
 			Concept    string  `json:"concept"`
 			Content    string  `json:"content"`
 			Confidence float64 `json:"confidence"`
 		}
-		var atoms []ExtractedAtom
-
-		jsonStr := extractJSON(response)
-		if err := json.Unmarshal([]byte(jsonStr), &atoms); err != nil {
-			// Fallback: store the whole chunk as a single atom (with embedding for semantic search)
-			if err := db.StoreKnowledgeAtomWithEmbedding(
-				ctx,
-				fmt.Sprintf("doc/%s", doc.Path),
-				chunk,
-				0.7,
-			); err == nil {
-				atomCount++
-			}
+		if err := json.Unmarshal([]byte(extractJSON(response)), &atoms); err != nil {
+			// A reply that is not the requested array is a failed extraction,
+			// never knowledge: storing the raw chunk in its place filed the
+			// document's own text as an "extracted" atom.
+			failures = append(failures, fmt.Errorf("chunk %d/%d: reply is not a JSON array of atoms: %w", chunkIdx+1, len(chunks), err))
 			continue
 		}
-
-		// Store each extracted atom (with embedding for semantic search)
 		for _, atom := range atoms {
-			concept := fmt.Sprintf("doc/%s/%s", doc.Path, atom.Concept)
-			if err := db.StoreKnowledgeAtomWithEmbedding(ctx, concept, atom.Content, atom.Confidence); err == nil {
-				atomCount++
+			concept := strings.Trim(strings.TrimSpace(atom.Concept), "/")
+			content := strings.TrimSpace(atom.Content)
+			if concept == "" || content == "" {
+				continue
 			}
-		}
-	}
-
-	return atomCount, nil
-}
-
-// extractFromLargeDoc handles large files by uploading to Files API and using Context Caching.
-func (i *Initializer) extractFromLargeDoc(
-	ctx context.Context,
-	doc DocumentInfo,
-	db *store.LocalStore,
-	fileProvider types.FileProvider,
-	cacheProvider types.CacheProvider,
-) (int, error) {
-	// 1. Upload File
-	logging.Get(logging.CategoryBoot).Debug("Uploading large doc %s to Files API...", doc.Path)
-	fileURI, err := fileProvider.UploadFile(ctx, doc.AbsPath, "")
-	if err != nil {
-		return 0, fmt.Errorf("upload failed: %w", err)
-	}
-	defer func() {
-		// Cleanup file (best effort)
-		_ = fileProvider.DeleteFile(ctx, fileURI)
-	}()
-
-	// 2. Create Context Cache
-	// Cache just this file. TTL 5 mins is enough for extraction.
-	logging.Get(logging.CategoryBoot).Debug("Creating context cache for %s...", doc.Path)
-	cacheName, err := cacheProvider.CreateCachedContent(ctx, []string{fileURI}, 300)
-	if err != nil {
-		return 0, fmt.Errorf("create cache failed: %w", err)
-	}
-	defer func() {
-		_ = cacheProvider.DeleteCachedContent(ctx, cacheName)
-	}()
-
-	// 3. Set Client to use Cache
-	// CacheProvider now includes SetCachedContent
-	cacheProvider.SetCachedContent(cacheName)
-	defer cacheProvider.SetCachedContent("") // Clear after use
-
-	// 4. Extract Knowledge
-	// With the whole document in context, we can ask for specific categories in one go.
-	// Or maybe two passes: High-level and Details.
-
-	prompt := fmt.Sprintf(`Analyze the document in the context cache.
-Title: %s
-
-Extract key strategic knowledge atoms.
-Return a JSON array of atoms:
-[
-  {"concept": "category/specific_topic", "content": "key insight", "confidence": 0.0-1.0}
-]
-
-Categories: architecture, philosophy, pattern, capability, constraint, integration.
-Focus on high-level architectural decisions, core philosophy, and system boundaries.
-`, doc.Title)
-
-	response, err := i.withJITPrompt(ctx, "kb_agent", prompt, nil, func(ctx context.Context, p string) (string, error) {
-		return i.config.LLMClient.Complete(ctx, p)
-	})
-	if err != nil {
-		return 0, fmt.Errorf("extraction query failed: %w", err)
-	}
-
-	// Parse and store
-	type ExtractedAtom struct {
-		Concept    string  `json:"concept"`
-		Content    string  `json:"content"`
-		Confidence float64 `json:"confidence"`
-	}
-	var atoms []ExtractedAtom
-
-	jsonStr := extractJSON(response)
-	if err := json.Unmarshal([]byte(jsonStr), &atoms); err != nil {
-		return 0, fmt.Errorf("failed to parse atoms: %w", err)
-	}
-
-	atomCount := 0
-	for _, atom := range atoms {
-		concept := fmt.Sprintf("doc/%s/%s", doc.Path, atom.Concept)
-		if err := db.StoreKnowledgeAtomWithEmbedding(ctx, concept, atom.Content, atom.Confidence); err == nil {
+			confidence := atom.Confidence
+			if confidence <= 0 || confidence > 1 {
+				confidence = 0.7
+			}
+			if err := db.StoreKnowledgeAtomWithEmbedding(ctx, fmt.Sprintf("doc/%s/%s", doc.Path, concept), content, confidence); err != nil {
+				failures = append(failures, fmt.Errorf("store atom %s: %w", concept, err))
+				continue
+			}
 			atomCount++
 		}
 	}
-
+	if len(failures) == len(chunks) && atomCount == 0 && len(chunks) > 0 {
+		return 0, fmt.Errorf("no chunk of %s was extracted: %w", doc.Path, errors.Join(failures...))
+	}
+	if len(failures) > 0 {
+		logging.Get(logging.CategoryBoot).Warn("Partial extraction of %s: %v", doc.Path, errors.Join(failures...))
+	}
 	return atomCount, nil
 }
 
@@ -510,13 +477,14 @@ func buildAtomsSummary(atoms []store.KnowledgeAtom) (string, map[string][]string
 }
 
 // SynthesizeFromStoredAtoms performs a second pass over stored knowledge atoms
-// to create the final strategic knowledge synthesis.
+// to create the final strategic knowledge synthesis. It runs on the planner
+// route: the strategic atoms it produces are read by every later session.
 func (i *Initializer) SynthesizeFromStoredAtoms(
 	ctx context.Context,
 	db *store.LocalStore,
 	state *DocIngestionState,
 ) (*StrategicKnowledge, error) {
-	if i.config.LLMClient == nil || db == nil {
+	if i.route(slotPlanner).client == nil || db == nil {
 		return nil, fmt.Errorf("LLM client and database required for synthesis")
 	}
 
@@ -571,32 +539,12 @@ Respond with JSON matching this structure:
 }
 `, state.TotalProcessed, len(atoms), keysFromMap(categories), atomsSummary)
 
-	// Use grounded completion if available
-	var response string
-	if i.grounding != nil && i.grounding.IsGroundingAvailable() {
-		var grErr error
-		response, grErr = i.withJITPrompt(ctx, "kb_complete", prompt, nil, func(ctx context.Context, p string) (string, error) {
-			resp, _, err := i.grounding.CompleteWithGrounding(ctx, p)
-			return resp, err
+	response, err := i.withJITPrompt(ctx, initCall{slot: slotPlanner, phase: "kb_complete", task: prompt},
+		func(ctx context.Context, client perception.LLMClient, p string) (string, error) {
+			return client.Complete(ctx, p)
 		})
-		if grErr != nil {
-			return nil, fmt.Errorf("synthesis LLM call failed: %w", grErr)
-		}
-		// Capture grounding sources
-		sources := i.grounding.CaptureGroundingSources()
-		if len(sources) > 0 {
-			i.mu.Lock()
-			i.groundingSources = append(i.groundingSources, sources...)
-			i.mu.Unlock()
-		}
-	} else {
-		var llmErr error
-		response, llmErr = i.withJITPrompt(ctx, "kb_complete", prompt, nil, func(ctx context.Context, p string) (string, error) {
-			return i.config.LLMClient.Complete(ctx, p)
-		})
-		if llmErr != nil {
-			return nil, fmt.Errorf("synthesis LLM call failed: %w", llmErr)
-		}
+	if err != nil {
+		return nil, fmt.Errorf("synthesis LLM call failed: %w", err)
 	}
 
 	// Parse synthesis result
@@ -614,7 +562,8 @@ Respond with JSON matching this structure:
 		}
 	}
 	state.Phase = "completed"
-	i.saveIngestionState(state)
-
+	if err := i.saveIngestionState(state); err != nil {
+		return knowledge, fmt.Errorf("save document ingestion state: %w", err)
+	}
 	return knowledge, nil
 }

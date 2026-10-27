@@ -20,6 +20,11 @@ func (c *core) completeWithToolResults(
 	history []types.Message,
 	tools []types.ToolDefinition,
 ) (*types.LLMToolResponse, error) {
+	if c.cfg.Router != nil {
+		return routeCall(ctx, c.cfg.Router, func(ctx context.Context, client types.LLMClient) (*types.LLMToolResponse, error) {
+			return client.(types.ToolResultsProvider).CompleteWithToolResults(ctx, systemPrompt, history, tools)
+		})
+	}
 	provider, ok := c.underlying.(types.ToolResultsProvider)
 	if !ok {
 		// Unreachable through Wrap, which only builds a tool-results shape over
@@ -44,6 +49,13 @@ func (c *core) completeWithToolResults(
 
 // completeWithSchema meters a structured-output completion.
 func (c *core) completeWithSchema(ctx context.Context, systemPrompt, userPrompt, jsonSchema string) (string, error) {
+	if c.cfg.Router != nil {
+		return routeCall(ctx, c.cfg.Router, func(ctx context.Context, client types.LLMClient) (string, error) {
+			return client.(interface {
+				CompleteWithSchema(context.Context, string, string, string) (string, error)
+			}).CompleteWithSchema(ctx, systemPrompt, userPrompt, jsonSchema)
+		})
+	}
 	provider, ok := c.underlying.(interface {
 		CompleteWithSchema(ctx context.Context, systemPrompt, userPrompt, jsonSchema string) (string, error)
 	})
@@ -73,6 +85,13 @@ func (c *core) completeWithStreamingAndThoughts(
 	systemPrompt, userPrompt string,
 	enableThinking bool,
 ) (<-chan string, <-chan string, <-chan error) {
+	if c.cfg.Router != nil {
+		return c.cfg.Router.Stream(ctx, func(ctx context.Context, client types.LLMClient) (<-chan string, <-chan string, <-chan error) {
+			return client.(interface {
+				CompleteWithStreamingAndThoughts(context.Context, string, string, bool) (<-chan string, <-chan string, <-chan error)
+			}).CompleteWithStreamingAndThoughts(ctx, systemPrompt, userPrompt, enableThinking)
+		})
+	}
 	provider, ok := c.underlying.(interface {
 		CompleteWithStreamingAndThoughts(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan string, <-chan error)
 	})

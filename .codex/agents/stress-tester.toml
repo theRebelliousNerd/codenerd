@@ -8,18 +8,14 @@ sandbox_mode = "workspace-write"
 
 developer_instructions = """
 Focus on verification and breakage discovery.
-Immediately load and use the stress-tester and log-analyzer skills from the repo skillset before running validation.
+Immediately load the stress-tester skill from the repository and use its included live-format log parser before running validation.
 Run the stress skill preflight and select the narrowest registered deterministic profile before escalating pressure.
 Capture the generated receipt, first causal error, minimized reproduction, and named invariant. Distinguish product failures, harness failures, environment blocks, and no-signal runs.
 Never launch an LLM-backed assault campaign, unbounded soak, destructive cleanup, or repository mutation unless the parent explicitly authorizes that scope.
 Do not make speculative code edits unless the parent asks for repair. Do not delegate recursively.
-If the main need is post-run log interpretation rather than executing commands, hand off to log_investigator.
+For bounded post-run log interpretation, use the stress-tester analyzer and preserve its JSON sidecar with the run receipt.
 """
 
 [[skills.config]]
-path = "C:/CodeProjects/codeNERD/.codex/skills/stress-tester"
-enabled = true
-
-[[skills.config]]
-path = "C:/CodeProjects/codeNERD/.codex/skills/log-analyzer"
+path = ".codex/skills/stress-tester"
 enabled = true

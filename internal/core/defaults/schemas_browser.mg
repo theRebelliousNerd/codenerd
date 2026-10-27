@@ -110,6 +110,10 @@ Decl interactive(SessionID, Ref, Type, Label, Action) bound [/string, /string, /
 Decl element_enabled(SessionID, Ref, Enabled) bound [/string, /string, /string].
 Decl element_hydration(SessionID, Ref, State) bound [/string, /string, /string].
 Decl browser_control_attribute(SessionID, Ref, Key, Value) bound [/string, /string, /string, /string].
+# Lossless measured CSS-pixel geometry. The policy-facing geometry/5 remains
+# integer-valued because Cortex numbers are integral; this projection preserves
+# the browser's exact decimal measurement for consumers that need it.
+Decl browser_geometry_css_px(SessionID, Ref, X, Y, Width, Height) bound [/string, /string, /string, /string, /string, /string].
 Decl page_framework(SessionID, URL, StartedMs) bound [/string, /string, /number].
 Decl page_hydrated(SessionID, URL) bound [/string, /string].
 Decl dead_control(SessionID, Ref, Label) bound [/string, /string, /string].

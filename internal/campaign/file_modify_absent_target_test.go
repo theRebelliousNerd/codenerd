@@ -123,7 +123,7 @@ func TestRunPhase_AModificationWithAnAbsentTargetLandsInTheExistingCode(t *testi
 		}},
 	}
 	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace: workspace, Kernel: kernel, LLMClient: &MockLLMClient{}, TaskExecutor: turns,
+		Workspace: workspace, Kernel: kernel, LLMClient: &MockLLMClient{}, PlanningLLMClient: &MockLLMClient{}, TaskExecutor: turns,
 		Executor: tactile.NewDirectExecutor(), VirtualStore: &core.VirtualStore{},
 		Campaign: testCampaignConfig(fastRetries(3)),
 	})

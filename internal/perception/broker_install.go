@@ -27,7 +27,11 @@ func InstallBroker(client LLMClient, cfg *ProviderConfig) (LLMClient, error) {
 	}
 
 	creds := brokerCredsFor(cfg)
-	wrapped, err := broker.Wrap(client, broker.Default().ConfigFor(creds))
+	brokerConfig := broker.Default().ConfigFor(creds)
+	if cfg != nil {
+		brokerConfig.CredentialAlias = cfg.CredentialAlias
+	}
+	wrapped, err := broker.Wrap(client, brokerConfig)
 	if err != nil {
 		// Fail closed. Wrap only rejects a nil client or a missing counter,
 		// both of which are wiring errors in this file rather than anything a
@@ -68,19 +72,16 @@ func brokerCredsFor(cfg *ProviderConfig) broker.ProviderCreds {
 
 	if creds.Provider == string(ProviderAnthropic) {
 		creds.APIKey = cfg.APIKey
+		if cfg.CredentialAlias != "" {
+			creds.HTTPClient = poolCounterHTTPClient(cfg.APIKey)
+		}
 		creds.BaseURL = cfg.BaseURL
+		if cfg.Anthropic != nil {
+			creds.WorkspaceID = cfg.Anthropic.WorkspaceID
+		}
 		if creds.BaseURL == "" {
 			creds.BaseURL = DefaultAnthropicConfig(cfg.APIKey).BaseURL
 		}
 	}
 	return creds
-}
-
-// InstallBrokerForProvider meters a client built outside the factory.
-//
-// One such path exists (a direct ZAI construction in internal/system), and the
-// wiring test forbids new ones from appearing without going through a metered
-// constructor.
-func InstallBrokerForProvider(client LLMClient, provider Provider, model, apiKey string) (LLMClient, error) {
-	return InstallBroker(client, &ProviderConfig{Provider: provider, Model: model, APIKey: apiKey})
 }

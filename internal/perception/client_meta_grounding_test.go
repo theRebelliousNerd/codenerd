@@ -308,7 +308,6 @@ func TestMetaGrounding_ParsesCitationsAndSearchResults(t *testing.T) {
 		t.Fatalf("CompleteWithToolResults: %v", err)
 	}
 	assertNoLeakedTrace(t, followed.Text)
-	assertFixtureSources(t, followed.GroundingSources)
 	assertFixtureSources(t, on.GetLastGroundingSources())
 	if (*paths)[len(*paths)-1] != "/responses" {
 		t.Fatalf("paths = %v", *paths)

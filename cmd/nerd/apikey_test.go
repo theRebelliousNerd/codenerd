@@ -27,7 +27,7 @@ func writeConfig(t *testing.T, body string) string {
 }
 
 func TestResolveAPIKey_FlagWinsOverEverything(t *testing.T) {
-	ws := writeConfig(t, `{"provider":"dashscope","dashscope_api_key":"from-config"}`)
+	ws := writeConfig(t, `{"provider":"dashscope","model":"qwen-test","dashscope_api_key":"from-config"}`)
 	t.Setenv("DASHSCOPE_API_KEY", "from-env")
 
 	if got := resolveAPIKey("from-flag", ws); got != "from-flag" {
@@ -36,7 +36,7 @@ func TestResolveAPIKey_FlagWinsOverEverything(t *testing.T) {
 }
 
 func TestResolveAPIKey_ConfigWinsOverEnv(t *testing.T) {
-	ws := writeConfig(t, `{"provider":"dashscope","dashscope_api_key":"from-config"}`)
+	ws := writeConfig(t, `{"provider":"dashscope","model":"qwen-test","dashscope_api_key":"from-config"}`)
 	t.Setenv("DASHSCOPE_API_KEY", "from-env")
 
 	if got := resolveAPIKey("", ws); got != "from-config" {
@@ -46,7 +46,7 @@ func TestResolveAPIKey_ConfigWinsOverEnv(t *testing.T) {
 
 // The env var consulted must belong to the CONFIGURED provider.
 func TestResolveAPIKey_UsesTheConfiguredProvidersEnvVar(t *testing.T) {
-	ws := writeConfig(t, `{"provider":"dashscope"}`)
+	ws := writeConfig(t, `{"provider":"dashscope","model":"qwen-test"}`)
 	t.Setenv("DASHSCOPE_API_KEY", "dashscope-env")
 	t.Setenv("ZAI_API_KEY", "stale-zai-key")
 
@@ -62,7 +62,7 @@ func TestResolveAPIKey_UsesTheConfiguredProvidersEnvVar(t *testing.T) {
 // No silent cross-provider substitution. Billing the wrong vendor and debugging
 // the wrong client both start here.
 func TestResolveAPIKey_NeverSubstitutesAnotherProvidersKey(t *testing.T) {
-	ws := writeConfig(t, `{"provider":"meta"}`)
+	ws := writeConfig(t, `{"provider":"meta","model":"muse-test"}`)
 	t.Setenv("ZAI_API_KEY", "zai-key")
 	t.Setenv("ANTHROPIC_API_KEY", "anthropic-key")
 	os.Unsetenv("META_API_KEY")
@@ -113,7 +113,7 @@ func TestResolveAPIKey_NamedProviderWithoutEnvVarGetsNothing(t *testing.T) {
 // sentinel so callers that gate on a non-empty key proceed, and the legacy
 // variable is never consulted.
 func TestResolveAPIKey_OllamaKeepsItsSentinel(t *testing.T) {
-	ws := writeConfig(t, `{"provider":"ollama"}`)
+	ws := writeConfig(t, `{"provider":"ollama","model":"local-test"}`)
 	t.Setenv("ZAI_API_KEY", "zai-key")
 
 	if got := resolveAPIKey("", ws); got != "ollama" {

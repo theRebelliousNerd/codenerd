@@ -153,6 +153,11 @@ func (sm *ShardManager) SpawnWithContext(ctx context.Context, typeName, task str
 	for {
 		select {
 		case <-ctx.Done():
+			// The synchronous caller has abandoned this result. Mark the spawn
+			// detached so a completion racing with cancellation cannot retain an
+			// unobserved result in the manager. detach handles both a still-
+			// running shard and one whose result was already recorded.
+			sm.detach(id)
 			return "", ctx.Err()
 		case <-ticker.C:
 			res, ok := sm.GetResult(id)
@@ -302,7 +307,7 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	}
 
 	if (config.Type == types.ShardTypePersistent || config.Type == types.ShardTypeUser) && sm.nerdDir != "" && sm.jitRegistrar != nil {
-		dbPath := filepath.Join(sm.nerdDir, "shards", fmt.Sprintf("%s_knowledge.db", strings.ToLower(typeName)))
+		dbPath := types.AgentKnowledgeDBPath(sm.nerdDir, typeName)
 		if _, statErr := os.Stat(dbPath); statErr == nil {
 			if regErr := sm.jitRegistrar(typeName, dbPath); regErr == nil {
 				sm.activeJITDBs[id] = typeName

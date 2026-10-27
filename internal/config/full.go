@@ -29,6 +29,12 @@ func FullJSON(raw []byte) ([]byte, error) {
 			return nil, err
 		}
 	}
+	// Reasoning efforts default per slot and, for the classifier, per the
+	// provider that classifies, and Anthropic's web-tool caps default only
+	// while their tool is on, so their values in force are resolved against
+	// the file rather than read from a static default.
+	cfg.withResolvedDefaults()
+	applySectionDefaults(reflect.ValueOf(cfg).Elem())
 	var buf bytes.Buffer
 	if err := writeFull(&buf, reflect.ValueOf(cfg), 0); err != nil {
 		return nil, err
@@ -137,4 +143,58 @@ func writeLeaf(buf *bytes.Buffer, v reflect.Value) error {
 	}
 	buf.Write(encoded)
 	return nil
+}
+
+// applySectionDefaults replaces every section that has a value-receiver
+// WithDefaults() with its defaulted copy, so the printout is the value in
+// force. Absent sections are defaulted from their zero value; a section with
+// no WithDefaults keeps what it has. Nested sections are handled the same way.
+func applySectionDefaults(v reflect.Value) {
+	if v.Kind() != reflect.Struct {
+		return
+	}
+	for i := 0; i < v.NumField(); i++ {
+		field := v.Field(i)
+		if !field.CanSet() {
+			continue
+		}
+		switch field.Kind() {
+		case reflect.Pointer:
+			if field.Type().Elem().Kind() != reflect.Struct {
+				continue
+			}
+			section := reflect.New(field.Type().Elem()).Elem()
+			if !field.IsNil() {
+				section.Set(field.Elem())
+			}
+			defaulted, ok := withDefaults(section)
+			if !ok {
+				if field.IsNil() {
+					continue
+				}
+				applySectionDefaults(field.Elem())
+				continue
+			}
+			applySectionDefaults(defaulted)
+			ptr := reflect.New(field.Type().Elem())
+			ptr.Elem().Set(defaulted)
+			field.Set(ptr)
+		case reflect.Struct:
+			if defaulted, ok := withDefaults(field); ok {
+				field.Set(defaulted)
+			}
+			applySectionDefaults(field)
+		}
+	}
+}
+
+// withDefaults calls a value-receiver WithDefaults() that returns its own type.
+func withDefaults(section reflect.Value) (reflect.Value, bool) {
+	m := section.MethodByName("WithDefaults")
+	if !m.IsValid() || m.Type().NumIn() != 0 || m.Type().NumOut() != 1 || m.Type().Out(0) != section.Type() {
+		return reflect.Value{}, false
+	}
+	out := reflect.New(section.Type()).Elem()
+	out.Set(m.Call(nil)[0])
+	return out, true
 }

@@ -199,6 +199,7 @@ func main() {
 	rt := &RuntimeTool{
 		Name:       "env_tool",
 		BinaryPath: outputPath,
+		Workspace:  tmpDir,
 	}
 
 	t.Setenv("CODE_NERD_SECRET", "should_not_leak")

@@ -17,24 +17,22 @@ import (
 // followed by a version. "gemini" alone is a provider; "gemini-3-pro" is a
 // model, and a model is the user's to choose.
 var modelLiteral = regexp.MustCompile(
-	`^(?:[a-z0-9_-]+/)?(?:gemini|gpt|claude|grok|glm|qwen|kimi|moonshot|llama|muse|deepseek|mistral|codestral|o[134]|nomic|embeddinggemma|text-embedding)[-/.:a-zA-Z]*[0-9][-.:a-zA-Z0-9]*$`)
+	`^(?:[a-z0-9_-]+/)?(?:gemini|gemma|gpt|claude|grok|glm|qwen|kimi|moonshot|llama|muse|deepseek|mistral|codestral|o[134]|nomic|embeddinggemma|text-embedding)[-/.:a-zA-Z]*[0-9][-.:a-zA-Z0-9]*$`)
 
 // modelLiteralAllowed names the production files that may spell a model, and
 // why. Each is a table a human or a vendor defines, never a value the code
 // falls back to when the configuration is silent.
 var modelLiteralAllowed = map[string]string{
-	"cmd/nerd/chat/config_wizard.go":      "the setup wizard's menu: the user picks one and it is written to config.json",
-	"internal/usage/pricing.go":           "the price table, keyed by the model a receipt names",
-	"internal/perception/client_types.go": "the OpenRouter catalogue the wizard offers",
+	"cmd/nerd/chat/config_wizard.go": "the setup wizard's menu: the user picks one and it is written to config.json",
+	"internal/usage/pricing.go":      "the price table, keyed by the model a receipt names",
+	"internal/config/anthropic.go":   "Anthropic model-capability detection on the configured model name (effort, adaptive thinking, structured output, server-tool versions); it never picks or substitutes a model",
 }
 
 // modelLiteralExact allows one literal in one file, for a string that has the
 // shape of a model name and is not used as one.
 var modelLiteralExact = map[string]string{
-	"internal/perception/client_gemini.go|gemini-3":              "a family prefix matched against the configured model to detect a capability; never sent as a model",
-	"internal/embedding/ollama.go|embeddinggemma:300m":           "tag alias: what is pulled when the user configured the bare name embeddinggemma; an unconfigured model is refused",
-	"internal/config/user_config.go|gemini-3.1-flash-image":      "alias table: the API id for the friendly name nano-banana-2, which the user wrote in config.json",
-	"internal/config/user_config.go|gemini-3.1-flash-lite-image": "alias table: the API id for the friendly name nano-banana-2-lite, which the user wrote in config.json",
+	"internal/perception/client_gemini.go|gemini-3":    "a family prefix matched against the configured model to detect a capability; never sent as a model",
+	"internal/embedding/ollama.go|embeddinggemma:300m": "tag alias: what is pulled when the user configured the bare name embeddinggemma; an unconfigured model is refused",
 }
 
 // No model is hardcoded. Steve, 2026-09-21: "we need to make damn sure that we

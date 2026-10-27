@@ -108,6 +108,36 @@ func TestValidateBrowserQueryRejectsGeneralKernelAndRules(t *testing.T) {
 	}
 }
 
+func TestBrowserMangleFiniteSurfaceIncludesReleasedTelemetryAndAttention(t *testing.T) {
+	cases := map[string]int{
+		"net_http_error(S, R, URL, Status, Type, T)":   5,
+		"net_loading_failed(S, R, Error, Canceled, T)": 4,
+		"page_load_failed(S, URL, Error, T)":           3,
+		"ws_event(S, ID, URL, Event, Detail, T)":       5,
+		"browser_log(S, Source, Level, Text, URL, T)":  5,
+		"js_dialog(S, Type, Message, Accepted, By, T)": 5,
+		"caused_by(S, Message, Request)":               -1,
+		"foreign_control(S, Ref, Label)":               -1,
+		"dialog_answer(S, Answer)":                     -1,
+		"unattended_navigation(S, URL, T)":             2,
+	}
+	for query, timestampIndex := range cases {
+		predicate, err := validateBrowserQuery(query)
+		if err != nil {
+			t.Errorf("released session query %q rejected: %v", query, err)
+			continue
+		}
+		if got := browserPredicateSpecs[predicate].timestampIndex; got != timestampIndex {
+			t.Errorf("%s timestamp index = %d, want %d", predicate, got, timestampIndex)
+		}
+	}
+	for _, internal := range []string{"caused_by_candidate(S, E, Message, R, T)", "browser_last_attended(S, T)", "action_candidate(S, Ref, Label, Action, Priority, Why)"} {
+		if _, err := validateBrowserQuery(internal); err == nil {
+			t.Errorf("internal or authority-bearing predicate %q leaked into finite read surface", internal)
+		}
+	}
+}
+
 func TestQueryScopedBrowserFactsReportsScanTruncation(t *testing.T) {
 	facts := make([]types.Fact, maxBrowserKernelScan+1)
 	for index := range facts {

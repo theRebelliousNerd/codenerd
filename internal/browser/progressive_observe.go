@@ -10,12 +10,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	browsersecurity "codenerd/internal/browser/security"
 	"codenerd/internal/mangle"
+	"codenerd/internal/types"
 )
 
 const (
@@ -45,6 +48,16 @@ type ProgressiveObservation struct {
 	Data            map[string]any `json:"data"`
 	EvidenceHandles []string       `json:"evidence_handles"`
 	Truncated       bool           `json:"truncated"`
+}
+
+// ActionCandidate is a policy conclusion copied from the live Cortex. The
+// browser manager preserves the Mangle-selected priority and reason.
+type ActionCandidate struct {
+	Ref      string `json:"ref"`
+	Label    string `json:"label"`
+	Action   string `json:"action"`
+	Priority int64  `json:"priority"`
+	Reason   string `json:"reason"`
 }
 
 type PageState struct {
@@ -128,27 +141,84 @@ type rawProgressiveSnapshot struct {
 }
 
 type rawElement struct {
-	Selector     string             `json:"selector"`
-	AltSelectors []string           `json:"alt_selectors"`
-	TagName      string             `json:"tag_name"`
-	ID           string             `json:"id"`
-	Name         string             `json:"name"`
-	Classes      []string           `json:"classes"`
-	TextContent  string             `json:"text_content"`
-	AriaLabel    string             `json:"aria_label"`
-	DataTestID   string             `json:"data_testid"`
-	Role         string             `json:"role"`
-	InputType    string             `json:"input_type"`
-	RowKey       string             `json:"row_key"`
-	RowIndex     string             `json:"row_index"`
-	BoundingBox  map[string]float64 `json:"bounding_box"`
-	Type         string             `json:"type"`
-	Action       string             `json:"action"`
-	Label        string             `json:"label"`
-	Href         string             `json:"href"`
-	Disabled     bool               `json:"disabled"`
-	Checked      bool               `json:"checked"`
-	External     bool               `json:"external"`
+	Selector      string             `json:"selector"`
+	AltSelectors  []string           `json:"alt_selectors"`
+	TagName       string             `json:"tag_name"`
+	ID            string             `json:"id"`
+	Name          string             `json:"name"`
+	Classes       []string           `json:"classes"`
+	TextContent   string             `json:"text_content"`
+	AriaLabel     string             `json:"aria_label"`
+	DataTestID    string             `json:"data_testid"`
+	Role          string             `json:"role"`
+	InputType     string             `json:"input_type"`
+	ControlType   string             `json:"control_type"`
+	ComputedStyle map[string]string  `json:"computed_style"`
+	RowKey        string             `json:"row_key"`
+	RowIndex      string             `json:"row_index"`
+	BoundingBox   map[string]float64 `json:"bounding_box"`
+	Type          string             `json:"type"`
+	Action        string             `json:"action"`
+	Label         string             `json:"label"`
+	Href          string             `json:"href"`
+	Disabled      bool               `json:"disabled"`
+	Checked       bool               `json:"checked"`
+	External      bool               `json:"external"`
+}
+
+// progressiveControlSnapshot tracks the bounded interactive facts last
+// asserted by Observe. When the sink cannot retract, stale remains true for
+// the rest of the navigation epoch and candidate rows are withheld.
+type progressiveControlSnapshot struct {
+	facts       []mangle.Fact
+	generation  int
+	initialized bool
+	stale       bool
+}
+
+func (m *SessionManager) replaceProgressiveControlSnapshot(sessionID string, generation int, registry *ElementRegistry, facts []mangle.Fact) (bool, error) {
+	m.progressiveMu.Lock()
+	defer m.progressiveMu.Unlock()
+	if registry == nil || registry.Generation() != generation {
+		return false, fmt.Errorf("page navigated while replacing observation facts; observe session %s again", sessionID)
+	}
+	previous, hadPrevious := m.progressiveSnapshots[sessionID]
+	retractor := m.factRetractor()
+	stale := hadPrevious && previous.generation == generation && previous.stale
+	retractedPrevious := false
+	if hadPrevious && previous.initialized {
+		if retractor != nil && !previous.stale {
+			if err := retractor.RetractFacts(previous.facts); err != nil {
+				return false, fmt.Errorf("retract prior browser observation facts: %w", err)
+			}
+			retractedPrevious = true
+		} else if previous.generation == generation {
+			stale = true
+		}
+	}
+	if registry.Generation() != generation {
+		if retractedPrevious {
+			delete(m.progressiveSnapshots, sessionID)
+		}
+		return stale, fmt.Errorf("page navigated while replacing observation facts; observe session %s again", sessionID)
+	}
+	if len(facts) > 0 {
+		if err := m.addFacts(facts); err != nil {
+			if retractor != nil && !stale {
+				// The preceding exact snapshot was already collected. Preserve an
+				// empty current snapshot so the next call does not retract it twice.
+				m.progressiveSnapshots[sessionID] = progressiveControlSnapshot{generation: generation, initialized: true}
+			} else if hadPrevious {
+				previous.stale = true
+				m.progressiveSnapshots[sessionID] = previous
+			}
+			return stale, err
+		}
+	}
+	m.progressiveSnapshots[sessionID] = progressiveControlSnapshot{
+		facts: append([]mangle.Fact(nil), facts...), generation: generation, initialized: true, stale: stale,
+	}
+	return stale, nil
 }
 
 type rawGrid struct {
@@ -284,7 +354,7 @@ func (m *SessionManager) Observe(ctx context.Context, sessionID string, opts Obs
 	if materializeErr != nil {
 		return ProgressiveObservation{}, materializeErr
 	}
-	interactive, interactiveFacts, materializeErr := m.materializeInteractive(sessionID, registry, generation, snapshot.Interactive, view == "full")
+	interactive, interactiveFacts, policyFacts, materializeErr := m.materializeInteractive(sessionID, registry, generation, snapshot.Interactive, view == "full")
 	if materializeErr != nil {
 		return ProgressiveObservation{}, materializeErr
 	}
@@ -299,7 +369,7 @@ func (m *SessionManager) Observe(ctx context.Context, sessionID string, opts Obs
 	if registry.Generation() != generation {
 		return ProgressiveObservation{}, fmt.Errorf("page navigated while materializing observation; observe session %s again", sessionID)
 	}
-	facts := append(navFacts, interactiveFacts...)
+	facts := append([]mangle.Fact(nil), navFacts...)
 	now := time.Now()
 	if state.URL != "" {
 		facts = append(facts, mangle.Fact{Predicate: "current_url", Args: []any{sessionID, state.URL}, Timestamp: now})
@@ -320,6 +390,57 @@ func (m *SessionManager) Observe(ctx context.Context, sessionID string, opts Obs
 		if factErr := m.addFacts(facts); factErr != nil {
 			return ProgressiveObservation{}, fmt.Errorf("assert observation facts: %w", factErr)
 		}
+	}
+	// Interactive facts describe a replaceable current-page snapshot. They are
+	// retracted before the next snapshot when the live kernel supports exact
+	// retraction; otherwise Observe marks candidate conclusions as potentially
+	// stale and withholds them after the first replacement.
+	controlFacts := append(interactiveFacts, policyFacts...)
+	staleControlFactsPossible, replaceErr := m.replaceProgressiveControlSnapshot(sessionID, generation, registry, controlFacts)
+	if replaceErr != nil {
+		return ProgressiveObservation{}, fmt.Errorf("assert browser control observation: %w", replaceErr)
+	}
+	actionCandidates := make([]ActionCandidate, 0)
+	actionCandidatesTruncated := false
+	if (mode == "interactive" || mode == "composite") && view != "summary" {
+		querier := m.factQuerier()
+		data["action_candidates_available"] = querier != nil
+		if querier != nil && !staleControlFactsPossible {
+			currentRefs := currentInteractiveRefs(interactive)
+			// Keep this literal query visible to the kernel-consumer audit: this
+			// is the production Observe consumer of the Mangle ranking rule.
+			for _, fact := range querier.QueryFacts("action_candidate", sessionID) {
+				if len(fact.Args) != 6 || types.ExtractString(fact.Args[0]) != sessionID {
+					continue
+				}
+				ref := types.ExtractString(fact.Args[1])
+				if _, current := currentRefs[ref]; !current {
+					continue
+				}
+				registered, exists := registry.Get(ref)
+				if !exists || registered.Generation != generation {
+					continue
+				}
+				priority, ok := types.ExtractInt64(fact.Args[4])
+				if !ok {
+					continue
+				}
+				if len(actionCandidates) == maxItems {
+					actionCandidatesTruncated = true
+					break
+				}
+				actionCandidates = append(actionCandidates, ActionCandidate{
+					Ref: ref, Label: types.ExtractString(fact.Args[2]), Action: types.ExtractString(fact.Args[3]),
+					Priority: priority, Reason: types.ExtractString(fact.Args[5]),
+				})
+			}
+		}
+		data["action_candidates"] = actionCandidates
+		data["action_candidates_truncated"] = actionCandidatesTruncated
+		data["action_candidates_stale_facts_possible"] = staleControlFactsPossible
+	}
+	if registry.Generation() != generation {
+		return ProgressiveObservation{}, fmt.Errorf("page navigated while querying browser policy; observe session %s again", sessionID)
 	}
 
 	if view != "summary" {
@@ -347,7 +468,7 @@ func (m *SessionManager) Observe(ctx context.Context, sessionID string, opts Obs
 	handle = fmt.Sprintf("browser:%s:g%d:%s", sessionID, generation, mode)
 	truncated := snapshot.NavigationTotal > len(snapshot.Navigation) ||
 		snapshot.InteractiveTotal > len(snapshot.Interactive) ||
-		snapshot.GridTotal > len(snapshot.Grids) || snapshot.HiddenTotal > len(snapshot.Hidden)
+		snapshot.GridTotal > len(snapshot.Grids) || snapshot.HiddenTotal > len(snapshot.Hidden) || actionCandidatesTruncated
 	return ProgressiveObservation{
 		Success: true, Status: "ok", SessionID: sessionID, Mode: mode, View: view,
 		Generation: generation, Summary: observationSummary(mode, counts), Data: data,
@@ -443,14 +564,16 @@ func (m *SessionManager) materializeNavigation(sessionID string, registry *Eleme
 	return result, facts, nil
 }
 
-func (m *SessionManager) materializeInteractive(sessionID string, registry *ElementRegistry, generation int, raw []rawElement, verbose bool) ([]InteractiveElement, []mangle.Fact, error) {
+func (m *SessionManager) materializeInteractive(sessionID string, registry *ElementRegistry, generation int, raw []rawElement, verbose bool) ([]InteractiveElement, []mangle.Fact, []mangle.Fact, error) {
 	registered, ok := registerRawElements(registry, generation, raw)
 	if !ok {
-		return nil, nil, fmt.Errorf("page navigated while registering interactive refs")
+		return nil, nil, nil, fmt.Errorf("page navigated while registering interactive refs")
 	}
 	result := make([]InteractiveElement, 0, len(raw))
 	facts := make([]mangle.Fact, 0, len(raw)*2)
+	policyFacts := make([]mangle.Fact, 0, len(raw)*7+1)
 	now := time.Now()
+	policyFacts = append(policyFacts, mangle.Fact{Predicate: "browser_observed_at", Args: []any{sessionID, now.UnixMilli()}, Timestamp: now})
 	for i := range raw {
 		item := InteractiveElement{
 			Ref: registered[i].Ref, Type: raw[i].Type, Action: raw[i].Action,
@@ -465,8 +588,115 @@ func (m *SessionManager) materializeInteractive(sessionID string, registry *Elem
 		if raw[i].BoundingBox["width"] > 0 && raw[i].BoundingBox["height"] > 0 {
 			facts = append(facts, mangle.Fact{Predicate: "visible", Args: []any{ref}, Timestamp: now})
 		}
+		if policyType, policyAction, supported := actionPolicyPair(raw[i]); supported {
+			policyFacts = append(policyFacts,
+				mangle.Fact{Predicate: "interactive", Args: []any{sessionID, registered[i].Ref, policyType, item.Label, policyAction}, Timestamp: now},
+				mangle.Fact{Predicate: "element_enabled", Args: []any{sessionID, registered[i].Ref, observedBool(!raw[i].Disabled)}, Timestamp: now},
+			)
+			if raw[i].ControlType != "" && safeControlType(raw[i].ControlType) {
+				policyFacts = append(policyFacts, mangle.Fact{Predicate: "browser_control_attribute", Args: []any{sessionID, registered[i].Ref, "type", raw[i].ControlType}, Timestamp: now})
+			}
+			qualified := qualifiedRef(sessionID, registered[i].Ref)
+			for _, property := range []string{"display", "visibility", "opacity"} {
+				value, exists := raw[i].ComputedStyle[property]
+				if !exists || value == "" {
+					return nil, nil, nil, fmt.Errorf("interactive ref %s is missing measured computed style %q", registered[i].Ref, property)
+				}
+				policyFacts = append(policyFacts, mangle.Fact{Predicate: "computed_style", Args: []any{qualified, property, value}, Timestamp: now})
+			}
+			box := raw[i].BoundingBox
+			x, xOK := box["x"]
+			y, yOK := box["y"]
+			width, widthOK := box["width"]
+			height, heightOK := box["height"]
+			if !xOK || !yOK || !widthOK || !heightOK {
+				return nil, nil, nil, fmt.Errorf("interactive ref %s is missing measured geometry", registered[i].Ref)
+			}
+			policyFacts = append(policyFacts,
+				mangle.Fact{Predicate: "browser_geometry_css_px", Args: []any{
+					sessionID, registered[i].Ref,
+					strconv.FormatFloat(x, 'f', -1, 64), strconv.FormatFloat(y, 'f', -1, 64),
+					strconv.FormatFloat(width, 'f', -1, 64), strconv.FormatFloat(height, 'f', -1, 64),
+				}, Timestamp: now},
+				mangle.Fact{Predicate: "geometry", Args: []any{
+					qualified, integralGeometry(x, false), integralGeometry(y, false),
+					integralGeometry(width, true), integralGeometry(height, true),
+				}, Timestamp: now},
+			)
+		}
 	}
-	return result, facts, nil
+	return result, facts, policyFacts, nil
+}
+
+// integralGeometry converts measured CSS pixels to the integer number domain
+// supported by Cortex. Exact decimal measurements are also retained in
+// browser_geometry_css_px. Positive dimensions round up from subpixel values
+// so a nonzero control cannot become a policy honeypot through quantization.
+func integralGeometry(value float64, dimension bool) int64 {
+	rounded := math.Round(value)
+	if dimension && value > 0 && rounded == 0 {
+		rounded = 1
+	}
+	return int64(rounded)
+}
+
+func currentInteractiveRefs(elements []InteractiveElement) map[string]struct{} {
+	refs := make(map[string]struct{}, len(elements))
+	for _, element := range elements {
+		refs[element.Ref] = struct{}{}
+	}
+	return refs
+}
+
+func observedBool(value bool) string {
+	if value {
+		return "true"
+	}
+	return "false"
+}
+
+func safeControlType(value string) bool {
+	switch value {
+	case "submit", "button", "reset", "checkbox", "radio":
+		return true
+	default:
+		return false
+	}
+}
+
+func actionPolicyPair(raw rawElement) (string, string, bool) {
+	if raw.Action == "" {
+		return "", "", false
+	}
+	switch raw.Type {
+	case "button":
+		return "button", "click", raw.Action == "click"
+	case "input":
+		return "input", "type", raw.Action == "type"
+	case "select":
+		return "select", "select", raw.Action == "select"
+	case "checkbox":
+		return "checkbox", "toggle", raw.Action == "toggle"
+	case "radio":
+		return "radio", "toggle", raw.Action == "toggle"
+	case "link":
+		return "link", "click", raw.Action == "click"
+	case "tab":
+		return "tab", "click", raw.Action == "click"
+	case "combobox":
+		if raw.Action == "type" {
+			return "combobox", "type", true
+		}
+		return "combobox", "click", raw.Action == "click"
+	case "menuitem":
+		return "menuitem", "click", raw.Action == "click"
+	case "option":
+		return "option", "click", raw.Action == "click"
+	case "clickable":
+		return "clickable", "click", raw.Action == "click"
+	default:
+		return "", "", false
+	}
 }
 
 func (m *SessionManager) materializeGrids(registry *ElementRegistry, generation int, raw []rawGrid, verbose bool) ([]GridObservation, error) {
@@ -612,28 +842,38 @@ const progressiveObserveJS = `(opts) => {
   };
   const record = el => {
     const tag = el.tagName.toLowerCase();
-    const role = el.getAttribute('role') || '';
+    const role = clean(el.getAttribute('role')).toLowerCase();
     const classes = Array.from(el.classList || []).slice(0, 5);
     const box = el.getBoundingClientRect();
+    const style = getComputedStyle(el);
     const selected = selectorFor(el);
     const inputType = tag === 'input' ? (el.type || 'text') : '';
+    const controlType = el.hasAttribute('type') ? clean(el.getAttribute('type')).toLowerCase() : '';
     let type = 'clickable', action = 'click';
     if (tag === 'a') type = 'link';
-    else if (tag === 'select' || role === 'combobox' || role === 'listbox') { type = 'select'; action = 'select'; }
+    else if (tag === 'select') { type = 'select'; action = 'select'; }
+    else if (role === 'combobox') { type = 'combobox'; action = tag === 'input' ? 'type' : 'click'; }
+    else if (role === 'listbox') { type = 'combobox'; action = 'click'; }
     else if (inputType === 'checkbox' || role === 'checkbox' || role === 'switch') { type = 'checkbox'; action = 'toggle'; }
     else if (inputType === 'radio' || role === 'radio') { type = 'radio'; action = 'toggle'; }
+    else if (role === 'tab') type = 'tab';
+    else if (role === 'menuitem') type = 'menuitem';
+    else if (role === 'option') type = 'option';
+    else if ((tag === 'input' && (inputType === 'submit' || inputType === 'button')) || tag === 'button' || role === 'button') { type = 'button'; action = 'click'; }
     else if (tag === 'input' || tag === 'textarea' || el.isContentEditable) { type = 'input'; action = 'type'; }
     else if (role === 'row' || tag === 'tr') type = 'row';
-    else if (tag === 'button' || role === 'button' || role === 'tab') type = 'button';
     const label = clean(el.getAttribute('aria-label') || el.innerText || el.placeholder || el.title || el.alt).slice(0, 120);
     return {
       ...selected, tag_name: tag, id: el.id || '', name: el.name || '', classes,
       text_content: clean(el.innerText).slice(0, 200), aria_label: el.getAttribute('aria-label') || '',
       data_testid: el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '', role,
-      input_type: inputType, row_key: el.getAttribute('data-row-id') || el.getAttribute('data-row-key') || '',
+      input_type: inputType, control_type: controlType, computed_style: {
+        display: String(style.display), visibility: String(style.visibility), opacity: Number(style.opacity) === 0 ? '0' : String(style.opacity)
+      }, row_key: el.getAttribute('data-row-id') || el.getAttribute('data-row-key') || '',
       row_index: el.getAttribute('aria-rowindex') || el.getAttribute('data-rowindex') || el.getAttribute('row-index') || '',
-      bounding_box: {x: Math.round(box.x), y: Math.round(box.y), width: Math.round(box.width), height: Math.round(box.height)},
-      type, action, label, href: tag === 'a' ? (el.href || '') : '', disabled: !!el.disabled, checked: !!el.checked
+      bounding_box: {x: box.x, y: box.y, width: box.width, height: box.height},
+      type, action, label, href: tag === 'a' ? (el.href || '') : '',
+      disabled: el.matches(':disabled') || (!!el.disabled) || el.getAttribute('aria-disabled') === 'true', checked: !!el.checked
     };
   };
 

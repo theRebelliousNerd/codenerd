@@ -77,19 +77,3 @@ func BenchmarkActivatePhaseSuppression(b *testing.B) {
 		}
 	}
 }
-
-func BenchmarkPruneIrrelevant(b *testing.B) {
-	mk := &mockKernelForBench{}
-	cp := &ContextPager{
-		kernel: mk,
-	}
-
-	profile := &ContextProfile{
-		RequiredSchemas: []string{},
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		cp.PruneIrrelevant(profile)
-	}
-}

@@ -19,9 +19,11 @@ func TestInitCmdHelp_WhenRead_ShouldStateEmbeddingPrerequisites(t *testing.T) {
 		"embedding",
 		".nerd/config.json",
 		"ollama",
-		"embeddinggemma:300m",
+		"ollama_model",
 		"genai",
 		"CGO",
+		"planner",
+		"per_call_timeout",
 	} {
 		if !strings.Contains(help, want) {
 			t.Errorf("`nerd init --help` does not mention %q; operators cannot diagnose an embedding failure from the CLI", want)
@@ -29,6 +31,12 @@ func TestInitCmdHelp_WhenRead_ShouldStateEmbeddingPrerequisites(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(help), "hard error") {
 		t.Error("help text does not say embedding failure is a hard error rather than a degraded mode")
+	}
+	// Models are the user's choice in config.json; the help names none.
+	for _, model := range []string{"embeddinggemma", "gemini-embedding", "nomic-embed"} {
+		if strings.Contains(help, model) {
+			t.Errorf("`nerd init --help` names the model %q; init chooses no model", model)
+		}
 	}
 }
 

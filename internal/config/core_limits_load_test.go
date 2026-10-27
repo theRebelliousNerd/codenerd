@@ -31,7 +31,7 @@ func TestLoadUserConfig_RejectsExplicitZeroShards(t *testing.T) {
 }
 
 func TestLoadUserConfig_MissingCoreLimitsLoadsDefaults(t *testing.T) {
-	path := writeCoreLimitsTestConfig(t, `{"provider": "ollama"}`)
+	path := writeCoreLimitsTestConfig(t, `{"provider": "ollama", "model": "qwen9:4b"}`)
 	cfg, err := LoadUserConfig(path)
 	if err != nil {
 		t.Fatalf("LoadUserConfig error: %v", err)

@@ -13,13 +13,15 @@ import (
 	"codenerd/internal/config"
 )
 
+// The local endpoint and sentinel key default; the model never does: a
+// client built with no tag runs none rather than one nobody chose.
 func TestNewOllamaClient_Defaults(t *testing.T) {
 	c := NewOllamaClient("")
 	if c == nil {
 		t.Fatal("nil client")
 	}
-	if c.GetModel() != "gemma4:12b" {
-		t.Fatalf("model=%q want gemma4:12b", c.GetModel())
+	if c.GetModel() != "" {
+		t.Fatalf("model=%q, want none filled in", c.GetModel())
 	}
 	if !strings.Contains(c.openai.baseURL, "11434") {
 		t.Fatalf("baseURL=%q expected ollama port", c.openai.baseURL)
@@ -135,7 +137,7 @@ func TestNewImageClientFromUserConfig_NeverOllama(t *testing.T) {
 		},
 		Image: &config.ImageLLMConfig{
 			Provider: "gemini",
-			Model:    "nano-banana-2", // alias → gemini-3.1-flash-image
+			Model:    "gemini-3.1-flash-image",
 		},
 	}
 	client, err := NewImageClientFromUserConfig(uc)
@@ -152,8 +154,8 @@ func TestNewImageClientFromUserConfig_NeverOllama(t *testing.T) {
 	if !ok {
 		t.Fatalf("want *GeminiClient, got %T", broker.Base(client))
 	}
-	if gc.GetModel() != config.NanoBanana2ImageModel {
-		t.Fatalf("model=%q want %q", gc.GetModel(), config.NanoBanana2ImageModel)
+	if gc.GetModel() != "gemini-3.1-flash-image" {
+		t.Fatalf("model=%q want the configured gemini-3.1-flash-image", gc.GetModel())
 	}
 
 	// No invented model: an unset image.model is an error, not a tier pick.

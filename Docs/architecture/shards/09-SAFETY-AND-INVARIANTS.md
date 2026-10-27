@@ -35,6 +35,24 @@ Constitution emits `permission_check_result/4`, `routing_result/4`,
 errors use their declared arities; consumers must not invent richer facts without
 updating declarations and tests.
 
+### S6. MCP authority replicas contain evidence, never verdicts
+
+`GAP-MCP-AUTHORITY-COLOCATION` permits only the fourteen explicitly named MCP
+base predicates in the MCP policy consumer. Their source shard remains the
+canonical owner; the copy exists to make a cross-shard Mangle join complete.
+The policy computes `mcp_remote_permitted` from those inputs alongside its
+already local `pending_action/5` and `permitted/3`. Do not mirror derived
+`mcp_remote_*` authorization, manufacture a permit in Go, or let an absent,
+conflicting, stale, or denied row fall through to an effect. Assert, bulk load,
+exact retraction, batch, and transaction updates must preserve replica symmetry;
+removing metadata or a per-call request must make its prior allow unobtainable.
+The source decision is `internal/core/defaults/policy/policy_mcp.mg:111`
+(`mcp_remote_permitted`). Bounded consumer destinations are declared in
+`internal/shards/registration.go:265-275`; Cortex mutation routing includes
+the canonical owner and explicit consumer copies
+(`internal/core/cortex_kernel.go:207-235`). The production sharded gate and
+replica-removal controls are recorded under `GAP-MCP-AUTHORITY-COLOCATION`.
+
 ## Deterministic guard order
 
 `ConstitutionGateShard.checkPermitted` evaluates active overrides, dangerous

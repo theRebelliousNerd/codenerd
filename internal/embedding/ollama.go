@@ -18,20 +18,14 @@ import (
 // OLLAMA EMBEDDING ENGINE
 // =============================================================================
 
-// embeddingGemmaPullTag is the tag pulled when the workspace configured the
-// bare name "embeddinggemma": Ollama does not always publish an untagged
-// :latest for that model. It is an alias for a model the user chose, never a
-// model chosen for them; an unconfigured model is an error (NewOllamaEngine).
-const embeddingGemmaPullTag = "embeddinggemma:300m"
-
 // OllamaEngine generates embeddings using local Ollama server.
-// Supports embeddinggemma and other embedding models.
+// It runs exactly the configured model and never substitutes another: a
+// different embedding model returns vectors the index was not built with.
 //
-// Missing models are handled automatically:
-//  1. Resolve bare names (embeddinggemma → embeddinggemma:300m if present)
-//  2. Prefer any already-installed embedding-capable match
-//  3. POST /api/pull for the resolved name (once per process/engine)
-//  4. On embed 404 "not found", ensure+retry once
+// A missing model is handled by:
+//  1. Matching the configured name against installed tags (bare = :latest)
+//  2. POST /api/pull for the configured name (once per process/engine)
+//  3. On embed 404 "not found", ensure+retry once
 type OllamaEngine struct {
 	endpoint string
 	model    string
@@ -64,12 +58,6 @@ func NewOllamaEngine(endpoint, model string, dimensions int) (*OllamaEngine, err
 	if dimensions <= 0 {
 		// It sizes the vector index, so a guess is a corrupt index.
 		return nil, fmt.Errorf("no embedding dimensions configured for Ollama model %q: set embedding.dimensions in .nerd/config.json to the length of the vectors it returns", model)
-	}
-	if model == "embeddinggemma" {
-		// The bare name is a common config value but Ollama often only ships
-		// tagged variants; EnsureModel still remaps to whatever is installed.
-		model = embeddingGemmaPullTag
-		logging.EmbeddingDebug("Ollama model %q resolved to its tag: %s", "embeddinggemma", model)
 	}
 
 	// One embed HTTP call. The bound is embedding.request_timeout, published
@@ -377,7 +365,7 @@ func (e *OllamaEngine) EnsureModel(ctx context.Context) error {
 		return err
 	}
 
-	// 1) Exact / alias match against what's already installed.
+	// 1) The configured model, as installed.
 	if resolved := resolveInstalledModel(e.model, installed); resolved != "" {
 		if resolved != e.model {
 			logging.Embedding("Ollama: resolved model %q → installed %q", e.model, resolved)
@@ -387,16 +375,8 @@ func (e *OllamaEngine) EnsureModel(ctx context.Context) error {
 		return nil
 	}
 
-	// 2) Prefer any installed embedding-capable model matching the family.
-	if alt := preferInstalledEmbeddingModel(e.model, installed); alt != "" {
-		logging.Embedding("Ollama: using installed embedding model %q (configured %q not present)", alt, e.model)
-		e.model = alt
-		e.modelReady = true
-		return nil
-	}
-
-	// 3) Auto-pull the best candidate name.
-	pullName := pullTargetFor(e.model)
+	// 2) Pull exactly the configured model.
+	pullName := e.model
 	if e.pullAttempted {
 		return fmt.Errorf("model %q still unavailable after prior pull attempt", pullName)
 	}
@@ -409,20 +389,6 @@ func (e *OllamaEngine) EnsureModel(ctx context.Context) error {
 		// real Embed call gets its own context and must be able to retry the pull.
 		if ctx.Err() != nil {
 			e.pullAttempted = false
-		}
-		// Last-resort fallback ONLY for known embed families — never remap
-		// arbitrary/custom model names (would break tests and user configs).
-		fallback := "nomic-embed-text"
-		base := modelBase(e.model)
-		_, isKnownFamily := knownEmbedFamilies[base]
-		if isKnownFamily && pullName != fallback && pullName != fallback+":latest" {
-			logging.Get(logging.CategoryEmbedding).Warn("Ollama: pull of %q failed (%v); trying fallback %q", pullName, err, fallback)
-			if ferr := e.pullModel(ctx, fallback); ferr == nil {
-				e.model = fallback
-				e.modelReady = true
-				logging.Embedding("Ollama: fallback model %q ready", fallback)
-				return nil
-			}
 		}
 		return fmt.Errorf("auto-pull %q failed: %w", pullName, err)
 	}
@@ -556,112 +522,21 @@ func isModelNotFoundStatus(code int, body string) bool {
 	return looksMissing && strings.Contains(lower, "pull")
 }
 
-// resolveInstalledModel returns an installed tag that satisfies want, or "".
+// resolveInstalledModel returns the installed tag that is the configured
+// model, or "". A bare name means its :latest tag, as Ollama itself resolves
+// it. Nothing else matches: an embedding model other than the configured one
+// returns vectors the index was not built with, so a near miss is a refusal.
 func resolveInstalledModel(want string, installed []string) string {
 	want = strings.TrimSpace(want)
 	if want == "" {
 		return ""
 	}
-	// Exact match
 	for _, name := range installed {
-		if name == want {
+		if name == want || (!strings.Contains(want, ":") && name == want+":latest") {
 			return name
 		}
 	}
-	// want without tag matches name base (embeddinggemma → embeddinggemma:300m)
-	wantBase := modelBase(want)
-	var candidates []string
-	for _, name := range installed {
-		if modelBase(name) == wantBase {
-			candidates = append(candidates, name)
-		}
-	}
-	if len(candidates) == 0 {
-		// Also try if want is bare and installed has :latest
-		for _, name := range installed {
-			if name == want+":latest" {
-				return name
-			}
-		}
-		return ""
-	}
-	// Prefer :300m for embeddinggemma, else :latest, else first.
-	for _, c := range candidates {
-		if strings.HasSuffix(c, ":300m") {
-			return c
-		}
-	}
-	for _, c := range candidates {
-		if strings.HasSuffix(c, ":latest") {
-			return c
-		}
-	}
-	return candidates[0]
-}
-
-// knownEmbedFamilies are the only bases we will auto-remap / auto-prefer when
-// the configured model is missing. Arbitrary names (e.g. test-model in unit
-// tests, or a user typo of a custom fine-tune) are NOT remapped — we try to
-// pull the configured name instead.
-var knownEmbedFamilies = map[string]struct{}{
-	"embeddinggemma":         {},
-	"nomic-embed-text":       {},
-	"mxbai-embed-large":      {},
-	"all-minilm":             {},
-	"bge-m3":                 {},
-	"bge-large":              {},
-	"snowflake-arctic-embed": {},
-}
-
-// preferInstalledEmbeddingModel picks a sensible installed embed model when
-// the configured one is absent. Only applies to known embedding families.
-func preferInstalledEmbeddingModel(configured string, installed []string) string {
-	cfgBase := modelBase(configured)
-	if cfgBase != "" {
-		if _, ok := knownEmbedFamilies[cfgBase]; !ok {
-			return ""
-		}
-	}
-	families := []string{"embeddinggemma", "nomic-embed-text", "mxbai-embed-large", "all-minilm", "bge-m3"}
-	ordered := make([]string, 0, len(families)+1)
-	if cfgBase != "" {
-		ordered = append(ordered, cfgBase)
-	}
-	for _, f := range families {
-		if f != cfgBase {
-			ordered = append(ordered, f)
-		}
-	}
-	for _, fam := range ordered {
-		if hit := resolveInstalledModel(fam, installed); hit != "" {
-			return hit
-		}
-	}
 	return ""
-}
-
-func pullTargetFor(configured string) string {
-	base := modelBase(configured)
-	switch base {
-	case "":
-		return "" // nothing configured, nothing to pull
-	case "embeddinggemma":
-		return embeddingGemmaPullTag
-	case "nomic-embed-text":
-		return "nomic-embed-text"
-	default:
-		if strings.Contains(configured, ":") {
-			return configured
-		}
-		return configured
-	}
-}
-
-func modelBase(name string) string {
-	if i := strings.IndexByte(name, ':'); i >= 0 {
-		return name[:i]
-	}
-	return name
 }
 
 func truncateForLog(s string, max int) string {

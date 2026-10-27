@@ -18,6 +18,7 @@ import (
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/sqlpragmas"
+	"codenerd/internal/types"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -471,7 +472,7 @@ func LoadAgentPrompts(ctx context.Context, agentName string, nerdDir string, emb
 	loader := NewAtomLoader(embeddingEngine)
 
 	// Open agent's unified knowledge database (NOT a separate prompts DB)
-	dbPath := filepath.Join(nerdDir, "shards", fmt.Sprintf("%s_knowledge.db", strings.ToLower(agentName)))
+	dbPath := types.AgentKnowledgeDBPath(nerdDir, agentName)
 
 	// Ensure the knowledge DB exists
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {

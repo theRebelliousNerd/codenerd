@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
@@ -58,18 +59,18 @@ type OpenAICompatClient struct {
 	enableThinking bool
 	thinkingBudget int
 
-	// reasoningEffort* map codeNERD's per-shard capability tiers onto the
-	// vendor's effort scale. Consulted only when the request context carries a
-	// types.CtxKeyModelCapability hint, so the vendor default stands otherwise.
-	reasoningEffortHighReasoning string
-	reasoningEffortBalanced      string
-	reasoningEffortHighSpeed     string
+	// reasoningEffort is the slot's Meta reasoning_effort, resolved by config
+	// (a default for every slot), so every Meta request carries one; a shard
+	// profile's effort on the request wins (effortFor). It is sent whether or
+	// not thinking is on, classification included. Empty only for a client
+	// built without one, which sends none; other vendors take no effort and
+	// keep it empty.
+	reasoningEffort string
 
-	// reasoningEffortOverride is an explicit Meta reasoning_effort from config.
-	// When nonempty it wins for every Meta request (including unhinted ones and
-	// every capability tier) and is preserved even for classification where
-	// thinking is normally disabled.
-	reasoningEffortOverride string
+	// maxInputTokens is the slot's input cap (max_input_tokens); 0 is none.
+	// Every request entry point refuses a larger request before sending it
+	// (admit), and InputWindowTokens reports it to the executor.
+	maxInputTokens int
 
 	// enableWebSearch routes a Meta client through /responses and attaches the
 	// web_search tool. Zero is off: NewOpenAICompatClient does not invent the
@@ -107,6 +108,10 @@ type OpenAICompatConfig struct {
 	// not search, which is what the tests and the classification client want.
 	EnableWebSearch   bool
 	SearchContextSize string
+
+	// MaxInputTokens is the slot's input cap (max_input_tokens); zero is none.
+	// A larger request is refused before it is sent (admit).
+	MaxInputTokens int
 }
 
 // vendorDefault describes a vendor's endpoint. It names no model: the
@@ -177,15 +182,6 @@ func (c *OpenAICompatClient) metaBilledTokensForNothing(resp *OpenAIResponse) bo
 	return c.vendor == ProviderMeta && resp != nil && resp.Usage.CompletionTokens > 0
 }
 
-func isValidMetaReasoningEffort(v string) bool {
-	switch strings.TrimSpace(v) {
-	case "minimal", "low", "medium", "high", "xhigh":
-		return true
-	default:
-		return false
-	}
-}
-
 // normalizeMetaSearchContextSize accepts the vendor's vocabulary and empty
 // (omit the field). Anything else is refused. The match is case-insensitive;
 // the wire value is lowercase.
@@ -253,17 +249,18 @@ func NewOpenAICompatClient(cfg OpenAICompatConfig) (*OpenAICompatClient, error) 
 		return nil, fmt.Errorf("meta model %q is not the contributor tier: set a \"-contributor\" model in .nerd/config.json", cfg.Model)
 	}
 
-	// Validate explicit Meta reasoning_effort at construction.
-	reasoningOverride := strings.TrimSpace(cfg.ReasoningEffort)
-	if reasoningOverride != "" {
+	// Validate Meta reasoning_effort at construction, by the vocabulary the
+	// config check applies at load.
+	reasoningEffort := strings.TrimSpace(cfg.ReasoningEffort)
+	if reasoningEffort != "" {
 		if cfg.Vendor == ProviderMeta {
-			if !isValidMetaReasoningEffort(reasoningOverride) {
-				return nil, fmt.Errorf("invalid reasoning_effort %q for provider %q: must be one of minimal, low, medium, high, xhigh", cfg.ReasoningEffort, cfg.Vendor)
+			if err := config.ValidateMetaEffort(reasoningEffort); err != nil {
+				return nil, fmt.Errorf("invalid reasoning_effort %q for provider %q: %w", cfg.ReasoningEffort, cfg.Vendor, err)
 			}
 		} else {
-			// Non-Meta vendors ignore reasoning_effort entirely; clear it so it
-			// can never be emitted.
-			reasoningOverride = ""
+			// Non-Meta vendors take no reasoning_effort; clear it so it can
+			// never be emitted.
+			reasoningEffort = ""
 		}
 	}
 
@@ -295,31 +292,28 @@ func NewOpenAICompatClient(cfg OpenAICompatConfig) (*OpenAICompatClient, error) 
 	}
 
 	c := &OpenAICompatClient{
-		vendor:          cfg.Vendor,
-		apiKey:          cfg.APIKey,
-		baseURL:         strings.TrimRight(cfg.BaseURL, "/"),
-		model:           cfg.Model,
-		httpClient:      NewSharedHTTPClient(cfg.Timeout),
-		maxOutputTokens: cfg.MaxOutputTokens,
-		temperature:     cfg.Temperature,
-		topP:            cfg.TopP,
-		enableThinking:  cfg.EnableThinking,
-		thinkingBudget:  cfg.ThinkingBudget,
-		// Never "none": Muse Spark rejects it with HTTP 400.
-		reasoningEffortHighReasoning: "high",
-		reasoningEffortBalanced:      "medium",
-		reasoningEffortHighSpeed:     "low",
-		reasoningEffortOverride:      reasoningOverride,
-		enableWebSearch:              enableWebSearch,
-		searchContextSize:            searchContextSize,
+		vendor:            cfg.Vendor,
+		apiKey:            cfg.APIKey,
+		baseURL:           strings.TrimRight(cfg.BaseURL, "/"),
+		model:             cfg.Model,
+		httpClient:        NewSharedHTTPClient(cfg.Timeout),
+		maxOutputTokens:   cfg.MaxOutputTokens,
+		temperature:       cfg.Temperature,
+		topP:              cfg.TopP,
+		enableThinking:    cfg.EnableThinking,
+		thinkingBudget:    cfg.ThinkingBudget,
+		reasoningEffort:   reasoningEffort,
+		maxInputTokens:    cfg.MaxInputTokens,
+		enableWebSearch:   enableWebSearch,
+		searchContextSize: searchContextSize,
 	}
 	// Report the settings that actually took effect. Several of these have a
 	// non-obvious default applied when the config leaves them zero, so the only
 	// way to confirm a configured value survived the trip from user config to
 	// client used to be reading the factory; now one boot line answers it.
-	effort := reasoningOverride
+	effort := reasoningEffort
 	if effort == "" {
-		effort = "per-call"
+		effort = "none sent"
 	}
 	logging.Get(logging.CategoryPerception).Info(
 		"llm client ready: vendor=%s model=%s max_output_tokens=%d reasoning_effort=%s thinking=%v web_search=%v search_context_size=%s",
@@ -404,28 +398,19 @@ func normalizeMetaModel(requested, configured string) string {
 	return fallback
 }
 
-// reasoningEffortForContext maps a per-shard capability tier onto the vendor's
-// effort scale. Returns "" when the context carries no hint, leaving the
-// vendor's own default in force. An explicit config override wins for every
-// request — including unhinted ones and every capability tier.
-func (c *OpenAICompatClient) reasoningEffortForContext(ctx context.Context) string {
-	if c.vendor == ProviderMeta && c.reasoningEffortOverride != "" {
-		return c.reasoningEffortOverride
-	}
+// effortFor is the Meta reasoning effort a request is sent with: a shard
+// profile's on the request context (types.WithReasoningEffort, checked when
+// the request was admitted), else the slot's configured effort. The effort is
+// the config's: no capability tier or vendor default stands in for it. Other
+// vendors take none.
+func (c *OpenAICompatClient) effortFor(ctx context.Context) string {
 	if c.vendor != ProviderMeta {
 		return ""
 	}
-	capHint, _ := types.ModelCapabilityFromContext(ctx)
-
-	switch capHint {
-	case types.CapabilityHighReasoning:
-		return c.reasoningEffortHighReasoning
-	case types.CapabilityBalanced:
-		return c.reasoningEffortBalanced
-	case types.CapabilityHighSpeed:
-		return c.reasoningEffortHighSpeed
+	if effort, ok := types.ReasoningEffortFromContext(ctx); ok {
+		return effort
 	}
-	return ""
+	return c.reasoningEffort
 }
 
 // isTransientModelNotFound reports a 404 that claims the model does not exist
@@ -512,13 +497,7 @@ func (c *OpenAICompatClient) buildRequest(ctx context.Context, messages []OpenAI
 	case ProviderMeta:
 		// max_tokens is deprecated on the Meta Model API.
 		req.MaxCompletionTokens = c.maxOutputTokens
-		if c.reasoningEffortOverride != "" {
-			req.ReasoningEffort = c.reasoningEffortOverride
-		} else if thinking {
-			if effort := c.reasoningEffortForContext(ctx); effort != "" {
-				req.ReasoningEffort = effort
-			}
-		}
+		req.ReasoningEffort = c.effortFor(ctx)
 		// Sampling deliberately left at vendor defaults unless explicitly
 		// configured (client config or the shard profile on ctx), and never
 		// both at once.
@@ -718,10 +697,13 @@ func (c *OpenAICompatClient) Complete(ctx context.Context, prompt string) (strin
 
 // CompleteWithSystem sends a prompt with a system message.
 func (c *OpenAICompatClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	if err := c.admit(ctx, systemPrompt, userTurn(userPrompt), nil); err != nil {
+		return "", err
+	}
 	// Meta web search is not a Chat Completions feature. With it on, this
 	// call and every other completion share the Responses builder.
 	if c.metaWebSearchActive() {
-		return c.completeWithSystemGrounded(ctx, systemPrompt, userPrompt, c.enableThinking)
+		return c.completeWithSystemGrounded(ctx, systemPrompt, userPrompt)
 	}
 	c.clearGroundingSources()
 	start := time.Now()
@@ -851,6 +833,10 @@ func (c *OpenAICompatClient) CompleteWithStreaming(ctx context.Context, systemPr
 		defer close(contentChan)
 		defer close(errorChan)
 
+		if err := c.admit(ctx, systemPrompt, userTurn(userPrompt), nil); err != nil {
+			errorChan <- err
+			return
+		}
 		if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 			var cancel context.CancelFunc
 			ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
@@ -865,7 +851,7 @@ func (c *OpenAICompatClient) CompleteWithStreaming(ctx context.Context, systemPr
 		// There is no Responses SSE parser, and splitting the text here would
 		// pretend the vendor streamed something it did not.
 		if c.metaWebSearchActive() {
-			text, err := c.completeWithSystemGrounded(ctx, systemPrompt, userPrompt, enableThinking || c.enableThinking)
+			text, err := c.completeWithSystemGrounded(ctx, systemPrompt, userPrompt)
 			if err != nil {
 				var truncated *types.OutputTruncated
 				if errors.As(err, &truncated) && truncated.Partial != "" {
@@ -1087,6 +1073,9 @@ func (c *OpenAICompatClient) consumeStream(ctx context.Context, resp *http.Respo
 
 // CompleteWithTools sends a prompt with tool definitions.
 func (c *OpenAICompatClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
+	if err := c.admit(ctx, systemPrompt, userTurn(userPrompt), tools); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(systemPrompt) == "" {
 		systemPrompt = defaultSystemPrompt
 	}
@@ -1123,6 +1112,9 @@ func (c *OpenAICompatClient) CompleteWithTools(ctx context.Context, systemPrompt
 // satisfying types.ToolResultsProvider so the session executor can run a full
 // agentic loop instead of falling back to single-turn tool use.
 func (c *OpenAICompatClient) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []ToolDefinition) (*LLMToolResponse, error) {
+	if err := c.admit(ctx, systemPrompt, history, tools); err != nil {
+		return nil, err
+	}
 	// Meta goes through the Responses surface. This is the multi-turn tool
 	// loop, and Chat Completions discards Muse Spark's reasoning between turns
 	// — which is what makes a long loop repeat work it already did and lose the
@@ -1257,6 +1249,26 @@ func (c *OpenAICompatClient) validateMetaTools(tools []ToolDefinition, messages 
 // normalized one actually sent on the wire -- normalizeModel can rewrite it
 // (see normalizeMetaModel), so reading the config value here would pin atoms to
 // a model this client never calls.
+var _ types.InputWindowReporter = (*OpenAICompatClient)(nil)
+
+// InputWindowTokens implements types.InputWindowReporter: the slot's
+// max_input_tokens, 0 when the slot sets none.
+func (c *OpenAICompatClient) InputWindowTokens() int { return c.maxInputTokens }
+
+// admit is what every request entry point checks before it builds or sends
+// anything: that a shard profile's effort riding the request is one the
+// vendor accepts (Meta: config.ValidateMetaEffort; other vendors send none),
+// and that the request fits the slot's input cap (admitInputWindow, measured
+// as the session executor measures it).
+func (c *OpenAICompatClient) admit(ctx context.Context, system string, messages []types.Message, tools []ToolDefinition) error {
+	if effort, ok := types.ReasoningEffortFromContext(ctx); ok && c.vendor == ProviderMeta {
+		if err := config.ValidateMetaEffort(effort); err != nil {
+			return fmt.Errorf("shard profile reasoning_effort %q: %w", effort, err)
+		}
+	}
+	return admitInputWindow(c.maxInputTokens, c.vendor, c.GetModel(), system, messages, tools)
+}
+
 func (c *OpenAICompatClient) ModelIdentity() (string, string) {
 	return string(c.vendor), c.model
 }

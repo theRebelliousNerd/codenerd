@@ -75,6 +75,14 @@ func buildAnthropicMessagesFromHistory(history []types.Message) ([]AnthropicMess
 					Input: b.Input,
 				})
 
+			case types.BlockServerTool:
+				// A server tool's block goes back exactly as the endpoint
+				// returned it (MarshalJSON replays Raw).
+				if len(b.Raw) == 0 {
+					return nil, fmt.Errorf("%s message %d: server tool block has no content", m.Role, i)
+				}
+				blocks = append(blocks, AnthropicContentBlock{Raw: append([]byte(nil), b.Raw...)})
+
 			case types.BlockToolResult:
 				if b.ToolUseID == "" {
 					return nil, fmt.Errorf("%s message %d: tool_result missing tool_use_id", m.Role, i)
@@ -118,6 +126,10 @@ func blocksFromAnthropicContent(content []AnthropicContentBlock) []types.Content
 			out = append(out, types.ToolUseBlock(block.ID, block.Name, block.Input))
 		case "tool_result":
 			out = append(out, types.ToolResultBlock(block.ToolUseID, block.Content, block.IsError))
+		case "server_tool_use", "web_search_tool_result", "web_fetch_tool_result":
+			// The endpoint ran it. It travels as its verbatim JSON, is never
+			// a tool call, and is replayed byte for byte.
+			out = append(out, types.ServerToolBlock(block.Raw))
 		}
 	}
 	return out

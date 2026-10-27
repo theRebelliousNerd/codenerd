@@ -12,7 +12,8 @@ import (
 	"codenerd/internal/types"
 )
 
-// OrientationDocuments refreshes the persisted orientation and returns the
+// OrientationDocuments refreshes the persisted orientation, retains its
+// engine for ProcessDocumentsWithTracking, and returns the
 // documents its policy derived as worth reading (orient_read_candidate), with
 // the bodies the census measured. It is the one document set knowledge
 // extraction reads: no caller keeps a filename list of its own. The refresh
@@ -38,7 +39,14 @@ func (i *Initializer) OrientationDocuments(ctx context.Context) ([]DocumentInfo,
 	if err != nil {
 		return nil, refresh, err
 	}
-	defer eng.Close()
+	// The engine is retained: ProcessDocumentsWithTracking asks it which
+	// documents orientation admits. Closing it here left that check with no
+	// engine, so every document refresh failed with "document extraction
+	// requires orientation". Close releases it.
+	if i.orientation != nil {
+		_ = i.orientation.Close()
+	}
+	i.orientation, i.orientationSnapshot = eng, snapshot
 	rows, err := eng.Query("orient_read_candidate")
 	if err != nil {
 		return nil, refresh, err

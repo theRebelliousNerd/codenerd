@@ -28,16 +28,35 @@ import (
 
 // RuntimeRegistry manages registered tools
 type RuntimeRegistry struct {
-	mu         sync.RWMutex
-	tools      map[string]*RuntimeTool
-	identities map[string]types.GeneratedToolIdentity
+	mu          sync.RWMutex
+	tools       map[string]*RuntimeTool
+	identities  map[string]types.GeneratedToolIdentity
+	workspace   string
+	compiledDir string
 }
 
-// NewRuntimeRegistry creates a new registry
-func NewRuntimeRegistry() *RuntimeRegistry {
+// NewRuntimeRegistry creates a new registry. An optional second path names
+// the configured compiled directory used to revoke persisted same-name tools.
+func NewRuntimeRegistry(paths ...string) *RuntimeRegistry {
+	workspace := ""
+	if len(paths) > 0 && strings.TrimSpace(paths[0]) != "" {
+		workspace = filepath.Clean(strings.TrimSpace(paths[0]))
+		if absolute, err := filepath.Abs(workspace); err == nil {
+			workspace = absolute
+		}
+	}
+	compiledDir := ""
+	if len(paths) > 1 && strings.TrimSpace(paths[1]) != "" {
+		compiledDir = filepath.Clean(strings.TrimSpace(paths[1]))
+		if absolute, err := filepath.Abs(compiledDir); err == nil {
+			compiledDir = absolute
+		}
+	}
 	return &RuntimeRegistry{
-		tools:      make(map[string]*RuntimeTool),
-		identities: make(map[string]types.GeneratedToolIdentity),
+		tools:       make(map[string]*RuntimeTool),
+		identities:  make(map[string]types.GeneratedToolIdentity),
+		workspace:   workspace,
+		compiledDir: compiledDir,
 	}
 }
 
@@ -45,16 +64,94 @@ func NewRuntimeRegistry() *RuntimeRegistry {
 func (r *RuntimeRegistry) Register(tool *GeneratedTool, compiled *CompileResult) (*RuntimeTool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if tool == nil || compiled == nil {
+		return nil, fmt.Errorf("tool and compile result are required")
+	}
+	if r.workspace == "" || !filepath.IsAbs(r.workspace) {
+		return nil, fmt.Errorf("generated tool workspace must be absolute")
+	}
+	workspaceInfo, err := os.Stat(r.workspace)
+	if err != nil {
+		return nil, fmt.Errorf("generated tool workspace is unavailable: %w", err)
+	}
+	if !workspaceInfo.IsDir() {
+		return nil, fmt.Errorf("generated tool workspace is not a directory")
+	}
 
 	rt := &RuntimeTool{
 		Name:         tool.Name,
 		Description:  tool.Description,
 		BinaryPath:   compiled.OutputPath,
 		Hash:         compiled.Hash,
+		Workspace:    r.workspace,
 		Schema:       tool.Schema,
 		RegisteredAt: time.Now(),
 	}
-	identity := types.GeneratedToolIdentity{Name: rt.Name, BinaryPath: rt.BinaryPath, BinaryHash: rt.Hash, Protocol: types.GeneratedStdinV1}
+	if compiled.OutputPath == "" {
+		if sanitizeToolName(tool.Name) != tool.Name {
+			return nil, fmt.Errorf("source-only tool name must be canonical")
+		}
+		// Interpreted tools are registered for source execution only. Remove
+		// the old compiled artifact before its identity so Restore cannot
+		// rediscover the binary as a legacy or host-identity registration.
+		var binaries []string
+		if existing := r.tools[tool.Name]; existing != nil && existing.BinaryPath != "" {
+			binaries = append(binaries, existing.BinaryPath)
+		}
+		if identity, exists := r.identities[tool.Name]; exists && identity.BinaryPath != "" {
+			binaries = append(binaries, identity.BinaryPath)
+		}
+		if r.compiledDir != "" && sanitizeToolName(tool.Name) == tool.Name {
+			binaries = append(binaries,
+				filepath.Join(r.compiledDir, tool.Name),
+				filepath.Join(r.compiledDir, tool.Name+".exe"),
+			)
+		}
+		if len(binaries) > 0 && r.compiledDir == "" {
+			return nil, fmt.Errorf("cannot revoke prior compiled identity without its configured compiled directory")
+		}
+		for _, binary := range binaries {
+			if err := validateCompiledArtifactPath(r.compiledDir, tool.Name, binary); err != nil {
+				return nil, fmt.Errorf("refuse to revoke prior compiled identity: %w", err)
+			}
+		}
+		artifacts := make([]string, 0, len(binaries)*2)
+		seen := make(map[string]struct{}, len(binaries)*2)
+		appendArtifact := func(path string) {
+			path = filepath.Clean(path)
+			if _, exists := seen[path]; exists {
+				return
+			}
+			seen[path] = struct{}{}
+			artifacts = append(artifacts, path)
+		}
+		for _, binary := range binaries {
+			appendArtifact(binary)
+		}
+		for _, binary := range binaries {
+			appendArtifact(binary + ".identity.json")
+		}
+		snapshots, err := snapshotGeneratedToolFiles(artifacts...)
+		if err != nil {
+			return nil, fmt.Errorf("snapshot previous compiled identity: %w", err)
+		}
+		for _, path := range artifacts {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				if rollbackErr := restoreGeneratedToolFiles(snapshots); rollbackErr != nil {
+					return nil, errors.Join(fmt.Errorf("revoke previous compiled artifact %s: %w", path, err), fmt.Errorf("compiled identity rollback failed: %w", rollbackErr))
+				}
+				return nil, fmt.Errorf("revoke previous compiled artifact %s: %w", path, err)
+			}
+		}
+		cleanupGeneratedToolSnapshots(snapshots)
+
+		// The in-memory registry only changes after durable revocation succeeds.
+		rt.Hash = ""
+		delete(r.identities, tool.Name)
+		r.tools[tool.Name] = rt
+		return rt, nil
+	}
+	identity := types.GeneratedToolIdentity{Name: rt.Name, BinaryPath: rt.BinaryPath, BinaryHash: rt.Hash, Protocol: types.GeneratedStdinV1, Workspace: rt.Workspace}
 	if err := verifyGeneratedBinary(identity); err != nil {
 		return nil, err
 	}
@@ -74,6 +171,38 @@ func (r *RuntimeRegistry) Register(tool *GeneratedTool, compiled *CompileResult)
 	return rt, nil
 }
 
+func validateCompiledArtifactPath(compiledDir, toolName, artifactPath string) error {
+	if compiledDir == "" {
+		return fmt.Errorf("compiled directory is unavailable")
+	}
+	if toolName == "" || sanitizeToolName(toolName) != toolName || filepath.Base(toolName) != toolName {
+		return fmt.Errorf("tool name %q is not a canonical generated name", toolName)
+	}
+	root, err := filepath.Abs(compiledDir)
+	if err != nil {
+		return fmt.Errorf("resolve compiled directory: %w", err)
+	}
+	path, err := filepath.Abs(artifactPath)
+	if err != nil {
+		return fmt.Errorf("resolve compiled artifact: %w", err)
+	}
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		return fmt.Errorf("check compiled artifact containment: %w", err)
+	}
+	if relative != toolName && relative != toolName+".exe" {
+		return fmt.Errorf("compiled artifact %q is outside the configured name path for %q", artifactPath, toolName)
+	}
+	info, err := os.Lstat(path)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("inspect compiled artifact %q: %w", path, err)
+	}
+	if err == nil && !info.Mode().IsRegular() {
+		return fmt.Errorf("compiled artifact is not a regular file: %s", path)
+	}
+	return nil
+}
+
 // Get retrieves a tool by name
 func (r *RuntimeRegistry) Get(name string) (*RuntimeTool, bool) {
 	r.mu.RLock()
@@ -90,7 +219,7 @@ func (r *RuntimeRegistry) List() []*RuntimeTool {
 	tools := make([]*RuntimeTool, 0, len(r.tools))
 	for _, tool := range r.tools {
 		tools = append(tools, &RuntimeTool{Name: tool.Name, Description: tool.Description, BinaryPath: tool.BinaryPath,
-			Hash: tool.Hash, Schema: tool.Schema, RegisteredAt: tool.RegisteredAt, ExecuteCount: atomic.LoadInt64(&tool.ExecuteCount)})
+			Hash: tool.Hash, Workspace: tool.Workspace, Schema: tool.Schema, RegisteredAt: tool.RegisteredAt, ExecuteCount: atomic.LoadInt64(&tool.ExecuteCount)})
 	}
 	return tools
 }
@@ -99,6 +228,13 @@ func (r *RuntimeRegistry) List() []*RuntimeTool {
 func (r *RuntimeRegistry) Restore(toolsDir, compiledDir string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if strings.TrimSpace(compiledDir) != "" {
+		compiledDir = filepath.Clean(strings.TrimSpace(compiledDir))
+		if absolute, err := filepath.Abs(compiledDir); err == nil {
+			compiledDir = absolute
+			r.compiledDir = absolute
+		}
+	}
 
 	// List all binaries in compiled dir
 	entries, err := os.ReadDir(compiledDir)
@@ -162,27 +298,45 @@ func (r *RuntimeRegistry) Restore(toolsDir, compiledDir string) {
 			Description:  description,
 			BinaryPath:   binaryPath,
 			Hash:         hash,
+			Workspace:    r.workspace,
 			Schema:       ToolSchema{Name: name}, // Basic schema
 			RegisteredAt: registeredAt,
 		}
-
-		r.tools[name] = rt
-		delete(r.identities, name)
 		data, err := os.ReadFile(binaryPath + ".identity.json")
+		if err != nil && !os.IsNotExist(err) {
+			continue
+		}
 		var identity types.GeneratedToolIdentity
-		if err == nil && json.Unmarshal(data, &identity) == nil && identity.Name == name &&
-			identity.BinaryPath == binaryPath && verifyGeneratedBinary(identity) == nil {
+		identityPresent := err == nil
+		identityValid := identityPresent && json.Unmarshal(data, &identity) == nil && identity.Name == name &&
+			identity.BinaryPath == binaryPath && filepath.IsAbs(identity.Workspace) && verifyGeneratedBinary(identity) == nil
+		if identityValid && r.workspace != "" && identity.Workspace != r.workspace {
+			continue
+		}
+		if identityValid {
+			if r.workspace == "" {
+				r.workspace = identity.Workspace
+			}
+			rt.Workspace = identity.Workspace
 			if r.identities == nil {
 				r.identities = make(map[string]types.GeneratedToolIdentity)
 			}
 			r.identities[name] = identity
+		} else if identityPresent {
+			// A present but corrupt or mismatched host identity must not be
+			// downgraded to a legacy registry entry.
+			continue
 		}
+		r.tools[name] = rt
 	}
 }
 
 // Execute runs the tool with the given input
 func (rt *RuntimeTool) Execute(ctx context.Context, input string) (string, error) {
-	identity := types.GeneratedToolIdentity{Name: rt.Name, BinaryPath: rt.BinaryPath, BinaryHash: rt.Hash, Protocol: types.GeneratedStdinV1}
+	identity := types.GeneratedToolIdentity{Name: rt.Name, BinaryPath: rt.BinaryPath, BinaryHash: rt.Hash, Protocol: types.GeneratedStdinV1, Workspace: rt.Workspace}
+	if !filepath.IsAbs(identity.BinaryPath) {
+		return "", fmt.Errorf("tool binary path must be absolute for security")
+	}
 	// The legacy wrapper still accepts arbitrary input strings.
 	if identity.BinaryHash == "" {
 		data, err := os.ReadFile(identity.BinaryPath)
@@ -207,7 +361,7 @@ func (r *RuntimeRegistry) GeneratedToolIdentity(name string) (types.GeneratedToo
 		return identity, fmt.Errorf("tool %s has no host protocol identity", name)
 	}
 	tool := r.tools[name]
-	if tool == nil || tool.Name != identity.Name || tool.BinaryPath != identity.BinaryPath || tool.Hash != identity.BinaryHash {
+	if tool == nil || tool.Name != identity.Name || tool.BinaryPath != identity.BinaryPath || tool.Hash != identity.BinaryHash || tool.Workspace != identity.Workspace {
 		return identity, fmt.Errorf("runtime registration identity changed")
 	}
 	return identity, nil
@@ -220,7 +374,7 @@ func (r *RuntimeRegistry) recordGeneratedSuccess(identity types.GeneratedToolIde
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	tool, ok := r.tools[identity.Name]
-	if ok && tool.BinaryPath == identity.BinaryPath && tool.Hash == identity.BinaryHash {
+	if ok && tool.BinaryPath == identity.BinaryPath && tool.Hash == identity.BinaryHash && tool.Workspace == identity.Workspace {
 		atomic.AddInt64(&tool.ExecuteCount, 1)
 	}
 }
@@ -228,6 +382,16 @@ func (r *RuntimeRegistry) recordGeneratedSuccess(identity types.GeneratedToolIde
 func verifyGeneratedBinary(identity types.GeneratedToolIdentity) error {
 	if !filepath.IsAbs(identity.BinaryPath) {
 		return fmt.Errorf("tool binary must be absolute")
+	}
+	if !filepath.IsAbs(identity.Workspace) {
+		return fmt.Errorf("tool workspace must be absolute")
+	}
+	workspaceInfo, err := os.Stat(identity.Workspace)
+	if err != nil {
+		return fmt.Errorf("tool workspace is unavailable: %w", err)
+	}
+	if !workspaceInfo.IsDir() {
+		return fmt.Errorf("tool workspace is not a directory")
 	}
 	if identity.Protocol != types.GeneratedStdinV1 && identity.Protocol != types.LegacyArgvV1 {
 		return fmt.Errorf("unknown tool protocol %q", identity.Protocol)

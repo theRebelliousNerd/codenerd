@@ -603,8 +603,8 @@ func promptCacheKey(model string, tools []metaResponsesTool) string {
 }
 
 // newResponsesRequest builds a request with this client's configured reasoning
-// effort and output ceiling applied.
-func (c *OpenAICompatClient) newResponsesRequest(ctx context.Context, input []any, thinking bool) metaResponsesRequest {
+// effort (or a shard profile's, effortFor) and output ceiling applied.
+func (c *OpenAICompatClient) newResponsesRequest(ctx context.Context, input []any) metaResponsesRequest {
 	store := false
 	req := metaResponsesRequest{
 		Model: c.ModelForContext(ctx),
@@ -625,12 +625,7 @@ func (c *OpenAICompatClient) newResponsesRequest(ctx context.Context, input []an
 		req.MaxOutputTokens = c.maxOutputTokens
 	}
 
-	effort := c.reasoningEffortOverride
-	if effort == "" && thinking {
-		effort = c.reasoningEffortForContext(ctx)
-	}
-	// "none" is rejected by Muse Spark, so it is never forwarded.
-	if effort != "" && effort != "none" {
+	if effort := c.effortFor(ctx); effort != "" {
 		req.Reasoning = &metaReasoningConfig{Effort: effort}
 	}
 
@@ -698,7 +693,7 @@ func (c *OpenAICompatClient) completeWithToolResultsViaResponses(
 	c.clearGroundingSources()
 	input := metaInputFromHistory(systemPrompt, history)
 
-	req := c.newResponsesRequest(ctx, input, c.enableThinking)
+	req := c.newResponsesRequest(ctx, input)
 	req.Tools = metaToolsFromDefinitions(tools)
 	if len(req.Tools) > 0 {
 		req.ToolChoice = "auto"
@@ -718,19 +713,14 @@ func (c *OpenAICompatClient) completeWithToolResultsViaResponses(
 	// A failed or cancelled run carries no usable output. Returning it as a
 	// success would hand the executor an empty turn it mistakes for a final
 	// answer, so this is an error carrying the vendor's own message.
-	// The same URLs Gemini puts on LLMToolResponse.GroundingSources. Callers
-	// that read the response, and callers that ask the client afterwards,
-	// see one list.
+	// Sources reach callers through the client (GetLastGroundingSources), the
+	// one channel every grounding reader uses.
 	captured := metaGroundingFromReply(reply)
 	c.recordGroundingSources(captured.Sources)
 	if err := c.responsesTerminalError(reply, "CompleteWithToolResults"); err != nil {
 		return nil, err
 	}
-	resp := metaToolResponseFromReply(reply)
-	if len(captured.Sources) > 0 {
-		resp.GroundingSources = append([]string(nil), captured.Sources...)
-	}
-	return resp, nil
+	return metaToolResponseFromReply(reply), nil
 }
 
 // validateMetaHistory guards the Responses path the way validateMetaTools
@@ -1144,8 +1134,8 @@ func (c *OpenAICompatClient) responsesTerminalError(reply *metaResponsesReply, m
 // forceEffort replaces the request's reasoning effort; "minimal" is the
 // empty-completion retry, and it wins over a configured override the same
 // way the Chat path overwrites reasoning_effort for that retry.
-func (c *OpenAICompatClient) postResponsesCompletion(ctx context.Context, systemPrompt, userPrompt string, thinking bool, forceEffort string) (string, *metaResponsesReply, error) {
-	req := c.newResponsesRequest(ctx, metaInputFromHistory(systemPrompt, []types.Message{{Role: "user", Text: userPrompt}}), thinking)
+func (c *OpenAICompatClient) postResponsesCompletion(ctx context.Context, systemPrompt, userPrompt string, forceEffort string) (string, *metaResponsesReply, error) {
+	req := c.newResponsesRequest(ctx, metaInputFromHistory(systemPrompt, []types.Message{{Role: "user", Text: userPrompt}}))
 	if forceEffort != "" {
 		if forceEffort == "none" {
 			req.Reasoning = nil
@@ -1170,14 +1160,14 @@ func (c *OpenAICompatClient) postResponsesCompletion(ctx context.Context, system
 // completeWithSystemGrounded is CompleteWithSystem for a Meta client that
 // has web search on. The retry stays on this surface: falling back to Chat
 // Completions would drop the search tool the caller turned on.
-func (c *OpenAICompatClient) completeWithSystemGrounded(ctx context.Context, systemPrompt, userPrompt string, thinking bool) (string, error) {
+func (c *OpenAICompatClient) completeWithSystemGrounded(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	start := time.Now()
 	if strings.TrimSpace(systemPrompt) == "" {
 		systemPrompt = defaultSystemPrompt
 	}
 	c.clearGroundingSources()
 
-	text, reply, err := c.postResponsesCompletion(ctx, systemPrompt, userPrompt, thinking, "")
+	text, reply, err := c.postResponsesCompletion(ctx, systemPrompt, userPrompt, "")
 	if err != nil {
 		logging.PerceptionError("[%s] CompleteWithSystem failed after %v: %v", c.vendor, time.Since(start), err)
 		return "", err
@@ -1196,7 +1186,7 @@ func (c *OpenAICompatClient) completeWithSystemGrounded(ctx context.Context, sys
 		logging.PerceptionWarn(
 			"[%s] empty content (0 chars of reasoning, %d completion tokens); retrying once with minimal reasoning",
 			c.vendor, billed)
-		retryText, retryReply, retryErr := c.postResponsesCompletion(ctx, systemPrompt, userPrompt, false, "minimal")
+		retryText, retryReply, retryErr := c.postResponsesCompletion(ctx, systemPrompt, userPrompt, "minimal")
 		if retryErr == nil && c.responsesTerminalError(retryReply, "CompleteWithSystem") == nil {
 			if retried := strings.TrimSpace(retryText); retried != "" {
 				c.recordGroundingSources(metaGroundingFromReply(retryReply).Sources)

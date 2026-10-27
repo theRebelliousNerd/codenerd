@@ -3,6 +3,7 @@
 package shards
 
 import (
+	"sort"
 	"time"
 
 	"codenerd/internal/articulation"
@@ -16,18 +17,20 @@ import (
 	"codenerd/internal/types"
 )
 
-// ShardPredicateManifest is the per-shard contract that names every predicate
-// the shard is the authoritative owner of. It is consumed by the cortex /
+// ShardPredicateManifest names the predicates a shard authoritatively owns
+// and any bounded EDB copies it consumes. It is consumed by the cortex /
 // shard-fact-router (Track D) so that when features.IsPerShardFactsEnabled()
 // is true, a fact asserted on the wrong shard gets routed to its owner
 // instead of silently landing in a non-authoritative store.
 //
 // The manifest is intentionally a flat data structure with no behavior.
 // internal/system/factory.go consumes it when constructing the production
-// Cortex shards, making this the single source of predicate ownership truth.
+// Cortex and its explicit consumer-copy routes, making this the single source
+// of predicate ownership and bounded replica truth.
 type ShardPredicateManifest struct {
-	Domain          string   // Shard domain name, matches core.KernelShardConfig.Domain
-	OwnedPredicates []string // Predicates this shard is authoritative for
+	Domain             string   // Shard domain name, matches core.KernelShardConfig.Domain
+	OwnedPredicates    []string // Predicates this shard is authoritative for
+	ConsumerPredicates []string // Bounded EDB copies this shard needs for local rules
 }
 
 // DefaultShardPredicateManifests returns the canonical predicate ownership
@@ -259,6 +262,16 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// make a dormant permission path live; that is the
 				// architect's call, not a routing fix.
 			},
+			// These are the base facts policy_mcp.mg joins into the remote
+			// authority decision. Their existing owners remain canonical; only
+			// these bounded EDB predicates get an additional policy copy.
+			ConsumerPredicates: []string{
+				"mcp_tool_registered", "mcp_tool_risk", "mcp_tool_risk_source",
+				"mcp_server_status", "mcp_tool_name", "mcp_tool_schema_hash",
+				"mcp_server_registered", "mcp_remote_request", "mcp_remote_reviewed",
+				"mcp_remote_operation", "mcp_remote_resource", "mcp_resource_registered",
+				"mcp_remote_prompt", "mcp_prompt_registered",
+			},
 		},
 		{
 			Domain: "campaign",
@@ -400,6 +413,28 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 			OwnedPredicates: nil, // Catch-all for unowned predicates
 		},
 	}
+}
+
+// PredicateConsumerRoutes returns the canonical bounded EDB replica routes
+// declared by the shard manifests. The consumer gets a copy while the
+// manifest's OwnedPredicates continue to name the authoritative source.
+func PredicateConsumerRoutes() []core.PredicateConsumerRoute {
+	var routes []core.PredicateConsumerRoute
+	for _, manifest := range DefaultShardPredicateManifests() {
+		for _, predicate := range manifest.ConsumerPredicates {
+			routes = append(routes, core.PredicateConsumerRoute{
+				Predicate: predicate,
+				Consumer:  manifest.Domain,
+			})
+		}
+	}
+	sort.Slice(routes, func(i, j int) bool {
+		if routes[i].Predicate != routes[j].Predicate {
+			return routes[i].Predicate < routes[j].Predicate
+		}
+		return routes[i].Consumer < routes[j].Consumer
+	})
+	return routes
 }
 
 // SharedPredicates names the per-turn context facts replicated into every

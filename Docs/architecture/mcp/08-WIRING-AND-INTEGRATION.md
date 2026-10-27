@@ -103,7 +103,6 @@ Without EDB registration facts + loaded policy IDB, step 2 yields empty → **fa
 
 | Type | Field | File |
 |------|-------|------|
-| `ToolPregenerator` | `mcpStore *mcp.MCPToolStore` | `tool_pregenerator.go` |
 | `IntelligenceGatherer` | `mcpStore *mcp.MCPToolStore` | `intelligence_gatherer.go` |
 
 These expect a store instance injected by campaign setup; they do not construct the full bridge themselves.

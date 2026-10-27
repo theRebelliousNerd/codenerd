@@ -32,9 +32,9 @@ func productionChain(t *testing.T) (base *perception.CodexCLIClient, chain perce
 	t.Helper()
 
 	base = perception.NewCodexCLIClient(&config.CodexCLIConfig{})
-	metered, err := perception.InstallBrokerForProvider(base, perception.ProviderAnthropic, "test-model", "")
+	metered, err := perception.InstallBroker(base, &perception.ProviderConfig{Provider: perception.ProviderAnthropic, Model: "test-model"})
 	if err != nil {
-		t.Fatalf("InstallBrokerForProvider: %v", err)
+		t.Fatalf("InstallBroker: %v", err)
 	}
 	// The exact order internal/system/factory.go builds: metering innermost,
 	// then tracing when a local store opened, then scheduling.

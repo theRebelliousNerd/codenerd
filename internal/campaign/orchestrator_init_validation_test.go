@@ -28,14 +28,15 @@ func TestNewOrchestrator_RejectsMissingDependencies(t *testing.T) {
 
 func TestNewOrchestrator_RejectsNegativeConfigurationValues(t *testing.T) {
 	_, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:       t.TempDir(),
-		Kernel:          &MockKernel{},
-		LLMClient:       &MockLLMClient{},
-		ShardManager:    coreshards.NewShardManager(),
-		Executor:        tactile.NewDirectExecutor(),
-		VirtualStore:    &core.VirtualStore{},
-		Campaign:        config.CampaignConfig{MaxParallelTasks: -1},
-		CampaignTimeout: -time.Second,
+		Workspace:         t.TempDir(),
+		Kernel:            &MockKernel{},
+		LLMClient:         &MockLLMClient{},
+		PlanningLLMClient: &MockLLMClient{},
+		ShardManager:      coreshards.NewShardManager(),
+		Executor:          tactile.NewDirectExecutor(),
+		VirtualStore:      &core.VirtualStore{},
+		Campaign:          config.CampaignConfig{MaxParallelTasks: -1},
+		CampaignTimeout:   -time.Second,
 	})
 	if err == nil {
 		t.Fatal("expected invalid config error")
@@ -55,13 +56,14 @@ func TestNewOrchestrator_RejectsNegativeConfigurationValues(t *testing.T) {
 // It described a configuration that constructs, not one that works.
 func TestNewOrchestrator_AcceptsValidMinimalConfiguration(t *testing.T) {
 	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:    t.TempDir(),
-		Kernel:       &MockKernel{},
-		LLMClient:    &MockLLMClient{},
-		ShardManager: coreshards.NewShardManager(),
-		TaskExecutor: &MockTaskExecutor{},
-		Executor:     tactile.NewDirectExecutor(),
-		VirtualStore: &core.VirtualStore{},
+		Workspace:         t.TempDir(),
+		Kernel:            &MockKernel{},
+		LLMClient:         &MockLLMClient{},
+		PlanningLLMClient: &MockLLMClient{},
+		ShardManager:      coreshards.NewShardManager(),
+		TaskExecutor:      &MockTaskExecutor{},
+		Executor:          tactile.NewDirectExecutor(),
+		VirtualStore:      &core.VirtualStore{},
 	})
 	if err != nil {
 		t.Fatalf("unexpected NewOrchestrator error: %v", err)
@@ -82,12 +84,13 @@ func TestNewOrchestrator_AcceptsValidMinimalConfiguration(t *testing.T) {
 func TestNewOrchestrator_WhenTaskExecutorNil_ShouldRejectConfig(t *testing.T) {
 	base := func() OrchestratorConfig {
 		return OrchestratorConfig{
-			Workspace:    t.TempDir(),
-			Kernel:       &MockKernel{},
-			LLMClient:    &MockLLMClient{},
-			ShardManager: coreshards.NewShardManager(),
-			Executor:     tactile.NewDirectExecutor(),
-			VirtualStore: &core.VirtualStore{},
+			Workspace:         t.TempDir(),
+			Kernel:            &MockKernel{},
+			LLMClient:         &MockLLMClient{},
+			PlanningLLMClient: &MockLLMClient{},
+			ShardManager:      coreshards.NewShardManager(),
+			Executor:          tactile.NewDirectExecutor(),
+			VirtualStore:      &core.VirtualStore{},
 		}
 	}
 
@@ -118,40 +121,4 @@ func TestNewOrchestrator_WhenTaskExecutorNil_ShouldRejectConfig(t *testing.T) {
 			t.Fatalf("expected ErrNilDependency, got %v", err)
 		}
 	})
-}
-
-// SetTaskExecutor must never downgrade a working orchestrator.
-func TestSetTaskExecutor_WhenNil_ShouldKeepExistingExecutor(t *testing.T) {
-	wired := &MockTaskExecutor{}
-	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:    t.TempDir(),
-		Kernel:       &MockKernel{},
-		LLMClient:    &MockLLMClient{},
-		TaskExecutor: wired,
-		Executor:     tactile.NewDirectExecutor(),
-		VirtualStore: &core.VirtualStore{},
-	})
-	if err != nil {
-		t.Fatalf("unexpected NewOrchestrator error: %v", err)
-	}
-
-	orch.SetTaskExecutor(nil)
-	if orch.taskExecutor != wired {
-		t.Fatal("nil SetTaskExecutor replaced a working executor")
-	}
-	var typedNil *MockTaskExecutor
-	orch.SetTaskExecutor(typedNil)
-	if orch.taskExecutor != wired {
-		t.Fatal("typed-nil SetTaskExecutor replaced a working executor")
-	}
-
-	replacement := &MockTaskExecutor{}
-	orch.SetTaskExecutor(replacement)
-	if orch.taskExecutor != replacement {
-		t.Fatal("a real executor should still replace the wired one")
-	}
-	// The checkpoint runner must follow, or verification keeps using the old one.
-	if orch.checkpoint.taskExecutor != replacement {
-		t.Fatal("checkpoint runner kept the previous executor; verification would run on a stale collaborator")
-	}
 }

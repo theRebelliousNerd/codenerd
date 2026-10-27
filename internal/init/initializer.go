@@ -1,23 +1,31 @@
 // Package init implements the "nerd init" cold-start initialization system.
-// This handles the first-time setup of codeNERD in a new project, creating
-// the .nerd/ directory structure, project profile, and initial knowledge base.
+// It creates the .nerd/ workspace, measures and orients the repository,
+// derives the north star, recommends and builds the specialist agents, and
+// writes the profile, facts, prompt corpus and tool definitions every later
+// session boots from.
 //
-// The initialization process follows Cortex 1.5.0 §9.0 Dynamic Shard Configuration:
-// 1. Create .nerd/ directory structure
-// 2. Deep scan the codebase for project profile
-// 3. Kick off Researcher shard to analyze what Type 3 agents are needed
-// 4. Create knowledge bases for each Type 3 agent
-// 5. Auto-spawn Type 3 persistent agents
-// 6. Enable dynamic agent calling from main kernel
-//
-// This file contains the core initialization orchestration.
-// Related files:
-// - scanner.go: File system traversal and dependency detection
-// - profile.go: Profile generation, facts generation, session management
-// - agents.go: Agent recommendation, creation, and knowledge base hydration
+// Files:
+//   - initializer.go: configuration, construction and the phase sequence
+//   - phases.go: one function per phase, progress and completion
+//   - llm_routing.go: which configured client serves which phase
+//   - jit_integration.go: the withJITPrompt chokepoint every model call crosses
+//   - phase_orient.go: orientation, document roles and the north-star draft
+//   - agents*.go: specialist recommendation, prompts and knowledge bases
+//   - project_tools.go: project command tools chosen from the repository's own commands
 package init
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+
 	"codenerd/internal/config"
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
@@ -27,22 +35,8 @@ import (
 	"codenerd/internal/orient"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
-	"codenerd/internal/regression"
-	"slices"
-	"unicode"
-
-	// researcher removed - JIT clean loop handles research
 	"codenerd/internal/store"
-	"codenerd/internal/tools/research"
 	"codenerd/internal/world"
-	"context"
-	"fmt"
-	"os"
-	"path/filepath"
-	"regexp"
-	"strings"
-	"sync"
-	"time"
 )
 
 var (
@@ -50,28 +44,28 @@ var (
 	initSecretPattern   = regexp.MustCompile(`(AIza[0-9A-Za-z_-]{10,}|sk-[A-Za-z0-9]{10,}|ctx7sk-[0-9a-f-]{8,}|gh[pousr]_[A-Za-z0-9]{10,}|xox[baprs]-[A-Za-z0-9-]{10,})`)
 )
 
-// InitProgress represents a progress update during initialization.
+// InitProgress represents a progress update during initialization. Every
+// field is measured: the running phase's number among TotalPhases, the time
+// since init started, and Percent, the share of phases already finished.
 type InitProgress struct {
 	Phase          string  // Current phase name
 	Message        string  // Human-readable status message
-	Percent        float64 // 0.0 - 1.0 completion percentage
+	Percent        float64 // Share of phases finished, 0.0 - 1.0
 	IsError        bool    // True if this is an error message
 	AgentUpdate    *AgentCreationUpdate
-	ETARemaining   time.Duration // E2: Estimated time remaining
-	ElapsedTime    time.Duration // E2: Time elapsed since init started
-	CurrentPhaseNo int           // E2: Current phase number (1-based)
-	TotalPhases    int           // E2: Total number of phases
+	ElapsedTime    time.Duration // Time elapsed since init started
+	CurrentPhaseNo int           // Current phase number (1-based)
+	TotalPhases    int           // Total number of phases
 }
 
 // AgentCreationUpdate provides details about agent creation progress.
 type AgentCreationUpdate struct {
 	AgentName     string
 	AgentType     string
-	Status        string  // "creating", "researching", "ready", "failed"
-	KBSize        int     // Knowledge base size (facts/atoms)
-	AtomCount     int     // E1: Current atom count during research
-	TopicProgress string  // E1: Current topic being researched
-	QualityScore  float64 // E1: Atom-count population proxy (0-100), not semantic quality
+	Status        string // "creating", "researching", "ready", "failed"
+	KBSize        int    // Knowledge base size (facts/atoms)
+	AtomCount     int    // E1: Current atom count during research
+	TopicProgress string // E1: Current topic being researched
 }
 
 // RecommendedAgent represents an agent recommended by the Researcher.
@@ -89,18 +83,33 @@ type RecommendedAgent struct {
 
 // InitConfig holds configuration for initialization.
 type InitConfig struct {
-	Workspace       string
-	LLMClient       perception.LLMClient
-	LLMProvider     string                   // Human-readable provider used in summaries
-	LLMModel        string                   // Human-readable model used in summaries
-	ShardManager    *coreshards.ShardManager // Shard manager for agent spawning
-	Interactive     bool                     // Whether to prompt user for preferences
-	Timeout         time.Duration            // Bounds one model request; zero uses configured provider timeout
-	SkipResearch    bool                     // Skip deep research phase (faster init)
-	SkipAgentCreate bool                     // Skip Type 3 agent creation
-	PreferenceHints []string                 // User-provided hints about preferences
-	ProgressChan    chan InitProgress        // Channel for progress updates
-	Context7APIKey  string                   // Context7 API key for LLM-optimized docs
+	Workspace string
+	// LLMClient serves bulk enrichment (per-chunk document extraction,
+	// grounded domain research), and every phase when PlannerClient is nil.
+	LLMClient perception.LLMClient
+	// PlannerClient serves the calls whose output every later phase and
+	// session builds on: document roles and the north-star draft, the
+	// domain-expert roster, strategic-knowledge synthesis, specialist prompt
+	// generation and project tool selection. Nil runs them on LLMClient.
+	// Provider and model identity are read from each client, never set here.
+	PlannerClient perception.LLMClient
+	// ShardManager, when set, is told about the agents init creates so a
+	// running session can spawn them at once. Init never reconfigures it.
+	ShardManager *coreshards.ShardManager
+	// EmbeddingEngine, when set, is the engine init embeds with. Nil builds
+	// one from the workspace .nerd/config.json.
+	EmbeddingEngine embedding.EmbeddingEngine
+	Interactive     bool          // Whether to prompt user for preferences
+	Timeout         time.Duration // Bounds one model request; zero reads llm_timeouts.per_call_timeout at call time
+	SkipResearch    bool          // Skip deep research phase (faster init)
+	SkipAgentCreate bool          // Skip Type 3 agent creation
+	PreferenceHints []string      // User-provided hints about preferences
+	ProgressChan    chan InitProgress
+	// Output receives the human-readable phase log. Nil discards it: a front
+	// end that draws its own screen (the chat TUI) must not have init write
+	// into it, and reads ProgressChan instead.
+	Output         io.Writer
+	Context7APIKey string // Context7 API key for LLM-optimized docs
 
 	// TypeUAgents are user-defined agents from `nerd init --define-agent`.
 	// They are merged into the recommended set in phase 6, so they receive the
@@ -114,20 +123,21 @@ type InitConfig struct {
 	InteractiveIO *InteractiveConfig
 }
 
-// DefaultInitConfig returns sensible defaults.
+// DefaultInitConfig returns the defaults for a command-line init: an
+// interactive run that logs to standard output. Timeout stays zero so each
+// model request reads llm_timeouts.per_call_timeout when it is made, after the
+// workspace configuration has loaded.
 func DefaultInitConfig(workspace string) InitConfig {
 	if workspace == "" {
 		workspace, _ = os.Getwd()
 	}
 	return InitConfig{
-		Workspace:    workspace,
-		Interactive:  true,
-		Timeout:      config.GetLLMTimeouts().PerCallTimeout,
-		SkipResearch: false,
+		Workspace:   workspace,
+		Interactive: true,
+		Output:      os.Stdout,
 	}
 }
 
-// ProjectProfile represents the persisted project identity.
 // ProjectProfile represents the persisted project identity.
 type ProjectProfile struct {
 	// Identity
@@ -162,6 +172,9 @@ type ProjectProfile struct {
 	// Stats
 	FileCount      int `json:"file_count"`
 	DirectoryCount int `json:"directory_count"`
+	// TestFileCount is how many test files the scan found; tests on disk
+	// are the scan's evidence for TestArchitect.
+	TestFileCount int `json:"test_file_count,omitzero"`
 }
 
 // ModuleProfile describes one module in a multi-module workspace. A single
@@ -233,31 +246,9 @@ type InitResult struct {
 	CreatedAgents     []CreatedAgent     `json:"created_agents,omitzero"`
 	AgentKBs          map[string]int     `json:"agent_knowledge_bases,omitzero"` // agent name -> KB size
 
-	// ToolNeeds names the project tool needs phase 7e recorded as
-	// missing_tool_for facts. Nothing is built at init: Ouroboros builds a
-	// tool when the kernel asks for it.
-	ToolNeeds []string `json:"tool_needs,omitzero"`
-
-	// Gemini Grounding (when Gemini is the LLM provider)
-	GroundingSources []string `json:"grounding_sources,omitzero"` // URLs used to ground LLM responses
-	GroundingEnabled bool     `json:"grounding_enabled,omitzero"` // Whether grounding was active
-}
-
-// InitLLMMetrics reports the enrichment calls made during initialization.
-// LLM failures degrade enrichment but do not make structurally valid init
-// artifacts unusable, so they are reported separately from required failures.
-type InitLLMMetrics struct {
-	Provider  string `json:"provider,omitzero"`
-	Model     string `json:"model,omitzero"`
-	Attempts  int    `json:"attempts"`
-	Succeeded int    `json:"succeeded"`
-	Failed    int    `json:"failed"`
-	LastError string `json:"last_error,omitzero"`
-	// StaticPromptPhases are expert phases (persistent specialist agents)
-	// whose prompts came from the static fallback because the JIT kernel or
-	// compiler was unavailable. An expert built from a fallback prompt is
-	// measurably worse, so this is reported rather than logged at debug.
-	StaticPromptPhases []string `json:"static_prompt_phases,omitzero"`
+	// ProjectTools names the project command tools phase 7e chose from the
+	// repository's own commands; phase 10 writes them to available_tools.json.
+	ProjectTools []string `json:"project_tools,omitzero"`
 }
 
 // CreatedAgent represents a Type 3 agent that was created during init.
@@ -270,17 +261,12 @@ type CreatedAgent struct {
 	Status          string            `json:"status"` // "ready", "partial", "failed"
 	Tools           []string          `json:"tools,omitzero"`
 	ToolPreferences map[string]string `json:"tool_preferences,omitzero"`
-
-	// Legacy JSON field names retained for compatibility. Values measure KB
-	// population by atom count; they do not measure semantic quality.
-	QualityScore  float64 `json:"quality_score,omitzero"`
-	QualityRating string  `json:"quality_rating,omitzero"`
 }
 
 // Initializer handles the cold-start initialization process.
 type Initializer struct {
-	config InitConfig
-	// researcher removed - JIT clean loop handles research
+	config              InitConfig
+	out                 io.Writer
 	scanner             *world.Scanner
 	localDB             *store.LocalStore
 	shardMgr            *coreshards.ShardManager
@@ -289,10 +275,6 @@ type Initializer struct {
 	orientation         *orient.Engine
 	orientationSnapshot *orient.Snapshot
 	orientedVision      *northstar.Vision
-
-	// Gemini grounding helper (nil if not Gemini or grounding unavailable)
-	grounding        *research.GroundingHelper
-	groundingSources []string // Accumulated grounding sources from all LLM calls
 
 	// Concurrency
 	mu          sync.RWMutex
@@ -307,13 +289,25 @@ type Initializer struct {
 	// goroutine while KB phases run.
 	projectAtoms []*store.PromptAtom
 
-	// E2: ETA tracking
-	etaTracker *ETATracker
+	// projectTools carries phase 7e's selection to phase 10, which writes it
+	// into available_tools.json beside the language tools.
+	projectTools []ToolDefinition
+
+	// registeredTools is what phase 10 wrote to available_tools.json; phase
+	// 11 limits agent tool grants to it.
+	registeredTools []ToolDefinition
+
+	// clock measures the running phase and the elapsed time for progress.
+	clock *phaseClock
 
 	// fetchTopic fetches one research topic's documentation. Nil means
 	// Context7 through the modular research registry (topicFetcher); tests
 	// set it to observe which topics a KB build researches.
 	fetchTopic func(ctx context.Context, topic string) (string, error)
+
+	// research shares fetched topics across the agents of one run, so a topic
+	// two specialists both need is fetched once.
+	research topicCache
 }
 
 // NewInitializer creates a new initializer.
@@ -331,14 +325,11 @@ func NewInitializer(initConfig InitConfig) (*Initializer, error) {
 	}
 	initConfig.Workspace = workspace
 
-	// Researcher shard removed - JIT clean loop handles research
 	// Auto-detect Context7 API key if not explicitly provided (C1 enhancement)
-	context7Key := initConfig.Context7APIKey
-	if context7Key == "" {
-		context7Key = config.AutoDetectContext7APIKey()
-		if context7Key != "" {
+	if initConfig.Context7APIKey == "" {
+		if key := config.AutoDetectContext7APIKey(); key != "" {
 			logging.Boot("Auto-detected Context7 API key from environment/config")
-			initConfig.Context7APIKey = context7Key // Store for later use
+			initConfig.Context7APIKey = key
 		}
 	}
 
@@ -347,53 +338,42 @@ func NewInitializer(initConfig InitConfig) (*Initializer, error) {
 		return nil, fmt.Errorf("failed to create kernel: %w", err)
 	}
 
-	metrics := InitLLMMetrics{
-		Provider: strings.TrimSpace(initConfig.LLMProvider),
-		Model:    strings.TrimSpace(initConfig.LLMModel),
+	out := initConfig.Output
+	if out == nil {
+		out = io.Discard
 	}
-	if metrics.Model == "" && initConfig.LLMClient != nil {
-		if modelProvider, ok := initConfig.LLMClient.(interface{ GetModel() string }); ok {
-			metrics.Model = strings.TrimSpace(modelProvider.GetModel())
-		}
-	}
-	if metrics.Provider == "" && initConfig.LLMClient != nil {
-		metrics.Provider = fmt.Sprintf("%T", initConfig.LLMClient)
-	}
-
-	init := &Initializer{
+	return &Initializer{
 		config:      initConfig,
+		out:         out,
 		scanner:     world.NewScanner(),
 		kernel:      kernel,
-		embedEngine: nil,
-		llmMetrics:  metrics,
-		etaTracker:  NewETATracker(23),
-	}
-
-	// Use provided shard manager or create new one
-	if initConfig.ShardManager != nil {
-		init.shardMgr = initConfig.ShardManager
-	} else {
-		init.shardMgr = coreshards.NewShardManager()
-	}
-	if initConfig.LLMClient != nil {
-		init.shardMgr.SetLLMClient(initConfig.LLMClient)
-
-		// Initialize Gemini grounding helper if LLM client is Gemini
-		init.grounding = research.NewGroundingHelper(initConfig.LLMClient)
-		if init.grounding.IsGroundingAvailable() {
-			// Enable Google Search grounding for init phases (strategic knowledge, doc analysis)
-			init.grounding.EnableGoogleSearch()
-			logging.Boot("Gemini grounding enabled for init (Google Search active)")
-		}
-	}
-
-	return init, nil
+		embedEngine: initConfig.EmbeddingEngine,
+		// A caller's shard manager is only told about created agents. Init
+		// used to set its LLM client to LLMClient and start its system
+		// shards: in a chat session that moved every later shard off the
+		// worker client and spawned a second copy of each system shard.
+		shardMgr: initConfig.ShardManager,
+		clock:    newPhaseClock(len(initPhases)),
+	}, nil
 }
 
-// Close releases resources held by the initializer.
+// output is where the human-readable phase log goes; an Initializer built
+// without NewInitializer logs nowhere.
+func (i *Initializer) output() io.Writer {
+	if i.out == nil {
+		return io.Discard
+	}
+	return i.out
+}
+
+// Close releases resources held by the initializer. Every resource is
+// released even when an earlier one fails to close.
 func (i *Initializer) Close() error {
+	var errs []error
 	if i.orientation != nil {
-		_ = i.orientation.Close()
+		if err := i.orientation.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close orientation engine: %w", err))
+		}
 		i.orientation = nil
 	}
 	i.jitMu.Lock()
@@ -403,13 +383,16 @@ func (i *Initializer) Close() error {
 	i.jitMu.Unlock()
 	if compiler != nil {
 		if err := compiler.Close(); err != nil {
-			return err
+			errs = append(errs, fmt.Errorf("close JIT compiler: %w", err))
 		}
 	}
 	if i.localDB != nil {
-		return i.localDB.Close()
+		if err := i.localDB.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close knowledge database: %w", err))
+		}
+		i.localDB = nil
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // ensureEmbeddingEngine initializes a shared embedding engine for sqlite-vec.
@@ -456,16 +439,9 @@ func initEmbeddingModel(cfg embedding.Config) string {
 	return cfg.OllamaModel
 }
 
-// Initialize performs the full initialization process.
-// This implements Cortex 1.5.0 §9.0 Dynamic Shard Configuration:
-// 1. Create .nerd/ directory structure
-// 2. Deep scan the codebase for project profile
-// 3. Generate initial Mangle facts from codebase analysis
-// 4. Kick off Researcher shard to analyze what Type 3 agents are needed
-// 5. Create knowledge bases for each Type 3 agent
-// 6. Auto-spawn Type 3 persistent agents
-// 7. Register agents with shard manager for dynamic calling
-
+// Initialize runs every phase in order. Required failures land in
+// InitResult.Failures and make Success false; degraded enrichment lands in
+// Warnings. Cancellation is checked between phases.
 func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	startTime := time.Now()
 	if ctx == nil {
@@ -494,19 +470,8 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	}
 
 	runner := newPhaseRunner(i)
-
-	runner.start("setup", "Initializing codeNERD...", 0.0)
-	fmt.Println("🚀 Initializing codeNERD...")
-	fmt.Printf("   Workspace: %s\n\n", i.config.Workspace)
-
-	// Ensure system shards are running before heavy lifting.
-	if err := i.shardMgr.StartSystemShards(ctx); err != nil {
-		result.Failures = append(result.Failures, fmt.Sprintf("Failed to start system shards: %v", err))
-	}
-	runner.complete("setup")
-	if err := checkContext("system shard startup"); err != nil {
-		return result, err
-	}
+	fmt.Fprintln(i.output(), "🚀 Initializing codeNERD...")
+	fmt.Fprintf(i.output(), "   Workspace: %s\n\n", i.config.Workspace)
 
 	// Phase 0: Migrations
 	i.runPhase0Migrations(runner, result)
@@ -534,18 +499,10 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 
 	// Phase 3: Orientation, which also drafts the north star. Everything after
 	// it (profile, agents, knowledge bases) consumes what orientation derived.
-	runner.start("orientation", "Orienting repository history and knowledge...", 0.22)
-	if err := i.runOrientation(ctx, nerdDir, result); err != nil {
-		result.Failures = append(result.Failures, "Orientation failed: "+err.Error())
+	if err := i.runPhase3Orientation(ctx, runner, result, nerdDir); err != nil {
 		return result, err
 	}
-	runner.complete("orientation")
 	if err := checkContext("repository orientation"); err != nil {
-		return result, err
-	}
-
-	i.runPhase3Analysis(runner)
-	if err := checkContext("analysis framework setup"); err != nil {
 		return result, err
 	}
 
@@ -580,33 +537,15 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 		return result, err
 	}
 
-	// Phase 7: Create Agent Knowledge Bases
+	// Phase 7a: Create Agent Knowledge Bases
 	i.runPhase7aCreateAgentKBs(ctx, runner, result, nerdDir, recommendedAgents)
 	if err := checkContext("agent knowledge creation"); err != nil {
 		return result, err
 	}
 
-	// Phase 7b: Create Codebase Knowledge Base
-	i.runPhase7bCreateCodebaseKB(ctx, runner, result, nerdDir, profile, scanResult)
-	if err := checkContext("codebase knowledge creation"); err != nil {
-		return result, err
-	}
-
-	// Phase 7c: Create Core Shard Knowledge Bases
-	i.runPhase7cCreateCoreShardKBs(ctx, runner, result, nerdDir, profile)
-	if err := checkContext("core shard knowledge creation"); err != nil {
-		return result, err
-	}
-
-	// Phase 7d: Create Campaign Knowledge Base
-	i.runPhase7dCreateCampaignKB(ctx, runner, result, nerdDir, profile)
-	if err := checkContext("campaign knowledge creation"); err != nil {
-		return result, err
-	}
-
-	// Phase 7e: Generate Project-Specific Tools
-	i.runPhase7eGenerateTools(ctx, runner, result, nerdDir, profile)
-	if err := checkContext("project tool generation"); err != nil {
+	// Phase 7e: Choose project command tools
+	i.runPhase7eProjectTools(ctx, runner, result, nerdDir, profile)
+	if err := checkContext("project tool selection"); err != nil {
 		return result, err
 	}
 
@@ -640,893 +579,5 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 		return result, err
 	}
 
-	// COMPLETE
 	return i.finalizeInitialization(runner, result, startTime, profile)
-}
-
-func (i *Initializer) recordLLMCall(err error) {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-
-	i.llmMetrics.Attempts++
-	if err == nil {
-		i.llmMetrics.Succeeded++
-		return
-	}
-	i.llmMetrics.Failed++
-	i.llmMetrics.LastError = boundedInitError(err, 240)
-}
-
-func (i *Initializer) snapshotLLMMetrics() InitLLMMetrics {
-	i.mu.RLock()
-	defer i.mu.RUnlock()
-	m := i.llmMetrics
-	m.StaticPromptPhases = append([]string(nil), i.llmMetrics.StaticPromptPhases...)
-	return m
-}
-
-// recordStaticPrompt notes an expert phase that fell back to a static prompt.
-func (i *Initializer) recordStaticPrompt(phase string) {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	if !slices.Contains(i.llmMetrics.StaticPromptPhases, phase) {
-		i.llmMetrics.StaticPromptPhases = append(i.llmMetrics.StaticPromptPhases, phase)
-	}
-}
-
-func boundedInitError(err error, maxRunes int) string {
-	if err == nil {
-		return ""
-	}
-	clean := strings.Join(strings.Fields(err.Error()), " ")
-	clean = initSecretKVPattern.ReplaceAllString(clean, "${1}[redacted]")
-	clean = initSecretPattern.ReplaceAllString(clean, "[redacted]")
-	runes := []rune(clean)
-	if maxRunes > 0 && len(runes) > maxRunes {
-		return string(runes[:maxRunes]) + "..."
-	}
-	return clean
-}
-
-func formatLLMIdentity(metrics InitLLMMetrics) string {
-	provider := strings.TrimSpace(metrics.Provider)
-	model := strings.TrimSpace(metrics.Model)
-	switch {
-	case provider != "" && model != "":
-		return provider + "/" + model
-	case provider != "":
-		return provider
-	case model != "":
-		return model
-	default:
-		return "provider/model unknown"
-	}
-}
-
-type phaseRunner struct {
-	i               *Initializer
-	allPhases       []string
-	remainingPhases []string
-	phaseNum        int
-}
-
-func newPhaseRunner(i *Initializer) *phaseRunner {
-	allPhases := []string{
-		"setup", "migration", "directory", "scanning", "orientation", "analysis", "profile",
-		"facts", "prompt_atoms", "prompt_db", "agents", "shared_kb", "kb_creation",
-		"codebase_kb", "core_shards_kb", "campaign_kb", "tool_generation",
-		"preferences", "session", "tools", "registry", "prompt_sync", "complete",
-	}
-	remainingPhases := make([]string, len(allPhases))
-	copy(remainingPhases, allPhases)
-
-	return &phaseRunner{
-		i:               i,
-		allPhases:       allPhases,
-		remainingPhases: remainingPhases,
-		phaseNum:        1,
-	}
-}
-
-func (p *phaseRunner) advance() {
-	if len(p.remainingPhases) > 0 {
-		p.remainingPhases = p.remainingPhases[1:]
-	}
-	p.phaseNum++
-}
-
-func (p *phaseRunner) start(id, msg string, pct float64) {
-	p.i.startPhaseWithETA(p.phaseNum, id, msg, pct, p.remainingPhases)
-}
-
-func (p *phaseRunner) complete(id string) {
-	p.i.completePhaseWithETA(id)
-	p.advance()
-}
-
-func (i *Initializer) runPhase0Migrations(runner *phaseRunner, result *InitResult) {
-	existingNerdDir := filepath.Join(i.config.Workspace, ".nerd")
-	if _, statErr := os.Stat(existingNerdDir); statErr == nil {
-		runner.start("migration", "Checking database schemas...", 0.02)
-		migrationResults, migErr := store.MigrateAllAgentDBs(existingNerdDir)
-		if migErr != nil {
-			result.Failures = append(result.Failures, fmt.Sprintf("Migration check failed: %v", migErr))
-		} else if len(migrationResults) > 0 {
-			for agentName, migResult := range migrationResults {
-				if migResult.MigrationsRun > 0 {
-					logging.Boot("Migrated %s: v%d → v%d (%d migrations, %d hashes backfilled)",
-						agentName, migResult.FromVersion, migResult.ToVersion,
-						migResult.MigrationsRun, migResult.HashesComputed)
-					fmt.Printf("   ✓ Migrated %s database schema (v%d → v%d)\n",
-						agentName, migResult.FromVersion, migResult.ToVersion)
-				}
-			}
-		}
-		runner.complete("migration")
-	} else {
-		runner.advance()
-	}
-}
-
-func (i *Initializer) runPhase1DirectorySetup(runner *phaseRunner, result *InitResult) (string, error) {
-	runner.start("directory", "Creating directory structure...", 0.05)
-
-	nerdDir, err := i.createDirectoryStructure()
-	if err != nil {
-		return "", fmt.Errorf("failed to create directory structure: %w", err)
-	}
-
-	if err := i.createMangleTemplates(nerdDir); err != nil {
-		return "", fmt.Errorf("create mangle templates: %w", err)
-	}
-
-	fmt.Println("✓ Created .nerd/ directory structure")
-
-	// Seed a starter regression battery. Seed never overwrites, so this is safe
-	// under --force too — the same merge-don't-clobber rule the preferences
-	// write now follows. A failure here is not worth failing init over: the
-	// workspace is usable without a battery, and `nerd regression init` writes
-	// the same file on demand.
-	if path, created, err := regression.Seed(i.config.Workspace); err != nil {
-		result.Failures = append(result.Failures, fmt.Sprintf("Failed to seed regression battery: %v", err))
-	} else if created {
-		result.FilesCreated = append(result.FilesCreated, path)
-		fmt.Println("✓ Seeded regression battery")
-	}
-
-	dbPath := filepath.Join(nerdDir, "knowledge.db")
-	i.localDB, err = store.NewLocalStore(dbPath)
-	if err != nil {
-		return "", fmt.Errorf("initialize knowledge database: %w", err)
-	} else {
-		if err := i.ensureEmbeddingEngine(); err != nil {
-			return "", err
-		}
-		i.localDB.SetEmbeddingEngine(i.embedEngine)
-		result.FilesCreated = append(result.FilesCreated, dbPath)
-		fmt.Println("✓ Initialized knowledge database")
-	}
-
-	northstarStore, err := northstar.NewStore(nerdDir)
-	if err != nil {
-		result.Failures = append(result.Failures, fmt.Sprintf("Failed to initialize Northstar store: %v", err))
-	} else {
-		northstarStore.Close()
-		northstarDBPath := filepath.Join(nerdDir, "northstar_knowledge.db")
-		result.FilesCreated = append(result.FilesCreated, northstarDBPath)
-		fmt.Println("✓ Initialized Northstar vision guardian store")
-	}
-
-	runner.complete("directory")
-	return nerdDir, nil
-}
-
-func (i *Initializer) runPhase2Scanning(ctx context.Context, runner *phaseRunner, result *InitResult) *world.ScanResult {
-	runner.start("scanning", "Scanning codebase...", 0.10)
-	fmt.Println("\n📊 Phase 2: Deep Codebase Scan")
-
-	scanResult, err := i.scanner.ScanDirectory(ctx, i.config.Workspace)
-	if err != nil {
-		result.Failures = append(result.Failures, fmt.Sprintf("Codebase scan failed: %v", err))
-		runner.complete("scanning")
-		return nil
-	}
-
-	fmt.Printf("   Scanned %d files in %d directories\n", scanResult.FileCount, scanResult.DirectoryCount)
-
-	facts := scanResult.ToFacts()
-	if len(facts) > 0 {
-		if err := i.kernel.LoadFacts(facts); err != nil {
-			result.Failures = append(result.Failures, fmt.Sprintf("Failed to load scan facts: %v", err))
-		}
-	}
-	runner.complete("scanning")
-	return scanResult
-}
-
-func (i *Initializer) runPhase3Analysis(runner *phaseRunner) {
-	runner.start("analysis", "Preparing analysis framework...", 0.20)
-	fmt.Println("\n🔬 Phase 3: Analysis Framework Setup")
-	fmt.Println("   Analysis will be performed on-demand via JIT clean loop")
-	runner.complete("analysis")
-}
-
-func (i *Initializer) runPhase4Profile(runner *phaseRunner, result *InitResult, nerdDir string, scanResult *world.ScanResult) ProjectProfile {
-	runner.start("profile", "Building project profile...", 0.35)
-	fmt.Println("\n📋 Phase 4: Building Project Profile")
-
-	profile := i.buildProjectProfile()
-	if scanResult != nil {
-		profile.FileCount = scanResult.FileCount
-		profile.DirectoryCount = scanResult.DirectoryCount
-	}
-	result.Profile = profile
-
-	profilePath := filepath.Join(nerdDir, "profile.json")
-	if err := i.saveProfile(profilePath, profile); err != nil {
-		result.Failures = append(result.Failures, fmt.Sprintf("Failed to save profile: %v", err))
-	} else {
-		result.FilesCreated = append(result.FilesCreated, profilePath)
-		fmt.Println("✓ Saved project profile")
-	}
-	runner.complete("profile")
-	return profile
-}
-
-func (i *Initializer) runPhase5Facts(runner *phaseRunner, result *InitResult, nerdDir string, profile ProjectProfile) {
-	runner.start("facts", "Generating Mangle facts...", 0.45)
-	fmt.Println("\n🧠 Phase 5: Generating Mangle Facts")
-
-	factsPath := filepath.Join(nerdDir, "profile.mg")
-	factsCount, err := i.generateFactsFile(factsPath, profile)
-	if err != nil {
-		result.Failures = append(result.Failures, fmt.Sprintf("Failed to generate facts: %v", err))
-	} else {
-		result.FilesCreated = append(result.FilesCreated, factsPath)
-		result.FactsGenerated = factsCount
-		fmt.Printf("✓ Generated %d Mangle facts\n", factsCount)
-	}
-	runner.complete("facts")
-}
-
-func (i *Initializer) runPhase5bPromptAtoms(runner *phaseRunner, result *InitResult, profile ProjectProfile) {
-	runner.start("prompt_atoms", "Populating project-specific prompt atoms...", 0.47)
-	fmt.Println("\n📝 Phase 5b: Populating Project-Specific Prompt Atoms")
-
-	if err := i.populateProjectAtoms(profile); err != nil {
-		result.Failures = append(result.Failures, fmt.Sprintf("Failed to populate prompt atoms: %v", err))
-	}
-	runner.complete("prompt_atoms")
-}
-
-func (i *Initializer) runPhase5cPromptDB(ctx context.Context, runner *phaseRunner, result *InitResult, nerdDir string) {
-	runner.start("prompt_db", "Initializing prompt corpus database...", 0.48)
-	fmt.Println("\n📦 Phase 5c: Initializing Prompt Corpus Database")
-
-	if err := i.initializePromptDatabase(ctx, nerdDir); err != nil {
-		result.Failures = append(result.Failures, fmt.Sprintf("Failed to initialize prompt database: %v", err))
-	} else {
-		corpusDBPath := filepath.Join(nerdDir, "prompts", "corpus.db")
-		result.FilesCreated = append(result.FilesCreated, corpusDBPath)
-	}
-	runner.complete("prompt_db")
-}
-
-func (i *Initializer) runPhase6AnalyzeAgents(ctx context.Context, runner *phaseRunner, result *InitResult, profile ProjectProfile) []RecommendedAgent {
-	runner.start("agents", "Analyzing required agents...", 0.50)
-	fmt.Println("\n🤖 Phase 6: Determining Required Type 3 Agents")
-
-	recommendedAgents := i.integrateEcosystem(ctx, result, profile, nil)
-	fmt.Printf("   Recommended %d Type 3 agents for this project\n", len(recommendedAgents))
-
-	for _, agent := range recommendedAgents {
-		fmt.Printf("   • %s: %s\n", agent.Name, agent.Reason)
-	}
-
-	// --define-agent definitions and interactive curation both change which
-	// agents get knowledge bases, so they have to land before phase 7a and
-	// before the result records what was recommended.
-	recommendedAgents = i.mergeTypeUAgents(recommendedAgents)
-	recommendedAgents = i.curateAgents(ctx, recommendedAgents, profile, result)
-	result.RecommendedAgents = recommendedAgents
-
-	runner.complete("agents")
-	return recommendedAgents
-}
-
-func (i *Initializer) runPhase7aCreateAgentKBs(ctx context.Context, runner *phaseRunner, result *InitResult, nerdDir string, recommendedAgents []RecommendedAgent) {
-	if i.config.SkipAgentCreate || len(recommendedAgents) == 0 {
-		runner.advance() // Skip shared_kb
-		runner.advance() // Skip kb_creation
-		return
-	}
-
-	runner.start("shared_kb", "Creating shared knowledge pool...", 0.52)
-	fmt.Println("\n📚 Phase 7a: Creating Shared Knowledge Pool")
-
-	sharedPoolErr := CreateSharedKnowledgePool(ctx, i.config.Workspace, func(status string, progress float64) {
-		i.sendProgressWithETA("shared_kb", status, 0.52+progress*0.03, runner.remainingPhases)
-	})
-	if sharedPoolErr != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Shared knowledge pool creation had issues: %v", sharedPoolErr))
-	} else {
-		fmt.Println("   ✓ Shared knowledge pool ready")
-	}
-	runner.complete("shared_kb")
-
-	runner.start("kb_creation", "Creating agent knowledge bases...", 0.55)
-	fmt.Println("\n📚 Phase 7a.2: Creating Agent Knowledge Bases")
-
-	createdAgents, agentKBs := i.createType3Agents(ctx, nerdDir, recommendedAgents, result)
-	result.CreatedAgents = createdAgents
-	result.AgentKBs = agentKBs
-
-	i.registerAgentsWithShardManager(createdAgents)
-
-	fmt.Printf("   Created %d Type 3 agents with knowledge bases\n", len(createdAgents))
-	runner.complete("kb_creation")
-}
-
-func (i *Initializer) runPhase7bCreateCodebaseKB(ctx context.Context, runner *phaseRunner, result *InitResult, nerdDir string, profile ProjectProfile, scanResult *world.ScanResult) {
-	runner.start("codebase_kb", "Creating codebase knowledge base...", 0.80)
-	fmt.Println("\n📖 Phase 7b: Creating Codebase Knowledge Base")
-
-	codebaseKBPath, codebaseAtoms, err := i.createCodebaseKnowledgeBase(ctx, nerdDir, profile, scanResult)
-	if err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to create codebase KB: %v", err))
-	} else {
-		result.FilesCreated = append(result.FilesCreated, codebaseKBPath)
-		fmt.Printf("   ✓ Codebase KB ready (%d atoms)\n", codebaseAtoms)
-	}
-
-	runner.complete("codebase_kb")
-}
-
-func (i *Initializer) runPhase7cCreateCoreShardKBs(ctx context.Context, runner *phaseRunner, result *InitResult, nerdDir string, profile ProjectProfile) {
-	runner.start("core_shards_kb", "Creating core shard knowledge bases...", 0.82)
-	fmt.Println("\n🔧 Phase 7c: Creating Core Shard Knowledge Bases")
-
-	coreShardKBs, err := i.createCoreShardKnowledgeBases(ctx, nerdDir, profile)
-	if err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to create core shard KBs: %v", err))
-	} else {
-		for name, atoms := range coreShardKBs {
-			fmt.Printf("   ✓ %s KB ready (%d atoms)\n", titleFirst(name), atoms)
-		}
-	}
-	runner.complete("core_shards_kb")
-}
-
-func (i *Initializer) runPhase7dCreateCampaignKB(ctx context.Context, runner *phaseRunner, result *InitResult, nerdDir string, profile ProjectProfile) {
-	runner.start("campaign_kb", "Creating campaign knowledge base...", 0.84)
-	fmt.Println("\n🎯 Phase 7d: Creating Campaign Knowledge Base")
-
-	campaignKBPath, campaignAtoms, err := i.createCampaignKnowledgeBase(ctx, nerdDir, profile)
-	if err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to create campaign KB: %v", err))
-	} else {
-		result.FilesCreated = append(result.FilesCreated, campaignKBPath)
-		fmt.Printf("   ✓ Campaign KB ready (%d atoms)\n", campaignAtoms)
-	}
-	runner.complete("campaign_kb")
-}
-
-// runPhase7eGenerateTools records the project's tool needs. It generates
-// nothing, and until 2026-09-25 it said otherwise: the phase was titled
-// "Generating Project-Specific Tools", printed "Generated N tools" for N
-// recorded needs, and the summary told the user the tools were "ready to use
-// in .nerd/tools/". Recording needs for on-demand generation is the design
-// (generateProjectTools); the phase now says so. The phase ID stays
-// "tool_generation" because the ETA table and progress events key on it.
-func (i *Initializer) runPhase7eGenerateTools(ctx context.Context, runner *phaseRunner, result *InitResult, nerdDir string, profile ProjectProfile) {
-	runner.start("tool_generation", "Recording project tool needs...", 0.86)
-	fmt.Println("\n🛠️  Phase 7e: Recording Project Tool Needs")
-
-	needs, err := i.generateProjectTools(ctx, nerdDir, profile)
-	if err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to record tool needs: %v", err))
-	} else if len(needs) > 0 {
-		result.ToolNeeds = needs
-	} else {
-		fmt.Println("   ⓘ No tool needs for this project profile")
-	}
-	runner.complete("tool_generation")
-}
-
-func (i *Initializer) runPhase8Preferences(runner *phaseRunner, result *InitResult, nerdDir string) {
-	runner.start("preferences", "Initializing preferences...", 0.88)
-	fmt.Println("\n⚙️ Phase 8: Initializing Preferences")
-
-	preferences := i.initPreferences()
-	result.Preferences = preferences
-
-	prefsPath := filepath.Join(nerdDir, "preferences.json")
-	effective, err := i.savePreferences(prefsPath, preferences)
-	if err != nil {
-		result.Failures = append(result.Failures, fmt.Sprintf("Failed to save preferences: %v", err))
-	} else {
-		result.Preferences = effective
-		result.FilesCreated = append(result.FilesCreated, prefsPath)
-		fmt.Println("✓ Initialized preferences")
-	}
-	runner.complete("preferences")
-}
-
-func (i *Initializer) runPhase9Session(runner *phaseRunner, result *InitResult, nerdDir string) {
-	runner.start("session", "Creating session state...", 0.90)
-
-	sessionPath := filepath.Join(nerdDir, "session.json")
-	if err := i.initSessionState(sessionPath); err != nil {
-		result.Failures = append(result.Failures, fmt.Sprintf("Failed to init session: %v", err))
-	} else {
-		result.FilesCreated = append(result.FilesCreated, sessionPath)
-	}
-	runner.complete("session")
-}
-
-func (i *Initializer) runPhase10Tools(runner *phaseRunner, result *InitResult, nerdDir string, profile ProjectProfile) {
-	runner.start("tools", "Generating tool definitions...", 0.92)
-	fmt.Println("\n🔧 Phase 10: Generating Tool Definitions")
-
-	detectedTech := []string{profile.Language}
-	if profile.Framework != "" && profile.Framework != "unknown" {
-		detectedTech = append(detectedTech, profile.Framework)
-	}
-
-	tools := GenerateToolsForProject(detectedTech)
-	if err := SaveToolsToFile(nerdDir, tools); err != nil {
-		result.Failures = append(result.Failures, fmt.Sprintf("Failed to save tools: %v", err))
-	} else {
-		toolsFile := filepath.Join(nerdDir, "tools", "available_tools.json")
-		result.FilesCreated = append(result.FilesCreated, toolsFile)
-		fmt.Printf("   ✓ Generated %d tool definitions\n", len(tools))
-
-		categories := make(map[string]int)
-		for _, tool := range tools {
-			categories[tool.Category]++
-		}
-		for cat, count := range categories {
-			fmt.Printf("      - %s: %d\n", cat, count)
-		}
-	}
-	runner.complete("tools")
-}
-
-func (i *Initializer) runPhase11Registry(runner *phaseRunner, result *InitResult, nerdDir string) {
-	runner.start("registry", "Generating agent registry...", 0.93)
-
-	registryPath := filepath.Join(nerdDir, "agents.json")
-	if err := i.saveAgentRegistry(registryPath, result.CreatedAgents); err != nil {
-		result.Failures = append(result.Failures, fmt.Sprintf("Failed to save agent registry: %v", err))
-	} else {
-		result.FilesCreated = append(result.FilesCreated, registryPath)
-	}
-	runner.complete("registry")
-}
-
-func (i *Initializer) runPhase12PromptSync(ctx context.Context, runner *phaseRunner, result *InitResult, nerdDir string) {
-	runner.start("prompt_sync", "Syncing agent prompts to knowledge DBs...", 0.97)
-	fmt.Println("\n📝 Phase 12: Syncing Agent Prompts")
-	if err := initializeDiscoveredAgentStores(ctx, i.config.Workspace); err != nil {
-		result.Failures = append(result.Failures, fmt.Sprintf("Failed to initialize discovered expert knowledge: %v", err))
-		runner.complete("prompt_sync")
-		return
-	}
-
-	promptCount, syncErr := prompt.ReloadAllPrompts(ctx, nerdDir, i.embedEngine)
-	if syncErr != nil {
-		result.Failures = append(result.Failures, fmt.Sprintf("Failed to sync agent prompts: %v", syncErr))
-		fmt.Printf("   ✗ Required failure: %v\n", syncErr)
-	} else if promptCount > 0 {
-		fmt.Printf("   ✓ Synced %d prompt atoms to knowledge DBs\n", promptCount)
-		logging.Boot("Synced %d prompt atoms from YAML to knowledge DBs", promptCount)
-	} else {
-		fmt.Println("   ✓ No prompt atoms to sync")
-	}
-	runner.complete("prompt_sync")
-}
-
-func (i *Initializer) finalizeInitialization(runner *phaseRunner, result *InitResult, startTime time.Time, profile ProjectProfile) (*InitResult, error) {
-	result.LLMMetrics = i.snapshotLLMMetrics()
-	if phases := result.LLMMetrics.StaticPromptPhases; len(phases) > 0 {
-		result.Warnings = append(result.Warnings, fmt.Sprintf(
-			"expert agents built from static fallback prompts in phase(s) %s: the JIT kernel or compiler was unavailable",
-			strings.Join(phases, ", ")))
-	}
-	if result.LLMMetrics.Failed > 0 {
-		result.Warnings = append(result.Warnings, fmt.Sprintf(
-			"LLM enrichment degraded: %d/%d calls failed (%s; last error: %s)",
-			result.LLMMetrics.Failed, result.LLMMetrics.Attempts,
-			formatLLMIdentity(result.LLMMetrics), result.LLMMetrics.LastError,
-		))
-	}
-	validation, validationErr := ValidateAllAgentDBs(result.NerdDir)
-	result.Validation = validation
-	recordValidationOutcome(result, validation, validationErr)
-	result.Success = initializationSucceeded(result)
-	result.Duration = time.Since(startTime)
-
-	if i.grounding != nil && i.grounding.IsGroundingAvailable() {
-		result.GroundingEnabled = true
-		i.mu.RLock()
-		if len(i.groundingSources) > 0 {
-			seen := make(map[string]bool)
-			for _, src := range i.groundingSources {
-				if !seen[src] {
-					seen[src] = true
-					result.GroundingSources = append(result.GroundingSources, src)
-				}
-			}
-		}
-		i.mu.RUnlock()
-		if len(result.GroundingSources) > 0 {
-			logging.Boot("Init grounded with %d unique sources from Gemini", len(result.GroundingSources))
-		}
-	}
-
-	completionMessage := "Initialization complete!"
-	if !result.Success {
-		completionMessage = "Initialization completed with required failures"
-	} else if result.LLMMetrics.Failed > 0 {
-		completionMessage = "Initialization complete with degraded LLM enrichment"
-	}
-	runner.start("complete", completionMessage, 1.0)
-	runner.complete("complete")
-
-	i.printSummary(result, profile)
-
-	return result, nil
-}
-
-func recordValidationOutcome(result *InitResult, summary *ValidationSummary, err error) {
-	if result == nil {
-		return
-	}
-	if err != nil {
-		result.Failures = append(result.Failures, fmt.Sprintf("Knowledge-base validation failed: %v", err))
-		return
-	}
-	if summary == nil {
-		result.Failures = append(result.Failures, "Knowledge-base validation returned no result")
-		return
-	}
-	if summary.TotalDBs == 0 {
-		result.Failures = append(result.Failures, "Knowledge-base validation found no shard databases")
-		return
-	}
-	if !summary.OverallValid {
-		result.Failures = append(result.Failures, fmt.Sprintf(
-			"Knowledge-base validation found %d/%d invalid shard databases",
-			summary.InvalidDBs, summary.TotalDBs,
-		))
-	}
-}
-
-// sendProgress sends a progress update if channel is configured.
-// E2: Now includes ETA tracking data when available.
-func (i *Initializer) sendProgress(phase, message string, percent float64) {
-	if i.config.ProgressChan != nil {
-		progress := InitProgress{
-			Phase:   phase,
-			Message: message,
-			Percent: percent,
-		}
-
-		// E2: Wire in ETA tracker data if available
-		if i.etaTracker != nil {
-			progress.ElapsedTime = i.etaTracker.GetElapsed()
-			progress.CurrentPhaseNo = i.etaTracker.GetCurrentPhase()
-			progress.TotalPhases = i.etaTracker.GetTotalPhases()
-			// Note: ETARemaining requires remaining phases list for accuracy
-			// Use percent-based estimate as fallback
-			if percent > 0 && percent < 1.0 {
-				elapsed := i.etaTracker.GetElapsed()
-				estimatedTotal := time.Duration(float64(elapsed) / percent)
-				progress.ETARemaining = estimatedTotal - elapsed
-			}
-		}
-
-		select {
-		case i.config.ProgressChan <- progress:
-		default:
-			// Don't block if channel is full
-		}
-	}
-}
-
-// Type definitions (implementations moved to separate files)
-// determineRequiredAgents - see agents.go
-// createType3Agents - see agents.go
-// createAgentKnowledgeBase - see agents.go
-// generateBaseKnowledgeAtoms - see agents.go
-// sendAgentProgress - see agents.go
-// registerAgentsWithShardManager - see agents.go
-// saveAgentRegistry - see agents.go
-// createCoreShardKnowledgeBases - see agents.go
-// generateProjectTools - see agents.go
-// determineRequiredTools - see agents.go
-// createDirectoryStructure - see scanner.go
-// detectLanguageFromFiles - see scanner.go
-// detectDependencies - see scanner.go
-// buildProjectProfile - see profile.go
-// saveProfile - see profile.go
-// generateFactsFile - see profile.go
-// initPreferences - see profile.go
-// savePreferences - see profile.go
-// initSessionState - see profile.go
-// createCodebaseKnowledgeBase - see profile.go
-// createCampaignKnowledgeBase - see profile.go
-// LoadProjectProfile - see profile.go
-// ListSessionHistories - see profile.go
-// GetLatestSession - see profile.go
-// IsInitialized - see profile.go
-// generateProjectID - see profile.go
-// generateSessionID - see profile.go
-// sanitizeForMangle - see profile.go
-
-// createMangleTemplates creates placeholder files for user extensions.
-func (i *Initializer) createMangleTemplates(nerdDir string) error {
-	mangleDir := filepath.Join(nerdDir, "mangle")
-
-	// extensions.mg - For new schema definitions
-	extPath := filepath.Join(mangleDir, "extensions.mg")
-	extContent := `# User Schema Extensions
-# Define project-specific predicates here.
-# These will be loaded AFTER the core schemas.
-
-# Example:
-# Decl project_metadata(Key, Value).
-# Decl deploy_target(Env, URL).
-`
-	if err := writeFileIfAbsent(extPath, []byte(extContent), 0644); err != nil {
-		return fmt.Errorf("create extensions template: %w", err)
-	}
-
-	// policy_overrides.mg - For custom rules
-	policyPath := filepath.Join(mangleDir, "policy_overrides.mg")
-	policyContent := `# User Policy Overrides
-# Define project-specific rules here.
-# These can extend or override core behavior.
-
-# Example: Allow deleting .tmp files even if modified
-# permitted(Action) :- 
-#     action_type(Action, /delete_file),
-#     target_path(Action, Path),
-#     fn:string_suffix(Path, ".tmp").
-`
-	if err := writeFileIfAbsent(policyPath, []byte(policyContent), 0644); err != nil {
-		return fmt.Errorf("create policy overrides template: %w", err)
-	}
-
-	return nil
-}
-
-func initializationSucceeded(result *InitResult) bool {
-	return result != nil && len(result.Failures) == 0
-}
-
-// writeFileIfAbsent atomically creates a seed file without replacing user
-// content. O_EXCL closes the check-then-write race during concurrent init runs.
-func writeFileIfAbsent(path string, content []byte, mode os.FileMode) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
-	if err != nil {
-		if os.IsExist(err) {
-			return nil
-		}
-		return err
-	}
-	if _, err := f.Write(content); err != nil {
-		_ = f.Close()
-		_ = os.Remove(path)
-		return err
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(path)
-		return err
-	}
-	return nil
-}
-
-// printSummary prints structural results and separately labels enrichment.
-func (i *Initializer) printSummary(result *InitResult, profile ProjectProfile) {
-	fmt.Println("\n" + strings.Repeat("═", 60))
-	if result.Success && result.LLMMetrics.Failed == 0 {
-		fmt.Println("✅ INITIALIZATION COMPLETE")
-	} else if result.Success {
-		fmt.Println("⚠️ INITIALIZATION COMPLETE (ENRICHMENT DEGRADED)")
-	} else {
-		fmt.Println("❌ INITIALIZATION INCOMPLETE")
-	}
-	fmt.Println(strings.Repeat("═", 60))
-
-	fmt.Printf("\n📁 Project: %s\n", profile.Name)
-	fmt.Printf("   Language: %s\n", profile.Language)
-	if profile.Framework != "" {
-		fmt.Printf("   Framework: %s\n", profile.Framework)
-	}
-	fmt.Printf("   Architecture: %s\n", profile.Architecture)
-	fmt.Printf("   Files: %d | Directories: %d\n", profile.FileCount, profile.DirectoryCount)
-
-	fmt.Printf("\n🧠 Logic Kernel:\n")
-	fmt.Printf("   Facts generated: %d\n", result.FactsGenerated)
-
-	if len(result.CreatedAgents) > 0 {
-		fmt.Printf("\n🤖 Type 3 Agents Created:\n")
-		for _, agent := range result.CreatedAgents {
-			// This score is an atom-count population proxy, not semantic quality.
-			if agent.QualityScore > 0 {
-				fmt.Printf("   • %s: %d atoms (KB population score: %.0f%% - %s)\n",
-					agent.Name, agent.KBSize, agent.QualityScore, agent.QualityRating)
-			} else {
-				fmt.Printf("   • %s (%d KB atoms) - %s\n", agent.Name, agent.KBSize, agent.Status)
-			}
-		}
-
-		// Show average atom-count population score.
-		var totalQuality float64
-		var qualityCount int
-		for _, agent := range result.CreatedAgents {
-			if agent.QualityScore > 0 {
-				totalQuality += agent.QualityScore
-				qualityCount++
-			}
-		}
-		if qualityCount > 0 {
-			avgQuality := totalQuality / float64(qualityCount)
-			fmt.Printf("\n   📊 Average KB Population Score: %.0f%% (atom-count proxy)\n", avgQuality)
-		}
-	}
-
-	if result.LLMMetrics.Attempts > 0 {
-		fmt.Printf("\n🤖 LLM Enrichment: %d/%d succeeded; %d failed (%s)\n",
-			result.LLMMetrics.Succeeded, result.LLMMetrics.Attempts,
-			result.LLMMetrics.Failed, formatLLMIdentity(result.LLMMetrics))
-	} else {
-		fmt.Println("\n🤖 LLM Enrichment: no calls attempted")
-	}
-
-	// Show recorded tool needs: needs, not tools.
-	if n := len(result.ToolNeeds); n > 0 {
-		fmt.Printf("\n🛠️  Tool Needs Recorded: %d (missing_tool_for facts; Ouroboros builds a tool when the kernel asks)\n", n)
-	}
-
-	fmt.Printf("\n📂 Files Created: %d\n", len(result.FilesCreated))
-	fmt.Printf("⏱️ Duration: %.2fs\n", result.Duration.Seconds())
-
-	if len(result.Warnings) > 0 {
-		fmt.Println("\n⚠️ Warnings:")
-		for _, w := range result.Warnings {
-			fmt.Printf("   - %s\n", w)
-		}
-	}
-	if len(result.Failures) > 0 {
-		fmt.Println("\n❌ Required initialization failures:")
-		for _, failure := range result.Failures {
-			fmt.Printf("   - %s\n", failure)
-		}
-	}
-
-	// Post-init recommendations based on project analysis
-	fmt.Println("\n" + strings.Repeat("─", 60))
-	fmt.Println("💡 Recommendations:")
-	i.printRecommendations(result, profile)
-
-	// Run post-init validation
-	fmt.Println("\n" + strings.Repeat("─", 60))
-	fmt.Println("🔍 Validating knowledge bases...")
-	validationSummary := result.Validation
-	if validationSummary == nil {
-		fmt.Println("   ✗ Structural validation did not return a result")
-	} else {
-		if validationSummary.OverallValid {
-			fmt.Printf("   ✓ All %d knowledge bases structurally validated\n", validationSummary.TotalDBs)
-		} else {
-			fmt.Printf("   ⚠ %d/%d knowledge bases have issues\n", validationSummary.InvalidDBs, validationSummary.TotalDBs)
-			for name, res := range validationSummary.Results {
-				if !res.Valid {
-					fmt.Printf("     - %s: %v\n", name, res.Errors)
-				}
-			}
-		}
-
-		// Report backup files
-		if len(validationSummary.BackupFiles) > 0 {
-			fmt.Printf("\n   📦 Found %d backup files from migration\n", len(validationSummary.BackupFiles))
-			fmt.Println("      After verifying your data, clean them up with:")
-			fmt.Println("      nerd init --cleanup-backups")
-		}
-	}
-
-	fmt.Println("\n" + strings.Repeat("─", 60))
-	if result.Success {
-		fmt.Println("🚀 Next steps:")
-		fmt.Println("   • Run `nerd chat` to start interactive session")
-		fmt.Println("   • Review the derived orientation and project vision")
-		fmt.Println("   • Use `/agents` to see available agents")
-		fmt.Println("   • Use `/spawn <agent> <task>` to delegate tasks")
-	} else {
-		fmt.Println("🛠️ Recovery:")
-		fmt.Println("   • Resolve the required failures above")
-		fmt.Println("   • Re-run `nerd init --force` before starting chat")
-	}
-	fmt.Println(strings.Repeat("─", 60))
-}
-
-// printRecommendations prints context-aware recommendations based on init results.
-func (i *Initializer) printRecommendations(result *InitResult, profile ProjectProfile) {
-	recommendations := []string{}
-
-	// Check for sparsely populated KBs. The score is based on atom count.
-	for _, agent := range result.CreatedAgents {
-		if agent.QualityScore > 0 && agent.QualityScore < 50 {
-			recommendations = append(recommendations,
-				fmt.Sprintf("Run `/init --force` to improve %s KB population (currently %.0f%%)", agent.Name, agent.QualityScore))
-		}
-	}
-
-	// Language-specific recommendations
-	switch strings.ToLower(profile.Language) {
-	case "go", "golang":
-		if !hasAgent(result.CreatedAgents, "GoExpert") {
-			recommendations = append(recommendations, "Consider adding a GoExpert agent for Go-specific guidance")
-		}
-	case "python":
-		recommendations = append(recommendations, "Run `/review` to check type hints and async patterns")
-	case "typescript", "javascript":
-		recommendations = append(recommendations, "Run `/test` to verify test coverage")
-	}
-
-	// Security recommendation for all projects
-	if !hasAgent(result.CreatedAgents, "SecurityAuditor") {
-		recommendations = append(recommendations, "Consider adding SecurityAuditor for vulnerability scanning")
-	} else {
-		recommendations = append(recommendations, "Run `/review --security` for a security audit")
-	}
-
-	// Test recommendation
-	if !hasAgent(result.CreatedAgents, "TestArchitect") {
-		recommendations = append(recommendations, "Consider adding TestArchitect for test coverage analysis")
-	} else {
-		recommendations = append(recommendations, "Run `/test --coverage` to check test coverage")
-	}
-
-	// Warnings about missing research
-	if i.config.SkipResearch {
-		recommendations = append(recommendations, "Research was skipped - run `/init --force` to populate agent KBs")
-	}
-
-	// Print recommendations (max 4)
-	maxRecs := 4
-	if len(recommendations) > maxRecs {
-		recommendations = recommendations[:maxRecs]
-	}
-
-	for _, rec := range recommendations {
-		fmt.Printf("   • %s\n", rec)
-	}
-
-	if len(recommendations) == 0 {
-		fmt.Println("   • Your project is ready! Start with `/review` or `/test`")
-	}
-}
-
-// hasAgent checks if a specific agent was created.
-func hasAgent(agents []CreatedAgent, name string) bool {
-	for _, agent := range agents {
-		if strings.EqualFold(agent.Name, name) {
-			return true
-		}
-	}
-	return false
-}
-
-// titleFirst upper-cases the first rune of s. It replaces strings.Title, which
-// is deprecated; the input here is a single knowledge-base name.
-func titleFirst(s string) string {
-	if s == "" {
-		return s
-	}
-	r := []rune(s)
-	r[0] = unicode.ToUpper(r[0])
-	return string(r)
 }

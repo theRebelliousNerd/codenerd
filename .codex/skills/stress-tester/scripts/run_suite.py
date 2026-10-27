@@ -14,8 +14,10 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from repo_paths import find_repo_root
 
-ROOT = Path(__file__).resolve().parents[4]
+
+ROOT = find_repo_root(__file__)
 REGISTRY = ROOT / ".codex" / "skills" / "stress-tester" / "references" / "profile-registry.json"
 
 
@@ -37,6 +39,35 @@ def render_command(argv: list[str], artifact_dir: Path) -> list[str]:
     if rendered and rendered[0] == "python":
         rendered[0] = sys.executable
     return rendered
+
+
+def uses_sqlite_vec(profile: dict) -> bool:
+    """Whether a profile builds the production sqlite_vec variant."""
+    for command in profile.get("commands", []):
+        if command[:2] == ["go", "build"] and "./cmd/nerd" in command:
+            if "-tags" in command:
+                index = command.index("-tags")
+                if index + 1 < len(command) and "sqlite_vec" in command[index + 1].split(","):
+                    return True
+            if any(part == "-tags=sqlite_vec" for part in command):
+                return True
+        if command and command[0] == "python" and any(part.endswith("verify_adversarial.py") for part in command) and "--execute" in command:
+            return True
+    return False
+
+
+def command_environment(base_env: dict[str, str], repo_root: Path, sqlite_vec: bool) -> dict[str, str]:
+    """Prepare the compiler environment for a selected profile."""
+    env = base_env.copy()
+    if sqlite_vec:
+        env["CGO_ENABLED"] = "1"
+        sqlite_headers = repo_root / "sqlite_headers"
+        if sqlite_headers.exists():
+            local_header_flag = f"-I{sqlite_headers.as_posix()}"
+            flags = env.get("CGO_CFLAGS", "")
+            if local_header_flag not in flags.split():
+                env["CGO_CFLAGS"] = f"{local_header_flag} {flags}".strip()
+    return env
 
 
 def bounded_text(raw: bytes, limit: int) -> tuple[str, bool]:
@@ -215,10 +246,7 @@ def main() -> int:
     artifact_dir.mkdir(parents=True, exist_ok=True)
     command_dir = artifact_dir / "commands"
     command_dir.mkdir(exist_ok=True)
-    env = os.environ.copy()
-    sqlite_headers = ROOT / "sqlite_headers"
-    if sqlite_headers.exists() and not env.get("CGO_CFLAGS"):
-        env["CGO_CFLAGS"] = f"-I{sqlite_headers.as_posix()}"
+    env = command_environment(os.environ, ROOT, uses_sqlite_vec(profile))
 
     defaults = registry["defaults"]
     timeout = int(profile.get("timeout_seconds", defaults["timeout_seconds"]))

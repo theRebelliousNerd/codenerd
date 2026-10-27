@@ -256,12 +256,13 @@ func TestRunPhase_WriteSetGatesConflictingMutations(t *testing.T) {
 	}
 
 	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:    workspace,
-		Kernel:       mockKernel,
-		LLMClient:    &noopLLM{},
-		TaskExecutor: executor,
-		Executor:     tactile.NewDirectExecutor(),
-		VirtualStore: &core.VirtualStore{},
+		Workspace:         workspace,
+		Kernel:            mockKernel,
+		LLMClient:         &noopLLM{},
+		PlanningLLMClient: &noopLLM{},
+		TaskExecutor:      executor,
+		Executor:          tactile.NewDirectExecutor(),
+		VirtualStore:      &core.VirtualStore{},
 		Campaign: testCampaignConfig(func(c *config.CampaignConfig) {
 			c.MaxParallelTasks = 2
 			c.WriteSetLockTimeout = "1s"

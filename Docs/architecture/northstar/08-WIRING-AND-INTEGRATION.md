@@ -71,7 +71,7 @@ Does **not** set parent kernel (ephemeral process; check is UX-only).
 
 | Hook | File | Call |
 |------|------|------|
-| Configure | `orchestrator_init.go` | `SetNorthstarObserver(*CampaignObserver)` |
+| Configure | `orchestrator_types.go` | `OrchestratorConfig.NorthstarObserver` (the orchestrator owns and closes it) |
 | Risk preflight | `risk_scoring.go` | `StartCampaign` as `/northstar` gate; protected campaigns require configured observer |
 | Phase start | `orchestrator_phases.go` | `OnPhaseStart` |
 | Phase complete | `orchestrator_phases.go` | `OnPhaseComplete` |

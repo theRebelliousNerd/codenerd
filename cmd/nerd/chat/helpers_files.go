@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/tools"
 	"codenerd/internal/workspace"
 	"context"
 	"fmt"
@@ -86,7 +87,14 @@ func resolvePath(workspace, path string) string {
 }
 
 func readFileContent(workspace, path string, maxBytes int) (string, error) {
-	full := resolvePath(workspace, path)
+	root := workspace
+	if strings.TrimSpace(root) == "" {
+		root = "."
+	}
+	full, err := tools.ResolveWorkspacePath(context.Background(), root, path)
+	if err != nil {
+		return "", err
+	}
 	data, err := os.ReadFile(full)
 	if err != nil {
 		return "", err

@@ -308,31 +308,3 @@ func TestIntelligenceGatherer_Concurrency_NoRace(t *testing.T) {
 	}
 	wg.Wait()
 }
-
-// =============================================================================
-// Helpers: truncateField
-// =============================================================================
-
-func TestTruncateField(t *testing.T) {
-	tests := []struct {
-		name   string
-		input  string
-		maxLen int
-		want   string
-	}{
-		{"short", "hello", 10, "hello"},
-		{"exact", "hello", 5, "hello"},
-		{"truncate", "hello world", 5, "hello..."},
-		{"empty", "", 5, ""},
-		{"zero_max", "hello", 0, "..."},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := truncateField(tc.input, tc.maxLen)
-			if got != tc.want {
-				t.Errorf("truncateField(%q, %d) = %q, want %q", tc.input, tc.maxLen, got, tc.want)
-			}
-		})
-	}
-}

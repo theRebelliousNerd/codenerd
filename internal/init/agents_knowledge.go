@@ -1,16 +1,17 @@
 package init
 
 import (
-	"codenerd/internal/logging"
-	"codenerd/internal/store"
-	"codenerd/internal/tools"
-	"codenerd/internal/tools/research"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"strings"
-	"time"
+	"sync"
+
+	"codenerd/internal/logging"
+	"codenerd/internal/store"
+	"codenerd/internal/tools"
+	"codenerd/internal/tools/research"
 )
 
 // getExistingAtomCount returns the number of atoms in an existing KB.
@@ -70,35 +71,6 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 		stats.SkippedTopics = len(agent.Topics) - len(topics)
 	} else {
 		existingHashes = make(map[string]bool)
-
-		// Inherit shared knowledge pool for new agents (not in upgrade mode)
-		sharedKBPath := GetSharedKnowledgePath(i.config.Workspace)
-		if SharedKnowledgePoolExists(i.config.Workspace) {
-			if inheritErr := InheritSharedKnowledge(agentDB, sharedKBPath); inheritErr != nil {
-				logging.Boot("Warning: failed to inherit shared knowledge for %s: %v", agent.Name, inheritErr)
-			} else {
-				// Re-fetch existing hashes after inheritance
-				inheritedAtoms, _ := agentDB.GetAllKnowledgeAtoms()
-				existingHashes = buildAtomHashSet(inheritedAtoms)
-				stats.NewAtoms += len(inheritedAtoms)
-				logging.Boot("Inherited %d shared atoms for %s", len(inheritedAtoms), agent.Name)
-			}
-		}
-	}
-
-	// Add base knowledge atoms for the agent
-	baseAtoms := i.generateBaseKnowledgeAtoms(agent)
-	for _, atom := range baseAtoms {
-		added, err := appendKnowledgeAtom(agentDB, atom.Concept, atom.Content, atom.Confidence, existingHashes)
-		if err != nil {
-			logging.Boot("Warning: failed to store base atom for %s: %v", agent.Name, err)
-			continue
-		}
-		if added {
-			stats.NewAtoms++
-		} else {
-			stats.SkippedAtoms++
-		}
 	}
 
 	// Winning corpus sources are knowledge atoms. Each paragraph (or rune
@@ -130,22 +102,33 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 	// Research uses the modular tool registry (internal/tools/research/)
 	// Context7 provides LLM-optimized documentation for libraries/frameworks
 	// =========================================================================
+	// A vision expert's own questions are answered by grounded web search.
+	if questions, staleDays := ecosystemDomainResearch(i.config.Workspace, agent.Name); len(questions) > 0 && !i.config.SkipResearch {
+		added, notes := i.researchDomainQuestions(ctx, agentDB, agent, questions, staleDays, existingHashes)
+		stats.NewAtoms += added
+		stats.Notes = append(stats.Notes, notes...)
+	}
+
 	if stats.SkippedTopics > 0 {
-		fmt.Printf("     %d of %d topics already covered in %s's KB; not researched again\n", stats.SkippedTopics, len(agent.Topics), agent.Name)
+		fmt.Fprintf(i.output(), "     %d of %d topics already covered in %s's KB; not researched again\n", stats.SkippedTopics, len(agent.Topics), agent.Name)
 	}
 	if !i.config.SkipResearch && len(topics) > 0 {
-		fmt.Printf("     Researching %d topics for %s...\n", len(topics), agent.Name)
+		fmt.Fprintf(i.output(), "     Researching %d topics for %s...\n", len(topics), agent.Name)
 
 		fetch, err := i.topicFetcher()
 		if err != nil {
 			logging.Boot("Warning: failed to register research tools: %v", err)
 		} else {
-			researchCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-			defer cancel()
-
+			// No clock of the pass's own: each context7_fetch is bounded by
+			// research.context7_timeout and init cancellation ends the pass.
+			// A two-minute pass deadline used to drop every topic after the
+			// first few on a slow day, logged only at boot level. A topic
+			// another specialist already fetched this run is not fetched again.
 			for _, topic := range topics {
-				// Try Context7 for documentation
-				result, err := fetch(researchCtx, topic)
+				if ctx.Err() != nil {
+					break
+				}
+				result, err := i.research.fetch(ctx, topic, fetch)
 				if err != nil {
 					logging.Boot("Research failed for topic %s: %v", topic, err)
 					continue
@@ -168,22 +151,8 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 				}
 			}
 		}
-
-		// Calculate the legacy population proxy from newly added atom count.
-		if stats.NewAtoms > 10 {
-			stats.QualityScore = 80.0
-			stats.QualityRating = "Well populated"
-		} else if stats.NewAtoms > 5 {
-			stats.QualityScore = 65.0
-			stats.QualityRating = "Moderately populated"
-		} else {
-			stats.QualityScore = 50.0
-			stats.QualityRating = "Basic population"
-		}
 	} else if i.config.SkipResearch {
-		fmt.Printf("     Skipping research for %s (--skip-research)\n", agent.Name)
-		stats.QualityScore = 50.0
-		stats.QualityRating = "Basic population"
+		fmt.Fprintf(i.output(), "     Skipping research for %s (--skip-research)\n", agent.Name)
 	}
 
 	// Calculate total atoms
@@ -191,6 +160,44 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 	stats.TotalAtoms = len(finalAtoms)
 
 	return stats, nil
+}
+
+// topicCache shares one run's topic fetches across agents: a topic two
+// specialists both research is fetched once, and a fetch already in flight is
+// awaited rather than repeated.
+type topicCache struct {
+	mu      sync.Mutex
+	entries map[string]*topicFetch
+}
+
+type topicFetch struct {
+	done chan struct{}
+	body string
+	err  error
+}
+
+func (c *topicCache) fetch(ctx context.Context, topic string, fetch func(ctx context.Context, topic string) (string, error)) (string, error) {
+	key := strings.ToLower(strings.TrimSpace(topic))
+	c.mu.Lock()
+	if c.entries == nil {
+		c.entries = make(map[string]*topicFetch)
+	}
+	if entry, ok := c.entries[key]; ok {
+		c.mu.Unlock()
+		select {
+		case <-entry.done:
+			return entry.body, entry.err
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+	entry := &topicFetch{done: make(chan struct{})}
+	c.entries[key] = entry
+	c.mu.Unlock()
+
+	entry.body, entry.err = fetch(ctx, topic)
+	close(entry.done)
+	return entry.body, entry.err
 }
 
 // buildAtomHashSet creates a set of content hashes for existing atoms.
@@ -351,54 +358,4 @@ func filterTopicsNeedingResearch(existingAtoms []store.KnowledgeAtom, topics []s
 	}
 
 	return needsResearch
-}
-
-// generateBaseKnowledgeAtoms generates foundational knowledge for an agent.
-func (i *Initializer) generateBaseKnowledgeAtoms(agent RecommendedAgent) []struct {
-	Concept    string
-	Content    string
-	Confidence float64
-} {
-	atoms := make([]struct {
-		Concept    string
-		Content    string
-		Confidence float64
-	}, 0)
-
-	// Add agent identity
-	atoms = append(atoms, struct {
-		Concept    string
-		Content    string
-		Confidence float64
-	}{
-		Concept:    "agent_identity",
-		Content:    fmt.Sprintf("I am %s, a specialist agent. %s", agent.Name, agent.Description),
-		Confidence: 1.0,
-	})
-
-	// Add mission statement
-	atoms = append(atoms, struct {
-		Concept    string
-		Content    string
-		Confidence float64
-	}{
-		Concept:    "agent_mission",
-		Content:    fmt.Sprintf("My primary mission is: %s", agent.Reason),
-		Confidence: 1.0,
-	})
-
-	// Add expertise areas
-	for _, topic := range agent.Topics {
-		atoms = append(atoms, struct {
-			Concept    string
-			Content    string
-			Confidence float64
-		}{
-			Concept:    "expertise_area",
-			Content:    topic,
-			Confidence: 0.9,
-		})
-	}
-
-	return atoms
 }

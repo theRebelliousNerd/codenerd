@@ -61,6 +61,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -90,6 +91,9 @@ import (
 // It implements a "Transactional State Machine" governed by Mangle.
 type OuroborosLoop struct {
 	mu sync.RWMutex
+	// toolOperations keeps publication and execution atomic per generated tool
+	// while allowing unrelated tools to proceed independently.
+	toolOperations toolOperationLocks
 
 	toolGen       *ToolGenerator
 	safetyChecker *SafetyChecker
@@ -272,7 +276,7 @@ func NewOuroborosLoop(client LLMClient, config OuroborosConfig) *OuroborosLoop {
 		toolGen:       NewToolGenerator(client, config.ToolsDir),
 		safetyChecker: NewSafetyChecker(config),
 		compiler:      NewToolCompiler(config),
-		registry:      NewRuntimeRegistry(),
+		registry:      NewRuntimeRegistry(runtimeWorkspaceRoot(config), config.CompiledDir),
 		sanitizer:     transpiler.NewSanitizer(),
 		engine:        engine,
 		config:        config,
@@ -312,6 +316,17 @@ func NewOuroborosLoop(client LLMClient, config OuroborosConfig) *OuroborosLoop {
 
 	logging.Autopoiesis("Ouroboros Loop initialized: TargetOS=%s, TargetArch=%s", config.TargetOS, config.TargetArch)
 	return loop
+}
+
+func runtimeWorkspaceRoot(config OuroborosConfig) string {
+	if workspace := strings.TrimSpace(config.WorkspaceRoot); workspace != "" {
+		return workspace
+	}
+	toolsDir := filepath.Clean(config.ToolsDir)
+	if filepath.Base(toolsDir) == "tools" && filepath.Base(filepath.Dir(toolsDir)) == ".nerd" {
+		return filepath.Dir(filepath.Dir(toolsDir))
+	}
+	return toolsDir
 }
 
 // SetOnToolRegistered sets the callback for when a tool is registered.
@@ -791,7 +806,38 @@ func (o *OuroborosLoop) simulateTransition(ctx context.Context, stepID string, n
 
 // commitTool performs Phase 4 commit: write, compile, and register.
 func (o *OuroborosLoop) commitTool(ctx context.Context, tool *GeneratedTool, result *LoopResult) error {
+	if tool == nil || result == nil {
+		return fmt.Errorf("tool and loop result are required")
+	}
+	tool.Name = sanitizeToolName(tool.Name)
+	release, err := o.toolOperations.acquire(ctx, tool.Name)
+	if err != nil {
+		return fmt.Errorf("wait to commit generated tool %s: %w", tool.Name, err)
+	}
+	defer release()
+	tool.FilePath = filepath.Join(o.config.ToolsDir, tool.Name+".go")
 	logging.AutopoiesisDebug("Committing tool: %s", tool.Name)
+
+	compiledPath := filepath.Join(o.config.CompiledDir, sanitizeToolName(tool.Name))
+	if o.config.TargetOS == "windows" {
+		compiledPath += ".exe"
+	}
+	snapshots, err := snapshotGeneratedToolFiles(tool.FilePath, toolTestPath(tool.FilePath), compiledPath, compiledPath+".identity.json")
+	if err != nil {
+		return fmt.Errorf("snapshot existing tool state: %w", err)
+	}
+	rollback := func(cause error) error {
+		if rollbackErr := restoreGeneratedToolFiles(snapshots); rollbackErr != nil {
+			return errors.Join(cause, fmt.Errorf("generated tool rollback failed: %w", rollbackErr))
+		}
+		return cause
+	}
+	committed := false
+	defer func() {
+		if committed {
+			cleanupGeneratedToolSnapshots(snapshots)
+		}
+	}()
 
 	// Write
 	logging.AutopoiesisDebug("Writing tool to disk: %s", tool.FilePath)
@@ -799,7 +845,7 @@ func (o *OuroborosLoop) commitTool(ctx context.Context, tool *GeneratedTool, res
 	if err := o.toolGen.WriteTool(tool); err != nil {
 		writeTimer.Stop()
 		logging.Get(logging.CategoryAutopoiesis).Error("Failed to write tool %s: %v", tool.Name, err)
-		return fmt.Errorf("write failed: %w", err)
+		return rollback(fmt.Errorf("write failed: %w", err))
 	}
 	writeTimer.Stop()
 	logging.AutopoiesisDebug("Tool written successfully")
@@ -817,7 +863,7 @@ func (o *OuroborosLoop) commitTool(ctx context.Context, tool *GeneratedTool, res
 				logging.AutopoiesisDebug("  Compile error: %s", cerr)
 			}
 		}
-		return fmt.Errorf("compilation failed: %w", err)
+		return rollback(fmt.Errorf("compilation failed: %w", err))
 	}
 	logging.Autopoiesis("Compilation successful: output=%s, compileTime=%v",
 		compileResult.OutputPath, compileResult.CompileTime)
@@ -828,8 +874,9 @@ func (o *OuroborosLoop) commitTool(ctx context.Context, tool *GeneratedTool, res
 	handle, err := o.registry.Register(tool, compileResult)
 	if err != nil {
 		logging.Get(logging.CategoryAutopoiesis).Error("Registration failed for %s: %v", tool.Name, err)
-		return fmt.Errorf("registration failed: %w", err)
+		return rollback(fmt.Errorf("registration failed: %w", err))
 	}
+	committed = true
 
 	result.ToolHandle = handle
 	result.Stage = StageComplete
@@ -1040,6 +1087,13 @@ func versionFromBinding(v any) int {
 
 // ExecuteTool runs a registered tool with the given input
 func (o *OuroborosLoop) ExecuteTool(ctx context.Context, toolName string, input string) (string, error) {
+	execCtx, cancel := context.WithTimeout(ctx, o.config.ExecuteTimeout)
+	defer cancel()
+	release, err := o.toolOperations.acquire(execCtx, toolName)
+	if err != nil {
+		return "", fmt.Errorf("wait to execute tool %s: %w", toolName, err)
+	}
+	defer release()
 	timer := logging.StartTimer(logging.CategoryAutopoiesis, "ExecuteTool")
 	defer timer.Stop()
 
@@ -1051,10 +1105,6 @@ func (o *OuroborosLoop) ExecuteTool(ctx context.Context, toolName string, input 
 		logging.Get(logging.CategoryAutopoiesis).Error("Tool not found: %s", toolName)
 		return "", fmt.Errorf("tool not found: %s", toolName)
 	}
-
-	// Create timeout context
-	execCtx, cancel := context.WithTimeout(ctx, o.config.ExecuteTimeout)
-	defer cancel()
 
 	o.mu.Lock()
 	o.stats.ExecutionCount++

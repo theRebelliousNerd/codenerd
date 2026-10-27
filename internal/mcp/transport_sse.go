@@ -19,21 +19,28 @@ import (
 // SSETransport implements MCPTransport over SSE (Server-Sent Events).
 type SSETransport struct {
 	mu sync.RWMutex
+	// connectMu serializes establishment attempts while Disconnect remains free
+	// to cancel an in-progress attempt.
+	connectMu sync.Mutex
 
-	baseURL    string
-	postURL    string
-	timeout    time.Duration
-	client     *http.Client
-	connected  bool
-	serverInfo *MCPCapabilities
+	baseURL      string
+	postURL      string
+	timeout      time.Duration
+	client       *http.Client
+	streamClient *http.Client
+	connected    bool
+	serverInfo   *MCPCapabilities
 
 	// SSE specific
-	sseResp    *http.Response
-	cancel     context.CancelFunc
-	pending    map[int]chan *mcpResponse
-	nextID     int
-	initSignal chan struct{}
-	initOnce   sync.Once
+	sseResp        *http.Response
+	cancel         context.CancelFunc
+	pending        map[int]chan *mcpResponse
+	nextID         int
+	initSignal     chan struct{}
+	connectionDone chan struct{}
+	generation     uint64
+	streamActive   bool
+	endpointReady  bool
 
 	headers map[string]string
 }
@@ -42,30 +49,63 @@ type SSETransport struct {
 // headers to both the event stream request and every POST. Values are
 // environment-expanded, so tokens stay out of the workspace config.
 func NewSSETransportWithHeaders(baseURL string, timeout time.Duration, headers map[string]string) *SSETransport {
+	var streamTransport *http.Transport
+	if defaultTransport, ok := http.DefaultTransport.(*http.Transport); ok {
+		streamTransport = defaultTransport.Clone()
+	} else {
+		streamTransport = &http.Transport{}
+	}
+	streamTransport.ResponseHeaderTimeout = timeout
 	return &SSETransport{
 		baseURL: baseURL,
 		timeout: timeout,
 		client: &http.Client{
 			Timeout: timeout,
 		},
-		pending:    make(map[int]chan *mcpResponse),
-		nextID:     1,
-		initSignal: make(chan struct{}),
-		headers:    ExpandHeaderValues(headers),
+		// A client-wide timeout also bounds reading the response body. SSE
+		// bodies are intentionally long-lived, so only bound response headers;
+		// POST requests retain the configured client timeout above.
+		streamClient: &http.Client{Transport: streamTransport},
+		pending:      make(map[int]chan *mcpResponse),
+		nextID:       1,
+		headers:      ExpandHeaderValues(headers),
 	}
 }
 
 // Connect establishes connection to the MCP server.
 func (t *SSETransport) Connect(ctx context.Context) error {
-	t.mu.Lock()
+	t.connectMu.Lock()
+	defer t.connectMu.Unlock()
+
+	t.mu.RLock()
 	if t.connected {
-		t.mu.Unlock()
+		t.mu.RUnlock()
 		return nil
 	}
+	active := t.streamActive
+	t.mu.RUnlock()
+	if active {
+		_ = t.Disconnect()
+	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", t.baseURL, nil)
+	t.mu.Lock()
+	t.generation++
+	generation := t.generation
+	t.streamActive = true
+	t.connected = false
+	t.serverInfo = nil
+	t.postURL = ""
+	t.endpointReady = false
+	t.initSignal = make(chan struct{})
+	t.connectionDone = make(chan struct{})
+	t.pending = make(map[int]chan *mcpResponse)
+	streamCtx, cancel := context.WithCancel(context.Background())
+	t.cancel = cancel
+	t.mu.Unlock()
+
+	req, err := http.NewRequestWithContext(streamCtx, "GET", t.baseURL, nil)
 	if err != nil {
-		t.mu.Unlock()
+		t.finishConnection(generation)
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Accept", "text/event-stream")
@@ -75,52 +115,76 @@ func (t *SSETransport) Connect(ctx context.Context) error {
 		req.Header.Set(k, v)
 	}
 
-	resp, err := t.client.Do(req)
+	// The stream request must outlive ctx after Connect returns, but ctx still
+	// cancels a connection attempt while response headers are being received.
+	stopCancel := context.AfterFunc(ctx, cancel)
+	resp, err := t.streamClient.Do(req)
+	stopCancel()
 	if err != nil {
-		t.mu.Unlock()
+		t.finishConnection(generation)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		return fmt.Errorf("failed to connect to SSE endpoint %s: %w", t.baseURL, err)
+	}
+	if ctx.Err() != nil {
+		_ = resp.Body.Close()
+		t.finishConnection(generation)
+		return ctx.Err()
 	}
 
 	if resp.StatusCode != 200 {
-		resp.Body.Close()
-		t.mu.Unlock()
+		_ = resp.Body.Close()
+		t.finishConnection(generation)
 		return fmt.Errorf("server returned status %d", resp.StatusCode)
 	}
 
+	t.mu.Lock()
+	if t.generation != generation || !t.streamActive {
+		t.mu.Unlock()
+		_ = resp.Body.Close()
+		return fmt.Errorf("SSE connection closed during connect")
+	}
 	t.sseResp = resp
-
-	readCtx, cancel := context.WithCancel(context.Background())
-	t.cancel = cancel
-
-	go t.readLoop(readCtx, resp.Body)
+	initSignal := t.initSignal
+	connectionDone := t.connectionDone
 	t.mu.Unlock()
+	go t.readLoop(streamCtx, resp.Body, generation)
 
 	logging.Get(logging.CategoryTools).Info("SSE connection established to %s, waiting for endpoint...", t.baseURL)
 
 	// Wait for endpoint event
+	endpointTimer := time.NewTimer(t.timeout)
+	defer endpointTimer.Stop()
 	select {
-	case <-t.initSignal:
+	case <-initSignal:
 		// Got endpoint
 	case <-ctx.Done():
-		t.Disconnect()
+		t.finishConnection(generation)
 		return ctx.Err()
-	case <-time.After(t.timeout):
-		t.Disconnect()
+	case <-connectionDone:
+		return fmt.Errorf("SSE connection closed before endpoint event")
+	case <-endpointTimer.C:
+		t.finishConnection(generation)
 		return fmt.Errorf("timeout waiting for endpoint event")
 	}
 
-	// Get capabilities
-	// Use a fresh context for initialization that respects the timeout
-	initCtx, cancelInit := context.WithTimeout(context.Background(), t.timeout)
+	// Initialization obeys both caller cancellation and the configured request
+	// bound. The event stream itself remains owned by the transport.
+	initCtx, cancelInit := context.WithTimeout(ctx, t.timeout)
 	defer cancelInit()
 
 	caps, err := t.GetCapabilities(initCtx)
 	if err != nil {
-		t.Disconnect()
+		t.finishConnection(generation)
 		return fmt.Errorf("failed to get capabilities: %w", err)
 	}
 
 	t.mu.Lock()
+	if t.generation != generation || !t.streamActive {
+		t.mu.Unlock()
+		return fmt.Errorf("SSE connection closed during initialization")
+	}
 	t.serverInfo = caps
 	t.connected = true
 	t.mu.Unlock()
@@ -131,34 +195,55 @@ func (t *SSETransport) Connect(ctx context.Context) error {
 
 // Disconnect closes the connection.
 func (t *SSETransport) Disconnect() error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if t.cancel != nil {
-		t.cancel()
-		t.cancel = nil
-	}
-
-	if t.sseResp != nil {
-		t.sseResp.Body.Close()
-		t.sseResp = nil
-	}
-
-	t.connected = false
-	t.serverInfo = nil
-
-	// Close any pending channels to unblock callers
-	for id, ch := range t.pending {
-		close(ch)
-		delete(t.pending, id)
+	t.mu.RLock()
+	generation := t.generation
+	active := t.streamActive
+	t.mu.RUnlock()
+	if active {
+		t.finishConnection(generation)
 	}
 
 	logging.Get(logging.CategoryTools).Info("MCP SSE transport disconnected from %s", t.baseURL)
 	return nil
 }
 
+// finishConnection ends one generation and wakes pending calls without closing
+// their response channels. Response delivery and this transition share mu;
+// calls observe connectionDone instead of racing channel closure.
+func (t *SSETransport) finishConnection(generation uint64) {
+	t.mu.Lock()
+	if t.generation != generation || !t.streamActive {
+		t.mu.Unlock()
+		return
+	}
+	t.streamActive = false
+	t.connected = false
+	t.endpointReady = false
+	t.postURL = ""
+	t.serverInfo = nil
+	cancel := t.cancel
+	response := t.sseResp
+	done := t.connectionDone
+	t.cancel = nil
+	t.sseResp = nil
+	t.connectionDone = nil
+	t.pending = make(map[int]chan *mcpResponse)
+	if done != nil {
+		close(done)
+	}
+	t.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	if response != nil {
+		_ = response.Body.Close()
+	}
+	t.streamClient.CloseIdleConnections()
+}
+
 // readLoop reads SSE events from the response body.
-func (t *SSETransport) readLoop(ctx context.Context, body io.ReadCloser) {
+func (t *SSETransport) readLoop(ctx context.Context, body io.ReadCloser, generation uint64) {
 	defer body.Close()
 
 	scanner := bufio.NewScanner(body)
@@ -179,7 +264,7 @@ func (t *SSETransport) readLoop(ctx context.Context, body io.ReadCloser) {
 			if len(data) > 0 && data[len(data)-1] == '\n' {
 				data = data[:len(data)-1]
 			}
-			t.handleEvent(eventType, data)
+			t.handleEvent(generation, eventType, data)
 
 			eventType = "message" // Default event type
 			eventData.Reset()
@@ -210,25 +295,25 @@ func (t *SSETransport) readLoop(ctx context.Context, body io.ReadCloser) {
 		logging.Get(logging.CategoryTools).Warn("SSE read error: %v", err)
 	}
 
-	// If loop exits, we disconnected
-	t.mu.Lock()
-	if t.connected {
-		t.connected = false
+	// If the loop exits without an intentional cancellation, the server dropped
+	// the event stream. Wake any calls waiting for responses from this stream.
+	if ctx.Err() == nil {
 		logging.Get(logging.CategoryTools).Warn("SSE connection lost")
 	}
-	t.mu.Unlock()
+	t.finishConnection(generation)
 }
 
-func (t *SSETransport) handleEvent(eventType, data string) {
+func (t *SSETransport) handleEvent(generation uint64, eventType, data string) {
 	switch eventType {
 	case "endpoint":
 		t.mu.Lock()
-		t.postURL = data
+		if t.generation == generation && t.streamActive && !t.endpointReady {
+			t.postURL = data
+			t.endpointReady = true
+			close(t.initSignal)
+		}
 		t.mu.Unlock()
 
-		t.initOnce.Do(func() {
-			close(t.initSignal)
-		})
 		logging.Get(logging.CategoryTools).Debug("Received SSE endpoint: %s", redactForLog(data, maxLoggedPayload))
 
 	case "message":
@@ -238,9 +323,11 @@ func (t *SSETransport) handleEvent(eventType, data string) {
 			return
 		}
 
-		t.mu.RLock()
+		t.mu.Lock()
 		ch, ok := t.pending[resp.ID]
-		t.mu.RUnlock()
+		if t.generation != generation || !t.streamActive {
+			ok = false
+		}
 
 		if ok {
 			select {
@@ -252,6 +339,7 @@ func (t *SSETransport) handleEvent(eventType, data string) {
 			// Could be a notification or unsolicited message (not supported yet)
 			logging.Get(logging.CategoryTools).Debug("Received unsolicited message ID %d", resp.ID)
 		}
+		t.mu.Unlock()
 
 	default:
 		logging.Get(logging.CategoryTools).Debug("Ignored SSE event type: %s", eventType)
@@ -261,16 +349,24 @@ func (t *SSETransport) handleEvent(eventType, data string) {
 // call makes a JSON-RPC call.
 func (t *SSETransport) call(ctx context.Context, method string, params any) (*mcpResponse, error) {
 	t.mu.Lock()
+	if !t.streamActive || t.connectionDone == nil {
+		t.mu.Unlock()
+		return nil, fmt.Errorf("not connected to MCP server")
+	}
 	id := t.nextID
 	t.nextID++
 	ch := make(chan *mcpResponse, 1)
 	t.pending[id] = ch
 	postURL := t.postURL
+	connectionDone := t.connectionDone
+	generation := t.generation
 	t.mu.Unlock()
 
 	defer func() {
 		t.mu.Lock()
-		delete(t.pending, id)
+		if t.generation == generation && t.pending[id] == ch {
+			delete(t.pending, id)
+		}
 		t.mu.Unlock()
 	}()
 
@@ -326,6 +422,8 @@ func (t *SSETransport) call(ctx context.Context, method string, params any) (*mc
 			return resp, fmt.Errorf("MCP error %d: %s", resp.Error.Code, resp.Error.Message)
 		}
 		return resp, nil
+	case <-connectionDone:
+		return nil, fmt.Errorf("connection closed")
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-time.After(t.timeout):

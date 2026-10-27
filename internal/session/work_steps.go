@@ -52,12 +52,17 @@ Rules: one step per file region the task says to change; keep the task's own num
 // is not a missed edit. Zero when the step edited or nothing covers it.
 // The number is step_file_covered's, read back for the report.
 type workStep struct {
-	File      string
-	Change    string
-	Edited    bool
-	CoveredBy int
-	Calls     int
-	Note      string // the model's closing sentence, or the pass error
+	File     string
+	Change   string
+	Edited   bool
+	Reverted bool
+	// MeasurementError is set when the host could not establish the final
+	// file state for a step that wrote. No step verdict is queried in that
+	// case: a missing comparison is never represented as /unchanged.
+	MeasurementError string
+	CoveredBy        int
+	Calls            int
+	Note             string // the model's closing sentence, or the pass error
 	// NoChange is the evidence the model gave, on the step's last pass, that
 	// the step's change is already in place or its condition does not hold;
 	// empty unless the step made no edit.
@@ -366,6 +371,83 @@ func (e *Executor) recordStepPass(turn types.MangleAtom, step int, file string, 
 	return nil
 }
 
+// assertPlannedStepFileNet compares each written step's target with the
+// preimage captured before the turn's first write. It runs after the shared
+// post-edit gate, which includes all repair rounds and final gofmt. The host
+// measures bytes and asserts evidence; turn_steps.mg remains the only source
+// of the planned-step verdict.
+func (e *Executor) assertPlannedStepFileNet(turn types.MangleAtom, steps []workStep, result *ExecutionResult) error {
+	if e == nil || e.kernel == nil {
+		return errors.New("planned step net-state measurement needs a kernel")
+	}
+	if result == nil {
+		return errors.New("planned step net-state measurement needs an execution result")
+	}
+
+	type measurement struct {
+		step int
+		file string
+		net  string
+	}
+	measurements := make([]measurement, 0, len(steps))
+	workspace := e.workspaceForVerification()
+	for i := range steps {
+		step := &steps[i]
+		if !step.Edited {
+			continue
+		}
+		path := canonicalizeWrittenPath(step.File, workspace)
+		fail := func(reason string) error {
+			err := fmt.Errorf("planned step %d (%s): final file-state measurement failed: %s", i+1, step.File, reason)
+			for j := range steps {
+				if steps[j].Edited {
+					steps[j].MeasurementError = err.Error()
+				}
+			}
+			return err
+		}
+		if path == "" {
+			return fail("the target path is empty")
+		}
+		before, ok := result.PreWriteContents[path]
+		if !ok {
+			return fail(fmt.Sprintf("no first-write preimage was recorded for %q", path))
+		}
+		if !before.Known() {
+			return fail(fmt.Sprintf("the first-write preimage for %q is unknown: %s", path, before.Unknown))
+		}
+		after := readFileState(turnFilePath(workspace, path))
+		if !after.Known {
+			return fail(fmt.Sprintf("the final state of %q is unreadable", path))
+		}
+
+		net := "/changed"
+		if before.Existed == after.Exists && (!before.Existed || before.Content == after.Content) {
+			net = "/unchanged"
+		}
+		measurements = append(measurements, measurement{step: i + 1, file: step.File, net: net})
+	}
+
+	// Complete every comparison before asserting any facts. If one file is
+	// unknown or unreadable, this turn has no partial net-state evidence that
+	// could be mistaken for a complete measurement.
+	for _, measured := range measurements {
+		fact := types.Fact{Predicate: "step_file_net", Args: []any{
+			turn, int64(measured.step), types.MangleString(measured.file), types.MangleAtom(measured.net),
+		}}
+		if !e.assertTurnFact(fact) {
+			err := fmt.Errorf("planned step %d (%s): final file-state measurement failed: could not assert step_file_net", measured.step, measured.file)
+			for i := range steps {
+				if steps[i].Edited {
+					steps[i].MeasurementError = err.Error()
+				}
+			}
+			return err
+		}
+	}
+	return nil
+}
+
 // stepCommitRetry is the policy's answer after a pass was recorded:
 // step_next_action(/retry_commit) when that pass wrote nothing and the
 // commit retry has not been spent. A failed query is not a retry — deciding
@@ -419,8 +501,9 @@ func (e *Executor) derivedStepOutcome(turn types.MangleAtom, steps []workStep) (
 		return "", nil, fmt.Errorf("step_unresolved: %w", err)
 	}
 	var gaps []struct {
-		n    int64
-		file string
+		n      int64
+		file   string
+		reason string
 	}
 	for _, f := range unresolved {
 		if factTurn(f) != string(turn) {
@@ -432,13 +515,37 @@ func (e *Executor) derivedStepOutcome(turn types.MangleAtom, steps []workStep) (
 			continue
 		}
 		gaps = append(gaps, struct {
-			n    int64
-			file string
-		}{n, types.ExtractString(file)})
+			n      int64
+			file   string
+			reason string
+		}{n: n, file: types.ExtractString(file), reason: "made no edit"})
+	}
+	reverted, err := e.kernel.Query("step_reverted")
+	if err != nil {
+		return "", nil, fmt.Errorf("step_reverted: %w", err)
+	}
+	for _, f := range reverted {
+		if factTurn(f) != string(turn) {
+			continue
+		}
+		n, ok := factNumber(f, 1)
+		file, fileOK := nthArg(f.Args, 2)
+		if !ok || !fileOK {
+			continue
+		}
+		idx := int(n) - 1
+		if idx >= 0 && idx < len(steps) {
+			steps[idx].Reverted = true
+		}
+		gaps = append(gaps, struct {
+			n      int64
+			file   string
+			reason string
+		}{n: n, file: types.ExtractString(file), reason: "edit was reverted"})
 	}
 	sort.Slice(gaps, func(i, j int) bool { return gaps[i].n < gaps[j].n })
 	for _, g := range gaps {
-		missing = append(missing, fmt.Sprintf("[%d] %s", g.n, g.file))
+		missing = append(missing, fmt.Sprintf("[%d] %s (%s)", g.n, g.file, g.reason))
 	}
 	verdicts, err := e.kernel.Query("turn_steps_verdict")
 	if err != nil {
@@ -469,6 +576,16 @@ func (e *Executor) derivedStepOutcome(turn types.MangleAtom, steps []workStep) (
 	return verdict, missing, nil
 }
 
+// finalizedStepOutcome first requires complete host measurements, then reads
+// the verdict and the report joins from Mangle. A measurement failure is an
+// operational error and stops before any completion result can be surfaced.
+func (e *Executor) finalizedStepOutcome(turn types.MangleAtom, steps []workStep, result *ExecutionResult) (string, []string, error) {
+	if err := e.assertPlannedStepFileNet(turn, steps, result); err != nil {
+		return "", nil, err
+	}
+	return e.derivedStepOutcome(turn, steps)
+}
+
 // workStepReport is the ledger the turn surfaces: every step, whether it
 // edited, and the model's closing word on it.
 func workStepReport(steps []workStep) string {
@@ -483,6 +600,10 @@ func workStepReport(steps []workStep) string {
 	for i, s := range steps {
 		status := "no edit"
 		switch {
+		case s.MeasurementError != "":
+			status = "final file state could not be measured"
+		case s.Reverted:
+			status = "edit reverted"
 		case s.Edited:
 			status = "edited"
 		case s.NoChange != "":
@@ -491,7 +612,9 @@ func workStepReport(steps []workStep) string {
 			status = fmt.Sprintf("no edit (file edited in step %d)", s.CoveredBy)
 		}
 		fmt.Fprintf(&b, "\n[%d] %s :: %s — %s (%d tool call(s))", i+1, s.File, s.Change, status, s.Calls)
-		if note := strings.TrimSpace(s.Note); note != "" {
+		if s.MeasurementError != "" {
+			fmt.Fprintf(&b, ": %s", firstLine(s.MeasurementError))
+		} else if note := strings.TrimSpace(s.Note); note != "" {
 			fmt.Fprintf(&b, ": %s", firstLine(note))
 		}
 	}
@@ -758,22 +881,21 @@ func (e *Executor) runPlannedSteps(
 		}
 		logging.Session("Step %d/%d %s: edited=%v, %d tool call(s)", stepNum, len(steps), step.File, step.Edited, step.Calls)
 	}
-	verdict, missing, outcomeErr := e.derivedStepOutcome(turn, steps)
-	if outcomeErr != nil {
-		result.StepReport = workStepReport(steps)
-		return last, toolErrs, outcomeErr
-	}
-	result.StepReport = workStepReport(steps)
 	if last == nil {
-		last = &types.LLMToolResponse{Text: result.StepReport}
+		last = &types.LLMToolResponse{Text: workStepReport(steps)}
 	}
 
 	// One gate for the whole task, inside a working loop so a repair round
 	// sees what the steps gathered.
 	client := e.llmForVerb(result.Intent.Verb)
 	trp, _ := e.toolResultsChannel(client, cfg)
-	gateCtx, closeWorking, workingErr := e.beginWorkingLoop(ctx, task, compilationCtx)
+	gateCtx, closeWorking, workingErr := e.beginWorkingLoop(ctx, client, task, compilationCtx)
 	if workingErr != nil {
+		_, _, outcomeErr := e.finalizedStepOutcome(turn, steps, result)
+		result.StepReport = workStepReport(steps)
+		if outcomeErr != nil {
+			return last, toolErrs, errors.Join(workingErr, outcomeErr)
+		}
 		return last, toolErrs, workingErr
 	}
 	defer closeWorking()
@@ -783,11 +905,19 @@ func (e *Executor) runPlannedSteps(
 	verified, verifyErrs, verifyErr := e.verifyCompletedToolTurn(
 		gateCtx, trp, systemPrompt, history, last, e.buildToolDefinitions(cfg), cfg, result)
 	toolErrs = append(toolErrs, verifyErrs...)
+	verdict, missing, outcomeErr := e.finalizedStepOutcome(turn, steps, result)
+	result.StepReport = workStepReport(steps)
+	if verified == nil && last != nil {
+		verified = last
+	}
+	if outcomeErr != nil {
+		return verified, toolErrs, errors.Join(verifyErr, outcomeErr)
+	}
 	if verifyErr != nil {
 		return verified, toolErrs, verifyErr
 	}
 	if verdict == "/incomplete" {
-		return verified, toolErrs, fmt.Errorf("%w: %d of %d step(s) made no edit and nothing else edited the file (%s)\n%s",
+		return verified, toolErrs, fmt.Errorf("%w: %d of %d step(s) remain unresolved (%s)\n%s",
 			ErrStepsIncomplete, len(missing), len(steps), strings.Join(missing, ", "), result.StepReport)
 	}
 	if verdict != "/complete" {

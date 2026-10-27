@@ -62,6 +62,17 @@ type OrientConfig struct {
 	TopicOverlapMin    int `json:"topic_overlap_min,omitempty"`
 	SkillClusterMin    int `json:"skill_cluster_min,omitempty"`
 
+	// Init's agent roster bounds (internal/orient/vision_agents.mg).
+	// DomainAgentMax is how many north-star-derived domain experts one init
+	// keeps; DomainAgentTopicMax how many topics and research questions each
+	// carries; ImportedAgentMax how many imported subagents and modes join the
+	// roster; ResearchStaleDays after how many days a fast-moving topic's
+	// research is re-run by a later init.
+	DomainAgentMax      int `json:"domain_agent_max,omitempty"`
+	DomainAgentTopicMax int `json:"domain_agent_topic_max,omitempty"`
+	ImportedAgentMax    int `json:"imported_agent_max,omitempty"`
+	ResearchStaleDays   int `json:"research_stale_days,omitempty"`
+
 	// Embedding request bounds and inverse-prevalence signal weights.
 	EmbeddingHubTopKMultiple   int `json:"embedding_hub_top_k_multiple,omitempty"`
 	EmbeddingBatchSize         int `json:"embedding_batch_size,omitempty"`
@@ -158,6 +169,10 @@ func DefaultOrientConfig() OrientConfig {
 		MiddleSpanPermille:      700,
 		TopicOverlapMin:         2,
 		SkillClusterMin:         2,
+		DomainAgentMax:          6,
+		DomainAgentTopicMax:     8,
+		ImportedAgentMax:        8,
+		ResearchStaleDays:       30,
 
 		// Embedding and signal defaults.
 		EmbeddingHubTopKMultiple:   3,
@@ -283,6 +298,18 @@ func (c OrientConfig) WithDefaults() OrientConfig {
 	if c.SkillClusterMin == 0 {
 		c.SkillClusterMin = d.SkillClusterMin
 	}
+	if c.DomainAgentMax == 0 {
+		c.DomainAgentMax = d.DomainAgentMax
+	}
+	if c.DomainAgentTopicMax == 0 {
+		c.DomainAgentTopicMax = d.DomainAgentTopicMax
+	}
+	if c.ImportedAgentMax == 0 {
+		c.ImportedAgentMax = d.ImportedAgentMax
+	}
+	if c.ResearchStaleDays == 0 {
+		c.ResearchStaleDays = d.ResearchStaleDays
+	}
 	if c.SimilarityFloorPermille == 0 {
 		c.SimilarityFloorPermille = d.SimilarityFloorPermille
 	}
@@ -399,6 +426,10 @@ func (c OrientConfig) Check(prefix string) []Problem {
 	atLeast("live_hub_min_links", c.LiveHubMinLinks, 1, "a live hub is a count of inbound links")
 	atLeast("topic_overlap_min", c.TopicOverlapMin, 1, "duplicate evidence requires shared topics")
 	atLeast("skill_cluster_min", c.SkillClusterMin, 2, "a skill cluster requires more than one source")
+	rangeOf("domain_agent_max", c.DomainAgentMax, 1, 32, "each domain expert costs a planner call and its research")
+	rangeOf("domain_agent_topic_max", c.DomainAgentTopicMax, 1, 32, "each topic is a research request")
+	rangeOf("imported_agent_max", c.ImportedAgentMax, 0, 64, "imports must not crowd out the derived roster")
+	atLeast("research_stale_days", c.ResearchStaleDays, 1, "research older than this is re-run")
 	rangeOf("origin_span_permille", c.OriginSpanPermille, 1, 999, "the opening slice of a single-era span")
 	rangeOf("early_span_permille", c.EarlySpanPermille, 1, 999, "the early slice of a single-era span")
 	rangeOf("middle_span_permille", c.MiddleSpanPermille, 1, 999, "the middle slice of a single-era span")
@@ -456,6 +487,10 @@ func (c OrientConfig) Params() []Param {
 		{Key: "/orient_vision_weight_live", Value: int64(c.VisionWeightLive)},
 		{Key: "/orient_topic_overlap_min", Value: int64(c.TopicOverlapMin)},
 		{Key: "/orient_skill_cluster_min", Value: int64(c.SkillClusterMin)},
+		{Key: "/orient_domain_agent_max", Value: int64(c.DomainAgentMax)},
+		{Key: "/orient_domain_agent_topic_max", Value: int64(c.DomainAgentTopicMax)},
+		{Key: "/orient_imported_agent_max", Value: int64(c.ImportedAgentMax)},
+		{Key: "/orient_research_stale_days", Value: int64(c.ResearchStaleDays)},
 		{Key: "/orient_similarity_floor_permille", Value: int64(c.SimilarityFloorPermille)},
 		{Key: "/orient_similar_top_k", Value: int64(c.SimilarTopK)},
 		{Key: "/orient_read_candidate_budget", Value: int64(c.ReadCandidateBudget)},

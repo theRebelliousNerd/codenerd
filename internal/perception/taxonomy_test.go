@@ -156,16 +156,26 @@ func TestTaxonomyEngine_GetVerbs_ShardTypesNormalized(t *testing.T) {
 func TestTaxonomyEngine_ClassifyInput_Simple(t *testing.T) {
 	engine, err := NewTaxonomyEngine()
 	if err != nil {
-		t.Skip("Skipping due to initialization failure")
+		t.Fatalf("NewTaxonomyEngine: %v", err)
 	}
+	defer engine.StopWorker()
 
-	// We need candidates to classify.
-	candidates, _ := engine.GetVerbs()
+	// Classify against the engine's loaded corpus. An empty or unreadable corpus
+	// is a broken behavior oracle, not a reason to substitute test-local verbs.
+	candidates, err := engine.GetVerbs()
+	if err != nil {
+		t.Fatalf("GetVerbs: %v", err)
+	}
 	if len(candidates) == 0 {
-		// Mock candidates if defaults not loaded?
-		candidates = []VerbEntry{
-			{Verb: "/fix", Category: "/mutation", Priority: 90, Synonyms: []string{"fix", "repair"}},
-			{Verb: "/test", Category: "/mutation", Priority: 88, Synonyms: []string{"test"}},
+		t.Fatal("GetVerbs returned an empty verb corpus")
+	}
+	corpusVerbs := make(map[string]bool, len(candidates))
+	for _, candidate := range candidates {
+		corpusVerbs[candidate.Verb] = true
+	}
+	for _, verb := range []string{"/fix", "/test"} {
+		if !corpusVerbs[verb] {
+			t.Fatalf("real verb corpus does not contain %q", verb)
 		}
 	}
 
@@ -178,18 +188,15 @@ func TestTaxonomyEngine_ClassifyInput_Simple(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		verb, _, err := engine.ClassifyInput(tt.input, candidates)
-		if err != nil {
-			// ClassifyInput relies on Mangle schemas which may not be loaded
-			t.Skipf("ClassifyInput(%q) error (Mangle dependency): %v", tt.input, err)
-		}
-
-		// Note: ClassifyInput uses Mangle logic which might vary slightly based on rules loaded.
-		// We just check if it returns *something* reasonable or if logic allows.
-		// If Mangle rules aren't fully loaded, this might return empty or a different verb.
-		if verb != "" && verb != tt.want {
-			t.Logf("ClassifyInput(%q) = %q, want %q (Mangle rule variation — acceptable)", tt.input, verb, tt.want)
-		}
+		t.Run(tt.want, func(t *testing.T) {
+			verb, _, err := engine.ClassifyInput(tt.input, candidates)
+			if err != nil {
+				t.Fatalf("ClassifyInput(%q): %v", tt.input, err)
+			}
+			if verb != tt.want {
+				t.Fatalf("ClassifyInput(%q) = %q, want %q", tt.input, verb, tt.want)
+			}
+		})
 	}
 }
 

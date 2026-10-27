@@ -72,9 +72,11 @@ func TestDefaultOpenAICompatConfig_VendorEndpoints(t *testing.T) {
 }
 
 // Meta deprecates max_tokens and rejects reasoning_effort:"none" with HTTP 400,
-// and is tuned to run at default sampling.
+// and is tuned to run at default sampling. Its effort is the slot's configured
+// one: a capability hint on the context chooses nothing.
 func TestBuildRequest_MetaFieldShape(t *testing.T) {
 	c := newTestCompatClient(t, ProviderMeta, "https://api.meta.ai/v1")
+	c.reasoningEffort = "medium"
 
 	ctx := types.WithModelCapability(context.Background(), types.CapabilityHighReasoning)
 	req := c.buildRequest(ctx, []OpenAIMessage{{Role: "user", Content: "hi"}}, true)
@@ -85,8 +87,8 @@ func TestBuildRequest_MetaFieldShape(t *testing.T) {
 	if req.MaxCompletionTokens == 0 {
 		t.Error("MaxCompletionTokens must be set for Meta")
 	}
-	if req.ReasoningEffort != "high" {
-		t.Errorf("ReasoningEffort = %q, want high for CapabilityHighReasoning", req.ReasoningEffort)
+	if req.ReasoningEffort != "medium" {
+		t.Errorf("ReasoningEffort = %q, want the configured medium whatever the capability hint", req.ReasoningEffort)
 	}
 	if req.EnableThinking != nil {
 		t.Error("enable_thinking is a DashScope field and must not be sent to Meta")
@@ -96,28 +98,30 @@ func TestBuildRequest_MetaFieldShape(t *testing.T) {
 	}
 }
 
-func TestBuildRequest_MetaNeverSendsEffortNone(t *testing.T) {
-	c := newTestCompatClient(t, ProviderMeta, "https://api.meta.ai/v1")
-
-	for _, capability := range []types.ModelCapability{
-		types.CapabilityHighReasoning,
-		types.CapabilityBalanced,
-		types.CapabilityHighSpeed,
-	} {
-		ctx := types.WithModelCapability(context.Background(), capability)
-		req := c.buildRequest(ctx, nil, true)
-		if req.ReasoningEffort == "none" {
-			t.Fatalf("capability %s produced reasoning_effort=none, which Muse Spark rejects with HTTP 400", capability)
-		}
-		if req.ReasoningEffort == "" {
-			t.Errorf("capability %s produced no reasoning_effort", capability)
-		}
+// The effort a Meta request carries is the config's: the slot's configured
+// effort, thinking on or off, or a shard profile's riding the request; a
+// client configured with none sends none, and nothing invents one.
+func TestBuildRequest_MetaSendsTheConfiguredEffort(t *testing.T) {
+	tests := []struct {
+		name     string
+		effort   string
+		ctx      context.Context
+		thinking bool
+		want     string
+	}{
+		{name: "configured effort", effort: "xhigh", ctx: context.Background(), thinking: true, want: "xhigh"},
+		{name: "configured effort with thinking off", effort: "minimal", ctx: context.Background(), want: "minimal"},
+		{name: "a profile effort wins", effort: "xhigh", ctx: types.WithReasoningEffort(context.Background(), "low"), thinking: true, want: "low"},
+		{name: "a capability hint invents nothing", ctx: types.WithModelCapability(context.Background(), types.CapabilityHighSpeed), thinking: true},
 	}
-
-	// With no capability hint the vendor default must stand.
-	req := c.buildRequest(context.Background(), nil, true)
-	if req.ReasoningEffort != "" {
-		t.Errorf("unhinted request set reasoning_effort=%q, want vendor default", req.ReasoningEffort)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newTestCompatClient(t, ProviderMeta, "https://api.meta.ai/v1")
+			c.reasoningEffort = tt.effort
+			if got := c.buildRequest(tt.ctx, nil, tt.thinking).ReasoningEffort; got != tt.want {
+				t.Errorf("reasoning_effort = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -283,10 +287,11 @@ func TestBuildRequest_MetaExplicitXHighOnUnhintedAndAllCapabilities(t *testing.T
 	if err != nil {
 		t.Fatalf("NewOpenAICompatClient: %v", err)
 	}
-	// Unhinted request must carry the explicit override.
+	// The configured effort rides every request, whatever capability hint
+	// the context carries.
 	req := c.buildRequest(context.Background(), nil, true)
 	if req.ReasoningEffort != "xhigh" {
-		t.Fatalf("unhinted reasoning_effort = %q, want xhigh", req.ReasoningEffort)
+		t.Fatalf("reasoning_effort = %q, want xhigh", req.ReasoningEffort)
 	}
 	for _, cap := range []types.ModelCapability{types.CapabilityHighReasoning, types.CapabilityBalanced, types.CapabilityHighSpeed} {
 		ctx := types.WithModelCapability(context.Background(), cap)

@@ -150,6 +150,84 @@ func TestRegistry_Execute_TypeMismatch(t *testing.T) {
 	}
 }
 
+func TestRegistry_Execute_RejectsNullForTypedArguments(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		required []string
+		property string
+		typeName string
+	}{
+		{name: "required string", required: []string{"path"}, property: "path", typeName: "string"},
+		{name: "optional integer", property: "line", typeName: "integer"},
+		{name: "optional number", property: "score", typeName: "number"},
+		{name: "optional boolean", property: "enabled", typeName: "boolean"},
+		{name: "optional array", property: "items", typeName: "array"},
+		{name: "optional object", property: "options", typeName: "object"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := NewRegistry()
+			executed, guarded, recorded := false, false, false
+			reg.SetWriteGuard(func(context.Context, string, map[string]any) error {
+				guarded = true
+				return nil
+			})
+			reg.SetFactSink(func(context.Context, ExecutionRecord) { recorded = true })
+			reg.MustRegister(&Tool{
+				Name:     "typed_probe",
+				Effect:   EffectWrite,
+				Category: CategoryGeneral,
+				Execute: func(context.Context, map[string]any) (string, error) {
+					executed = true
+					return "should not run", nil
+				},
+				Schema: ToolSchema{
+					Required: tc.required,
+					Properties: map[string]Property{
+						tc.property: {Type: tc.typeName},
+					},
+				},
+			})
+
+			result, err := reg.Execute(context.Background(), "typed_probe", map[string]any{tc.property: nil})
+			if !errors.Is(err, ErrInvalidArgType) {
+				t.Fatalf("Execute error = %v, want ErrInvalidArgType", err)
+			}
+			if result == nil || !errors.Is(result.Error, ErrInvalidArgType) {
+				t.Fatalf("Execute result = %+v, want typed argument error", result)
+			}
+			if executed || guarded || recorded {
+				t.Fatalf("invalid arguments reached later stages: executed=%v guarded=%v recorded=%v", executed, guarded, recorded)
+			}
+		})
+	}
+}
+
+func TestRegistry_Execute_AllowsAbsentOptionalAndUntypedNull(t *testing.T) {
+	reg := NewRegistry()
+	var calls int
+	reg.MustRegister(&Tool{
+		Name:     "permissive_probe",
+		Effect:   EffectRead,
+		Category: CategoryGeneral,
+		Execute: func(context.Context, map[string]any) (string, error) {
+			calls++
+			return "ok", nil
+		},
+		Schema: ToolSchema{
+			Properties: map[string]Property{"untyped": {}},
+		},
+	})
+
+	for _, args := range []map[string]any{{}, {"untyped": nil}} {
+		if _, err := reg.Execute(context.Background(), "permissive_probe", args); err != nil {
+			t.Fatalf("Execute(%#v) error = %v, want nil", args, err)
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("tool calls = %d, want 2", calls)
+	}
+}
+
 // TestRegistry_PrioritySorting_Extremes verifies that GetByCategory correctly
 // sorts tools when priorities are at extreme integer values.
 //

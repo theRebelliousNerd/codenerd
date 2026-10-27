@@ -53,16 +53,22 @@ Operator prerequisites (embeddings):
   --api-key flag or the chat provider setting:
 
     "embedding": {
-      "provider":        "ollama",                  // or "genai"
-      "ollama_endpoint": "http://localhost:11434",
-      "ollama_model":    "embeddinggemma:300m",     // must be pulled first
-      "genai_api_key":   "",                        // required when provider=genai
-      "genai_model":     "gemini-embedding-001"
+      "provider":        "<ollama or genai>",
+      "ollama_endpoint": "<your ollama endpoint>",
+      "ollama_model":    "<an embedding model you have pulled, full tag>",
+      "genai_api_key":   "<required when provider is genai>",
+      "genai_model":     "<a genai embedding model>"
     }
 
-  With the default ollama provider, 'ollama serve' must be reachable at the
-  endpoint and the model must already be pulled ('ollama pull embeddinggemma:300m');
-  a bare "embeddinggemma" tag 404s on most installs.
+  With ollama, 'ollama serve' must be reachable at the endpoint and the model
+  must already be pulled under exactly the tag you name.
+
+Models:
+  Init uses the clients .nerd/config.json configures and names none itself.
+  Orientation (document roles and the north star), specialist prompts and
+  project tool selection run on the "planner" slot when one is configured;
+  the rest runs on the "worker" slot, else the main provider. Each request is
+  bounded by llm_timeouts.per_call_timeout; --timeout bounds the whole command.
 
   Embedding failure is a hard error, not a degraded mode: an empty vector index
   would silently return no knowledge for the rest of the workspace's life.
@@ -165,9 +171,11 @@ func runInitWithLLMConfigurer(cmd *cobra.Command, args []string, configureLLM fu
 		fmt.Println("🔄 Force reinitializing workspace...")
 	}
 
-	// Configure initializer
+	// Configure initializer. config.Timeout stays zero: each model request
+	// reads llm_timeouts.per_call_timeout when it is made. --timeout is the
+	// whole command's wall-clock limit and is already on ctx; it used to be
+	// copied here too, so `--timeout 2h` let one stalled request run two hours.
 	config := nerdinit.DefaultInitConfig(cwd)
-	config.Timeout = timeout
 	appCfg := loadCampaignConfig(filepath.Join(cwd, ".nerd"))
 	config.Context7APIKey = appCfg.GetContext7APIKey()
 
@@ -189,23 +197,10 @@ func runInitWithLLMConfigurer(cmd *cobra.Command, args []string, configureLLM fu
 		config.Interactive = false
 	}
 
-	// Set up the LLM client from .nerd/config.json (wrapped with the scheduler
-	// for concurrency control).
-	//
-	// This used to be hardcoded to Z.AI: it read only --api-key or ZAI_API_KEY
-	// and called perception.NewZAIClient, ignoring the configured provider,
-	// model and keys entirely. With a stale ZAI_API_KEY in the ambient
-	// environment, a cold start ran all ~200 of its knowledge-base and doc
-	// analysis calls against an unconfigured provider — and since init reports
-	// per-KB "quality" without checking whether the calls succeeded, a run
-	// where nearly every call 429'd still printed a clean bill of health.
-	//
-	// Init prefers the WORKER client. Its LLM work is ~200 documentation-relevance
-	// classifications ("is this doc strategically relevant?") issued one at a
-	// time, which is bulk labelling, not reasoning. Measured on a cold start:
-	// ~25s per call on a high-reasoning model, so the serialized loop needs ~82
-	// minutes and cannot finish inside the 25-minute operation timeout. On the
-	// cheap tier the same loop is the work the tier exists for.
+	// Set up the LLM clients from .nerd/config.json (each wrapped with the
+	// scheduler for concurrency control): the worker, else the main client,
+	// for bulk enrichment, and the planner slot for the phases every later
+	// session builds on. Nothing here names a provider or model.
 	if configureLLM != nil {
 		configureLLM(&config, appCfg)
 	}
@@ -333,6 +328,11 @@ func buildMarathonEmbedder(workspace string) (embedding.EmbeddingEngine, error) 
 	return engine, nil
 }
 
+// configureInitLLM builds init's clients from .nerd/config.json the way boot
+// builds the session's (internal/system/factory.go): the worker slot, else the
+// main provider, serves bulk enrichment; the planner slot, when configured,
+// serves orientation, the north star, specialist prompts and project tool
+// selection.
 func configureInitLLM(config *nerdinit.InitConfig, appCfg *nerdconfig.UserConfig) {
 	if err := applyInitAPIKeyOverride(appCfg, apiKey); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: --api-key override ignored: %v\n", err)
@@ -344,10 +344,6 @@ func configureInitLLM(config *nerdinit.InitConfig, appCfg *nerdconfig.UserConfig
 			fmt.Fprintln(os.Stderr, warning)
 		}
 		config.LLMClient = core.NewScheduledLLMCall("init", worker)
-		if appCfg.Worker != nil {
-			config.LLMProvider = appCfg.Worker.Provider
-			config.LLMModel = appCfg.Worker.Model
-		}
 	}
 	if config.LLMClient == nil {
 		if llmClient, err := newConfiguredLLMClient(appCfg, "init"); err != nil {
@@ -355,12 +351,12 @@ func configureInitLLM(config *nerdinit.InitConfig, appCfg *nerdconfig.UserConfig
 			fmt.Fprintln(os.Stderr, "         Knowledge-base and documentation phases will be skipped.")
 		} else {
 			config.LLMClient = llmClient
-			config.LLMProvider = appCfg.Provider
-			if appCfg.Engine != "" && !strings.EqualFold(appCfg.Engine, "api") {
-				config.LLMProvider = appCfg.Engine
-			}
-			config.LLMModel = appCfg.Model
 		}
+	}
+	if planner, perr := perception.NewPlannerClientFromUserConfig(appCfg); perr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: planner LLM init failed: %v (planner phases use the init client)\n", perr)
+	} else if planner != nil {
+		config.PlannerClient = core.NewScheduledLLMCall("planner", planner)
 	}
 }
 

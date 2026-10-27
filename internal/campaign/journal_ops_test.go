@@ -15,12 +15,13 @@ import (
 func journalOpsOrchestrator(t *testing.T, workspace string) *Orchestrator {
 	t.Helper()
 	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:    workspace,
-		Kernel:       &MockKernel{},
-		LLMClient:    &MockLLMClient{},
-		TaskExecutor: &MockTaskExecutor{},
-		Executor:     tactile.NewDirectExecutor(),
-		VirtualStore: &core.VirtualStore{},
+		Workspace:         workspace,
+		Kernel:            &MockKernel{},
+		LLMClient:         &MockLLMClient{},
+		PlanningLLMClient: &MockLLMClient{},
+		TaskExecutor:      &MockTaskExecutor{},
+		Executor:          tactile.NewDirectExecutor(),
+		VirtualStore:      &core.VirtualStore{},
 	})
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)

@@ -4,7 +4,6 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/northstar"
-	"codenerd/internal/perception"
 	"codenerd/internal/session"
 	"codenerd/internal/world"
 	"errors"
@@ -46,6 +45,7 @@ func NewOrchestrator(cfg OrchestratorConfig) (*Orchestrator, error) {
 	o := &Orchestrator{
 		kernel:          cfg.Kernel,
 		llmClient:       cfg.LLMClient,
+		planningClient:  cfg.PlanningLLMClient,
 		shardMgr:        cfg.ShardManager,
 		taskExecutor:    cfg.TaskExecutor,
 		executor:        cfg.Executor,
@@ -59,24 +59,22 @@ func NewOrchestrator(cfg OrchestratorConfig) (*Orchestrator, error) {
 		config:          cfg,
 		policy:          policy,
 		promptProvider:  NewStaticPromptProvider(),
-		writeSetLocks:   newWriteSetLockManager(cfg.Workspace),
-		pauseCh:         initialPauseCh,
+		// Every door's tasks get their specialist's knowledge: the provider
+		// needs only the workspace, so no caller has to remember it.
+		specialistKnowledgeProvider: NewLocalSpecialistKnowledgeProvider(cfg.Workspace),
+		writeSetLocks:               newWriteSetLockManager(cfg.Workspace),
+		pauseCh:                     initialPauseCh,
 	}
 
-	// Initialize sub-components
+	// Initialize sub-components. Planning (decomposition and every replan) runs
+	// on the planning client; paging and the document fallback on LLMClient.
 	o.contextPager = NewContextPager(cfg.Kernel, cfg.LLMClient, cfg.ContextBudget)
 	o.checkpoint = NewCheckpointRunner(cfg.Executor, cfg.TaskExecutor, cfg.Workspace, cfg.Kernel)
-	o.replanner = NewReplanner(cfg.Kernel, cfg.LLMClient, cfg.Workspace)
-	o.decomposer = NewDecomposer(cfg.Kernel, cfg.LLMClient, cfg.Workspace)
+	o.replanner = NewReplanner(cfg.Kernel, cfg.PlanningLLMClient, cfg.Workspace)
+	o.decomposer = NewDecomposer(cfg.Kernel, cfg.PlanningLLMClient, cfg.Workspace)
 	if cfg.ShardManager != nil {
 		o.decomposer.SetShardLister(cfg.ShardManager) // Enable shard-aware planning
 	}
-	if cfg.Transducer != nil {
-		o.transducer = cfg.Transducer
-	} else {
-		o.transducer = perception.NewUnderstandingTransducer(cfg.LLMClient)
-	}
-
 	wireIntelligenceComponents(o, cfg)
 	defaultWireIntelligence(o, cfg)
 	// The campaign section is the gatherer's policy, whether the caller
@@ -114,6 +112,9 @@ func validateOrchestratorConfig(cfg OrchestratorConfig) error {
 	}
 	if northstar.IsNil(cfg.LLMClient) {
 		missing = append(missing, "llm_client")
+	}
+	if northstar.IsNil(cfg.PlanningLLMClient) {
+		missing = append(missing, "planning_llm_client")
 	}
 	if northstar.IsNil(cfg.Executor) {
 		missing = append(missing, "executor")
@@ -198,121 +199,6 @@ func (o *Orchestrator) SetPromptProvider(provider PromptProvider) {
 	if o.replanner != nil {
 		o.replanner.SetPromptProvider(provider)
 	}
-}
-
-// SetTaskExecutor sets the task executor for JIT-driven task execution.
-// When set, the orchestrator will prefer TaskExecutor over ShardManager.
-//
-// This is part of the migration from shards to the clean execution loop.
-// Usage:
-//
-//	orch := campaign.NewOrchestrator(cfg)
-//	orch.SetTaskExecutor(session.NewJITExecutor(executor, spawner, transducer))
-func (o *Orchestrator) SetTaskExecutor(te session.TaskExecutor) {
-	// Refuse to un-set it. NewOrchestrator now requires a usable executor, so a
-	// nil here could only ever downgrade a working orchestrator into one whose
-	// verification checkpoints cannot run.
-	if isNilTaskExecutor(te) {
-		logging.Get(logging.CategoryCampaign).Warn("SetTaskExecutor called with nil executor; keeping existing executor")
-		return
-	}
-	if _, ok := te.(session.ObservedTaskExecutor); !ok {
-		logging.Get(logging.CategoryCampaign).Error("SetTaskExecutor: %T returns no observed result, and a campaign reads each task's verdict; keeping existing executor", te)
-		return
-	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.taskExecutor = te
-	if o.checkpoint != nil {
-		o.checkpoint.taskExecutor = te
-	}
-	logging.Campaign("TaskExecutor set on orchestrator")
-}
-
-// SetSpecialistKnowledgeProvider sets the provider for specialist knowledge injection.
-// When set, the orchestrator will inject relevant knowledge from specialist databases
-// into task context, enabling specialists to leverage their domain expertise.
-func (o *Orchestrator) SetSpecialistKnowledgeProvider(provider SpecialistKnowledgeProvider) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.specialistKnowledgeProvider = provider
-	logging.Campaign("SpecialistKnowledgeProvider set on orchestrator")
-}
-
-// SetNorthstarObserver sets the Northstar vision guardian observer.
-// When set, the orchestrator will perform alignment checks at phase transitions,
-// task completions, and other critical points during campaign execution.
-//
-// The observer monitors whether work remains aligned with the project vision,
-// can block phases that drift from goals, and records observations for analysis.
-func (o *Orchestrator) SetNorthstarObserver(observer *northstar.CampaignObserver) {
-	o.mu.Lock()
-	old := o.configuredNorthstarObserver
-	o.northstarObserver = observer
-	o.configuredNorthstarObserver = observer
-	o.recomputeRiskGateStateLocked()
-	o.mu.Unlock()
-	logging.Campaign("NorthstarObserver set on orchestrator")
-	if old != nil && old != observer {
-		_ = old.Close()
-	}
-}
-
-// SetIntelligenceGatherer sets the intelligence gatherer for pre-planning intelligence.
-// When set, the decomposer will gather intelligence from 12 systems before planning.
-func (o *Orchestrator) SetIntelligenceGatherer(gatherer *IntelligenceGatherer) {
-	// A zero policy means this orchestrator was not built by NewOrchestrator
-	// (tests that fill the struct directly). Stamping it would install a
-	// zero timeout, and context.WithTimeout treats a non-positive duration
-	// as already expired, so every system query would stop before it started.
-	if gatherer != nil && o.policy.Intelligence.PerSystemTimeout > 0 {
-		gatherer.WithConfig(IntelligenceConfigFromPolicy(o.policy))
-	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.intelligenceGatherer = gatherer
-	if o.decomposer != nil {
-		o.decomposer.SetIntelligenceGatherer(gatherer)
-	}
-	logging.Campaign("IntelligenceGatherer set on orchestrator")
-}
-
-// SetAdvisoryBoard sets the shard advisory board for plan review.
-// When set, domain experts will review plans before execution.
-func (o *Orchestrator) SetAdvisoryBoard(board *ShardAdvisoryBoard) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.advisoryBoard = board
-	o.recomputeRiskGateStateLocked()
-	if o.decomposer != nil {
-		o.decomposer.SetAdvisoryBoard(board)
-	}
-	logging.Campaign("AdvisoryBoard set on orchestrator")
-}
-
-// SetEdgeCaseDetector sets the edge case detector for file action decisions.
-// When set, the decomposer will analyze files to determine create/extend/modularize actions.
-func (o *Orchestrator) SetEdgeCaseDetector(detector *EdgeCaseDetector) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.edgeCaseDetector = detector
-	o.recomputeRiskGateStateLocked()
-	if o.decomposer != nil {
-		o.decomposer.SetEdgeCaseDetector(detector)
-	}
-	logging.Campaign("EdgeCaseDetector set on orchestrator")
-}
-
-// SetToolPregenerator sets the tool pregenerator for pre-execution tool generation.
-// When set, the decomposer will generate missing tools before campaign execution.
-func (o *Orchestrator) SetToolPregenerator(pregenerator *ToolPregenerator) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.toolPregenerator = pregenerator
-	if o.decomposer != nil {
-		o.decomposer.SetToolPregenerator(pregenerator)
-	}
-	logging.Campaign("ToolPregenerator set on orchestrator")
 }
 
 func applyOrchestratorDefaults(cfg *OrchestratorConfig) {
@@ -403,11 +289,7 @@ func defaultWireIntelligence(o *Orchestrator, cfg OrchestratorConfig) {
 	}
 
 	if o.edgeCaseDetector == nil {
-		detector := NewEdgeCaseDetector(realKernel, scanner)
-		o.edgeCaseDetector = detector
-		if o.decomposer != nil {
-			o.decomposer.SetEdgeCaseDetector(detector)
-		}
+		o.edgeCaseDetector = NewEdgeCaseDetector(realKernel, scanner)
 		logging.Campaign("EdgeCaseDetector default-wired from kernel + workspace")
 	}
 }
@@ -417,7 +299,6 @@ func wireIntelligenceComponents(o *Orchestrator, cfg OrchestratorConfig) {
 	o.intelligenceGatherer = cfg.IntelligenceGatherer
 	o.advisoryBoard = cfg.AdvisoryBoard
 	o.edgeCaseDetector = cfg.EdgeCaseDetector
-	o.toolPregenerator = cfg.ToolPregenerator
 
 	// Take the observer from config when supplied. This line used to read
 	// `o.configuredNorthstarObserver = o.northstarObserver`, copying a field
@@ -429,21 +310,11 @@ func wireIntelligenceComponents(o *Orchestrator, cfg OrchestratorConfig) {
 	}
 	o.configuredNorthstarObserver = o.northstarObserver
 
-	// Wire intelligence components into decomposer for campaign planning
+	// Step 0 of decomposition: the gatherer's report goes into the planner's
+	// prompt (Decompose). The advisory board and edge-case detector serve the
+	// risk preflight, where their verdicts gate the run.
 	if cfg.IntelligenceGatherer != nil {
 		o.decomposer.SetIntelligenceGatherer(cfg.IntelligenceGatherer)
 		logging.CampaignDebug("IntelligenceGatherer wired into decomposer")
-	}
-	if cfg.AdvisoryBoard != nil {
-		o.decomposer.SetAdvisoryBoard(cfg.AdvisoryBoard)
-		logging.CampaignDebug("AdvisoryBoard wired into decomposer")
-	}
-	if cfg.EdgeCaseDetector != nil {
-		o.decomposer.SetEdgeCaseDetector(cfg.EdgeCaseDetector)
-		logging.CampaignDebug("EdgeCaseDetector wired into decomposer")
-	}
-	if cfg.ToolPregenerator != nil {
-		o.decomposer.SetToolPregenerator(cfg.ToolPregenerator)
-		logging.CampaignDebug("ToolPregenerator wired into decomposer")
 	}
 }

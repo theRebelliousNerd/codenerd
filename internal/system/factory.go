@@ -33,6 +33,7 @@ import (
 	"codenerd/internal/tools/shell"
 	"codenerd/internal/types"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"sort"
 	"strings"
@@ -82,11 +83,100 @@ type BootConfig struct {
 	KernelOverride     SystemKernel
 }
 
-// Keyed cache of Cortex instances. Each entry is keyed by a hash of
-// (workspace + provider + apiKey + model + disabled system-shard set) so that
-// switching workspace, provider, API key, model, or system-shard topology
-// mid-process yields the correct instance
-// instead of a stale singleton bound to the wrong context (Bug #15 fix).
+// cortexIdentity contains only non-secret configuration values and digests of
+// secret-bearing inputs. ConfigDigest covers the canonical JSON encoding of
+// the validated workspace UserConfig, so changing any setting that can shape
+// boot produces a new identity without retaining credential text in the
+// identity or cache key.
+type cortexIdentity struct {
+	Workspace           string   `json:"workspace"`
+	Engine              string   `json:"engine"`
+	Provider            string   `json:"provider"`
+	Model               string   `json:"model"`
+	ConfigDigest        string   `json:"config_digest"`
+	APIKeyDigest        string   `json:"api_key_digest,omitempty"`
+	Context7KeyDigest   string   `json:"context7_key_digest,omitempty"`
+	DisableSystemShards []string `json:"disable_system_shards,omitempty"`
+}
+
+func newCortexIdentity(workspace string, cfg *config.UserConfig, apiKey string, disableSystemShards []string) (cortexIdentity, error) {
+	identity := cortexIdentity{
+		Workspace:           workspace,
+		APIKeyDigest:        secretDigest(apiKey),
+		DisableSystemShards: normalizeDisableSystemShards(disableSystemShards),
+	}
+	if cfg == nil {
+		return identity, fmt.Errorf("cannot identify Cortex without validated user config")
+	}
+	identity.Engine = cfg.GetEngine()
+	identity.Provider = cfg.Provider
+	identity.Model = cfg.Model
+	// Context7 can be configured outside the workspace file through
+	// CONTEXT7_API_KEY. Include the effective key as a digest so environment
+	// changes cannot reuse a Cortex with stale research credentials.
+	identity.Context7KeyDigest = secretDigest(cfg.GetContext7APIKey())
+
+	// encoding/json emits struct fields in declaration order and sorts map
+	// keys. This makes equivalent JSON formatting and object-key ordering yield
+	// the same digest while preserving the values boot actually receives.
+	configBytes, err := json.Marshal(cfg)
+	if err != nil {
+		return cortexIdentity{}, fmt.Errorf("encode Cortex configuration identity: %w", err)
+	}
+	poolIdentity := map[string][]config.ResolvedProviderAPIKey{}
+	for provider := range cfg.APIKeyPools {
+		entries, resolveErr := cfg.ResolveAPIKeyPool(provider)
+		if resolveErr != nil {
+			return cortexIdentity{}, resolveErr
+		}
+		poolIdentity[provider] = entries
+	}
+	poolBytes, _ := json.Marshal(poolIdentity)
+	identity.ConfigDigest = digestBytes(configBytes)
+	if len(poolIdentity) > 0 {
+		identity.ConfigDigest = digestBytes(append(configBytes, poolBytes...))
+	}
+	return identity, nil
+}
+
+func secretDigest(secret string) string {
+	if secret == "" {
+		return ""
+	}
+	return digestBytes([]byte(secret))
+}
+
+func digestBytes(value []byte) string {
+	digest := sha256.Sum256(value)
+	return hex.EncodeToString(digest[:])
+}
+
+func (identity cortexIdentity) cacheKey() string {
+	h := sha256.New()
+	components := append(
+		[]string{
+			identity.Workspace,
+			identity.Engine,
+			identity.Provider,
+			identity.Model,
+			identity.ConfigDigest,
+			identity.APIKeyDigest,
+			identity.Context7KeyDigest,
+		},
+		normalizeDisableSystemShards(identity.DisableSystemShards)...,
+	)
+	for _, component := range components {
+		_, _ = fmt.Fprintf(h, "%d:", len(component))
+		_, _ = h.Write([]byte(component))
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// Keyed cache of Cortex instances. Each entry is keyed by the workspace,
+// normalized disabled-shard set, and a digest of the complete validated
+// workspace configuration plus caller and effective Context7 credentials.
+// Changing any boot-shaping setting therefore cannot reuse a Cortex wired
+// under older policy.
 //
 // Failed boots are NOT cached: returning an error never inserts into the
 // map, so a transient initialization failure cannot poison subsequent
@@ -95,24 +185,6 @@ var (
 	cortexCacheMu = semaphore.NewWeighted(1)
 	cortexCache   = make(map[string]*Cortex)
 )
-
-// cortexKey derives a stable cache key for a Cortex instance from the
-// dimensions that change Cortex identity: workspace, provider, API key,
-// model, and the normalized disabled system-shard set. The components are
-// length-delimited before hashing so embedded separators cannot collide. The
-// SHA-256 digest is safe to use as a map key without exposing the API key.
-func cortexKey(workspace, engine, provider, apiKey, model string, disableSystemShards []string) string {
-	h := sha256.New()
-	components := append(
-		[]string{workspace, engine, provider, apiKey, model},
-		normalizeDisableSystemShards(disableSystemShards)...,
-	)
-	for _, component := range components {
-		_, _ = fmt.Fprintf(h, "%d:", len(component))
-		_, _ = h.Write([]byte(component))
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
 
 // normalizeDisableSystemShards canonicalizes a caller-provided set for both
 // cache identity and boot behavior. Empty entries are ignored; names are
@@ -175,31 +247,11 @@ func resolveWorkspaceRoot(workspace string) string {
 	return root
 }
 
-// resolveProviderModelForKey reads the user config (best-effort) to
-// determine the engine, provider and model components of the cortex cache key.
-// Errors are intentionally swallowed: if the config is unreadable the
-// caller will hit the same failure mode inside BootCortex, and we still
-// want to key consistently across calls.
-//
-// The engine is part of the identity: switching config.json from the API
-// engine to claude-cli (or back) changes which LLM client boot constructs, and
-// the cache used to hand back the Cortex wired to the old one.
-func resolveProviderModelForKey(workspace string) (engine, provider, model string) {
-	userCfgPath := filepath.Join(workspace, ".nerd", "config.json")
-	cfg, err := config.LoadUserConfig(userCfgPath)
-	if err != nil || cfg == nil {
-		return "", "", ""
-	}
-	return cfg.GetEngine(), cfg.Provider, cfg.Model
-}
-
 // GetOrBootCortex returns the Cortex bound to the given workspace and
 // provider context, booting it on first use. Subsequent calls with the
-// same (workspace, engine, provider, apiKey, model, disabled shards) identity
-// return the cached
-// instance; calls with a different tuple boot a fresh Cortex so that
-// switching workspace, provider, or credentials mid-session does not
-// hand back a Cortex wired to the wrong context.
+// same normalized effective workspace configuration and credentials return
+// the cached instance; a changed boot setting or credential boots a fresh
+// Cortex.
 //
 // Failed boots return the error to the caller and are NOT cached, so a
 // transient failure (missing config, unreachable embedding service)
@@ -208,10 +260,23 @@ func resolveProviderModelForKey(workspace string) (engine, provider, model strin
 // IMPORTANT: This function should be used instead of BootCortex() in
 // all command handlers.
 func GetOrBootCortex(ctx context.Context, workspace string, apiKey string, disableSystemShards []string) (*Cortex, error) {
-	return getOrBootCortex(ctx, workspace, apiKey, disableSystemShards, BootCortex)
+	return getOrBootCortexWithConfig(ctx, workspace, apiKey, disableSystemShards, func(ctx context.Context, workspace string, apiKey string, disabled []string, userConfig *config.UserConfig) (*Cortex, error) {
+		if userConfig == nil {
+			// Let the ordinary boot path return the detailed config validation
+			// error. An unreadable identity is never eligible for cache reuse.
+			return BootCortex(ctx, workspace, apiKey, disabled)
+		}
+		return BootCortexWithConfig(ctx, BootConfig{
+			Workspace:           workspace,
+			APIKey:              apiKey,
+			DisableSystemShards: disabled,
+			UserConfigOverride:  userConfig,
+		})
+	})
 }
 
 type cortexBootFunc func(context.Context, string, string, []string) (*Cortex, error)
+type cortexBootWithConfigFunc func(context.Context, string, string, []string, *config.UserConfig) (*Cortex, error)
 
 // getOrBootCortex contains the cache transaction independently of the heavy
 // production bootstrap. Keeping the boot function injectable lets tests prove
@@ -222,6 +287,21 @@ func getOrBootCortex(
 	apiKey string,
 	disableSystemShards []string,
 	boot cortexBootFunc,
+) (*Cortex, error) {
+	if boot == nil {
+		return nil, fmt.Errorf("cortex boot function is nil")
+	}
+	return getOrBootCortexWithConfig(ctx, workspace, apiKey, disableSystemShards, func(ctx context.Context, workspace string, apiKey string, disabled []string, _ *config.UserConfig) (*Cortex, error) {
+		return boot(ctx, workspace, apiKey, disabled)
+	})
+}
+
+func getOrBootCortexWithConfig(
+	ctx context.Context,
+	workspace string,
+	apiKey string,
+	disableSystemShards []string,
+	boot cortexBootWithConfigFunc,
 ) (*Cortex, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -234,9 +314,18 @@ func getOrBootCortex(
 	}
 
 	ws := resolveWorkspaceRoot(workspace)
-	engine, provider, model := resolveProviderModelForKey(ws)
+	userCfg, configErr := config.LoadUserConfig(filepath.Join(ws, ".nerd", "config.json"))
+	cacheable := configErr == nil && userCfg != nil
 	disabled := normalizeDisableSystemShards(disableSystemShards)
-	key := cortexKey(ws, engine, provider, apiKey, model, disabled)
+	key := ""
+	if cacheable {
+		identity, identityErr := newCortexIdentity(ws, userCfg, apiKey, disabled)
+		if identityErr == nil {
+			key = identity.cacheKey()
+		} else {
+			cacheable = false
+		}
+	}
 
 	if err := cortexCacheMu.Acquire(ctx, 1); err != nil {
 		return nil, err
@@ -250,11 +339,13 @@ func getOrBootCortex(
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if existing, ok := cortexCache[key]; ok {
-		return existing, nil
+	if cacheable {
+		if existing, ok := cortexCache[key]; ok {
+			return existing, nil
+		}
 	}
 
-	cortex, err := boot(ctx, ws, apiKey, disabled)
+	cortex, err := boot(ctx, ws, apiKey, disabled, userCfg)
 	if cancelErr := ctx.Err(); cancelErr != nil {
 		err = errors.Join(cancelErr, err)
 	}
@@ -271,8 +362,10 @@ func getOrBootCortex(
 		return nil, fmt.Errorf("BootCortex returned nil cortex without error")
 	}
 
-	cortex.cortexKey = key
-	cortexCache[key] = cortex
+	if cacheable {
+		cortex.cortexKey = key
+		cortexCache[key] = cortex
+	}
 	if cancelErr := ctx.Err(); cancelErr != nil {
 		delete(cortexCache, key)
 		cortex.cortexKey = ""
@@ -620,6 +713,25 @@ func (c *Cortex) PlannerLLM() perception.LLMClient {
 		return nil
 	}
 	return c.PlannerLLMClient
+}
+
+// PlanningLLM returns the client campaign planning runs on: decomposition,
+// replanning and assault remediation planning. Task execution stays on the
+// worker tier inside TaskExecutor.
+func (c *Cortex) PlanningLLM() perception.LLMClient {
+	if c == nil {
+		return nil
+	}
+	return planningLLM(c.LLMClient, c.PlannerLLMClient)
+}
+
+// planningLLM is the planner slot config.json configures, else the main
+// client: the one resolution every planning door shares.
+func planningLLM(main, planner perception.LLMClient) perception.LLMClient {
+	if planner != nil {
+		return planner
+	}
+	return main
 }
 
 // ToolGenerator returns the autopoiesis tool generator held by the boot
@@ -970,24 +1082,13 @@ func initPerceptionLayer(bctx *bootContext) error {
 			baseLLMClient = client
 		}
 	}
-	// Legacy CLI fallback: raw apiKey arg / --api-key only when no config engine/provider client exists.
-	if baseLLMClient == nil && strings.TrimSpace(bctx.apiKey) != "" {
-		legacyKey := strings.TrimSpace(bctx.apiKey)
-		// This is the one client in the codebase built outside the factory, so
-		// it is also the one that would otherwise spend un-metered. Broker it
-		// explicitly rather than leaving a hole the wiring test has to special-case.
-		legacyClient, brokerErr := perception.InstallBrokerForProvider(
-			perception.NewZAIClient(legacyKey), perception.ProviderZAI, "", legacyKey)
-		if brokerErr != nil {
-			logging.Get(logging.CategoryPerception).Error(
-				"legacy apiKey client could not be metered: %v", brokerErr)
-		} else {
-			baseLLMClient = legacyClient
-			logging.Get(logging.CategoryPerception).Info("LLM client from legacy apiKey arg (Z.AI)")
-		}
-	}
+	// A bare --api-key names no provider or model, so it builds no client of
+	// its own: it overrides the key of the provider config.json names.
 	if baseLLMClient == nil {
 		err := fmt.Errorf("no LLM client configured (missing config or env keys)")
+		if strings.TrimSpace(bctx.apiKey) != "" {
+			err = fmt.Errorf("no LLM client configured: --api-key overrides the key of the provider set in .nerd/config.json, and none is set")
+		}
 		if configuredLLMErr != nil {
 			err = fmt.Errorf("no LLM client configured (configured backend unusable): %w", configuredLLMErr)
 		}
@@ -1005,17 +1106,20 @@ func initPerceptionLayer(bctx *bootContext) error {
 	}
 	bctx.localDB = localDB
 
-	// One router for every slot: a call whose context names a provider (a shard
-	// profile's provider, config.ShardProfileContext) runs on that provider's
-	// client, traced like the slots are.
-	router := profileRouter(bctx.appCfg, localDB)
+	// A call whose context names a provider (a shard profile's provider,
+	// config.ShardProfileContext) runs on that provider's client, traced like
+	// the slots are. Each slot routes with its own router, because the route
+	// carries the reasoning effort of the slot whose call it took
+	// (config.SecondaryLLMConfig.RouteTo): the planner's /review keeps the
+	// planner's effort on the reviewer's route.
 	mainScheduled := core.NewScheduledLLMCall("main", rawLLMClient)
-	mainScheduled.Router = router
+	mainScheduled.Router = profileRouter(bctx.appCfg, bctx.appCfg.GetMainLLMConfig(), localDB)
 	bctx.llmClient = mainScheduled
 
 	// Optional worker LLM for shards (e.g. local Ollama for cheap testing).
 	// When unset, shards share the main client (SuperGrok xai-oauth, API keys, etc.).
 	shardRaw := rawLLMClient
+	shardServing := bctx.appCfg.GetMainLLMConfig()
 	if bctx.appCfg != nil {
 		if worker, werr := perception.NewWorkerClientFromUserConfig(bctx.appCfg); werr != nil {
 			logging.Get(logging.CategoryPerception).Warn("Worker LLM init failed: %v (shards use main client)", werr)
@@ -1026,11 +1130,12 @@ func initPerceptionLayer(bctx *bootContext) error {
 			} else {
 				shardRaw = worker
 			}
+			shardServing = bctx.appCfg.GetWorkerLLMConfig()
 			logging.Get(logging.CategoryPerception).Info("Worker LLM enabled for shards/spawn/create")
 		}
 	}
 	shardScheduled := core.NewScheduledLLMCall("shards", shardRaw)
-	shardScheduled.Router = router
+	shardScheduled.Router = profileRouter(bctx.appCfg, shardServing, localDB)
 	bctx.shardLLMClient = shardScheduled
 
 	// Optional planner LLM for reasoning-intensive turns. Without this slot a
@@ -1047,7 +1152,7 @@ func initPerceptionLayer(bctx *bootContext) error {
 				plannerRaw = perception.NewTracingLLMClient(planner, createTraceStoreAdapter(localDB))
 			}
 			plannerScheduled := core.NewScheduledLLMCall("planner", plannerRaw)
-			plannerScheduled.Router = router
+			plannerScheduled.Router = profileRouter(bctx.appCfg, bctx.appCfg.GetPlannerLLMConfig(), localDB)
 			bctx.plannerLLMClient = plannerScheduled
 			logging.Get(logging.CategoryPerception).Info("Planner LLM enabled for reasoning-intensive intents")
 		}
@@ -1116,11 +1221,17 @@ func classificationClientFor(bctx *bootContext) perception.LLMClient {
 	if bctx.appCfg != nil {
 		if w := bctx.appCfg.GetWorkerLLMConfig(); w != nil {
 			if key := bctx.appCfg.APIKeyForProvider(w.Provider); key != "" {
+				poolKeys, poolErr := bctx.appCfg.ResolveAPIKeyPool(w.Provider)
+				if poolErr != nil {
+					logging.Get(logging.CategoryPerception).Warn("Worker classification credentials unavailable: %v", poolErr)
+					return bctx.llmClient
+				}
 				workerCfg := &perception.ProviderConfig{
 					Engine:   "api",
 					Provider: perception.Provider(strings.ToLower(strings.TrimSpace(w.Provider))),
 					APIKey:   key,
-					BaseURL:  w.Endpoint,
+					APIKeys:  poolKeys,
+					BaseURL:  firstNonEmpty(w.Endpoint, bctx.appCfg.BaseURL),
 					Model:    w.Model,
 					// ClassificationModel stays empty here on purpose: it names
 					// a model on the MAIN provider, and the classification
@@ -1131,10 +1242,16 @@ func classificationClientFor(bctx *bootContext) perception.LLMClient {
 					// back to the worker's own model.
 					ClassificationModel: "",
 					Gemini:              bctx.appCfg.GetGeminiConfig(),
-					// The configured effort wins over the classifier's "minimal"
-					// fallback (perception/client_factory.go); without this the
-					// worker-tier classifier ignored reasoning_effort entirely.
-					ReasoningEffort: firstNonEmpty(w.ReasoningEffort, bctx.appCfg.ReasoningEffort),
+					Anthropic:           bctx.appCfg.Anthropic,
+					ReasoningEffort:     w.ReasoningEffort,
+					// The classifier is sent the config's classification
+					// effort for this tier's provider
+					// (classification_reasoning_effort, else the provider's
+					// lowest), not the worker's working effort.
+					ClassificationReasoningEffort: bctx.appCfg.GetClassificationReasoningEffort(w.Provider),
+				}
+				if w.Anthropic != nil {
+					workerCfg.Anthropic = w.Anthropic
 				}
 				if client, err := perception.NewClassificationClientFromConfig(workerCfg); err == nil && client != nil {
 					logging.Get(logging.CategoryPerception).Info(
@@ -1226,6 +1343,10 @@ func NewDomainCortex(workspace string) (*core.CortexKernel, error) {
 		if err := cortex.RegisterShard(shard); err != nil {
 			return nil, fmt.Errorf("failed to register shard %s: %w", scfg.Domain, err)
 		}
+	}
+	consumerRoutes := shards.PredicateConsumerRoutes()
+	if err := cortex.SetPredicateConsumerRoutes(consumerRoutes); err != nil {
+		return nil, fmt.Errorf("configure kernel predicate consumer routes: %w", err)
 	}
 
 	logging.Boot("kernel: %d domain shards (per_shard_facts=%v recorded, not honored: single-store evaluation measured 35 s/eval vs 0.25 s)",
@@ -1334,16 +1455,16 @@ func refreshWorldModelAtBoot(bctx *bootContext) {
 		logging.Get(logging.CategoryBoot).Warn("world model refresh at boot failed: %v", err)
 		return
 	}
-	if res == nil || res.Unchanged {
-		if res != nil {
-			logging.World("world model unchanged at boot: files=%d in %v", res.FileCount, res.Duration)
-		} else {
-			logging.World("world model unchanged at boot")
-		}
+	if res == nil {
+		logging.World("world model unchanged at boot")
 		return
 	}
 	if applyErr := world.ApplyIncrementalResult(bctx.kernel, res); applyErr != nil {
 		logging.Get(logging.CategoryBoot).Warn("world model refresh at boot: apply failed: %v", applyErr)
+		return
+	}
+	if res.Unchanged {
+		logging.World("world model unchanged at boot: files=%d in %v", res.FileCount, res.Duration)
 		return
 	}
 	changed := len(res.ChangedFiles) + len(res.NewFiles) + len(res.DeletedFiles)
@@ -1457,7 +1578,7 @@ func buildKernelDerivationMap(shardConfigs []core.KernelShardConfig) (*core.Deri
 	for _, p := range shards.SharedPredicates() {
 		shared[p] = struct{}{}
 	}
-	return core.BuildDerivationMap(schemas+"\n"+policy, nil, owners, shared, "cortex")
+	return core.BuildDerivationMapWithConsumerRoutes(schemas+"\n"+policy, nil, owners, shared, shards.PredicateConsumerRoutes(), "cortex")
 }
 
 func defaultKernelShardConfigs(workspace string) []core.KernelShardConfig {
@@ -1798,6 +1919,11 @@ func initIntelligenceLayer(bctx *bootContext) error {
 }
 
 func initAutopoiesisAndBrowser(bctx *bootContext) error {
+	configuredBrowser := bctx.appCfg.GetBrowserConfig()
+	if err := ensureBrowserPolicyParams(bctx.kernel, configuredBrowser); err != nil {
+		return err
+	}
+
 	autopoiesisConfig := autopoiesis.DefaultConfig(bctx.workspace)
 	bctx.poiesis = autopoiesis.NewOrchestrator(bctx.llmClient, autopoiesisConfig)
 	// Orchestrator now takes types.Kernel directly, so the AutopoiesisBridge adapter is no longer needed here - step 2 of the KernelInterface deprecation plan documented on types.KernelInterface.
@@ -1815,7 +1941,6 @@ func initAutopoiesisAndBrowser(bctx *bootContext) error {
 	bctx.virtualStore.SetToolExecutor(bctx.generatedExecutor)
 
 	browserCfg := browser.DefaultConfig()
-	configuredBrowser := bctx.appCfg.GetBrowserConfig()
 	browserCfg.DebuggerURL = configuredBrowser.DebuggerURL
 	browserCfg.Launch = append([]string(nil), configuredBrowser.Launch...)
 	browserCfg.Headless = configuredBrowser.Headless
@@ -1855,6 +1980,23 @@ func initAutopoiesisAndBrowser(bctx *bootContext) error {
 	// run_check runs a campaign's declared acceptance argv through the same
 	// audited executor the orchestrator's acceptance round uses (Cortex.Executor).
 	shell.SetCheckExecutor(bctx.virtualStore.AuditedExecutor())
+	return nil
+}
+
+func ensureBrowserPolicyParams(kernel SystemKernel, configured config.BrowserAutomationConfig) error {
+	if invalid := config.Errors(configured.Policy.Check("browser.policy")); len(invalid) > 0 {
+		problems := make([]error, 0, len(invalid))
+		for _, problem := range invalid {
+			problems = append(problems, errors.New(problem.String()))
+		}
+		return fmt.Errorf("validate browser policy configuration: %w", errors.Join(problems...))
+	}
+	if kernel == nil {
+		return fmt.Errorf("publish browser policy parameters: no system kernel")
+	}
+	if err := config.EnsureParams(kernel, configured.Policy.Params()); err != nil {
+		return fmt.Errorf("publish browser policy parameters: %w", err)
+	}
 	return nil
 }
 
@@ -1963,6 +2105,9 @@ func initShardManagement(bctx *bootContext) error {
 		// demand, so the executor built later in boot is already in place.
 		// Without it the orchestrator's verification checkpoints cannot run.
 		shard.SetTaskExecutor(bctx.taskExecutor)
+		// The supervised campaigns replan on the planning tier (Cortex.
+		// PlanningLLM), not on regLLM, the worker the shard itself runs on.
+		shard.SetPlanning(planningLLM(bctx.llmClient, bctx.plannerLLMClient), bctx.promptAssembler)
 		if bctx.promptAssembler != nil {
 			shard.SetPromptAssembler(articulation.NewPromptAssemblerAdapter(bctx.promptAssembler))
 		}
@@ -2811,14 +2956,16 @@ func IngestHybridPrompts(ctx context.Context, workspace string, kernel SystemKer
 	return stored, nil
 }
 
-// profileRouter builds the clients shard profiles route to. A nil config
+// profileRouter builds the clients shard profiles route serving's calls to:
+// serving is the slot whose calls this router takes, and its routes carry that
+// slot's reasoning effort (config.SecondaryLLMConfig.RouteTo). A nil config
 // routes nowhere, and a routed call then fails by name.
-func profileRouter(appCfg *config.UserConfig, localDB *store.LocalStore) core.ProviderRouter {
+func profileRouter(appCfg *config.UserConfig, serving *config.SecondaryLLMConfig, localDB *store.LocalStore) core.ProviderRouter {
 	if appCfg == nil {
 		return nil
 	}
 	return func(provider, model string) (core.LLMClient, error) {
-		client, err := perception.NewRoutedClientFromUserConfig(appCfg, provider, model)
+		client, err := perception.NewRoutedClientFromUserConfig(appCfg, serving, provider, model)
 		if err != nil {
 			return nil, err
 		}

@@ -22,6 +22,14 @@ const (
 	// BlockToolResult is the output of one tool invocation, paired to its
 	// BlockToolUse by ToolUseID.
 	BlockToolResult ContentBlockKind = "tool_result"
+	// BlockServerTool is a block a provider's own server-side tool produced
+	// inside the request (Anthropic's server_tool_use, web_search_tool_result,
+	// web_fetch_tool_result), carried as the provider's verbatim JSON in Raw.
+	// The provider already ran it: it is never a ToolCall, the executor never
+	// executes it, and its adapter replays Raw byte for byte, in position, so
+	// the conversation keeps what the model searched and read. Adapters for
+	// other providers skip it.
+	BlockServerTool ContentBlockKind = "server_tool"
 )
 
 // ContentBlock is one ordered, typed piece of a conversation turn.
@@ -78,6 +86,10 @@ type ContentBlock struct {
 
 	// IsError marks a BlockToolResult whose tool failed.
 	IsError bool `json:"is_error,omitzero"`
+
+	// Raw is a BlockServerTool's provider JSON, exactly as the provider
+	// returned it. Never edit or re-encode it.
+	Raw []byte `json:"raw,omitzero"`
 }
 
 // TextBlock builds a text block.
@@ -108,6 +120,12 @@ func ToolUseBlock(id, name string, input map[string]any) ContentBlock {
 // ToolResultBlock builds a tool result block paired to toolUseID.
 func ToolResultBlock(toolUseID, content string, isError bool) ContentBlock {
 	return ContentBlock{Kind: BlockToolResult, ToolUseID: toolUseID, Text: content, IsError: isError}
+}
+
+// ServerToolBlock builds a block a provider's server-side tool produced,
+// carrying the provider's verbatim JSON.
+func ServerToolBlock(raw []byte) ContentBlock {
+	return ContentBlock{Kind: BlockServerTool, Raw: append([]byte(nil), raw...)}
 }
 
 // ToolCall projects a tool_use block onto the flat ToolCall shape.
@@ -147,6 +165,9 @@ func NewMessage(role string, blocks ...ContentBlock) Message {
 			// not part of the visible answer, and folding it into Text would
 			// leak it into every transcript, prompt echo and log that reads
 			// the old surface.
+		case BlockServerTool:
+			// The provider ran it: not a call to execute, not prose. The
+			// answer built on it arrives as the turn's text blocks.
 		}
 	}
 	m.Text = strings.TrimSpace(text.String())

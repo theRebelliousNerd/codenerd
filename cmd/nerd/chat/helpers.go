@@ -163,7 +163,22 @@ func (a *learningStoreAdapter) Close() error {
 // renderInitComplete builds a summary message for initialization completion.
 func (m Model) renderInitComplete(result *nerdinit.InitResult) string {
 	var sb strings.Builder
-	sb.WriteString("## Initialization Complete\n\n")
+	// The heading reports what happened: Initialize returns a result, not an
+	// error, when required phases failed, and this used to say "Complete"
+	// over it without listing a single failure.
+	switch {
+	case !result.Success:
+		sb.WriteString("## Initialization Incomplete\n\n")
+		sb.WriteString("### Required failures\n\n")
+		for _, failure := range result.Failures {
+			sb.WriteString(fmt.Sprintf("- %s\n", failure))
+		}
+		sb.WriteString("\nResolve these and run `/init --force`.\n\n")
+	case result.LLMMetrics.Failed > 0:
+		sb.WriteString("## Initialization Complete (LLM enrichment degraded)\n\n")
+	default:
+		sb.WriteString("## Initialization Complete\n\n")
+	}
 
 	sb.WriteString(fmt.Sprintf("**Project**: %s\n", result.Profile.Name))
 	sb.WriteString(fmt.Sprintf("**Language**: %s\n", result.Profile.Language))
@@ -226,13 +241,21 @@ func (m Model) renderInitComplete(result *nerdinit.InitResult) string {
 		sb.WriteString("\n")
 	}
 
-	// Tool capabilities note
-	sb.WriteString("### Tool Generation\n\n")
-	sb.WriteString("codeNERD can generate custom tools on-demand via the Ouroboros Loop:\n")
-	sb.WriteString("- Tools are created automatically when capabilities are missing\n")
-	sb.WriteString("- Each tool is compiled, safety-checked, and registered for use\n")
-	sb.WriteString("- Use `/tool list` to see generated tools\n")
-	sb.WriteString("- Use `/tool generate <description>` to create new tools\n\n")
+	if len(result.ProjectTools) > 0 {
+		sb.WriteString("### Project Command Tools\n\n")
+		sb.WriteString(strings.Join(result.ProjectTools, ", ") + "\n\n")
+	}
+
+	// Which client served which phases, so a failing planner is visible.
+	if result.LLMMetrics.Attempts > 0 {
+		sb.WriteString("### LLM Enrichment\n\n")
+		sb.WriteString("| Client | Model | Calls | Failed | Phases |\n|--------|-------|-------|--------|--------|\n")
+		for _, row := range result.LLMMetrics.Clients {
+			sb.WriteString(fmt.Sprintf("| %s | %s | %d | %d | %s |\n",
+				row.Slot, row.Identity(), row.Attempts, row.Failed, strings.Join(row.Phases, ", ")))
+		}
+		sb.WriteString("\n")
+	}
 
 	// Show warnings if any
 	if len(result.Warnings) > 0 {

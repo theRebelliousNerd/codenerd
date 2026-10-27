@@ -61,6 +61,83 @@ func TestInvalidateFromKernel_WhenFileWritten_ShouldDropCachedHits(t *testing.T)
 	}
 }
 
+// TestInvalidateFromKernel_WhenAnotherWriteSharesTheTimestamp_ShouldDropCachedHits
+// protects files written during the same Unix second. The kernel records
+// file_written timestamps at second precision, so a timestamp cursor alone
+// cannot distinguish a new write from a fact already observed in that second.
+func TestInvalidateFromKernel_WhenAnotherWriteSharesTheTimestamp_ShouldDropCachedHits(t *testing.T) {
+	dir := t.TempDir()
+	r := newBoundedRetriever(t, dir)
+	target := filepath.Join(dir, "alpha.go")
+	const timestamp int64 = 1755000000
+
+	k, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel: %v", err)
+	}
+	first := core.Fact{
+		Predicate: "file_written",
+		Args:      []any{types.MangleString(target), types.MangleString("first-hash"), types.MangleString("/session_1"), timestamp},
+	}
+	if err := k.LoadFacts([]core.Fact{first}); err != nil {
+		t.Fatalf("LoadFacts first write: %v", err)
+	}
+	r.cache.Set("needle", []KeywordHit{{FilePath: target, Keyword: "needle"}})
+	if dropped := r.InvalidateFromKernel(k); dropped != 1 {
+		t.Fatalf("first write dropped %d cache entries, want 1", dropped)
+	}
+
+	// Re-populate as a later search would, then add a distinct same-path write
+	// whose Unix-second timestamp collides with the first fact.
+	r.cache.Set("needle", []KeywordHit{{FilePath: target, Keyword: "needle"}})
+	second := core.Fact{
+		Predicate: "file_written",
+		Args:      []any{types.MangleString(target), types.MangleString("second-hash"), types.MangleString("/session_1"), timestamp},
+	}
+	if err := k.LoadFacts([]core.Fact{second}); err != nil {
+		t.Fatalf("LoadFacts second write: %v", err)
+	}
+
+	if dropped := r.InvalidateFromKernel(k); dropped != 1 {
+		t.Fatalf("same-second write dropped %d cache entries, want 1", dropped)
+	}
+	if _, ok := r.cache.Get("needle"); ok {
+		t.Fatal("cached hits survived a distinct same-second write to the file")
+	}
+
+	// Replaying the exact write log must remain idempotent.
+	r.cache.Set("needle", []KeywordHit{{FilePath: target, Keyword: "needle"}})
+	if dropped := r.InvalidateFromKernel(k); dropped != 0 {
+		t.Fatalf("replayed write log dropped %d cache entries, want 0", dropped)
+	}
+
+	// A same-hash write to another path is a distinct event. This guards
+	// against an identity key that accidentally omits the path.
+	other := filepath.Join(dir, "beta.go")
+	third := core.Fact{
+		Predicate: "file_written",
+		Args:      []any{types.MangleString(other), types.MangleString("second-hash"), types.MangleString("/session_1"), timestamp},
+	}
+	if err := k.LoadFacts([]core.Fact{third}); err != nil {
+		t.Fatalf("LoadFacts third write: %v", err)
+	}
+	r.cache.Set("other-needle", []KeywordHit{{FilePath: other, Keyword: "other-needle"}})
+	if dropped := r.InvalidateFromKernel(k); dropped != 1 {
+		t.Fatalf("same-hash write to a different path dropped %d cache entries, want 1", dropped)
+	}
+	if _, ok := r.cache.Get("other-needle"); ok {
+		t.Fatal("cached hits survived a write with a colliding hash on a different path")
+	}
+
+	// Replaying every exact fact remains idempotent after the cursor boundary
+	// has accumulated more than one distinct event.
+	r.cache.Set("needle", []KeywordHit{{FilePath: target, Keyword: "needle"}})
+	r.cache.Set("other-needle", []KeywordHit{{FilePath: other, Keyword: "other-needle"}})
+	if dropped := r.InvalidateFromKernel(k); dropped != 0 {
+		t.Fatalf("replayed full write log dropped %d cache entries, want 0", dropped)
+	}
+}
+
 // TestInvalidateFiles_ShouldMatchRelativeAndAbsoluteForms: the cache holds the
 // scanner's paths while the kernel holds whatever the writer used, so the two
 // spellings of one file have to invalidate each other.

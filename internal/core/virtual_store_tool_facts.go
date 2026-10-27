@@ -97,9 +97,10 @@ func editedElementFacts(sessionID string, unixSeconds int64, edits []tools.Edite
 		// (world/mangle_parser.go) while codemodel keys that same rule
 		// rule:pred/arity@hash (codemodel.ParseMangle) so an insertion does
 		// not renumber it; neither string is the other's, and a fact built
-		// here would join nothing. Python, TypeScript and Rust code_element
-		// refs are path-keyed (py:, ts:, rs:) and codemodel has no spans for
-		// them, so those edits are not even in this list.
+		// here would join nothing. CodeDOM now has spans for Python and
+		// TypeScript, but this kernel sink intentionally emits element facts
+		// only for Go because script refs use a different identity. Rust has
+		// no parser spans, so those edits are not in this list.
 		// modified(File) above still records that the file changed.
 		// TestEditedElementFacts_MatchWhatThePathBHandlerAsserts pins a
 		// Mangle rule as modified(File) with no element_modified.

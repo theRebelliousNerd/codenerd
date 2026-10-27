@@ -5,20 +5,23 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 )
 
-func TestResolveInstalledModel_Prefers300m(t *testing.T) {
+func TestResolveInstalledModel_MatchesOnlyTheConfiguredModel(t *testing.T) {
 	installed := []string{"embeddinggemma:300m", "nomic-embed-text:latest"}
-	got := resolveInstalledModel("embeddinggemma", installed)
-	if got != "embeddinggemma:300m" {
-		t.Fatalf("got %q want embeddinggemma:300m", got)
+	// A bare name is its :latest tag, as Ollama resolves it.
+	if got := resolveInstalledModel("nomic-embed-text", installed); got != "nomic-embed-text:latest" {
+		t.Fatalf("bare name: got %q want nomic-embed-text:latest", got)
 	}
-	if resolveInstalledModel("nomic-embed-text", installed) != "nomic-embed-text:latest" {
-		t.Fatalf("nomic resolve failed")
+	if got := resolveInstalledModel("embeddinggemma:300m", installed); got != "embeddinggemma:300m" {
+		t.Fatalf("exact tag: got %q", got)
+	}
+	// Another tag of the same family is a different model: no match.
+	if got := resolveInstalledModel("embeddinggemma", installed); got != "" {
+		t.Fatalf("bare name must not resolve to another tag, got %q", got)
 	}
 	if resolveInstalledModel("missing", installed) != "" {
 		t.Fatal("expected empty for missing")
@@ -35,16 +38,20 @@ func TestIsModelNotFoundStatus(t *testing.T) {
 	}
 }
 
-func TestEnsureModel_RemapsBareNameToInstalledTag(t *testing.T) {
+func TestEnsureModel_BareNameResolvesToLatestOnly(t *testing.T) {
+	var pulls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/tags" {
 			_ = json.NewEncoder(w).Encode(ollamaTagsResponse{
 				Models: []ollamaTagModel{
-					{Name: "embeddinggemma:300m"},
+					{Name: "embeddinggemma:latest"},
 					{Name: "nomic-embed-text:latest"},
 				},
 			})
 			return
+		}
+		if r.URL.Path == "/api/pull" {
+			pulls.Add(1)
 		}
 		http.NotFound(w, r)
 	}))
@@ -54,14 +61,38 @@ func TestEnsureModel_RemapsBareNameToInstalledTag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Constructor already normalized bare → :300m; reset to bare for this unit.
-	engine.model = "embeddinggemma"
-
 	if err := engine.EnsureModel(context.Background()); err != nil {
 		t.Fatalf("EnsureModel: %v", err)
 	}
-	if engine.Model() != "embeddinggemma:300m" {
-		t.Fatalf("model = %q want embeddinggemma:300m", engine.Model())
+	if engine.Model() != "embeddinggemma:latest" {
+		t.Fatalf("model = %q want embeddinggemma:latest", engine.Model())
+	}
+	if pulls.Load() != 0 {
+		t.Fatalf("an installed model must not be pulled, got %d pulls", pulls.Load())
+	}
+}
+
+func TestEnsureModel_NeverSubstitutesAnotherModel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/tags" {
+			_ = json.NewEncoder(w).Encode(ollamaTagsResponse{
+				Models: []ollamaTagModel{{Name: "nomic-embed-text:latest"}, {Name: "embeddinggemma:300m"}},
+			})
+			return
+		}
+		http.NotFound(w, r) // the pull fails
+	}))
+	defer server.Close()
+
+	engine, err := NewOllamaEngine(server.URL, "embeddinggemma-2", 768)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.EnsureModel(context.Background()); err == nil {
+		t.Fatal("a missing model whose pull fails must be an error, not a substitute")
+	}
+	if engine.Model() != "embeddinggemma-2" {
+		t.Fatalf("model changed to %q", engine.Model())
 	}
 }
 
@@ -207,17 +238,5 @@ func TestEmbed_AutoPullsOn404(t *testing.T) {
 	}
 	if pullCalls.Load() < 1 {
 		t.Fatalf("expected pull on 404, got %d", pullCalls.Load())
-	}
-}
-
-func TestPullTargetFor(t *testing.T) {
-	if pullTargetFor("embeddinggemma") != embeddingGemmaPullTag {
-		t.Fatal(pullTargetFor("embeddinggemma"))
-	}
-	if got := pullTargetFor(""); got != "" {
-		t.Fatalf("an unconfigured model pulls nothing, got %q", got)
-	}
-	if !strings.HasPrefix(pullTargetFor("nomic-embed-text"), "nomic") {
-		t.Fatal(pullTargetFor("nomic-embed-text"))
 	}
 }

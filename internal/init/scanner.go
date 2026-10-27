@@ -1105,52 +1105,16 @@ tools/.traces/
 	return nerdDir, nil
 }
 
-// createDefaultConfig creates a config.json with sensible defaults.
-// Uses Gemini 3 Flash Preview as the default model with thinking mode and grounding tools.
+// createDefaultConfig writes a fresh workspace's config.json. It names no
+// LLM engine, provider or model, no provider-specific settings and no
+// embedding provider: those are the user's choices, made in config.json, and
+// every unset one resolves to the config package's default at load. Until
+// 2026-10-27 this wrote provider "gemini" with a Gemini-tuned 1M-token
+// context window, so a workspace initialized under any other provider booted
+// on Gemini afterwards and sized every prompt for a window it did not have.
 func (i *Initializer) createDefaultConfig(path string) error {
 	cfg := &config.UserConfig{
-		// Engine="api" matches the SetEngine() whitelist
-		// (api | claude-cli | codex-cli); "gemini" would fail validation.
-		// No model is written: a fresh workspace names its own, and until it
-		// does the client factory refuses with a message saying which key to
-		// set. A model chosen here is a decision nobody made.
-		Provider: "gemini",
-		Engine:   "api",
-		Theme:    "light",
-
-		// Gemini-specific settings: high thinking (dynamic), search grounding, URL context
-		// Thinking levels: "minimal", "low", "medium", "high" (default=dynamic)
-		Gemini: &config.GeminiProviderConfig{
-			EnableThinking:     true,
-			ThinkingLevel:      "high",
-			EnableGoogleSearch: true,
-			EnableURLContext:   true,
-		},
-
-		// Context window tuned for Gemini 3 Flash (1M input, 65K output)
-		ContextWindow: &config.ContextWindowConfig{
-			MaxTokens:              1048576, // Gemini 3 Flash: 1M input tokens
-			CoreReservePercent:     5,
-			AtomReservePercent:     25,
-			HistoryReservePercent:  20,
-			WorkingReservePercent:  50,
-			OutputReserve:          65536, // Gemini 3 Flash: 65K output tokens
-			ThinkingReserve:        16384, // Reserve for thinking mode
-			ToolUseBuffer:          8000,
-			RecentTurnWindow:       8,
-			CompressionThreshold:   0.80,
-			TargetCompressionRatio: 100.0,
-			ActivationThreshold:    30.0,
-		},
-
-		// Defaults align with .nerd/config.json rule of record. If a real
-		// config.json already exists, callers should prefer LoadUserConfig.
-		Embedding: &config.EmbeddingConfig{
-			Provider:       "ollama",
-			OllamaEndpoint: "http://localhost:11434",
-			// No embedding model either; see EmbeddingConfig.MissingModel.
-			TaskType: "SEMANTIC_SIMILARITY",
-		},
+		Theme: "light",
 
 		// Shard profiles are populated dynamically below,
 		DefaultShard: &config.ShardProfile{

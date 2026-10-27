@@ -2,7 +2,6 @@ package core
 
 import (
 	"fmt"
-	"reflect"
 	"strings"
 
 	"codenerd/internal/logging"
@@ -18,9 +17,8 @@ import (
 // Accepts either a bare predicate name (e.g., "user_intent") or a pattern with
 // arguments (e.g., "selected_result(Atom, Priority, Source)" or "next_action(/generate_tool)").
 //
-// Pattern filtering rules:
-// - Variables (e.g., Atom, X, _) are treated as wildcards.
-// - Constants (name constants like /foo, strings like "bar", numbers) must match.
+// Pattern filtering follows Mangle term identity: variables are wildcards and
+// constants match only constants of the same Mangle type and value.
 func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 	// A nil receiver is an error, not a crash. Query is reached through
 	// interfaces (core.Kernel, world.FactQuerier, the shadow-mode querier), and
@@ -63,7 +61,8 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 		return nil, err
 	}
 
-	predicateName, patternFact, hasPattern, desiredArity := parseQueryPattern(predicate)
+	queryPattern := parseQueryPatternDetails(predicate)
+	predicateName, hasPattern := queryPattern.predicate, queryPattern.hasPattern
 
 	queryDeclExternal := false
 	results := make([]Fact, 0)
@@ -80,15 +79,13 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 
 	// Fast path: find predicate without iterating if we know the arity
 	if hasPattern {
-		pred := ast.PredicateSym{Symbol: predicateName, Arity: desiredArity}
+		pred := queryPattern.atom.Predicate
 		if d, ok := k.programInfo.Decls[pred]; ok {
 			predicateFound = true
 			queryDeclExternal = d.IsExternal()
-			k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
+			k.store.GetFacts(queryPattern.atom, func(a ast.Atom) error {
 				fact := atomToFact(a)
-				if factMatchesPattern(fact, patternFact) {
-					results = append(results, fact)
-				}
+				results = append(results, fact)
 				return nil
 			})
 		}
@@ -111,7 +108,7 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 		logging.KernelDebug("Query: predicate=%s matchedDecls=%d totalResults=%d", predicateName, matchedDecls, len(results))
 	}
 
-	if vsFacts, handled, verr := k.queryExternalVirtualStore(predicate, patternFact, hasPattern, queryDeclExternal); handled {
+	if vsFacts, handled, verr := k.queryExternalVirtualStore(queryPattern.atom, queryDeclExternal); handled {
 		if verr != nil {
 			return nil, verr
 		}
@@ -141,106 +138,57 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 	return results, nil
 }
 
-// parseQueryPattern splits a query string into its predicate name and an
-// optional argument pattern. Variables in the pattern act as wildcards;
-// constants must match. A bare predicate name yields hasPattern=false.
-// An unparseable pattern form falls back to a predicate-only query using
-// the name before the paren, matching historical behavior.
-func parseQueryPattern(query string) (predicateName string, pattern Fact, hasPattern bool, arity int) {
-	predicateName = query
-	if idx := strings.Index(query, "("); idx > 0 {
-		// Fast path: extract predicate name even if full parse fails.
-		predicateName = strings.TrimSpace(query[:idx])
-		if parsedFact, err := ParseFactString(query); err == nil {
-			return parsedFact.Predicate, parsedFact, true, len(parsedFact.Args)
-		}
-	}
-	return predicateName, Fact{}, false, 0
+// parseQueryPatternDetails preserves the parsed Mangle atom so filtering can
+// happen before conversion to the public Fact view. Fact's plain Go strings do
+// not preserve the distinction between Name and String constants.
+// Unparseable patterns retain the historical predicate-only fallback.
+type parsedQueryPattern struct {
+	predicate  string
+	atom       ast.Atom
+	hasPattern bool
 }
 
-func factMatchesPattern(f Fact, pattern Fact) bool {
-	if f.Predicate != pattern.Predicate {
+func parseQueryPatternDetails(query string) parsedQueryPattern {
+	parsed := parsedQueryPattern{predicate: query}
+	if idx := strings.Index(query, "("); idx > 0 {
+		parsed.predicate = strings.TrimSpace(query[:idx])
+		if atom, err := parseAtom(query); err == nil {
+			parsed.predicate = atom.Predicate.Symbol
+			parsed.atom = atom
+			parsed.hasPattern = true
+		}
+	}
+	return parsed
+}
+
+// parseQueryPattern retains the historical decoded helper for tests and
+// callers inside this package. Runtime filtering uses the AST-preserving
+// parseQueryPatternDetails path above.
+func parseQueryPattern(query string) (predicateName string, pattern Fact, hasPattern bool, arity int) {
+	parsed := parseQueryPatternDetails(query)
+	if !parsed.hasPattern {
+		return parsed.predicate, Fact{}, false, 0
+	}
+	return parsed.predicate, atomToFact(parsed.atom), true, len(parsed.atom.Args)
+}
+
+// atomMatchesQueryPattern filters before converting to Fact. Public Fact
+// readback intentionally represents both Mangle names and strings as Go
+// strings, so filtering after atomToFact would erase the distinction between
+// /alice and "alice". Constant.Equals preserves Mangle's type identity.
+func atomMatchesQueryPattern(atom, pattern ast.Atom) bool {
+	if atom.Predicate != pattern.Predicate || len(atom.Args) != len(pattern.Args) {
 		return false
 	}
-	if len(f.Args) != len(pattern.Args) {
-		return false
-	}
-	for i := range pattern.Args {
-		if !patternArgMatches(pattern.Args[i], f.Args[i]) {
+	for i, patternArg := range pattern.Args {
+		if _, wildcard := patternArg.(ast.Variable); wildcard {
+			continue
+		}
+		if !patternArg.Equals(atom.Args[i]) {
 			return false
 		}
 	}
 	return true
-}
-
-func patternArgMatches(pattern any, value any) bool {
-	// Variables are represented as strings like "?X" by atomToFact/baseTermToValue.
-	if s, ok := pattern.(string); ok && strings.HasPrefix(s, "?") {
-		return true
-	}
-
-	// OPTIMIZATION: Replace reflect.DeepEqual with type switches
-	// Normalize both values first
-	normPattern := normalizeQueryValue(pattern)
-	normValue := normalizeQueryValue(value)
-
-	// Fast path: pointer equality
-	if normPattern == normValue {
-		return true
-	}
-
-	// Type-based comparison (avoid reflection)
-	switch p := normPattern.(type) {
-	case int64:
-		if v, ok := normValue.(int64); ok {
-			return p == v
-		}
-	case string:
-		if v, ok := normValue.(string); ok {
-			return p == v
-		}
-	case MangleAtom:
-		if v, ok := normValue.(MangleAtom); ok {
-			return p == v
-		}
-		// Cross-compare with string
-		if v, ok := normValue.(string); ok {
-			return string(p) == v
-		}
-	case bool:
-		if v, ok := normValue.(bool); ok {
-			return p == v
-		}
-	case float64:
-		if v, ok := normValue.(float64); ok {
-			return p == v
-		}
-	default:
-		// FALLBACK: Only for truly unknown types
-		// This should rarely execute with well-typed facts
-		return reflect.DeepEqual(normPattern, normValue)
-	}
-
-	return false
-}
-
-func normalizeQueryValue(v any) any {
-	switch t := v.(type) {
-	case int:
-		return int64(t)
-	case int64:
-		return t
-	case float64:
-		// Fold only integral floats: 3.0 is 3, but 3.14 must never
-		// match 3. Truncation here made every fractional pattern
-		// over-match its integer neighbors.
-		if t == float64(int64(t)) {
-			return int64(t)
-		}
-		return t
-	default:
-		return v
-	}
 }
 
 // QueryCallback retrieves facts for a predicate and invokes the callback for each fact.
@@ -277,7 +225,8 @@ func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error 
 		return err
 	}
 
-	predicateName, patternFact, hasPattern, desiredArity := parseQueryPattern(predicate)
+	queryPattern := parseQueryPatternDetails(predicate)
+	predicateName, hasPattern := queryPattern.predicate, queryPattern.hasPattern
 
 	if k.programInfo == nil {
 		logging.KernelDebug("QueryCallback: programInfo is nil, returning")
@@ -291,7 +240,7 @@ func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error 
 	count := 0
 
 	if hasPattern {
-		pred := ast.PredicateSym{Symbol: predicateName, Arity: desiredArity}
+		pred := queryPattern.atom.Predicate
 		if d, ok := k.programInfo.Decls[pred]; ok {
 			predicateFound = true
 			queryDeclExternal = d.IsExternal()
@@ -301,7 +250,7 @@ func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error 
 			// cache rows through cb first would hand callers stale data, and a
 			// callback that already fired cannot be deduplicated or retracted —
 			// a provider failure must surface with zero callbacks made.
-			vsFacts, vsHandled, verr := k.queryExternalVirtualStore(predicate, patternFact, hasPattern, queryDeclExternal)
+			vsFacts, vsHandled, verr := k.queryExternalVirtualStore(queryPattern.atom, queryDeclExternal)
 			if vsHandled {
 				// Live rows supersede stored rows; the eval cache is skipped.
 				if verr != nil {
@@ -316,14 +265,12 @@ func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error 
 					count++
 				}
 			} else {
-				if err := k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
+				if err := k.store.GetFacts(queryPattern.atom, func(a ast.Atom) error {
 					fact := atomToFact(a)
-					if factMatchesPattern(fact, patternFact) {
-						if err := cb(fact); err != nil {
-							return err
-						}
-						count++
+					if err := cb(fact); err != nil {
+						return err
 					}
+					count++
 					return nil
 				}); err != nil {
 					timer.Stop()
@@ -375,23 +322,18 @@ func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error 
 // counter can tell nesting from parallelism — nesting would recurse.
 // No handler does this today (audited); if one ever must, thread an
 // explicit depth token through the handler chain.
-func (k *RealKernel) queryExternalVirtualStore(predicate string, patternFact Fact, hasPattern, isExternal bool) ([]Fact, bool, error) {
-	if !isExternal || !hasPattern || k.virtualStore == nil {
+func (k *RealKernel) queryExternalVirtualStore(pattern ast.Atom, isExternal bool) ([]Fact, bool, error) {
+	if !isExternal || k.virtualStore == nil {
 		return nil, false, nil
 	}
-	qatom, err := parseAtom(predicate)
-	if err != nil {
-		return nil, false, nil
-	}
-	vsAtoms, err := k.virtualStore.Get(qatom)
+	vsAtoms, err := k.virtualStore.Get(pattern)
 	if err != nil {
 		return nil, true, err
 	}
 	vsFacts := make([]Fact, 0, len(vsAtoms))
 	for _, a := range vsAtoms {
-		f := atomToFact(a)
-		if factMatchesPattern(f, patternFact) {
-			vsFacts = append(vsFacts, f)
+		if atomMatchesQueryPattern(a, pattern) {
+			vsFacts = append(vsFacts, atomToFact(a))
 		}
 	}
 	return vsFacts, true, nil

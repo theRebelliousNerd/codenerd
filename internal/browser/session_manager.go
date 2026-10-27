@@ -40,6 +40,7 @@ type sessionRecord struct {
 	page         *rod.Page
 	isolated     *rod.Browser
 	streamCancel context.CancelFunc
+	streamDone   chan struct{}
 	registry     *ElementRegistry
 }
 
@@ -369,6 +370,8 @@ type SessionManager struct {
 	pendingTabs           int
 	querier               FactQuerier
 	retractor             FactRetractor
+	progressiveMu         sync.Mutex
+	progressiveSnapshots  map[string]progressiveControlSnapshot
 	budgetMu              sync.Mutex
 	budgets               map[string]*sessionFactBudget
 	correlationContainers []string
@@ -406,6 +409,7 @@ func newSessionManager(cfg Config, sink EngineSink) *SessionManager {
 		redactor:              browsersecurity.NewRedactor(cfg.ExtraSensitiveKeys),
 		pathPolicy:            policy,
 		budgets:               make(map[string]*sessionFactBudget),
+		progressiveSnapshots:  make(map[string]progressiveControlSnapshot),
 		correlationContainers: cfg.CorrelationContainers,
 		containerFetcher:      NewDockerLogFetcher(cfg.DockerPath),
 	}

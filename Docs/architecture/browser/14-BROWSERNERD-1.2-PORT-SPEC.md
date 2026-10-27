@@ -164,6 +164,27 @@ The port adds two dedicated observation modes and refines control ranking:
 - **Even Better Rule 4 (Storage Expiry in Logic)**: In BrowserNERD, storage inspection parsed values in Go. In codeNERD, the page evaluation script extracts only structural metadata and JWT timestamps; raw tokens never leave the browser. Go asserts `storage_entry`. Mangle rules derive `auth_expired(Session, Store, Key)` and join it with HTTP 401/403 `failed_request` facts to deduce authentication failure root causes.
 - **Even Better Rule 5 (Action Priority as Logic Rules)**: Rather than sorting elements using arbitrary heuristic numbers in Go, ranking rules are declared in `policy/browser.mg` (`action_candidate`). High-priority primary actions (e.g. submit buttons, open comboboxes, active tabs) are derived with distinct priority ranks. Go groups identical labels for display presentation and discards elements marked as `dead_control`.
 
+The currently accepted implementation boundary is narrower than full hydration
+and readiness ranking: each bounded interactive observation supplies fresh,
+measured policy input facts (`interactive/5`, `element_enabled/3`, computed
+display/visibility/opacity, exact geometry, and a finite safe
+`browser_control_attribute/4` set), then queries Mangle's `action_candidate/6`.
+The geometry and computed style facts use the session-qualified opaque ref that
+the policy honeypot guards query. The Go response preserves Mangle priority/reason and
+filters refs to the current session/generation. Previous control facts are
+retracted before a replacement snapshot when the production retractor is
+available; a non-retracting sink must report that retained kernel facts may be
+stale and may never return them as current candidates. Exact current-state
+deficiency and executable exit criteria are recorded under
+[`GAP-BROWSER-CANDIDATE-OBSERVATION`](15-PARITY-LEDGER-AND-GAPS.md). Hydration
+and JavaScript readiness remain independent signals; an observation does not
+invent either. Preserve exact fractional CSS-pixel coordinates as canonical
+decimal strings in `browser_geometry_css_px/6`; `geometry/5` remains the
+integer CSS-pixel projection consumed by existing guards and ordering. Round
+x/y to nearest integer, keep an exact zero width/height at zero, and never let
+a positive width/height project to zero. The exact decimal predicate is the
+ground truth; do not silently change existing geometry units to 1/64 pixels.
+
 ### 4.4 Failure Modes
 
 - **Token Exfiltration**: Storage dumps can inadvertently expose session tokens or passwords. Mitigated by extracting only key names, sizes, and decoded timestamp claims; raw storage values are withheld by the in-page JavaScript probe.

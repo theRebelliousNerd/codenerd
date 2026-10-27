@@ -106,7 +106,7 @@ func defineAgent(cmd *cobra.Command, args []string) error {
 	}
 	defer cortex.Close()
 
-	knowledgePath := filepath.Join(ws, ".nerd", "shards", fmt.Sprintf("%s_knowledge.db", strings.ToLower(name)))
+	knowledgePath := types.AgentKnowledgeDBPath(filepath.Join(ws, ".nerd"), name)
 	config := coreshards.DefaultSpecialistConfig(name, knowledgePath)
 	config.Type = types.ShardTypeUser
 	cortex.ShardManager.DefineProfile(name, config)

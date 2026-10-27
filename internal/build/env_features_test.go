@@ -122,14 +122,12 @@ func TestDetectionRootFor_WhenNoHeaders_ShouldStopAtRepoBoundary(t *testing.T) {
 	}
 }
 
-func TestDetectionRootFor_WhenNoRepoMarkers_ShouldReturnModuleDir(t *testing.T) {
-	// No .git, no go.work, no sqlite_headers anywhere up the chain: the walk
-	// must not adopt /tmp or / as a detection root.
+func TestWalkDetectionRoot_WhenNoMarkers_ShouldReturnStartDir(t *testing.T) {
+	// Inject absent marker probes so a host-level .git or go.work cannot change
+	// the premise while the walk still exercises its filesystem boundary case.
 	module := filepath.Join(t.TempDir(), "loose")
-	mustMkdir(t, module)
-
-	if got := DetectionRootFor(module); got != module {
-		t.Errorf("DetectionRootFor(%q) = %q, want the module dir itself", module, got)
+	if got := walkDetectionRoot(module, func(string) bool { return false }, func(string) bool { return false }); got != module {
+		t.Errorf("walkDetectionRoot(%q) = %q, want the start dir", module, got)
 	}
 }
 

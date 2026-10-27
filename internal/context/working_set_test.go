@@ -169,3 +169,48 @@ func TestWorkingSetSearchReportsBodyCharsNotAnEmptyBody(t *testing.T) {
 	require.Contains(t, page, `"total_chars":5000`, "the handle must round-trip into a full-body read")
 	require.NotContains(t, page, "hit-1")
 }
+
+// An unresolved source cannot prove that archived bytes are current. In
+// particular, "unavailable" compared with itself used to make a failed
+// revision lookup look fresh on recall, even though no current source could
+// be checked. Non-file observations have an explicit stable revision and keep
+// their existing semantics.
+func TestWorkingSetRecall_UnresolvableRevisionIsStale(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a\nfunc Present() {}\n"), 0o600))
+	w, err := NewWorkingSet(root, "unresolvable-recall", config.DefaultWorkingConfig())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = w.Close() })
+
+	for _, tc := range []struct {
+		name      string
+		entity    string
+		wantRev   string
+		wantStale bool
+	}{
+		{name: "unavailable file", entity: "missing.go", wantRev: "unavailable", wantStale: true},
+		{name: "absent element", entity: ElementEntity("a.go", "Missing"), wantRev: "absent", wantStale: true},
+		{name: "non-file observation", entity: "", wantRev: "nonfile", wantStale: false},
+		{name: "unchanged file", entity: "a.go", wantStale: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rev := w.Revision(tc.entity)
+			if tc.wantRev != "" {
+				require.Equal(t, tc.wantRev, rev)
+			}
+			require.NoError(t, w.Save(t.Context(), WorkingRecord{
+				ID: "record-" + strings.ReplaceAll(tc.name, " ", "-"), Entity: tc.entity,
+				Revision: rev, Kind: "read", Step: 1, Body: "archived evidence",
+			}))
+			handle, err := w.Handle(t.Context(), "record-"+strings.ReplaceAll(tc.name, " ", "-"))
+			require.NoError(t, err)
+			page, err := w.Recall(t.Context(), handle, 0, 0)
+			require.NoError(t, err)
+			if tc.wantStale {
+				require.Contains(t, page, `"stale":true`)
+			} else {
+				require.Contains(t, page, `"stale":false`)
+			}
+		})
+	}
+}

@@ -1,79 +1,158 @@
 package perception
 
 import (
-	"bytes"
-	"codenerd/internal/logging"
-	"codenerd/internal/types"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"codenerd/internal/config"
+	"codenerd/internal/types"
 )
 
-// AnthropicClient implements LLMClient for direct Anthropic API.
+// AnthropicClient calls the direct Messages API. Inference, schema output and
+// native tool loops share the same transport, cancellation and retry contract.
 type AnthropicClient struct {
-	apiKey      string
-	baseURL     string
-	model       string
-	httpClient  *http.Client
-	mu          sync.Mutex
-	lastRequest time.Time
-	// maxOutputTokens is the completion ceiling sent on every request.
+	apiKey          string
+	baseURL         string
+	httpClient      *http.Client
 	maxOutputTokens int
-	// NERD-EVOLVE-START: P1P2-prompt-caching
-	// enableSystemCaching, when true, sends the system prompt as a structured block
-	// with cache_control: {"type": "ephemeral"} to enable Anthropic prompt caching.
-	// This reduces TTFT by 20-40% for static system prompts (e.g. understandingSystemPrompt).
+	// maxInputTokens is the slot's input cap (max_input_tokens); 0 is none.
+	// Every request entry point refuses a larger request before sending it
+	// (admitInput), and InputWindowTokens reports it to the executor.
+	maxInputTokens  int
+	options         config.AnthropicProviderConfig
+	reasoningEffort string
+	configErr       error
+
+	stateMu             sync.RWMutex
+	model               string
 	enableSystemCaching bool
-	// NERD-EVOLVE-END: P1P2-prompt-caching
+	// lastGroundingSources are the URLs the last exchange's server tools
+	// returned and its text cited.
+	lastGroundingSources []string
+	mu                   sync.Mutex
+	lastRequest          time.Time
 }
 
-// DefaultAnthropicConfig returns sensible defaults.
+var (
+	_ LLMClient                 = (*AnthropicClient)(nil)
+	_ types.ToolResultsProvider = (*AnthropicClient)(nil)
+	_ types.InputWindowReporter = (*AnthropicClient)(nil)
+)
+
 func DefaultAnthropicConfig(apiKey string) AnthropicConfig {
-	return AnthropicConfig{
-		APIKey:  apiKey,
-		BaseURL: "https://api.anthropic.com/v1",
-		// No default model: the workspace names one in .nerd/config.json or the
-		// client factory refuses to build the client.
-		Timeout: 10 * time.Minute, // Large context models need extended timeout
-	}
+	return AnthropicConfig{APIKey: apiKey, BaseURL: "https://api.anthropic.com/v1", Timeout: 10 * time.Minute}
 }
 
-// NewAnthropicClientWithConfig creates a new Anthropic client with custom config.
-func NewAnthropicClientWithConfig(config AnthropicConfig) *AnthropicClient {
-	return &AnthropicClient{
-		apiKey:          config.APIKey,
-		baseURL:         config.BaseURL,
-		model:           config.Model,
-		httpClient:      NewSharedHTTPClient(config.Timeout),
-		maxOutputTokens: orDefaultTokens(config.MaxOutputTokens, 8192),
+func NewAnthropicClientWithConfig(cfg AnthropicConfig) *AnthropicClient {
+	if cfg.BaseURL == "" {
+		cfg.BaseURL = DefaultAnthropicConfig(cfg.APIKey).BaseURL
 	}
+	if cfg.Timeout <= 0 {
+		cfg.Timeout = DefaultAnthropicConfig(cfg.APIKey).Timeout
+	}
+	c := &AnthropicClient{
+		apiKey: cfg.APIKey, baseURL: strings.TrimRight(cfg.BaseURL, "/"), model: strings.TrimSpace(cfg.Model),
+		httpClient: NewSharedHTTPClient(cfg.Timeout), maxOutputTokens: orDefaultTokens(cfg.MaxOutputTokens, 8192),
+		maxInputTokens: cfg.MaxInputTokens, options: cfg.Options, reasoningEffort: cfg.ReasoningEffort,
+	}
+	// Never forward the custom x-api-key header to a redirect destination.
+	c.httpClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
+	c.configErr = cfg.Options.Validate()
+	if c.configErr == nil {
+		c.configErr = config.ValidateAnthropicEffort(cfg.ReasoningEffort)
+	}
+	if c.configErr == nil && cfg.Options.Thinking == "enabled" && cfg.Options.ThinkingBudgetTokens >= c.maxOutputTokens {
+		c.configErr = fmt.Errorf("Anthropic thinking budget must be smaller than max_output_tokens")
+	}
+	if c.configErr == nil && cfg.MaxOutputTokens < 0 {
+		c.configErr = fmt.Errorf("max_output_tokens must not be negative")
+	}
+	if c.configErr == nil && cfg.MaxInputTokens < 0 {
+		c.configErr = fmt.Errorf("max_input_tokens must not be negative")
+	}
+	return c
 }
 
-// rateLimit enforces minimum inter-request spacing to avoid 429 responses.
-// Must be called before each API request.
-func (c *AnthropicClient) rateLimit() {
-	c.mu.Lock()
-	elapsed := time.Since(c.lastRequest)
-	if elapsed < 100*time.Millisecond {
-		time.Sleep(100*time.Millisecond - elapsed)
-	}
-	c.lastRequest = time.Now()
-	c.mu.Unlock()
+// InputWindowTokens implements types.InputWindowReporter: the slot's
+// max_input_tokens, 0 when the slot sets none.
+func (c *AnthropicClient) InputWindowTokens() int { return c.maxInputTokens }
+
+// admitInput is the client's backstop for its input cap: a request larger
+// than max_input_tokens is refused before it is built or sent. The session
+// executor fits its own requests to the same window by the same measure, so
+// what reaches this refusal is a request that was never fitted -- a direct
+// caller of the slot.
+func (c *AnthropicClient) admitInput(system string, messages []types.Message, defs []types.ToolDefinition) error {
+	return admitInputWindow(c.maxInputTokens, ProviderAnthropic, c.GetModel(), system, messages, defs)
 }
 
-// NERD-EVOLVE-START: P1P2-prompt-caching
-// EnableSystemCaching enables Anthropic prompt caching for the system prompt.
-// When enabled, CompleteWithSystem wraps the system message in a structured block
-// with cache_control: {"type": "ephemeral"}, reducing TTFT by 20-40% for repeated calls
-// with the same static system prompt (e.g. the perception understandingSystemPrompt).
-// This is a no-op for non-Anthropic providers.
 func (c *AnthropicClient) EnableSystemCaching() {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
 	c.enableSystemCaching = true
+}
+
+func (c *AnthropicClient) systemCaching() bool {
+	c.stateMu.RLock()
+	defer c.stateMu.RUnlock()
+	return c.enableSystemCaching
+}
+
+func (c *AnthropicClient) request(ctx context.Context, system string, messages []AnthropicMessage, tools []AnthropicTool) (AnthropicRequest, error) {
+	if c.configErr != nil {
+		return AnthropicRequest{}, c.configErr
+	}
+	if c.apiKey == "" {
+		return AnthropicRequest{}, fmt.Errorf("API key not configured")
+	}
+	model := c.GetModel()
+	if model == "" {
+		return AnthropicRequest{}, fmt.Errorf("no model configured for Anthropic")
+	}
+	if strings.TrimSpace(system) == "" {
+		system = defaultSystemPrompt
+	}
+	req := AnthropicRequest{Model: model, MaxTokens: c.maxOutputTokens, System: system, Messages: messages, Tools: tools}
+	if c.options.Thinking != "" {
+		req.Thinking = &AnthropicThinking{Type: c.options.Thinking, BudgetTokens: c.options.ThinkingBudgetTokens, Display: c.options.ThinkingDisplay}
+	}
+	effort, err := c.effortFor(ctx)
+	if err != nil {
+		return AnthropicRequest{}, err
+	}
+	// The effort is the config's -- the slot's reasoning_effort, defaulted per
+	// slot by config, or a shard profile's riding the request -- and it is sent
+	// to every model that accepts one. A model that takes none is not sent it.
+	if effort != "" && config.AnthropicSupportsEffort(model) {
+		req.OutputConfig = &AnthropicOutputConfig{Effort: effort}
+		// Older adaptive-capable models leave thinking off by default; an
+		// effort should actually enable it there. An explicit
+		// anthropic.thinking (disabled included) is left as configured.
+		if req.Thinking == nil && config.AnthropicSupportsAdaptive(model) {
+			req.Thinking = &AnthropicThinking{Type: "adaptive"}
+		}
+	}
+	return req, nil
+}
+
+// effortFor is the effort a request is sent with: a shard profile's on the
+// request context (types.WithReasoningEffort), else this slot's configured
+// effort. A context effort is checked as the slot's own was at construction;
+// one Anthropic cannot accept fails the request instead of reaching the wire.
+func (c *AnthropicClient) effortFor(ctx context.Context) (string, error) {
+	effort, ok := types.ReasoningEffortFromContext(ctx)
+	if !ok {
+		return c.reasoningEffort, nil
+	}
+	if err := config.ValidateAnthropicEffort(effort); err != nil {
+		return "", fmt.Errorf("shard profile reasoning_effort %q: %w", effort, err)
+	}
+	return effort, nil
 }
 
 // anthropicCachePlan says where a request places its prompt-cache
@@ -108,12 +187,13 @@ func marshalAnthropicRequest(base AnthropicRequest, plan anthropicCachePlan) ([]
 		return json.Marshal(base)
 	}
 	cached := anthropicCachedRequest{
-		Model:       base.Model,
-		MaxTokens:   base.MaxTokens,
-		Messages:    base.Messages,
-		Tools:       base.Tools,
-		Temperature: base.Temperature,
-		Stream:      base.Stream,
+		Model:        base.Model,
+		MaxTokens:    base.MaxTokens,
+		Messages:     base.Messages,
+		Tools:        base.Tools,
+		Thinking:     base.Thinking,
+		OutputConfig: base.OutputConfig,
+		Stream:       base.Stream,
 	}
 	if base.System != "" {
 		block := AnthropicSystemCacheBlock{Type: "text", Text: base.System}
@@ -164,555 +244,173 @@ func withTailBreakpoint(messages []AnthropicMessage) []AnthropicMessage {
 	return out
 }
 
-// NERD-EVOLVE-END: P1P2-prompt-caching
-
-// Complete sends a prompt and returns the completion.
 func (c *AnthropicClient) Complete(ctx context.Context, prompt string) (string, error) {
 	return c.CompleteWithSystem(ctx, "", prompt)
 }
 
-// CompleteWithSystem sends a prompt with a system message.
-func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-	// Auto-apply timeout if context has no deadline (centralized timeout handling)
-	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
-		defer cancel()
+func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, system, user string) (string, error) {
+	if err := c.admitInput(system, userTurn(user), nil); err != nil {
+		return "", err
 	}
-
-	startTime := time.Now()
-	logging.PerceptionDebug("[Anthropic] CompleteWithSystem: model=%s system_len=%d user_len=%d", c.model, len(systemPrompt), len(userPrompt))
-
-	if c.apiKey == "" {
-		logging.PerceptionError("[Anthropic] CompleteWithSystem: API key not configured")
-		return "", fmt.Errorf("API key not configured")
+	req, err := c.request(ctx, system, []AnthropicMessage{{Role: "user", Content: user}}, nil)
+	if err != nil {
+		return "", err
 	}
-
-	if strings.TrimSpace(systemPrompt) == "" {
-		systemPrompt = defaultSystemPrompt
-	}
-
-	// Rate limiting
-	c.rateLimit()
-
-	reqBody := AnthropicRequest{
-		Model:     c.model,
-		MaxTokens: c.maxOutputTokens,
-		System:    systemPrompt,
-		Messages: []AnthropicMessage{
-			{Role: "user", Content: userPrompt},
-		},
-		Temperature: types.TemperatureFor(ctx, 0.1),
-	}
-
-	// Retry loop for rate limits and transient errors
-	maxRetries := llmMaxRetries()
-	var lastErr error
-
-	for i := 0; i <= maxRetries; i++ {
-		if i > 0 {
-			// Context-aware backoff: a cancelled turn must exit during
-			// the sleep, not after it (matches ExecuteOpenAIRequest).
-			backoff := llmRetryBackoff(i)
-			select {
-			case <-ctx.Done():
-				return "", fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())
-			case <-time.After(backoff):
-			}
-		}
-
-		// NERD-EVOLVE-START: P1P2-prompt-caching
-		jsonData, marshalErr := marshalAnthropicRequest(reqBody, anthropicCachePlan{system: c.enableSystemCaching})
-		if marshalErr != nil {
-			logging.PerceptionError("[Anthropic] CompleteWithSystem: failed to marshal request: %v", marshalErr)
-			return "", fmt.Errorf("failed to marshal request: %w", marshalErr)
-		}
-		// NERD-EVOLVE-END: P1P2-prompt-caching
-
-		req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/messages", bytes.NewReader(jsonData))
-		if err != nil {
-			logging.PerceptionError("[Anthropic] CompleteWithSystem: failed to create request: %v", err)
-			return "", fmt.Errorf("failed to create request: %w", err)
-		}
-
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("x-api-key", c.apiKey)
-		req.Header.Set("anthropic-version", "2023-06-01")
-
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			lastErr = fmt.Errorf("request failed: %w", err)
-			continue
-		}
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
-		resp.Body.Close()
-		if err != nil {
-			lastErr = fmt.Errorf("failed to read response: %w", err)
-			continue
-		}
-
-		if resp.StatusCode == http.StatusTooManyRequests {
-			lastErr = fmt.Errorf("rate limit exceeded (429)")
-			continue
-		}
-
-		if isTransientHTTPStatus(resp.StatusCode) {
-			lastErr = fmt.Errorf("transient server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
-			continue
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			logging.PerceptionError("[Anthropic] CompleteWithSystem: API returned status %d", resp.StatusCode)
-			return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-		}
-
-		var anthropicResp AnthropicResponse
-		if err := json.Unmarshal(body, &anthropicResp); err != nil {
-			logging.PerceptionError("[Anthropic] CompleteWithSystem: failed to parse response: %v", err)
-			return "", fmt.Errorf("failed to parse response: %w", err)
-		}
-
-		if anthropicResp.Error != nil {
-			logging.PerceptionError("[Anthropic] CompleteWithSystem: API error: %s", anthropicResp.Error.Message)
-			return "", fmt.Errorf("API error: %s", anthropicResp.Error.Message)
-		}
-
-		if len(anthropicResp.Content) == 0 {
-			logging.PerceptionError("[Anthropic] CompleteWithSystem: no completion returned")
-			return "", fmt.Errorf("no completion returned")
-		}
-
-		var result strings.Builder
-		for _, content := range anthropicResp.Content {
-			if content.Type == "text" {
-				result.WriteString(content.Text)
-			}
-		}
-
-		trackUsage(ctx, c.model, ProviderAnthropic,
-			anthropicResp.Usage.promptTokens(), anthropicResp.Usage.OutputTokens, usageOpChat)
-
-		response := strings.TrimSpace(result.String())
-		if types.LengthStop(anthropicResp.StopReason) {
-			return "", outputTruncated(ProviderAnthropic, c.model, "CompleteWithSystem", anthropicResp.StopReason, response,
-				reqBody.MaxTokens, anthropicResp.Usage.OutputTokens)
-		}
-		logging.Perception("[Anthropic] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
-		return response, nil
-	}
-
-	logging.PerceptionError("[Anthropic] CompleteWithSystem: max retries exceeded after %v: %v", time.Since(startTime), lastErr)
-	return "", fmt.Errorf("max retries exceeded: %w", lastErr)
+	return c.completeText(ctx, req, "CompleteWithSystem", usageOpChat)
 }
 
-// CompleteWithStreaming sends a prompt with streaming enabled.
-// Returns channels of incremental content deltas.
-func (c *AnthropicClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan error) {
-	contentChan := make(chan string, 100)
-	errorChan := make(chan error, 1)
-
-	logging.PerceptionDebug("[Anthropic] CompleteWithStreaming: starting streaming model=%s", c.model)
-
-	go func() {
-		defer close(contentChan)
-		defer close(errorChan)
-
-		// Auto-apply timeout if context has no deadline (centralized timeout handling)
-		if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
-			defer cancel()
+func (c *AnthropicClient) completeText(ctx context.Context, req AnthropicRequest, operation, usageOperation string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.httpClient.Timeout)
+	defer cancel()
+	resp, err := c.exchange(ctx, req, anthropicCachePlan{system: c.systemCaching()})
+	if err != nil {
+		return "", err
+	}
+	trackUsage(ctx, req.Model, ProviderAnthropic, resp.Usage.promptTokens(), resp.Usage.OutputTokens, usageOperation)
+	var text strings.Builder
+	for _, b := range resp.Content {
+		if b.Type == "text" {
+			text.WriteString(b.Text)
 		}
-
-		startTime := time.Now()
-
-		if c.apiKey == "" {
-			logging.PerceptionError("[Anthropic] CompleteWithStreaming: API key not configured")
-			errorChan <- fmt.Errorf("API key not configured")
-			return
-		}
-
-		// Rate limiting
-		c.rateLimit()
-
-		reqBody := AnthropicRequest{
-			Model:     c.model,
-			MaxTokens: c.maxOutputTokens,
-			System:    systemPrompt,
-			Messages: []AnthropicMessage{
-				{Role: "user", Content: userPrompt},
-			},
-			Temperature: types.TemperatureFor(ctx, 0.1),
-			Stream:      true,
-		}
-
-		jsonData, err := json.Marshal(reqBody)
-		if err != nil {
-			errorChan <- fmt.Errorf("failed to marshal request: %w", err)
-			return
-		}
-
-		req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/messages", bytes.NewReader(jsonData))
-		if err != nil {
-			errorChan <- fmt.Errorf("failed to create request: %w", err)
-			return
-		}
-
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("x-api-key", c.apiKey)
-		req.Header.Set("anthropic-version", "2023-06-01")
-		req.Header.Set("Accept", "text/event-stream")
-
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			errorChan <- fmt.Errorf("request failed: %w", err)
-			return
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
-			errorChan <- fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-			return
-		}
-
-		scanner, releaseScanner := newPooledScanner(resp.Body, 1024*1024)
-		defer releaseScanner()
-
-		scanDone := make(chan struct{})
-		scanErrChan := make(chan error, 1)
-
-		// Written only by the scanner goroutine, read only after scanDone.
-		var billed struct{ input, output int }
-
-		go func() {
-			defer close(scanDone)
-			for scanner.Scan() {
-				line := scanner.Text()
-				if !strings.HasPrefix(line, "data:") {
-					continue
-				}
-				data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-				if data == "" {
-					continue
-				}
-				if data == "[DONE]" {
-					return
-				}
-
-				var evt struct {
-					Type  string `json:"type"`
-					Delta *struct {
-						Type string `json:"type"`
-						Text string `json:"text,omitzero"`
-					} `json:"delta,omitzero"`
-					// Anthropic splits billed usage across the stream:
-					// message_start carries input_tokens, message_delta carries
-					// the running output_tokens. Both are captured and recorded
-					// once at the end rather than per event.
-					Message *struct {
-						Usage anthropicUsage `json:"usage"`
-					} `json:"message,omitzero"`
-					Usage *struct {
-						InputTokens  int `json:"input_tokens"`
-						OutputTokens int `json:"output_tokens"`
-					} `json:"usage,omitzero"`
-					Error *struct {
-						Type    string `json:"type"`
-						Message string `json:"message"`
-					} `json:"error,omitzero"`
-				}
-				if err := json.Unmarshal([]byte(data), &evt); err != nil {
-					continue
-				}
-				if evt.Error != nil {
-					scanErrChan <- fmt.Errorf("API error: %s", evt.Error.Message)
-					return
-				}
-				if evt.Message != nil {
-					if in := evt.Message.Usage.promptTokens(); in > 0 {
-						billed.input = in
-					}
-					if evt.Message.Usage.OutputTokens > 0 {
-						billed.output = evt.Message.Usage.OutputTokens
-					}
-				}
-				if evt.Usage != nil {
-					if evt.Usage.InputTokens > 0 {
-						billed.input = evt.Usage.InputTokens
-					}
-					if evt.Usage.OutputTokens > 0 {
-						billed.output = evt.Usage.OutputTokens
-					}
-				}
-				if evt.Type == "content_block_delta" && evt.Delta != nil && evt.Delta.Text != "" {
-					select {
-					case contentChan <- evt.Delta.Text:
-					case <-ctx.Done():
-						return
-					}
-				}
-			}
-			if err := scanner.Err(); err != nil {
-				scanErrChan <- err
-			}
-		}()
-
-		defer func() {
-			trackUsage(ctx, c.model, ProviderAnthropic, billed.input, billed.output, usageOpChat)
-		}()
-
-		select {
-		case <-scanDone:
-			select {
-			case err := <-scanErrChan:
-				logging.PerceptionError("[Anthropic] CompleteWithStreaming: stream error after %v: %v", time.Since(startTime), err)
-				errorChan <- fmt.Errorf("stream error: %w", err)
-			default:
-				logging.Perception("[Anthropic] CompleteWithStreaming: completed in %v", time.Since(startTime))
-			}
-		case <-ctx.Done():
-			resp.Body.Close()
-			<-scanDone
-			logging.PerceptionWarn("[Anthropic] CompleteWithStreaming: cancelled after %v", time.Since(startTime))
-			errorChan <- ctx.Err()
-		}
-	}()
-
-	return contentChan, errorChan
+	}
+	result := strings.TrimSpace(text.String())
+	if types.LengthStop(resp.StopReason) {
+		return "", outputTruncated(ProviderAnthropic, req.Model, operation, resp.StopReason, result, req.MaxTokens, resp.Usage.OutputTokens)
+	}
+	if resp.StopReason == "refusal" {
+		return "", fmt.Errorf("Anthropic refused the request")
+	}
+	if resp.StopReason != "end_turn" && resp.StopReason != "stop_sequence" {
+		return "", fmt.Errorf("Anthropic text completion ended with unexpected stop_reason %q", resp.StopReason)
+	}
+	if result == "" {
+		return "", fmt.Errorf("no text completion returned by Anthropic")
+	}
+	return result, nil
 }
 
-// postMessages POSTs one /messages request with retry for rate limits and
-// transient server errors. Both tool-bearing paths share it; the chat path
-// keeps its own loop for prompt-caching headers. Callers map the parsed
-// response and record usage for their own op.
-func (c *AnthropicClient) postMessages(ctx context.Context, reqBody AnthropicRequest, plan anthropicCachePlan) (*AnthropicResponse, error) {
-	maxRetries := llmMaxRetries()
-	var lastErr error
-
-	for i := 0; i <= maxRetries; i++ {
-		if i > 0 {
-			// Context-aware backoff: a cancelled turn must exit during
-			// the sleep, not after it (matches ExecuteOpenAIRequest).
-			backoff := llmRetryBackoff(i)
-			select {
-			case <-ctx.Done():
-				return nil, fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())
-			case <-time.After(backoff):
+func (c *AnthropicClient) tools(defs []ToolDefinition) ([]AnthropicTool, error) {
+	tools := make([]AnthropicTool, len(defs))
+	for i, t := range defs {
+		schema := t.InputSchema
+		if c.options.StrictTools {
+			var err error
+			schema, _, err = prepareAnthropicSchema(t.InputSchema)
+			if err != nil {
+				return nil, fmt.Errorf("strict tool %q: %w", t.Name, err)
 			}
 		}
-
-		jsonData, err := marshalAnthropicRequest(reqBody, plan)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal request: %w", err)
-		}
-
-		req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/messages", bytes.NewReader(jsonData))
-		if err != nil {
-			return nil, fmt.Errorf("failed to create request: %w", err)
-		}
-
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("x-api-key", c.apiKey)
-		req.Header.Set("anthropic-version", "2023-06-01")
-
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			lastErr = fmt.Errorf("request failed: %w", err)
-			continue
-		}
-
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
-		resp.Body.Close()
-		if err != nil {
-			lastErr = fmt.Errorf("failed to read response: %w", err)
-			continue
-		}
-
-		if resp.StatusCode == http.StatusTooManyRequests {
-			lastErr = fmt.Errorf("rate limit exceeded (429)")
-			continue
-		}
-
-		if isTransientHTTPStatus(resp.StatusCode) {
-			lastErr = fmt.Errorf("transient server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
-			continue
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-		}
-
-		var anthropicResp AnthropicResponse
-		if err := json.Unmarshal(body, &anthropicResp); err != nil {
-			return nil, fmt.Errorf("failed to parse response: %w", err)
-		}
-
-		if anthropicResp.Error != nil {
-			return nil, fmt.Errorf("API error: %s", anthropicResp.Error.Message)
-		}
-
-		return &anthropicResp, nil
+		tools[i] = AnthropicTool{Name: t.Name, Description: t.Description, InputSchema: schema, Strict: c.options.StrictTools}
 	}
-
-	return nil, fmt.Errorf("max retries exceeded: %w", lastErr)
+	return tools, nil
 }
 
-// CompleteWithTools sends a prompt with tool definitions and returns response with tool calls.
-func (c *AnthropicClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
-	// Auto-apply timeout if context has no deadline
-	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
-		defer cancel()
+func (c *AnthropicClient) CompleteWithTools(ctx context.Context, system, user string, defs []ToolDefinition) (*LLMToolResponse, error) {
+	if err := c.admitInput(system, userTurn(user), defs); err != nil {
+		return nil, err
 	}
-
-	logging.PerceptionDebug("[Anthropic] CompleteWithTools: model=%s tools=%d system_len=%d user_len=%d",
-		c.model, len(tools), len(systemPrompt), len(userPrompt))
-
-	if c.apiKey == "" {
-		return nil, fmt.Errorf("API key not configured")
-	}
-
-	// Convert tools to Anthropic format
-	anthropicTools := make([]AnthropicTool, len(tools))
-	for i, t := range tools {
-		anthropicTools[i] = AnthropicTool{
-			Name:        t.Name,
-			Description: t.Description,
-			InputSchema: t.InputSchema,
-		}
-	}
-
-	reqBody := AnthropicRequest{
-		Model:       c.model,
-		MaxTokens:   c.maxOutputTokens,
-		System:      systemPrompt,
-		Messages:    []AnthropicMessage{{Role: "user", Content: userPrompt}},
-		Tools:       anthropicTools,
-		Temperature: types.TemperatureFor(ctx, 0.1),
-	}
-
-	// The first round of a loop: its tools and system prompt are what every
-	// later round repeats, so they are worth a cache entry; its one user
-	// message is the whole of the request's tail and is not.
-	anthropicResp, err := c.postMessages(ctx, reqBody, anthropicCachePlan{system: true})
+	tools, err := c.tools(defs)
 	if err != nil {
 		return nil, err
 	}
-
-	trackUsage(ctx, c.model, ProviderAnthropic,
-		anthropicResp.Usage.promptTokens(), anthropicResp.Usage.OutputTokens, usageOpFor(len(tools)))
-
-	// Build the neutral response first, then refuse it if the provider cut it
-	// at its ceiling. main's restatement path needs the partial text, and the
-	// flat Text field of the block-built response IS that text — it is the
-	// projection of the same content blocks the old textBuilder accumulated.
-	out := anthropicToolResponse(anthropicResp)
-	if types.LengthStop(anthropicResp.StopReason) {
-		return nil, outputTruncated(ProviderAnthropic, c.model, "CompleteWithTools", anthropicResp.StopReason,
-			out.Text, reqBody.MaxTokens, anthropicResp.Usage.OutputTokens)
+	req, err := c.request(ctx, system, []AnthropicMessage{{Role: "user", Content: user}}, tools)
+	if err != nil {
+		return nil, err
 	}
-	return out, nil
+	return c.completeTools(ctx, req, defs, anthropicCachePlan{system: true}, "CompleteWithTools")
 }
 
-// CompleteWithToolResults continues a tool-using conversation. Pass the full
-// history (user → assistant tool_use → user tool_result …) and Anthropic
-// returns its next response, which may include more tool calls or a final
-// answer. This is what makes the agent tool loop actually work — without it,
-// tool results never reach the model.
-func (c *AnthropicClient) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
-	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
-		defer cancel()
-	}
-
-	logging.PerceptionDebug("[Anthropic] CompleteWithToolResults: model=%s tools=%d history=%d",
-		c.model, len(tools), len(history))
-
-	if c.apiKey == "" {
-		return nil, fmt.Errorf("API key not configured")
-	}
-
+func (c *AnthropicClient) CompleteWithToolResults(ctx context.Context, system string, history []types.Message, defs []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	if len(history) == 0 {
 		return nil, fmt.Errorf("history must contain at least one message")
 	}
-
-	anthropicTools := make([]AnthropicTool, len(tools))
-	for i, t := range tools {
-		anthropicTools[i] = AnthropicTool{
-			Name:        t.Name,
-			Description: t.Description,
-			InputSchema: t.InputSchema,
-		}
+	if err := c.admitInput(system, history, defs); err != nil {
+		return nil, err
 	}
-
 	messages, err := buildAnthropicMessagesFromHistory(history)
 	if err != nil {
 		return nil, fmt.Errorf("invalid history: %w", err)
 	}
-
-	reqBody := AnthropicRequest{
-		Model:       c.model,
-		MaxTokens:   c.maxOutputTokens,
-		System:      systemPrompt,
-		Messages:    messages,
-		Tools:       anthropicTools,
-		Temperature: types.TemperatureFor(ctx, 0.1),
-	}
-
-	anthropicResp, err := c.postMessages(ctx, reqBody, toolLoopCachePlan)
+	tools, err := c.tools(defs)
 	if err != nil {
 		return nil, err
 	}
+	req, err := c.request(ctx, system, messages, tools)
+	if err != nil {
+		return nil, err
+	}
+	return c.completeTools(ctx, req, defs, toolLoopCachePlan, "CompleteWithToolResults")
+}
 
-	trackUsage(ctx, c.model, ProviderAnthropic,
-		anthropicResp.Usage.promptTokens(), anthropicResp.Usage.OutputTokens, usageOpFor(len(tools)))
-
-	// Same composition as CompleteWithTools: build the neutral response, then
-	// refuse it if the provider cut it at its ceiling.
-	out := anthropicToolResponse(anthropicResp)
-	if types.LengthStop(anthropicResp.StopReason) {
-		return nil, outputTruncated(ProviderAnthropic, c.model, "CompleteWithToolResults", anthropicResp.StopReason,
-			out.Text, reqBody.MaxTokens, anthropicResp.Usage.OutputTokens)
+func (c *AnthropicClient) completeTools(ctx context.Context, req AnthropicRequest, defs []ToolDefinition, plan anthropicCachePlan, operation string) (*LLMToolResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.httpClient.Timeout)
+	defer cancel()
+	resp, err := c.exchange(ctx, req, plan)
+	if err != nil {
+		return nil, err
+	}
+	trackUsage(ctx, req.Model, ProviderAnthropic, resp.Usage.promptTokens(), resp.Usage.OutputTokens, usageOpFor(len(defs)))
+	out := anthropicToolResponse(resp)
+	if types.LengthStop(resp.StopReason) {
+		return nil, outputTruncated(ProviderAnthropic, req.Model, operation, resp.StopReason, out.Text, req.MaxTokens, resp.Usage.OutputTokens)
+	}
+	if resp.StopReason == "refusal" {
+		return nil, fmt.Errorf("Anthropic refused the request")
+	}
+	switch resp.StopReason {
+	case "end_turn", "stop_sequence", "tool_use":
+	default:
+		return nil, fmt.Errorf("Anthropic tool completion ended with unsupported stop_reason %q", resp.StopReason)
+	}
+	// Unknown block types must not disappear and masquerade as a completed
+	// turn. The server web tools are wired (exchange): their blocks are kept
+	// verbatim for replay and never executed here. Other server-side
+	// execution and compaction would need their own wiring.
+	for _, b := range resp.Content {
+		switch b.Type {
+		case "text", "thinking", "redacted_thinking":
+		case "server_tool_use", "web_search_tool_result", "web_fetch_tool_result":
+		case "tool_use":
+			if b.ID == "" || b.Name == "" || b.Input == nil {
+				return nil, fmt.Errorf("Anthropic returned an incomplete tool_use block")
+			}
+			if c.options.StrictTools {
+				if err := validateAnthropicToolCall(b, defs); err != nil {
+					return nil, err
+				}
+			}
+		default:
+			return nil, fmt.Errorf("Anthropic returned unsupported content block %q", b.Type)
+		}
+	}
+	if len(out.ToolCalls) != 0 && resp.StopReason != "tool_use" {
+		return nil, fmt.Errorf("Anthropic tool calls without tool_use stop_reason")
+	}
+	if resp.StopReason == "tool_use" && len(out.ToolCalls) == 0 {
+		return nil, fmt.Errorf("Anthropic tool_use stop_reason without tool calls")
 	}
 	return out, nil
 }
 
-// The pre-block buildAnthropicMessagesFromHistory lived here. It read m.Text
-// and m.ToolCalls as separate fields and so could not express the order
-// between them; the block-aware replacement is in blocks_anthropic.go, and is
-// what every caller now reaches.
-
-// SetModel changes the model used for completions.
 func (c *AnthropicClient) SetModel(model string) {
-	c.model = model
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c.model = strings.TrimSpace(model)
 }
 
-// GetModel returns the current model.
 func (c *AnthropicClient) GetModel() string {
+	c.stateMu.RLock()
+	defer c.stateMu.RUnlock()
 	return c.model
 }
 
-// SchemaCapable reports whether this client supports response schema enforcement.
-// Anthropic doesn't support API-level JSON schema enforcement, but does support
-// JSON output via prompt instructions.
+// SchemaCapable reports whether the configured model takes native JSON
+// outputs (config.AnthropicSupportsStructuredOutput).
 func (c *AnthropicClient) SchemaCapable() bool {
-	return false
+	return config.AnthropicSupportsStructuredOutput(c.GetModel())
 }
 
-// ShouldUsePiggybackTools returns true if this client should use Piggyback Protocol
-// for tool invocation instead of native function calling.
-// For Anthropic, we use native tool calling which is well-supported.
-func (c *AnthropicClient) ShouldUsePiggybackTools() bool {
-	return false
-}
-
-// ModelIdentity reports the provider and model this client serves, satisfying
-// types.ModelIdentifier. The model is the resolved one -- the vendor default
-// when config supplied no override -- which is what prompt-atom pinning must
-// key on.
+func (c *AnthropicClient) ShouldUsePiggybackTools() bool { return false }
 func (c *AnthropicClient) ModelIdentity() (string, string) {
-	return string(ProviderAnthropic), c.model
+	return string(ProviderAnthropic), c.GetModel()
 }

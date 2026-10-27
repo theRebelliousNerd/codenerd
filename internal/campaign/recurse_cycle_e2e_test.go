@@ -376,13 +376,14 @@ func assertAttemptAcceptancePassed(t *testing.T, ctx context.Context, tk *tracin
 
 	exec := &recordingExecutor{inner: tactile.NewDirectExecutor()}
 	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:    root,
-		Kernel:       tk,
-		LLMClient:    &MockLLMClient{},
-		TaskExecutor: &MockTaskExecutor{},
-		Executor:     exec,
-		VirtualStore: &core.VirtualStore{},
-		EventChan:    make(chan OrchestratorEvent, 64),
+		Workspace:         root,
+		Kernel:            tk,
+		LLMClient:         &MockLLMClient{},
+		PlanningLLMClient: &MockLLMClient{},
+		TaskExecutor:      &MockTaskExecutor{},
+		Executor:          exec,
+		VirtualStore:      &core.VirtualStore{},
+		EventChan:         make(chan OrchestratorEvent, 64),
 	})
 	if err != nil {
 		t.Fatalf("step acceptance-passed: NewOrchestrator: %v", err)

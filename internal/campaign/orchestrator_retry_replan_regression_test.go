@@ -137,13 +137,14 @@ func TestRunPhase_CancellationDrainsWorkers(t *testing.T) {
 	}
 
 	orch, err := NewOrchestrator(OrchestratorConfig{
-		Workspace:    tmpDir,
-		Kernel:       kernel,
-		LLMClient:    &MockLLMClient{},
-		Executor:     tactile.NewDirectExecutor(),
-		VirtualStore: &core.VirtualStore{},
-		TaskExecutor: &MockTaskExecutor{ExecuteFunc: blockUntilCancel},
-		Campaign:     testCampaignConfig(func(c *config.CampaignConfig) { c.MaxParallelTasks = 2 }),
+		Workspace:         tmpDir,
+		Kernel:            kernel,
+		LLMClient:         &MockLLMClient{},
+		PlanningLLMClient: &MockLLMClient{},
+		Executor:          tactile.NewDirectExecutor(),
+		VirtualStore:      &core.VirtualStore{},
+		TaskExecutor:      &MockTaskExecutor{ExecuteFunc: blockUntilCancel},
+		Campaign:          testCampaignConfig(func(c *config.CampaignConfig) { c.MaxParallelTasks = 2 }),
 	})
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)

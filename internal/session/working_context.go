@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/broker"
 	working "codenerd/internal/context"
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
@@ -69,6 +70,12 @@ type workingLoop struct {
 	// result is the turn this loop runs for, where a round's safety notice
 	// is kept once that round's surface is superseded (piggybackChannel).
 	result *ExecutionResult
+	// inputCap is the input cap of the client serving this loop -- a worker
+	// or planner slot's max_input_tokens, broker.InputWindow of the client
+	// the turn resolved -- or 0 when it reports none. Every request of the
+	// loop, and the holographic render budget, is sized to the smaller of it
+	// and the session budget (inputBudgetFor).
+	inputCap int
 }
 
 // commitRegime is the working_regime under which exploration is closed.
@@ -184,7 +191,11 @@ func (e *Executor) workingLoopAvailable() bool {
 	return e.workingLoopWorkspace() != ""
 }
 
-func (e *Executor) beginWorkingLoop(ctx context.Context, input string, cc *prompt.CompilationContext) (context.Context, func(), error) {
+// beginWorkingLoop installs this turn's working set and context ledger. client
+// is the one the turn resolved (llmForVerb) to serve every request of the
+// loop: its input cap sizes them all, so it is passed, never re-resolved. A
+// nil client reports no cap.
+func (e *Executor) beginWorkingLoop(ctx context.Context, client types.LLMClient, input string, cc *prompt.CompilationContext) (context.Context, func(), error) {
 	e.mu.Lock()
 	sessionID := e.sessionID
 	if e.workingScope == "" {
@@ -230,6 +241,7 @@ func (e *Executor) beginWorkingLoop(ctx context.Context, input string, cc *promp
 		evicted:      make(map[string]bool),
 		appended:     make(map[string]string),
 		restated:     make(map[string]string),
+		inputCap:     broker.InputWindow(client),
 	}
 	ctx = context.WithValue(ctx, workingLoopKey{}, loop)
 	ctx = tools.WithContextRecall(ctx, historyRecall{
@@ -591,11 +603,8 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 		messages = append(messages, history[i].WithToolResults(results).WithTrailingText(loop.appended[ledgerKey(i)]))
 	}
 
-	window, catalog, err := e.workingWindow(definitions)
-	if err != nil {
-		return nil, err
-	}
-	remaining, err := workingWindowRemaining(window, system, messages, catalog)
+	window := e.inputBudgetFor(loop.inputCap)
+	remaining, err := workingWindowRemaining(window.tokens, system, messages, definitions)
 	if err != nil {
 		return nil, err
 	}
@@ -626,35 +635,58 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 		// Both views: assigning Content on the flat projection alone would leave
 		// a block-built turn sending the payload this archive accounted as gone.
 		messages[i] = messages[i].WithToolResults(results)
-		if remaining, err = workingWindowRemaining(window, system, messages, catalog); err != nil {
+		if remaining, err = workingWindowRemaining(window.tokens, system, messages, definitions); err != nil {
 			return nil, err
 		}
 	}
 	return messages, nil
 }
 
-// workingWindow is the input budget a working request is measured against,
-// in tokens, and the tool catalog's share of it.
-func (e *Executor) workingWindow(definitions []types.ToolDefinition) (window, catalog int, err error) {
-	window = e.configSnapshot().TokenBudget
-	if window <= 0 {
-		window = DefaultTokenBudget()
+// inputBudget is the input window one request is measured against, in tokens,
+// and what set it.
+type inputBudget struct {
+	tokens int
+	// slotCapped is true when the serving client's own input cap -- a worker
+	// or planner slot's max_input_tokens -- is the binding limit rather than
+	// the session's TokenBudget.
+	slotCapped bool
+}
+
+// inputBudgetFor is the input window for a request served by a client whose
+// own input cap is slotCap (broker.InputWindow; 0 when it reports none): the
+// session's TokenBudget, DefaultTokenBudget when unset, lowered to the cap
+// when the cap is smaller. One number sizes the turn's compiled prompt, every
+// working request and the holographic render, so they agree with each other
+// and with the client's own refusal.
+func (e *Executor) inputBudgetFor(slotCap int) inputBudget {
+	budget := e.configSnapshot().TokenBudget
+	if budget <= 0 {
+		budget = DefaultTokenBudget()
 	}
-	if len(definitions) > 0 {
-		encoded, err := json.Marshal(definitions)
-		if err != nil {
-			return 0, 0, err
-		}
-		catalog = prompt.EstimateTokens(string(encoded))
+	tokens, capped := slotCappedBudget(budget, slotCap)
+	return inputBudget{tokens: tokens, slotCapped: capped}
+}
+
+// slotCappedBudget lowers budget to slotCap, the serving client's own input
+// cap (0 when it reports none), when that is smaller, and says whether it did.
+// The executor's window and a spawned subagent's compile budget both take it,
+// so a subagent on a capped slot is compiled for the window it will be sent.
+func slotCappedBudget(budget, slotCap int) (int, bool) {
+	if slotCap > 0 && slotCap < budget {
+		return slotCap, true
 	}
-	return window, catalog, nil
+	return budget, false
 }
 
 // inputBudgetExceeded refuses a request that does not fit its window with
-// nothing left to archive.
-func inputBudgetExceeded(window, remaining int) error {
-	return fmt.Errorf("%w: the request needs about %d tokens and the budget is %d (half of context_window.max_tokens after its output reserves), with %d held back for the reply; no tool result is left to archive, and the task, the instructions and the tool catalog are sent whole or not at all",
-		ErrInputBudgetExceeded, window-remaining, window, workingInputReserve)
+// nothing left to archive, naming the limit that bound it.
+func inputBudgetExceeded(window inputBudget, remaining int) error {
+	source := "half of context_window.max_tokens after its output reserves"
+	if window.slotCapped {
+		source = "the serving slot's max_input_tokens, below the session budget"
+	}
+	return fmt.Errorf("%w: the request needs about %d tokens and the budget is %d (%s), with %d held back for the reply; no tool result is left to archive, and the task, the instructions and the tool catalog are sent whole or not at all",
+		ErrInputBudgetExceeded, window.tokens-remaining, window.tokens, source, workingInputReserve)
 }
 
 // singleShotRequest is the one call a client with no message channel gets
@@ -671,12 +703,9 @@ func (e *Executor) singleShotRequest(ctx context.Context, system, userInput stri
 	if view := e.workingFocusView(ctx, loop); view != "" {
 		userInput += "\n\n" + view
 	}
-	window, catalog, err := e.workingWindow(definitions)
-	if err != nil {
-		return "", err
-	}
+	window := e.inputBudgetFor(loop.inputCap)
 	messages := append(append([]types.Message(nil), loop.prior...), types.Message{Role: "user", Text: userInput})
-	remaining, err := workingWindowRemaining(window, system, messages, catalog)
+	remaining, err := workingWindowRemaining(window.tokens, system, messages, definitions)
 	if err != nil {
 		return "", err
 	}
@@ -828,13 +857,15 @@ func compactedResultHandle(content, handle string) string {
 const archivedResultPrefix = "Observation archived:"
 
 // workingWindowRemaining is the input window left after the system prompt, the
-// transcript and the tool catalog, in tokens.
-func workingWindowRemaining(window int, system string, messages []types.Message, catalog int) (int, error) {
-	encoded, err := json.Marshal(messages)
+// transcript and the tool catalog, in tokens. The request is measured by
+// prompt.EstimateRequestTokens, the measure a capped client refuses by, so a
+// request that fits here is never refused by the client that serves it.
+func workingWindowRemaining(window int, system string, messages []types.Message, definitions []types.ToolDefinition) (int, error) {
+	used, err := prompt.EstimateRequestTokens(system, messages, definitions)
 	if err != nil {
 		return 0, err
 	}
-	return window - prompt.EstimateTokens(system) - prompt.EstimateTokens(string(encoded)) - catalog, nil
+	return window - used, nil
 }
 
 // largestToolResult locates the largest tool result in the transcript that has

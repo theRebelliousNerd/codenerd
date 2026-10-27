@@ -351,6 +351,55 @@ func TestChatLifecycle_ProductionStdinIdleDeadline(test *testing.T) {
 	}
 }
 
+func TestChatLifecycle_FileInputPreservesPartialAndBlankLineBehavior(test *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		test.Fatal(err)
+	}
+	test.Cleanup(func() { _ = reader.Close(); _ = writer.Close() })
+
+	input, _ := newChatInputReader(context.Background(), reader)
+	source := newChatTurnSource(nil, input)
+	if _, err := io.WriteString(writer, "first"); err != nil {
+		test.Fatal(err)
+	}
+	type turnResult struct {
+		turn string
+		ok   bool
+	}
+	firstResult := make(chan turnResult, 1)
+	go func() {
+		turn, ok := source.Next()
+		firstResult <- turnResult{turn: turn, ok: ok}
+	}()
+	select {
+	case result := <-firstResult:
+		test.Fatalf("partial line produced a turn before newline: %+v", result)
+	case <-time.After(75 * time.Millisecond):
+	}
+
+	if _, err := io.WriteString(writer, "\n\n  second  "); err != nil {
+		test.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		test.Fatal(err)
+	}
+	select {
+	case result := <-firstResult:
+		if !result.ok || result.turn != "first" {
+			test.Fatalf("first line result = %+v, want first", result)
+		}
+	case <-time.After(2 * time.Second):
+		test.Fatal("first line did not arrive after newline")
+	}
+	if turn, ok := source.Next(); !ok || turn != "second" {
+		test.Fatalf("final unterminated line = (%q, %v), want (second, true)", turn, ok)
+	}
+	if turn, ok := source.Next(); ok {
+		test.Fatalf("Next after EOF = (%q, true), want ok=false", turn)
+	}
+}
+
 func TestChatLifecycle_StdinDriverDoesNotNeedEOFBeforeFirstTurn(test *testing.T) {
 	reader, writer := io.Pipe()
 	test.Cleanup(func() { _ = reader.Close(); _ = writer.Close() })

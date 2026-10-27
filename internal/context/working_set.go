@@ -122,7 +122,7 @@ func (w *WorkingSet) Recall(ctx context.Context, id string, offset, limit int) (
 		Offset          int           `json:"offset"`
 		Total           int           `json:"total_chars"`
 		Next            int           `json:"next_offset"`
-	}{r, current, current != r.Revision, offset, total, min(total, offset+len([]rune(r.Body)))})
+	}{r, current, !sameWorkingRevision(r.Revision, current), offset, total, min(total, offset+len([]rune(r.Body)))})
 	return string(data), err
 }
 
@@ -153,6 +153,12 @@ func (w *WorkingSet) Entity(ctx context.Context, id string) (string, error) {
 // path holds neither "::" nor a key.
 const elementSeparator = "::"
 
+const (
+	workingRevisionUnavailable = "unavailable"
+	workingRevisionAbsent      = "absent"
+	workingRevisionNonFile     = "nonfile"
+)
+
 // ElementEntity is the working-set entity of one element of a file: its
 // observations are dated by the element's own bytes, not the file's.
 func ElementEntity(file, key string) string { return file + elementSeparator + key }
@@ -162,6 +168,24 @@ func ElementEntity(file, key string) string { return file + elementSeparator + k
 func EntityFile(entity string) string {
 	file, _, _ := strings.Cut(entity, elementSeparator)
 	return file
+}
+
+// sameWorkingRevision says whether a saved observation can be identified with
+// the source as it exists now. "absent" and "unavailable" are lookup
+// outcomes, not content identities: equal sentinel values cannot prove that
+// historical bytes are current. "nonfile" is different: it explicitly
+// records an observation without a source file and remains stable for that
+// entity.
+func sameWorkingRevision(saved, current string) bool {
+	if saved != current {
+		return false
+	}
+	switch saved {
+	case workingRevisionAbsent, workingRevisionUnavailable:
+		return false
+	default:
+		return true
+	}
 }
 
 // Revision is content identity, not HEAD: uncommitted edits invalidate views.
@@ -175,37 +199,37 @@ func EntityFile(entity string) string {
 // 34 times and 21 of 45 Go reads re-reads.
 func (w *WorkingSet) Revision(entity string) string {
 	if entity == "" {
-		return "nonfile"
+		return workingRevisionNonFile
 	}
 	file, key, element := strings.Cut(entity, elementSeparator)
 	path, err := tools.ResolveWorkspacePath(context.Background(), w.root, file)
 	if err != nil {
-		return "unavailable"
+		return workingRevisionUnavailable
 	}
 	if element {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return "unavailable"
+			return workingRevisionUnavailable
 		}
 		model, ok := codemodel.Parse(file, string(data))
 		if !ok {
-			return "unavailable"
+			return workingRevisionUnavailable
 		}
 		for i := range model.Elements {
 			if model.Elements[i].Key == key {
 				return model.Elements[i].Revision
 			}
 		}
-		return "absent"
+		return workingRevisionAbsent
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return "unavailable"
+		return workingRevisionUnavailable
 	}
 	defer f.Close()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
-		return "unavailable"
+		return workingRevisionUnavailable
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

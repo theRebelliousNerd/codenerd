@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -127,46 +128,82 @@ var embeddingStatsCmd = &cobra.Command{
 var embeddingReembedCmd = &cobra.Command{
 	Use:   "reembed",
 	Short: "Force re-embed every database under .nerd",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		ws := workspace
-		if ws == "" {
-			ws, _ = os.Getwd()
-		}
+	RunE:  runEmbeddingReembed,
+}
 
-		// Always read model/provider from .nerd/config.json via GetEmbeddingConfig.
-		cfgPath := filepath.Join(ws, ".nerd", "config.json")
-		cfg, _ := config.LoadUserConfig(cfgPath)
-		if cfg == nil {
-			cfg = config.DefaultUserConfig()
-		}
-		ucEmb := cfg.GetEmbeddingConfig()
-		embCfg := ucEmb.EngineConfig()
+type embeddingReembedOps struct {
+	newEngine func(context.Context, embedding.Config) (embedding.EmbeddingEngine, error)
+	reembed   func(context.Context, []string, embedding.EmbeddingEngine, store.ReembedProgressFn) (store.ReembedResult, error)
+}
 
-		engine, err := embedding.NewEngine(embCfg)
-		if err != nil {
-			return err
-		}
+func runEmbeddingReembed(cmd *cobra.Command, args []string) error {
+	return runEmbeddingReembedWithOps(cmd, args, embeddingReembedOps{
+		newEngine: embedding.NewEngineWithContext,
+		reembed:   store.ReembedAllDBsForce,
+	})
+}
 
-		roots := store.ReembedSearchRoots(ws)
+func runEmbeddingReembedWithOps(cmd *cobra.Command, _ []string, ops embeddingReembedOps) (outcome error) {
+	ctx, cancel := commandContext(cmd)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("embedding reembed: %w", err)
+	}
 
-		fmt.Println("Re-embedding all databases (vectors + prompt atoms + traces + learnings)...")
-		res, err := store.ReembedAllDBsForce(context.Background(), roots, engine, func(msg string) {
-			fmt.Println(msg)
-		})
-		if err != nil {
-			return err
-		}
+	ws := workspace
+	if ws == "" {
+		ws, _ = os.Getwd()
+	}
 
-		fmt.Printf("\nRe-embedding complete.\n  DBs processed: %d\n  Vectors re-embedded: %d\n  Prompt atoms re-embedded: %d\n  Traces re-embedded: %d\n  Learnings re-embedded: %d\n  Duration: %.2fs\n",
-			res.DBCount, res.VectorsDone, res.AtomsDone, res.TracesDone, res.LearningsDone, res.Duration.Seconds())
-		if len(res.Skipped) > 0 {
-			fmt.Println("\nSkipped/errored DBs:")
-			for _, s := range res.Skipped {
-				fmt.Printf("  - %s\n", s)
+	// Always read model/provider from .nerd/config.json via GetEmbeddingConfig.
+	cfgPath := filepath.Join(ws, ".nerd", "config.json")
+	cfg, _ := config.LoadUserConfig(cfgPath)
+	if cfg == nil {
+		cfg = config.DefaultUserConfig()
+	}
+	ucEmb := cfg.GetEmbeddingConfig()
+	embCfg := ucEmb.EngineConfig()
+
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("embedding reembed: %w", err)
+	}
+	engine, err := ops.newEngine(ctx, embCfg)
+	if err != nil {
+		return err
+	}
+	if engine == nil {
+		return errors.New("embedding reembed: engine factory returned nil engine")
+	}
+	if closer, ok := engine.(interface{ Close() error }); ok {
+		defer func() {
+			if closeErr := closer.Close(); closeErr != nil {
+				outcome = errors.Join(outcome, fmt.Errorf("close embedding engine: %w", closeErr))
 			}
+		}()
+	}
+
+	roots := store.ReembedSearchRoots(ws)
+
+	fmt.Println("Re-embedding all databases (vectors + prompt atoms + traces + learnings)...")
+	res, err := ops.reembed(ctx, roots, engine, func(msg string) {
+		fmt.Println(msg)
+	})
+	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("embedding reembed: %w", err)
+	}
+
+	fmt.Printf("\nRe-embedding complete.\n  DBs processed: %d\n  Vectors re-embedded: %d\n  Prompt atoms re-embedded: %d\n  Traces re-embedded: %d\n  Learnings re-embedded: %d\n  Duration: %.2fs\n",
+		res.DBCount, res.VectorsDone, res.AtomsDone, res.TracesDone, res.LearningsDone, res.Duration.Seconds())
+	if len(res.Skipped) > 0 {
+		fmt.Println("\nSkipped/errored DBs:")
+		for _, s := range res.Skipped {
+			fmt.Printf("  - %s\n", s)
 		}
-		return nil
-	},
+	}
+	return nil
 }
 
 func init() {

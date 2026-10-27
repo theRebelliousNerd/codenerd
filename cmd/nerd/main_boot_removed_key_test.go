@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -84,12 +85,24 @@ func TestRootCommand_WorkspaceWithoutConfigStillRuns(t *testing.T) {
 // execRoot is the parsed-flag path, in-process, with --workspace pointing
 // at a temp workspace whose config this test writes (no API keys).
 //
-// A failed Initialize bricks later Initialize calls process-wide (the
-// sync.Once is consumed and initialized stays false, so every later call
-// returns the stale error). This file sorts after cmd_audit_test.go, the
-// other logging.Initialize user in this package. Nothing after it touches
-// logging.
+// logging.Initialize runs once per process: whichever test initializes
+// logging first decides what every later call returns. So the boot under the
+// bad config runs in a child process of this test binary, which owns its own
+// logging state; ordering among the package's test files cannot change it.
 func TestRootCommand_RemovedLoggingKeyFailsTheBoot(t *testing.T) {
+	if os.Getenv(removedKeyChildEnv) != "1" {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestRootCommand_RemovedLoggingKeyFailsTheBoot$", "-test.v")
+		cmd.Env = append(os.Environ(), removedKeyChildEnv+"=1")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("child boot under a removed logging key failed: %v\n%s", err, out)
+		}
+		if !strings.Contains(string(out), "--- PASS: TestRootCommand_RemovedLoggingKeyFailsTheBoot") {
+			t.Fatalf("child did not run the boot check:\n%s", out)
+		}
+		return
+	}
+
 	bad := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(bad, ".nerd"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -125,3 +138,6 @@ func TestRootCommand_RemovedLoggingKeyFailsTheBoot(t *testing.T) {
 		t.Errorf("boot error is not the removed-key rejection: %T %v", err, err)
 	}
 }
+
+// removedKeyChildEnv marks the child process that performs the boot.
+const removedKeyChildEnv = "NERD_TEST_REMOVED_KEY_CHILD"

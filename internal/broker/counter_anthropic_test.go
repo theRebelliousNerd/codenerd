@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/types"
 )
 
@@ -34,8 +35,8 @@ func newCountServer(t *testing.T, tokens int, status int) *countServer {
 		if got := r.Header.Get("x-api-key"); got != "test-key" {
 			t.Errorf("x-api-key = %q", got)
 		}
-		if got := r.Header.Get("anthropic-version"); got == "" {
-			t.Error("anthropic-version header missing")
+		if got := r.Header.Get("anthropic-version"); got != config.AnthropicAPIVersion {
+			t.Errorf("anthropic-version = %q, want %q", got, config.AnthropicAPIVersion)
 		}
 
 		w.WriteHeader(status)
@@ -270,5 +271,23 @@ func TestAnthropicCounterTrainsItsFallback(t *testing.T) {
 
 	if n := estimator.Calibrator().Observations("claude-opus-5"); n != 1 {
 		t.Errorf("observation did not reach the fallback estimator: n=%d", n)
+	}
+}
+
+func TestAnthropicCounterUsesInferenceWorkspaceAndVersion(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("anthropic-workspace-id") != "wrkspc_count" || r.Header.Get("anthropic-version") != config.AnthropicAPIVersion {
+			t.Error("counting diverged from inference headers")
+		}
+		if r.URL.Path != "/messages/count_tokens" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+		io.WriteString(w, `{"input_tokens":42}`)
+	}))
+	defer srv.Close()
+	counter := NewAnthropicCounterWithWorkspace("k", srv.URL+"/", "wrkspc_count", srv.Client(), nil)
+	got, err := counter.Count(context.Background(), &Request{Model: "claude-opus-5-5", User: "hello"})
+	if err != nil || got.Tokens != 42 || got.Confidence != ConfidenceExact {
+		t.Fatalf("count=%+v err=%v", got, err)
 	}
 }

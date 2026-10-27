@@ -45,15 +45,17 @@ type Contract struct {
 }
 
 type Witness struct {
-	Obligation  string        `json:"obligation"`
-	Snapshot    string        `json:"snapshot"`
-	Command     []string      `json:"command"`
-	Toolchain   string        `json:"toolchain"`
-	Environment string        `json:"environment_sha256"`
-	Status      string        `json:"status"`
-	OutputHash  string        `json:"output_sha256"`
-	Detail      string        `json:"detail,omitempty"`
-	Duration    time.Duration `json:"duration_ns"`
+	Obligation            string        `json:"obligation"`
+	Snapshot              string        `json:"snapshot"`
+	Command               []string      `json:"command"`
+	Toolchain             string        `json:"toolchain"`
+	ExecutableSHA256      string        `json:"executable_sha256"`
+	ExecutableAfterSHA256 string        `json:"executable_after_sha256"`
+	Environment           string        `json:"environment_sha256"`
+	Status                string        `json:"status"`
+	OutputHash            string        `json:"output_sha256"`
+	Detail                string        `json:"detail,omitempty"`
+	Duration              time.Duration `json:"duration_ns"`
 }
 
 type Report struct {
@@ -68,15 +70,51 @@ type Report struct {
 }
 
 type Transaction struct {
-	root      string
-	env       []string
-	goPath    string
-	contract  Contract
-	protected map[string]string
-	report    Report
+	root             string
+	env              []string
+	goPath           string
+	goExecutableHash string
+	contract         Contract
+	protected        map[string]string
+	report           Report
 }
 
 func digest(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
+
+func executableIdentity(path string) (string, string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", "", err
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve Go executable %q: %w", path, err)
+	}
+	f, err := os.Open(resolved)
+	if err != nil {
+		return "", "", err
+	}
+	defer f.Close()
+	before, err := f.Stat()
+	if err != nil {
+		return "", "", err
+	}
+	if !before.Mode().IsRegular() {
+		return "", "", fmt.Errorf("Go executable is not a regular file: %s", resolved)
+	}
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", "", err
+	}
+	after, err := f.Stat()
+	if err != nil {
+		return "", "", err
+	}
+	if !os.SameFile(before, after) || before.Size() != after.Size() || !before.ModTime().Equal(after.ModTime()) || before.Mode() != after.Mode() {
+		return "", "", errors.New("Go executable changed while its identity was being read")
+	}
+	return resolved, hex.EncodeToString(h.Sum(nil)), nil
+}
 
 func LoadContract(path string) (Contract, error) {
 	f, err := os.Open(path)
@@ -228,6 +266,10 @@ func Begin(ctx context.Context, root string, c Contract) (*Transaction, error) {
 	if err != nil {
 		return nil, err
 	}
+	tx.goPath, tx.goExecutableHash, err = executableIdentity(tx.goPath)
+	if err != nil {
+		return nil, fmt.Errorf("pin Go executable: %w", err)
+	}
 	tx.report.Before, err = Snapshot(ctx, root)
 	if err != nil {
 		return nil, err
@@ -317,6 +359,9 @@ func (tx *Transaction) Verify(ctx context.Context) Report {
 			r.Unknown = append(r.Unknown, w.Obligation+": "+w.Status)
 		}
 		for _, baseline := range r.Baseline {
+			if baseline.Obligation == w.Obligation && (baseline.ExecutableSHA256 != w.ExecutableSHA256 || w.ExecutableSHA256 != w.ExecutableAfterSHA256) {
+				r.Unknown = append(r.Unknown, w.Obligation+": verification executable changed")
+			}
 			if baseline.Obligation == w.Obligation && (baseline.Toolchain != w.Toolchain || baseline.Environment != w.Environment) {
 				r.Unknown = append(r.Unknown, w.Obligation+": verification environment changed")
 			}
@@ -443,11 +488,24 @@ func (tx *Transaction) run(ctx context.Context, o Obligation, snapshot string) W
 	w := Witness{Obligation: o.ID, Snapshot: snapshot, Status: "unverified", Command: []string{"go", "test", "-json", "-count=1", "-run", "^" + regexp.QuoteMeta(o.Test) + "$", o.Package}}
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Minute)
 	defer cancel()
+	_, executableHash, identityErr := executableIdentity(tx.goPath)
+	if identityErr != nil {
+		w.Detail = "cannot inspect Go executable: " + identityErr.Error()
+		w.Duration = time.Since(start)
+		return w
+	}
+	w.ExecutableSHA256 = executableHash
+	if executableHash != tx.goExecutableHash {
+		w.Detail = "Go executable changed since acceptance baseline"
+		w.Duration = time.Since(start)
+		return w
+	}
 	versionCmd := exec.CommandContext(ctx, tx.goPath, "version")
 	versionCmd.Dir, versionCmd.Env = tx.root, tx.env
 	version, err := processutil.CombinedOutput(versionCmd)
 	if err != nil {
 		w.Detail = err.Error()
+		w.Duration = time.Since(start)
 		return w
 	}
 	w.Toolchain = strings.TrimSpace(string(version))
@@ -458,6 +516,7 @@ func (tx *Transaction) run(ctx context.Context, o Obligation, snapshot string) W
 	effective, envErr := processutil.CombinedOutput(goEnv)
 	if envErr != nil {
 		w.Detail = "cannot inspect verification environment: " + envErr.Error()
+		w.Duration = time.Since(start)
 		return w
 	}
 	// Go emits a fresh temporary directory in its diagnostic prefix-map on
@@ -466,6 +525,7 @@ func (tx *Transaction) run(ctx context.Context, o Obligation, snapshot string) W
 	var effectiveConfig map[string]any
 	if err := json.Unmarshal(effective, &effectiveConfig); err != nil {
 		w.Detail = "invalid go env response"
+		w.Duration = time.Since(start)
 		return w
 	}
 	if flags, ok := effectiveConfig["GOGCCFLAGS"].(string); ok {
@@ -479,6 +539,15 @@ func (tx *Transaction) run(ctx context.Context, o Obligation, snapshot string) W
 	out, err := processutil.CombinedOutput(cmd)
 	w.OutputHash = digest(out)
 	w.Duration = time.Since(start)
+	_, executableHashAfter, identityErr := executableIdentity(tx.goPath)
+	w.ExecutableAfterSHA256 = executableHashAfter
+	if identityErr != nil || executableHashAfter != w.ExecutableSHA256 {
+		w.Detail = "Go executable changed during verification"
+		if identityErr != nil {
+			w.Detail += ": " + identityErr.Error()
+		}
+		return w
+	}
 	if ctx.Err() != nil {
 		w.Detail = ctx.Err().Error()
 		return w

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"codenerd/internal/atomicfile"
 )
 
 // ToolDefinition represents a tool template available for specialist shards.
@@ -400,7 +402,8 @@ func SaveToolsToFile(nerdDir string, tools []ToolDefinition) error {
 		return fmt.Errorf("failed to marshal tools: %w", err)
 	}
 
-	if err := os.WriteFile(toolsFile, data, 0644); err != nil {
+	// Atomic: boot registers every tool in this file.
+	if err := atomicfile.WriteFile(toolsFile, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write tools file: %w", err)
 	}
 

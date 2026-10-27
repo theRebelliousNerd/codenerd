@@ -84,3 +84,23 @@ then `cmd.Env = env` counts as the build env.
 - `MergeEnv` (`env.go:601-613`) silently drops malformed entries without
   a `=` separator (`env.go:605-610`); there is no writer-side validation
   and no log when an entry is dropped.
+
+
+## Required contract: Internal build consumer inventory
+
+The package comment, importer inventory test, and this wiring document must name every production package that imports `internal/build` and its actual consumer. The inventory must include direct helper consumers as well as `GoInvocation` callers, so a new production importer cannot be omitted while the go-spawn inventory still passes.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-BUILD-CONSUMER-INVENTORY | Build consumer inventory | The package comment names `internal/tools/build_exclusion.go`, the actual consumer calls `TestTagsForWorkspace`, and the importer inventory includes `internal/tools` (`internal/build/env.go:10-27`; `internal/tools/build_exclusion.go:109`, `currentBuildTags`; `internal/build/go_invocation_inventory_test.go:137-161`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing importer and Go-invocation inventory | The importer inventory passes and explicitly reports every production consumer, including the `internal/tools` call to `internal/build/tags.go:18 TestTagsForWorkspace`; the package comment and wiring map identify the real consumer. |
+
+
+## Required contract: Hermetic no-marker root acceptance
+
+The no-marker fallback test must not inherit an unrelated `.git` or `go.work` marker from an ancestor such as `/tmp`. Use a deterministic fixture or probe seam for the fallback case, while retaining separate controls proving that production `DetectionRootFor` still stops at a real ancestor repository boundary and at a local `sqlite_headers` directory.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-BUILD-ROOT-MARKER-TEST | Hermetic no-marker root acceptance | Production `DetectionRootFor` retains real `.git`/`go.work` and header probes, while `walkDetectionRoot` injects probes so the no-marker fallback test does not depend on its ancestors (`internal/build/env.go:180-221`; `internal/build/env_features_test.go:125-131`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing `DetectionRootFor` boundary semantics | No-marker fallback, real ancestor marker, and local-header controls pass regardless of unrelated ancestor markers; the test does not skip and production marker discovery remains unchanged. |
+
+**Verified current:** `TestBuildImporters_WhenNewConsumerAppears_ShouldBeDocumented` (`internal/build/go_invocation_inventory_test.go:137`) and the no-marker, nested-module/header, and repo-boundary controls (`internal/build/env_features_test.go:91`, `:114`, `:125`) pass with `TMPDIR=/var/tmp`. The broader package gate remains pending because its repository-wide formatting ratchet includes unrelated in-flight files.

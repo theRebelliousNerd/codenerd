@@ -1,6 +1,6 @@
 # init — Mangle Surface (deep-dive)
 
-> Last verified: 2026-08-15  
+> Last verified: 2026-10-27  
 > Package: `internal/init` — generates facts/templates; does not own core policy corpus.
 
 ## What init writes
@@ -23,15 +23,24 @@ From `generateFactsFile` in `profile.go`:
 - `build_system(/name).` — if known
 - `architectural_pattern(/p).` — per pattern
 - `entry_point("path").` — escaped paths
-- `missing_tool_for(/project_init, /capability).` — one per detected project
-  tool need (`determineRequiredTools`), capped at 8 and deduplicated
 
-`missing_tool_for/2` is Declared in `internal/core/defaults/schemas_tools.mg`
-and is the same predicate autopoiesis and campaign assert on a capability gap.
-Init writes the *need*, never the tool: generation stays behind
-`Orchestrator.ExecuteOuroborosLoop` with its full safety depth. Capability names
-keep their underscores (`sanitizeToolCapability`, not `sanitizeForMangle`, which
-strips them) so an operator reading a kernel query recognizes the tool.
+profile.mg records measurements only. It used to carry
+`missing_tool_for(/project_init, /capability)` rows for a fixed per-language
+list; `autopoiesis.mg` and `delegation.mg` derive a pending tool-generation
+delegation from any such row, so every interactive boot started Ouroboros
+codegen. Project tools are now chosen in phase 7e and registered through
+`available_tools.json` instead.
+
+## Orientation roster facts (asserted into the orientation engine)
+
+- `profile_signal(/language|/framework|/dependency|/tests, Key)` from the profile.
+- `vision_agent(Name, Why)`, `vision_agent_description`, `vision_agent_topic`,
+  `vision_agent_question`, `vision_agent_fast_question`, `vision_core_support`
+  from the validated domain-expert proposal (`domain_experts.go`).
+- Rules in `internal/orient/vision_agents.mg` merge them into
+  `orient_agent*`; `orient_param` supplies the roster bounds;
+  `ecosystem_agents.mg` keeps the core pair on `core_agent_supported` and
+  bounds imports with `imported_kept`.
 
 **Decl responsibility:** core schemas must Decl these predicates before boot loads the file. Init does not emit Decl lines into `profile.mg`.
 

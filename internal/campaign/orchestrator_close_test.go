@@ -43,6 +43,7 @@ func TestOrchestrator_CloseReleasesObserver(t *testing.T) {
 		Workspace:         ws,
 		Kernel:            kernel,
 		LLMClient:         &MockLLMClient{},
+		PlanningLLMClient: &MockLLMClient{},
 		TaskExecutor:      &MockTaskExecutor{},
 		Executor:          tactile.NewDirectExecutor(),
 		VirtualStore:      &core.VirtualStore{},

@@ -201,17 +201,55 @@ func extractResult(n *html.Node) SearchResult {
 
 	extract(n)
 
-	// Clean up the URL if it's a DuckDuckGo redirect
-	if after, ok := strings.CutPrefix(result.URL, "//duckduckgo.com/l/?uddg="); ok {
-		if decoded, err := url.QueryUnescape(after); err == nil {
-			if idx := strings.Index(decoded, "&"); idx > 0 {
-				decoded = decoded[:idx]
-			}
-			result.URL = decoded
+	// Clean up the URL if it's a DuckDuckGo redirect. Parse the outer query
+	// before decoding uddg; unescaping the whole tail turns the destination's
+	// own query separators into outer separators and truncates its URL.
+	if target, isRedirect, ok := duckDuckGoRedirectTarget(result.URL); isRedirect {
+		if !ok {
+			// Do not return an unusable DuckDuckGo tracking URL as a search hit.
+			result.URL = ""
+		} else {
+			result.URL = target
 		}
 	}
 
 	return result
+}
+
+// duckDuckGoRedirectTarget decodes the destination from DuckDuckGo's outer
+// redirect URL. The bools report whether raw is a DuckDuckGo redirect and
+// whether that redirect contains exactly one valid uddg parameter.
+func duckDuckGoRedirectTarget(raw string) (target string, isRedirect bool, valid bool) {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", looksLikeDuckDuckGoRedirect(raw), false
+	}
+	if !strings.EqualFold(parsed.Hostname(), "duckduckgo.com") || parsed.Path != "/l/" {
+		return "", false, false
+	}
+
+	values, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil {
+		return "", true, false
+	}
+	destinations := values["uddg"]
+	if len(destinations) != 1 || destinations[0] == "" {
+		return "", true, false
+	}
+	return destinations[0], true, true
+}
+
+func looksLikeDuckDuckGoRedirect(raw string) bool {
+	for _, prefix := range []string{
+		"//duckduckgo.com/l/",
+		"http://duckduckgo.com/l/",
+		"https://duckduckgo.com/l/",
+	} {
+		if strings.HasPrefix(strings.ToLower(raw), prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // getAttrValue returns the value of an attribute.

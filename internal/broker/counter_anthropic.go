@@ -10,9 +10,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
@@ -49,10 +51,11 @@ const (
 // shape changes, this must change with it; the parity test in
 // counter_anthropic_test.go exists to make that break loudly.
 type AnthropicCounter struct {
-	apiKey     string
-	baseURL    string
-	httpClient *http.Client
-	fallback   *EstimatingCounter
+	apiKey      string
+	baseURL     string
+	workspaceID string
+	httpClient  *http.Client
+	fallback    *EstimatingCounter
 
 	mu    sync.Mutex
 	cache map[string]*list.Element
@@ -68,19 +71,28 @@ type countCacheEntry struct {
 // fallback is used when the endpoint is unreachable, slow, or unauthorized, and
 // its lower Confidence propagates to the caller rather than being hidden.
 func NewAnthropicCounter(apiKey, baseURL string, httpClient *http.Client, fallback *EstimatingCounter) *AnthropicCounter {
+	return NewAnthropicCounterWithWorkspace(apiKey, baseURL, "", httpClient, fallback)
+}
+
+// NewAnthropicCounterWithWorkspace keeps counting in the same workspace as
+// inference when credentials can address multiple workspaces.
+func NewAnthropicCounterWithWorkspace(apiKey, baseURL, workspaceID string, httpClient *http.Client, fallback *EstimatingCounter) *AnthropicCounter {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: anthropicCountTimeout}
 	}
+	clientCopy := *httpClient
+	clientCopy.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
 	if fallback == nil {
 		fallback = NewEstimatingCounter(nil)
 	}
 	return &AnthropicCounter{
-		apiKey:     apiKey,
-		baseURL:    baseURL,
-		httpClient: httpClient,
-		fallback:   fallback,
-		cache:      make(map[string]*list.Element, countCacheSize),
-		order:      list.New(),
+		apiKey:      apiKey,
+		baseURL:     strings.TrimRight(baseURL, "/"),
+		workspaceID: workspaceID,
+		httpClient:  &clientCopy,
+		fallback:    fallback,
+		cache:       make(map[string]*list.Element, countCacheSize),
+		order:       list.New(),
 	}
 }
 
@@ -146,7 +158,10 @@ func (a *AnthropicCounter) postCount(ctx context.Context, body []byte) (int, err
 	}
 	httpReq.Header.Set("content-type", "application/json")
 	httpReq.Header.Set("x-api-key", a.apiKey)
-	httpReq.Header.Set("anthropic-version", "2023-06-01")
+	httpReq.Header.Set("anthropic-version", config.AnthropicAPIVersion)
+	if a.workspaceID != "" {
+		httpReq.Header.Set("anthropic-workspace-id", a.workspaceID)
+	}
 
 	resp, err := a.httpClient.Do(httpReq)
 	if err != nil {
@@ -159,7 +174,7 @@ func (a *AnthropicCounter) postCount(ctx context.Context, body []byte) (int, err
 		return 0, fmt.Errorf("read count response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("count endpoint status %d: %s", resp.StatusCode, truncateForLog(payload))
+		return 0, fmt.Errorf("count endpoint status %d", resp.StatusCode)
 	}
 
 	var decoded struct {

@@ -33,14 +33,8 @@ type OpenAIClient struct {
 	maxOutputTokens int
 }
 
-// OpenAI Codex Models (2025):
-// - gpt-5.1-codex-max  : Best for long-horizon, agentic coding tasks
-// - gpt-5.1-codex-mini : Smaller, more cost-effective version
-// - gpt-5-codex        : Previous generation Codex model
-// - gpt-5-codex-mini   : Previous generation smaller model
-// Standard models: gpt-4o, gpt-4o-mini, gpt-4-turbo
-
-// DefaultOpenAIConfig returns sensible defaults using Codex.
+// DefaultOpenAIConfig returns the endpoint and timeout defaults. It names no
+// model: the workspace's config does.
 func DefaultOpenAIConfig(apiKey string) OpenAIConfig {
 	return OpenAIConfig{
 		APIKey:  apiKey,

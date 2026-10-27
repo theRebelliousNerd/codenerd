@@ -165,25 +165,43 @@ func (o *Orchestrator) persistCampaign(checkpoint string) {
 }
 
 // resetInProgress clears in-flight task/phase states after restarts so work can resume.
-func (o *Orchestrator) resetInProgress() {
+// The caller holds o.mu. Kernel facts are committed before the live campaign is
+// changed, so a rejected transaction leaves the prior state available for a
+// later retry and cannot let the scheduler run against mismatched facts.
+func (o *Orchestrator) resetInProgress() error {
+	if o.campaign == nil {
+		return fmt.Errorf("restart reset: no campaign loaded")
+	}
 	logging.Campaign("Resetting in-progress states after restart")
 	resetCount := 0
 
 	tx := types.NewKernelTx(o.kernel)
+	campaignID := o.campaign.ID
 	for pi := range o.campaign.Phases {
 		phase := &o.campaign.Phases[pi]
 		if phase.Status == PhaseInProgress {
 			logging.CampaignDebug("Resetting phase %s from in_progress to pending", phase.ID)
-			phase.Status = PhasePending
+			tx.RetractFact(core.Fact{
+				Predicate: "campaign_phase",
+				Args:      []any{phase.ID},
+			})
+			tx.Assert(core.Fact{
+				Predicate: "campaign_phase",
+				Args: []any{
+					phase.ID,
+					campaignID,
+					phase.Name,
+					phase.Order,
+					string(PhasePending),
+					phase.ContextProfile,
+				},
+			})
 			resetCount++
 		}
 		for ti := range phase.Tasks {
 			task := &phase.Tasks[ti]
 			if task.Status == TaskInProgress {
 				logging.CampaignDebug("Resetting task %s from in_progress to pending", task.ID)
-				task.Status = TaskPending
-				resetCount++
-				// Update kernel fact for the task
 				tx.RetractFact(core.Fact{
 					Predicate: "campaign_task",
 					Args:      []any{task.ID},
@@ -192,20 +210,30 @@ func (o *Orchestrator) resetInProgress() {
 					Predicate: "campaign_task",
 					Args:      []any{task.ID, task.PhaseID, task.Description, string(TaskPending), string(task.Type)},
 				})
+				resetCount++
 			}
 		}
 	}
 
-	// The batch holds every campaign_task row this restart moved back to
-	// pending. A dropped commit discards all of them at once, leaving the
-	// kernel believing those tasks are still in flight while the in-memory
-	// campaign has them pending: nothing schedules them and nothing completes
-	// them, and the campaign stalls with no recorded cause.
-	if err := tx.Commit(); err != nil {
-		logging.Get(logging.CategoryCampaign).Error(
-			"Restart reset %d in-progress items in memory but the kernel batch was rejected; those tasks are still /in_progress to the logic layer: %v",
-			resetCount, err)
+	// A dropped commit leaves every row untouched. Do not update the campaign
+	// or write a snapshot unless the complete phase/task reset landed.
+	if resetCount > 0 {
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("restart reset of %d in-progress items was rejected by the kernel: %w", resetCount, err)
+		}
+		for pi := range o.campaign.Phases {
+			phase := &o.campaign.Phases[pi]
+			if phase.Status == PhaseInProgress {
+				phase.Status = PhasePending
+			}
+			for ti := range phase.Tasks {
+				if phase.Tasks[ti].Status == TaskInProgress {
+					phase.Tasks[ti].Status = TaskPending
+				}
+			}
+		}
 	}
 	logging.Campaign("Reset %d in-progress items", resetCount)
 	o.persistCampaign("restart reset")
+	return nil
 }

@@ -13,49 +13,42 @@
 # or whether the wiring is simply missing, which is what test_result was.
 #
 # Format: predicate<TAB>the file(s) querying it.
-#
-# internal/orient/report.go queries judgments derived by internal/orient/*.mg.
-# This gate's corpus walk is internal/core/defaults only, so those rule heads
-# are not visible to it. The producers are the rules, not an external feed.
+agent_source_loser	internal/init/phase_ecosystem.go
+agent_source_winner	internal/init/phase_ecosystem.go
+candidate_action	cmd/nerd/chat/process.go
 code_edit_outcome	internal/autopoiesis/autopoiesis_kernel.go
+cohort_burst	internal/orient/report.go
+cohort_member	internal/orient/report.go
+cohort_rep	internal/orient/report.go
 cold_storage_entry	cmd/nerd/cmd_systems.go
 compressed_context	cmd/nerd/cmd_systems.go
+config_param	internal/init/phase_ecosystem.go
 cyclomatic_complexity	internal/campaign/edge_case_detector.go internal/campaign/edge_case_detector.go
+doc_birth_month	internal/init/phase_orient.go
 doc_evolved_into	internal/orient/report.go
 doc_superseded	internal/orient/report.go
 knowledge_edge	cmd/nerd/cmd_systems.go
 learned_pattern	cmd/nerd/cmd_systems.go
 module_northstar	internal/northstar/module.go
 module_requirement	internal/northstar/module.go
-origin_source	internal/orient/report.go
-requirement_task_link	cmd/nerd/chat/model_session_context.go
-repo_era	internal/init/phase_orient.go internal/orient/report.go
-safety_warning	cmd/nerd/chat/model_session_context.go internal/campaign/intelligence_gathering_methods.go
-shard_prompt_base	internal/articulation/prompt_assembler.go
-user_requests_appeal	internal/shards/system/constitution.go
-vision_source	internal/orient/report.go
-
-# Orientation judgments have rule producers in internal/orient/*.mg,
-# evaluated by the isolated orientation engine, outside this guard's corpus.
-# config_param there is asserted from OrientConfig.Params by the orient engine,
-# not by the main kernel's config rows.
-agent_source_loser	internal/init/phase_ecosystem.go
-agent_source_winner	internal/init/phase_ecosystem.go
-cohort_burst	internal/orient/report.go
-cohort_member	internal/orient/report.go
-cohort_rep	internal/orient/report.go
-config_param	internal/init/phase_ecosystem.go
-doc_birth_month	internal/init/phase_orient.go
-orient_agent	internal/init/phase_ecosystem.go
+orient_agent	internal/init/phase_ecosystem.go internal/init/phase_ecosystem.go
 orient_agent_description	internal/init/phase_ecosystem.go
 orient_agent_knowledge	internal/init/phase_ecosystem.go
 orient_agent_permission	internal/init/phase_ecosystem.go
 orient_agent_priority	internal/init/phase_ecosystem.go
 orient_agent_prompt	internal/init/phase_ecosystem.go
 orient_agent_topic	internal/init/phase_ecosystem.go
-orient_read_candidate	internal/init/orientation_documents.go internal/init/phase_orient.go internal/init/phase_orient.go internal/init/strategic_documents.go
+orient_param	internal/init/domain_experts.go
+orient_read_candidate	internal/init/domain_experts.go internal/init/orientation_documents.go internal/init/phase_orient.go internal/init/phase_orient.go internal/init/strategic_documents.go
 orient_read_member	internal/orient/report.go
 orient_read_omitted	internal/init/phase_orient.go
 orient_refresh_document	internal/orient/snapshot.go
 orient_research_topic	internal/init/phase_ecosystem.go
 orient_stale	internal/orient/snapshot.go
+origin_source	internal/orient/report.go
+repo_era	internal/init/phase_orient.go internal/orient/report.go
+requirement_task_link	cmd/nerd/chat/model_session_context.go
+safety_warning	cmd/nerd/chat/model_session_context.go internal/campaign/intelligence_gathering_methods.go
+shard_prompt_base	internal/articulation/prompt_assembler.go
+user_requests_appeal	internal/shards/system/constitution.go
+vision_source	internal/orient/report.go
