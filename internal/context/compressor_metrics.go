@@ -278,20 +278,22 @@ func (c *Compressor) LoadState(state *CompressedState) error {
 	c.rollingSummary = cloneRollingSummary(state.RollingSummary)
 	c.recentTurns = cloneCompressedTurns(state.RecentTurns)
 
-	// Restore hot facts to kernel
+	// Restore hot facts to kernel. Dedupe within the restored set only: the
+	// kernel's own fact index already makes re-asserting an existing fact a
+	// no-op, and rendering the entire EDB (tens of thousands of facts on a
+	// real workspace) to strings just to pre-filter a handful of hot facts
+	// made session hydration — which runs inside the TUI's boot-complete
+	// Update — take most of a second.
 	restoredCount := 0
 	if c.kernel != nil {
-		existing := make(map[string]struct{})
-		for f := range c.kernel.GetAllFactsSeq() {
-			existing[f.String()] = struct{}{}
-		}
+		seen := make(map[string]struct{}, len(state.HotFacts))
 		missing := make([]core.Fact, 0, len(state.HotFacts))
 		for _, sf := range state.HotFacts {
 			key := sf.Fact.String()
-			if _, ok := existing[key]; ok {
+			if _, ok := seen[key]; ok {
 				continue
 			}
-			existing[key] = struct{}{}
+			seen[key] = struct{}{}
 			missing = append(missing, sf.Fact)
 		}
 		if len(missing) > 0 {

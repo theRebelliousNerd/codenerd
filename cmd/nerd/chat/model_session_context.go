@@ -861,9 +861,13 @@ func (m *Model) assertKnowledgeAtomsToKernel() {
 			continue
 		}
 
+		// Decl knowledge_atom(SourceURL, Concept, Title, Confidence) with
+		// Confidence on the 0..100 /number scale (schemas_knowledge.mg).
+		// Asserting the store's (concept, content, ratio) triple produced
+		// knowledge_atom/3 — a different, undeclared predicate no rule reads.
 		fact := core.Fact{
 			Predicate: "knowledge_atom",
-			Args:      []any{atom.Concept, atom.Content, atom.Confidence},
+			Args:      []any{atom.Source, atom.Concept, atom.Content, types.PercentFromRatio(atom.Confidence)},
 		}
 		if err := m.kernel.Assert(fact); err == nil {
 			asserted++
@@ -887,7 +891,7 @@ func (m *Model) assertKnowledgeAtomsToKernel() {
 
 			fact := core.Fact{
 				Predicate: "knowledge_atom",
-				Args:      []any{atom.Concept, atom.Content, atom.Confidence},
+				Args:      []any{atom.Source, atom.Concept, atom.Content, types.PercentFromRatio(atom.Confidence)},
 			}
 			if err := m.kernel.Assert(fact); err == nil {
 				asserted++

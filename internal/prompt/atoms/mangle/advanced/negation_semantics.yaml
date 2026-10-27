@@ -23,7 +23,7 @@
     
     Mangle implements **negation-as-failure (NAF)**:
     
-    `not p(X)` succeeds if and only if `p(X)` **fails to be proven**.
+    `!p(X)` succeeds if and only if `p(X)` **fails to be proven**.
     
     ### Example
     ```mangle
@@ -39,14 +39,14 @@
     # Rule using negation
     non_manager(Id) :-
       employee(Id, Name),
-      not manager(Id).
+      !manager(Id).
     ```
     
     **Query**: `non_manager(Id)?`
     
     **Result**: `{/e2}` (Bob is not a manager)
     
-    **Why**: `manager(/e2)` cannot be proven, so `not manager(/e2)` succeeds.
+    **Why**: `manager(/e2)` cannot be proven, so `!manager(/e2)` succeeds.
     
     ## CWA vs. OWA
     
@@ -63,7 +63,7 @@
     ```mangle
     manager(/alice).
     
-    # Query: not manager(/bob)
+    # Query: !manager(/bob)
     # Result: TRUE (Bob is not a manager, because we don't have that fact)
     ```
     
@@ -71,7 +71,7 @@
     ```mangle
     manager(/alice).
     
-    # Query: not manager(/bob)
+    # Query: !manager(/bob)
     # Result: UNKNOWN (We don't know if Bob is a manager or not)
     ```
     
@@ -84,7 +84,7 @@
     **Unsafe** (WRONG):
     ```mangle
     # WRONG: X is not bound before negation
-    result(X) :- not forbidden(X).
+    result(X) :- !forbidden(X).
     ```
     
     **Why wrong**: What values should X take? Without a domain, this is unbounded.
@@ -94,7 +94,7 @@
     # CORRECT: X is bound by candidate/1 first
     result(X) :-
       candidate(X),      # X gets a value from here
-      not forbidden(X).  # Now we can check if X is forbidden
+      !forbidden(X).  # Now we can check if X is forbidden
     ```
     
     ### Rule 2: Negation Must Be Stratified
@@ -106,8 +106,8 @@
     **Unsafe** (WRONG):
     ```mangle
     # WRONG: Cyclic negation
-    p(X) :- not q(X).
-    q(X) :- not p(X).
+    p(X) :- !q(X).
+    q(X) :- !p(X).
     ```
     
     **Safe** (CORRECT):
@@ -240,36 +240,25 @@
     ```
     
     ## Double Negation
-    
-    `not not p(X)` is **not equivalent** to `p(X)` in Mangle.
-    
-    ### Why?
-    
-    Under CWA:
-    - `p(X)` = "X can be proven true"
-    - `not p(X)` = "X fails to be proven true"
-    - `not not p(X)` = "X does not fail to be proven true" = `p(X)`
-    
-    Actually, in Mangle, `not not p(X)` **reduces to** `p(X)` in practice, but this is not meaningful in queries.
-    
-    ### Example
+
+    There is no double-negation form. Negation is the `!` prefix on a single
+    atom; `!!p(X)` does not parse, and there is no `not` keyword. Testing
+    "not (not p)" requires projecting the inner negation into a helper in a
+    lower stratum and negating that helper — which, under the closed-world
+    assumption, is just `p` again for grounded cases. Write the positive
+    form instead:
+
     ```mangle
-    Decl data(X) bound [/number].
-    data(1).
-    data(2).
-    
-    # These are equivalent
-    result1(X) :- data(X).
-    result2(X) :- not not data(X).
-    
-    # Both produce: {1, 2}
+    # Instead of any double negation:
+    result(X) :- data(X).
     ```
     
-    **Best practice**: Never use double negation. It's redundant and confusing.
-    
     ## Negation and the Anonymous Variable
-    
-    The anonymous variable `_` in negation means "there exists at least one".
+
+    A negated literal must be FULLY bound. A wildcard inside it
+    (`!parent(P, _)`) is an unbound-variable analysis error on the pinned
+    TauCeti v0.7 engine — it is neither an existential test nor silently
+    ignored. Project to a bound helper first, then negate the helper.
     
     ### Example: "Has at least one child"
     ```mangle
@@ -289,10 +278,11 @@
     ```mangle
     Decl childless(Parent) bound [/name].
     
+    # has_children(P) from the example above is the bound projection.
     childless(P) :-
       person(P),
-      not parent(P, _).  # No child exists
-    
+      !has_children(P).
+
     # Means: "there does NOT exist any child of P"
     ```
     
@@ -309,7 +299,7 @@
     
     # All distinct if no two values are the same
     all_distinct() :-
-      not has_duplicate().
+      !has_duplicate().
     
     has_duplicate() :-
       value(X),
@@ -344,10 +334,10 @@
     1. **Bind variables before negation**
        ```mangle
        # BAD: Generates all X, then filters
-       result(X) :- huge_table(X), not forbidden(X).
+       result(X) :- huge_table(X), !forbidden(X).
     
        # GOOD: Filter first
-       result(X) :- candidate(X), not forbidden(X).
+       result(X) :- candidate(X), !forbidden(X).
        ```
     
     2. **Use positive filtering when possible**
@@ -365,11 +355,11 @@
     3. **Compute negation once, reuse**
        ```mangle
        # BAD: Repeated negation checks
-       rule1(X) :- data(X), not expensive(X).
-       rule2(X) :- data(X), not expensive(X).
+       rule1(X) :- data(X), !expensive(X).
+       rule2(X) :- data(X), !expensive(X).
     
        # GOOD: Materialize once
-       not_expensive(X) :- data(X), not expensive(X).
+       not_expensive(X) :- data(X), !expensive(X).
        rule1(X) :- not_expensive(X).
        rule2(X) :- not_expensive(X).
        ```
@@ -381,7 +371,7 @@
     # User's intent: "I don't know if Alice is a manager"
     # Mangle's interpretation: "Alice is NOT a manager"
     
-    # Query: not manager(/alice)
+    # Query: !manager(/alice)
     # Result: TRUE (because manager(/alice) is not in the database)
     ```
     
@@ -399,10 +389,10 @@
     ### Pitfall 2: Unsafe Variables
     ```mangle
     # WRONG: X is unbound
-    bad_rule(X) :- not forbidden(X).
+    bad_rule(X) :- !forbidden(X).
     
     # CORRECT: Bind X first
-    good_rule(X) :- universe(X), not forbidden(X).
+    good_rule(X) :- universe(X), !forbidden(X).
     ```
     
     ### Pitfall 3: Negating Empty Results
@@ -410,7 +400,7 @@
     Decl item(Id) bound [/name].
     # No facts!
     
-    # Query: not item(/missing)
+    # Query: !item(/missing)
     # Result: TRUE (item(/missing) fails, so negation succeeds)
     
     # But there are NO items at all!
@@ -432,11 +422,11 @@
     
     | Operation | Mangle Syntax | Meaning |
     |-----------|---------------|---------|
-    | Negation | `not p(X)` | p(X) fails to be proven |
-    | Set difference | `a(X), not b(X)` | X in a but not in b |
-    | Absence check | `not exists(X)` | No X exists |
-    | Universal quantification | `not violates(X)` | All X satisfy property |
-    | Exclusion | `a(X), not b(X)` | a and b are mutually exclusive |
+    | Negation | `!p(X)` | p(X) fails to be proven |
+    | Set difference | `a(X), !b(X)` | X in a but not in b |
+    | Absence check | `!exists(X)` | No X exists |
+    | Universal quantification | `!violates(X)` | All X satisfy property |
+    | Exclusion | `a(X), !b(X)` | a and b are mutually exclusive |
     
     ## Checklist
     

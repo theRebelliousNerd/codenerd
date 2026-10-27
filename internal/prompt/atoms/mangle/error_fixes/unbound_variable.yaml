@@ -26,7 +26,7 @@
     
     **Before (Invalid):**
     ```mangle
-    safe(X) :- not dangerous(X).
+    safe(X) :- !dangerous(X).
     ```
     
     **Fix:** Add a binding predicate that defines the domain of X:
@@ -69,7 +69,7 @@
     ### Problem: Unbound in negation
     ```mangle
     # WRONG
-    blocked_user(U) :- not permitted_user(U).
+    blocked_user(U) :- !permitted_user(U).
     ```
     
     ### Solution: Add domain binding

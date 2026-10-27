@@ -887,7 +887,7 @@
     
     block_action(/shell_exec, Req) :-
         shell_exec_request(Binary, _, _, _, _),
-        not binary_allowlist(Binary).
+        !binary_allowlist(Binary).
     ```
     
     ---

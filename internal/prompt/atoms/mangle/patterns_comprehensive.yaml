@@ -86,11 +86,11 @@
     # All dependencies satisfied
     all_deps_met(Package) :-
         package(Package),
-        not has_unmet_dep(Package).
+        !has_unmet_dep(Package).
     
     has_unmet_dep(Pkg) :-
         requires(Pkg, Dep),
-        not installed(Dep).
+        !installed(Dep).
     ```
     
     ### Complement Set
@@ -198,7 +198,7 @@
     acyclic_path(X, Z, [X|Rest]) :-
         edge(X, Y),
         acyclic_path(Y, Z, Rest),
-        not member(X, Rest).  # X not already in path
+        !member(X, Rest).  # X not already in path
     
     # List membership
     member(X, [X|_]).
@@ -367,7 +367,7 @@
     # Level 0: no dependencies
     level(Node, 0) :-
         node(Node),
-        not has_dependency(Node).
+        !has_dependency(Node).
     
     has_dependency(Node) :- depends_on(Node, _).
     
@@ -375,7 +375,7 @@
     level(Node, Lev) :-
         depends_on(Node, Dep),
         level(Dep, DepLev),
-        not has_higher_dep(Node, DepLev) |>
+        !has_higher_dep(Node, DepLev) |>
         let Lev = fn:plus(DepLev, 1).
     
     has_higher_dep(Node, L) :-
@@ -479,10 +479,10 @@
     ### Unbounded Negation
     ```mangle
     # ❌ WRONG: X unbound
-    bad(X) :- not foo(X).
+    bad(X) :- !foo(X).
     
     # ✅ CORRECT: X bound first
-    good(X) :- candidate(X), not foo(X).
+    good(X) :- candidate(X), !foo(X).
     ```
     
     ### Cartesian Product

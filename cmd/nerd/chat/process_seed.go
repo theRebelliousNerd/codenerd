@@ -80,6 +80,10 @@ func (m *Model) seedIssueFacts(ctx context.Context, intent perception.Intent, ra
 		bus = m.glassBoxEventBus
 	}
 
+	if m.semanticSearcher == nil && m.embeddingEngine != nil {
+		m.semanticSearcher = retrieval.NewEmbeddingSemanticSearcher(m.embeddingEngine, m.workspace)
+	}
+
 	if _, err := retrieval.SeedIssueFacts(ctx, m.kernel, retrieval.SeedRequest{
 		IssueID:   chatIssueID,
 		IssueText: issueText,
@@ -88,10 +92,11 @@ func (m *Model) seedIssueFacts(ctx context.Context, intent perception.Intent, ra
 		// m.embeddingEngine is cortex.EmbeddingEngine: nil when Ollama was
 		// unavailable at boot (the factory leaves it nil deliberately), in
 		// which case the seed keeps the heuristic Tier 4 fallback.
-		EmbeddingEngine: m.embeddingEngine,
-		Timeout:         retrieval.DefaultSeedTimeout,
-		GlassBox:        bus,
-		TurnID:          m.turnCount,
+		EmbeddingEngine:  m.embeddingEngine,
+		SemanticSearcher: m.semanticSearcher,
+		Timeout:          retrieval.DefaultSeedTimeout,
+		GlassBox:         bus,
+		TurnID:           m.turnCount,
 	}); err != nil {
 		logging.Context("[seedIssueFacts] retrieval seed failed: %v", err)
 	}

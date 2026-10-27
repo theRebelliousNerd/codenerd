@@ -670,7 +670,7 @@
     ```mangle
     # Files missing test coverage
     ? file_topology(Path, _, /go, _, /false),
-      not test_coverage(Path, /true).
+      !test_coverage(Path, /true).
     ```
     
     ### Unresolved Ambiguities
@@ -679,7 +679,7 @@
     # References with low confidence
     ? focus_resolution(Ref, _, _, Score),
       Score < 85,
-      not ambiguity_flag(Ref, _, _).  # Not yet flagged
+      !ambiguity_flag(Ref, _, _).  # Not yet flagged
     ```
     
     ---

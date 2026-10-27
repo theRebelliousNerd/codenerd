@@ -313,7 +313,7 @@
         advanced_process(X, Y).
     
     process(X, Y) :-
-        not feature_enabled(/advanced),
+        !feature_enabled(/advanced),
         simple_process(X, Y).
     
     # Or use explicit selection:

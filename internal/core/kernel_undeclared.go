@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 
@@ -64,10 +65,32 @@ func (k *RealKernel) warnIfUndeclaredLocked(f Fact) {
 	if _, already := k.undeclared.seen.LoadOrStore(sym, struct{}{}); already {
 		return
 	}
-	logging.Get(logging.CategoryKernel).Warn(
-		"Assert: %s/%d has no Decl — the fact is stored but no rule can read it, and Query will not return it. "+
-			"Declare it (and give it a consumer) or drop the assert.",
+	logging.Get(logging.CategoryKernel).Warn("%s", undeclaredFactWarning(k.programInfo.Decls, f))
+}
+
+// undeclaredFactWarning renders the one diagnostic. When the symbol is
+// declared at other arities it names them: "knowledge_atom/3 has no Decl"
+// alone sends the reader hunting for a predicate that plainly exists at /4,
+// when the actual defect is simply the arity.
+func undeclaredFactWarning(decls map[ast.PredicateSym]*ast.Decl, f Fact) string {
+	msg := fmt.Sprintf("Assert: %s/%d has no Decl — the fact is stored but no rule can read it, and Query will not return it.",
 		f.Predicate, len(f.Args))
+	var arities []int
+	for sym := range decls {
+		if sym.Symbol == f.Predicate {
+			arities = append(arities, sym.Arity)
+		}
+	}
+	if len(arities) > 0 {
+		sort.Ints(arities)
+		declared := make([]string, len(arities))
+		for i, arity := range arities {
+			declared[i] = fmt.Sprintf("%s/%d", f.Predicate, arity)
+		}
+		msg += fmt.Sprintf(" Declared arities: %s; arity is part of a predicate's identity, so fix the producer's argument count or declare this arity deliberately.", strings.Join(declared, ", "))
+		return msg
+	}
+	return msg + " Declare it (and give it a consumer) or drop the assert."
 }
 
 // validateAgainstDeclLocked rejects a fact whose value contradicts its own

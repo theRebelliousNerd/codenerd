@@ -1,6 +1,7 @@
 package core
 
 import (
+	"strings"
 	"testing"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
@@ -99,6 +100,13 @@ func TestAssert_WhenArityUndeclared_ShouldWarn(t *testing.T) {
 	k.mu.RUnlock()
 	if !declaredAtOne || declaredAtFour {
 		t.Skip("critical_file's declared arities changed; pick another single-arity predicate")
+	}
+
+	k.mu.RLock()
+	warning := undeclaredFactWarning(k.programInfo.Decls, Fact{Predicate: "critical_file", Args: []any{"a", "b", "c", "d"}})
+	k.mu.RUnlock()
+	if !strings.Contains(warning, "Declared arities: critical_file/1") {
+		t.Errorf("wrong-arity warning does not name the declared arity: %q", warning)
 	}
 
 	if err := k.Assert(Fact{Predicate: "critical_file", Args: []any{"a", "b", "c", "d"}}); err != nil {

@@ -376,7 +376,7 @@
     
     # Commit allowed only when no blockers
     git_commit_allowed() :-
-        not block_commit(_).
+        !block_commit(_).
     ```
     
     ### Network Policy
@@ -410,7 +410,7 @@
     # Block if not in allowlist
     block_action(/shell_exec, Req) :-
         shell_exec_request(Binary, _, _, _, _),
-        not binary_allowlist(Binary).
+        !binary_allowlist(Binary).
     ```
     
     ---
@@ -518,7 +518,7 @@
     # Research needed before instantiation
     needs_research(Agent) :-
         shard_profile(Agent, _, Topics, _),
-        not knowledge_ingested(Agent).
+        !knowledge_ingested(Agent).
     ```
     
     ---
@@ -553,7 +553,7 @@
         last_accessed(Fact, Time),
         current_time(Now),
         Now - Time > 3600,
-        not activation(Fact, _).
+        !activation(Fact, _).
     ```
     
     ---
@@ -758,7 +758,7 @@
     # Generate hypothesis when cause unknown
     missing_hypothesis(Symptom) :-
         symptom(_, Symptom),
-        not known_cause(Symptom, _).
+        !known_cause(Symptom, _).
     
     # Trigger clarification for unknown symptoms
     clarification_needed(Symptom) :-

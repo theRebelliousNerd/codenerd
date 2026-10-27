@@ -3,6 +3,7 @@ package retrieval
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -362,6 +363,71 @@ func TestEmbeddingSemanticSearcher_ShouldRankAndCacheVectors(t *testing.T) {
 	}
 	if engine.batches != 1 {
 		t.Errorf("embedded the corpus %d times, want 1 (vectors are cached)", engine.batches)
+	}
+}
+
+// partialEmbedder fails its second batch, simulating a seed budget expiring
+// mid-corpus: the first chunk's vectors are already paid for and must be both
+// ranked now and kept for the next call.
+type partialEmbedder struct {
+	batches    int
+	failSecond bool
+}
+
+func (f *partialEmbedder) vector(text string) []float32 {
+	return []float32{float32(strings.Count(text, "zebra")), 1}
+}
+
+func (f *partialEmbedder) Embed(_ context.Context, text string) ([]float32, error) {
+	return f.vector(text), nil
+}
+
+func (f *partialEmbedder) EmbedBatch(_ context.Context, texts []string) ([][]float32, error) {
+	f.batches++
+	if f.failSecond && f.batches == 2 {
+		return nil, context.DeadlineExceeded
+	}
+	out := make([][]float32, len(texts))
+	for i, t := range texts {
+		out[i] = f.vector(t)
+	}
+	return out, nil
+}
+
+func TestEmbeddingSemanticSearcher_WhenBudgetExpiresMidCorpus_ShouldRankPartialAndKeepProgress(t *testing.T) {
+	dir := t.TempDir()
+	for i := range semanticEmbedChunkSize + 8 {
+		body := "package p\n// filler\n"
+		if i == 0 {
+			body = "package p\n// zebra\n"
+		}
+		if i == semanticEmbedChunkSize+7 {
+			body = "package p\n// zebra zebra zebra\n"
+		}
+		writeFile(t, dir, fmt.Sprintf("f%02d.go", i), []byte(body))
+	}
+
+	engine := &partialEmbedder{failSecond: true}
+	s := NewEmbeddingSemanticSearcher(engine, dir)
+
+	matches, err := s.SimilarFiles(context.Background(), "zebra zebra zebra", 5)
+	if err != nil {
+		t.Fatalf("SimilarFiles with partial corpus: %v", err)
+	}
+	if len(matches) == 0 || !strings.HasSuffix(matches[0].FilePath, "f00.go") {
+		t.Fatalf("partial matches = %v, want f00.go ranked from the completed chunk", matches)
+	}
+
+	engine.failSecond = false
+	matches, err = s.SimilarFiles(context.Background(), "zebra zebra zebra", 5)
+	if err != nil {
+		t.Fatalf("second SimilarFiles: %v", err)
+	}
+	if len(matches) == 0 || !strings.HasSuffix(matches[0].FilePath, fmt.Sprintf("f%02d.go", semanticEmbedChunkSize+7)) {
+		t.Fatalf("completed matches = %v, want the final file ranked first", matches)
+	}
+	if engine.batches != 3 {
+		t.Errorf("batches = %d, want 3 (chunk 1, failed chunk 2, retried remainder only)", engine.batches)
 	}
 }
 

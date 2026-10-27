@@ -346,7 +346,7 @@
     top_choice(Verb) :-
         high_confidence(Verb),
         verb_priority(Verb, P),
-        not higher_priority_exists(P).
+        !higher_priority_exists(P).
     
     higher_priority_exists(P) :-
         high_confidence(OtherVerb),
@@ -356,7 +356,7 @@
     # Safety gate
     final_action(Verb) :-
         top_choice(Verb),
-        not blocked_action(Verb).
+        !blocked_action(Verb).
     ```
     
     ## Why This Matters
@@ -440,7 +440,7 @@
     | **Exact-match patterns** | Vector DB | `intent_definition("review code", /review)` |
     | **Fuzzy matches** | Embedding search | "check my code" → similarity to "review code" |
     | **Composition rules** | Mangle | `compound_action(V1, V2) :- ...` |
-    | **Safety constraints** | Mangle | `permitted(A, T, P) :- ..., not blocked(A).` |
+    | **Safety constraints** | Mangle | `permitted(A, T, P) :- ..., !blocked(A).` |
     | **Transitive relations** | Mangle | `ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).` |
     | **Taxonomy graph** | Mangle facts | `subclass_of(/sedan, /car).` |
     | **Taxonomy reasoning** | Mangle rules | `is_a(X, Z) :- subclass_of(X, Y), is_a(Y, Z).` |

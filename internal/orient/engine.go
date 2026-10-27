@@ -104,6 +104,59 @@ func newEngine(params []config.Param) (*Engine, error) {
 	return e, nil
 }
 
+// freshnessDecision is the staleness judgment Refresh needs before it knows
+// whether the full orientation program must run at all. It evaluates only
+// freshness.mg over the oriented baseline and the current observations —
+// the same rules the full program contains, but without asserting the whole
+// history/document census (100k+ facts on this repo) into a second engine
+// merely to learn that nothing changed. Mangle still makes the decision;
+// Go only selects the relevant measurements.
+type freshnessDecision struct {
+	stale   []types.Fact
+	changed []types.Fact
+	pending []types.Fact
+}
+
+func evaluateFreshness(ctx context.Context, baseline, observed []types.Fact) (*freshnessDecision, error) {
+	src, err := fs.ReadFile(policyFiles, "freshness.mg")
+	if err != nil {
+		return nil, fmt.Errorf("orient freshness rules: %w", err)
+	}
+	mcfg := mangle.DefaultConfig()
+	mcfg.AutoEval = false
+	mcfg.FactLimit = 0
+	mcfg.DerivedFactsLimit = 0
+	raw, err := mangle.NewEngine(mcfg, nil)
+	if err != nil {
+		return nil, err
+	}
+	e := &Engine{eng: raw}
+	defer e.Close()
+	if err := raw.LoadSchemaString(string(src)); err != nil {
+		return nil, err
+	}
+	if err := e.Assert(baseline); err != nil {
+		return nil, err
+	}
+	if err := e.Assert(observed); err != nil {
+		return nil, err
+	}
+	if err := e.Evaluate(ctx); err != nil {
+		return nil, err
+	}
+	out := &freshnessDecision{}
+	if out.stale, err = e.Query("orient_stale"); err != nil {
+		return nil, err
+	}
+	if out.changed, err = e.Query("orient_refresh_document"); err != nil {
+		return nil, err
+	}
+	if out.pending, err = e.Query("orient_role_pending"); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // policySource is schema.mg, then every other embedded .mg in name order.
 // schema.mg holds
 // the declarations; another lane can add a rule file and have it load

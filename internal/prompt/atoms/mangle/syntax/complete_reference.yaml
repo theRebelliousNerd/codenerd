@@ -296,12 +296,8 @@
     cheaper(X, Y) :- price(X, P1), price(Y, P2), P1 < P2.
     ```
     
-    **Operators**:
-    - `<` - Less than
-    - `<=` - Less than or equal
-    - **Note**: No `>` or `>=` operators. Use flipped operands:
-      - `X > Y` → `Y < X`
-      - `X >= Y` → `Y <= X` or `not (X < Y)` after binding both
+    **Operators** (numbers): `<`, `<=`, `>`, `>=`, `=`, `!=` — all six exist
+    as infix. Negation (`!`) applies to atoms only, never to a comparison.
     
     ---
     
@@ -633,7 +629,7 @@
     # Complex rule with negation
     orphan(P) :-
         person(P, _),
-        not parent(_, P).
+        !parent(_, P).
     
     # Aggregation
     total_age(Total) :-
@@ -657,7 +653,7 @@
     | Declaration | `Decl pred(Args).` | `Decl person(Name, Age).` |
     | Fact | `pred(consts).` | `person("Alice", 30).` |
     | Rule | `head :- body.` | `ancestor(X,Y) :- parent(X,Y).` |
-    | Negation | `not atom` | `not parent(X, Y)` |
+    | Negation | `not atom` | `!parent(X, Y)` |
     | Equality | `X = Y` | `X = 42` |
     | Inequality | `X != Y` | `X != Y` |
     | Comparison | `X < Y`, `X <= Y` | `Age >= 18` |

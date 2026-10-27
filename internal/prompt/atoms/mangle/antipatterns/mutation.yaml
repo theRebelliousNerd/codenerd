@@ -281,7 +281,7 @@
     # Query only active users:
     active_user(Id, Name) :-
         user(Id, Name),
-        not deleted_user(Id).
+        !deleted_user(Id).
     
     # Option 3: Versioned with tombstone
     Decl user(Id, Name, Ver) bound [/name, /string, /number].
@@ -292,7 +292,7 @@
     
     current_user(Id, Name) :-
         user(Id, Name, Ver),
-        not user_tombstone(Id, TombVer),
+        !user_tombstone(Id, TombVer),
         Ver > TombVer.  # User created after tombstone (if resurrected)
     ```
     
@@ -397,7 +397,7 @@
     
     valid_cache(Key, Value) :-
         cache(Key, Value, Ver),
-        not cache_invalidated(Ver).
+        !cache_invalidated(Ver).
     ```
     
     ---

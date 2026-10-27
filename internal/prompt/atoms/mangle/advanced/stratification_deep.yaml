@@ -22,12 +22,12 @@
     ### Example: The Liar's Paradox
     ```mangle
     # This statement is false.
-    false(X) :- not false(X).
+    false(X) :- !false(X).
     ```
     
     **Question**: Is `false(/statement)` true or false?
-    - If true, then `not false(/statement)` is false, so the rule makes it false. Contradiction.
-    - If false, then `not false(/statement)` is true, so the rule makes it true. Contradiction.
+    - If true, then `!false(/statement)` is false, so the rule makes it false. Contradiction.
+    - If false, then `!false(/statement)` is true, so the rule makes it true. Contradiction.
     
     **Mangle's response**: This program is **not stratified** and will be **rejected** at compile time.
     
@@ -41,7 +41,7 @@
     ### Dependency Types
     
     - **Positive dependency**: `p(X) :- q(X).` → p depends positively on q
-    - **Negative dependency**: `p(X) :- not q(X).` → p depends negatively on q
+    - **Negative dependency**: `p(X) :- !q(X).` → p depends negatively on q
     
     ## Stratification Algorithm
     
@@ -60,7 +60,7 @@
     # Rules
     a(X) :- b(X).           # a → b (positive)
     b(X) :- c(X).           # b → c (positive)
-    c(X) :- not d(X).       # c → d (negative)
+    c(X) :- !d(X).       # c → d (negative)
     d(X) :- data(X).        # d → data (positive)
     ```
     
@@ -164,7 +164,7 @@
     ### Example 1: Direct Cyclic Negation
     ```mangle
     # WRONG: p depends on its own negation
-    p(X) :- not p(X).
+    p(X) :- !p(X).
     ```
     
     **Dependency graph**:
@@ -177,8 +177,8 @@
     ### Example 2: Mutual Cyclic Negation
     ```mangle
     # WRONG: Cycle through negation
-    p(X) :- not q(X).
-    q(X) :- not p(X).
+    p(X) :- !q(X).
+    q(X) :- !p(X).
     ```
     
     **Dependency graph**:
@@ -191,7 +191,7 @@
     ### Example 3: Indirect Cyclic Negation
     ```mangle
     a(X) :- b(X).
-    b(X) :- not c(X).
+    b(X) :- !c(X).
     c(X) :- a(X).
     ```
     
@@ -209,8 +209,8 @@
     #### Before (Non-Stratified)
     ```mangle
     # Trying to define "not admin" and "admin" mutually
-    non_admin(X) :- user(X), not admin(X).
-    admin(X) :- user(X), not non_admin(X).
+    non_admin(X) :- user(X), !admin(X).
+    admin(X) :- user(X), !non_admin(X).
     ```
     
     #### After (Stratified)
@@ -233,10 +233,10 @@
     
     can_edit(User, Doc) :-
       shared(Doc, User),
-      not blocked(User, Doc).
+      !blocked(User, Doc).
     
     blocked(User, Doc) :-
-      not can_edit(User, Doc),
+      !can_edit(User, Doc),
       attempted_edit(User, Doc).
     ```
     

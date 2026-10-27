@@ -54,6 +54,11 @@ const (
 	// semanticHeadBytes is how much of each file is embedded. Package docs,
 	// imports and the first declarations carry most of a file's topic.
 	semanticHeadBytes = 4 << 10
+
+	// semanticEmbedChunkSize bounds one EmbedBatch call. Chunks are cached as
+	// they complete: a caller budget expiring mid-corpus must keep the vectors
+	// already paid for instead of restarting from zero next turn.
+	semanticEmbedChunkSize = 32
 )
 
 // EmbeddingSemanticSearcher implements SemanticSearcher over an embedding engine
@@ -115,7 +120,13 @@ func (s *EmbeddingSemanticSearcher) SimilarFiles(ctx context.Context, query stri
 
 	vectors, err := s.vectorsFor(ctx, paths)
 	if err != nil {
-		return nil, err
+		if len(vectors) == 0 {
+			return nil, err
+		}
+		// A budget can expire with most of the corpus embedded. Ranking the
+		// vectors we hold is strictly better than pretending Tier 4 found
+		// nothing; the remainder stays uncached for the next call.
+		logging.Context("TieredContextBuilder: semantic corpus partially embedded (%d/%d files), ranking what is available: %v", len(vectors), len(paths), err)
 	}
 
 	matches := make([]SemanticMatch, 0, len(vectors))
@@ -179,7 +190,9 @@ func (s *EmbeddingSemanticSearcher) corpus(ctx context.Context) ([]string, error
 }
 
 // vectorsFor returns embeddings for the given paths, embedding only the ones
-// not already cached and batching that remainder in a single engine call.
+// not already cached, in chunks that are cached as soon as they complete. On
+// error it returns every vector it holds beside the error, so the caller can
+// rank a partial corpus rather than none.
 func (s *EmbeddingSemanticSearcher) vectorsFor(ctx context.Context, paths []string) (map[string][]float32, error) {
 	out := make(map[string][]float32, len(paths))
 	var missing []string
@@ -212,20 +225,22 @@ func (s *EmbeddingSemanticSearcher) vectorsFor(ctx context.Context, paths []stri
 		return out, nil
 	}
 
-	vecs, err := s.engine.EmbedBatch(ctx, texts)
-	if err != nil {
-		return out, fmt.Errorf("embedding %d workspace files: %w", len(texts), err)
+	for start := 0; start < len(texts); start += semanticEmbedChunkSize {
+		end := min(start+semanticEmbedChunkSize, len(texts))
+		vecs, err := s.engine.EmbedBatch(ctx, texts[start:end])
+		if err != nil {
+			return out, fmt.Errorf("embedding workspace files %d-%d of %d: %w", start, end-1, len(texts), err)
+		}
+		if len(vecs) != end-start {
+			return out, fmt.Errorf("embedding backend returned %d vectors for %d files", len(vecs), end-start)
+		}
+		s.mu.Lock()
+		for i, p := range missing[start:end] {
+			s.vectors[p] = vecs[i]
+			out[p] = vecs[i]
+		}
+		s.mu.Unlock()
 	}
-	if len(vecs) != len(missing) {
-		return out, fmt.Errorf("embedding backend returned %d vectors for %d files", len(vecs), len(missing))
-	}
-
-	s.mu.Lock()
-	for i, p := range missing {
-		s.vectors[p] = vecs[i]
-		out[p] = vecs[i]
-	}
-	s.mu.Unlock()
 
 	return out, nil
 }

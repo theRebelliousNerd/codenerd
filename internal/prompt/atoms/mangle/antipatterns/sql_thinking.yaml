@@ -153,7 +153,7 @@
     # To check for missing data, use negation:
     missing_data(X) :-
         entity(X),
-        not data(X, _).
+        !data(X, _).
     ```
     
     ---

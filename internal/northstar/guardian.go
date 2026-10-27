@@ -201,10 +201,12 @@ func (g *Guardian) Initialize() error {
 	} else {
 		visionPath := "<unknown>"
 		if g.store != nil {
-			visionPath = g.store.Path()
+			// The store path is a SQLite DB nobody edits by hand. Point at
+			// the import surface the operator actually authors.
+			visionPath = filepath.Join(filepath.Dir(g.store.Path()), VisionJSONFileName)
 		}
 		logging.Get(logging.CategoryNorthstar).Warn(
-			"Northstar Guardian initialized without a vision file — all alignment checks will be skipped. Configure vision at %s to enable enforcement.",
+			"Northstar Guardian initialized without a vision — all alignment checks will be skipped. Configure a vision at %s (or run /northstar) to enable enforcement.",
 			visionPath,
 		)
 	}

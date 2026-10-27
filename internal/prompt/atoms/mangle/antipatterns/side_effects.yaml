@@ -139,7 +139,7 @@
     
     user_to_persist(Id, Name) :-
         user(Id, Name),
-        not already_persisted(Id).
+        !already_persisted(Id).
     
     # In Go, execute database operations:
     // results := store.Query("user_to_persist", id, name)
@@ -449,7 +449,7 @@
     
     payment_to_process(Id, Amount) :-
         payment_request(Id, Amount),
-        not payment_processed(Id).
+        !payment_processed(Id).
     
     # In Go, call the API:
     // results := store.Query("payment_to_process", id, amount)

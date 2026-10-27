@@ -50,14 +50,14 @@
         reports_to(Employee, Manager).
     has_manager(Employee, /none) :-
         employee(Employee),
-        not reports_to(Employee, _).  # Don't use /none for "no manager"
+        !reports_to(Employee, _).  # Don't use /none for "no manager"
     ```
     
     ## Correct Code
     ```mangle
     # CORRECT - Use closed world directly
     known(X) :- known_status(X, _).
-    unknown(X) :- item(X), not known(X).
+    unknown(X) :- item(X), !known(X).
     # If known_status(X, S) doesn't exist, X is unknown by CWA
     
     # CORRECT - No NULL checks needed
@@ -67,25 +67,25 @@
     # CORRECT - Binary classification
     active(X) :- status(X, /active).
     inactive(X) :- status(X, /inactive).
-    unknown_status(X) :- entity(X), not status(X, _).
+    unknown_status(X) :- entity(X), !status(X, _).
     # Explicitly derive "unknown status" from absence
     
     # CORRECT - Derive "missing" from closed world
     has_value(X) :- mapping(X, _).
-    missing_value(X) :- expected(X), not has_value(X).
+    missing_value(X) :- expected(X), !has_value(X).
     
     # CORRECT - Default values using separate rule
     actual_value(X, Val) :- data(X, Val).
     effective_value(X, Val) :- actual_value(X, Val).
     effective_value(X, /default_val) :-
         expected(X),
-        not actual_value(X, _).
+        !actual_value(X, _).
     
     # CORRECT - Employees without managers
     has_manager(Emp, Mgr) :- reports_to(Emp, Mgr).
     no_manager(Emp) :-
         employee(Emp),
-        not has_manager(Emp, _).
+        !has_manager(Emp, _).
     ```
     
     ## Detection
@@ -131,7 +131,7 @@
     
     # DO derive missing status
     has_status(X) :- status(X, _).
-    missing_status(X) :- entity(X), not has_status(X).
+    missing_status(X) :- entity(X), !has_status(X).
     ```
     
     ## Correct Patterns Reference
@@ -148,7 +148,7 @@
     # Derive who doesn't (by absence)
     no_manager(Emp) :-
         employee(Emp),
-        not has_manager(Emp).
+        !has_manager(Emp).
     
     # Query direct manager
     manager_of(Emp, Mgr) :- reports_to(Emp, Mgr).
@@ -171,7 +171,7 @@
     
     effective_config(ID, 100) :-
         item(ID),
-        not explicit_config(ID, _).  # Default 100 if missing
+        !explicit_config(ID, _).  # Default 100 if missing
     ```
     
     ### Pattern 3: Three-State Logic
@@ -183,8 +183,8 @@
     rejected(X) :- status(X, /rejected).
     pending(X) :-
         entity(X),
-        not confirmed(X),
-        not rejected(X).
+        !confirmed(X),
+        !rejected(X).
     # Pending = neither confirmed nor rejected (by CWA)
     ```
     
@@ -202,7 +202,7 @@
     # Users without email (by absence)
     no_email(ID) :-
         user(ID),
-        not has_email(ID).
+        !has_email(ID).
     
     # Don't store: user_email(ID, /null)  # WRONG
     ```
@@ -221,11 +221,11 @@
     
     # CORRECT - Multiple rules
     priority(Task, /high) :- critical(Task).
-    priority(Task, /medium) :- urgent(Task), not critical(Task).
+    priority(Task, /medium) :- urgent(Task), !critical(Task).
     priority(Task, /low) :-
         task(Task),
-        not critical(Task),
-        not urgent(Task).
+        !critical(Task),
+        !urgent(Task).
     ```
     
     ## Complex Example: User Status Management
@@ -258,7 +258,7 @@
         active_until(ID, Until),
         current_date(Now),
         Now < Until,
-        not is_banned(ID).
+        !is_banned(ID).
     
     is_expired(ID) :-
         user(ID),
@@ -268,8 +268,8 @@
     
     is_never_activated(ID) :-
         user(ID),
-        not active_until(ID, _),
-        not is_banned(ID).
+        !active_until(ID, _),
+        !is_banned(ID).
     
     # Query: What's charlie's status?
     # ?is_banned(/charlie)         → false (no banned fact)
@@ -322,7 +322,7 @@
     # Pattern: Create "census" predicates
     all_expected_values(ID) :- entity(ID).
     has_value(ID) :- actual_data(ID, _).
-    missing_value(ID) :- all_expected_values(ID), not has_value(ID).
+    missing_value(ID) :- all_expected_values(ID), !has_value(ID).
     
     # Query all three:
     # ?all_expected_values(X)  → Shows universe
@@ -350,7 +350,7 @@
     
     # CORRECT
     has_known_status(X) :- status(X, _).
-    unknown_status(X) :- entity(X), not has_known_status(X).
+    unknown_status(X) :- entity(X), !has_known_status(X).
     ```
     
     ### Misconception 3: "I need to check if a fact exists"
@@ -384,8 +384,8 @@
     | SQL Pattern | Mangle Equivalent |
     |-------------|-------------------|
     | `WHERE col IS NOT NULL` | `predicate(X, _)` (fact exists) |
-    | `WHERE col IS NULL` | `entity(X), not predicate(X, _)` (fact absent) |
+    | `WHERE col IS NULL` | `entity(X), !predicate(X, _)` (fact absent) |
     | `COALESCE(col, default)` | Two rules: explicit + default |
     | `CASE WHEN ... ELSE` | Multiple rules with different conditions |
     | `LEFT JOIN` (nullable) | Optional relationship via negation |
-    | `COUNT(*) = 0` | `not exists_pred(...)` |
+    | `COUNT(*) = 0` | `!exists_pred(...)` |

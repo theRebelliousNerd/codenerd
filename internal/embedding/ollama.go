@@ -263,8 +263,61 @@ func (e *OllamaEngine) embedOnce(ctx context.Context, text string) ([]float32, e
 	return nil, fmt.Errorf("ollama embed failed after %d attempts", maxRetries)
 }
 
-// EmbedBatch generates embeddings for multiple texts.
-// Ollama doesn't have native batch API, so we call Embed sequentially.
+const (
+	ollamaBatchChunkTexts = 32
+	ollamaBatchChunkBytes = 256 << 10
+)
+
+// embedBatchNative sends one chunk to Ollama's native /api/embed endpoint.
+// It returns errors without logging them as final: EmbedBatch falls back to
+// per-text Embed for the chunk, which is also the path that splits an input
+// longer than the model's window.
+func (e *OllamaEngine) embedBatchNative(ctx context.Context, texts []string) ([][]float32, error) {
+	body, err := json.Marshal(ollamaBatchEmbedRequest{Model: e.Model(), Input: texts})
+	if err != nil {
+		return nil, fmt.Errorf("marshal batch request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", e.endpoint+"/api/embed", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create batch request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := e.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ollama batch request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read batch response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("ollama batch returned status %d: %s", resp.StatusCode, truncateForLog(string(respBytes), 200))
+	}
+	var result ollamaBatchEmbedResponse
+	if err := json.Unmarshal(respBytes, &result); err != nil {
+		return nil, fmt.Errorf("decode batch response: %w", err)
+	}
+	if len(result.Embeddings) != len(texts) {
+		return nil, fmt.Errorf("ollama batch returned %d vectors for %d texts", len(result.Embeddings), len(texts))
+	}
+	for i, vec := range result.Embeddings {
+		if err := validateEmbeddingVector(vec); err != nil {
+			return nil, fmt.Errorf("ollama batch vector %d: %w", i, err)
+		}
+		if got := len(vec); got != e.dimensions {
+			return nil, fmt.Errorf("Ollama model %q returned a %d-dimensional vector and embedding.dimensions is %d: set embedding.dimensions to %d in .nerd/config.json, then `nerd embedding reembed`", e.Model(), got, e.dimensions, got)
+		}
+	}
+	return result.Embeddings, nil
+}
+
+// EmbedBatch generates embeddings for multiple texts. Modern Ollama has a
+// native batch endpoint; use it in bounded chunks. Sequential per-text calls
+// made a 256-text batch take ~45ms of HTTP work per text and predictably
+// outlived short caller budgets, discarding every completed vector. A chunk
+// the native endpoint refuses (an old server, or one overlong text) falls
+// back to Embed, preserving long-input splitting and model recovery.
 func (e *OllamaEngine) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	timer := logging.StartTimer(logging.CategoryEmbedding, "Ollama.EmbedBatch")
 	defer timer.Stop()
@@ -288,18 +341,44 @@ func (e *OllamaEngine) EmbedBatch(ctx context.Context, texts []string) ([][]floa
 
 	embeddings := make([][]float32, len(texts))
 
-	for i, text := range texts {
+	for start := 0; start < len(texts); {
 		if err := ctx.Err(); err != nil {
-			return nil, fmt.Errorf("ollama EmbedBatch cancelled at text %d/%d: %w", i, len(texts), err)
+			return nil, fmt.Errorf("ollama EmbedBatch cancelled at text %d/%d: %w", start, len(texts), err)
 		}
-		logging.EmbeddingDebug("Ollama.EmbedBatch: processing text %d/%d (length=%d chars)", i+1, len(texts), len(text))
-
-		embedding, err := e.Embed(ctx, text)
-		if err != nil {
-			logging.Get(logging.CategoryEmbedding).Error("Ollama.EmbedBatch: failed at text %d: %v", i, err)
-			return nil, fmt.Errorf("failed to embed text %d: %w", i, err)
+		end := start
+		chunkBytes := 0
+		for end < len(texts) && end-start < ollamaBatchChunkTexts {
+			if end > start && chunkBytes+len(texts[end]) > ollamaBatchChunkBytes {
+				break
+			}
+			chunkBytes += len(texts[end])
+			end++
 		}
-		embeddings[i] = embedding
+		chunk := texts[start:end]
+		if len(chunk) > 1 {
+			if vecs, nativeErr := e.embedBatchNative(ctx, chunk); nativeErr == nil {
+				copy(embeddings[start:end], vecs)
+				start = end
+				continue
+			} else if ctx.Err() != nil {
+				return nil, fmt.Errorf("ollama EmbedBatch cancelled at text %d/%d: %w", start, len(texts), ctx.Err())
+			} else {
+				logging.EmbeddingDebug("Ollama.EmbedBatch: native batch for texts %d-%d unavailable (%v); embedding individually", start, end-1, nativeErr)
+			}
+		}
+		for i, text := range chunk {
+			idx := start + i
+			if err := ctx.Err(); err != nil {
+				return nil, fmt.Errorf("ollama EmbedBatch cancelled at text %d/%d: %w", idx, len(texts), err)
+			}
+			embedding, err := e.Embed(ctx, text)
+			if err != nil {
+				logging.Get(logging.CategoryEmbedding).Error("Ollama.EmbedBatch: failed at text %d: %v", idx, err)
+				return nil, fmt.Errorf("failed to embed text %d: %w", idx, err)
+			}
+			embeddings[idx] = embedding
+		}
+		start = end
 	}
 
 	logging.Embedding("Ollama.EmbedBatch: completed successfully, processed %d texts", len(texts))
@@ -571,6 +650,15 @@ type ollamaEmbedRequest struct {
 
 type ollamaEmbedResponse struct {
 	Embedding []float32 `json:"embedding"`
+}
+
+type ollamaBatchEmbedRequest struct {
+	Model string   `json:"model"`
+	Input []string `json:"input"`
+}
+
+type ollamaBatchEmbedResponse struct {
+	Embeddings [][]float32 `json:"embeddings"`
 }
 
 type ollamaTagsResponse struct {

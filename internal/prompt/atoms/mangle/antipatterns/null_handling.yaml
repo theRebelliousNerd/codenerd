@@ -49,13 +49,13 @@
     # To check for missing email:
     missing_email(UserId) :-
         user(UserId, _),
-        not user_email(UserId, _).
+        !user_email(UserId, _).
     
     # Or use an optional pattern:
     email_status(UserId, /some, Email) :- user_email(UserId, Email).
     email_status(UserId, /none) :-
         user(UserId, _),
-        not user_email(UserId, _).
+        !user_email(UserId, _).
     ```
     
     **Key Insight:** Absence is represented by the non-existence of facts, not by null values.
@@ -139,7 +139,7 @@
     
     display_name(UserId, "Guest") :-
         user(UserId),
-        not user_name(UserId, _).
+        !user_name(UserId, _).
     
     # Or derive default explicitly:
     display_name(UserId, Name) :-
@@ -147,7 +147,7 @@
     
     display_name(UserId, Default) :-
         user(UserId),
-        not user_name(UserId, _),
+        !user_name(UserId, _),
         Default = "Guest".
     ```
     
@@ -217,7 +217,7 @@
     # Non-existence = check via negation
     no_email(UserId) :-
         user(UserId),
-        not user_email(UserId, _).
+        !user_email(UserId, _).
     ```
     
     ---
@@ -328,7 +328,7 @@
     
     find_result(/query1, /none) :-
         request(/query1, UserId),
-        not user(UserId, _).
+        !user(UserId, _).
     ```
     
     ---
@@ -360,7 +360,7 @@
     
     user_or_default(Id, "Anonymous") :-
         requested_id(Id),
-        not user(Id, _).
+        !user(Id, _).
     
     # Usage:
     # Load: requested_id(/user1).
@@ -410,7 +410,7 @@
     # No email fact at all:
     missing_email(UserId) :-
         user(UserId),
-        not user_email(UserId, _).
+        !user_email(UserId, _).
     ```
     
     ---
@@ -503,7 +503,7 @@
     
     search_status(/q1, /not_found, -1) :-
         search_request(/q1, Target),
-        not array_contains(_, Target).
+        !array_contains(_, Target).
     ```
     
     ---
@@ -538,7 +538,7 @@
     - [ ] Replace nullable fields with separate predicates
     - [ ] Replace `x ?? default` with multiple rules
     - [ ] Replace `x?.y?.z` with chained predicates
-    - [ ] Replace `IS NULL` checks with negation: `not pred(_)`
+    - [ ] Replace `IS NULL` checks with negation: `!pred(_)`
     - [ ] Replace null comparisons with existence checks
     - [ ] Replace `Option<T>` with tagged results or empty query results
     - [ ] Replace null objects with default derivation rules
@@ -591,7 +591,7 @@
     display_email(Id, Email) :- user_email(Id, Email).
     display_email(Id, "no-email@example.com") :-
         user(Id, _),
-        not user_email(Id, _).
+        !user_email(Id, _).
     ```
     
     **Pros:** Clean query interface

@@ -136,13 +136,11 @@
     within_budget(Item, Budget) :- price(Item, P), P <= Budget.
     ```
     
-    **Note**: Mangle does NOT have `>` or `>=` operators. Use negation of opposite:
-    - `X > Y` becomes `not (X <= Y)` BUT requires both bound
-    - `X >= Y` becomes `not (X < Y)` BUT requires both bound
-    
-    Better: Flip the operands:
-    - `X > Y` → `Y < X`
-    - `X >= Y` → `Y <= X` or `not (Y > X)` → `not (X < Y)`
+    **Note**: All four infix comparisons exist for numbers — `<`, `<=`, `>`,
+    `>=` — plus `=` and `!=`. There is never a reason to negate a comparison;
+    negation applies to atoms, not to comparisons or compound bodies. Float
+    and string comparisons use their namespaced predicates instead
+    (`:float:lt`, `:string:contains`, ...).
     
     ---
     

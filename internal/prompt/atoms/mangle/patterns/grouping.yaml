@@ -157,12 +157,12 @@
     # Handle accounts with only deposits
     account_balance(AccountId, Balance) :-
       deposits(AccountId, Balance),
-      not withdrawals(AccountId, _).
+      !withdrawals(AccountId, _).
     
     # Handle accounts with only withdrawals
     account_balance(AccountId, Balance) :-
       withdrawals(AccountId, With),
-      not deposits(AccountId, _),
+      !deposits(AccountId, _),
       Balance = fn:times(With, -1).
     ```
     

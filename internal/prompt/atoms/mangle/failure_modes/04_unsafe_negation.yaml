@@ -23,19 +23,19 @@
     ## Wrong Code
     ```mangle
     # WRONG - X is not bound before negation
-    non_admin(User) :- not admin(User).  # UNSAFE - will crash!
+    non_admin(User) :- !admin(User).  # UNSAFE - will crash!
     
     # WRONG - Y is unbound in negation
-    bad(X, Y) :- foo(X), not bar(Y).  # Y never bound!
+    bad(X, Y) :- foo(X), !bar(Y).  # Y never bound!
     
     # WRONG - X bound AFTER negation (order matters)
-    bad(X) :- not excluded(X), source(X).  # X unbound when negation evaluated
+    bad(X) :- !excluded(X), source(X).  # X unbound when negation evaluated
     
     # WRONG - Multiple unbound variables
-    bad(X, Y, Z) :- foo(X), not bar(Y, Z).  # Y and Z unbound
+    bad(X, Y, Z) :- foo(X), !bar(Y, Z).  # Y and Z unbound
     
     # WRONG - Thinking negation generates values
-    orphan(Child) :- not parent(_, Child).  # Child unbound!
+    orphan(Child) :- !parent(_, Child).  # Child unbound!
     ```
     
     ## Correct Code
@@ -78,14 +78,14 @@
     ## Detection
     - **Symptom**: Error like "unsafe variable in negation"
     - **Symptom**: Panic about unbounded domain
-    - **Pattern**: `not pred(X)` where X doesn't appear in positive atom before
+    - **Pattern**: `!pred(X)` where X doesn't appear in positive atom before
     - **Pattern**: Variable appears first in negated position
-    - **Test**: For each `not pred(V1, V2, ...)`, verify all variables appear in positive atoms earlier
+    - **Test**: For each `!pred(V1, V2, ...)`, verify all variables appear in positive atoms earlier
     
     ## Prevention
     
     ### Safety Checklist
-    Before any negation `not pred(X, Y, ...)`:
+    Before any negation `!pred(X, Y, ...)`:
     1. ✓ Is every variable already bound by a positive atom?
     2. ✓ Does the positive atom appear BEFORE the negation?
     3. ✓ Are you trying to enumerate all possible values? (This won't work!)
@@ -101,9 +101,9 @@
     
     **Negative atoms = Filters** (reject values)
     ```mangle
-    not admin(X)      # Filters out admins
-    not blocked(X, Y) # Filters out blocked pairs
-    not excluded(X)   # Filters out excluded items
+    !admin(X)      # Filters out admins
+    !blocked(X, Y) # Filters out blocked pairs
+    !excluded(X)   # Filters out excluded items
     ```
     
     **Rule**: Always generate before filtering!
@@ -112,36 +112,36 @@
     
     ```mangle
     # Pattern 1: Simple filtering
-    good(X) :- candidate(X), not bad(X).
+    good(X) :- candidate(X), !bad(X).
     
     # Pattern 2: Join then filter
     related(X, Y) :-
         entity_a(X),
         entity_b(Y),
-        not incompatible(X, Y).
+        !incompatible(X, Y).
     
     # Pattern 3: Multiple filters
     valid(X) :-
         source(X),
-        not excluded(X),
-        not deprecated(X),
-        not blocked(X).
+        !excluded(X),
+        !deprecated(X),
+        !blocked(X).
     
     # Pattern 4: Negated join (all variables bound)
     missing_edge(X, Y) :-
         node(X),
         node(Y),
         X != Y,
-        not edge(X, Y).
+        !edge(X, Y).
     
     # Pattern 5: Set difference using intermediate predicate
     # Find children without parents
     has_parent(C) :- parent(_, C).
-    orphan(C) :- child(C), not has_parent(C).
+    orphan(C) :- child(C), !has_parent(C).
     
     # Pattern 6: Double negation (De Morgan's law)
     # "X is active OR healthy" = "X is not (inactive AND unhealthy)"
-    good(X) :- entity(X), not bad(X).
+    good(X) :- entity(X), !bad(X).
     bad(X) :- inactive(X), unhealthy(X).
     ```
     
@@ -149,19 +149,19 @@
     
     ```mangle
     # UNSAFE: Direct negation without generator
-    bad(X) :- not foo(X).              # X unbound
+    bad(X) :- !foo(X).              # X unbound
     
     # UNSAFE: Generator appears AFTER negation
-    bad(X) :- not foo(X), source(X).   # Wrong order
+    bad(X) :- !foo(X), source(X).   # Wrong order
     
     # UNSAFE: Partial binding
-    bad(X, Y) :- foo(X), not bar(Y).   # Y unbound
+    bad(X, Y) :- foo(X), !bar(Y).   # Y unbound
     
     # UNSAFE: Negation in head of recursive rule
-    bad(X) :- parent(X, Y), not bad(Y). # Stratification issue
+    bad(X) :- parent(X, Y), !bad(Y). # Stratification issue
     
     # UNSAFE: Trying to enumerate "missing" items
-    missing(X) :- not exists(X).       # No generator!
+    missing(X) :- !exists(X).       # No generator!
     ```
     
     ## Why This Restriction Exists
@@ -169,7 +169,7 @@
     ### The Infinite Domain Problem
     ```mangle
     # Without generator, what values should X take?
-    bad(X) :- not admin(X).
+    bad(X) :- !admin(X).
     
     # Mangle would need to test:
     # - Every possible string?
@@ -201,15 +201,15 @@
     friend(/alice, /bob).
     
     # WRONG - Unbounded variables
-    not_friend(X, Y) :- not friend(X, Y).  # UNSAFE!
+    not_friend(X, Y) :- !friend(X, Y).  # UNSAFE!
     
     # CORRECT - Bind all variables first
     not_friend(X, Y) :-
         person(X),
         person(Y),
         X != Y,                  # Avoid self-loops
-        not friend(X, Y),        # Now safe: X and Y are bound
-        not friend(Y, X).        # Check both directions
+        !friend(X, Y),        # Now safe: X and Y are bound
+        !friend(Y, X).        # Check both directions
     ```
     
     ## Training Bias Origins
@@ -217,10 +217,10 @@
     |----------|--------|----------------------|
     | SQL | `SELECT * FROM users WHERE id NOT IN (...)` | Assumes filtering works on unbounded sets |
     | Prolog | `\+ goal(X)` with backtracking | Mangle has no backtracking |
-    | Python | `[x for x in ... if not pred(x)]` | Generator is explicit in Python |
+    | Python | `[x for x in ... if !pred(x)]` | Generator is explicit in Python |
     
     ## Quick Check
-    For every negation `not pred(V1, V2, ...)`:
+    For every negation `!pred(V1, V2, ...)`:
     1. Find each variable (V1, V2, etc.)
     2. For each variable, locate a positive atom that binds it
     3. Verify the positive atom appears BEFORE the negation
@@ -230,7 +230,7 @@
     ```mangle
     # Add this pattern to trace what's being generated vs filtered:
     debug_generated(X) :- source(X).  # Generator
-    debug_filtered(X) :- source(X), not excluded(X).  # Filter applied
+    debug_filtered(X) :- source(X), !excluded(X).  # Filter applied
     
     # Query both to see the difference:
     # ?debug_generated(X)  → Shows all generated values

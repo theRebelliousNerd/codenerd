@@ -165,6 +165,35 @@ func TestAnthropicTools_RetriesTransientThenSucceeds(t *testing.T) {
 	}
 }
 
+// A 200 that is not a usable message (no content blocks) is a transient
+// provider/proxy failure, not an answer: postMessages must retry it instead
+// of failing the turn on the first malformed envelope.
+func TestAnthropicChat_RetriesIncompleteMessageThenSucceeds(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if hits.Add(1) == 1 {
+			w.Header().Set("request-id", "req_incomplete")
+			_, _ = w.Write([]byte(`{"id":"msg_bad","type":"message","role":"assistant","model":"claude-test","content":[],"stop_reason":"end_turn","usage":{}}`))
+			return
+		}
+		_, _ = w.Write([]byte(anthropicChatOK))
+	}))
+	defer srv.Close()
+
+	c := anthropicTestClient(srv.URL)
+	resp, err := c.CompleteWithSystem(context.Background(), "sys", "hi")
+	if err != nil {
+		t.Fatalf("CompleteWithSystem: %v", err)
+	}
+	if resp != "hello" {
+		t.Errorf("response = %q, want hello after retry", resp)
+	}
+	if got := hits.Load(); got != 2 {
+		t.Errorf("server hits = %d, want 2 (one incomplete retried)", got)
+	}
+}
+
 // The tool-results path shares postMessages too: a 429 is retried, and the
 // provider-neutral history must reach the wire in Anthropic block form with
 // tool_use_id pairing intact.

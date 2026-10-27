@@ -126,8 +126,8 @@
     # 5. FINAL ASSEMBLY: Combine selected, minus excluded and suppressed
     final_atom(P) :-
         selected(P),
-        not excluded(P),
-        not suppressed(P).
+        !excluded(P),
+        !suppressed(P).
     
     # 6. ORDERING: Safety first, then role, tool, format
     Decl priority(Category, Rank) bound [/name, /number].
@@ -237,7 +237,7 @@
     - **Conflict detection**: `conflicts/2` prevents contradictory instructions
     - **Phase gating**: Rules change behavior based on `current_phase/1`
     - **Priority ordering**: Aggregation derives assembly order
-    - **Negation**: `not excluded(P)` cleanly filters unwanted atoms
+    - **Negation**: `!excluded(P)` cleanly filters unwanted atoms
     
     ### What Mangle Does NOT Do
     - **Semantic search**: Vector DB finds similar prompts (not Mangle)
@@ -305,7 +305,7 @@
         selected(Tool),
         safety_critical(Tool),
         requires(Tool, Safety),
-        not selected(Safety).
+        !selected(Safety).
     
     error_missing_safety :-
         missing_safety(_).

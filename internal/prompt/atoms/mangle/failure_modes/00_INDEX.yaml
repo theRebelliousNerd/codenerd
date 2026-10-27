@@ -80,7 +80,7 @@
     #### 04. Unsafe Negation (Unbounded Variables) ⚠️ CRITICAL
     **File**: `04_unsafe_negation.md`
     **Severity**: CRITICAL - Runtime error or panic
-    **Pattern**: `not pred(X)` where X is not bound by positive atom first
+    **Pattern**: `!pred(X)` where X is not bound by positive atom first
     **Detection**: "Unsafe variable in negation" error
     **Key Rule**: Generate (positive atom) before filtering (negation)
     

@@ -33,6 +33,107 @@ type Snapshot struct {
 
 var snapshotMu sync.Mutex
 
+// refreshMemo is the last successful Refresh decision for one exact set of
+// inputs: snapshot file identity, HEAD, and tracked-document stat identity.
+// Workspace kernels are constructed repeatedly in one process (the action
+// kernel plus shard kernels); without this, every construction reparsed the
+// snapshot and re-ran the orientation program only to re-derive "not stale."
+// Guarded by snapshotMu, which Refresh holds for its whole body.
+type refreshMemo struct {
+	snapshotSize int64
+	snapshotMod  int64
+	head         string
+	docs         map[string]refreshDocStat
+	pending      []types.Fact
+}
+
+type refreshDocStat struct {
+	size int64
+	mod  int64
+}
+
+var refreshMemos = map[string]refreshMemo{}
+
+func cloneFactRows(rows []types.Fact) []types.Fact {
+	if rows == nil {
+		return nil
+	}
+	out := make([]types.Fact, len(rows))
+	for i, row := range rows {
+		args := make([]any, len(row.Args))
+		copy(args, row.Args)
+		out[i] = types.Fact{Predicate: row.Predicate, Args: args}
+	}
+	return out
+}
+
+// cachedRefresh returns the previous no-stale decision when every input to
+// that decision is unchanged. A mismatch is a miss, never an error to hide.
+func cachedRefresh(ctx context.Context, root string) (*RefreshResult, bool, error) {
+	memo, ok := refreshMemos[root]
+	if !ok {
+		return nil, false, nil
+	}
+	miss := func() (*RefreshResult, bool, error) {
+		delete(refreshMemos, root)
+		return nil, false, nil
+	}
+	info, err := os.Stat(snapshotPath(root))
+	if err != nil || info.Size() != memo.snapshotSize || info.ModTime().UnixNano() != memo.snapshotMod {
+		return miss()
+	}
+	if _, err := os.Stat(filepath.Join(root, ".nerd", "orientation", "orientation.mg")); err != nil {
+		return miss()
+	}
+	head, err := Head(ctx, root)
+	if err != nil {
+		return nil, false, err
+	}
+	if head != memo.head {
+		return miss()
+	}
+	paths, err := trackedDocs(ctx, root)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(paths) != len(memo.docs) {
+		return miss()
+	}
+	for _, p := range paths {
+		want, ok := memo.docs[p]
+		if !ok {
+			return miss()
+		}
+		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(p)))
+		if err != nil || info.Size() != want.size || info.ModTime().UnixNano() != want.mod {
+			return miss()
+		}
+	}
+	return &RefreshResult{Pending: cloneFactRows(memo.pending)}, true, nil
+}
+
+func rememberRefresh(root, head string, paths []string, pending []types.Fact) {
+	info, err := os.Stat(snapshotPath(root))
+	if err != nil {
+		return
+	}
+	docs := make(map[string]refreshDocStat, len(paths))
+	for _, p := range paths {
+		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(p)))
+		if err != nil {
+			return
+		}
+		docs[p] = refreshDocStat{size: info.Size(), mod: info.ModTime().UnixNano()}
+	}
+	refreshMemos[root] = refreshMemo{
+		snapshotSize: info.Size(),
+		snapshotMod:  info.ModTime().UnixNano(),
+		head:         head,
+		docs:         docs,
+		pending:      cloneFactRows(pending),
+	}
+}
+
 func number(v any) int64 {
 	switch n := v.(type) {
 	case int64:
@@ -281,6 +382,15 @@ func (r *RefreshResult) Apply(kernel types.KernelTransactor) error {
 func Refresh(ctx context.Context, root string, emb embedding.EmbeddingEngine) (*RefreshResult, error) {
 	snapshotMu.Lock()
 	defer snapshotMu.Unlock()
+	root, err := absPath(root)
+	if err != nil {
+		return nil, err
+	}
+	if out, hit, err := cachedRefresh(ctx, root); err != nil {
+		return nil, err
+	} else if hit {
+		return out, nil
+	}
 	s, err := LoadSnapshot(root)
 	if err != nil {
 		return nil, err
@@ -306,31 +416,36 @@ func Refresh(ctx context.Context, root string, emb embedding.EmbeddingEngine) (*
 		bodies[p] = string(body)
 		observed = append(observed, types.Fact{Predicate: "current_document", Args: []any{p, documentDigest(string(body))}})
 	}
+	// Staleness first, over only the freshness relations. Building the full
+	// orientation engine here asserted and evaluated the entire snapshot
+	// twice (Snapshot.Engine evaluates, then Refresh evaluated again after
+	// asserting observations) on every workspace-kernel boot, stale or not.
+	var baseline []types.Fact
+	for _, row := range s.Facts {
+		switch row.Predicate {
+		case "oriented_head", "oriented_document", "orient_role_pending":
+			baseline = append(baseline, row)
+		}
+	}
+	decision, err := evaluateFreshness(ctx, baseline, observed)
+	if err != nil {
+		return nil, err
+	}
+	out := &RefreshResult{Stale: decision.stale, Changed: decision.changed}
+	if len(out.Stale) == 0 {
+		out.Pending = decision.pending
+		rememberRefresh(root, head, paths, out.Pending)
+		return out, nil
+	}
+	// Stale: the full engine is needed for the pre-refresh projection delta.
 	e, err := s.Engine(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer e.Close()
 	before, err := projectionFacts(e)
+	_ = e.Close()
 	if err != nil {
 		return nil, err
-	}
-	if err := e.Assert(observed); err != nil {
-		return nil, err
-	}
-	if err := e.Evaluate(ctx); err != nil {
-		return nil, err
-	}
-	out := &RefreshResult{}
-	if out.Stale, err = e.Query("orient_stale"); err != nil {
-		return nil, err
-	}
-	if out.Changed, err = e.Query("orient_refresh_document"); err != nil {
-		return nil, err
-	}
-	if len(out.Stale) == 0 {
-		out.Pending, err = e.Query("orient_role_pending")
-		return out, err
 	}
 	changed := map[string]bool{}
 	for _, row := range out.Changed {
@@ -492,6 +607,7 @@ func Refresh(ctx context.Context, root string, emb embedding.EmbeddingEngine) (*
 		return nil, err
 	}
 	out.Refreshed = true
+	rememberRefresh(root, head, paths, out.Pending)
 	return out, nil
 }
 

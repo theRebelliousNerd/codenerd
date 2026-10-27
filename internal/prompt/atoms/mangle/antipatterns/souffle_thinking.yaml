@@ -249,7 +249,7 @@
     Decl b(X) bound [/number].
     Decl c(X) bound [/number].
     
-    b(X) :- a(X), not c(X).
+    b(X) :- a(X), !c(X).
     
     # Mangle will detect the stratification:
     # Stratum 0: a (base facts)
@@ -471,7 +471,7 @@
     
     - Basic rule syntax: `head :- body.`
     - Recursion: `path(X,Y) :- path(X,Z), edge(Z,Y).`
-    - Negation: `not pred(X)`
+    - Negation: `!pred(X)`
     - Comparison: `X < Y`, `X = Y`
     - String literals: `"hello"`
     - Numbers: `42`, `3.14`

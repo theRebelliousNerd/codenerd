@@ -25,11 +25,15 @@
     ```mangle
     # Event happens before another
     before(E1, E2) :- event(E1, T1), event(E2, T2), T1 < T2.
-    
+
+    # Negation applies to one fully bound atom, never to a conjunction:
+    # project "some event lies between" first, then negate the projection.
+    has_event_between(E1, E2) :- before(E1, E3), before(E3, E2).
+
     # Immediate predecessor (no event between)
     immediately_before(E1, E2) :-
       before(E1, E2),
-      not (before(E1, E3), before(E3, E2)).
+      !has_event_between(E1, E2).
     ```
     
     ### Complete Working Example
@@ -37,6 +41,7 @@
     # Schema
     Decl event(Name, Timestamp) bound [/string, /number].
     Decl before(E1, E2) bound [/string, /string].
+    Decl has_event_between(E1, E2) bound [/string, /string].
     Decl immediately_before(E1, E2) bound [/string, /string].
     
     # Facts - Unix timestamps
@@ -47,10 +52,12 @@
     
     # Rules
     before(E1, E2) :- event(E1, T1), event(E2, T2), T1 < T2.
-    
+
+    has_event_between(E1, E2) :- before(E1, E3), before(E3, E2).
+
     immediately_before(E1, E2) :-
       before(E1, E2),
-      not (before(E1, E3), before(E3, E2)).
+      !has_event_between(E1, E2).
     
     # Query: immediately_before(X, Y)
     # Results:

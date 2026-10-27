@@ -117,7 +117,7 @@
     acyclic_path(X, Z, [X|Rest]) :-
         edge(X, Y),
         acyclic_path(Y, Z, Rest),
-        not member(X, Rest).  # X not already in path
+        !member(X, Rest).  # X not already in path
     
     # Helper: list membership
     member(X, [X|_]).
@@ -270,7 +270,7 @@
     # Level 0: no dependencies
     level(Node, 0) :-
         node(Node),
-        not has_dependency(Node).
+        !has_dependency(Node).
     
     has_dependency(Node) :- depends_on(Node, _).
     
@@ -350,7 +350,7 @@
     all_paths(X, Z, [X|Rest]) :-
         edge(X, Y),
         all_paths(Y, Z, Rest),
-        not member(X, Rest).  # Prevent cycles
+        !member(X, Rest).  # Prevent cycles
     ```
     
     ### Distance-Limited Reachability
@@ -420,8 +420,8 @@
     ### Negative Cycle (Stratification Error)
     ```mangle
     # ❌ WRONG: Cycle through negation
-    p(X) :- not q(X).
-    q(X) :- not p(X).
+    p(X) :- !q(X).
+    q(X) :- !p(X).
     # No stable semantics!
     ```
     

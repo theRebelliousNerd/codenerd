@@ -135,8 +135,8 @@
     ### 3. Recursive Negation (Stratification Violation)
     ```mangle
     # WRONG: Cyclic dependency through negation
-    p(X) :- not q(X).
-    q(X) :- not p(X).
+    p(X) :- !q(X).
+    q(X) :- !p(X).
     ```
     
     **Problem**: Cannot compute p without q, cannot compute q without p.
@@ -255,7 +255,7 @@
     
     # Guard recursive rules
     safe_recursion(X) :-
-      not budget_exceeded(),
+      !budget_exceeded(),
       recursive_predicate(X).
     ```
     
@@ -355,7 +355,7 @@
     | Countdown with base case | ✅ Always | factorial(N) |
     | Mutual recursion with progress | ✅ Always | even/odd parity |
     | Unbounded generator | ❌ Never | natural(N) without bound |
-    | Cyclic negation | ❌ Never | p(X) :- not q(X), q(X) :- not p(X) |
+    | Cyclic negation | ❌ Never | p(X) :- !q(X), q(X) :- !p(X) |
     
     ## Advanced: Semi-Decidability
     

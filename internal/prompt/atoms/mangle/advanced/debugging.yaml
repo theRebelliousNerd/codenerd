@@ -149,7 +149,7 @@
     # Rule using negation
     inactive(Id) :-
       user(Id),
-      not active(Id).
+      !active(Id).
     
     # Query: inactive(?Id) → {/u2}
     
@@ -165,13 +165,13 @@
     ```mangle
     # BUG: Expected inactive users, got none
     inactive_users(Id) :-
-      not active(Id),  # WRONG: Id is unbound!
+      !active(Id),  # WRONG: Id is unbound!
       user(Id).
     
     # Fix: Bind Id first
     inactive_users_fixed(Id) :-
       user(Id),
-      not active(Id).
+      !active(Id).
     ```
     
     ## Debugging Technique 6: Stratification Check
@@ -181,9 +181,9 @@
     ### Example
     ```mangle
     # Stratification error
-    p(X) :- not q(X).
+    p(X) :- !q(X).
     q(X) :- r(X).
-    r(X) :- not p(X).  # Cycle!
+    r(X) :- !p(X).  # Cycle!
     
     # Dependency graph:
     # p → q → r → p (cycle with negation)

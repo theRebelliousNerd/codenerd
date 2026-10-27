@@ -260,8 +260,9 @@ type TaskRetrieverConfig struct {
 // TaskRetriever runs the kernel-gated retrieval pass for one task and hands
 // back what the kernel decided the model should see.
 type TaskRetriever struct {
-	kernel IssueKernel
-	cfg    TaskRetrieverConfig
+	kernel   IssueKernel
+	cfg      TaskRetrieverConfig
+	semantic *EmbeddingSemanticSearcher
 }
 
 // NewTaskRetriever builds a TaskRetriever over kernel. Nil when there is no
@@ -276,7 +277,11 @@ func NewTaskRetriever(kernel IssueKernel, cfg TaskRetrieverConfig) *TaskRetrieve
 	if cfg.Retriever == nil {
 		cfg.Retriever = NewSparseRetriever(DefaultSparseRetrieverConfig(cfg.WorkDir))
 	}
-	return &TaskRetriever{kernel: kernel, cfg: cfg}
+	t := &TaskRetriever{kernel: kernel, cfg: cfg}
+	if cfg.EmbeddingEngine != nil {
+		t.semantic = NewEmbeddingSemanticSearcher(cfg.EmbeddingEngine, cfg.WorkDir)
+	}
+	return t
 }
 
 // Retrieve asks the kernel whether intentID's turn retrieves; if it does, it
@@ -305,13 +310,14 @@ func (t *TaskRetriever) Retrieve(ctx context.Context, intentID, taskText string)
 
 	issueID := NewTaskIssueID()
 	report, err := SeedIssueFacts(ctx, t.kernel, SeedRequest{
-		IssueID:         issueID,
-		IssueText:       taskText,
-		WorkDir:         t.cfg.WorkDir,
-		Retriever:       t.cfg.Retriever,
-		EmbeddingEngine: t.cfg.EmbeddingEngine,
-		Timeout:         t.cfg.Timeout,
-		IssueScopedOnly: true,
+		IssueID:          issueID,
+		IssueText:        taskText,
+		WorkDir:          t.cfg.WorkDir,
+		Retriever:        t.cfg.Retriever,
+		EmbeddingEngine:  t.cfg.EmbeddingEngine,
+		SemanticSearcher: t.semantic,
+		Timeout:          t.cfg.Timeout,
+		IssueScopedOnly:  true,
 	})
 	release := func() {
 		if rerr := RetractIssue(t.kernel, issueID); rerr != nil {

@@ -7,31 +7,20 @@ import (
 
 // Bound-negation regression suite.
 //
-// A negated literal containing ANY anonymous wildcard is a no-op in this Mangle
-// build: the wildcard leaves the literal unbound rather than existentially
-// quantified, so the negation excludes nothing. Only a fully-bound negated
-// literal filters.
+// A negated literal must be fully bound. In TauCeti Mangle v0.7 an anonymous
+// wildcard inside a negated literal is rejected at analysis ("variable X0 is
+// not bound") rather than existentially quantified. The pre-v0.7 build was
+// worse: it accepted the form and excluded nothing, so safety rules written
+// that way were silently inert. Either way the fix in production rules is the
+// same — project to a bound helper (`has_two(Id) :- two(Id, V)`) and negate
+// the helper.
 //
-// Several .mg files already carried prose warnings about this (shards.mg:26,
-// validation.mg:117 and :300, codedom_safety.mg:175, prompt_northstar.mg:188),
-// but prose cannot fail a build, and the workaround had never been applied to
-// the constitution. Three safety rules were silently inert as a result.
-//
-// These tests exist so the semantics are pinned and the three fixed rules
-// cannot quietly regress. If a future Mangle upgrade makes wildcard negation
-// work, TestMangleNegation_WildcardFormsDoNotExclude is the test that will
-// fail, and that failure is the signal to simplify the helpers away.
+// These tests pin both halves: bound/helper negation excludes, and wildcard
+// negation is an analysis error. If a future Mangle version makes wildcard
+// negation genuinely existential, the rejection subtests are the signal to
+// simplify the bound helpers away.
 
-// TestMangleNegation_WildcardFormsDoNotExclude characterizes the engine.
-// It asserts the CURRENT behavior, including the broken cases, so the
-// workaround's justification is executable rather than a comment.
-func TestMangleNegation_WildcardFormsDoNotExclude(t *testing.T) {
-	k, err := NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
-
-	k.LoadSchemas(`
+const boundNegationSchemas = `
 Decl bn_item(Id) bound [/string].
 Decl bn_one(Id) bound [/string].
 Decl bn_two(Id, V) bound [/string, /string].
@@ -40,15 +29,16 @@ Decl bn_neg_bound(Id) bound [/string].
 Decl bn_neg_helper(Id) bound [/string].
 Decl bn_neg_tail_wild(Id) bound [/string].
 Decl bn_neg_all_wild(Id) bound [/string].
-`)
-	k.LoadPolicy(`
-bn_has_two(Id)       :- bn_two(Id, V).
-bn_neg_bound(Id)     :- bn_item(Id), !bn_one(Id).
-bn_neg_helper(Id)    :- bn_item(Id), !bn_has_two(Id).
-bn_neg_tail_wild(Id) :- bn_item(Id), !bn_two(Id, _).
-bn_neg_all_wild(Id)  :- bn_item(Id), !bn_one(_).
-`)
+`
 
+func boundNegationKernel(t *testing.T, policy string) *RealKernel {
+	t.Helper()
+	k, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel: %v", err)
+	}
+	k.LoadSchemas(boundNegationSchemas)
+	k.LoadPolicy(policy)
 	for _, id := range []string{"a", "b"} {
 		if err := k.Assert(Fact{Predicate: "bn_item", Args: []any{id}}); err != nil {
 			t.Fatalf("assert bn_item: %v", err)
@@ -61,6 +51,15 @@ bn_neg_all_wild(Id)  :- bn_item(Id), !bn_one(_).
 	if err := k.Assert(Fact{Predicate: "bn_two", Args: []any{"a", "x"}}); err != nil {
 		t.Fatalf("assert bn_two: %v", err)
 	}
+	return k
+}
+
+func TestMangleNegation_BoundFormsExclude(t *testing.T) {
+	k := boundNegationKernel(t, `
+bn_has_two(Id)    :- bn_two(Id, V).
+bn_neg_bound(Id)  :- bn_item(Id), !bn_one(Id).
+bn_neg_helper(Id) :- bn_item(Id), !bn_has_two(Id).
+`)
 
 	count := func(pred string) int {
 		facts, err := k.Query(pred)
@@ -70,7 +69,7 @@ bn_neg_all_wild(Id)  :- bn_item(Id), !bn_one(_).
 		return len(facts)
 	}
 
-	// Working forms: only "b" survives, because "a" is excluded.
+	// Only "b" survives, because "a" is excluded.
 	if got := count("bn_neg_bound"); got != 1 {
 		t.Errorf("!bn_one(Id) (fully bound) derived %d rows, want 1 — "+
 			"fully-bound negation must exclude", got)
@@ -79,18 +78,24 @@ bn_neg_all_wild(Id)  :- bn_item(Id), !bn_one(_).
 		t.Errorf("!bn_has_two(Id) (bound helper) derived %d rows, want 1 — "+
 			"this is the pattern every wildcard negation was rewritten to use", got)
 	}
+}
 
-	// Broken forms, asserted as broken. A change here is not a regression in
-	// this package — it means the engine's negation semantics changed, and the
-	// bound helpers introduced for it can be revisited.
-	if got := count("bn_neg_tail_wild"); got != 2 {
-		t.Errorf("!bn_two(Id, _) derived %d rows, want 2. If this is now 1, "+
-			"wildcard negation started working: revisit the bound helpers in "+
-			"schemas_safety.mg SECTION 11C and the .mg comments citing this test", got)
-	}
-	if got := count("bn_neg_all_wild"); got != 2 {
-		t.Errorf("!bn_one(_) derived %d rows, want 2. If this is now 0, "+
-			"wildcard negation started working: revisit the bound helpers", got)
+func TestMangleNegation_WildcardFormsAreRejected(t *testing.T) {
+	for _, tc := range []struct {
+		name, pred, rule string
+	}{
+		{"tail wildcard", "bn_neg_tail_wild", "bn_neg_tail_wild(Id) :- bn_item(Id), !bn_two(Id, _)."},
+		{"all wildcard", "bn_neg_all_wild", "bn_neg_all_wild(Id) :- bn_item(Id), !bn_one(_)."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			k := boundNegationKernel(t, tc.rule)
+			if _, err := k.Query(tc.pred); err == nil {
+				t.Fatalf("query %s succeeded; wildcard negation is no longer rejected — "+
+					"revisit the bound helpers in schemas_safety.mg SECTION 11C", tc.pred)
+			} else if !strings.Contains(err.Error(), "not bound") {
+				t.Fatalf("query %s error = %v, want an unbound-variable analysis error", tc.pred, err)
+			}
+		})
 	}
 }
 

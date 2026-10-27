@@ -446,7 +446,7 @@
     user_or_guest(Id, Name) :- user(Id, Name).
     user_or_guest(Id, "Guest") :-
         requested_id(Id),
-        not user(Id, _).
+        !user(Id, _).
     ```
     
     ---

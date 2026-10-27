@@ -165,7 +165,7 @@
     ```mangle
     # WRONG - negation before binding
     result(X) :-
-        not excluded(X),  # X is unbound!
+        !excluded(X),  # X is unbound!
         item(X).
     ```
     
@@ -177,10 +177,10 @@
     # Bind X first, then negate:
     result(X) :-
         item(X),          # X is now bound
-        not excluded(X).  # Safe
+        !excluded(X).  # Safe
     
     # Order matters here! This is wrong:
-    # result(X) :- not excluded(X), item(X).  # UNSAFE
+    # result(X) :- !excluded(X), item(X).  # UNSAFE
     ```
     
     **Exception:** Negation DOES require specific ordering for safety. But this is a safety constraint, not control flow.
@@ -260,7 +260,7 @@
         override_value(X).
     
     value(X) :-
-        not override_value(_),  # Only if no override
+        !override_value(_),  # Only if no override
         base_value(X).
     
     # Or use single rule with conditional logic:
@@ -269,7 +269,7 @@
     
     value(X) :-
         base_value(X),
-        not override_value(_).
+        !override_value(_).
     ```
     
     ---
@@ -307,7 +307,7 @@
         condition1(X).  # Highest priority
     
     best_match(X) :-
-        not condition1(_),  # Only if condition1 has no matches
+        !condition1(_),  # Only if condition1 has no matches
         condition2(X).
     
     # Or explicitly rank:
@@ -337,7 +337,7 @@
     ```mangle
     # WRONG - relying on stratification execution order
     stratum1(X) :- base(X).
-    stratum2(X) :- stratum1(X), not excluded(X).
+    stratum2(X) :- stratum1(X), !excluded(X).
     stratum3(X) :- stratum2(X).
     
     # Assuming stratum1 completes before stratum2 starts
@@ -350,7 +350,7 @@
     ```mangle
     # Stratification ensures safety, not control flow:
     stratum1(X) :- base(X).
-    stratum2(X) :- stratum1(X), not excluded(X).
+    stratum2(X) :- stratum1(X), !excluded(X).
     stratum3(X) :- stratum2(X).
     
     # This is correct! Stratification will compute:
@@ -396,18 +396,18 @@
     result(R) :- option1(R).
     
     result(R) :-
-        not option1(_),  # No results from option1
+        !option1(_),  # No results from option1
         option2(R).
     
     # Or use priority:
     result(R, /primary) :- option1(R).
-    result(R, /fallback) :- option2(R), not option1(_).
+    result(R, /fallback) :- option2(R), !option1(_).
     
     preferred_result(R) :-
         result(R, /primary).
     
     preferred_result(R) :-
-        not result(_, /primary),
+        !result(_, /primary),
         result(R, /fallback).
     ```
     
@@ -546,10 +546,10 @@
     
     ```mangle
     # WRONG - unsafe
-    result(X) :- not excluded(X), item(X).
+    result(X) :- !excluded(X), item(X).
     
     # RIGHT - safe
-    result(X) :- item(X), not excluded(X).
+    result(X) :- item(X), !excluded(X).
     ```
     
     ### 2. Aggregation Pipeline

@@ -28,8 +28,8 @@
     With negation, we face a problem:
     ```mangle
     # What does this mean?
-    p(X) :- not q(X).
-    q(X) :- not p(X).
+    p(X) :- !q(X).
+    q(X) :- !p(X).
     ```
     
     If `p` is true, then `q` must be false (from second rule), which makes `p` false (from first rule), contradiction!
@@ -108,8 +108,8 @@
     
     ```mangle
     # INVALID - cannot stratify
-    p(X) :- not q(X).
-    q(X) :- not p(X).
+    p(X) :- !q(X).
+    q(X) :- !p(X).
     ```
     
     **Why it fails**: `p` depends on negation of `q`, and `q` depends on negation of `p`. This is a cycle through negation.
@@ -122,7 +122,7 @@
     reachable(X, Z) :-
         reachable(X, Y),
         edge(Y, Z),
-        not reachable(X, Z).  # Negates itself!
+        !reachable(X, Z).  # Negates itself!
     ```
     
     **Why it fails**: `reachable` depends on its own negation. Cannot compute to fixpoint.
@@ -131,7 +131,7 @@
     
     ```mangle
     # INVALID - cannot stratify
-    a(X) :- b(X), not c(X).
+    a(X) :- b(X), !c(X).
     b(X) :- c(X).
     c(X) :- a(X).
     ```
@@ -147,7 +147,7 @@
     ```mangle
     # INVALID
     ancestor(X, Y) :- parent(X, Y).
-    ancestor(X, Z) :- ancestor(X, Y), not ancestor(Y, Z).  # BAD
+    ancestor(X, Z) :- ancestor(X, Y), !ancestor(Y, Z).  # BAD
     ```
     
     ### Rule 2: Positive Recursion is Fine
@@ -272,7 +272,7 @@
     
     ```mangle
     # INVALID
-    reachable(X, Y) :- edge(X, Y), not reachable(X, Y).
+    reachable(X, Y) :- edge(X, Y), !reachable(X, Y).
     ```
     
     **Fix**: Remove the negation (it makes no logical sense anyway)
@@ -287,8 +287,8 @@
     
     ```mangle
     # INVALID
-    a(X) :- not b(X).
-    b(X) :- not a(X).
+    a(X) :- !b(X).
+    b(X) :- !a(X).
     ```
     
     **Fix**: Redesign logic - this is likely a modeling error.

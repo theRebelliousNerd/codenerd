@@ -92,10 +92,10 @@
     **Example**:
     ```mangle
     # ERROR
-    safe(X) :- not dangerous(X).  # X unbound
+    safe(X) :- !dangerous(X).  # X unbound
     
     # FIX
-    safe(X) :- thing(X), not dangerous(X).
+    safe(X) :- thing(X), !dangerous(X).
     ```
     
     ---
@@ -218,8 +218,8 @@
     **Example**:
     ```mangle
     # ERROR: p depends on not q, q depends on not p
-    p(X) :- not q(X).
-    q(X) :- not p(X).
+    p(X) :- !q(X).
+    q(X) :- !p(X).
     ```
     
     **Fix**: Redesign logic to eliminate mutual negation
@@ -237,7 +237,7 @@
     ```mangle
     # ERROR
     reach(X, Y) :- edge(X, Y).
-    reach(X, Z) :- reach(X, Y), not reach(Y, Z).  # Negates itself!
+    reach(X, Z) :- reach(X, Y), !reach(Y, Z).  # Negates itself!
     ```
     
     **Fix**: Remove self-negation, redesign logic

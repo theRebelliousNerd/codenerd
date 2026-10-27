@@ -346,7 +346,7 @@
     # Forward fill: use most recent previous value
     filled_value(T, Value) :-
       time_point(T),
-      not measurement(T, _),
+      !measurement(T, _),
       # Find max time before T that has a measurement
       measurement(PrevT, Value),
       PrevT < T
@@ -405,7 +405,7 @@
     # Use category average as default
     effective_price(Id, AvgPrice) :-
       item(Id, Category),
-      not actual_price(Id, _),
+      !actual_price(Id, _),
       category_avg_price(Category, AvgPrice).
     ```
     
@@ -545,10 +545,19 @@
       current_time(Now),
       Now < ExpiresAt.
     
-    # Use default if expired or not set
-    effective_setting(Key, "DEFAULT_VALUE") :-
+    # Use default if expired or not set. Defaulting needs the key domain:
+    # a key with no live setting can only be named if it is known from
+    # somewhere — here, from any setting row, expired or not. (A key that
+    # was never set at all cannot be invented by a rule; the caller
+    # supplies that domain.)
+    has_live_setting(Key) :-
+      setting(Key, Value, ExpiresAt),
       current_time(Now),
-      not (setting(Key, Value, ExpiresAt), Now < ExpiresAt).
+      Now < ExpiresAt.
+
+    effective_setting(Key, "DEFAULT_VALUE") :-
+      setting(Key, OldValue, OldExpiry),
+      !has_live_setting(Key).
     ```
     
     ### Example
@@ -570,8 +579,8 @@
     ### WRONG: Overlapping Rules (Ambiguous Defaults)
     ```mangle
     # Bad - both rules can match!
-    result(X, "default1") :- entity(X), not data(X, _).
-    result(X, "default2") :- entity(X), not data(X, _).
+    result(X, "default1") :- entity(X), !data(X, _).
+    result(X, "default2") :- entity(X), !data(X, _).
     
     # Result: Both facts are derived! Confusing.
     # Fix: Use mutually exclusive conditions
@@ -581,7 +590,7 @@
     ```mangle
     # Bad - circular dependency
     value(X, V) :- primary(X, V).
-    value(X, V) :- not primary(X, _), value(X, V).  # Circular!
+    value(X, V) :- !primary(X, _), value(X, V).  # Circular!
     
     # Fix: Break the cycle with explicit base case
     ```
@@ -589,7 +598,7 @@
     ### WRONG: Ignoring Stratification
     ```mangle
     # Bad - negation requires stratification
-    result(X, Default) :- not result(X, _), Default = "default".
+    result(X, Default) :- !result(X, _), Default = "default".
     
     # This asks: "Give me X with default if result(X) doesn't exist"
     # But result is being defined BY this rule!
@@ -597,7 +606,7 @@
     # Fix: Use separate predicates
     actual(X, V) :- data(X, V).
     result(X, V) :- actual(X, V).
-    result(X, "default") :- candidate(X), not actual(X, _).
+    result(X, "default") :- candidate(X), !actual(X, _).
     ```
     
     ## Performance Tips
@@ -619,7 +628,7 @@
     effective_config(UserId, Key, Value) :- user_config(UserId, Key, Value).
     effective_config(UserId, Key, Value) :-
       config_key(Key),
-      not user_config(UserId, Key, _),
+      !user_config(UserId, Key, _),
       system_default(Key, Value).
     ```
     
@@ -630,7 +639,7 @@
     Decl effective_timeout(TestId, TimeoutMs) bound [/string, /number].
     
     effective_timeout(TestId, TimeoutMs) :- custom_timeout(TestId, TimeoutMs).
-    effective_timeout(TestId, 5000) :- test(TestId, _), not custom_timeout(TestId, _).
+    effective_timeout(TestId, 5000) :- test(TestId, _), !custom_timeout(TestId, _).
     ```
     
     ### File Metadata Defaults

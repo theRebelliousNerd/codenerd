@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -162,7 +163,51 @@ func (c *AnthropicClient) sendMessages(ctx context.Context, reqBody AnthropicReq
 	return nil, fmt.Errorf("Anthropic max retries exceeded: %w", lastErr)
 }
 
+// anthropicIncompleteError is a syntactically valid HTTP 200 whose JSON is
+// not a usable assistant message (wrong type, no content blocks, or no stop
+// reason). It carries only envelope diagnostics — never response content.
+type anthropicIncompleteError struct {
+	Type          string
+	ID            string
+	ContentBlocks int
+	StopReason    string
+	RequestID     string
+}
+
+func (e *anthropicIncompleteError) Error() string {
+	return fmt.Sprintf("Anthropic returned an incomplete message (type=%q id=%q content_blocks=%d stop_reason=%q request_id=%s)",
+		e.Type, e.ID, e.ContentBlocks, e.StopReason, e.RequestID)
+}
+
+// postMessages retries an incomplete 200 like other transient provider
+// failures. No tool has run yet — the response is unusable before any block
+// is interpreted — so replaying the same request is safe. One such response
+// used to fail an entire shard delegation outright.
 func (c *AnthropicClient) postMessages(ctx context.Context, req AnthropicRequest, plan anthropicCachePlan) (*AnthropicResponse, error) {
+	var lastErr error
+	for attempt := 0; attempt <= llmMaxRetries(); attempt++ {
+		if attempt > 0 {
+			if err := waitAnthropic(ctx, llmRetryBackoff(attempt)); err != nil {
+				return nil, fmt.Errorf("request cancelled during retry backoff: %w", err)
+			}
+		}
+		message, err := c.postMessagesOnce(ctx, req, plan)
+		if err == nil {
+			return message, nil
+		}
+		var incomplete *anthropicIncompleteError
+		if !errors.As(err, &incomplete) {
+			return nil, err
+		}
+		lastErr = err
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("Anthropic request canceled: %w", ctx.Err())
+		}
+	}
+	return nil, fmt.Errorf("Anthropic max retries exceeded: %w", lastErr)
+}
+
+func (c *AnthropicClient) postMessagesOnce(ctx context.Context, req AnthropicRequest, plan anthropicCachePlan) (*AnthropicResponse, error) {
 	resp, err := c.sendMessages(ctx, req, plan)
 	if err != nil {
 		return nil, err
@@ -180,7 +225,10 @@ func (c *AnthropicClient) postMessages(ctx context.Context, req AnthropicRequest
 		return nil, anthropicError(anthropicErrorStatus(message.Error.Type), body, resp.Header.Get("request-id"))
 	}
 	if message.Type != "message" || len(message.Content) == 0 || message.StopReason == "" {
-		return nil, fmt.Errorf("Anthropic returned an incomplete message")
+		return nil, &anthropicIncompleteError{
+			Type: message.Type, ID: message.ID, ContentBlocks: len(message.Content),
+			StopReason: message.StopReason, RequestID: resp.Header.Get("request-id"),
+		}
 	}
 	return &message, nil
 }

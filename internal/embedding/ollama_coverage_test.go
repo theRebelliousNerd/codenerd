@@ -410,6 +410,50 @@ func TestOllamaEngine_EmbedBatch_WhenMultipleTexts_ShouldCallEmbedForEach(t *tes
 	}
 }
 
+// Modern Ollama serves a native batch endpoint. EmbedBatch must use it (one
+// request per chunk) rather than one HTTP round trip per text — the sequential
+// path blew a 5s caller budget at text 104 of 256 and discarded every vector.
+func TestOllamaEngine_EmbedBatch_WhenNativeEndpointAvailable_ShouldUseOneBatchRequest(t *testing.T) {
+	batchCalls, singleCalls := 0, 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/embed":
+			batchCalls++
+			var req ollamaBatchEmbedRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Errorf("decode batch request: %v", err)
+			}
+			vecs := make([][]float32, len(req.Input))
+			for i := range req.Input {
+				vecs[i] = []float32{float32(i + 1), 0}
+			}
+			_ = json.NewEncoder(w).Encode(ollamaBatchEmbedResponse{Embeddings: vecs})
+		case "/api/embeddings":
+			singleCalls++
+			_ = json.NewEncoder(w).Encode(ollamaEmbedResponse{Embedding: []float32{9, 9}})
+		}
+	}))
+	defer server.Close()
+
+	engine, err := NewOllamaEngine(server.URL, "test-model", 2)
+	if err != nil {
+		t.Fatalf("NewOllamaEngine: %v", err)
+	}
+	skipEnsure(engine)
+
+	results, err := engine.EmbedBatch(context.Background(), []string{"a", "b", "c"})
+	if err != nil {
+		t.Fatalf("EmbedBatch: %v", err)
+	}
+	if batchCalls != 1 || singleCalls != 0 {
+		t.Errorf("batch calls=%d single calls=%d, want one native batch and no per-text calls", batchCalls, singleCalls)
+	}
+	if len(results) != 3 || results[0][0] != 1 || results[1][0] != 2 || results[2][0] != 3 {
+		t.Errorf("results = %v, want positional native vectors", results)
+	}
+}
+
 func TestOllamaEngine_EmbedBatch_WhenOneTextFails_ShouldReturnError(t *testing.T) {
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

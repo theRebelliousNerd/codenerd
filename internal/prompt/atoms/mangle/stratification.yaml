@@ -22,22 +22,22 @@
     ### Direct Cycle (Immediate)
     ```mangle
     # INVALID - p depends on not p
-    p(X) :- not p(X).
+    p(X) :- !p(X).
     ```
     
     ### Mutual Negation Cycle
     ```mangle
     # INVALID - p <-> q through negation
-    p(X) :- not q(X).
-    q(X) :- not p(X).
+    p(X) :- !q(X).
+    q(X) :- !p(X).
     ```
     
     ### Indirect Cycle (Transitive)
     ```mangle
     # INVALID - a -> not b -> c -> not a
-    a(X) :- not b(X).
+    a(X) :- !b(X).
     b(X) :- c(X).
-    c(X) :- not a(X).
+    c(X) :- !a(X).
     ```
     
     ## How to Fix
@@ -45,8 +45,8 @@
     ### 1. Use Positive Intermediates
     **Before:**
     ```mangle
-    blocked(X) :- not allowed(X).
-    allowed(X) :- not blocked(X).
+    blocked(X) :- !allowed(X).
+    allowed(X) :- !blocked(X).
     ```
     
     **After:**
@@ -61,8 +61,8 @@
     ### 2. Break with Ground Facts
     **Before:**
     ```mangle
-    winner(X) :- player(X), not loser(X).
-    loser(X) :- player(X), not winner(X).
+    winner(X) :- player(X), !loser(X).
+    loser(X) :- player(X), !winner(X).
     ```
     
     **After:**
@@ -77,8 +77,8 @@
     ### 3. Separate Domains
     **Before:**
     ```mangle
-    active(X) :- not inactive(X).
-    inactive(X) :- not active(X).
+    active(X) :- !inactive(X).
+    inactive(X) :- !active(X).
     ```
     
     **After:**

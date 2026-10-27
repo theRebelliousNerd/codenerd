@@ -210,7 +210,7 @@
     
     **ERROR:**
     ```mangle
-    safe(X) :- not distinct(X).  # X is unbound in negation
+    safe(X) :- !distinct(X).  # X is unbound in negation
     ```
     
     **CORRECTION:**
@@ -228,8 +228,8 @@
     
     **ERROR:**
     ```mangle
-    p(X) :- not q(X).
-    q(X) :- not p(X).
+    p(X) :- !q(X).
+    q(X) :- !p(X).
     ```
     
     **CORRECTION:**
@@ -672,7 +672,7 @@
     |> do fn:group_by()                implicit grouping
     :match_entry(Map, /key, Val)       Val = Map.key
     :match_cons(List, Head, Tail)      Head = List[0]
-    safe(X) :- data(X), not bad(X).    safe(X) :- not bad(X).
+    safe(X) :- data(X), !bad(X).    safe(X) :- !bad(X).
     ```
     
     ---

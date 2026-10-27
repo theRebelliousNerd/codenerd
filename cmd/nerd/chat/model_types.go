@@ -328,7 +328,8 @@ type Model struct {
 	emitter             *articulation.Emitter
 	virtualStore        *core.VirtualStore
 	scanner             *world.Scanner
-	retriever           *retrieval.SparseRetriever // Issue-seed sparse search: Cortex.Retriever, shared with the session executor; model_update.go copies it here
+	retriever           *retrieval.SparseRetriever           // Issue-seed sparse search: Cortex.Retriever, shared with the session executor; model_update.go copies it here
+	semanticSearcher    *retrieval.EmbeddingSemanticSearcher // Tier-4 vector cache, built lazily once embeddingEngine lands; a per-turn searcher re-embedded the corpus every turn
 	workspace           string
 	DisableSystemShards []string
 	// yoloFlag and apiKeyFlag are the launch flags (Config.Yolo, Config.APIKey).

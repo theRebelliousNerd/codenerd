@@ -29,7 +29,7 @@
     result(X, ThenValue) :- condition(X), ThenValue = "then_branch".
     
     # Else (condition is false), use else_value
-    result(X, ElseValue) :- not condition(X), ElseValue = "else_branch".
+    result(X, ElseValue) :- !condition(X), ElseValue = "else_branch".
     ```
     
     ### Complete Working Example
@@ -135,7 +135,7 @@
     result(X, "processed") :- validated(X), input(X, Value).
     
     # Error case: Guard failed
-    result(X, "invalid_input") :- input(X, Value), not validated(X).
+    result(X, "invalid_input") :- input(X, Value), !validated(X).
     ```
     
     ### Example
@@ -409,10 +409,11 @@
       current_state(EntityId, /running),
       event(EntityId, /stop).
     
-    # No transition (stay in same state)
+    # No transition (stay in same state). transition_exists below is the
+    # bound projection; negate it directly.
     next_state(EntityId, State) :-
       current_state(EntityId, State),
-      not (event(EntityId, _), transition_exists(EntityId)).
+      !transition_exists(EntityId).
     
     Decl transition_exists(EntityId) bound [/string].
     transition_exists(EntityId) :-
@@ -573,7 +574,7 @@
     
     # Fix: Add else case
     result(X, "yes") :- condition(X).
-    result(X, "no") :- not condition(X).
+    result(X, "no") :- !condition(X).
     ```
     
     ### WRONG: Circular Conditions

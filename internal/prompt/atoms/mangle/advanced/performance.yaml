@@ -95,7 +95,7 @@
     # WRONG: Checks negation for all users
     inactive_users(ID, Name) :-
       user(ID, Name, Email),             # 100,000 users
-      not recent_login(ID).              # 100,000 negation checks
+      !recent_login(ID).              # 100,000 negation checks
     ```
     
     #### Good Example

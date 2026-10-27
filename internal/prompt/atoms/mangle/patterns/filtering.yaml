@@ -430,16 +430,16 @@
     ### WRONG: Negation Without Grounding
     ```mangle
     # Bad - X not grounded before negation
-    result(X) :- not blacklisted(X).
+    result(X) :- !blacklisted(X).
     
     # Fix - ground X first
-    result(X) :- candidate(X), not blacklisted(X).
+    result(X) :- candidate(X), !blacklisted(X).
     ```
     
     ### WRONG: Multiple Negations (Hard to Read)
     ```mangle
-    # Bad - double negatives are confusing
-    active(X) :- user(X), not not verified(X).
+    # Bad - negating a negative predicate is confusing
+    active(X) :- user(X), !unverified(X).
     
     # Fix - use positive logic
     active(X) :- user(X), verified(X).

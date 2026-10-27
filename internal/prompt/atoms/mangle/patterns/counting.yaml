@@ -429,10 +429,15 @@
       |> do fn:group_by(Country),
          let Count = fn:count().
     
-    # Add explicit zero case
+    # Add explicit zero case: project "has any order", then negate it
+    # (negation never wraps a conjunction).
+    country_has_order(Country) :-
+      user(UserId, Country),
+      order(OrderId, UserId).
+
     orders_per_country(Country, 0) :-
       country(Country),
-      not (user(UserId, Country), order(_, UserId)).
+      !country_has_order(Country).
     ```
     
     ## Variation 10: Top N by Count

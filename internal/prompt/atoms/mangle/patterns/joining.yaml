@@ -315,7 +315,7 @@
     # Users with no orders
     users_without_orders(UserId, Name) :-
       user(UserId, Name),
-      not order(_, UserId).
+      !order(_, UserId).
     ```
     
     ### Example

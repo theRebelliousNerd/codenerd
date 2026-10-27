@@ -322,9 +322,10 @@ func (j *JITExecutor) executeObserved(ctx context.Context, req TaskRequest, sess
 		return observation.Return{}, nerr
 	}
 	if normalized != req.IntentVerb {
-		logging.Get(logging.CategorySession).Warn(
-			"TaskExecutor mapped shard/intent %q → %q", req.IntentVerb, normalized,
-		)
+		// Expected normalization (a bare shard name is a documented caller
+		// shape), not a defect: a WARN here lands in the problems log on
+		// every delegated turn and teaches the operator to ignore it.
+		logging.SessionDebug("TaskExecutor mapped shard/intent %q → %q", req.IntentVerb, normalized)
 		req.IntentVerb = normalized
 	}
 

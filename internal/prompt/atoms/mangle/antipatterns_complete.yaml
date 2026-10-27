@@ -130,7 +130,7 @@
     
     **WRONG**:
     ```mangle
-    non_admin(User) :- not admin(User).  # User unbound!
+    non_admin(User) :- !admin(User).  # User unbound!
     ```
     
     **CORRECT**:
@@ -149,12 +149,12 @@
     
     **WRONG**:
     ```mangle
-    bad(X, Y) :- foo(X), not bar(Y).  # Y unbound when negation evaluated
+    bad(X, Y) :- foo(X), !bar(Y).  # Y unbound when negation evaluated
     ```
     
     **CORRECT**:
     ```mangle
-    good(X, Y) :- foo(X), candidate(Y), not bar(Y).
+    good(X, Y) :- foo(X), candidate(Y), !bar(Y).
     ```
     
     ---
@@ -163,7 +163,7 @@
     
     **WRONG**:
     ```mangle
-    bad(X) :- not bad(X).  # Direct self-negation
+    bad(X) :- !bad(X).  # Direct self-negation
     ```
     
     **Why**: No stable truth value - violates stratification.
@@ -175,7 +175,7 @@
     **WRONG**:
     ```mangle
     winning(X) :- move(X, Y), losing(Y).
-    losing(X) :- not winning(X).  # Cycle through negation!
+    losing(X) :- !winning(X).  # Cycle through negation!
     ```
     
     **CORRECT**:
@@ -585,20 +585,20 @@
     ### Fix Unbound Negation
     ```mangle
     # Find negation without generator
-    bad(X) :- not foo(X).  # WRONG
+    bad(X) :- !foo(X).  # WRONG
     # Add generator predicate:
-    good(X) :- candidate(X), not foo(X).
+    good(X) :- candidate(X), !foo(X).
     ```
     
     ### Fix Stratification
     ```mangle
     # Find negative cycles
-    p(X) :- not q(X).
-    q(X) :- not p(X).  # WRONG
+    p(X) :- !q(X).
+    q(X) :- !p(X).  # WRONG
     # Add base cases:
     p(X) :- base_p(X).
     q(X) :- base_q(X).
-    p(X) :- intermediate(X), not q(X).
+    p(X) :- intermediate(X), !q(X).
     ```
     
     ### Fix Go Type Errors

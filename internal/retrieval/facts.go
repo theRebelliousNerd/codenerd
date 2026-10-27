@@ -87,6 +87,12 @@ type SeedRequest struct {
 	// directly. Nil keeps the definition-scan heuristic fallback.
 	EmbeddingEngine embedding.EmbeddingEngine
 
+	// SemanticSearcher is reused when non-nil so its Tier-4 vector cache stays
+	// warm across turns, exactly as Retriever keeps the keyword cache warm.
+	// Constructing a fresh searcher per seed re-embedded the whole corpus on
+	// every turn and discarded it. It takes precedence over EmbeddingEngine.
+	SemanticSearcher *EmbeddingSemanticSearcher
+
 	// Timeout bounds the whole pass. DefaultSeedTimeout when zero.
 	Timeout time.Duration
 
@@ -220,7 +226,11 @@ func SeedIssueFacts(ctx context.Context, sink FactSink, req SeedRequest) (*SeedR
 	// silently used the definition-scan fallback even with a healthy embedding
 	// backend. Wire the optional engine through; a nil engine keeps today's
 	// heuristic path byte-identical.
-	if req.EmbeddingEngine != nil {
+	if req.SemanticSearcher != nil {
+		cfg.Semantic = req.SemanticSearcher
+		report.SemanticTier = "embeddings"
+		logging.ContextDebug("semantic tier: embeddings (shared searcher)")
+	} else if req.EmbeddingEngine != nil {
 		if searcher := NewEmbeddingSemanticSearcher(req.EmbeddingEngine, workDir); searcher != nil {
 			cfg.Semantic = searcher
 			report.SemanticTier = "embeddings"

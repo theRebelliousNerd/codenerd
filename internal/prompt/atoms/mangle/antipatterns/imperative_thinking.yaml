@@ -256,12 +256,12 @@
     ```mangle
     # Model success/failure as predicates:
     safe_result(R) :- success(R).
-    safe_result(/default) :- not success(_).
+    safe_result(/default) :- !success(_).
     
     # Or use optional pattern:
     result_or_default(R) :- risky(R).
     result_or_default(/default) :-
-        not risky(_),
+        !risky(_),
         default(/default).
     ```
     
@@ -509,7 +509,7 @@
         condition(true),
         X = 5.
     value(null) :-  # Not a thing!
-        not condition(true).
+        !condition(true).
     ```
     
     ### Why It Fails
@@ -519,7 +519,7 @@
     ```mangle
     # Use optional pattern:
     value(/some, 5) :- condition(true).
-    value(/none) :- not condition(true).
+    value(/none) :- !condition(true).
     
     # Or just check existence:
     has_value(5) :- condition(true).

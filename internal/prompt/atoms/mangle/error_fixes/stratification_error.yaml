@@ -28,22 +28,22 @@
     ### Pattern 1: Direct Self-Negation
     ```mangle
     # INVALID
-    p(X) :- not p(X).
+    p(X) :- !p(X).
     ```
     
     ### Pattern 2: Mutual Negation
     ```mangle
     # INVALID
-    a(X) :- not b(X).
-    b(X) :- not a(X).
+    a(X) :- !b(X).
+    b(X) :- !a(X).
     ```
     
     ### Pattern 3: Transitive Cycle
     ```mangle
     # INVALID - a -> not b -> c -> not a
-    a(X) :- not b(X).
+    a(X) :- !b(X).
     b(X) :- c(X).
-    c(X) :- not a(X).
+    c(X) :- !a(X).
     ```
     
     ## Fix Strategy
@@ -53,8 +53,8 @@
     
     **Before:**
     ```mangle
-    allowed(X) :- not blocked(X).
-    blocked(X) :- not allowed(X).
+    allowed(X) :- !blocked(X).
+    blocked(X) :- !allowed(X).
     ```
     
     **After:**
@@ -71,8 +71,8 @@
     
     **Before:**
     ```mangle
-    winner(X) :- not loser(X).
-    loser(X) :- not winner(X).
+    winner(X) :- !loser(X).
+    loser(X) :- !winner(X).
     ```
     
     **After:**
@@ -89,8 +89,8 @@
     
     **Before:**
     ```mangle
-    active(X) :- not inactive(X).
-    inactive(X) :- not active(X).
+    active(X) :- !inactive(X).
+    inactive(X) :- !active(X).
     ```
     
     **After:**

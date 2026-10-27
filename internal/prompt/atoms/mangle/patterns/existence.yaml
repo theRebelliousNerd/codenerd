@@ -24,15 +24,17 @@
     
     ### Template
     ```mangle
-    # Exists: at least one fact matches
-    exists(Result) :- predicate(X, Y), Result = /yes.
-    
+    # Exists: at least one fact matches. A negated literal takes no
+    # wildcards, so existence is a zero-arity projection.
+    any_predicate() :- predicate(X, Y).
+    exists(Result) :- any_predicate(), Result = /yes.
+
     # Not exists
-    not_exists(Result) :- not predicate(_, _), Result = /yes.
-    
-    # Or using a simpler form:
-    has_items :- item(_).
-    no_items :- not item(_).
+    not_exists(Result) :- !any_predicate(), Result = /yes.
+
+    # Same shape for a unary predicate:
+    has_items() :- item(X).
+    no_items() :- !has_items().
     ```
     
     ### Complete Working Example
@@ -139,15 +141,16 @@
     Decl has_property(Id) bound [/string].
     Decl all_items_have_property(Result) bound [/name].
     
-    # "All have property" = "There does NOT exist an item WITHOUT the property"
-    all_items_have_property(/yes) :- not (item(Id), not has_property(Id)).
-    
-    # Simpler: Check for counterexample
+    # "All have property" = "there is no counterexample item". Project the
+    # counterexample, then its existence; negation never wraps a conjunction
+    # and never takes a wildcard argument.
     Decl item_without_property(Id) bound [/string].
-    item_without_property(Id) :- item(Id), not has_property(Id).
-    
-    all_items_have_property(/no) :- item_without_property(_).
-    all_items_have_property(/yes) :- not item_without_property(_).
+    Decl any_item_without_property().
+    item_without_property(Id) :- item(Id), !has_property(Id).
+    any_item_without_property() :- item_without_property(Id).
+
+    all_items_have_property(/no) :- any_item_without_property().
+    all_items_have_property(/yes) :- !any_item_without_property().
     ```
     
     ### Example
@@ -325,13 +328,20 @@
     Decl any_item_large(Result) bound [/name].
     Decl all_items_large(Result) bound [/name].
     
+    # "No item matches" tests project the witness, then negate its
+    # zero-arity existence form (negation never wraps a conjunction).
+    Decl any_large_item().
+    Decl any_small_item().
+    any_large_item() :- item(Id, Value), Value > 100.
+    any_small_item() :- item(Id, Value), Value <= 100.
+
     # Any item > 100
-    any_item_large(/yes) :- item(Id, Value), Value > 100.
-    any_item_large(/no) :- not (item(Id, Value), Value > 100).
-    
+    any_item_large(/yes) :- any_large_item().
+    any_item_large(/no) :- !any_large_item().
+
     # All items > 100 (no item <= 100)
-    all_items_large(/yes) :- not (item(Id, Value), Value <= 100).
-    all_items_large(/no) :- item(Id, Value), Value <= 100.
+    all_items_large(/yes) :- !any_small_item().
+    all_items_large(/no) :- any_small_item().
     ```
     
     ### Example
@@ -363,7 +373,7 @@
     
     # Check specific path
     path_exists(From, To, /yes) :- reachable(From, To).
-    path_exists(From, To, /no) :- not reachable(From, To).
+    path_exists(From, To, /no) :- !reachable(From, To).
     ```
     
     ### Example
@@ -430,14 +440,16 @@
     Decl purchase(PurchaseId, UserId, Amount) bound [/string, /string, /number].
     Decl has_high_value_customer(Result) bound [/name].
     
-    # Check if there exists a user with purchase > 10000
-    has_high_value_customer(/yes) :-
+    # Check if there exists a user with purchase > 10000. The /no case
+    # negates the witness's zero-arity projection, never the conjunction.
+    Decl any_high_value_customer().
+    any_high_value_customer() :-
       user(UserId),
       purchase(PurchaseId, UserId, Amount),
       Amount > 10000.
-    
-    has_high_value_customer(/no) :-
-      not (user(UserId), purchase(PurchaseId, UserId, Amount), Amount > 10000).
+
+    has_high_value_customer(/yes) :- any_high_value_customer().
+    has_high_value_customer(/no) :- !any_high_value_customer().
     ```
     
     ### Example
@@ -457,13 +469,13 @@
     ### WRONG: Checking Existence on Unbound Variable
     ```mangle
     # Bad - X is never bound
-    exists(X) :- not predicate(X).
+    exists(X) :- !predicate(X).
     
     # This doesn't make sense - you're asking for all X that don't exist
     # But X is infinite!
     
     # Fix - provide domain
-    exists(X) :- domain(X), not predicate(X).
+    exists(X) :- domain(X), !predicate(X).
     ```
     
     ### WRONG: Confusing "Any" with "All"
@@ -475,25 +487,24 @@
     # This actually means "There exists a valid item"
     # Not "All items are valid"
     
-    # Fix:
-    all_valid :- not (item(X), not valid(X)).
+    # Fix: project the counterexample, then negate its existence form.
+    invalid_item(X) :- item(X), !valid(X).
+    any_invalid_item() :- invalid_item(X).
+    all_valid :- !any_invalid_item().
     ```
-    
-    ### WRONG: Double Negation Without Understanding
-    ```mangle
-    # Confusing:
-    result :- not (not predicate(X)).
-    
-    # This is just predicate(X) with extra steps
-    # Use positive logic:
-    result :- predicate(X).
-    ```
-    
+
+    ### WRONG: Double Negation
+
+    There is no double-negation syntax: negation is `!` on one atom, and
+    forms like `!!p(X)` or negating a parenthesized body do not parse.
+    If you reach for one, restate the rule positively or project the
+    inner condition into a helper predicate first.
+
     ## Performance Tips
-    
+
     1. **Short-Circuit Existence**: Stop searching after first match
     2. **Use Indices**: Index predicates used in existence checks
-    3. **Positive over Negative**: `exists(X)` is faster than `not (not exists(X))`
+    3. **Positive over Negative**: prefer a positive projection over negating one
     4. **Materialize Counts**: If checking multiple thresholds, compute count once
     
     ## Common Use Cases in codeNERD

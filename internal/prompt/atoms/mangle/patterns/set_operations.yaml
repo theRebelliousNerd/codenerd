@@ -162,15 +162,16 @@
     Decl set_b(Elem) bound [/string].
     Decl is_subset(Result) bound [/name].
     
-    # A is subset of B if there's no element in A that's not in B
-    is_subset(/yes) :- not (set_a(X), not set_b(X)).
-    
-    # Alternative: find counterexample
+    # A is a subset of B iff there is no counterexample element. Negation
+    # takes one fully bound atom — never a conjunction, never a wildcard —
+    # so project the counterexample, then its existence.
     Decl in_a_not_b(Elem) bound [/string].
-    in_a_not_b(X) :- set_a(X), not set_b(X).
-    
-    is_subset(/no) :- in_a_not_b(_).
-    is_subset(/yes) :- not in_a_not_b(_).
+    Decl any_in_a_not_b().
+    in_a_not_b(X) :- set_a(X), !set_b(X).
+    any_in_a_not_b() :- in_a_not_b(X).
+
+    is_subset(/no) :- any_in_a_not_b().
+    is_subset(/yes) :- !any_in_a_not_b().
     ```
     
     ### Example
@@ -206,17 +207,27 @@
     # A ⊂ B means:
     # 1. A ⊆ B (no element in A that's not in B)
     # 2. B has at least one element not in A
-    
+    # Each "no element" test is a projected counterexample negated as a
+    # zero-arity existence fact (negation never wraps a conjunction).
+
+    Decl in_a_not_b(Elem) bound [/string].
+    Decl any_in_a_not_b().
+    Decl in_b_not_a(Elem) bound [/string].
+    Decl any_in_b_not_a().
+    in_a_not_b(X) :- set_a(X), !set_b(X).
+    any_in_a_not_b() :- in_a_not_b(X).
+    in_b_not_a(Y) :- set_b(Y), !set_a(Y).
+    any_in_b_not_a() :- in_b_not_a(Y).
+
     is_proper_subset(/yes) :-
-      not (set_a(X), not set_b(X)),    # A ⊆ B
-      set_b(Y), not set_a(Y).          # B has something A doesn't
-    
+      !any_in_a_not_b(),            # A ⊆ B
+      any_in_b_not_a().             # B has something A doesn't
+
+    is_proper_subset(/no) :- any_in_a_not_b().
+
     is_proper_subset(/no) :-
-      set_a(X), not set_b(X).          # A ⊄ B
-    
-    is_proper_subset(/no) :-
-      not (set_b(Y), not set_a(Y)),    # A = B (not proper)
-      not (set_a(X), not set_b(X)).
+      !any_in_a_not_b(),            # A ⊆ B but also B ⊆ A: A = B
+      !any_in_b_not_a().
     ```
     
     ### Example
@@ -244,9 +255,15 @@
     Decl set_b(Elem) bound [/string].
     Decl are_disjoint(Result) bound [/name].
     
-    # Disjoint if no element is in both
-    are_disjoint(/yes) :- not (set_a(X), set_b(X)).
-    are_disjoint(/no) :- set_a(X), set_b(X).
+    # Disjoint if no element is in both: project the overlap, then negate
+    # its zero-arity existence projection.
+    Decl in_both(Elem) bound [/string].
+    Decl any_in_both().
+    in_both(X) :- set_a(X), set_b(X).
+    any_in_both() :- in_both(X).
+
+    are_disjoint(/yes) :- !any_in_both().
+    are_disjoint(/no) :- any_in_both().
     ```
     
     ### Example
@@ -280,13 +297,23 @@
     Decl set_b(Elem) bound [/string].
     Decl are_equal(Result) bound [/name].
     
-    # Equal if A ⊆ B and B ⊆ A
+    # Equal if A ⊆ B and B ⊆ A: negated zero-arity counterexample
+    # projections, as in the subset pattern above.
+    Decl in_a_not_b(Elem) bound [/string].
+    Decl any_in_a_not_b().
+    Decl in_b_not_a(Elem) bound [/string].
+    Decl any_in_b_not_a().
+    in_a_not_b(X) :- set_a(X), !set_b(X).
+    any_in_a_not_b() :- in_a_not_b(X).
+    in_b_not_a(Y) :- set_b(Y), !set_a(Y).
+    any_in_b_not_a() :- in_b_not_a(Y).
+
     are_equal(/yes) :-
-      not (set_a(X), not set_b(X)),  # A ⊆ B
-      not (set_b(Y), not set_a(Y)).  # B ⊆ A
+      !any_in_a_not_b(),  # A ⊆ B
+      !any_in_b_not_a().  # B ⊆ A
     
-    are_equal(/no) :- set_a(X), not set_b(X).  # A has something B doesn't
-    are_equal(/no) :- set_b(Y), not set_a(Y).  # B has something A doesn't
+    are_equal(/no) :- set_a(X), !set_b(X).  # A has something B doesn't
+    are_equal(/no) :- set_b(Y), !set_a(Y).  # B has something A doesn't
     ```
     
     ### Example
@@ -424,7 +451,7 @@
     
     # For practical use, you'd enumerate specific subsets:
     Decl subset_empty.
-    subset_empty :- not element(_).  # Empty set exists if no elements
+    subset_empty :- !element(_).  # Empty set exists if no elements
     
     # Better: Define specific subsets based on properties
     Decl subset_by_property(Elem, Property) bound [/string, /name].
@@ -583,7 +610,7 @@
     # Same as: a_and_b_or_c(X) :- set_a(X), set_b(X).
     #          a_and_b_or_c(X) :- set_a(X), set_c(X).
     
-    # De Morgan's Laws: ¬(A ∪ B) = ¬A ∩ ¬B
-    # not_a_or_b(X) :- domain(X), not set_a(X), not set_b(X).
-    # Same as: not_a_or_b(X) :- domain(X), not (set_a(X) ; set_b(X)).
+    # De Morgan's Laws: ¬(A ∪ B) = ¬A ∩ ¬B. There is no `;` disjunction and
+    # no negation of a compound body; write the two negated atoms out:
+    # not_a_or_b(X) :- domain(X), !set_a(X), !set_b(X).
     ```

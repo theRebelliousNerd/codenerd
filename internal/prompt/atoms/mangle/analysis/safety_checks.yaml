@@ -58,7 +58,7 @@
     
     **UNSAFE**: Variable only in negation
     ```mangle
-    result(X) :- not parent(X, Y).
+    result(X) :- !parent(X, Y).
     ```
     `X` is not bound before the negation. This asks "what are all X not in parent?" - infinite answers.
     
@@ -132,7 +132,7 @@
     
     **UNSAFE**:
     ```mangle
-    safe(X) :- not dangerous(X).
+    safe(X) :- !dangerous(X).
     ```
     `X` is unbound. This asks "what is not dangerous?" - infinite answers.
     
@@ -146,13 +146,13 @@
     
     **UNSAFE**:
     ```mangle
-    orphan(X) :- person(X), not parent(Y, X).
+    orphan(X) :- person(X), !parent(Y, X).
     ```
     `Y` is unbound in the negation.
     
     **SAFE** (corrected):
     ```mangle
-    orphan(X) :- person(X), not parent(_, X).
+    orphan(X) :- person(X), !parent(_, X).
     ```
     Use `_` (anonymous variable) when you don't care about the value.
     

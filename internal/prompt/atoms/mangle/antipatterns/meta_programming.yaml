@@ -325,7 +325,7 @@
     cached_expensive(X, Y) :- cache_entry(/expensive, X, Y).
     
     cached_expensive(X, Y) :-
-        not cache_entry(/expensive, X, _),
+        !cache_entry(/expensive, X, _),
         validated_expensive(X, Y).
         # In Go: store the result as cache_entry
     ```

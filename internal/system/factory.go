@@ -1160,7 +1160,10 @@ func initPerceptionLayer(bctx *bootContext) error {
 
 	// Image generation stays on Gemini Nano Banana 2 (gemini-3.1-flash-image) —
 	// never the Ollama worker. Attached to ShardManager in initShardManagement.
-	if bctx.appCfg != nil {
+	// Only when an image block was configured: warning every boot that an
+	// optional, unconfigured feature lacks an API key is noise in the
+	// problems log, not a defect.
+	if bctx.appCfg != nil && bctx.appCfg.Image != nil {
 		if imgClient, ierr := perception.NewImageClientFromUserConfig(bctx.appCfg); ierr != nil {
 			logging.Get(logging.CategoryPerception).Warn("Image LLM (Nano Banana 2) unavailable: %v", ierr)
 		} else if imgClient != nil {

@@ -60,6 +60,53 @@ func TestRefreshStalenessPolicy(t *testing.T) {
 	}
 }
 
+// Boot constructs several workspace kernels in one process, and each used to
+// re-run all of Refresh. The memo may serve the second unchanged call, but a
+// document edit (a different stat identity) must invalidate it and reach the
+// freshness rules again.
+func TestRefreshUnchangedMemoizedAndEditInvalidates(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	runGit(t, root, "init")
+	if err := os.WriteFile(filepath.Join(root, "DESIGN.md"), []byte("# Design\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "add", "DESIGN.md")
+	runGit(t, root, "commit", "-m", "origin")
+	cfg := config.DefaultOrientConfig()
+	s, err := Measure(ctx, root, cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := s.Engine(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	if err := s.Save(root, e); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 2 {
+		out, err := Refresh(ctx, root, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out.Refreshed || len(out.Stale) != 0 {
+			t.Fatalf("unchanged refresh %d = %+v, want a no-stale result", i, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "DESIGN.md"), []byte("# Design, changed\nMore.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Refresh(ctx, root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Pending) != 1 {
+		t.Fatalf("edited refresh pending = %v, want the changed document", out.Pending)
+	}
+}
+
 func TestRefreshHistoryDeltaPreservesDays(t *testing.T) {
 	base, _, err := factsFromGitLog(strings.NewReader(commitMarker+"aaaa|1767225600\nA\tDESIGN.md\n"), false)
 	if err != nil {

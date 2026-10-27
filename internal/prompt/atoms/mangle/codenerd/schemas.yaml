@@ -250,7 +250,7 @@
         diagnostic(/error, _, _, _, _).
     
     git_commit_allowed() :-
-        not block_commit(_).
+        !block_commit(_).
     ```
     
     ### test_result/5

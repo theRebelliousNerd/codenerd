@@ -21,14 +21,14 @@
     ### Incorrect (Unsafe)
     ```mangle
     # WRONG - X is unbound before negation
-    non_admin(X) :- not admin(X).
+    non_admin(X) :- !admin(X).
     ```
     This will crash or produce incorrect results because `X` has no domain.
     
     ### Correct (Safe)
     ```mangle
     # CORRECT - X is bound by user() first
-    non_admin(X) :- user(X), not admin(X).
+    non_admin(X) :- user(X), !admin(X).
     #               ^^^^^^^ Generator predicate binds X
     ```
     

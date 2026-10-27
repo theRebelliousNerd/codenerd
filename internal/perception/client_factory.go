@@ -772,12 +772,12 @@ func newSecondarySlotClient(userCfg *config.UserConfig, slot string, w *config.S
 		} else {
 			return nil, fmt.Errorf("%s LLM: no model configured for ollama: set %s.model or ollama.model in .nerd/config.json", slot, slot)
 		}
-		client := NewOllamaClientWithConfig(cfg)
+	client := NewOllamaClientWithConfig(cfg)
 		if err := slotInputCapEnforced(slot, provider, w.MaxInputTokens, client); err != nil {
 			return nil, err
 		}
 		logging.Perception("%s LLM: ollama model=%s endpoint=%s", slot, cfg.Model, cfg.Endpoint)
-		return client, nil
+		return InstallBroker(client, &ProviderConfig{Engine: "api", Provider: ProviderOllama, Model: cfg.Model})
 	}
 
 	// Everything else delegates to the shared factory rather than

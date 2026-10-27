@@ -24,27 +24,27 @@
     ```mangle
     # WRONG - Direct negative cycle (game theory fallacy)
     winning(X) :- move(X, Y), losing(Y).
-    losing(X) :- not winning(X).  # STRATIFICATION ERROR!
+    losing(X) :- !winning(X).  # STRATIFICATION ERROR!
     # Cycle: winning → losing → NOT winning
     
     # WRONG - Mutual negation
-    good(X) :- not bad(X).
-    bad(X) :- not good(X).
+    good(X) :- !bad(X).
+    bad(X) :- !good(X).
     # Cycle: good → NOT bad → NOT good
     
     # WRONG - Indirect cycle through negation
-    a(X) :- b(X), not c(X).
+    a(X) :- b(X), !c(X).
     b(X) :- c(X).
-    c(X) :- not a(X).
+    c(X) :- !a(X).
     # Cycle: a → NOT c → NOT a
     
     # WRONG - Self-referential negation
-    stable(X) :- item(X), not stable(Y), related(X, Y).
+    stable(X) :- item(X), !stable(Y), related(X, Y).
     # Direct negative self-reference
     
     # WRONG - Negation in recursive closure
     reachable(X, Y) :- edge(X, Y).
-    reachable(X, Z) :- reachable(X, Y), edge(Y, Z), not blocked(X, Z).
+    reachable(X, Z) :- reachable(X, Y), edge(Y, Z), !blocked(X, Z).
     blocked(X, Z) :- reachable(X, Z), dangerous(Z).
     # Cycle: reachable → NOT blocked → reachable
     ```
@@ -52,7 +52,7 @@
     ## Correct Code
     ```mangle
     # CORRECT - Add termination condition (no cycle)
-    terminal_loss(X) :- position(X), not has_move(X).
+    terminal_loss(X) :- position(X), !has_move(X).
     has_move(X) :- move(X, _).
     losing(X) :- terminal_loss(X).  # Base case
     winning(X) :- move(X, Y), losing(Y).  # Derived from base
@@ -79,7 +79,7 @@
     transitively_valid(X) :- transitively_valid(Y), extends(X, Y).
     
     # Layer 3: Filtering with negation (after closure complete)
-    final_valid(X) :- transitively_valid(X), not excluded(X).
+    final_valid(X) :- transitively_valid(X), !excluded(X).
     
     # CORRECT - Stratified reachability with blocking
     # Layer 1: Compute all reachable nodes
@@ -87,7 +87,7 @@
     reachable(X, Z) :- reachable(X, Y), edge(Y, Z).
     
     # Layer 2: Filter using negation (after closure)
-    safe_reachable(X, Y) :- reachable(X, Y), not dangerous(Y).
+    safe_reachable(X, Y) :- reachable(X, Y), !dangerous(Y).
     ```
     
     ## Detection
@@ -120,7 +120,7 @@
     - **Lower layers** (including through negation)
     
     ```
-    Layer 3: final_results(X) :- layer2(X), not excluded(X).
+    Layer 3: final_results(X) :- layer2(X), !excluded(X).
                ↑ Can negate Layer 2 ↑
     Layer 2: derived(X) :- base(X), recursive_step(X).
                ↑ Recursion OK here ↑
@@ -173,14 +173,14 @@
     excluded(X) :- candidate(X), fails_check(X).
     
     # Layer 3: Final result (negation on lower layers)
-    final(X) :- candidate(X), not excluded(X).
+    final(X) :- candidate(X), !excluded(X).
     ```
     
     ### Pattern 4: Mutual Exclusion Without Negation
     ```mangle
     # Instead of:
-    # good(X) :- not bad(X).  # Creates cycle if bad uses not good
-    # bad(X) :- not good(X).
+    # good(X) :- !bad(X).  # Creates cycle if bad uses not good
+    # bad(X) :- !good(X).
     
     # Use explicit categorization:
     category(X, /good) :- quality(X, Score), Score >= 80.
@@ -196,7 +196,7 @@
     
     ```mangle
     # WRONG - Cycle through negation
-    # winning(X) :- move(X, Y), not winning(Y).  # ILLEGAL!
+    # winning(X) :- move(X, Y), !winning(Y).  # ILLEGAL!
     
     # CORRECT - Stratified by depth
     Decl position(Pos) bound [/name].
@@ -205,7 +205,7 @@
     Decl losing_at_depth(Pos, Depth) bound [/name, /number].
     
     # Layer 1: Terminal positions (base facts)
-    terminal(X) :- position(X), not has_move_from(X).
+    terminal(X) :- position(X), !has_move_from(X).
     has_move_from(X) :- move(X, _).
     
     # Layer 2: Losing at depth 0 (no moves = loss)
@@ -222,11 +222,11 @@
     all_moves_winning(X, D) :-
         position(X),
         has_move_from(X),
-        not exists_losing_move(X, D).
+        !exists_losing_move(X, D).
     
     exists_losing_move(X, D) :-
         move(X, Y),
-        not winning_at_depth(Y, D).
+        !winning_at_depth(Y, D).
     
     losing_at_depth(X, D) :-
         all_moves_winning(X, D1),

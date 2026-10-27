@@ -1,6 +1,7 @@
 package core
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -30,6 +31,50 @@ import (
 // Each Get must be paired with a Put after Reset (see usage in rebuildProgram).
 var programBuilderPool = sync.Pool{
 	New: func() any { return &strings.Builder{} },
+}
+
+// compiledProgramCache shares one analyzed program across the many kernels a
+// boot constructs from identical schemas+policy+learned bytes. ProgramInfo is
+// already shared between a kernel and its clones as immutable after analysis;
+// evaluation and cone indexing only read it. The cache is deliberately tiny:
+// the live boot program plus a few variants, not an unbounded archive of every
+// candidate ever compiled. Sandbox trial programs bypass it entirely.
+type compiledProgram struct {
+	info          *analysis.ProgramInfo
+	strata        []analysis.Nodeset
+	predToStratum map[ast.PredicateSym]int
+	cone          *coneIndex
+}
+
+const compiledProgramCacheMax = 8
+
+var (
+	compiledProgramMu    sync.RWMutex
+	compiledProgramCache = map[[sha256.Size]byte]compiledProgram{}
+)
+
+func programCacheKey(program string) [sha256.Size]byte {
+	h := sha256.New()
+	_, _ = h.Write([]byte(program))
+	var key [sha256.Size]byte
+	copy(key[:], h.Sum(nil))
+	return key
+}
+
+func lookupCompiledProgram(key [sha256.Size]byte) (compiledProgram, bool) {
+	compiledProgramMu.RLock()
+	defer compiledProgramMu.RUnlock()
+	compiled, ok := compiledProgramCache[key]
+	return compiled, ok
+}
+
+func storeCompiledProgram(key [sha256.Size]byte, compiled compiledProgram) {
+	compiledProgramMu.Lock()
+	defer compiledProgramMu.Unlock()
+	if _, exists := compiledProgramCache[key]; !exists && len(compiledProgramCache) >= compiledProgramCacheMax {
+		clear(compiledProgramCache)
+	}
+	compiledProgramCache[key] = compiled
 }
 
 // writeProgramLocked appends schemas, policy, and learned rules to sb in
@@ -71,6 +116,23 @@ func (k *RealKernel) rebuildProgram() error {
 
 	programStr := sb.String()
 	logging.KernelDebug("rebuildProgram: total program size = %d bytes", len(programStr))
+
+	var cacheKey [sha256.Size]byte
+	cacheable := !k.sandbox
+	if cacheable {
+		cacheKey = programCacheKey(programStr)
+		if compiled, ok := lookupCompiledProgram(cacheKey); ok {
+			k.programInfo = compiled.info
+			k.strata = compiled.strata
+			k.predToStratum = compiled.predToStratum
+			k.cone = compiled.cone
+			k.policyDirty = false
+			k.atomCacheStale = true
+			timer.StopWithInfo()
+			logging.KernelDebug("rebuildProgram: reused analyzed program from cache")
+			return nil
+		}
+	}
 
 	// Parse
 	parseTimer := logging.StartTimer(logging.CategoryKernel, "rebuildProgram.parse")
@@ -144,6 +206,11 @@ func (k *RealKernel) rebuildProgram() error {
 	}
 	k.strata = strata
 	k.predToStratum = predToStratum
+	if cacheable {
+		storeCompiledProgram(cacheKey, compiledProgram{
+			info: programInfo, strata: strata, predToStratum: predToStratum, cone: k.cone,
+		})
+	}
 
 	// Log predicate count
 	declCount := 0

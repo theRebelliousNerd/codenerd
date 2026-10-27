@@ -65,7 +65,7 @@
     ```mangle
     a(X) :- initial(X).
     b(X) :- a(X), condition(X).
-    a(Y) :- b(X), derive(X, Y), not a(Y).  # Progress + check
+    a(Y) :- b(X), derive(X, Y), !a(Y).  # Progress + check
     ```
     
     ### 4. Cartesian Product Explosion
@@ -119,7 +119,7 @@
         edge(Y, Z),
         N = fn:plus(M, 1),
         M < 20,       # Depth limit
-        not path(X, Z, _).  # Only new paths
+        !path(X, Z, _).  # Only new paths
     ```
     
     ### 3. Filter Before Join

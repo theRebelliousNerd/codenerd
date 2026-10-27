@@ -226,7 +226,7 @@
       total(Sum).
     
     total_or_zero(0) :-
-      not total(_).
+      !total(_).
     
     # Query: total_or_zero(?Sum)
     # Result: total_or_zero(0)
