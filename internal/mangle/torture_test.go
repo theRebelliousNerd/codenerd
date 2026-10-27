@@ -2143,3 +2143,11 @@ derived(X) :- base(X).
 	}
 	t.Logf("concurrent query+recompute: %d derived facts", len(facts))
 }
+
+// TODO: Add tests for evaluating empty string facts (e.g. `""`) and null bytes (`\x00`) with `evaluateAndQuery()` to check for crashes or unexpected matching.
+// TODO: Add tests for type coercion edge cases where a `string` containing digits (e.g. `"123"`) is passed as a `testFact` argument to an `int64` binding to ensure correct rejection.
+// TODO: Add tests for type coercion edge cases where a float number is passed to an integer field in `testFact`.
+// TODO: Add extreme boundary tests for recursion depth limits (e.g., transitive closure over 100,000 edges using `testFact`) to evaluate termination safety.
+// TODO: Add extreme load tests passing single strings of lengths exceeding 1MB to `evaluateAndQuery()` to check for OOM or extreme latency in `String()` methods.
+// TODO: Add tests passing an empty array to `testFact.Args`.
+// TODO: Add tests for state conflict scenarios across concurrent `evaluateAndQuery()` calls (race conditions).
