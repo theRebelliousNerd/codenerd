@@ -121,3 +121,52 @@ func (c *core) completeWithStreamingAndThoughts(
 	outContent, outErrs := c.proxyStream(ctx, receipt, req, obs, content, errs)
 	return outContent, thoughts, outErrs
 }
+
+// SupportsGroundedWebSearch implements types.GroundedWebSearcher by asking the
+// client underneath. Every wrapper shape carries the method, so the answer, not
+// the method set, is what callers branch on; it is false for a client that
+// cannot ground. Without it the wrapper hid the capability, and init's domain
+// research reported "no grounded web search" for a Meta client that has it.
+func (c *core) SupportsGroundedWebSearch() bool {
+	searcher, ok := c.delegate().(types.GroundedWebSearcher)
+	return ok && searcher.SupportsGroundedWebSearch()
+}
+
+// GroundedWebSearch implements types.GroundedWebSearcher: a metered call, and
+// through the key-pool router when one selects the client, like every other
+// completion.
+func (c *core) GroundedWebSearch(ctx context.Context, query string) (*types.GroundedWebSearchResult, error) {
+	if c.cfg.Router != nil {
+		return routeCall(ctx, c.cfg.Router, func(ctx context.Context, client types.LLMClient) (*types.GroundedWebSearchResult, error) {
+			searcher, ok := client.(types.GroundedWebSearcher)
+			if !ok || !searcher.SupportsGroundedWebSearch() {
+				return nil, ErrNoUnderlying
+			}
+			return searcher.GroundedWebSearch(ctx, query)
+		})
+	}
+	searcher, ok := c.underlying.(types.GroundedWebSearcher)
+	if !ok || !searcher.SupportsGroundedWebSearch() {
+		return nil, ErrNoUnderlying
+	}
+	req := &Request{
+		Provider: c.cfg.Provider,
+		Model:    c.currentModel(),
+		Method:   "GroundedWebSearch",
+		User:     query,
+	}
+	return compressing(c, ctx, req, true, groundedUsage, func(ctx context.Context, instruction string) (*types.GroundedWebSearchResult, error) {
+		return searcher.GroundedWebSearch(ctx, withInstruction(query, instruction))
+	})
+}
+
+func groundedUsage(result *types.GroundedWebSearchResult) *types.UsageMetadata {
+	if result == nil {
+		return nil
+	}
+	return &types.UsageMetadata{
+		InputTokens:  result.Usage.InputTokens,
+		OutputTokens: result.Usage.OutputTokens,
+		TotalTokens:  result.Usage.TotalTokens,
+	}
+}

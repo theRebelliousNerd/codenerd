@@ -118,6 +118,16 @@ func collect(root string) ([]string, error) {
 			if d.Name() == ".nerd" && filepath.Clean(p) != root {
 				return fs.SkipDir
 			}
+			// A directory below the root with its own .git (a file for a git
+			// worktree, a directory for a submodule or nested repository) is
+			// another checkout. Its agent files belong to that checkout: a
+			// worktree under .claude/worktrees/ copied every corpus file and
+			// init embedded each one twice.
+			if filepath.Clean(p) != filepath.Clean(root) {
+				if _, err := os.Lstat(filepath.Join(p, ".git")); err == nil {
+					return fs.SkipDir
+				}
+			}
 			return nil
 		}
 		rel, err := filepath.Rel(root, p)
