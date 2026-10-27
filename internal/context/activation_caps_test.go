@@ -8,6 +8,14 @@ import (
 	"codenerd/internal/core"
 )
 
+
+// TODO: Add tests for empty string injections in context keywords/topics to ensure they don't grant universal score boosts.
+// TODO: Add tests simulating massive strings (e.g., 50MB fact strings) to evaluate OOM resilience and CPU exhaustion.
+// TODO: Add concurrency tests (e.g., 100 goroutines calling ScoreFacts) to verify thread safety against context pointer mutations.
+// TODO: Add tests for `computeIssueScore` using negative weights (e.g., -5000) to ensure clamping mechanisms correctly cap the score without degrading performance below the baseline.
+// TODO: Add tests validating that malformed numeric arguments (e.g., extremely large numbers overflowing int64, "NaN") are gracefully rejected by `factArgToInt`.
+// TODO: Add tests asserting that initialization with empty slices/maps or nil contexts (e.g., `nil` backReferenceContext) correctly returns 0.0 without panicking.
+
 // The per-component score caps are a safety property, not a tuning detail: an
 // uncapped component lets a single adversarial or pathological fact outscore
 // everything else and monopolise the atom reserve. The context backlog carries
