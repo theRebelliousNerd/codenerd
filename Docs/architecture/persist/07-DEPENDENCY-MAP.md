@@ -60,7 +60,7 @@ imports either package as of 2026-08-15.
 ### Docs / audit
 
 - `Docs/architecture/persist/*` (this corpus)
-- `AUDIT.md` row: `internal/persist/factsnap | clean`
+- `Docs/audits/AUDIT.md` row: `internal/persist/factsnap | clean`
 
 ## 3. Sibling durability systems (not dependents)
 

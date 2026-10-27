@@ -141,7 +141,7 @@ Per repo discipline (“wiring before deletion”):
 | **Wired** | `cmd/nerd/cmd_regression.go` is a real production caller |
 | Residual risk | Only one host; the assault-stage and `nerd init` edges remain open |
 
-`AUDIT.md` marks `internal/regression` as **clean** (no known defects in isolation).
+`Docs/audits/AUDIT.md` marks `internal/regression` as **clean** (no known defects in isolation).
 
 ---
 

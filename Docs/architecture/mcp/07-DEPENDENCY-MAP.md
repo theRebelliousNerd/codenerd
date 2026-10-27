@@ -32,7 +32,7 @@ internal/config ──imports──► internal/mcp (types only for conversion)
 internal/mcp ──does not──► internal/config
 ```
 
-Historical note: `LEAK_FINDINGS.md` documents a cycle risk involving config/mcp/store; store now uses `sqlpragmas` rather than config for pragmas. Re-audit if reintroducing config imports into mcp.
+Historical note: `Docs/audits/LEAK_FINDINGS.md` documents a cycle risk involving config/mcp/store; store now uses `sqlpragmas` rather than config for pragmas. Re-audit if reintroducing config imports into mcp.
 
 ## 4. Kernel / schema adjacency (not Go imports)
 

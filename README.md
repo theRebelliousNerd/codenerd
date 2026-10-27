@@ -576,7 +576,7 @@ hidden:
   audit, the external audit queue, and the seams where the kernel is still bypassed.
 - `Docs/architecture/<subsystem>/WIRING-AND-NOT-BUILT.md` and `TODO.md`: for each subsystem, what
   is wired, what is dormant, and what was never built.
-- [`AUDIT.md`](AUDIT.md): package-by-package correctness audit.
+- [`AUDIT.md`](Docs/audits/AUDIT.md): package-by-package correctness audit.
 
 ---
 

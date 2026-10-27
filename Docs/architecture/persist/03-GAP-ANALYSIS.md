@@ -38,7 +38,7 @@ Still unwired, now with a paved path:
 1. Campaign phase / assault **fact bag** export alongside JSONL results.
 2. World scan freeze of `code_*` facts.
 
-The `AUDIT.md` “clean but unwired” note for `internal/persist/factsnap` is
+The `Docs/audits/AUDIT.md` “clean but unwired” note for `internal/persist/factsnap` is
 obsolete.
 
 ### P1 — Operator path — **DONE (2026-08-15)**

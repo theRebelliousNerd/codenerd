@@ -247,3 +247,19 @@ zz*_test.go
 # its cwd at the repo root and an unexpanded ${CLAUDE_PLUGIN_ROOT}, so it keeps its
 # SQLite state in a directory literally named that. It is the plugin's, not codeNERD's.
 /${CLAUDE_PLUGIN_ROOT}/
+
+# Local build/test output never belongs at the repo root.
+/*.out
+/*.cover
+/cover
+/cover_*
+/coverage
+/coverage_*
+/mcp_cover
+/prompt_evolution
+/trace
+/*.txt
+/scan.json
+/*.zip
+/*.skill
+/bin/

@@ -29,7 +29,16 @@ func (p Price) Cost(input, output int64) float64 {
 // Stats reports CostKnown alongside Cost: a $0.00 total means "nothing priced",
 // not "nothing spent".
 var priceTable = map[string]Price{
-	// Anthropic
+	// Anthropic (Haiku 5.5's rate holds for prompts up to 100K tokens; above
+	// that it is $0.50/$2.50, which this table does not model)
+	"claude-fable-5":   {InputPerMTok: 10.00, OutputPerMTok: 50.00},
+	"claude-opus-5-5":  {InputPerMTok: 4.00, OutputPerMTok: 20.00},
+	"claude-opus-5":    {InputPerMTok: 5.00, OutputPerMTok: 25.00},
+	"claude-opus-4-8":  {InputPerMTok: 5.00, OutputPerMTok: 25.00},
+	"claude-opus-4-7":  {InputPerMTok: 5.00, OutputPerMTok: 25.00},
+	"claude-opus-4-6":  {InputPerMTok: 5.00, OutputPerMTok: 25.00},
+	"claude-sonnet-5":  {InputPerMTok: 2.00, OutputPerMTok: 10.00},
+	"claude-haiku-5-5": {InputPerMTok: 0.10, OutputPerMTok: 0.50},
 	"claude-opus-4":    {InputPerMTok: 15.00, OutputPerMTok: 75.00},
 	"claude-opus":      {InputPerMTok: 15.00, OutputPerMTok: 75.00},
 	"claude-sonnet-4":  {InputPerMTok: 3.00, OutputPerMTok: 15.00},
