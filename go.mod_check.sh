@@ -1,1 +1,0 @@
-grep "module" go.mod

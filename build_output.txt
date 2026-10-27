@@ -1,5 +1,0 @@
-# codenerd build status
-Build status: SUCCESS
-Toolchain: go1.26.0 windows/amd64
-Date: 2026-05-28
-All files compile cleanly with CGO bindings enabled.
