@@ -192,3 +192,8 @@ func TestExecutionModeMatchesTheVerbTable(t *testing.T) {
 		t.Errorf("execution_mode(/no_such_verb) rows = %q after it was retracted, want none", rows)
 	}
 }
+
+// TODO: Add tests for Null/Undefined/Empty vectors (e.g., findings array is nil, severity key exists but value is nil, verb is empty string).
+// TODO: Add tests for Type Coercion vectors (e.g., severity is an integer, file is an array/object).
+// TODO: Add tests for User Request Extremes vectors (e.g., excessively long file path, extreme number of findings, non-UTF8 payload in file path).
+// TODO: Add tests for State Conflicts vectors (e.g., concurrent accesses to derivedExecutionMode or delegationTargetFile).
