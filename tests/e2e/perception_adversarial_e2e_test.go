@@ -285,3 +285,22 @@ func TestE2E_Perception_Adversarial_InputTruncation(t *testing.T) {
 
 	t.Logf("Prompt length: %d, Target length: %d", len(prompt), len(intent.Target))
 }
+
+
+// TODO: Null/Undefined/Empty Vectors
+// - Empty JSON / Empty Strings: What happens if the LLM returns `{"understanding": {"primary_intent": "", "semantic_type": "", "action_type": ""}}`? Does the system fallback correctly, or does it try to route an empty verb?
+// - Null Values: What if the LLM returns `{"understanding": {"primary_intent": null}}`? In Go, depending on the unmarshaling logic, this might cause a panic if not handled correctly or default to an empty string.
+// - Empty Arrays for Tools/Constraints: If `tools_needed` or `user_constraints` is `null` instead of `[]`, does the system panic during iteration?
+
+// TODO: Type Coercion Vectors
+// - Number as String / String as Number: The `confidence` field is a float. What if the LLM returns `"confidence": "high"` or `"confidence": "0.99"` (string instead of number)? Does `json.Unmarshal` fail entirely, dropping the whole intent, or is there a fallback?
+// - Boolean as String: What if `is_question` is `"true"` instead of `true`?
+
+// TODO: User request Extremes
+// - Deeply Nested JSON: A malicious LLM response could contain heavily nested JSON in the `target` or `constraint` fields, aiming to cause a stack overflow during unmarshaling.
+// - Unicode/Control Character Extremes: The `sanitizeFactArg` function strips some control characters. But what about massive payloads of zero-width spaces, RTL overrides, or invalid UTF-8 sequences? Do these cause the Mangle engine to fail during parsing?
+// - Extreme Length Campaigns: The truncation test only checks a 100KB string of "X"s. What if the input is exactly at the boundary (e.g., 60000 chars)? What if the input is a massive single word with no spaces, defeating some tokenization/truncation strategies?
+
+// TODO: State Conflicts
+// - Concurrent Perception: The `UnderstandingTransducer` holds state (e.g., `lastUnderstanding`). If two requests are processed concurrently using the same transducer instance (which shouldn't happen by design, but might in a bug), does `GetLastUnderstanding()` return the wrong state?
+// - Transient Failure State Conflict: The `TransientFailure` boolean on the `Intent` struct. What happens if the system is rapidly oscillating between available and unavailable? Does the fallback logic correctly handle a transient failure followed immediately by a malformed response?
