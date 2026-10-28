@@ -72,7 +72,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			if m.continuationTotal > 0 {
 				stepMsg = fmt.Sprintf(" at step %d/%d", m.continuationStep, m.continuationTotal)
 			}
-			m = m.pushAssistantMsg(fmt.Sprintf("⏹️ Stopped%s. Type '/continue' to resume or give new instructions.", stepMsg))
+			queuedMsg := ""
+			if n := m.turn.queuedCount(); n > 0 {
+				queuedMsg = fmt.Sprintf(" %d queued message(s) will run once it has wound down.", n)
+			}
+			m = m.pushAssistantMsg(fmt.Sprintf("⏹️ Stopped%s.%s Type '/continue' to resume or give new instructions.", stepMsg, queuedMsg))
 			return m, nil, true
 		}
 
@@ -240,8 +244,9 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 
-		// Enter sends the message if not loading
-		if !m.isLoading {
+		// Enter sends the message if not loading and no stopped turn is
+		// still winding down (turnState).
+		if !m.isLoading && m.turn.current() == 0 {
 			if m.inputMode == InputModeClarification {
 				model, cmd := m.handleClarificationResponse()
 				return model.(Model), cmd, true

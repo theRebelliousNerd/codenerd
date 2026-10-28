@@ -45,7 +45,12 @@ import (
 // =============================================================================
 
 func (m Model) processInput(input string) tea.Cmd {
+	// The execution is accepted now, on the caller's thread, so a stop
+	// that comes before it starts is not lost (turnState).
+	turnID := m.turn.accept()
 	return func() (result tea.Msg) {
+		// Every exit, the guards below included, releases the slot.
+		defer m.turn.end(turnID)
 		// Panic recovery: this closure runs as a fire-and-forget goroutine in the
 		// Bubbletea runtime. An unrecovered panic here kills the entire process.
 		// We use a named return so the deferred recover can set the return value
@@ -79,8 +84,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		ctx = usage.WithSessionID(ctx, m.sessionID)
 		defer cancel()
 		// Ctrl+X and a side turn's stop reach this turn through m.turn.
-		m.turn.begin(cancel)
-		defer m.turn.end()
+		m.turn.begin(turnID, cancel)
 
 		oodaStart := time.Now()
 		trimmed := strings.TrimSpace(input)
@@ -459,7 +463,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		// the lane derived without the plan, a plan of one step fell through
 		// here, and the turn was neither decomposed nor delegated.
 		if route.Kind == RouteMultiStep {
-			m.turn.setWorking(fmt.Sprintf("%d steps: %s", len(route.Steps), oneLine(input)))
+			m.turn.setWorking(turnID, fmt.Sprintf("%d steps: %s", len(route.Steps), oneLine(input)))
 			m.ReportStatus(fmt.Sprintf("Multi-step: %d steps...", len(route.Steps)))
 			cmd := m.executeMultiStepTask(ctx, intent, input, route.Steps)
 			return cmd()
@@ -523,7 +527,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				}
 				return backgroundStartMsg{Surface: backgroundStartSurface(intent.Response, job), Job: job}
 			}
-			m.turn.setWorking(shardType + ": " + oneLine(intent.Verb+" "+intent.Target))
+			m.turn.setWorking(turnID, shardType+": "+oneLine(intent.Verb+" "+intent.Target))
 			m.ReportStatus(fmt.Sprintf("Act: delegating to %s...", shardType))
 			// Format task based on verb and target, with prior shard context (blackboard pattern)
 			// This enables cross-shard context: reviewer findings -> coder, test errors -> debugger

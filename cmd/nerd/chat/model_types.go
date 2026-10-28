@@ -30,6 +30,7 @@ import (
 	nerdsystem "codenerd/internal/system"
 	"codenerd/internal/tactile"
 	"codenerd/internal/transparency"
+	"codenerd/internal/types"
 	"codenerd/internal/usage"
 	"codenerd/internal/ux"
 	"codenerd/internal/verification"
@@ -597,6 +598,9 @@ type chatKernel interface {
 	// ShadowKernel is what a /shadow what-if copies: one kernel over every
 	// shard's facts (core.ShadowParent).
 	ShadowKernel() (*core.RealKernel, error)
+	// Transaction publishes a retract-and-assert as one change (the brief,
+	// a side turn's decision facts).
+	Transaction() types.KernelTransaction
 }
 
 var (

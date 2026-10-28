@@ -171,7 +171,8 @@ func TestSideTurn_StopSurvivesAFailedClassification(t *testing.T) {
 // The error branch keeps its promise and never shows a provider body.
 func TestSideTurn_ErrorBranchQueuesAndStaysSafe(t *testing.T) {
 	m, _ := busyModel(t, failedIntent(classifierOutage()))
-	m = m.applySideTurn(sideTurnMsg{Input: "also add a CHANGELOG entry", Err: errors.New("API request failed with status 401: sk-live-secret-body")})
+	slot := m.turn.reserve("also add a CHANGELOG entry")
+	m = m.applySideTurn(sideTurnMsg{Input: "also add a CHANGELOG entry", Slot: slot, Err: errors.New("API request failed with status 401: sk-live-secret-body")})
 	reply := lastAssistant(m)
 	if strings.Contains(reply, "sk-live-secret-body") {
 		t.Fatalf("reply leaks the provider body: %q", reply)
@@ -180,7 +181,7 @@ func TestSideTurn_ErrorBranchQueuesAndStaysSafe(t *testing.T) {
 		t.Fatalf("queued=%d reply=%q; the message claims a queue it must keep", m.turn.queuedCount(), reply)
 	}
 	m2, _ := busyModel(t, failedIntent(classifierOutage()))
-	m2 = m2.applySideTurn(sideTurnMsg{Input: "x", Err: context.Canceled})
+	m2 = m2.applySideTurn(sideTurnMsg{Input: "x", Slot: m2.turn.reserve("x"), Err: context.Canceled})
 	if m2.turn.queuedCount() != 0 {
 		t.Fatal("a canceled read was queued")
 	}

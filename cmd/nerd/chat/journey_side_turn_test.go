@@ -22,8 +22,9 @@ func busyModel(t *testing.T, intents ...perception.Intent) (Model, context.Conte
 	m, _ := journeyModel(t, config.WorkModePropose, intents...)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	m.turn.begin(cancel)
-	m.turn.setWorking("coder: fix README.md")
+	id := m.turn.accept()
+	m.turn.begin(id, cancel)
+	m.turn.setWorking(id, "coder: fix README.md")
 	m.isLoading = true
 	return m, ctx
 }
@@ -108,7 +109,7 @@ func TestSideTurn_NewWorkQueuesAndStartsWhenTheTurnEnds(t *testing.T) {
 	}
 
 	// The running turn ends: the queued message starts as a turn.
-	m.turn.end()
+	m.turn.end(m.turn.current())
 	next, cmd := m.Update(responseMsg("README fixed."))
 	m = next.(Model)
 	if cmd == nil || !m.isLoading || m.turn.queuedCount() != 0 {

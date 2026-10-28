@@ -122,20 +122,32 @@ func (m Model) currentBrief() *perception.Brief {
 }
 
 // recordBrief replaces the kernel's brief with the one perception returned.
-// Nil (perception returned none) keeps the brief as it was.
+// Nil (perception returned none) keeps the brief as it was. It serializes
+// with side turns' kernel sections (turnState.decide).
 func (m Model) recordBrief(brief *perception.Brief) {
 	if m.kernel == nil || brief == nil {
 		return
 	}
-	for _, pred := range perception.BriefPredicates {
-		if err := m.kernel.Retract(pred); err != nil {
-			logging.Get(logging.CategoryKernel).Warn("brief: retract %s: %v", pred, err)
-		}
+	if m.turn != nil {
+		m.turn.decide.Lock()
+		defer m.turn.decide.Unlock()
 	}
-	if facts := brief.Facts(); len(facts) > 0 {
-		if err := m.kernel.AssertBatch(facts); err != nil {
-			logging.Get(logging.CategoryKernel).Error("brief: assert: %v", err)
-		}
+	m.writeBrief(brief)
+}
+
+// writeBrief swaps the brief in one transaction, so a reader sees the old
+// brief or the new one, never a brief half retracted. The caller holds
+// turnState.decide.
+func (m Model) writeBrief(brief *perception.Brief) {
+	tx := m.kernel.Transaction()
+	for _, pred := range perception.BriefPredicates {
+		tx.Retract(pred)
+	}
+	for _, f := range brief.Facts() {
+		tx.Assert(f)
+	}
+	if err := tx.Commit(); err != nil {
+		logging.Get(logging.CategoryKernel).Error("brief: replace: %v", err)
 	}
 }
 

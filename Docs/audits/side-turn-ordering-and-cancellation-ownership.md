@@ -1,7 +1,7 @@
 ---
 doc-class: deep-dive
 subsystem: cli
-implementation-status: planned
+implementation-status: partially-implemented (see As-built status)
 last-verified: 2026-10-28
 verified-against: ac2f1fd3425dab9c14ff9066f9bf10cad02acc75
 verification-method: static-source-inspection
@@ -225,3 +225,40 @@ Start by reconciling the conversation-first, CLI and relevant core-policy specs 
 [terminal-updates]: https://github.com/theRebelliousNerd/codenerd/blob/ac2f1fd3425dab9c14ff9066f9bf10cad02acc75/cmd/nerd/chat/model_update.go#L138-L201
 [error-update]: https://github.com/theRebelliousNerd/codenerd/blob/ac2f1fd3425dab9c14ff9066f9bf10cad02acc75/cmd/nerd/chat/model_update.go#L263-L280
 
+
+## As-built status
+
+Verified and built 2026-10-28 on `main` after `c28a1212` (the feature branch is merged; `side_turn.go`, `work_hold.go`, `model_update.go` and the Ctrl+X handler were unchanged from the audited pin). Every finding was still present.
+
+### Claim ledger
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| S1: `sideTurnMsg` carries no owner; `/stop` cancels whatever cancel is stored | Real, fixed | `sideTurnMsg.Owner` captured at receipt (`side_turn.go:300`); `applySideTurn` calls `stopExecution(msg.Owner)` and reports an ended turn as already finished (`side_turn.go:418`, `:171`) |
+| S1: `recordBrief` runs in the side command before the decision, unfenced | Real, fixed | Publication moved into the serialized kernel section after the decision and gated on owner, base brief and action (`decideSideTurn`, `side_turn.go:350`) |
+| S2: side predicates are retracted, then a Jev wait, then assert without retract; decisions can mix | Real, fixed | Judgments are awaited first; retract, assert and query run in one transaction under `turnState.decide`, never across a model call (`side_turn.go:350`) |
+| S2: whole-brief replacement retracts five predicates one by one with no version check | Real, fixed | `writeBrief` swaps in one `Transaction` (`work_hold.go:141`); side publication compares the rendered brief it was read with (content compare-and-swap) and reports a conflict instead of overwriting; `recordBrief` serializes with side sections (`work_hold.go:127`); `chatKernel` exposes `Transaction` (`model_types.go:603`) |
+| S2: a `/later` message publishes its brief while its work is deferred | Real, fixed | `/later` never publishes; the full turn reads it again when it runs |
+| S3: Ctrl+X sets idle and the queue drains while the canceled turn unwinds; its `end()` clears the successor | Real, fixed | `accept`/`begin`/`end`/`setWorking` are keyed by execution id (`side_turn.go:79-131`); `startQueuedTurn` requires the slot to be free (`side_turn.go:458`); Enter during wind-down queues (`model_key_handler.go:249`, `side_turn.go:279`) |
+| S3: terminal messages set idle without an owner | Real, contained, not fixed at the message | A stale terminal message can still clear `isLoading`, but dispatch now reads the owned slot, so it cannot start a second foreground turn; see left open |
+| S3: an interrupt before registration finds no cancel | Real, fixed | `processInput` accepts on the caller's thread (`process.go:50`); a stop before `begin` is latched and applied there; `end` is deferred first so the early guards release the slot |
+| S4: side `/later` messages are queued at decision time, so classification order reorders them | Real, fixed | `reserve` at receipt, `settle` at decision; a pending head holds the queue (`side_turn.go:200-246`) |
+| Stop must not silently discard queued successors | Ruled: Ctrl+X stops the running turn only; queued messages are kept and the stop notice counts them (`model_key_handler.go:75`) |
+| Isolated delegate consumes an amended brief on its next request | Not verified, left open | Only the parent kernel's brief is checked |
+
+### What was built
+
+- Rulings: (1) one accepted foreground execution owns the slot; a newer accept supersedes an unended owner (logged), and an execution superseded or stopped before `begin` is canceled at `begin`. (2) A side turn's decision is isolated by serialization over a transactionally replaced fact set, not by owner-keyed predicates; the `.mg` rules are unchanged. (3) Brief versioning is a compare of the rendered brief, not a stored counter. (4) Queue order is receipt order; no priority policy was added. (5) Ctrl+X keeps the queue.
+- `cmd/nerd/chat/side_turn.go`, `work_hold.go`, `process.go` (accept, begin, end, setWorking by id), `model_key_handler.go`, `model_types.go`.
+- Spec: `Docs/architecture/conversation-first-agent.md`, "Talking while work runs".
+
+### Tests
+
+`cmd/nerd/chat/side_turn_ownership_test.go`: delayed stop after A ended does not cancel B; a stale side turn does not replace B's brief; a brief change during the read is not overwritten and is reported; `/later` keeps the active brief; two concurrent decisions where A waits on judgments while B decides stop yield `/converse` for A (deterministic: a context probe parks A at its wait); Ctrl+X with a queued message waits for the stopped turn, queues a newly typed message, then starts it, and a duplicate late `end` does not release the successor; a stop before start is latched; receipt order holds when the later message classifies first. The existing side-turn and classification-stop journeys pass with ids.
+
+### Left open
+
+- Terminal messages (`responseMsg`, `errorMsg`, ...) still carry no execution id, so a stopped turn's result can clear the spinner of a successor started by another path (`/go`, a background follow-up). Dispatch is fenced; the cosmetic flag is not. Wrapping every terminal message would change the message types many tests and handlers match on.
+- The foreground turn's `recordBrief` (`process.go`) is serialized but not compare-and-swapped against the brief it perceived with; only side turns check their base.
+- A message typed directly (not queued) after the foreground ends can start before an earlier side message still being classified.
+- SIDE-OWNER-05 (delivery of a brief amendment into a running isolated delegate's next request) and the Section "Cost" measurements were not run.
