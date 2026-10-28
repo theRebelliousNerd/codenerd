@@ -313,8 +313,10 @@ func TestIncrementalScanSurfacesOrientationFailureAndCancellation(t *testing.T) 
 	if err := os.Remove(filepath.Join(root, "README.md")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := scanner.ScanWorkspaceIncremental(context.Background(), root, nil, IncrementalOptions{SkipWhenUnchanged: true}); err == nil || !strings.Contains(err.Error(), "incremental orientation refresh") {
-		t.Fatalf("missing tracked-document error = %v; want surfaced refresh failure", err)
+	// A tracked document deleted and not yet committed is a removed document,
+	// not a refresh failure: every boot used to fail the scan on one.
+	if _, err := scanner.ScanWorkspaceIncremental(context.Background(), root, nil, IncrementalOptions{SkipWhenUnchanged: true}); err != nil {
+		t.Fatalf("scan after an uncommitted deletion: %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

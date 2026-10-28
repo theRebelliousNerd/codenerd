@@ -20,6 +20,7 @@ const (
 	NamesTarget      = "names_target"
 	Hypothetical     = "hypothetical"
 	AboutCodeNERD    = "about_codenerd"
+	AssistantState   = "asks_assistant_state"
 	WantsToStop      = "wants_to_stop"
 	RulesOutChanges  = "rules_out_changes"
 	ApprovesHeldWork = "approves_held_work"
@@ -56,6 +57,13 @@ func fixedQuestions() map[string]typesafe.Question {
 			Criteria: &typesafe.NoulCriteria{
 				True:  "The user asks why the assistant failed, asks it to debug itself, or points it at its own logs.",
 				False: "The user asks about their own code or project, even code that has bugs.",
+			},
+		},
+		AssistantState: typesafe.Noul{
+			Instructions: "Is the user asking what the assistant's own current mode or settings are?",
+			Criteria: &typesafe.NoulCriteria{
+				True:  "The user asks which mode the assistant is in, whether one of its own settings or features is on, or which model it uses.",
+				False: "The user asks the assistant to change something, to investigate a failure, or about code or settings in their own project.",
 			},
 		},
 		RulesOutChanges: typesafe.Noul{

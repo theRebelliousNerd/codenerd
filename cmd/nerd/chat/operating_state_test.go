@@ -34,17 +34,20 @@ func TestOperatingState_ReachesTheMainAgentsContext(t *testing.T) {
 }
 
 // A question perception filed as /self_diagnose is answered directly when Jev
-// reads it as not asking codeNERD to investigate its failures, and still
-// starts the diagnosis when Jev says it is.
+// reads it as not asking codeNERD to investigate its failures, or as asking
+// about its own mode or settings, and still starts the diagnosis when Jev says
+// it is about its failures.
 func TestSelfDiagnoseQuestion_JevDecidesBetweenAnswerAndDiagnosis(t *testing.T) {
 	question := perception.Intent{Category: "/query", Verb: "/self_diagnose", Target: "debug-self mode", Confidence: 0.9, IsQuestion: true}
 	for _, tc := range []struct {
 		name     string
-		percent  int64
+		about    int64
+		state    int64
 		diagnose bool
 	}{
-		{"a status question answers directly", 27, false},
-		{"a request to investigate itself diagnoses", 91, true},
+		{"a status question Jev reads as not about failures answers directly", 27, 5, false},
+		{"a status question with about_codenerd unsettled answers directly", 31, 98, false},
+		{"a request to investigate itself diagnoses", 91, 3, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := admissionModel(t, config.WorkModePropose, nil)
@@ -52,7 +55,10 @@ func TestSelfDiagnoseQuestion_JevDecidesBetweenAnswerAndDiagnosis(t *testing.T) 
 				t.Fatal(err)
 			}
 			assertRouteIntent(t, m, question)
-			if err := m.kernel.Assert(core.Fact{Predicate: "jev_judgment", Args: []any{types.MangleString("about_codenerd"), tc.percent}}); err != nil {
+			if err := m.kernel.AssertBatch([]core.Fact{
+				{Predicate: "jev_judgment", Args: []any{types.MangleString("about_codenerd"), tc.about}},
+				{Predicate: "jev_judgment", Args: []any{types.MangleString("asks_assistant_state"), tc.state}},
+			}); err != nil {
 				t.Fatal(err)
 			}
 			route := m.decideRoute("is debug-self on?", question, "reviewer")

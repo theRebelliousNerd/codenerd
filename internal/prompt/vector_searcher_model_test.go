@@ -326,4 +326,3 @@ func TestWarnSkipped_OnlyWhenTheSkippedSetChanges(t *testing.T) {
 		t.Fatal("nothing skipped must not warn")
 	}
 }
-

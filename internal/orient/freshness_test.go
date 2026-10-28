@@ -107,6 +107,45 @@ func TestRefreshUnchangedMemoizedAndEditInvalidates(t *testing.T) {
 	}
 }
 
+// A tracked document deleted from the working tree, not yet committed, is a
+// removed document, not a read error. Dogfooding, every boot showed "Scan
+// failed: observe tracked document .agents/skills/corpus-build/AGENTS.md: no
+// such file or directory" while that deletion sat uncommitted.
+func TestRefreshUncommittedDeletionIsARemovedDocument(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	runGit(t, root, "init")
+	for _, name := range []string{"DESIGN.md", "AGENTS.md"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("# "+name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "origin")
+	s, err := Measure(ctx, root, config.DefaultOrientConfig(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := s.Engine(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	if err := s.Save(root, e); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Refresh(ctx, root, nil)
+	if err != nil {
+		t.Fatalf("refresh after an uncommitted deletion: %v", err)
+	}
+	if len(out.Stale) == 0 {
+		t.Fatalf("refresh = %+v, want the deleted document to make the orientation stale", out)
+	}
+}
+
 func TestRefreshHistoryDeltaPreservesDays(t *testing.T) {
 	base, _, err := factsFromGitLog(strings.NewReader(commitMarker+"aaaa|1767225600\nA\tDESIGN.md\n"), false)
 	if err != nil {

@@ -58,13 +58,13 @@ func TestJudge_AsksEveryQuestionAndProjectsFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	qs := (*seen)["questions"].(map[string]any)
-	for _, name := range []string{ChangesFiles, NamesTarget, Hypothetical, AboutCodeNERD, WantsToStop, RulesOutChanges, ApprovesHeldWork, AddsToHeldWork, "answered_0"} {
+	for _, name := range []string{ChangesFiles, NamesTarget, Hypothetical, AboutCodeNERD, AssistantState, WantsToStop, RulesOutChanges, ApprovesHeldWork, AddsToHeldWork, "answered_0"} {
 		if _, ok := qs[name]; !ok {
 			t.Errorf("question %s was not asked", name)
 		}
 	}
-	if len(qs) != 9 {
-		t.Errorf("asked %d questions, want exactly the 9 the rules read: %v", len(qs), qs)
+	if len(qs) != 10 {
+		t.Errorf("asked %d questions, want exactly the 10 the rules read: %v", len(qs), qs)
 	}
 	if got := qs["answered_0"].(map[string]any)["instructions"].(map[string]any)["open_question"]; got != "which algorithm?" {
 		t.Errorf("the open question is not a field of its own judgment: %v", got)

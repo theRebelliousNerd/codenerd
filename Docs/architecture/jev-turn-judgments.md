@@ -87,7 +87,8 @@ as `side_turn_judgment(Name, Percent)`.
 | `names_target` | every turn | `jev_disputes_mutation`, `needs_clarification` | A mutation, or a change request, that names no code asks first. |
 | `hypothetical` | every turn | `jev_disputes_mutation`; `jev_restriction(/hypothetical)` | A "what if" read as a mutation asks first. The turn runs under the hypothetical restriction. |
 | `rules_out_changes` | every turn | `jev_restriction(/read_only)` | "Just look, don't touch" restricts the turn to read-only (constitution.mg 7D). |
-| `about_codenerd` | every turn | `self_diagnosis_lane` | Read-only background work about codeNERD's own failures becomes the self-diagnosis chain. |
+| `about_codenerd` | every turn | `self_diagnosis_lane`; `wants_direct_answer` (self_diagnosis.mg) | Read-only background work about codeNERD's own failures becomes the self-diagnosis chain. A /self_diagnose question it reads as no is answered directly. |
+| `asks_assistant_state` | every turn | `wants_direct_answer` (self_diagnosis.mg) | "What mode are you in, is debug-self on?" is answered from the operating state the main agent is given, not with a diagnosis job. |
 | `wants_to_stop` | while work runs (`running_work`: the running turn, background jobs) | `stop_background_requested`; `side_turn_wants(/stop)` | Running background jobs are cancelled. A side-turn "stop" stops the running turn. |
 | `approves_held_work` | while work is held | `approve_lane`, with... | A go-ahead that perception misread still approves the held work. |
 | `adds_to_held_work` | while work is held | ...`approve_lane` needs it to read no | "Go, and also X" is not approval: it is a new request. |

@@ -173,29 +173,41 @@ func TestCollectDocs_SimilarityCacheAndFailure(t *testing.T) {
 	}
 }
 
+// A tracked document that cannot be read is reported unreadable. One deleted
+// from the working tree and not yet committed is not a document at all: the
+// deletion is the user's, and the freshness rules see it as removed.
 func TestCollectDocs_UnreadableTrackedFile(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a mode-000 file")
+	}
 	root := t.TempDir()
 	git(t, root, time.Time{}, "init")
 	writeFile(t, root, "gone.md", "still tracked\n")
+	writeFile(t, root, "locked.md", "still tracked\n")
 	when := time.Date(2020, 1, 15, 0, 0, 0, 0, time.UTC)
-	git(t, root, when, "add", "gone.md")
+	git(t, root, when, "add", "gone.md", "locked.md")
 	git(t, root, when, "commit", "-m", "add")
 	if err := os.Remove(root + string(os.PathSeparator) + "gone.md"); err != nil {
 		t.Fatal(err)
 	}
+	locked := root + string(os.PathSeparator) + "locked.md"
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o644) })
 	scan, err := CollectDocs(context.Background(), root, config.DefaultOrientConfig(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(scan.Unreadable, ",") != "gone.md" {
-		t.Fatalf("unreadable %v", scan.Unreadable)
+	if strings.Join(scan.Unreadable, ",") != "locked.md" {
+		t.Fatalf("unreadable %v, want only the file that cannot be read", scan.Unreadable)
 	}
 	for _, f := range factsNamed(scan.Facts, "doc_file") {
-		if types.ExtractString(f.Args[0]) == "gone.md" {
-			t.Fatal("unreadable file was asserted")
+		if name := types.ExtractString(f.Args[0]); name == "gone.md" || name == "locked.md" {
+			t.Fatalf("%s was asserted", name)
 		}
 	}
 	if strings.Contains(scan.SimilarityNote, "config.json") {

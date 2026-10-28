@@ -15,7 +15,7 @@ import (
 func TestJevJourney_UnsettledJudgmentsAreNamedAndActOnNothing(t *testing.T) {
 	m, exec := journeyModel(t, config.WorkModeYolo, fixReadmeTurn("Fixing it.", nil))
 	unsettled := map[string]float64{
-		"changes_files": 0.5, "names_target": 0.5, "hypothetical": 0.5, "rules_out_changes": 0.5, "about_codenerd": 0.5,
+		"changes_files": 0.5, "names_target": 0.5, "hypothetical": 0.5, "rules_out_changes": 0.5, "about_codenerd": 0.5, "asks_assistant_state": 0.5,
 	}
 	m = withJev(t, m, &fakeJevServer{probs: unsettled})
 	intent := fixReadmeTurn("", nil)

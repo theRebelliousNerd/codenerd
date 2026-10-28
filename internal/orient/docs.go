@@ -201,6 +201,10 @@ func collectDocBodies(ctx context.Context, root string, cfg config.OrientConfig,
 	return scan, nil
 }
 
+// trackedDocs lists the git-tracked documents present in the working tree. A
+// document deleted but not yet committed is still in the index; it is left
+// out, so the freshness rules see it as removed (freshness.mg) instead of
+// every refresh failing to read it.
 func trackedDocs(ctx context.Context, root string) ([]string, error) {
 	cmd := gitCmd(ctx, root, "-c", "core.quotePath=false", "-c", "safe.directory=*", "ls-files", "-z")
 	out, err := cmd.Output()
@@ -215,6 +219,12 @@ func trackedDocs(ctx context.Context, root string) ([]string, error) {
 		p := cleanGitPath(string(raw))
 		if p == "" || !isDocPath(p) {
 			continue
+		}
+		if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(p))); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("orient docs: %s: %w", p, err)
 		}
 		paths = append(paths, p)
 	}
