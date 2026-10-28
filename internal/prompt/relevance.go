@@ -309,10 +309,10 @@ func relevanceFacts(out relevanceOutcome, cfg AtomRelevance) []any {
 	return facts
 }
 
-// logRelevance records what the judgment did to this compile's flesh: how
-// many pooled atoms Jev read as applying, unsettled or not applying, and how
-// many vector slots it refused or extra atoms it admitted.
-func logRelevance(cc *CompilationContext, cfg AtomRelevance, out relevanceOutcome, pool, slots map[string]float64) {
+// logRelevance records the judgment itself: the pool, how much was asked or
+// served from the turn's cache, and how long it took. What the kernel did
+// with it is logged after the query (logRelevanceAdmission).
+func logRelevance(cc *CompilationContext, out relevanceOutcome, pool, slots map[string]float64) {
 	log := logging.Get(logging.CategoryJIT)
 	shard := ""
 	if cc != nil {
@@ -323,27 +323,46 @@ func logRelevance(cc *CompilationContext, cfg AtomRelevance, out relevanceOutcom
 			shard, out.Err, out.Elapsed.Round(time.Millisecond), len(slots), len(pool), out.CacheHits)
 		return
 	}
-	var applies, unsettled, refused, admittedExtra, refusedSlots int
-	for id, pct := range out.Percent {
-		_, slot := slots[id]
-		switch {
-		case pct >= int64(cfg.YesPercent):
-			applies++
-			if !slot {
-				admittedExtra++
-			}
-		case pct <= int64(cfg.NoPercent):
-			refused++
-			if slot {
-				refusedSlots++
-			}
-		default:
-			unsettled++
-		}
+	log.Info("JIT[%s] atom relevance: %d pooled (%d vector slots), %d asked + %d cached in %s",
+		shard, len(pool), len(slots), out.Judged, out.CacheHits, out.Elapsed.Round(time.Millisecond))
+}
+
+// logRelevanceAdmission reads the kernel's admission table for this compile
+// (jit_compiler.mg flesh_admitted / flesh_refused) and records which row
+// admitted each flesh atom and which atoms Jev's reading refused. The
+// decision is the kernel's; this only reports it.
+func logRelevanceAdmission(kernel KernelQuerier, cc *CompilationContext) {
+	shard := ""
+	if cc != nil {
+		shard = cc.ShardID
 	}
-	log.Info("JIT[%s] atom relevance: %d pooled (%d vector slots), %d asked + %d cached in %s: applies=%d unsettled=%d does_not_apply=%d; admitted %d beyond the vector slots, refused %d vector slots",
-		shard, len(pool), len(slots), out.Judged, out.CacheHits, out.Elapsed.Round(time.Millisecond),
-		applies, unsettled, refused, admittedExtra, refusedSlots)
+	rows := func(predicate string, facts []Fact, err error) map[string][]string {
+		if err != nil {
+			logging.Get(logging.CategoryJIT).Warn("JIT[%s] %s: %v", shard, predicate, err)
+			return nil
+		}
+		out := map[string][]string{}
+		for _, f := range facts {
+			if len(f.Args) != 2 {
+				continue
+			}
+			id, err1 := extractStringArg(f.Args[0])
+			row, err2 := extractStringArg(f.Args[1])
+			if err1 != nil || err2 != nil {
+				continue
+			}
+			out[row] = append(out[row], id)
+		}
+		for _, ids := range out {
+			sort.Strings(ids)
+		}
+		return out
+	}
+	admittedFacts, admittedErr := kernel.Query("flesh_admitted(Atom, Row)")
+	admitted := rows("flesh_admitted", admittedFacts, admittedErr)
+	refusedFacts, refusedErr := kernel.Query("flesh_refused(Atom, Row)")
+	refused := rows("flesh_refused", refusedFacts, refusedErr)
+	logging.Get(logging.CategoryJIT).Info("JIT[%s] flesh admission: admitted %v; refused %v", shard, admitted, refused)
 }
 
 // SetAtomRelevance turns the compiler's per-turn relevance on or off. Cached

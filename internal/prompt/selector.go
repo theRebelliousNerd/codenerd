@@ -817,7 +817,7 @@ func (s *AtomSelector) runSelection(
 		if rel := s.relevanceSnapshot(); rel.Judge != nil && rel.Pool > 0 && cc.SemanticQuery != "" {
 			if pool := s.recallPool(rawScores, slots, fleshAtoms, cc, rel.Pool); len(pool) > 0 {
 				out := s.judgeRelevance(ctx, rel, cc, pool, fleshAtoms)
-				logRelevance(cc, rel, out, pool, slots)
+				logRelevance(cc, out, pool, slots)
 				if out.Err == nil {
 					vectorScores = pool
 					relevancePercent = out.Percent
@@ -1221,6 +1221,10 @@ func (s *AtomSelector) queryFleshAtoms(
 			logging.Get(logging.CategoryContext).Warn("No kernel for flesh selection, using context matching")
 		}
 		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc, forcedMandatory)
+	}
+
+	if relevancePercent != nil {
+		logRelevanceAdmission(kernel, cc)
 	}
 
 	results, err := kernel.Query("selected_result(Atom, Source)")

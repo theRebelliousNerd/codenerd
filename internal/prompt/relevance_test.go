@@ -253,3 +253,23 @@ func (s *AtomSelector) runSelectionFor(ctx context.Context, atoms []*PromptAtom,
 	merged, _, err := s.runSelection(ctx, atoms, cc, k, false)
 	return merged, err
 }
+
+// queryLog records the predicates queried.
+type queryLog struct{ queries []string }
+
+func (q *queryLog) Query(p string) ([]Fact, error) {
+	q.queries = append(q.queries, p)
+	return []Fact{{Predicate: "x", Args: []any{"a", "/judged_applies"}}}, nil
+}
+func (q *queryLog) AssertBatch([]any) error { return nil }
+
+// TestRelevanceAdmission_ReportsTheKernelsRows: after a judged compile the
+// selector reads the kernel's admission table rather than recomputing the
+// bands in Go.
+func TestRelevanceAdmission_ReportsTheKernelsRows(t *testing.T) {
+	q := &queryLog{}
+	logRelevanceAdmission(q, relevanceContext())
+	if strings.Join(q.queries, ";") != "flesh_admitted(Atom, Row);flesh_refused(Atom, Row)" {
+		t.Fatalf("queried %v", q.queries)
+	}
+}
