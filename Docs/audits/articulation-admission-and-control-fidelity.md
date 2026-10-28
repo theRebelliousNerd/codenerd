@@ -294,3 +294,58 @@ The first useful increment is narrow: make `Process` and the live stream agree o
 [protocol]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/articulation/protocol_types.go#L49-L215
 [payload]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/cmd/nerd/chat/helpers_articulation.go#L67-L79
 
+## Feature refresh: implemented admission controls and candidate-scan completeness
+
+**Source freeze:** rechecked at approximately 10:14 UTC on 2026-10-28. Main remains `356f65e0e6bb639adaa90ab36212daa714114871`; `feat/conversation-brief` remains [`c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c`](https://github.com/theRebelliousNerd/codenerd/commit/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c). This appendix is static source inspection. No tests, application runs, model calls, implementation or repository writes were performed.
+
+### Credit the implemented feature slice
+
+The feature’s [as-built ledger](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/Docs/audits/articulation-admission-and-control-fidelity.md#as-built-2026-10-28) records substantial implementation, not merely a plan:
+
+- Admission rejects duplicate member names after decoding and case folding; direct parsing requires one complete object. Embedded extraction rejects multiple **retained, successfully parsed** envelopes. [Admission scanner](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/articulation/admission.go#L55-L150), [final parsing and extraction](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/articulation/emitter.go#L616-L748).
+- `ControlsApplied` prevents a promoted response’s display text from being parsed again at the task tail. This closes the earlier inner-example witness on that path; it is not a durable cross-attempt exactly-once receipt. [Promotion](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/session/piggyback_promotion.go#L10-L78), [terminal admission](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/session/executor.go#L2432-L2483).
+- Parser removals and Mangle/memory application outcomes now have dispositions. Chat keeps unsuccessful controls separate from applied controls and preserves `Intent.Constraint` in its compression handoff. [Disposition types](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/articulation/disposition.go#L24-L119), [chat handoff](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/cmd/nerd/chat/control_outcome.go#L9-L71).
+
+**Partial** remains the appropriate overall status. The feature explicitly defers request-declared plain/envelope mode, a distinct provisional UI state, durable response/attempt identity, candidate-action dispositions and named coercion receipts. Those are documented limitations, not newly discovered absences.
+
+### Residual: candidate eviction can conceal ambiguity
+
+The new uniqueness decision consumes a bounded candidate list, but the candidate scanner does not report whether it discarded potentially valid envelopes.
+
+`findJSONCandidates` retains at most **64 marker-bearing candidates**, dropping the earliest beyond that cap. It separately retains at most **50 “noise” candidates**. Classification uses the literal substring `"surface_response"`, not the decoded/case-folded identity used by final admission. The function returns only the retained strings—no overflow or completeness status. [Scanner and eviction branches](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/articulation/json_scanner.go#L16-L132).
+
+`extractEmbeddedJSON` then counts successful parses **within that retained list**. Exactly one yields an admitted envelope. [Consumer](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/articulation/emitter.go#L700-L741).
+
+A source-derived fixture is:
+
+```text
+A = {"surface_response":"first","control_packet":{"intent_classification":{"category":"/query","verb":"/read","target":"t","confidence":0.9},"mangle_updates":[],"memory_operations":[],"tool_requests":[]}}
+D = {"surface_response":""}
+B = {"surface_response":"second","control_packet":{"intent_classification":{"category":"/query","verb":"/read","target":"t","confidence":0.9},"mangle_updates":[],"memory_operations":[],"tool_requests":[]}}
+
+response = A + whitespace + 63 copies of D + whitespace + B
+```
+
+There are 65 rich candidates and two individually valid envelopes. A and B use canonical member names and valid control packets; the witness does not depend on case-alias tolerance:
+
+1. Direct and Markdown parsing cannot accept the concatenated objects.
+2. Candidate retention evicts A when B becomes the 65th rich candidate.
+3. Each retained D is explicitly rejected because its surface is empty. [Required-surface check](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/articulation/emitter.go#L651-L655).
+4. Only B parses successfully, so extraction returns B as admitted rather than reporting ambiguity.
+
+A second variant replaces A’s surface key with `"surface_respons\u0065"`, retaining its valid control packet, then follows it with 50 `{}` objects and canonical B. A is valid under final decoding but classified as scanner noise; noise eviction removes it before uniqueness is assessed. A case-variant surface key offers a related witness only in the tolerant production profile; strict mode rejects that alias, so it must not be used as a strict-profile positive control.
+
+These are deductions from the inspected branches, **not executed reproductions**. They establish an incomplete ambiguity check, not a demonstrated permission bypass. A surviving envelope’s controls still face their ordinary downstream gates.
+
+### Narrow completion criterion
+
+Keep the resource bounds. Do not repair this by retaining or decoding an unlimited number of objects. Instead, make candidate discovery report omissions/completeness, and ensure incomplete extraction cannot establish unique control-envelope admission. A bounded conservative rejection is preferable to silently selecting whichever valid envelope survived eviction.
+
+Proposed, **unrun** validation should exercise `ResponseProcessor.Process`, not only the scanner:
+
+- Valid envelopes before and after the 64-rich-candidate boundary, separated by malformed marker-bearing objects.
+- Escaped-key valid envelopes around the 50-noise-candidate boundary in both profiles; case-variant equivalents only in the tolerant profile, with strict rejection as a separate control.
+- Ordinary single envelopes, harmless surrounding objects and existing duplicate-key cases as positive controls.
+- Assertions on admission status, selected surface and absence of executable controls—not candidate count alone.
+
+The existing [rich-candidate cap test](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/articulation/articulation_uplift_test.go#L159-L170) verifies bounded retention. It does not establish ambiguity preservation after eviction.
