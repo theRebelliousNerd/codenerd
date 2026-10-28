@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"codenerd/internal/perception"
 )
@@ -111,28 +113,74 @@ func TestSemanticCompressor_Compress_TypeCoercion(t *testing.T) {
 }
 
 func TestSemanticCompressor_Compress_UserRequestExtremes(t *testing.T) {
+	const limit = 60000
+	var calls, finals int
+	var mu sync.Mutex
 	mockClient := &MockLLMClient{
 		CompleteWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-			if len(userPrompt) > 70000 {
+			mu.Lock()
+			defer mu.Unlock()
+			calls++
+			if len(userPrompt) > limit+2000 {
 				return "", fmt.Errorf("prompt too large! size: %d", len(userPrompt))
 			}
-			if !strings.Contains(userPrompt, "[... CONVERSATION TRUNCATED DUE TO LENGTH ...]") {
-				return "", fmt.Errorf("prompt was not truncated")
+			if strings.Contains(userPrompt, "TRUNCATED") {
+				return "", fmt.Errorf("history was dropped instead of summarized")
+			}
+			if strings.Contains(userPrompt, "<summary part=") {
+				finals++
 			}
 			return "Summary", nil
 		},
 	}
 	compressor := NewSemanticCompressor(mockClient)
+	compressor.allowance = func() int { return limit }
 
-	// Gap 6 & 7: 100,000 items
+	// Gap 6 & 7: 100,000 items. Every one must reach a summary: the history
+	// is ~8 MB, so it is summarized in parts and the part summaries again.
 	var turns []perception.ConversationTurn
 	for range 100000 {
 		turns = append(turns, perception.ConversationTurn{Role: "user", Content: "A very long turn content that goes on and on."})
 	}
 
-	_, err := compressor.Compress(context.Background(), turns)
+	got, err := compressor.Compress(context.Background(), turns)
 	if err != nil {
 		t.Fatalf("Compress failed: %v", err)
+	}
+	if got != "Summary" || calls < 3 || finals != 1 {
+		t.Fatalf("summary %q after %d calls (%d over part summaries); want parts then one final", got, calls, finals)
+	}
+}
+
+// One turn larger than the allowance is split inside, rune-safe, not cut.
+func TestPackParts_SplitsAnOversizedTurnWithoutLoss(t *testing.T) {
+	line := strings.Repeat("é", 50) // 100 bytes
+	parts := packParts([]string{"ab", line, "cd"}, 30)
+	joined := strings.Join(parts, "")
+	if joined != "ab"+line+"cd" {
+		t.Fatalf("parts lost or reordered text: %q", joined)
+	}
+	for _, p := range parts {
+		if len(p) > 30 || !utf8.ValidString(p) {
+			t.Fatalf("part %q exceeds the bound or splits a rune", p)
+		}
+	}
+}
+
+// Summaries that never shrink stop with an error rather than looping.
+func TestSemanticCompressor_StopsWhenSummariesDoNotShrink(t *testing.T) {
+	compressor := NewSemanticCompressor(&MockLLMClient{
+		CompleteWithSystemFunc: func(context.Context, string, string) (string, error) {
+			return strings.Repeat("x", 500), nil
+		},
+	})
+	compressor.allowance = func() int { return 400 }
+	turns := make([]perception.ConversationTurn, 20)
+	for i := range turns {
+		turns[i] = perception.ConversationTurn{Role: "user", Content: strings.Repeat("y", 300)}
+	}
+	if _, err := compressor.Compress(context.Background(), turns); err == nil {
+		t.Fatal("Compress returned no error for summaries that never shrink")
 	}
 }
 

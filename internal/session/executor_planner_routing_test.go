@@ -165,6 +165,20 @@ func TestSetPlannerClient_IgnoresSameClient(t *testing.T) {
 func TestRunToolLoop_UsesOneClientForTheWholeTurn(t *testing.T) {
 	// The tool loop only takes the native multi-turn path when it has real tool
 	// definitions, which come from the global registry.
+	// Take back out at cleanup every tool this added: left registered, the
+	// core create_file collided with the test tool of that name the next
+	// test registers under -count=2.
+	before := make(map[string]bool)
+	for _, name := range tools.Global().Names() {
+		before[name] = true
+	}
+	t.Cleanup(func() {
+		for _, name := range tools.Global().Names() {
+			if !before[name] {
+				tools.Global().Unregister(name)
+			}
+		}
+	})
 	if err := toolscore.RegisterAll(tools.Global()); err != nil {
 		t.Fatalf("RegisterAll: %v", err)
 	}
