@@ -315,23 +315,13 @@ jobs:
         run: go test -race -tags sqlite_vec ./internal/mcp/... ./internal/store/...
 
   simd:
-    # Closes the retrieval backlog item "SIMD-tagged CI job".
-    #
-    # This job is the reason the tag works at all. Adding it first proved the
-    # `simd` build had never compiled against the toolchain in go.mod:
-    # internal/mangle and internal/retrieval each built an archsimd vector and
-    # then read it back element by element - scalar comparisons wearing a SIMD
-    # costume - which Go 1.26 rejects because those vectors are opaque structs.
-    # Both were deleted; their generic implementations are now unconditional.
-    #
-    # What remains behind the tag is internal/embedding, which uses the real
-    # API (LoadFloat32x8Slice + horizontal reduction). Without this job that
-    # path is never compiled, which is exactly how the other two rotted.
-    #
-    # GOEXPERIMENT=simd is required: simd/archsimd is gated behind it, and
-    # without it the import fails with "build constraints exclude all Go files".
+    # Builds and tests the GOEXPERIMENT=simd configuration the binaries ship
+    # with. The experiment alone selects internal/embedding's AVX2+FMA cosine
+    # kernel (math_amd64.go, build constraint goexperiment.simd && amd64);
+    # without this job that file is never compiled, which is how the earlier
+    # archsimd code rotted against a toolchain upgrade.
     name: simd (experiment)
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
       GOEXPERIMENT: simd
@@ -341,7 +331,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Build with the simd tag
-        run: go build -tags "sqlite_vec simd" ./...
-      - name: Test the SIMD-selected packages
-        run: go test -tags "sqlite_vec simd" ./internal/embedding/... ./internal/mangle/... ./internal/retrieval/...
+      - name: Build with the simd experiment
+        run: go build -tags sqlite_vec ./...
+      - name: Test the SIMD kernel against the scalar reference
+        run: go test -tags sqlite_vec ./internal/embedding/... ./internal/retrieval/...

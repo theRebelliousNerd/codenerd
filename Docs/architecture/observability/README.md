@@ -2,7 +2,7 @@
 
 > Last verified against codebase: 2026-07-13  
 > Status: Living Reference Document — code-grounded  
-> Language: Go (module `codenerd`, `go 1.26.0`)  
+> Language: Go (module `codenerd`, `go 1.27.3`)  
 > Primary package: `internal/observability/`  
 > Scale: **2** non-test Go files ≈ **326** lines; **3** test files ≈ **369** lines; **0** `.mg`
 

@@ -1,65 +1,42 @@
-//go:build amd64 && simd
+//go:build goexperiment.simd && amd64
 
 package embedding
 
-import (
-	"fmt"
-	"math"
-	"simd/archsimd"
+import "simd/archsimd"
 
-	"codenerd/internal/logging"
-)
+// hasAVX2FMA is read once: the kernel below needs both 256-bit lanes and
+// fused multiply-add.
+var hasAVX2FMA = archsimd.X86.AVX2() && archsimd.X86.FMA()
 
-// CosineSimilarity calculates the cosine similarity using AVX2 SIMD operations.
-// Returns a value between -1 and 1, where 1 means identical, 0 means orthogonal.
-func CosineSimilarity(a, b []float32) (float64, error) {
-	if len(a) != len(b) {
-		logging.Get(logging.CategoryEmbedding).Error("CosineSimilarity: vector dimension mismatch: %d != %d", len(a), len(b))
-		return 0, fmt.Errorf("vectors must have the same length: %d != %d", len(a), len(b))
+// cosineSums accumulates the three sums in eight float32 lanes with fused
+// multiply-add and reduces the lanes once, in float64, at the end. The tail
+// shorter than a lane goes through the scalar kernel.
+//
+// Accumulating in float32 lanes differs from the float64 reference by
+// rounding only: over a 768-dimension embedding each lane sums 96 products.
+func cosineSums(a, b []float32) (dot, aa, bb float64) {
+	if !hasAVX2FMA || len(a) < 8 {
+		return cosineSumsScalar(a, b)
 	}
-
-	logging.EmbeddingDebug("Computing cosine similarity for vectors of dimension %d", len(a))
-
-	var dotProduct, aMagnitude, bMagnitude float64
+	b = b[:len(a)]
+	var vdot, vaa, vbb archsimd.Float32x8
 	i := 0
-
-	// Process 8 float32s at a time (256-bit AVX2)
 	for ; i+8 <= len(a); i += 8 {
-		va := archsimd.LoadFloat32x8Slice(a[i : i+8])
-		vb := archsimd.LoadFloat32x8Slice(b[i : i+8])
-
-		// Multiply
-		dotVec := va.Mul(vb)
-		aMagVec := va.Mul(va)
-		bMagVec := vb.Mul(vb)
-
-		// The experimental SIMD API keeps lanes opaque. Store each product to a
-		// fixed array for the horizontal reduction instead of relying on the old
-		// public-lane struct representation.
-		var dotLanes, aMagLanes, bMagLanes [8]float32
-		dotVec.Store(&dotLanes)
-		aMagVec.Store(&aMagLanes)
-		bMagVec.Store(&bMagLanes)
-		for lane := range dotLanes {
-			dotProduct += float64(dotLanes[lane])
-			aMagnitude += float64(aMagLanes[lane])
-			bMagnitude += float64(bMagLanes[lane])
-		}
+		va := archsimd.LoadFloat32x8(a[i : i+8])
+		vb := archsimd.LoadFloat32x8(b[i : i+8])
+		vdot = va.MulAdd(vb, vdot)
+		vaa = va.MulAdd(va, vaa)
+		vbb = vb.MulAdd(vb, vbb)
 	}
-
-	// Handle the remainder
-	for ; i < len(a); i++ {
-		dotProduct += float64(a[i] * b[i])
-		aMagnitude += float64(a[i] * a[i])
-		bMagnitude += float64(b[i] * b[i])
+	var ld, la, lb [8]float32
+	vdot.StoreArray(&ld)
+	vaa.StoreArray(&la)
+	vbb.StoreArray(&lb)
+	for lane := range ld {
+		dot += float64(ld[lane])
+		aa += float64(la[lane])
+		bb += float64(lb[lane])
 	}
-
-	if aMagnitude == 0 || bMagnitude == 0 {
-		logging.Get(logging.CategoryEmbedding).Warn("CosineSimilarity: zero magnitude vector detected")
-		return 0, nil
-	}
-
-	result := dotProduct / (math.Sqrt(aMagnitude) * math.Sqrt(bMagnitude))
-	logging.EmbeddingDebug("CosineSimilarity result: %.6f", result)
-	return result, nil
+	td, ta, tb := cosineSumsScalar(a[i:], b[i:])
+	return dot + td, aa + ta, bb + tb
 }

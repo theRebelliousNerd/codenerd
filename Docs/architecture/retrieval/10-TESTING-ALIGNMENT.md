@@ -51,7 +51,6 @@ No CGO / sqlite headers required for this package.
 
 | Gap | Notes |
 |-----|-------|
-| SIMD scanner path | Not exercised unless `-tags=simd` on amd64 |
 | Embedding T4 | Placeholder; no fake embedding engine tests |
 | Real multi-GB repo perf | Only unit-scale temp trees |
 | Soft-error aggregation in SearchKeywords | Errors logged; hard to assert |

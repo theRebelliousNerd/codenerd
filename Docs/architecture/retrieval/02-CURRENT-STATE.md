@@ -49,11 +49,7 @@ Owns:
 
 ### `scanner_generic.go` (~29 lines)
 
-Default `ScanBuffer` via `bytes.Index` non-overlapping search.
-
-### `scanner_amd64.go` (~99 lines)
-
-Optional SIMD-assisted first-byte filtering; build tags `amd64 && simd`.
+`ScanBuffer` via `bytes.Index` non-overlapping search, on every architecture. `bytes.Index` is already vectorized by the Go runtime, so there is no separate SIMD scanner. The former `scanner_amd64.go` was deleted: it did no vector work.
 
 ## 3. Hotspots & complexity
 

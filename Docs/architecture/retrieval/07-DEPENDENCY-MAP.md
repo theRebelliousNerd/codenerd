@@ -72,9 +72,9 @@ Schema authority: `internal/core/defaults/schemas_knowledge.mg`.
 | chat → retrieval | yes (current) |
 | context → retrieval types | optional future; today fact-only |
 
-## 5. Optional SIMD edge
+## 5. SIMD
 
-Building with `-tags=simd` on amd64 pulls `simd/archsimd`. Default Windows/CI builds use generic scanner — **no** simd module required for normal `go test ./internal/retrieval`.
+Retrieval has no SIMD build of its own; `ScanBuffer` uses `bytes.Index`, which the Go runtime vectorizes. The semantic tier's cosine scoring uses `internal/embedding`'s AVX2+FMA kernel when the binary is built with `GOEXPERIMENT=simd` on amd64.
 
 ## 6. Diagram (boot + seed)
 

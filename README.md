@@ -635,7 +635,7 @@ another shell. The design and its evidence: [Docs/journeys/10-forever-loop.md](D
 
 ## Part IX · Get started
 
-**You need** Go 1.26+ (for source builds) and an API key for any supported provider.
+**You need** Go 1.27.3+ (for source builds; build with `GOEXPERIMENT=simd` on amd64 for the AVX2 embedding kernel) and an API key for any supported provider.
 
 ```bash
 # 1 · build

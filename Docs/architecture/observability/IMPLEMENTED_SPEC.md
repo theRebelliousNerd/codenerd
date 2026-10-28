@@ -3,7 +3,7 @@
 > Last verified against codebase: 2026-07-13  
 > Status: Living Reference Document  
 > Language: Go  
-> Module: `codenerd` (`go 1.26.0`, toolchain `go1.26.3`)  
+> Module: `codenerd` (`go 1.27.3`)  
 > Primary sources: `internal/observability/`  
 > Scale: **2** non-test Go files ≈ **326** lines; **3** test files ≈ **369** lines; **0** Mangle sources  
 
