@@ -154,7 +154,9 @@ go test ./...
 
 ### Live Model Calls
 
-Live tests and probes against `muse-spark-1.3-contributor` and Jev (TypeSafe) are fine and encouraged; no per-run approval needed. Use the endpoints and keys in `.nerd/config.json` and never print or commit a key.
+- Live tests and probes against `muse-spark-1.3-contributor` and Jev (TypeSafe) are fine and encouraged; no per-run approval needed.
+- Dogfooding (`nerd` run against its own source) may use every provider `.nerd/config.json` configures.
+- Use the endpoints and keys in `.nerd/config.json`; never print or commit a key.
 
 ### Stress / Long-Horizon Validation
 
