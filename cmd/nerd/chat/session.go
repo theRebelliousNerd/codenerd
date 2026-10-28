@@ -194,6 +194,7 @@ func InitChat(cfg Config) Model {
 		workspace:           workspace,
 		DisableSystemShards: cfg.DisableSystemShards,
 		yoloFlag:            cfg.Yolo || debugSelfOn,
+		background:          newBackgroundJobs(),
 		apiKeyFlag:          cfg.APIKey,
 		selfDebug:           newSelfDebugWatcher(),
 		yoloViaDebugSelf:    debugSelfOn,

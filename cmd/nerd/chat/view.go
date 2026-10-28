@@ -488,6 +488,9 @@ func (m Model) renderFooter() string {
 	// width needs: a single line was cut off at the terminal edge, losing the
 	// hotkeys (and on narrow terminals the status) entirely.
 	status := []string{workModeStr, paneModeStr}
+	if bg := m.backgroundFooter(); bg != "" {
+		status = append(status, bg)
+	}
 	for _, seg := range []string{campaignIndicator, continuationIndicator, contextIndicator, memoryIndicator, mouseIndicator, glassIndicator} {
 		if seg = strings.TrimPrefix(seg, " | "); seg != "" {
 			status = append(status, seg)

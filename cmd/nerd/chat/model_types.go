@@ -301,7 +301,10 @@ type Model struct {
 	pendingWork *pendingWork
 	// goAheadWork is set only on the command that runs an approved proposal:
 	// processInput reuses its intent and the turn carries /user_go_ahead.
-	goAheadWork           *pendingWork
+	goAheadWork *pendingWork
+	// background is the read-only work running off the turn (background.go),
+	// shared across Model copies.
+	background            *backgroundJobs
 	lastDreamHypothetical string // Track last dream state hypothetical for learning follow-up
 
 	// Session State

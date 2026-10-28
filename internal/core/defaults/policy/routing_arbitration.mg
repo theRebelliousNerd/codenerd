@@ -70,6 +70,8 @@ conversational_verb(/explain).
 # up" arrives with is_question=false and delegates normally.
 workhorse_verb(/review).
 workhorse_verb(/review_enhance).
+# "Why did you fail?" is a question whose answer is the diagnosis chain.
+workhorse_verb(/self_diagnose).
 workhorse_verb(/security).
 workhorse_verb(/audit).
 workhorse_verb(/test).
@@ -268,6 +270,20 @@ work_awaiting_go() :- multi_step_lane(), !work_admitted().
 
 route_decision(/hold, /none) :-
     work_awaiting_go().
+
+# Read-only delegated work runs in the background: the chat answers at once
+# and stays open while a reviewer or researcher reads, and the result comes
+# back as a message and shard facts. A mutation never does: it stays in the
+# foreground under its verification loop and the work mode.
+route_background() :-
+    route_decision(/delegate, Shard),
+    user_intent(/current_intent, /query, _, _, _).
+
+# Name running background work to the model, so it is not started twice and
+# the conversation can refer to it.
+injectable_context("*", Line) :-
+    background_job(JobID, Shard, Task, /running),
+    Line = fn:string:concat("A background ", Shard, " shard is already working on: ", Task).
 
 # A delegated mutation runs the verification loop: the persona's attempts,
 # each judged (delegation_move, delegation.mg). Read-only work -- a review, an

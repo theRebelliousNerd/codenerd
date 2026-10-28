@@ -65,6 +65,7 @@ content: |
   | `forget` | Remove stored preference | No (memory only) |
   | `chat` | Social interaction, greeting | No |
   | `approve` | Go-ahead on work you just proposed or held ("go", "do it", "yes, start") | No (starts the held work) |
+  | `diagnose_self` | Diagnose codeNERD itself: its own errors, logs or misbehavior ("debug yourself", "why did you fail") | No |
 
   ### 3. Domain (WHAT AREA is this about?)
 

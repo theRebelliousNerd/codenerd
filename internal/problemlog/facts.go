@@ -75,3 +75,40 @@ func Replace(k Kernel, r *Report) error {
 	}
 	return errors.Join(errs...)
 }
+
+// HotPredicate is self_problem_hot(Signature, Level, Category): what the
+// kernel judges worth diagnosing (self_problems.mg).
+const HotPredicate = "self_problem_hot"
+
+// Querier is what Hot needs of a kernel.
+type Querier interface {
+	Query(predicate string) ([]types.Fact, error)
+}
+
+// Hot returns the report's problems the kernel derives as hot, in the
+// report's order (most urgent first). The kernel decides; this only joins
+// its verdict back to the whole problems.
+func (r *Report) Hot(k Querier) ([]Problem, error) {
+	if r == nil {
+		return nil, nil
+	}
+	rows, err := k.Query(HotPredicate)
+	if err != nil {
+		return nil, err
+	}
+	type key struct{ sig, cat string }
+	hot := make(map[key]bool, len(rows))
+	for _, f := range rows {
+		if len(f.Args) != 3 {
+			continue
+		}
+		hot[key{types.ExtractString(f.Args[0]), types.ExtractString(f.Args[2])}] = true
+	}
+	var out []Problem
+	for _, p := range r.Problems {
+		if hot[key{p.Signature, p.Category}] {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}

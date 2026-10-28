@@ -150,6 +150,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.pushAssistantMsgWithThought(msg.Surface, msg.ThoughtSummary)
 		persistCmd = m.saveSessionStateCmd()
 
+	case backgroundStartMsg:
+		// The turn handed its work to the background: answer now, run it.
+		m.isLoading = false
+		m.turnCount++
+		m = m.pushAssistantMsg(msg.Surface)
+		return m, tea.Batch(m.startBackground(msg.Job, msg.Job.Task), m.saveSessionStateCmd())
+
+	case backgroundDoneMsg:
+		var cmd tea.Cmd
+		m, cmd = m.finishBackground(msg)
+		return m, cmd
+
 	case holdMsg:
 		// Work held for the user's go-ahead: the conversation stays open.
 		m.isLoading = false

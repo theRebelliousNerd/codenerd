@@ -480,7 +480,7 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 
 	// Register reviewer intents
 	for _, intent := range []string{
-		"/review", "/review_enhance", "/security", "/analyze", "/audit", "/lint",
+		"/review", "/review_enhance", "/security", "/analyze", "/audit", "/lint", "/self_diagnose",
 		// non-canonical aliases
 		"/check", "/inspect",
 	} {

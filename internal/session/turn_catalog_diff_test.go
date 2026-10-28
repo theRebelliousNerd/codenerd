@@ -119,7 +119,7 @@ func goldenVerbPersona() map[string]string {
 	add("verify", "/verify", "/validate")
 	add("reviewer",
 		"/review", "/review_enhance", "/security", "/analyze", "/audit", "/lint",
-		"/check", "/inspect")
+		"/check", "/inspect", "/self_diagnose")
 	add("researcher",
 		"/explore", "/search", "/research", "/init",
 		"/learn", "/understand", "/find")

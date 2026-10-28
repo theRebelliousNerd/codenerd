@@ -192,6 +192,11 @@ Decl clarify_lane() bound [].
 # work_proposal_pending() is asserted by chat while held work awaits a go;
 # intent_signal(/user_go_ahead) marks the turn that carries the go-ahead.
 Decl work_mode(Mode) bound [/name].
+# route_background(): the delegation only reads, so it runs off the turn
+# (chat background.go); background_job(JobID, Shard, Task, Status) is one
+# such job, Status /running, /done or /failed.
+Decl route_background() bound [].
+Decl background_job(JobID, Shard, Task, Status) bound [/string, /string, /string, /name].
 Decl work_proposal_pending() bound [].
 Decl work_hold_requested() bound [].
 Decl work_admitted() bound [].

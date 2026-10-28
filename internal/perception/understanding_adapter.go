@@ -615,6 +615,9 @@ func (t *UnderstandingTransducer) mapActionToVerb(actionType, domain string) str
 		return "/forget"
 	case "chat":
 		return "/converse"
+	case "diagnose_self":
+		// codeNERD's own failures: the kernel's self-diagnosis chain.
+		return "/self_diagnose"
 	case "approve":
 		// The go-ahead on a proposal the assistant made. Whether a proposal
 		// is pending is the kernel's question (approve_lane,
@@ -793,6 +796,7 @@ You are the perception layer of a coding agent. Your job is to deeply understand
 | forget | Remove stored preference | No (memory only) |
 | chat | Social interaction, greeting | No |
 | approve | Go-ahead on work you just proposed or held ("go", "do it", "yes, start") | No (starts the held work) |
+| diagnose_self | Diagnose codeNERD itself: its own errors, logs or misbehavior ("debug yourself", "why did you fail") | No |
 | migrate | Move code between frameworks/versions | Yes |
 | optimize | Improve performance, reduce resource usage | Yes |
 | document | Write docs, comments, READMEs | Yes |

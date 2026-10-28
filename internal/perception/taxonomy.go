@@ -790,6 +790,14 @@ var DefaultTaxonomyData = []TaxonomyDef{
 		Patterns: []string{"(?i)^thanks\\b", "(?i)\\bthank you\\b", "(?i)\\bbye\\b"},
 	},
 	{
+		// Emitted by UnderstandingTransducer for action_type=diagnose_self:
+		// codeNERD's own failures. /reviewer reads codeNERD's source for the
+		// root causes; the kernel lays out the chain (self_diagnosis.mg).
+		Verb: "/self_diagnose", Category: "/query", ShardType: "/reviewer", Priority: 96,
+		Synonyms: []string{"debug yourself", "diagnose yourself", "self debug", "what went wrong with you", "why did you fail"},
+		Patterns: []string{"(?i)\\b(debug|diagnose|fix) (yourself|itself|codenerd)\\b", "(?i)\\bwhy (did|do) you (fail|break|crash)"},
+	},
+	{
 		// Emitted by UnderstandingTransducer for action_type=approve: the
 		// user's go-ahead on work the assistant proposed. /none: it starts the
 		// proposal's own work, it is never a task of its own.

@@ -490,6 +490,7 @@ func NewTestModel(opts ...TestModelOption) Model {
 		preferencesMgr:     ux.NewPreferencesManager("/tmp/test-workspace"),
 		transparencyMgr:    transparency.NewTransparencyManager(nil),
 		shardResultHistory: make([]*ShardResult, 0),
+		background:         newBackgroundJobs(),
 	}
 
 	// Try to initialize glamour renderer (may fail in test environment)

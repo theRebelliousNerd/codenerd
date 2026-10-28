@@ -91,6 +91,12 @@ type RouteDecision struct {
 	// Verify is the kernel's route_verifies, for RouteDelegate: the
 	// delegation runs the verification loop rather than one plain run.
 	Verify bool
+	// Background is the kernel's route_background, for RouteDelegate: the
+	// delegation only reads, so it runs off the turn (background.go).
+	Background bool
+	// SelfDiagnosis is self_diagnosis_lane: the background job is the
+	// self-diagnosis chain's analysis step (self_diagnosis.go).
+	SelfDiagnosis bool
 }
 
 // decideRoute asserts this turn's routing EDB (delegation candidate,
@@ -256,7 +262,18 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 			logging.RoutingError("[decideRoute] query route_verifies failed: %v", err)
 			return none
 		}
-		decision = RouteDecision{Kind: RouteDelegate, Shard: shard, Verify: len(verifies) > 0}
+		background, err := m.kernel.Query("route_background")
+		if err != nil {
+			logging.RoutingError("[decideRoute] query route_background failed: %v", err)
+			return none
+		}
+		diagnosis, err := m.kernel.Query("self_diagnosis_lane")
+		if err != nil {
+			logging.RoutingError("[decideRoute] query self_diagnosis_lane failed: %v", err)
+			return none
+		}
+		decision = RouteDecision{Kind: RouteDelegate, Shard: shard, Verify: len(verifies) > 0,
+			Background: len(background) > 0, SelfDiagnosis: len(diagnosis) > 0}
 	case "/clarify":
 		decision = RouteDecision{Kind: RouteClarify}
 	case "/approve_pending":

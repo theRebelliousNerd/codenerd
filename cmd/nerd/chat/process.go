@@ -469,6 +469,24 @@ func (m Model) processInput(input string) tea.Cmd {
 				// returns without reading the flag again.
 				_ = m.loadWorkspaceFacts(ctx, intent, &warnings)
 			}
+			// Read-only work runs off the turn (route_background): the chat
+			// answers now and stays open; the result arrives as its own message.
+			if route.Background {
+				job := backgroundJob{
+					ID:      fmt.Sprintf("%s-bg-%d", shardType, time.Now().UnixNano()),
+					Shard:   shardType,
+					Task:    m.formatShardTaskWithContext(intent.Verb, intent.Target, intent.Constraint, m.workspace, m.lastShardResult),
+					Started: time.Now(),
+				}
+				if route.SelfDiagnosis {
+					diag, ok, reason := m.selfDiagnosisJob(shardType)
+					if !ok {
+						return responseMsg("Nothing to diagnose: " + reason)
+					}
+					job = diag
+				}
+				return backgroundStartMsg{Surface: backgroundStartSurface(intent.Response, job), Job: job}
+			}
 			m.ReportStatus(fmt.Sprintf("Act: delegating to %s...", shardType))
 			// Format task based on verb and target, with prior shard context (blackboard pattern)
 			// This enables cross-shard context: reviewer findings -> coder, test errors -> debugger
@@ -617,7 +635,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 
 			// 1.6.1 AUTO-INTERPRETATION: For Reviewer/Tester shards, explain the findings
-			if shardType == "reviewer" || shardType == "tester" {
+			if interpretsOutput(shardType) {
 				// 1.6.2 REVIEWER VALIDATION CHECK: Self-correction feedback loop
 				// Check if the review shows signs of inaccuracy and flag for user attention
 				var validationWarning string

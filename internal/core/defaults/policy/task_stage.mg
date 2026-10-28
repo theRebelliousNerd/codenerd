@@ -108,6 +108,7 @@ intent_stage(/format, /refactor).
 # --- /review: inspection and verdicts ---
 intent_stage(/review, /review).
 intent_stage(/review_enhance, /review).
+intent_stage(/self_diagnose, /review).
 intent_stage(/analyze, /review).
 intent_stage(/inspect, /review).
 intent_stage(/check, /review).
