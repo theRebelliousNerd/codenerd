@@ -336,3 +336,129 @@ For performance, compare the present implementation, identity-complete implement
 [epoch-proof-builder]: https://github.com/google/mangle/blob/7cd2543ac1817f8b92d42efe3c6ef82dededbeeb/provenance/recorder.go#L209-L327
 [epoch-chat-update]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/cmd/nerd/chat/process.go#L713-L731
 [epoch-time-update]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_sysfacts.go#L20-L38
+
+## Post-implementation refinement: vector scores must share the compiler’s source scope
+
+**Recommendation:** bind semantic scoring to the same captured, canonical candidate sources that determine prompt content and cache identity. A fixed searcher object is not an immutable data source when its `Search` method reads changing databases. Also propagate selector degradation into the existing publication ledger; source-collection health does not certify selection health.
+
+**Evidence status:** static source inspection only; no implementation, tests, provider calls, profiling, or benchmarks were executed. Main was `356f65e0e6bb639adaa90ab36212daa714114871`; feature branch `feat/conversation-brief` was `c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c`. The relevant compiler-generation, source-collection, pipeline, selector, and vector-searcher files have identical blobs at those revisions. Independent source review confirmed the scope/collision/truncation chain and its controls; this is not behavioral verification.
+
+### Scope and relationship to earlier research
+
+The original sections already require complete cache dependency identity, warn against global top-K truncation before eligibility filtering, and require recovery from degraded compilation. This refinement does not claim those principles are new. It identifies concrete discrepancies in the implemented path: **candidate collection and generation tracking are expert-scoped, while the default vector backend searches every registered expert database; selector degradation also does not reach the new publication ledger.**
+
+The historical literal-rendering and section-admission appendices concern different boundaries. The [embedding representation audit](https://github.com/theRebelliousNerd/codenerd/blob/c592ff223cd207fca4c29ae793d5eba57aa4781d/Docs/audits/embedding-representation-and-migration.md) addresses model/representation compatibility; the cross-expert finding remains possible with correctly stamped, same-model, equal-dimensional vectors. This appendix belongs with the existing generation-aware audit rather than a duplicate general caching proposal.
+
+### 1. The two source scopes disagree
+
+| Stage | Inspected behavior |
+|---|---|
+| Candidate bodies | Embedded atoms take precedence over project atoms, followed by the selected expert. Duplicate IDs from later sources are discarded. Other experts’ atom bodies are not collected. [Source](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_sources.go#L32-L95) |
+| Source identity | `snapshotSources` captures only the expert named by `CompilationContext.ShardID`; `captureSourceVector` reads that expert’s generation and the project generation. [Source](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_generation.go#L97-L140) |
+| Vector backend | `Search` independently calls `snapshotPromptDBs`, which returns the project database plus **all** registered expert databases. [Search](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/vector_searcher.go#L55-L99), [database enumeration](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/vector_searcher.go#L200-L227) |
+| Score identity | The query selects atom ID, embedding, and model stamp. It checks model/dimension compatibility, then keeps the greatest score for each bare atom ID across databases. It does not compare the scored row’s content identity with the canonical candidate body. [Source](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/vector_searcher.go#L91-L138) |
+| Candidate reduction | The backend sorts and truncates globally. Only afterward does the selector restrict scores to eligible flesh candidates and compute its population-dependent floor. [Backend](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/vector_searcher.go#L164-L185), [selector](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/selector.go#L227-L317) |
+
+This is a production path when embeddings are enabled: the factory constructs and attaches `CompilerVectorSearcher`, then registers every discovered agent database. [Construction](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/system/factory.go#L1796-L1806), [attachment](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/system/factory.go#L1846-L1854), [registration](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/system/factory.go#L1913-L1926).
+
+The source-generation comment exempts the searcher because it is a construction-time constant. That describes the object’s configuration, not the databases its method subsequently reads. [Source](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_generation.go#L15-L32)
+
+### 2. Conditional cross-expert witnesses
+
+These are proposed source-derived cases, not reproduced incidents.
+
+#### A. A different expert supplies a canonical candidate’s score
+
+Compile for expert A. Candidate `x` belongs to the embedded/project/A precedence winner. Another registered expert B contains the same atom ID but a different body and a higher-scoring embedding. Both embeddings pass model and dimension checks.
+
+The backend’s maximum-by-ID merge can attach B’s score to the canonical body of `x`. The selector then emits `vector_hit` using that ID and uses the score in the selected atom’s combined ranking. [Vector facts](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/selector.go#L1105-L1127), [selected-score mapping](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/selector.go#L1165-L1204)
+
+For an observable prompt difference, `x` must be an eligible, nonmandatory, score-sensitive candidate, with the changed score crossing a selection threshold/top-K boundary or affecting budget competition. A mandatory atom already retained regardless of score is a negative control.
+
+**Bounded claim:** this is score/body provenance mismatch, not proof that B’s text is emitted. Candidate collection still prevents B-only bodies from entering this compilation. It is not an execution-permission bypass.
+
+#### B. A changing score dependency is absent from cache identity
+
+Warm a successful compilation for A, then update only B’s existing vector row in place. Keep registration, context, kernel fingerprint, compiler configuration, project/A sources, and other tracked sources unchanged.
+
+B’s update is not included in A’s source vector. The cache may therefore return the earlier result before vector search runs. A forced-fresh compile can observe the changed B score under the same tracked identity. The post-compile recapture also omits B, so it cannot detect this dependency changing during compilation. [Cache hit](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_pipeline.go#L105-L125), [publication](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_pipeline.go#L341-L366)
+
+Credit the existing guard: `RegisterShardDB` advances the global source epoch and clears the cache. Therefore the narrow witness requires **an in-place update without re-registration**, not merely adding or replacing B through that API. [Source](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_db.go#L213-L234)
+
+Ordinary turns can change kernel/context identity; no claim is made that every next chat turn serves a stale prompt. The invariant to establish is equal tracked identity versus unequal actual scoring inputs, not an estimated incident rate.
+
+#### C. Unselected IDs can consume the backend’s result allowance
+
+Let `N` be the number of candidates supplied to the selector. It requests `N` scores to avoid starving eligible atoms behind ineligible candidates. However, the backend searches a larger database union. If that union contains at least `N` higher-scoring IDs absent from this compilation’s candidate set, global truncation can remove a useful current candidate before eligibility filtering.
+
+No duplicate IDs are required for this case. The selector can discard irrelevant returned IDs, but cannot recover a candidate whose score was already truncated. The missing scores can also alter the population used for the mean-plus-standard-deviation floor. [Request size](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/selector.go#L784-L804)
+
+The bound is conditional on the registered union actually exceeding the local allowance with sufficiently high-scoring outside IDs. A small, disjoint expert corpus that cannot fill that allowance is a negative control, not evidence against the mechanism.
+
+### 3. Additional bounded finding: selector degradation bypasses the publication ledger
+
+The as-built implementation correctly creates a degradation ledger and supplies it to candidate, knowledge, and learning collection. Those collectors can prevent caching when they report an outage. The selector call does not receive that ledger and returns only selected atoms, vector timing, and an error. [Collectors](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_pipeline.go#L245-L277), [selection](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_pipeline.go#L300-L310)
+
+`getVectorScoresWithConfig` logs a warning and returns nil scores after a search error or its own subdeadline expires. The selection pipeline can subsequently return successfully. Flesh assertion/query failures have other explicit fallback paths. None of those warnings is itself an entry in the compiler’s `degradation` object. [Vector outcome erasure](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/selector.go#L917-L947), [flesh assertion fallback](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/selector.go#L843-L861), [flesh query fallback](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/selector.go#L1140-L1163)
+
+**Proposed witness:** use healthy, generation-tracked collectors and stable context/kernel/configuration. Let only the vector search fail or exceed its subdeadline while the outer compilation context remains live; preserve a valid skeleton and successful remaining pipeline. A successful fallback result can have no recorded degraded source, satisfy the unchanged-vector publication check, and enter the normal LRU. Recover the searcher without changing any key component. An identical compile can hit that entry without probing recovery. Choose a score-sensitive atom to test prompt impact, but also assert the more direct observable: whether the recovered searcher is called. [Publication gate](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_pipeline.go#L341-L366)
+
+This is not a claim of absent diagnostics: warnings already exist. It is an outcome-propagation gap in the existing degraded-result contract, not a new proposal to invent that contract. Outer cancellation, critical skeleton errors, unhealthy tracked source collectors, unrelated source churn, and cache eviction can prevent this exact sequence. A legitimately disabled vector searcher or a successful empty result must remain distinguishable from a transient failure.
+
+The narrow repair is to return structured selection health alongside atoms and timing, then merge failure reasons into the existing publication ledger. Preserve optional fallback for the current caller where policy permits it, but do not represent that fallback as healthy cacheable work. The default backend also skips individual failed database queries and does not inspect `rows.Err()` after iteration; a full coverage contract must audit those lower-layer outcomes rather than assuming every backend failure reaches the top-level error. That is adjacent implementation work, not required to establish the explicit returned-error witness above. [Backend read loop](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/vector_searcher.go#L91-L139)
+
+### 4. Proposed source contract and alternatives
+
+For every semantic score used in a compilation:
+
+1. Its candidate ID and content/representation identity identify the canonical candidate being ranked.
+2. Its source belongs to the compilation’s permitted scoring scope.
+3. Every mutable input capable of changing that score population is tracked in the captured source identity.
+4. Truncation cannot discard members of the intended eligible population before that population’s threshold is computed.
+5. A failed or incomplete scoring pass is distinguished from a successful empty or deliberately disabled pass, and reaches the existing cache-publication decision.
+
+**Preferred direction:** give the vector search operation a compilation-owned scope derived from the captured sources and canonical candidate inventory. Do not have it rediscover global registrations midway through the compile. Restrict expert backing sources to the selected expert unless cross-expert retrieval is an explicit, separately specified capability.
+
+Embedded atoms may legitimately use a synchronized project-database embedding. Require correspondence with the canonical candidate’s represented content, not necessarily the same physical storage location. Verify the existing digest’s semantics before treating it as a sufficient certificate; matching ID, model name, and dimension alone is insufficient.
+
+Retain Mangle as the executive selector. Host filtering should establish source/candidate identity and preserve the intended score population, not replace conflict, capability, mandatory, or dependency policy with a new Go ranking rule. Preserve the complete eligible population used by the existing floor calculation; returning only a small eligible top-K before computing its mean/variance is a ranking change, not a transparent optimization.
+
+**Alternative: deliberately retain global scoring.** Then capture and track every database it reads, qualify duplicate-ID score ownership, and prevent unrelated IDs consuming the current candidate allowance. This expands per-call generation reads and invalidation fanout. Tracking all databases alone fixes neither score/body mismatch nor truncation starvation.
+
+**Conservative intermediate:** mark results uncacheable when scoring depends on untracked sources. This contains stale reuse but does not repair ranking provenance or unnecessary global work. A TTL is not a substitute for the dependency contract.
+
+### 5. Costs and evaluation
+
+The inspected backend performs a query embedding, scans vector-bearing rows across registered databases, decodes compatible vectors, computes cosine similarities, and sorts unique scored IDs. With `R` scanned rows, dimension `D`, and `U` scored IDs, a useful planning model is:
+
+```text
+T_vector ≈ T_query_embedding + T_SQL_scan(R)
+           + T_decode_and_similarity(Rcompatible × D)
+           + T_sort(U log U)
+```
+
+This is not a measured bottleneck ranking. Scoping can reduce irrelevant rows, decoding, sorting, and timeout exposure. If filtering happens only after SQL retrieval, it does not eliminate the full row scan. Candidate/content qualification adds bookkeeping and possible database lookup cost; batched indexed access needs its own query-plan and allocation evidence.
+
+Tracking all experts instead increases generation-query work and invalidates unrelated prompts when any expert changes. Reusing an immutable search scope must also bound retained handles and preserve existing shutdown/cancellation ownership. Correctly marking selector degradation can increase retries and embedding-provider calls during outages; retain bounded deadlines and measure that cost. Any retry/backoff policy must preserve observable recovery rather than cache an outage indefinitely as a healthy result.
+
+**Proposed checks; none executed:**
+
+| Fixture | Required observation |
+|---|---|
+| Same ID, different body in project/A/B | Score provenance follows the canonical candidate; B cannot win merely through a larger score. |
+| Warm A cache, in-place B vector update | Under scoped semantics, A is unchanged; under intentionally global semantics, dependency identity changes. |
+| Register/unregister B control | Existing epoch invalidation remains effective. |
+| Many higher-scoring B-only IDs | Current eligible candidate remains reachable; threshold uses the complete intended population. |
+| Fewer than eight versus at least eight eligible candidates | Existing absolute/population-floor behavior is preserved. |
+| Correct model/dimension but wrong candidate digest | Compatibility alone cannot qualify the vector. |
+| Source replacement or update during search | Captured handles, content identity, generation checks, and result publication agree. |
+| Only vector search fails, then recovers with unchanged key inputs | First result is explicitly degraded and not healthy-cacheable; later compile probes the recovered source. |
+| Vector subdeadline versus outer cancellation | Optional timeout and caller cancellation remain distinct; cancellation does not become successful fallback. |
+| Deliberately disabled search or successful empty result | No false transient-failure designation or needless recovery work. |
+| Flesh assertion/query fallback, partial DB read, iteration error | Outcome reaches the appropriate ledger; do not infer full coverage from a nonnil result slice. |
+
+Use deterministic fake embeddings, real SQLite fixtures, and the production kernel/adapter first; live inference is unnecessary to establish these identity and selection invariants. Exercise complete compilation, not just `Search`. Keep the actual default backend in the cross-expert tests; a replacement searcher that already honors scope would hide the finding. Existing model-compatibility and source-generation test definitions are useful controls, not evidence that these new witnesses were executed. [Model fixtures](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/vector_searcher_model_test.go), [generation fixtures](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_generation_test.go)
+
+Then vary registered experts, unrelated rows, duplicate-ID rate, vector dimensions, candidate count, cache hit/miss ratio, source churn, and failure/recovery frequency. Report rows scanned/decoded, provider requests, source-generation reads, selected IDs, exact prompt differences, CPU, allocations, peak retained memory, and end-to-end compile latency. Preserve model, tools, budgets, policy, and held-out task acceptance when evaluating capability. Fewer scanned vectors or fewer prompt tokens alone do not establish improvement. Include failed attempts and repair cost, not only successful compiles.
+
+**Checkable exit:** the source scope that names prompt content also names its scoring dependencies; canonical candidate identity survives vector retrieval; unrelated registered experts cannot silently alter or starve a compilation’s semantic candidate population; and selector fallback cannot bypass the existing degraded-result publication contract.
