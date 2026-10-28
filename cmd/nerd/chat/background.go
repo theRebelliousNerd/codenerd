@@ -153,7 +153,11 @@ func (m Model) startBackground(job backgroundJob, input string) tea.Cmd {
 			// Reviewer and tester output is read for the user, as in the
 			// foreground; the raw output stays attached.
 			if interpretsOutput(job.Shard) {
-				done.Surface = m.formatInterpretedResult(ctx, input, job.Shard, job.Task, result, "")
+				var warning string
+				if job.Shard == reviewerShard {
+					warning = m.checkReviewFindings(ctx, job.ID, result)
+				}
+				done.Surface = m.formatInterpretedResult(ctx, input, job.Shard, job.Task, result, warning)
 			} else {
 				done.Surface = result
 			}

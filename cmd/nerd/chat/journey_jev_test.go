@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -211,4 +213,37 @@ func (e *blockingExecutor) GetResult(string) (string, bool, error) {
 
 func (e *blockingExecutor) WaitForResult(context.Context, string) (string, error) {
 	return "", fmt.Errorf("unexpected wait")
+}
+
+// A background review whose finding Jev cannot see in the cited code comes
+// back flagged, and the kernel marks the review for validation.
+func TestJevJourney_RefutedReviewFindingIsFlagged(t *testing.T) {
+	m, exec := journeyModel(t, config.WorkModePropose)
+	m = withJev(t, m, &fakeJevServer{probs: map[string]float64{"finding_0": 0.06}})
+	if err := os.WriteFile(filepath.Join(m.workspace, "calc.go"), []byte("package calc\n\nfunc Add(a, b int) int {\n\treturn a + b\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	exec.response = "- [ERROR] calc.go:4: Add divides by zero when b is 0"
+	job := backgroundJob{ID: "reviewer-bg-1", Shard: "reviewer", Task: "review calc.go", Started: time.Now()}
+	done := m.startBackground(job, job.Task)().(backgroundDoneMsg)
+	if !strings.Contains(done.Surface, "Findings Jev could not see") || !strings.Contains(done.Surface, "calc.go:4") {
+		t.Fatalf("the refuted finding is not flagged:\n%s", done.Surface)
+	}
+	if !m.shardMgrOrKernelSaysSuspect(t, job.ID) {
+		t.Fatal("the kernel did not mark the review for validation")
+	}
+}
+
+func (m Model) shardMgrOrKernelSaysSuspect(t *testing.T, reviewID string) bool {
+	t.Helper()
+	rows, err := m.kernel.Query("review_suspect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if len(r.Args) == 2 && types.ExtractString(r.Args[0]) == reviewID && types.ExtractString(r.Args[1]) == "jev_refuted_finding" {
+			return true
+		}
+	}
+	return false
 }

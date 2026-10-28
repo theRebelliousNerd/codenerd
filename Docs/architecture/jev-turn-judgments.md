@@ -110,3 +110,19 @@ The probe also exposed a keyword bug. `ExtractKeywords` only took code syntax
 request searched for nothing. It now also takes prose identifiers
 (`renderFooter`, `work_mode`) and domain terms (lowercase content words of four
 letters or more), at the lowest weight.
+
+## Review findings checked against their code (`internal/turnjudge/findings.go`)
+
+When a reviewer shard returns, in the foreground or the background, each finding
+that cites a file and a line goes to Jev with the 25 lines around the citation:
+"Does `code` show the problem that `finding` describes?" The verdicts become
+`review_finding_check(Review, File, Line, Percent)`. At or below
+`judgment_no_percent`, the kernel derives `review_finding_refuted`, and
+`review_suspect(Review, "jev_refuted_finding")` feeds the existing
+`reviewer_needs_validation`.
+
+The user sees a "Findings Jev could not see in the code they cite" list beside
+the review, and the model is told to verify them before acting. Nothing is
+hidden or dropped on Jev's word.
+
+Test: `TestJevJourney_RefutedReviewFindingIsFlagged`, `TestCheckFindings_JudgesCitedCodeAndSkipsUncited`.

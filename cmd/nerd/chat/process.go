@@ -651,6 +651,9 @@ func (m Model) processInput(input string) tea.Cmd {
 				// Check if the review shows signs of inaccuracy and flag for user attention
 				var validationWarning string
 				if shardType == "reviewer" {
+					// Jev checks each finding against the code it cites first, so a
+					// refuted one is among the reasons below (jev_evidence.mg).
+					refuted := m.checkReviewFindings(ctx, shardID, result)
 					if m.shardMgr.CheckReviewNeedsValidation(shardID) {
 						reasons := m.shardMgr.GetReviewSuspectReasons(shardID)
 						if len(reasons) > 0 {
@@ -658,6 +661,7 @@ func (m Model) processInput(input string) tea.Cmd {
 							validationWarning += "Reasons: " + strings.Join(reasons, ", ") + "\n"
 							validationWarning += "Please verify findings before acting on them. "
 							validationWarning += "Use `/reject-finding <file>:<line> <reason>` to help the system learn from mistakes."
+							validationWarning += refuted
 							warnings = append(warnings, "Review flagged for validation: "+strings.Join(reasons, ", "))
 						}
 					}

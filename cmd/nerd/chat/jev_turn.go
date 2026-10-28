@@ -11,6 +11,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/retrieval"
 	"codenerd/internal/turnjudge"
+	"codenerd/internal/types"
 )
 
 // Jev judgments for a chat turn (internal/turnjudge, policy/jev_evidence.mg).
@@ -132,4 +133,54 @@ func (m Model) relevanceDrop() float64 {
 		}
 	}
 	return 0
+}
+
+// reviewerShard is the shard whose findings are checked against their code.
+const reviewerShard = "reviewer"
+
+// checkReviewFindings asks Jev whether each reviewer finding is visible in the
+// code it cites (turnjudge.CheckFindings), records the verdicts for the kernel
+// (review_finding_check), and returns a note naming each finding the kernel
+// derives as refuted; "" when none is, or Jev is off, or the check failed.
+func (m Model) checkReviewFindings(ctx context.Context, reviewID, result string) string {
+	if m.jev == nil || m.kernel == nil {
+		return ""
+	}
+	var findings []turnjudge.Finding
+	for _, f := range extractFindings(result) {
+		file, _ := f["file"].(string)
+		line, _ := f["line"].(int)
+		msg, _ := f["message"].(string)
+		findings = append(findings, turnjudge.Finding{File: file, Line: line, Message: msg})
+	}
+	log := logging.Get(logging.CategoryShards)
+	verdicts, err := turnjudge.CheckFindings(ctx, m.jev, m.workspace, findings)
+	if err != nil {
+		log.Warn("jev: review %s findings unchecked: %v", reviewID, err)
+		return ""
+	}
+	if len(verdicts) == 0 {
+		return ""
+	}
+	if err := config.EnsureParams(m.kernel, m.Config.TypeSafe.Params()); err != nil {
+		log.Warn("jev: thresholds not asserted, review %s unchecked: %v", reviewID, err)
+		return ""
+	}
+	if err := m.kernel.AssertBatch(turnjudge.FindingFacts(reviewID, verdicts)); err != nil {
+		log.Error("jev: assert review %s verdicts: %v", reviewID, err)
+		return ""
+	}
+	refuted, err := turnjudge.Refuted(m.kernel, reviewID, verdicts)
+	if err != nil {
+		log.Warn("jev: review %s refutations unread: %v", reviewID, err)
+		return ""
+	}
+	var b strings.Builder
+	for _, v := range refuted {
+		fmt.Fprintf(&b, "\n- Not visible in %s:%d (Jev %d%%): %s", v.File, v.Line, types.PercentFromRatio(v.Probability), v.Message)
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return "\n\n**Findings Jev could not see in the code they cite** (verify before acting):" + b.String()
 }

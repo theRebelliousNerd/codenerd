@@ -74,3 +74,22 @@ Decl stop_background_requested() bound [].
 stop_background_requested() :-
     jev_yes("wants_to_stop"),
     background_job(JobID, Shard, Task, /running).
+
+# A reviewer finding Jev cannot see in the code it cites (turnjudge
+# CheckFindings): the review is flagged for validation (reviewer.mg's
+# reviewer_needs_validation), and the finding is named to the model. Nothing
+# is hidden on Jev's word; the person and the model decide.
+Decl review_finding_check(ReviewID, File, Line, Percent) bound [/string, /string, /number, /number].
+Decl review_finding_refuted(ReviewID, File, Line) bound [/string, /string, /number].
+
+review_finding_refuted(ReviewID, File, Line) :-
+    review_finding_check(ReviewID, File, Line, Percent),
+    config_param(/jev_no_percent, No),
+    Percent <= No.
+
+review_suspect(ReviewID, "jev_refuted_finding") :-
+    review_finding_refuted(ReviewID, File, Line).
+
+injectable_context("*", Text) :-
+    review_finding_refuted(ReviewID, File, Line),
+    Text = fn:string:concat("A review finding at ", File, ":", fn:number:to_string(Line), " is not visible in the code it cites; verify it before acting on it.").
