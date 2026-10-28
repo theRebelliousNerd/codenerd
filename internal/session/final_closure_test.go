@@ -186,7 +186,7 @@ func criticTurn(t *testing.T, seed, initial map[string]string, answer func(promp
 	h.executor.llmClient = &MockToolResultsLLM{
 		MockLLMClient: &MockLLMClient{
 			CompleteWithSystemFunc: func(_ context.Context, sys, _ string) (string, error) {
-				if sys == criticSystemPrompt {
+				if sys == fakeCriticPrompt {
 					return "FINDING main.go:3 high: Double needs a companion the callers ask for", nil
 				}
 				return "", nil

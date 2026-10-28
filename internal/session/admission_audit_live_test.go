@@ -118,7 +118,7 @@ No content deleted, no statements weakened, checker untouched. Verified witness 
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			answer, err := client.CompleteWithSystem(context.Background(), finalReportAuditSystem, finalReportAuditPrompt(tc.task, tc.report))
+			answer, err := client.CompleteWithSystem(context.Background(), roleAtomText(t, "system/final_report_auditor/contract"), finalReportAuditPrompt(tc.task, tc.report))
 			if err != nil {
 				t.Fatalf("classifier: %v", err)
 			}

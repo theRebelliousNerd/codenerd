@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -101,10 +102,14 @@ func (e *Executor) settleTurn(
 	// return for interactive chat compatibility; TaskExecutor still surfaces
 	// result.Error for SpawnTask callers.
 	e.closeAcceptanceEvidence(ctx, result)
-	e.auditFinalReport(ctx, c.input, result)
+	auditErr := e.auditFinalReport(ctx, c.input, result)
 	hollowErr := e.checkHollowSuccess(result)
-	if result.Error == nil && hollowErr != nil {
-		result.Error = hollowErr
+	// An audit that could not be asked (its role prompt did not compile) is
+	// the turn's error too, beside a hollow verdict and never in its place.
+	if result.Error == nil {
+		if err := errors.Join(hollowErr, auditErr); err != nil {
+			result.Error = err
+		}
 	}
 	// The closing evidence sentence comes LAST, because it is a function of
 	// the verdict checkHollowSuccess just captured. Written before it (where

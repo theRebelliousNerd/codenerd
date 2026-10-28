@@ -846,7 +846,10 @@ func TestPlanTurnSteps_RetriesOnceThenFallsBack(t *testing.T) {
 
 	retrying := &planRetryClient{MockLLMClient: &MockLLMClient{}, failFirst: 1, plan: plan}
 	e := newPlannedStepsExecutor(t, retrying)
-	steps := e.planTurnSteps(context.Background(), retrying, "change a.go and b.go", cfg, &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}})
+	steps, err := e.planTurnSteps(context.Background(), retrying, "change a.go and b.go", cfg, &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}})
+	if err != nil {
+		t.Fatalf("planTurnSteps: %v", err)
+	}
 	if len(steps) != 2 || steps[0].File != "a.go" || steps[1].File != "b.go" {
 		t.Fatalf("steps = %+v, want the two planned steps after one retry", steps)
 	}
@@ -856,7 +859,10 @@ func TestPlanTurnSteps_RetriesOnceThenFallsBack(t *testing.T) {
 
 	failing := &planRetryClient{MockLLMClient: &MockLLMClient{}, failFirst: 2, plan: plan}
 	e2 := newPlannedStepsExecutor(t, failing)
-	steps2 := e2.planTurnSteps(context.Background(), failing, "change a.go and b.go", cfg, &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}})
+	steps2, err := e2.planTurnSteps(context.Background(), failing, "change a.go and b.go", cfg, &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}})
+	if err != nil {
+		t.Fatalf("a planner that fails to answer is a single pass, not an error: %v", err)
+	}
 	if steps2 != nil {
 		t.Fatalf("steps = %+v, want nil after two planning failures", steps2)
 	}

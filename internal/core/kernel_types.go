@@ -115,6 +115,11 @@ type RealKernel struct {
 	simulateCommitErr   error                  // TEST ONLY: Simulates a transaction commit failure
 	eventBus            *FactEventBus          // Pub/sub for fact mutations — replaces polling in system shards
 
+	// rolePrompts compiles GenerateValidatedRule's system prompt
+	// (kernel_policy.go). Nil makes rule generation report
+	// types.ErrRolePromptUnavailable.
+	rolePrompts types.RolePromptCompiler
+
 	// proofRecorder, when non-nil, captures derivation events during evaluate()
 	// so Explain() can answer "why was this fact derived?" via the Codeberg
 	// mangle-go fork's provenance package. Off by default — enable via

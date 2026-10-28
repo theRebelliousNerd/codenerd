@@ -281,7 +281,7 @@ func TestManager_WhenConnectedToFakeServer_ShouldDiscoverAndEmitFacts(t *testing
 	t.Cleanup(func() { _ = store.Close() })
 
 	kernel := &recordingKernel{}
-	manager := NewMCPClientManager(store, NewToolAnalyzer(nil, nil), map[string]MCPServerConfig{
+	manager := NewMCPClientManager(store, NewToolAnalyzer(nil, nil, nil), map[string]MCPServerConfig{
 		"fake": {
 			ID:                "fake",
 			Enabled:           true,

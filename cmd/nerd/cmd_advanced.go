@@ -633,12 +633,16 @@ func runWhatIf(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	prompt := fmt.Sprintf(
-		"Analyze the implications of this hypothetical change in 6-10 bullet points:\n\n%s\n\nCover: affected systems, breakage risk, improvements, and mitigations.",
-		change,
-	)
 	analysisCtx, analysisCancel := llmCallContext(ctx)
 	defer analysisCancel()
+	// The analyst's instructions are its role atoms
+	// (atoms/system/what_if_analyst.yaml); the message is the change. Without
+	// the role prompt the analysis is not asked.
+	systemPrompt, err := whatIfAnalystPrompt(analysisCtx, cortex.RolePrompts)
+	if err != nil {
+		fmt.Printf("📋 Analysis: unavailable (%v)\n", err)
+		return nil
+	}
 
 	wsRoot := strings.TrimSpace(workspace)
 	if wsRoot == "" {
@@ -648,7 +652,7 @@ func runWhatIf(cmd *cobra.Command, args []string) error {
 	}
 	rootBefore := snapshotDirectRoot(wsRoot)
 	fmt.Println("📋 Analysis:")
-	result, err := cortex.LLMClient.Complete(analysisCtx, prompt)
+	result, err := cortex.LLMClient.CompleteWithSystem(analysisCtx, systemPrompt, "Hypothetical change:\n"+change)
 	rootAfter := snapshotDirectRoot(wsRoot)
 	if err != nil {
 		if analysisCtx.Err() != nil {
@@ -666,6 +670,14 @@ func runWhatIf(cmd *cobra.Command, args []string) error {
 		fmt.Printf("⚠️  Created in the repository root, undeclared: %s\n", strings.Join(newEntries, ", "))
 	}
 	return nil
+}
+
+// whatIfAnalystPrompt compiles the what-if analyst's system prompt.
+func whatIfAnalystPrompt(ctx context.Context, roles types.RolePromptCompiler) (string, error) {
+	if roles == nil {
+		return "", fmt.Errorf("%w: no role prompt compiler for the what_if_analyst", types.ErrRolePromptUnavailable)
+	}
+	return roles.CompileRolePrompt(ctx, types.RolePromptRequest{Role: "what_if_analyst", Intent: "judge"})
 }
 
 // runLogicQuery shows kernel facts

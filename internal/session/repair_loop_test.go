@@ -115,6 +115,9 @@ func newRepairHarness(t *testing.T, configure func(*Executor)) *repairHarness {
 	h.executor.config.WorkspaceRoot = ws
 	h.executor.config.EnableSafetyGate = false
 	h.executor.EffectiveAgentRuntimeConfig = &jitconfig.EffectiveAgentRuntimeConfig{AllowedTools: []string{"write_file", "read_file", "edit_file"}}
+	// The build critic reviews every write turn; its system prompt is a role
+	// compile, which a booted session's factory wires.
+	h.executor.SetRolePrompts(&fakeRolePrompts{})
 	if configure != nil {
 		configure(h.executor)
 	}

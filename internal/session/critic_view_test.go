@@ -111,7 +111,7 @@ func TestVerifyAndUpliftWithCritic_WhenTheFindingIsInUntouchedCode_ShouldNotFire
 	trp := &recordingToolResults{}
 	cfg := DefaultExecutorConfig()
 	cfg.WorkspaceRoot = ws
-	e := &Executor{config: cfg, llmClient: critic}
+	e := &Executor{config: cfg, llmClient: critic, rolePrompts: &fakeRolePrompts{}}
 	result := &ExecutionResult{
 		WriteToolEffects: 1, WrittenPaths: []string{"a.go"},
 		PreWriteContents: map[string]PreImage{
@@ -131,10 +131,13 @@ func TestVerifyAndUpliftWithCritic_WhenTheFindingIsInUntouchedCode_ShouldNotFire
 
 func TestBuildCriticPrompt_WhenGivenTheRequest_ShouldAskTheReviewToJudgeAgainstIt(t *testing.T) {
 	p := buildCriticPrompt(map[string]string{"a.go": "    1| package p\n"}, nil, "", "make Add handle overflow")
-	if !strings.Contains(p, "make Add handle overflow") || !strings.Contains(p, "does not do what was asked") {
-		t.Errorf("the prompt does not carry the request and the instruction to judge against it:\n%s", p)
+	if !strings.Contains(p, "The change was made for this request:\n```\nmake Add handle overflow") {
+		t.Errorf("the prompt does not carry the request:\n%s", p)
 	}
-	if strings.Contains(buildCriticPrompt(map[string]string{"a.go": "x"}, nil, "", ""), "does not do what was asked") {
-		t.Error("with no request, the prompt must not ask to judge against one")
+	if !strings.Contains(buildCriticContract(t), "does not do what was asked") {
+		t.Error("the role prompt does not ask the review to judge the change against its request")
+	}
+	if strings.Contains(buildCriticPrompt(map[string]string{"a.go": "x"}, nil, "", ""), "The change was made for this request") {
+		t.Error("with no request, the message must not carry a request section")
 	}
 }

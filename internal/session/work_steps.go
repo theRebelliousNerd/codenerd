@@ -38,13 +38,6 @@ import (
 // Wrapped so errors.Is can tell it from a provider failure.
 var ErrStepsIncomplete = errors.New("planned steps incomplete")
 
-const workStepPlanSystem = `You divide one code-change task into the edit steps an executive will run one at a time, each as its own turn with the file named.
-
-Output one line per step, in the order the task gives them, in exactly this form:
-STEP <workspace-relative file path> :: <the change to make in that file, with its location>
-
-Rules: one step per file region the task says to change; keep the task's own numbering, names, line numbers and wording; a test the task asks for is its own step; an import a step needs is part of that step, never a step of its own; never add a file the task does not name or clearly imply; never add a step the task does not ask for; the task's verification command is not a step, the executive runs it. A task with one change is one STEP line. If the task names no file and clearly implies none, reply with exactly one line: NO STEPS. Output only STEP lines, or NO STEPS, and nothing else.`
-
 // workStep is one edit site of a planned task and what became of it.
 // CoveredBy names the earlier step (1-based) that edited the same file when
 // this one made no edit: a planner that splits an import out of the change
@@ -181,26 +174,31 @@ func emptyCompletionError(err error) bool {
 // Measured 2026-09-21: a campaign run made 13 planning calls, every one on a
 // one-site brief, and every one came back "one step". A plan with fewer than
 // two steps is a single pass too.
-func (e *Executor) planTurnSteps(ctx context.Context, client types.LLMClient, task string, cfg *config.EffectiveAgentRuntimeConfig, result *ExecutionResult) []workStep {
+//
+// The planner's instructions and its STEP/NO STEPS reply contract are its role
+// prompt (atoms/system/work_step_planner.yaml); the message is the task. A
+// role prompt that cannot be compiled is the error returned. A model that
+// fails to answer is not: the task runs as one pass.
+func (e *Executor) planTurnSteps(ctx context.Context, client types.LLMClient, task string, cfg *config.EffectiveAgentRuntimeConfig, result *ExecutionResult) ([]workStep, error) {
 	// This runs before beginWorkingLoop installs the loop, so it asks whether
 	// one will exist rather than reading it off the context.
 	if !e.workingLoopAvailable() || result == nil {
-		return nil
+		return nil, nil
 	}
 	ctx = broker.WithPhase(ctx, broker.PhaseStepPlan)
 	if !e.writeOrientedIntent(result.Intent.Verb) {
-		return nil
+		return nil, nil
 	}
 	// Each step is a pass of the tool loop, so the client needs a
 	// continuation channel: native, or the Piggyback envelope channel.
 	if _, ok := e.toolResultsChannel(client, cfg); !ok {
-		return nil
+		return nil, nil
 	}
 	if cfg == nil || !hasWriteTool(cfg.AllowedTools) {
-		return nil
+		return nil, nil
 	}
 	if !e.briefNeedsStepPlan(task, result) {
-		return nil
+		return nil, nil
 	}
 	settings := e.configSnapshot()
 	timeout := settings.StepPlanTimeout
@@ -211,12 +209,15 @@ func (e *Executor) planTurnSteps(ctx context.Context, client types.LLMClient, ta
 	if maxSteps <= 0 {
 		maxSteps = defaultSessionPolicy.StepPlanMaxSteps
 	}
+	system, err := e.rolePrompt(ctx, workStepPlannerRole)
+	if err != nil {
+		return nil, fmt.Errorf("step planning: %w", err)
+	}
 	user := workStepPlanUser(task, result.Intent.Verb)
 	var text string
-	var err error
 	for attempt := 1; attempt <= 2; attempt++ {
 		planCtx, cancel := context.WithTimeout(ctx, timeout)
-		text, err = client.CompleteWithSystem(planCtx, workStepPlanSystem, user)
+		text, err = client.CompleteWithSystem(planCtx, system, user)
 		cancel()
 		if err == nil {
 			break
@@ -226,20 +227,20 @@ func (e *Executor) planTurnSteps(ctx context.Context, client types.LLMClient, ta
 		// "stop", no content) and cost about 40 s before the task ran as one pass.
 		if emptyCompletionError(err) {
 			logging.Get(logging.CategorySession).Warn("Step planning got an empty model answer; the task runs as one pass")
-			return nil
+			return nil, nil
 		}
 		if attempt == 1 && ctx.Err() == nil {
 			logging.Get(logging.CategorySession).Warn("Step planning attempt 1 failed (%v); retrying once", err)
 			continue
 		}
 		logging.Get(logging.CategorySession).Warn("Step planning failed (%v); the task runs as one pass", err)
-		return nil
+		return nil, nil
 	}
 	steps := parseWorkSteps(e.workspaceForVerification(), text, maxSteps)
 	run, beyond := splitPlan(steps)
 	if len(run) < 2 {
 		logging.SessionDebug("Step planning found %d step(s); the task runs as one pass", len(run))
-		return nil
+		return nil, nil
 	}
 	names := make([]string, 0, len(run))
 	for _, s := range run {
@@ -249,7 +250,7 @@ func (e *Executor) planTurnSteps(ctx context.Context, client types.LLMClient, ta
 	if len(beyond) > 0 {
 		logging.Get(logging.CategorySession).Warn("The plan has %d more step(s) than session.step_plan_max_steps (%d); they are reported as remaining", len(beyond), maxSteps)
 	}
-	return steps
+	return steps, nil
 }
 
 // isEditStep tells an edit site from a verification the planner wrote down

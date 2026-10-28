@@ -70,6 +70,7 @@ func TestJourney_PlannedSteps_WritesBothFilesAndLedgers(t *testing.T) {
 		t.Fatalf("NewRealKernel: %v", err)
 	}
 	executor := NewExecutor(kernel, &testExecutiveStore{}, client, &MockJITCompiler{}, journeyConfigFactory(writeTool), journeyIntent("/create", "/mutation"))
+	executor.SetRolePrompts(&fakeRolePrompts{})
 	cfg := journeyConfig(t)
 	// Step planning requires a working loop, which a workspace root is now the
 	// whole requirement for.

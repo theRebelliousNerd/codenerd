@@ -80,7 +80,7 @@ func TestNormalizeAffinities(t *testing.T) {
 
 func TestCondensed_KeepsWholeDescription(t *testing.T) {
 	long := strings.TrimSpace(strings.Repeat("description text ", 20))
-	analyzer := NewToolAnalyzer(nil, nil)
+	analyzer := NewToolAnalyzer(nil, nil, nil)
 	got, err := analyzer.analyzeWithoutLLM(MCPToolSchema{Name: "t", Description: long})
 	if err != nil {
 		t.Fatalf("analyzeWithoutLLM: %v", err)
@@ -100,7 +100,7 @@ type MockLLMClient struct {
 	Delay    time.Duration
 }
 
-func (m *MockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
+func (m *MockLLMClient) CompleteWithSystem(ctx context.Context, _, _ string) (string, error) {
 	if m.Delay > 0 {
 		select {
 		case <-time.After(m.Delay):
@@ -120,7 +120,7 @@ func TestAnalyzer_Analyze_NullUndefined(t *testing.T) {
 	mockLLM := &MockLLMClient{
 		Response: "", // Empty response
 	}
-	analyzer := NewToolAnalyzer(mockLLM, nil)
+	analyzer := NewToolAnalyzer(mockLLM, testAnalyzerPrompts{}, nil)
 	schema := MCPToolSchema{Name: "test_tool"}
 
 	// When LLM returns empty string, parseAnalysisResponse will fail to parse JSON
@@ -178,7 +178,7 @@ func TestAnalyzer_ExtractJSON_TypeCoercion(t *testing.T) {
 }
 
 func TestAnalyzer_ParseAnalysisResponse_InvalidTypes(t *testing.T) {
-	analyzer := NewToolAnalyzer(nil, nil)
+	analyzer := NewToolAnalyzer(nil, nil, nil)
 	schema := MCPToolSchema{Name: "test"}
 
 	// JSON is syntactically valid but uses strings where ints or lists are expected
@@ -217,7 +217,7 @@ func TestAnalyzer_Analyze_ContextCancelled(t *testing.T) {
 		Response: `{"categories":["general"]}`,
 		Delay:    100 * time.Millisecond,
 	}
-	analyzer := NewToolAnalyzer(mockLLM, nil)
+	analyzer := NewToolAnalyzer(mockLLM, testAnalyzerPrompts{}, nil)
 	schema := MCPToolSchema{Name: "test"}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -242,8 +242,6 @@ func TestAnalyzer_Analyze_ContextCancelled(t *testing.T) {
 }
 
 func TestAnalyzer_UserRequestExtremes_MassiveSchema(t *testing.T) {
-	analyzer := NewToolAnalyzer(nil, nil)
-
 	// Create a massive schema that might break formatJSON
 	massiveMap := make(map[string]any)
 	for range 10000 {
@@ -257,12 +255,9 @@ func TestAnalyzer_UserRequestExtremes_MassiveSchema(t *testing.T) {
 	}
 
 	start := time.Now()
-	prompt, err := analyzer.buildAnalysisPrompt(schema)
+	prompt := buildAnalysisPrompt(schema)
 	duration := time.Since(start)
 
-	if err != nil {
-		t.Fatalf("buildAnalysisPrompt failed on massive schema: %v", err)
-	}
 	if len(prompt) < len(rawJSON) {
 		t.Errorf("Prompt is suspiciously small: %d bytes", len(prompt))
 	}

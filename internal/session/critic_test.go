@@ -28,22 +28,9 @@ func TestBuildCriticPrompt(t *testing.T) {
 		wantNotContains  []string
 	}{
 		{
-			name:             "empty files and empty summary",
-			writtenFiles:     nil,
-			uncoveredSummary: "",
-			wantContains: []string{
-				"FINDING file.go:123 severity: claim text",
-				"NO FINDINGS",
-				"Inventing a finding to appear useful is worse than finding nothing",
-			},
-		},
-		{
 			name:             "empty map no file blocks",
 			writtenFiles:     map[string]string{},
 			uncoveredSummary: "",
-			wantContains: []string{
-				"NO FINDINGS",
-			},
 			wantNotContains: []string{
 				"File:",
 			},
@@ -59,9 +46,6 @@ func TestBuildCriticPrompt(t *testing.T) {
 				"package foo",
 				"func Foo()",
 				"```",
-				"FINDING file.go:123 severity: claim text",
-				"NO FINDINGS",
-				"Inventing a finding to appear useful is worse than finding nothing",
 			},
 		},
 		{
@@ -109,16 +93,6 @@ func TestBuildCriticPrompt(t *testing.T) {
 			uncoveredSummary: "   \n\t  ",
 			wantNotContains: []string{
 				"Uncovered code summary",
-			},
-		},
-		{
-			name: "prompt instructs severity values",
-			writtenFiles: map[string]string{
-				"foo.go": "package foo\n",
-			},
-			uncoveredSummary: "",
-			wantContains: []string{
-				"high, medium, or low",
 			},
 		},
 	}
@@ -335,15 +309,11 @@ func TestParseAndUpliftIntegration(t *testing.T) {
 }
 
 func TestBuildCriticPrompt_RoundTripWithParser(t *testing.T) {
-	// The prompt's documented output format must be parseable by the parser.
-	// If the prompt says 'FINDING file.go:123 severity: claim text' and the
+	// The role prompt's documented output format must be parseable by the
+	// parser. If it says 'FINDING file.go:123 severity: claim text' and the
 	// parser expects something else, the reviewer gate is wired to nothing.
-	files := map[string]string{
-		"foo.go": "package foo\n",
-	}
-	prompt := buildCriticPrompt(files, nil, "", "")
-	if !strings.Contains(prompt, "FINDING file.go:123 severity: claim text") {
-		t.Fatal("prompt does not contain the documented finding format")
+	if !strings.Contains(buildCriticContract(t), "FINDING file.go:123 severity: claim text") {
+		t.Fatal("the critic's role prompt does not carry the documented finding format")
 	}
 	// Simulate a reviewer response using the exact format the prompt specifies.
 	response := "FINDING foo.go:10 high: example defect"
@@ -519,7 +489,7 @@ func TestVerifyAndUpliftWithCritic_AbandonsAStalledReview(t *testing.T) {
 	}
 	cfg := DefaultExecutorConfig()
 	cfg.WorkspaceRoot = ws
-	e := &Executor{config: cfg, llmClient: hangingLLM{}}
+	e := &Executor{config: cfg, llmClient: hangingLLM{}, rolePrompts: &fakeRolePrompts{}}
 
 	// A context the caller cancels is the mechanism that must win. Without the
 	// bound inside the gate, this call would never return.
@@ -562,31 +532,26 @@ func (hangingLLM) CompleteWithTools(ctx context.Context, _, _ string, _ []types.
 // Evidence in the prompt is worthless if nothing tells the reviewer to use it.
 // Without an instruction naming the uncovered and static-analysis sections, a
 // reviewer reads them as background and reports on the source alone — wasting
-// the one signal in the prompt produced by a tool rather than a model.
+// the one signal in the prompt produced by a tool rather than a model. The
+// evidence rides in the message; the instruction is the role prompt's.
 func TestBuildCriticPrompt_InstructsOnUncoveredEvidence(t *testing.T) {
 	files := map[string]string{"a.go": "package p\n"}
 
 	withEvidence := buildCriticPrompt(files, nil, "a.go:10-12", "")
-	if !strings.Contains(withEvidence, "a.go:10-12") {
-		t.Error("uncovered summary is not embedded in the prompt")
+	if !strings.Contains(withEvidence, "Uncovered code summary:\na.go:10-12") {
+		t.Error("uncovered summary is not embedded in the prompt under its heading")
 	}
-	if !strings.Contains(withEvidence, "tool output, not opinion") {
-		t.Error("prompt does not tell the reviewer the evidence is tool output")
+	contract := buildCriticContract(t)
+	if !strings.Contains(contract, "tool output, not opinion") {
+		t.Error("the role prompt does not tell the reviewer the evidence is tool output")
 	}
-	if !strings.Contains(withEvidence, "so a test gets written for it") {
-		t.Error("prompt does not ask for uncovered logic to be reported, so coverage never improves")
+	if !strings.Contains(contract, "so a test gets written for it") {
+		t.Error("the role prompt does not ask for uncovered logic to be reported, so coverage never improves")
 	}
 	// It must also permit declining: demanding a test for every uncovered block
 	// would manufacture tests for unreachable defensive branches.
-	if !strings.Contains(withEvidence, "not worth a test") {
-		t.Error("prompt gives no way to skip a block that genuinely does not need a test")
-	}
-
-	// With no evidence, those instructions must not appear — an empty coverage
-	// section followed by "account for the evidence above" is incoherent.
-	without := buildCriticPrompt(files, nil, "", "")
-	if strings.Contains(without, "tool output, not opinion") {
-		t.Error("evidence instructions appear when there is no evidence")
+	if !strings.Contains(contract, "not worth a test") {
+		t.Error("the role prompt gives no way to skip a block that genuinely does not need a test")
 	}
 }
 
@@ -595,7 +560,7 @@ func TestBuildCriticPrompt_InstructsOnUncoveredEvidence(t *testing.T) {
 // F-DOC-1 recorded four real instances in two turns, so the reviewer is told to
 // look for them explicitly.
 func TestBuildCriticPrompt_AsksAboutCommentClaims(t *testing.T) {
-	p := buildCriticPrompt(map[string]string{"a.go": "package p\n"}, nil, "", "")
+	p := buildCriticContract(t)
 
 	for _, want := range []string{
 		"Check the comments against the code",
@@ -665,7 +630,6 @@ func TestBuildCriticPrompt_ShowsTurnRemovals(t *testing.T) {
 	for _, want := range []string{
 		"Lines this turn removed from a.go",
 		"// gone",
-		"Every one must be accounted for",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("buildCriticPrompt with removals missing %q\nprompt:\n%s", want, got)
@@ -673,10 +637,13 @@ func TestBuildCriticPrompt_ShowsTurnRemovals(t *testing.T) {
 	}
 
 	plain := buildCriticPrompt(files, nil, "", "")
+	if !strings.Contains(buildCriticContract(t), "Every one must be accounted for") {
+		t.Error("the role prompt does not ask the reviewer to account for every removed line")
+	}
+
 	for _, notWant := range []string{
 		"Lines this turn removed from",
 		"// gone",
-		"Every one must be accounted for",
 	} {
 		if strings.Contains(plain, notWant) {
 			t.Errorf("buildCriticPrompt with nil removals should not contain %q\nprompt:\n%s", notWant, plain)
@@ -739,7 +706,7 @@ func TestVerifyAndUpliftWithCritic_FiresUpliftOnHighSeverityFinding(t *testing.T
 
 	cfg := DefaultExecutorConfig()
 	cfg.WorkspaceRoot = ws
-	e := &Executor{config: cfg, llmClient: critic, kernel: realKernel(t)}
+	e := &Executor{config: cfg, llmClient: critic, kernel: realKernel(t), rolePrompts: &fakeRolePrompts{}}
 
 	result := &ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"a.go"}}
 
@@ -785,7 +752,7 @@ func TestVerifyAndUpliftWithCritic_LowSeverityDoesNotFireUplift(t *testing.T) {
 
 	cfg := DefaultExecutorConfig()
 	cfg.WorkspaceRoot = ws
-	e := &Executor{config: cfg, llmClient: critic, kernel: realKernel(t)}
+	e := &Executor{config: cfg, llmClient: critic, kernel: realKernel(t), rolePrompts: &fakeRolePrompts{}}
 	result := &ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"a.go"}}
 
 	if _, err := e.verifyAndUpliftWithCritic(context.Background(), trp, "sys", nil, nil, nil, result); err != nil {
@@ -813,7 +780,7 @@ func TestVerifyAndUpliftWithCritic_NoFindingsCostsNothingExtra(t *testing.T) {
 
 	cfg := DefaultExecutorConfig()
 	cfg.WorkspaceRoot = ws
-	e := &Executor{config: cfg, llmClient: critic, kernel: realKernel(t)}
+	e := &Executor{config: cfg, llmClient: critic, kernel: realKernel(t), rolePrompts: &fakeRolePrompts{}}
 	result := &ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"a.go"}}
 
 	errs, err := e.verifyAndUpliftWithCritic(context.Background(), trp, "sys", nil, nil, nil, result)

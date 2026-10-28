@@ -58,6 +58,7 @@ func newWorkingLoopExecutor(t *testing.T, client types.LLMClient) *Executor {
 	e.config.VerifyTestsAfterEdits = false
 	e.config.CriticReviewAfterEdits = false
 	e.config.WorkspaceRoot = t.TempDir()
+	e.rolePrompts = &fakeRolePrompts{}
 	return e
 }
 

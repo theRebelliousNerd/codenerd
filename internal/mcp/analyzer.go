@@ -5,46 +5,61 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"text/template"
 
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
-// LLMClient interface for LLM completions.
+// LLMClient is the model the analyzer asks: a system prompt (the analyzer's
+// role prompt) and a user message (the tool).
 type LLMClient interface {
-	Complete(ctx context.Context, prompt string) (string, error)
+	CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error)
 }
+
+// toolAnalyzerRole is the role the analyzer's system prompt compiles under:
+// its atoms (atoms/system/mcp_tool_analyzer.yaml) declare shard_types
+// ["/mcp_tool_analyzer"]. The judge intent keeps worker intent atoms out of a
+// compile whose reply Go parses.
+const (
+	toolAnalyzerRole   = "mcp_tool_analyzer"
+	toolAnalyzerIntent = "judge"
+)
 
 // ToolAnalyzer uses LLM to extract semantic metadata from MCP tools.
 type ToolAnalyzer struct {
 	llm      LLMClient
+	prompts  types.RolePromptCompiler
 	embedder embedding.EmbeddingEngine
 }
 
-// NewToolAnalyzer creates a new tool analyzer.
-func NewToolAnalyzer(llm LLMClient, embedder embedding.EmbeddingEngine) *ToolAnalyzer {
+// NewToolAnalyzer creates a new tool analyzer. prompts compiles the analyzer's
+// system prompt (its instructions and JSON reply contract); with an llm and no
+// prompts, Analyze reports types.ErrRolePromptUnavailable.
+func NewToolAnalyzer(llm LLMClient, prompts types.RolePromptCompiler, embedder embedding.EmbeddingEngine) *ToolAnalyzer {
 	return &ToolAnalyzer{
 		llm:      llm,
+		prompts:  prompts,
 		embedder: embedder,
 	}
 }
 
-// Analyze extracts semantic metadata from an MCP tool schema.
+// Analyze extracts semantic metadata from an MCP tool schema. With no model it
+// infers the metadata from the tool's name and description. With a model, the
+// analyzer's role prompt must compile: a missing or failed compile is an error
+// the caller reports, never a different prompt.
 func (a *ToolAnalyzer) Analyze(ctx context.Context, schema MCPToolSchema) (*ToolAnalysis, error) {
 	if a.llm == nil {
 		return a.analyzeWithoutLLM(schema)
 	}
 
-	// Build prompt
-	prompt, err := a.buildAnalysisPrompt(schema)
+	system, err := a.systemPrompt(ctx)
 	if err != nil {
-		logging.Get(logging.CategoryTools).Warn("Failed to build analysis prompt: %v", err)
-		return a.analyzeWithoutLLM(schema)
+		return nil, fmt.Errorf("analyze MCP tool %s: %w", schema.Name, err)
 	}
 
 	// Call LLM
-	response, err := a.llm.Complete(ctx, prompt)
+	response, err := a.llm.CompleteWithSystem(ctx, system, buildAnalysisPrompt(schema))
 	if err != nil {
 		logging.Get(logging.CategoryTools).Warn("LLM analysis failed: %v", err)
 		return a.analyzeWithoutLLM(schema)
@@ -113,90 +128,33 @@ func (a *ToolAnalyzer) analyzeWithoutLLM(schema MCPToolSchema) (*ToolAnalysis, e
 	return analysis, nil
 }
 
-const analysisPromptTemplate = `Analyze this MCP tool and extract structured metadata for tool selection.
-
-## Tool Information
-Name: {{.Name}}
-Description: {{.Description}}
-Input Schema:
-{{.InputSchema}}
-{{if .OutputSchema}}
-Output Schema:
-{{.OutputSchema}}
-{{end}}
-
-## Required Output
-Extract the following as a JSON object:
-
-{
-  "categories": ["category1", "category2"],
-  "capabilities": ["/capability1", "/capability2"],
-  "domain": "/domain",
-  "shard_affinities": {"coder": 0-100, "tester": 0-100, "reviewer": 0-100, "researcher": 0-100},
-  "use_cases": ["use case 1", "use case 2"],
-  "condensed": "One-line description (max 80 chars)"
+// systemPrompt compiles the analyzer's role prompt.
+func (a *ToolAnalyzer) systemPrompt(ctx context.Context) (string, error) {
+	if a.prompts == nil {
+		return "", fmt.Errorf("%w: no role prompt compiler for the %s", types.ErrRolePromptUnavailable, toolAnalyzerRole)
+	}
+	return a.prompts.CompileRolePrompt(ctx, types.RolePromptRequest{Role: toolAnalyzerRole, Intent: toolAnalyzerIntent})
 }
 
-### Categories (select applicable)
-- filesystem: File operations (read, write, list, search)
-- code_analysis: Code inspection, AST operations, semantic analysis
-- code_generation: Creating or modifying code
-- shell: Command execution, process management
-- git: Version control operations
-- web: HTTP requests, web scraping, browser automation
-- database: Database queries, data manipulation
-- api: External API calls
-- testing: Test execution, coverage analysis
-- documentation: Doc generation, README operations
-- search: Content search, semantic search
-
-### Capabilities (select applicable)
-- /read: Reads data without modification
-- /write: Creates or modifies data
-- /delete: Removes data
-- /search: Finds or queries data
-- /transform: Converts data formats
-- /execute: Runs code or commands
-- /analyze: Examines and reports on data
-- /validate: Checks correctness
-
-### Domains
-- /go, /python, /typescript, /rust, /java (language-specific)
-- /general (language-agnostic)
-
-### Shard Affinities (0-100 scores)
-- coder: How useful for code generation/modification?
-- tester: How useful for test execution/analysis?
-- reviewer: How useful for code review/inspection?
-- researcher: How useful for information gathering?
-
-Respond with ONLY the JSON object, no other text.`
-
-// buildAnalysisPrompt builds the LLM prompt for tool analysis.
-func (a *ToolAnalyzer) buildAnalysisPrompt(schema MCPToolSchema) (string, error) {
-	tmpl, err := template.New("analysis").Parse(analysisPromptTemplate)
-	if err != nil {
-		return "", err
-	}
-
-	data := struct {
-		Name         string
-		Description  string
-		InputSchema  string
-		OutputSchema string
-	}{
-		Name:         schema.Name,
-		Description:  schema.Description,
-		InputSchema:  formatJSON(schema.InputSchema),
-		OutputSchema: formatJSON(schema.OutputSchema),
-	}
-
+// buildAnalysisPrompt builds the analyzer's user message: the tool's name,
+// description and schemas, and nothing else. What to extract from them and
+// the JSON reply contract are the role prompt
+// (atoms/system/mcp_tool_analyzer.yaml).
+func buildAnalysisPrompt(schema MCPToolSchema) string {
 	var sb strings.Builder
-	if err := tmpl.Execute(&sb, data); err != nil {
-		return "", err
+	sb.WriteString("## Tool Information\nName: ")
+	sb.WriteString(schema.Name)
+	sb.WriteString("\nDescription: ")
+	sb.WriteString(schema.Description)
+	sb.WriteString("\nInput Schema:\n")
+	sb.WriteString(formatJSON(schema.InputSchema))
+	sb.WriteString("\n")
+	if len(schema.OutputSchema) > 0 {
+		sb.WriteString("Output Schema:\n")
+		sb.WriteString(formatJSON(schema.OutputSchema))
+		sb.WriteString("\n")
 	}
-
-	return sb.String(), nil
+	return sb.String()
 }
 
 // parseAnalysisResponse parses the LLM response into ToolAnalysis.

@@ -1,0 +1,75 @@
+# The MCP tool analyzer (internal/mcp/analyzer.go, ToolAnalyzer.Analyze):
+# reads one MCP tool's name, description and schemas (the user message) and
+# answers with the JSON metadata parseAnalysisResponse reads. Compiled for
+# role /mcp_tool_analyzer, intent /judge. Until 2026-10-28 this was the
+# instruction half of analysisPromptTemplate. Its reply is parsed by Go, so
+# the atom supersedes the Piggyback protocol.
+
+- id: "system/mcp_tool_analyzer/contract"
+  category: "protocol"
+  is_mandatory: true
+  shard_types: ["/mcp_tool_analyzer"]
+  conflicts_with:
+    - "protocol/piggyback/envelope"
+    - "protocol/piggyback/control_first"
+    - "protocol/piggyback/mangle_updates"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  content: |
+    You analyze one MCP tool and extract structured metadata for tool selection. The message gives the tool's name, description, input schema and, when it has one, output schema.
+
+    ## Required Output
+    Extract the following as a JSON object:
+
+    {
+      "categories": ["category1", "category2"],
+      "capabilities": ["/capability1", "/capability2"],
+      "domain": "/domain",
+      "shard_affinities": {"coder": 0-100, "tester": 0-100, "reviewer": 0-100, "researcher": 0-100},
+      "use_cases": ["use case 1", "use case 2"],
+      "condensed": "One-line description (max 80 chars)"
+    }
+
+    Respond with ONLY the JSON object, no other text.
+
+- id: "system/mcp_tool_analyzer/vocabulary"
+  category: "protocol"
+  is_mandatory: true
+  shard_types: ["/mcp_tool_analyzer"]
+  depends_on: ["system/mcp_tool_analyzer/contract"]
+  content: |
+    ### Categories (select applicable)
+    - filesystem: File operations (read, write, list, search)
+    - code_analysis: Code inspection, AST operations, semantic analysis
+    - code_generation: Creating or modifying code
+    - shell: Command execution, process management
+    - git: Version control operations
+    - web: HTTP requests, web scraping, browser automation
+    - database: Database queries, data manipulation
+    - api: External API calls
+    - testing: Test execution, coverage analysis
+    - documentation: Doc generation, README operations
+    - search: Content search, semantic search
+
+    ### Capabilities (select applicable)
+    - /read: Reads data without modification
+    - /write: Creates or modifies data
+    - /delete: Removes data
+    - /search: Finds or queries data
+    - /transform: Converts data formats
+    - /execute: Runs code or commands
+    - /analyze: Examines and reports on data
+    - /validate: Checks correctness
+
+    ### Domains
+    - /go, /python, /typescript, /rust, /java (language-specific)
+    - /general (language-agnostic)
+
+    ### Shard Affinities (0-100 scores)
+    - coder: How useful for code generation/modification?
+    - tester: How useful for test execution/analysis?
+    - reviewer: How useful for code review/inspection?
+    - researcher: How useful for information gathering?

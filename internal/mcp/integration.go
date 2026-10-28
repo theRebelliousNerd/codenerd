@@ -8,6 +8,7 @@ import (
 
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // IntegrationClient is the interface that VirtualStore expects.
@@ -80,7 +81,9 @@ type MCPIntegrationBridge struct {
 }
 
 // NewMCPIntegrationBridge creates a new MCP integration bridge.
-func NewMCPIntegrationBridge(workspace string, kernel KernelInterface, embedder embedding.EmbeddingEngine, llmClient LLMClient, serverConfigs map[string]MCPServerConfig) (*MCPIntegrationBridge, error) {
+// prompts compiles the tool analyzer's system prompt; llmClient nil leaves
+// tools to be classified without a model.
+func NewMCPIntegrationBridge(workspace string, kernel KernelInterface, embedder embedding.EmbeddingEngine, llmClient LLMClient, prompts types.RolePromptCompiler, serverConfigs map[string]MCPServerConfig) (*MCPIntegrationBridge, error) {
 	// Determine database path
 	dbPath := filepath.Join(workspace, ".nerd", "mcp_tools.db")
 
@@ -91,7 +94,7 @@ func NewMCPIntegrationBridge(workspace string, kernel KernelInterface, embedder 
 	}
 
 	// Create analyzer
-	analyzer := NewToolAnalyzer(llmClient, embedder)
+	analyzer := NewToolAnalyzer(llmClient, prompts, embedder)
 
 	// Create manager with server configs
 	manager := NewMCPClientManager(store, analyzer, serverConfigs)

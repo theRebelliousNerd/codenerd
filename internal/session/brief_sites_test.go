@@ -54,7 +54,9 @@ func countPlanningCalls(t *testing.T, e *Executor, client *stepScriptProvider, w
 		return client.plan, nil
 	}
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
-	e.planTurnSteps(context.Background(), client, brief, &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{writeTool}}, result)
+	if _, err := e.planTurnSteps(context.Background(), client, brief, &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{writeTool}}, result); err != nil {
+		t.Fatalf("planTurnSteps: %v", err)
+	}
 	e.cleanupTurnFacts()
 	return calls
 }

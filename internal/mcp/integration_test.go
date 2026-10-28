@@ -12,7 +12,7 @@ func TestNewMCPIntegrationBridge_Success(t *testing.T) {
 		"srv1": {ID: "srv1"},
 	}
 
-	bridge, err := NewMCPIntegrationBridge(workspace, nil, nil, nil, serverConfigs)
+	bridge, err := NewMCPIntegrationBridge(workspace, nil, nil, nil, nil, serverConfigs)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -49,7 +49,7 @@ func TestNewMCPIntegrationBridge_StoreError(t *testing.T) {
 
 	serverConfigs := map[string]MCPServerConfig{}
 
-	bridge, err := NewMCPIntegrationBridge(workspace, nil, nil, nil, serverConfigs)
+	bridge, err := NewMCPIntegrationBridge(workspace, nil, nil, nil, nil, serverConfigs)
 	if err == nil {
 		bridge.Close()
 		t.Fatal("expected error due to invalid db path, got nil")

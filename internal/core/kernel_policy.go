@@ -283,31 +283,17 @@ func (k *RealKernel) GenerateValidatedRule(
 		return "", fmt.Errorf("llmClient cannot be nil")
 	}
 
-	// Build the system prompt with Mangle syntax guidance
-	predicates := k.GetDeclaredPredicates()
-	systemPrompt := feedback.BuildEnhancedSystemPrompt(mangleRuleSystemPrompt, predicates)
-
-	// Build user prompt from purpose and context
-	var userPromptBuilder strings.Builder
-	userPromptBuilder.WriteString("Generate a Mangle rule for the following purpose:\n\n")
-	userPromptBuilder.WriteString(purpose)
-
-	if len(contextMap) > 0 {
-		userPromptBuilder.WriteString("\n\n## Additional Context:\n")
-		contextKeys := make([]string, 0, len(contextMap))
-		for key := range contextMap {
-			contextKeys = append(contextKeys, key)
-		}
-		sort.Strings(contextKeys)
-		// Sorted: this builds a prompt, and a prompt whose lines reorder
-		// between runs cannot be matched by a provider's prefix cache or
-		// diffed by a person trying to find out why the agent got worse.
-		for _, key := range contextKeys {
-			userPromptBuilder.WriteString(fmt.Sprintf("- %s: %s\n", key, contextMap[key]))
-		}
+	// The generator's persona, syntax rules and reply contract are its role
+	// atoms; the syntax reminder and the declared predicates are appended to
+	// them. A rule generator with no prompt is an error, not a rule written
+	// from some other text.
+	base, err := k.ruleGeneratorSystemPrompt(ctx)
+	if err != nil {
+		return "", fmt.Errorf("rule generation: %w", err)
 	}
-
-	userPrompt := userPromptBuilder.String()
+	predicates := k.GetDeclaredPredicates()
+	systemPrompt := feedback.BuildEnhancedSystemPrompt(base, predicates)
+	userPrompt := ruleGeneratorMessage(purpose, contextMap)
 	logging.KernelDebug("GenerateValidatedRule: user prompt length=%d, available predicates=%d",
 		len(userPrompt), len(predicates))
 
@@ -351,27 +337,57 @@ func (k *RealKernel) GenerateValidatedRule(
 	return result.Rule, nil
 }
 
-// mangleRuleSystemPrompt is the base system prompt for rule generation.
-const mangleRuleSystemPrompt = `You are an expert Mangle/Datalog programmer for codeNERD, a neuro-symbolic coding agent.
+// ruleGeneratorRole is the role GenerateValidatedRule's system prompt compiles
+// under: its atoms (atoms/system/mangle_rule_generator.yaml) declare
+// shard_types ["/mangle_rule_generator"]. The judge intent keeps worker intent
+// atoms out of a compile whose reply is one rule.
+const (
+	ruleGeneratorRole   = "mangle_rule_generator"
+	ruleGeneratorIntent = "judge"
+)
 
-Your task is to generate syntactically correct Mangle rules that will compile successfully.
+// SetRolePrompts installs the compiler of the kernel's role prompts (the rule
+// generator's). Nil leaves GenerateValidatedRule reporting
+// types.ErrRolePromptUnavailable.
+func (k *RealKernel) SetRolePrompts(c types.RolePromptCompiler) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.rolePrompts = c
+}
 
-## Critical Mangle Syntax Rules:
-1. Variables are UPPERCASE: X, Y, File, Action
-2. Name constants start with /: /fix, /review, /coder
-3. Strings are double-quoted: "hello world"
-4. Every rule MUST end with a period (.)
-5. Rule format: head(Args) :- body1(Args), body2(Args).
-6. Negation uses !predicate(X), NOT \+ or not
-7. Aggregation: Result = fn:count(X) |> do predicate(X).
+// ruleGeneratorSystemPrompt compiles the rule generator's role prompt.
+func (k *RealKernel) ruleGeneratorSystemPrompt(ctx context.Context) (string, error) {
+	k.mu.RLock()
+	rp := k.rolePrompts
+	k.mu.RUnlock()
+	if rp == nil {
+		return "", fmt.Errorf("%w: no role prompt compiler for the %s", types.ErrRolePromptUnavailable, ruleGeneratorRole)
+	}
+	return rp.CompileRolePrompt(ctx, types.RolePromptRequest{Role: ruleGeneratorRole, Intent: ruleGeneratorIntent})
+}
 
-## Common Mistakes to Avoid:
-- Using lowercase variables (wrong: x, correct: X)
-- Missing the terminating period
-- Using strings instead of atoms for constants
-- Prolog-style negation (\+) instead of !
-
-Output ONLY the rule, no explanation. The rule must compile.`
+// ruleGeneratorMessage is the rule generator's user message: the purpose and
+// the additional context, the data its role prompt says it is given.
+func ruleGeneratorMessage(purpose string, contextMap map[string]string) string {
+	var b strings.Builder
+	b.WriteString("Purpose:\n")
+	b.WriteString(purpose)
+	if len(contextMap) > 0 {
+		b.WriteString("\n\n## Additional Context:\n")
+		contextKeys := make([]string, 0, len(contextMap))
+		for key := range contextMap {
+			contextKeys = append(contextKeys, key)
+		}
+		sort.Strings(contextKeys)
+		// Sorted: this builds a prompt, and a prompt whose lines reorder
+		// between runs cannot be matched by a provider's prefix cache or
+		// diffed by a person trying to find out why the agent got worse.
+		for _, key := range contextKeys {
+			fmt.Fprintf(&b, "- %s: %s\n", key, contextMap[key])
+		}
+	}
+	return b.String()
+}
 
 // HotLoadLearnedRule dynamically loads a learned rule and persists it to learned.mg.
 // This is the primary method for Autopoiesis to add new learned rules.

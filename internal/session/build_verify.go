@@ -952,6 +952,13 @@ func (e *Executor) verifyAndUpliftWithCritic(
 	if loop := activeWorkingLoop(ctx); loop != nil {
 		request = loop.task
 	}
+	// The critic's persona, instructions and reply contract are its role
+	// atoms; the message carries only the change. A critic with no prompt is
+	// a wiring fault the turn reports, not a review to skip quietly.
+	criticSystem, err := e.rolePrompt(ctx, buildCriticRole)
+	if err != nil {
+		return nil, fmt.Errorf("adversarial review: %w", err)
+	}
 	prompt := buildCriticPrompt(views, removals, grounding, request)
 
 	// The review is bounded as every request is: by the caller's context and
@@ -966,7 +973,7 @@ func (e *Executor) verifyAndUpliftWithCritic(
 	// The review is the critic's own inference, not a round of the turn: its
 	// spend belongs in the critic account, where a change to the critic can
 	// be measured, not folded into the session total.
-	response, err := client.CompleteWithSystem(broker.WithPurpose(ctx, broker.PurposeCritic), criticSystemPrompt, prompt)
+	response, err := client.CompleteWithSystem(broker.WithPurpose(ctx, broker.PurposeCritic), criticSystem, prompt)
 	if err != nil {
 		// The critic is advisory. A failed review is a missing opinion, not a
 		// failed turn.
@@ -1138,12 +1145,6 @@ func wroteGo(paths []string) bool {
 	}
 	return false
 }
-
-// criticSystemPrompt keeps the reviewer in the one role that makes it useful.
-const criticSystemPrompt = "You are a rigorous, adversarial code reviewer. You report only " +
-	"defects you can point to in the code you were given. You have no incentive to find " +
-	"something: reporting nothing when the code is sound is a correct and valued outcome, " +
-	"and inventing a defect to appear useful is the worst thing you can do."
 
 // criticClient picks the model that reviews the turn.
 //

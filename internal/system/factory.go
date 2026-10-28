@@ -30,7 +30,6 @@ import (
 	"codenerd/internal/shards"
 	"codenerd/internal/shards/system"
 	"codenerd/internal/tools"
-	"codenerd/internal/tools/mcpctl"
 	"codenerd/internal/tools/research"
 	"codenerd/internal/tools/shell"
 	"codenerd/internal/types"
@@ -1732,43 +1731,6 @@ func initIntelligenceLayer(bctx *bootContext) error {
 		bctx.learningStore.SetReflectionConfig(bctx.appCfg.GetReflectionConfig())
 	}
 
-	integrationsCfg := bctx.appCfg.GetIntegrations()
-	serverConfigs := integrationsCfg.ToMCPServerConfigs()
-	if len(serverConfigs) > 0 {
-		var mcpLLMClient mcp.LLMClient
-		if bctx.llmClient != nil {
-			mcpLLMClient = &perceptionLLMAdapter{client: bctx.llmClient}
-		}
-		mcpBridge, err := mcp.NewMCPIntegrationBridge(bctx.workspace, newMCPKernelAdapter(bctx.kernel), bctx.embeddingEngine, mcpLLMClient, serverConfigs)
-		if err != nil {
-			logging.Get(logging.CategoryTools).Warn("Failed to init MCP bridge: %v", err)
-		} else {
-			mcpCtx, mcpCancel := context.WithCancel(bctx.ctx)
-			mcpDone := make(chan struct{})
-			bctx.mcpBridge = mcpBridge
-			mcpBridge.GetManager().SetApprovalBroker(bctx.approvals)
-			bctx.mcpCancel = mcpCancel
-			bctx.mcpDone = mcpDone
-			for serverID := range serverConfigs {
-				bctx.virtualStore.SetMCPClient(serverID, mcpBridge.GetAdapter(serverID))
-				logging.Get(logging.CategoryTools).Info("Wired MCP integration: %s", serverID)
-			}
-			// Bind the model-facing control plane. This is what puts MCP in
-			// front of the LLM at all: the five mcp_* verbs are registered
-			// unconditionally, and until they have a plane they correctly
-			// report that nothing is configured. Binding happens before
-			// ConnectAll so a tool call racing boot sees an honest empty atlas
-			// rather than "MCP is not configured".
-			mcpctl.SetControlPlane(mcpBridge.ControlPlane())
-			go func() {
-				defer close(mcpDone)
-				if err := mcpBridge.ConnectAll(mcpCtx); err != nil && !errors.Is(err, context.Canceled) {
-					logging.Get(logging.CategoryTools).Warn("MCP auto-connect failed: %v", err)
-				}
-			}()
-		}
-	}
-
 	if count, err := IngestHybridPrompts(bctx.ctx, bctx.workspace, bctx.kernel, bctx.atomLoader); err != nil {
 		logging.Get(logging.CategoryContext).Warn("Failed to ingest hybrid prompts: %v", err)
 	} else if count > 0 {
@@ -1847,6 +1809,12 @@ func initIntelligenceLayer(bctx *bootContext) error {
 	bctx.jitCompiler = jitCompiler
 	// Ownership of the project DB transfers to JITCompiler on success.
 	bctx.projectDB = nil
+	// The kernel's rule generator and the MCP tool analyzer compile their
+	// system prompts from role atoms, so both are wired after the compiler.
+	if rk, ok := bctx.kernel.(*core.RealKernel); ok {
+		rk.SetRolePrompts(bctx.rolePrompts)
+	}
+	initMCPBridge(bctx)
 
 	if bctx.localDB != nil {
 		bctx.jitCompiler.SetLocalDB(bctx.localDB)
@@ -2579,6 +2547,8 @@ func initFinalExecutors(bctx *bootContext) error {
 	// context and snapshotTurnUsage reads spend instead of zeros. Nil-safe:
 	// when metering failed to boot, turns keep the previous behaviour.
 	bctx.sessionExecutor.SetUsageTracker(bctx.tracker)
+	// The build critic's system prompt is a role compile (session/role_prompts.go).
+	bctx.sessionExecutor.SetRolePrompts(bctx.rolePrompts)
 	// Every tool offer and call, on every channel, goes to the tool ledger the
 	// autopoiesis profile store keeps (policy/tool_value.mg classifies from it).
 	bctx.sessionExecutor.SetToolMeter(bctx.poiesis.ToolMeter())
@@ -2651,6 +2621,7 @@ func initFinalExecutors(bctx *bootContext) error {
 	bctx.sessionSpawner.SetExecutorConfig(&execCfg)
 	bctx.sessionSpawner.SetSessionID(bctx.sessionID)
 	bctx.sessionSpawner.SetApprovalBroker(bctx.approvals)
+	bctx.sessionSpawner.SetRolePrompts(bctx.rolePrompts)
 	bctx.sessionSpawner.SetToolMeter(bctx.poiesis.ToolMeter())
 	// Same meter for spawned subagents: their executors are fresh builds, not
 	// clones, so without this their turn_cost deltas read zero. Nil-safe.

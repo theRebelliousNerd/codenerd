@@ -39,6 +39,9 @@ type Spawner struct {
 	// a reasoning-intensive verb resolves the same tier the session would.
 	// Nil keeps subagents entirely on llmClient.
 	plannerClient types.LLMClient
+	// rolePrompts is handed to every spawned subagent's executor, so its
+	// build critic compiles the same role prompt the session's does.
+	rolePrompts types.RolePromptCompiler
 	// shardProfileContext is handed to every spawned subagent's executor, which
 	// is a fresh build and would otherwise run every persona on the serving
 	// client's model whatever shard_profiles says.
@@ -448,6 +451,7 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 		s.transducer,
 	)
 	agent.SetPlannerClient(s.currentPlannerClient())
+	agent.executor.SetRolePrompts(s.currentRolePrompts())
 	// Forward the parent's nerd.md project instructions. Executor.SetProjectDoc
 	// is nil-safe and withProjectInstructions is a no-op when doc is nil, so
 	// this preserves the existing behaviour when no nerd.md is present.

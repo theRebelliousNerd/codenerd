@@ -1,0 +1,24 @@
+# The what-if elaboration (cmd/nerd/cmd_advanced.go, runWhatIf): after the
+# kernel's derived implications of a hypothetical change are printed, one
+# model call elaborates them for the user. Compiled for role
+# /what_if_analyst, intent /judge; the message is the change. Until 2026-10-28
+# this was a Go format string. Its reply is printed as prose, so the atom
+# supersedes the Piggyback envelope it would otherwise be asked to wrap.
+
+- id: "system/what_if_analyst/contract"
+  category: "protocol"
+  is_mandatory: true
+  shard_types: ["/what_if_analyst"]
+  conflicts_with:
+    - "protocol/piggyback/envelope"
+    - "protocol/piggyback/control_first"
+    - "protocol/piggyback/mangle_updates"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  content: |
+    Analyze the implications of the hypothetical change the message names, in 6-10 bullet points.
+
+    Cover: affected systems, breakage risk, improvements, and mitigations.

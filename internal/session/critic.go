@@ -61,22 +61,20 @@ type CriticFinding struct {
 // ignored so the parser is not brittle to the reviewer's chatter.
 var criticFindingRe = regexp.MustCompile(`^FINDING\s+(\S+):(\d+)\s+(\w+):\s*(.+)$`)
 
-// buildCriticPrompt builds an adversarial review prompt that embeds each file
-// path and its contents in fenced code blocks, the lines this turn removed
+// buildCriticPrompt builds the critic's user message: the change to review
+// and nothing else. It carries the request the change was made for, each file
+// path and its contents in a fenced code block, the lines this turn removed
 // from each file (removals, numbered as they were before the edit), and the
-// uncovered summary, instructs the reviewer to find real defects and to output
-// findings in the exact line format 'FINDING file.go:123 severity: claim text'
-// one per line, and to output the single line 'NO FINDINGS' when the code is
-// sound.
+// uncovered and static-analysis summary.
 //
-// The prompt explicitly states that inventing a finding to appear useful is
-// worse than finding nothing — without that, a reviewer rewarded for activity
-// will hallucinate defects in sound code, which is the failure mode this
-// gate exists to prevent.
+// What the reviewer does with them -- real defects only, the 'FINDING
+// file.go:123 severity: claim text' / 'NO FINDINGS' reply contract, the
+// comment check, accounting for every removal and every uncovered block, and
+// that inventing a finding is worse than finding nothing -- is its role prompt
+// (atoms/system/build_critic.yaml), compiled by Executor.criticSystemPrompt.
+// Each section's heading here is the name those instructions refer to it by.
 func buildCriticPrompt(writtenFiles map[string]string, removals map[string]string, uncoveredSummary, request string) string {
 	var b strings.Builder
-
-	b.WriteString("You are an adversarial code reviewer. Review the following files for real, verifiable defects only.\n\n")
 
 	// The request is what the change is for. Without it the reviewer can only
 	// judge the code against itself, and a change that is sound but does not
@@ -93,90 +91,42 @@ func buildCriticPrompt(writtenFiles map[string]string, removals map[string]strin
 	// Embed each file path and its contents in a fenced code block. Sorted for
 	// determinism: map iteration is random and a prompt that shuffles every
 	// call is uncacheable and untestable.
-	hadRemovals := false
-	if len(writtenFiles) > 0 {
-		keys := make([]string, 0, len(writtenFiles))
-		for k := range writtenFiles {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, path := range keys {
-			content := writtenFiles[path]
-			// Three writes rather than a concatenation: the builder is the whole
-			// point of using one. Reported by gopls on the turn that added the
-			// static-diagnostics gate, on code that had already passed the build
-			// and test gates — which is exactly the class of finding those two
-			// gates are silent about.
-			b.WriteString("File: ")
-			b.WriteString(path)
+	keys := make([]string, 0, len(writtenFiles))
+	for k := range writtenFiles {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, path := range keys {
+		content := writtenFiles[path]
+		b.WriteString("File: ")
+		b.WriteString(path)
+		b.WriteString("\n```\n")
+		b.WriteString(content)
+		// Ensure the closing fence starts on its own line even when the
+		// file content does not end with a newline.
+		if !strings.HasSuffix(content, "\n") {
 			b.WriteString("\n")
-			b.WriteString("```\n")
-			b.WriteString(content)
-			// Ensure the closing fence starts on its own line even when the
-			// file content does not end with a newline.
-			if !strings.HasSuffix(content, "\n") {
+		}
+		b.WriteString("```\n\n")
+		if r := removals[path]; strings.TrimSpace(r) != "" {
+			b.WriteString("Lines this turn removed from ")
+			b.WriteString(path)
+			b.WriteString(" (numbered as they were before the edit):\n```\n")
+			b.WriteString(r)
+			if !strings.HasSuffix(r, "\n") {
 				b.WriteString("\n")
 			}
 			b.WriteString("```\n\n")
-			if r := removals[path]; strings.TrimSpace(r) != "" {
-				hadRemovals = true
-				b.WriteString("Lines this turn removed from ")
-				b.WriteString(path)
-				b.WriteString(" (numbered as they were before the edit):\n```\n")
-				b.WriteString(r)
-				if !strings.HasSuffix(r, "\n") {
-					b.WriteString("\n")
-				}
-				b.WriteString("```\n\n")
-			}
 		}
 	}
 
+	// The uncovered and static-analysis sections are evidence, not decoration:
+	// the role prompt tells the reviewer to account for them, and to report
+	// uncovered logic worth testing as a finding.
 	if s := strings.TrimSpace(uncoveredSummary); s != "" {
 		b.WriteString("Uncovered code summary:\n")
 		b.WriteString(s)
-		b.WriteString("\n\n")
-	}
-
-	b.WriteString("Instructions:\n")
-	b.WriteString("- Find real defects only: logic errors, correctness bugs, security issues, data races, and contract violations that are actually present in the code above.\n")
-	b.WriteString("- Lines are numbered; cite them as shown. Review what this turn changed: the files show the changed code with the functions around it, and a finding about code the change did not touch is not reviewed.\n")
-	if strings.TrimSpace(request) != "" {
-		b.WriteString("- Judge the change against the request too: code that does not do what was asked, or does something that was not asked for, is a defect.\n")
-	}
-	b.WriteString("- Output findings in the exact line format 'FINDING file.go:123 severity: claim text' one per line.\n")
-	b.WriteString("- Severity must be one of high, medium, or low.\n")
-	b.WriteString("- When the code is sound, output the single line 'NO FINDINGS' and nothing else.\n")
-	b.WriteString("- Inventing a finding to appear useful is worse than finding nothing. Only report defects you can point to in the code above; if there are none, output 'NO FINDINGS'.\n")
-
-	// Comments that lie are a defect class the compiler and the tests cannot
-	// see, and this reviewer is the only stage that reads the prose and the code
-	// together.
-	//
-	// A mechanical checker was prototyped for this and rejected on measurement:
-	// matching identifiers cited in comments against declarations across the
-	// repo produced 49 unresolved hits under a narrow pattern and 227 under a
-	// wider one, and essentially all were stdlib methods, struct fields or
-	// parameters rather than fabrications. It would also have caught only one of
-	// the four fabrications actually observed — an invented incident is not an
-	// identifier. A check that is wrong that often is one that gets switched
-	// off, so the job goes here instead, where it costs nothing extra.
-	b.WriteString("- Check the comments against the code. Report as a finding any comment that: describes behaviour the code does not have, names a function, field, file or test that does not exist in what you were given, claims something is tested or verified when you can see it is not, or narrates an incident or measurement as fact. A confident comment with nothing behind it is worse than no comment, because the next reader believes it.\n")
-	if hadRemovals {
-		b.WriteString("- The removed lines are tool output. Every one must be accounted for by the change. Report as a finding any removal the change did not need — a deleted doc-comment or comment line, a deleted log, validation or error-handling statement — and any line that now appears twice in a row where the file had it once. Cite the file's current line nearest the removal.\n")
-	}
-
-	// The uncovered and static-analysis sections are evidence, not decoration.
-	// Without an instruction naming them, a reviewer reads them as background
-	// and reports on the source alone — which wastes the one signal in the
-	// prompt that was produced by a tool rather than by a model.
-	//
-	// Untested code is reported as a finding rather than raised in its own
-	// round: it reuses a round that is already being paid for, and it puts the
-	// request in the same channel as everything else the model must answer.
-	if strings.TrimSpace(uncoveredSummary) != "" {
-		b.WriteString("- The sections above are tool output, not opinion. Treat them as evidence you must account for.\n")
-		b.WriteString("- Report any listed uncovered block that belongs to logic worth testing as a finding, so a test gets written for it. Use medium severity. Skip blocks that are genuinely not worth a test (trivial getters, unreachable defensive branches) and do not report those.\n")
+		b.WriteString("\n")
 	}
 
 	return b.String()

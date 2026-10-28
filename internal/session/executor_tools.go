@@ -67,7 +67,11 @@ func (e *Executor) runToolLoop(
 	compilationCtx *prompt.CompilationContext,
 	result *ExecutionResult,
 ) (*types.LLMToolResponse, []string, error) {
-	if steps := e.planTurnSteps(ctx, e.llmForVerb(result.Intent.Verb), userInput, cfg, result); len(steps) > 1 {
+	steps, err := e.planTurnSteps(ctx, e.llmForVerb(result.Intent.Verb), userInput, cfg, result)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(steps) > 1 {
 		return e.runPlannedSteps(ctx, systemPrompt, userInput, steps, cfg, compilationCtx, result)
 	}
 	return e.runToolLoopPass(ctx, systemPrompt, userInput, cfg, compilationCtx, result, toolLoopPass{verify: true})

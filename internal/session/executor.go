@@ -149,6 +149,11 @@ type Executor struct {
 	// JIT components
 	jitCompiler   JITCompiler
 	configFactory ConfigFactory
+	// rolePrompts compiles the system prompt of the model calls a turn makes
+	// that are not the persona's own, such as the build critic
+	// (role_prompts.go). Nil means those calls report
+	// types.ErrRolePromptUnavailable.
+	rolePrompts types.RolePromptCompiler
 
 	// Perception
 	transducer perception.Transducer
@@ -597,6 +602,7 @@ func (e *Executor) CloneForTask() *Executor {
 	clone.usageTracker = e.usageTracker
 	clone.toolMeter = e.toolMeter
 	clone.plannerClient = e.plannerClient
+	clone.rolePrompts = e.rolePrompts
 	clone.projectDoc = e.projectDoc
 	clone.fileContext = e.fileContext
 	// A delegated task is exactly the turn a retrieval brief is for: the

@@ -156,18 +156,13 @@ func TestBuildEmbeddingText_ShouldBuildText(t *testing.T) {
 // --- buildAnalysisPrompt ---
 
 func TestBuildAnalysisPrompt_ShouldReturnNonEmptyPrompt(t *testing.T) {
-	analyzer := &ToolAnalyzer{}
 	schema := MCPToolSchema{
 		Name:        "list_dir",
 		Description: "List directory contents",
 		InputSchema: json.RawMessage(`{"type":"object"}`),
 	}
 
-	prompt, err := analyzer.buildAnalysisPrompt(schema)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if prompt == "" {
+	if prompt := buildAnalysisPrompt(schema); prompt == "" {
 		t.Error("expected non-empty prompt")
 	}
 }
@@ -175,7 +170,7 @@ func TestBuildAnalysisPrompt_ShouldReturnNonEmptyPrompt(t *testing.T) {
 // --- NewToolAnalyzer ---
 
 func TestNewToolAnalyzer_ShouldInitialize(t *testing.T) {
-	analyzer := NewToolAnalyzer(nil, nil)
+	analyzer := NewToolAnalyzer(nil, nil, nil)
 	if analyzer == nil {
 		t.Fatal("expected non-nil analyzer")
 	}

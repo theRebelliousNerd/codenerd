@@ -192,7 +192,7 @@ func newTestControlPlane(t *testing.T, rows int) (*ControlPlane, *fatMCPServer) 
 	}
 	t.Cleanup(func() { _ = store.Close() })
 
-	manager := NewMCPClientManager(store, NewToolAnalyzer(nil, nil), map[string]MCPServerConfig{
+	manager := NewMCPClientManager(store, NewToolAnalyzer(nil, nil, nil), map[string]MCPServerConfig{
 		"fat": {
 			ID: "fat", Enabled: true, Protocol: "http", BaseURL: server.URL,
 			Timeout: "10s", AutoConnect: true, AutoDiscoverTools: true,

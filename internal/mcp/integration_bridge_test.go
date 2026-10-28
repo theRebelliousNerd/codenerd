@@ -9,7 +9,7 @@ import (
 // SQLite-backed tool store (temp workspace) and exercises its accessors and the
 // unknown-server connect path.
 func TestNewMCPIntegrationBridge(t *testing.T) {
-	bridge, err := NewMCPIntegrationBridge(t.TempDir(), nil, nil, nil, map[string]MCPServerConfig{})
+	bridge, err := NewMCPIntegrationBridge(t.TempDir(), nil, nil, nil, nil, map[string]MCPServerConfig{})
 	if err != nil {
 		t.Fatalf("NewMCPIntegrationBridge: %v", err)
 	}

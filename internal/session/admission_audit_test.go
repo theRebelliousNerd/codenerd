@@ -77,6 +77,7 @@ func TestAuditFinalReport(t *testing.T) {
 			client := &auditClient{answer: tc.answer}
 			e := NewExecutor(nil, nil, client, nil, nil, nil)
 			e.config = DefaultExecutorConfig()
+			e.SetRolePrompts(&fakeRolePrompts{})
 			result := &ExecutionResult{Response: report, WriteToolEffects: tc.writes}
 			e.auditFinalReport(context.Background(), "Delete the 189 generated files.", result)
 			if (client.calls == 1) != tc.wantCall {
@@ -100,6 +101,7 @@ func TestAuditFinalReport_ShowsTheClassifierTheRequest(t *testing.T) {
 	client := &auditClient{answer: "COMPLETE"}
 	e := NewExecutor(nil, nil, client, nil, nil, nil)
 	e.config = DefaultExecutorConfig()
+	e.SetRolePrompts(&fakeRolePrompts{})
 	request := "Bring the check to a pass by changing Docs/a.md. The check runs again when this task is done."
 	result := &ExecutionResult{Response: "Added the missing line to Docs/a.md.", WriteToolEffects: 1}
 	e.auditFinalReport(context.Background(), request, result)
