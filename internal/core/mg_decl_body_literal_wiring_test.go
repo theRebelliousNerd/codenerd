@@ -119,7 +119,7 @@ func TestHasSuccessfulShard_ReadsShardSuccessNotTheTaskSlot(t *testing.T) {
 		// And it reaches the learning signal it exists to feed.
 		mustAssertFact(t, k, "is_mandatory", "atom-1")
 		mustAssertFact(t, k, "prompt_atom", "atom-1", types.MangleAtom("/identity"),
-			int64(90), int64(40), types.MangleAtom("/true"))
+			int64(90), types.MangleAtom("/true"))
 		if !queryDerived(t, k, "effective_prompt_atom") {
 			t.Error("effective_prompt_atom not derived for a selected atom on a successful shard")
 		}

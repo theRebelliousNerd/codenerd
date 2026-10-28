@@ -16,9 +16,9 @@
 # still pins the rules' arithmetic given the facts, which is what a golden test
 # of a rule file is for.
 
-prompt_atom("/atom_core", /identity, 100, 50, /true).
-prompt_atom("/atom_go", /language, 80, 20, /false).
-prompt_atom("/atom_react", /framework, 80, 20, /false).
+prompt_atom("/atom_core", /identity, 100, /true).
+prompt_atom("/atom_go", /language, 80, /false).
+prompt_atom("/atom_react", /framework, 80, /false).
 
 compile_context(/language, /go).
 compile_context(/framework, /react).
