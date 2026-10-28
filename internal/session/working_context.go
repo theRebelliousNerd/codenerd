@@ -760,6 +760,7 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 			extra = 0
 		}
 	}
+	entries = mergeRepeatedCalls(entries)
 	decision, err := loop.set.Ledger(ctx, working.LedgerRound{
 		Entries: entries, Round: round, Restated: loop.restated,
 		Hot: loop.hotFiles(), Recalled: loop.recalledIDs(),
@@ -826,6 +827,34 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 		loop.appended[key] = text
 	}
 	return nil
+}
+
+// mergeRepeatedCalls carries a call id that answers more than one result as
+// one ledger row. A client can reuse an id across rounds (a scripted one
+// does), and the request evicts by id -- every result under it moves out
+// together (loop.evicted) -- so the ledger measures the id as the request
+// treats it: all of its bytes, at its latest arrival and round. That keeps
+// the rows in round order, which the policy's shed scan requires
+// (working.LedgerRound).
+func mergeRepeatedCalls(entries []working.LedgerEntry) []working.LedgerEntry {
+	bytes := make(map[string]int, len(entries))
+	last := make(map[string]int, len(entries))
+	for i, e := range entries {
+		bytes[e.Call] += e.Bytes
+		last[e.Call] = i
+	}
+	if len(last) == len(entries) {
+		return entries
+	}
+	merged := make([]working.LedgerEntry, 0, len(last))
+	for i, e := range entries {
+		if last[e.Call] != i {
+			continue
+		}
+		e.Bytes = bytes[e.Call]
+		merged = append(merged, e)
+	}
+	return merged
 }
 
 // workingFocusView is the focus file's current view (outline with line ranges,
