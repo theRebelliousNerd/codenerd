@@ -8,6 +8,8 @@ import (
 	memorycontext "codenerd/internal/context"
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
+	shardsystem "codenerd/internal/shards/system"
+	"codenerd/internal/types"
 )
 
 func (m Model) clearStaleKernelFacts() {
@@ -158,4 +160,54 @@ func (m Model) executeInfoGatheringActions(ctx context.Context, input string, in
 	}
 
 	return executionResults, mangleUpdates, evidence
+}
+
+// assertDirectIntent publishes a turn's intent when no PerceptionFirewall did:
+// a fallback transducer read it, or an approved proposal reuses its held
+// intent. The previous turn's perception facts go with its intent first: an
+// approved run reaches here without the firewall, and the "go" turn's
+// intent_unmapped for "approve" otherwise routed the approved run to clarify.
+// It returns the warnings for the turn.
+func (m Model) assertDirectIntent(intent perception.Intent) []string {
+	var warnings []string
+	// A stable ID, so the kernel does not accumulate historical intents.
+	intentID := "/current_intent"
+	tx := types.NewKernelTx(m.kernel)
+	shardsystem.RetractPerceptionEphemera(tx, intentID)
+	if err := tx.Commit(); err != nil {
+		warnings = append(warnings, fmt.Sprintf("[Kernel] failed to clear the previous turn's perception facts: %v", err))
+	}
+	intentFact := core.Fact{
+		Predicate: "user_intent",
+		Args:      []any{intentID, intent.Category, intent.Verb, intent.Target, intent.Constraint},
+	}
+	if err := m.kernel.Assert(intentFact); err != nil {
+		warnings = append(warnings, fmt.Sprintf("[Kernel] failed to assert user_intent: %v", err))
+	}
+	_ = m.kernel.Assert(core.Fact{Predicate: "processed_intent", Args: []any{intentID}})
+	// The firewall publishes what happened when a model read this turn; this
+	// path does it here, so both paths give the kernel the same outcome
+	// (policy/perception_outcome.mg).
+	if err := perception.PublishClassificationOutcome(m.kernel, intentID, intent.Outcome); err != nil {
+		warnings = append(warnings, fmt.Sprintf("[Kernel] failed to publish the classification outcome: %v", err))
+	}
+	return warnings
+}
+
+// detachFromTurn is the context for work that outlives the turn that started
+// it (the streamed reply): it keeps the turn's values (usage tracker, session
+// id, the chat's session-log scope and turn, the turn's restriction) and drops
+// only the turn's cancel, while shutdown still cancels it. A fresh context lost
+// every value, and the main agent's streamed replies filed under
+// unattributed/. release cancels it and detaches it from shutdown.
+func detachFromTurn(turnCtx, shutdownCtx context.Context) (ctx context.Context, release func()) {
+	ctx, cancel := context.WithCancel(context.WithoutCancel(turnCtx))
+	stop := func() bool { return false }
+	if shutdownCtx != nil {
+		stop = context.AfterFunc(shutdownCtx, cancel)
+	}
+	return ctx, func() {
+		stop()
+		cancel()
+	}
 }

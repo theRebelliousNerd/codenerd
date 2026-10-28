@@ -269,31 +269,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			resultBase = m.snapshotSystemResults()
 			// Only assert user_intent ourselves if the PerceptionFirewall shard didn't already do it.
 			if !intentHandledBySystem {
-				// Use a stable ID so the kernel doesn't accumulate historical intents.
-				intentID := "/current_intent"
-				_ = m.kernel.RetractFact(core.Fact{Predicate: "user_intent", Args: []any{intentID}})
-				_ = m.kernel.RetractFact(core.Fact{Predicate: "processed_intent", Args: []any{intentID}})
-				_ = m.kernel.RetractFact(core.Fact{Predicate: "executive_processed_intent", Args: []any{intentID}})
-				intentFact := core.Fact{
-					Predicate: "user_intent",
-					Args: []any{
-						intentID,
-						intent.Category,
-						intent.Verb,
-						intent.Target,
-						intent.Constraint,
-					},
-				}
-				if err := m.kernel.Assert(intentFact); err != nil {
-					warnings = append(warnings, fmt.Sprintf("[Kernel] failed to assert user_intent: %v", err))
-				}
-				_ = m.kernel.Assert(core.Fact{Predicate: "processed_intent", Args: []any{intentID}})
-				// The firewall publishes what happened when a model read this turn;
-				// the direct transducer path does it here, so both paths give the
-				// kernel the same outcome (policy/perception_outcome.mg).
-				if err := perception.PublishClassificationOutcome(m.kernel, intentID, intent.Outcome); err != nil {
-					warnings = append(warnings, fmt.Sprintf("[Kernel] failed to publish the classification outcome: %v", err))
-				}
+				warnings = append(warnings, m.assertDirectIntent(intent)...)
 
 				// Glass Box: Emit kernel event
 				if m.glassBoxEventBus != nil && m.glassBoxEnabled {
@@ -953,19 +929,10 @@ func (m Model) processInput(input string) tea.Cmd {
 		// return streamStartMsg below — instantly cancelling the LLM call
 		// the goroutine just started. That's the source of every
 		// "articulation failed: context canceled" the user has been hitting.
-		// Build a fresh context for the goroutine, parented on shutdownCtx
-		// so Ctrl+C/D still cancels cleanly; the turn has no clock of its own.
-		streamBaseCtx := m.shutdownCtx
-		if streamBaseCtx == nil {
-			streamBaseCtx = context.Background()
-		}
-		streamCtx, streamCancel := context.WithCancel(streamBaseCtx)
-		if m.usageTracker != nil {
-			streamCtx = usage.NewContext(streamCtx, m.usageTracker)
-		}
+		streamCtx, streamRelease := detachFromTurn(ctx, m.shutdownCtx)
 
 		go func() {
-			defer streamCancel()
+			defer streamRelease()
 			artOutput, err := articulateWithConversation(streamCtx, m.client, intent, payloadForArticulation(intent, mangleUpdates), warnings, systemPrompt, convCtx, streamChan, thoughtsChan)
 			close(streamChan)
 			close(thoughtsChan)

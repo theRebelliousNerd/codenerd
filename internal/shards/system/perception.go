@@ -542,25 +542,7 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 	// Clear stale Perception ephemera to avoid old ambiguity/clarification loops.
 	// Use a transaction to batch all retracts+asserts into a single rebuild.
 	tx := types.NewKernelTx(p.Kernel)
-	tx.Retract("ambiguity_flag")
-	tx.Retract("clarification_needed")
-	tx.Retract("intent_unknown")
-	tx.Retract("classification_outcome")
-	tx.Retract("intent_unmapped")
-	tx.Retract("no_action_reason")
-	tx.Retract("clarification_question")
-	tx.Retract("clarification_option")
-	tx.Retract("learning_candidate")
-	tx.Retract("learning_candidate_fact")
-	tx.Retract("learning_candidate_count")
-	tx.Retract("awaiting_clarification")
-	tx.Retract("awaiting_user_input")
-	tx.Retract("campaign_awaiting_clarification")
-	tx.Retract("focus_resolution")
-	tx.Retract("user_input_string")
-	tx.RetractFact(types.Fact{Predicate: "user_intent", Args: []any{intentID}})
-	tx.RetractFact(types.Fact{Predicate: "processed_intent", Args: []any{intentID}})
-	tx.RetractFact(types.Fact{Predicate: "executive_processed_intent", Args: []any{intentID}})
+	RetractPerceptionEphemera(tx, intentID)
 
 	if phrase != "" {
 		tx.Assert(types.Fact{
@@ -959,4 +941,49 @@ func (g guardedPerceptionClient) CompleteWithStreaming(ctx context.Context, syst
 		}
 		return g.base.GuardedLLMCall(ctx, systemPrompt, userPrompt)
 	})
+}
+
+// PerceptionEphemera are the facts one turn's perception asserts about that
+// turn. Every path that starts a turn's intent retracts them first: the
+// firewall when it perceives, and chat's direct path when it asserts an intent
+// itself. An approved proposal reuses its held intent and skips the firewall;
+// without this retraction the "go" turn's intent_unmapped(/no_action_mapping)
+// for "approve" survived into the approved run and routed it to clarify.
+var PerceptionEphemera = []string{
+	"ambiguity_flag",
+	"clarification_needed",
+	"intent_unknown",
+	"classification_outcome",
+	"intent_unmapped",
+	"no_action_reason",
+	"clarification_question",
+	"clarification_option",
+	"learning_candidate",
+	"learning_candidate_fact",
+	"learning_candidate_count",
+	"awaiting_clarification",
+	"awaiting_user_input",
+	"campaign_awaiting_clarification",
+	"focus_resolution",
+	"user_input_string",
+}
+
+// PerceptionIntentFacts are retracted by the intent's id, not wholesale.
+var PerceptionIntentFacts = []string{"user_intent", "processed_intent", "executive_processed_intent"}
+
+// ephemeraRetractor is the part of a kernel transaction the retraction uses.
+type ephemeraRetractor interface {
+	Retract(predicate string)
+	RetractFact(fact types.Fact)
+}
+
+// RetractPerceptionEphemera queues the retraction of a turn's perception facts
+// and the intent's own facts.
+func RetractPerceptionEphemera(tx ephemeraRetractor, intentID string) {
+	for _, pred := range PerceptionEphemera {
+		tx.Retract(pred)
+	}
+	for _, pred := range PerceptionIntentFacts {
+		tx.RetractFact(types.Fact{Predicate: pred, Args: []any{intentID}})
+	}
 }

@@ -151,3 +151,29 @@ func TestHoldSurface_SaysWhatIsHeldAndHowToStart(t *testing.T) {
 		t.Errorf("held surface must name the open question: %s", waiting)
 	}
 }
+
+// Saying "go" is a turn of its own: the firewall read it, found no mapping for
+// "approve", and asserted intent_unmapped. The approved run reuses the held
+// intent without the firewall, so the "go" turn's perception facts must go
+// with it; they routed the approved fix to clarify ("I recognize the action
+// but don't have a mapping for it"), while /go, which runs no turn, worked.
+func TestWorkAdmission_ApprovedRunIsNotClarifiedByTheGoTurn(t *testing.T) {
+	m := admissionModel(t, config.WorkModePropose, nil)
+	approve := perception.Intent{Category: "/instruction", Verb: "/approve", Target: "the held fix", Confidence: 0.4}
+	assertRouteIntent(t, m, approve)
+	if err := m.kernel.Assert(types.Fact{Predicate: "intent_unmapped", Args: []any{types.MangleAtom("/approve"), types.MangleAtom("/no_action_mapping")}}); err != nil {
+		t.Fatalf("assert the go turn's intent_unmapped: %v", err)
+	}
+
+	intent := fixReadme()
+	m.goAheadWork = &pendingWork{Input: "fix the typo in README.md", Intent: intent}
+	if warnings := m.assertDirectIntent(intent); len(warnings) != 0 {
+		t.Fatalf("assertDirectIntent warnings: %v", warnings)
+	}
+	if rows, _ := m.kernel.Query("intent_unmapped"); len(rows) != 0 {
+		t.Fatalf("the go turn's intent_unmapped survived into the approved run: %v", rows)
+	}
+	if route := m.decideRoute("fix the typo in README.md", intent, "coder"); route.Kind != RouteDelegate {
+		t.Fatalf("route = %s, want delegate: the user said go", route.Kind)
+	}
+}
