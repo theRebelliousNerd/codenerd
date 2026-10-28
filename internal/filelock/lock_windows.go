@@ -1,6 +1,6 @@
 //go:build windows
 
-package usage
+package filelock
 
 import (
 	"os"
@@ -16,15 +16,15 @@ var (
 
 const lockfileExclusiveLock = 0x2
 
-// fileLock is an advisory lock held ACROSS processes for one workspace's
-// usage.json. sync.Mutex only serialises goroutines inside one process while
+// Lock is an advisory lock held ACROSS processes for one file's
+// shared file (a store's JSON). sync.Mutex only serialises goroutines inside one process while
 // two nerd processes on the same workspace need this.
-type fileLock struct {
+type Lock struct {
 	f *os.File
 }
 
-// acquireFileLock blocks until the lock is held.
-func acquireFileLock(path string) (*fileLock, error) {
+// Acquire blocks until the lock is held.
+func Acquire(path string) (*Lock, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return nil, err
@@ -35,10 +35,10 @@ func acquireFileLock(path string) (*fileLock, error) {
 		f.Close()
 		return nil, err
 	}
-	return &fileLock{f: f}, nil
+	return &Lock{f: f}, nil
 }
 
-func (l *fileLock) release() error {
+func (l *Lock) Release() error {
 	var ol syscall.Overlapped
 	procUnlockFileEx.Call(l.f.Fd(), 0, 1, 0, uintptr(unsafe.Pointer(&ol)))
 	return l.f.Close()

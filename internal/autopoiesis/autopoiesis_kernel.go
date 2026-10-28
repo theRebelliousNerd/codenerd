@@ -30,6 +30,8 @@ func (o *Orchestrator) SetKernel(kernel types.Kernel) {
 
 	// Sync existing tools from registry to kernel (for tools restored from disk)
 	o.syncExistingToolsToKernel()
+	// Jev's readings earlier processes persisted (tool_ledger_jev.go).
+	o.loadJevEvidence()
 }
 
 // syncExistingToolsToKernel asserts facts for all tools already in the registry.

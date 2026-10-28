@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"codenerd/internal/atomicfile"
+	"codenerd/internal/filelock"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
@@ -62,6 +63,9 @@ type ToolLedger struct {
 
 	Channels map[string]int64 `json:"channels,omitempty"`
 
+	// Jev's readings of the tool (tool_ledger_jev.go).
+	Jev ToolJevEvidence `json:"jev,omitzero"`
+
 	FirstSeen time.Time `json:"first_seen,omitempty"`
 	LastOffer time.Time `json:"last_offer,omitempty"`
 	LastCall  time.Time `json:"last_call,omitempty"`
@@ -103,6 +107,12 @@ type ledgerWrite struct {
 func (ps *ProfileStore) mutateLedgers(writes ...ledgerWrite) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
+	// The store mutex orders this process's writers; the file lock orders
+	// every process's, so the read-apply-write below cannot interleave with
+	// another process's and drop its counts.
+	if unlock := ps.lockFileLocked(); unlock != nil {
+		defer unlock()
+	}
 	ps.adoptDiskLedgersLocked()
 	now := time.Now()
 	for _, w := range writes {
@@ -117,6 +127,26 @@ func (ps *ProfileStore) mutateLedgers(writes ...ledgerWrite) {
 		w.fn(p.Value)
 	}
 	ps.save()
+}
+
+// lockFileLocked takes the cross-process lock on the store file and returns
+// its release. A lock that cannot be taken logs and returns nil: the write
+// still happens, as a last-writer-wins one, rather than being lost.
+func (ps *ProfileStore) lockFileLocked() func() {
+	if err := os.MkdirAll(ps.storePath, 0o755); err != nil {
+		logging.AutopoiesisError("ProfileStore: mkdir %s: %v", ps.storePath, err)
+		return nil
+	}
+	lock, err := filelock.Acquire(filepath.Join(ps.storePath, profilesFile+".lock"))
+	if err != nil {
+		logging.AutopoiesisError("ProfileStore: lock %s: %v", ps.storePath, err)
+		return nil
+	}
+	return func() {
+		if err := lock.Release(); err != nil {
+			logging.AutopoiesisError("ProfileStore: unlock %s: %v", ps.storePath, err)
+		}
+	}
 }
 
 // adoptDiskLedgersLocked folds in what another process wrote since this one

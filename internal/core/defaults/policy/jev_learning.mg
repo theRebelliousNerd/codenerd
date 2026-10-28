@@ -98,10 +98,20 @@ Decl tool_harness_judgment(Tool, Percent) bound [/string, /number].
 
 Decl tool_call_landed(Tool, Call) bound [/string, /string].
 Decl tool_call_missed(Tool, Call) bound [/string, /string].
-Decl tool_has_landed_call(Tool) bound [/string].
-Decl tool_has_missed_call(Tool) bound [/string].
-# tool_value_evidence(Tool, Kind): Kind is /hits_mark (calls land, none
-# missed), /misses_mark (calls miss, none landed), /duplicate or
+# tool_jev_tally(Tool, Landed, Missed): how many of the tool's judged calls
+# landed and how many missed, over every session the ledger covers (replayed
+# from the autopoiesis ProfileStore by autopoiesis.ToolLedgerFacts; an
+# unsettled call is in neither count). Go classifies each call once, as it is
+# judged, by reading tool_call_landed / tool_call_missed back, and the ledger
+# keeps the tallies; the per-call facts do not outlive that read.
+Decl tool_jev_tally(Tool, Landed, Missed) bound [/string, /number, /number].
+# tool_jev_verdict(Tool, Kind, Percent): a tool-level verdict Jev reached in an
+# earlier process, Kind /duplicate or /harness_covers, with the probability it
+# rested on. The thresholds in effect when it was read decided it; it is
+# replayed so a restart keeps it.
+Decl tool_jev_verdict(Tool, Kind, Percent) bound [/string, /name, /number].
+# tool_value_evidence(Tool, Kind): Kind is /hits_mark (more calls landed than
+# missed), /misses_mark (more missed than landed), /duplicate or
 # /harness_covers.
 Decl tool_value_evidence(Tool, Kind) bound [/string, /name].
 
@@ -113,21 +123,19 @@ tool_call_missed(Tool, Call) :-
     tool_call_hit(Tool, Call, Percent),
     config_param(/jev_no_percent, No),
     Percent <= No.
-tool_has_landed_call(Tool) :- tool_call_landed(Tool, Call).
-tool_has_missed_call(Tool) :- tool_call_missed(Tool, Call).
 
-# Truth table per tool over its judged calls (an unsettled call counts as
-# neither):
-#   some landed  some missed   evidence
-#   yes          no            /hits_mark
-#   no           yes           /misses_mark
-#   yes          yes           none: mixed, the ledger decides
+# Hits weigh against misses over the tool's whole judged history: the side with
+# more calls names the evidence, a tie names neither. (An unsettled call counts
+# for neither side.) How strong the hit side must be to earn a place is
+# tool_value.mg's, from the tool_value section.
 tool_value_evidence(Tool, /hits_mark) :-
-    tool_has_landed_call(Tool),
-    !tool_has_missed_call(Tool).
+    tool_jev_tally(Tool, Landed, Missed),
+    Landed > Missed.
 tool_value_evidence(Tool, /misses_mark) :-
-    tool_has_missed_call(Tool),
-    !tool_has_landed_call(Tool).
+    tool_jev_tally(Tool, Landed, Missed),
+    Missed > Landed.
+tool_value_evidence(Tool, /duplicate) :- tool_jev_verdict(Tool, /duplicate, Percent).
+tool_value_evidence(Tool, /harness_covers) :- tool_jev_verdict(Tool, /harness_covers, Percent).
 tool_value_evidence(Tool, /duplicate) :-
     tool_duplicate_judgment(Tool, Other, Percent),
     config_param(/jev_yes_percent, Yes),

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	internalconfig "codenerd/internal/config"
+	"codenerd/internal/core"
 	"codenerd/internal/learnjudge"
 	"codenerd/internal/types"
 )
@@ -31,6 +32,7 @@ var valueTools = []types.ToolInfo{
 
 func TestToolValue_PerCallTruthTable(t *testing.T) {
 	o := toolValueOrchestrator(t, nil)
+	o.profiles = NewProfileStore(t.TempDir())
 	c, _ := toolNeedJev(t, nil, 0)
 	o.SetJev(c, &internalconfig.TypeSafeConfig{})
 	now := time.Now()
@@ -42,11 +44,20 @@ func TestToolValue_PerCallTruthTable(t *testing.T) {
 	call("misses", "1", 0.1)
 	call("mixed", "1", 0.9)
 	call("mixed", "2", 0.1)
+	call("mostly", "1", 0.9)
+	call("mostly", "2", 0.9)
+	call("mostly", "3", 0.1)
 	got, err := readToolValueEvidence(o.kernel)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []ToolValueEvidence{{Tool: "lands", Evidence: []string{"/hits_mark"}}, {Tool: "misses", Evidence: []string{"/misses_mark"}}}
+	// Hits weigh against misses: a tie names neither side, the larger side
+	// names the evidence.
+	want := []ToolValueEvidence{
+		{Tool: "lands", Evidence: []string{"/hits_mark"}},
+		{Tool: "misses", Evidence: []string{"/misses_mark"}},
+		{Tool: "mostly", Evidence: []string{"/hits_mark"}},
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("evidence = %+v, want %+v", got, want)
 	}
@@ -54,6 +65,7 @@ func TestToolValue_PerCallTruthTable(t *testing.T) {
 
 func TestJudgeToolValue_DuplicateAndHarness(t *testing.T) {
 	o := toolValueOrchestrator(t, valueTools)
+	o.profiles = NewProfileStore(t.TempDir())
 	c, calls := toolNeedJev(t, map[string]float64{learnjudge.QAnyToolExists: 0.9, learnjudge.HarnessCoversName: 0.85}, 0)
 	o.SetJev(c, &internalconfig.TypeSafeConfig{})
 	got, err := o.JudgeToolValue(context.Background())
@@ -70,6 +82,18 @@ func TestJudgeToolValue_DuplicateAndHarness(t *testing.T) {
 		if !reflect.DeepEqual(e.Evidence, []string{"/duplicate", "/harness_covers"}) {
 			t.Fatalf("%s evidence = %v", e.Tool, e.Evidence)
 		}
+	}
+	// The verdicts outlive the process: a fresh kernel on the same ledger
+	// derives the same evidence without asking Jev again.
+	k, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reboot := &Orchestrator{profiles: NewProfileStore(o.profiles.storePath), toolGen: NewToolGenerator(nil, t.TempDir())}
+	reboot.SetKernel(k)
+	again, err := readToolValueEvidence(k)
+	if err != nil || !reflect.DeepEqual(again, got) {
+		t.Fatalf("evidence after a restart = %+v (err %v), want %+v", again, err, got)
 	}
 }
 

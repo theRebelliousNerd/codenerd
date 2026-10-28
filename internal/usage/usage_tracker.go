@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"codenerd/internal/atomicfile"
+	"codenerd/internal/filelock"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
@@ -540,13 +541,13 @@ func (t *tracker) saveLocked() error {
 	// (current - baseline) is exactly the right answer. Track a baseline
 	// snapshot so a concurrent writer's totals are merged rather than overwritten.
 	lockPath := t.filePath + ".lock"
-	var lk *fileLock
-	if l, err := acquireFileLock(lockPath); err != nil {
+	var lk *filelock.Lock
+	if l, err := filelock.Acquire(lockPath); err != nil {
 		logging.Get(logging.CategorySession).Debug("usage: could not acquire cross-process lock %s: %v", lockPath, err)
 	} else {
 		lk = l
 		defer func() {
-			if err := lk.release(); err != nil {
+			if err := lk.Release(); err != nil {
 				logging.Get(logging.CategorySession).Debug("usage: failed to release cross-process lock %s: %v", lockPath, err)
 			}
 		}()

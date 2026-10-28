@@ -54,6 +54,8 @@ config_param_required(/tool_value, /tool_value_min_condensation_percent).
 config_param_required(/tool_value, /tool_value_min_leverage_percent).
 config_param_required(/tool_value, /tool_value_dead_leverage_percent).
 config_param_required(/tool_value, /tool_value_bytes_per_token).
+config_param_required(/tool_value, /tool_value_min_judged_calls).
+config_param_required(/tool_value, /tool_value_min_hit_percent).
 
 # --- derived measures ---
 
@@ -97,9 +99,35 @@ tool_has_value_evidence(Tool) :-
     config_param(/tool_value_min_calls, Min),
     Known >= Min.
 
-# Jev read this tool's calls and every judged call missed what its input asked
-# for (jev_learning.mg).
+# Jev read this tool's calls and more of them missed what the input asked for
+# than landed (jev_learning.mg: the tally is persisted in the ledger, so the
+# reading spans sessions).
 tool_misses(Tool) :- tool_value_evidence(Tool, /misses_mark).
+
+# tool_judged_calls(Tool, Judged): the calls Jev read that settled either way.
+# tool_hit_percent(Tool, Percent): landed calls as a percent of those.
+# tool_has_judged_evidence(Tool): enough calls were judged, and made, for the
+# hit rate to be evidence (min_judged_calls).
+Decl tool_judged_calls(Tool, Judged) bound [/string, /number].
+Decl tool_hit_percent(Tool, Percent) bound [/string, /number].
+Decl tool_has_judged_evidence(Tool) bound [/string].
+
+tool_judged_calls(Tool, Judged) :-
+    tool_jev_tally(Tool, Landed, Missed),
+    Judged = fn:plus(Landed, Missed).
+
+tool_hit_percent(Tool, Percent) :-
+    tool_jev_tally(Tool, Landed, Missed),
+    tool_judged_calls(Tool, Judged),
+    Judged > 0,
+    Percent = fn:div(fn:mult(Landed, 100), Judged).
+
+tool_has_judged_evidence(Tool) :-
+    tool_judged_calls(Tool, Judged),
+    tool_use_count(Tool, Calls, Sessions),
+    config_param(/tool_value_min_judged_calls, Min),
+    Judged >= Min,
+    Calls >= Min.
 
 # --- dead ---
 
@@ -110,8 +138,9 @@ tool_misses(Tool) :- tool_value_evidence(Tool, /misses_mark).
 #                        consumed was worth (leverage under dead_leverage_percent).
 #   /redundant           Jev judged that another tool, the harness or one shell
 #                        command already does what it does.
-#   /misses_results      Jev judged every call it read a miss, and the tool has
-#                        no unique capability to fall back on.
+#   /misses_results      Jev read at least min_judged_calls calls and more of
+#                        them missed than landed, and the tool has no unique
+#                        capability to fall back on.
 Decl tool_dead_reason(Tool, Reason) bound [/string, /name].
 Decl tool_is_dead(Tool) bound [/string].
 
@@ -135,14 +164,24 @@ tool_dead_reason(Tool, /redundant) :- tool_value_evidence(Tool, /harness_covers)
 tool_dead_reason(Tool, /misses_results) :-
     tool_known(Tool),
     tool_misses(Tool),
+    tool_has_judged_evidence(Tool),
     !tool_unique(Tool).
 
 tool_is_dead(Tool) :- tool_dead_reason(Tool, Reason).
 
 # --- earning ---
 
-# A tool earns by capability (unique, and used at all) or by measurement
-# (enough calls with a reported scan, condensing and levering past both bars).
+# A tool earns by capability (unique, and used at all), by measurement (enough
+# calls with a reported scan, condensing and levering past both bars), or by
+# Jev's reading of its calls (/hits_mark over at least min_judged_calls judged
+# calls, with the landed share at or above min_hit_percent). The Jev path needs
+# no scan and no token figures: a tool whose condensation is unknown can still
+# be seen to give the caller what it asked for.
+#
+# Hits weigh against misses in two places. The evidence kind itself is the side
+# with more calls (jev_learning.mg), so a tool with more misses than hits is
+# /misses_mark and never /hits_mark; and the percent bar keeps a narrow majority
+# (51 landed to 49 missed) from earning.
 Decl tool_is_earning(Tool) bound [/string].
 Decl tool_earned(Tool) bound [/string].
 
@@ -160,7 +199,15 @@ tool_is_earning(Tool) :-
     Condensation >= MinCondensation,
     Leverage >= MinLeverage.
 
-# Dead outranks earning, and a tool whose judged calls all missed does not earn.
+tool_is_earning(Tool) :-
+    tool_value_evidence(Tool, /hits_mark),
+    tool_has_judged_evidence(Tool),
+    tool_hit_percent(Tool, Hit),
+    config_param(/tool_value_min_hit_percent, MinHit),
+    Hit >= MinHit.
+
+# Dead outranks earning, and a tool whose judged calls mostly missed does not
+# earn, by any path.
 tool_earned(Tool) :-
     tool_is_earning(Tool),
     !tool_is_dead(Tool),
@@ -172,8 +219,8 @@ tool_earned(Tool) :-
 #   /dead      a dead reason derives; outranks everything.
 #   /earning   earned (above) and not dead.
 #   /marginal  measured or judged, but not earning and not dead: it was
-#              used enough to measure, or Jev read its calls, and it did not
-#              clear the bars.
+#              used enough to measure, or Jev read its calls (mostly landing or
+#              mostly missing), and it did not clear the bars.
 #   /unknown   not enough evidence either way: too few sessions or calls, or a
 #              tool that reports no scan to measure.
 Decl tool_value_class(Tool, Class) bound [/string, /name].
@@ -181,6 +228,7 @@ Decl tool_has_signal(Tool) bound [/string].
 
 tool_has_signal(Tool) :- tool_has_value_evidence(Tool).
 tool_has_signal(Tool) :- tool_misses(Tool).
+tool_has_signal(Tool) :- tool_value_evidence(Tool, /hits_mark).
 
 tool_value_class(Tool, /dead) :-
     tool_known(Tool),

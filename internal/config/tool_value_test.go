@@ -42,6 +42,8 @@ func TestToolValueConfig_CheckRefusesContradictions(t *testing.T) {
 		"negative sessions":   {MinSessions: -1},
 		"dead bar over earns": {MinLeveragePercent: 200, DeadLeveragePercent: 300},
 		"dead bar equals":     {MinLeveragePercent: 500, DeadLeveragePercent: 500},
+		"hit rate over 100":   {MinHitPercent: 101},
+		"negative judged":     {MinJudgedCalls: -1},
 	} {
 		if len(c.Check("tool_value")) == 0 {
 			t.Errorf("%s accepted", name)

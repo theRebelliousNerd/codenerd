@@ -60,6 +60,10 @@ type ToolValueRow struct {
 	// Evidence is Jev's reading of the tool, when the kernel holds it
 	// (tool_value_evidence): duplicate, harness_covers, hits_mark, misses_mark.
 	Evidence []string `json:"jev_evidence,omitempty"`
+	// JevLanded and JevMissed are the persisted tallies behind the hits and
+	// misses evidence (calls Jev read that settled either way).
+	JevLanded int64 `json:"jev_landed,omitempty"`
+	JevMissed int64 `json:"jev_missed,omitempty"`
 }
 
 // CostTokens is everything the tool cost: prompt share, calls, results and the
@@ -141,7 +145,8 @@ func EvaluateToolValue(k types.Kernel, s ToolLedgerSnapshot, cfg config.ToolValu
 			PromptTokens: l.CatalogTokens + l.AtomTokens, CallTokens: l.CallTokens,
 			ResultTokens: l.ResultTokens, VerifyTokens: l.VerifyTokens,
 			KnownCalls: l.KnownCalls, ConsumedBytes: l.ConsumedBytes, ReturnedBytes: l.ReturnedBytes,
-			Channels: copyChannels(l.Channels),
+			Channels:  copyChannels(l.Channels),
+			JevLanded: l.Jev.Landed, JevMissed: l.Jev.Missed,
 		}
 		row.Origin = first(origins[tool])
 		row.Capability = first(capabilities[tool])
@@ -254,6 +259,9 @@ func (r ToolValueReport) Table() string {
 		}
 		if len(row.Evidence) > 0 {
 			fmt.Fprintf(&b, "  jev: %s", strings.Join(row.Evidence, ","))
+			if row.JevLanded+row.JevMissed > 0 {
+				fmt.Fprintf(&b, " (%d landed, %d missed)", row.JevLanded, row.JevMissed)
+			}
 		}
 		b.WriteByte('\n')
 	}

@@ -33,6 +33,17 @@ type ToolValueConfig struct {
 	// /dead for costing more than the work it does: 100 is break-even
 	// (/tool_value_dead_leverage_percent).
 	DeadLeveragePercent int `json:"dead_leverage_percent,omitempty"`
+	// MinJudgedCalls is how many of a tool's calls Jev must have read, and the
+	// tool have made, before the hit rate is evidence either way: a tool that
+	// earns on Jev's reading (/hits_mark) needs this many, and one is dead for
+	// missing its results (/misses_results) only after this many
+	// (/tool_value_min_judged_calls).
+	MinJudgedCalls int `json:"min_judged_calls,omitempty"`
+	// MinHitPercent is the share of judged calls that landed (gave the caller
+	// what its input asked for) at or above which a tool earns on Jev's reading
+	// alone, with no scan or token figures: hits weigh against misses, so 80 is
+	// four landed calls to every one that missed (/tool_value_min_hit_percent).
+	MinHitPercent int `json:"min_hit_percent,omitempty"`
 }
 
 // DefaultToolValueConfig is the section with every field written down. The
@@ -47,6 +58,8 @@ func DefaultToolValueConfig() ToolValueConfig {
 		MinCondensationPercent: 1000,
 		MinLeveragePercent:     1000,
 		DeadLeveragePercent:    100,
+		MinJudgedCalls:         10,
+		MinHitPercent:          80,
 	}
 }
 
@@ -77,6 +90,12 @@ func (c ToolValueConfig) WithDefaults() ToolValueConfig {
 	if c.DeadLeveragePercent == 0 {
 		c.DeadLeveragePercent = d.DeadLeveragePercent
 	}
+	if c.MinJudgedCalls == 0 {
+		c.MinJudgedCalls = d.MinJudgedCalls
+	}
+	if c.MinHitPercent == 0 {
+		c.MinHitPercent = d.MinHitPercent
+	}
 	return c
 }
 
@@ -94,6 +113,8 @@ func (c ToolValueConfig) Check(prefix string) []Problem {
 		{"min_condensation_percent", c.MinCondensationPercent},
 		{"min_leverage_percent", c.MinLeveragePercent},
 		{"dead_leverage_percent", c.DeadLeveragePercent},
+		{"min_judged_calls", c.MinJudgedCalls},
+		{"min_hit_percent", c.MinHitPercent},
 	} {
 		if f.v < 1 {
 			out = append(out, Problem{
@@ -115,6 +136,16 @@ func (c ToolValueConfig) Check(prefix string) []Problem {
 			Fix: "a dead bar under the earning bar, or remove the key for the default",
 		})
 	}
+	// A hit rate over 100% is not a rate; 100 is the strictest bar (every
+	// judged call landed).
+	if c.MinHitPercent > 100 {
+		out = append(out, Problem{
+			Severity: SeverityError,
+			Path:     prefix + ".min_hit_percent",
+			Message:  fmt.Sprintf("%d is above 100", c.MinHitPercent),
+			Fix:      "a percent from 1 to 100, or remove the key for the default",
+		})
+	}
 	return out
 }
 
@@ -132,6 +163,8 @@ func (c ToolValueConfig) Params() []Param {
 		{Key: "/tool_value_min_condensation_percent", Value: int64(c.MinCondensationPercent)},
 		{Key: "/tool_value_min_leverage_percent", Value: int64(c.MinLeveragePercent)},
 		{Key: "/tool_value_dead_leverage_percent", Value: int64(c.DeadLeveragePercent)},
+		{Key: "/tool_value_min_judged_calls", Value: int64(c.MinJudgedCalls)},
+		{Key: "/tool_value_min_hit_percent", Value: int64(c.MinHitPercent)},
 		{Key: ToolValueBytesPerTokenKey, Value: BytesPerToken},
 	}
 }

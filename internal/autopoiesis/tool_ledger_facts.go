@@ -47,12 +47,14 @@ type ToolLedgerSnapshot struct {
 var ledgerPredicates = []string{
 	"tool_origin", "tool_capability_declared", "tool_use_count",
 	"tool_offer_count", "tool_cost", "tool_condensation", "tool_channel_use",
+	jevTallyPred, jevVerdictPred,
 }
 
 func nameAtom(v string) types.MangleAtom { return types.MangleAtom("/" + v) }
 
 // ToolLedgerFacts renders the snapshot as the EDB facts policy/tool_value.mg
-// reads. Every number is a ledger sum; nothing is estimated here. A tool whose
+// reads, Jev's persisted readings (tool_ledger_jev.go) among them. Every number
+// is a ledger sum; nothing is estimated here. A tool whose
 // calls never reported a scan has no tool_condensation fact. A retired tool
 // has no facts at all.
 func ToolLedgerFacts(s ToolLedgerSnapshot) []types.Fact {
@@ -96,6 +98,7 @@ func ToolLedgerFacts(s ToolLedgerSnapshot) []types.Fact {
 			facts = append(facts, types.Fact{Predicate: "tool_condensation", Args: []any{tool,
 				l.KnownCalls, l.ConsumedBytes, l.ReturnedBytes, l.KnownCallTokens}})
 		}
+		facts = append(facts, jevFacts(tool, l.Jev)...)
 		channels := make([]string, 0, len(l.Channels))
 		for ch := range l.Channels {
 			channels = append(channels, ch)
