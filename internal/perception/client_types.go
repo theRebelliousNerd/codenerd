@@ -384,6 +384,14 @@ type AnthropicThinking struct {
 	Type         string `json:"type"`
 	BudgetTokens int    `json:"budget_tokens,omitempty"`
 	Display      string `json:"display,omitempty"`
+	// BlockBinding says what the endpoint does with a replayed thinking block
+	// made under a different prefix (bindThinkingToPrefix).
+	BlockBinding *AnthropicBlockBinding `json:"block_binding,omitempty"`
+}
+
+// AnthropicBlockBinding is thinking.block_binding.
+type AnthropicBlockBinding struct {
+	PrefixMismatchBehavior string `json:"prefix_mismatch_behavior"`
 }
 
 type AnthropicOutputConfig struct {

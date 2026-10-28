@@ -222,7 +222,7 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 			result, err := cortex.SpawnTaskWithTarget(ctx, shardType, task, intent.Target)
 			if err != nil {
 				actionErr = err
-				output = fmt.Sprintf("Shard execution failed: %v", err)
+				output = fmt.Sprintf("Shard execution failed: %s", perception.UserFailureText(err))
 				if strings.TrimSpace(result) != "" {
 					output += "\n" + result
 				}

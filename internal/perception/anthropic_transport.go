@@ -17,30 +17,69 @@ import (
 
 const anthropicResponseLimit = 10 * 1024 * 1024
 
-// AnthropicAPIError retains the status/type/request ID for diagnostics without
-// putting a provider response body (which can echo prompts or secrets) in logs.
+// AnthropicAPIError retains the status, the error type, the provider's error
+// message and the request ID: the message is what names the offending field
+// (a 400 without it cannot be diagnosed). The raw response body is never kept;
+// only the envelope's error.message is. User-facing text does not come from
+// Error() but from SafeProviderFailureMessage, which names the class and
+// status alone.
 type AnthropicAPIError struct {
 	StatusCode int
 	Type       string
+	Message    string
 	RequestID  string
 }
 
 func (e *AnthropicAPIError) Error() string {
-	return fmt.Sprintf("Anthropic API request failed with status %d (type=%s, request_id=%s)", e.StatusCode, e.Type, e.RequestID)
+	if e.Message == "" {
+		return fmt.Sprintf("Anthropic API request failed with status %d (type=%s, request_id=%s)", e.StatusCode, e.Type, e.RequestID)
+	}
+	return fmt.Sprintf("Anthropic API request failed with status %d (type=%s, request_id=%s): %s", e.StatusCode, e.Type, e.RequestID, e.Message)
 }
 
 func anthropicError(status int, body []byte, requestID string) *AnthropicAPIError {
 	var envelope struct {
 		RequestID string `json:"request_id"`
 		Error     struct {
-			Type string `json:"type"`
+			Type    string `json:"type"`
+			Message string `json:"message"`
 		} `json:"error"`
 	}
 	_ = json.Unmarshal(body, &envelope)
 	if requestID == "" {
 		requestID = envelope.RequestID
 	}
-	return &AnthropicAPIError{StatusCode: status, Type: envelope.Error.Type, RequestID: requestID}
+	return &AnthropicAPIError{StatusCode: status, Type: envelope.Error.Type, Message: envelope.Error.Message, RequestID: requestID}
+}
+
+// bindThinkingToPrefix tells the endpoint what to do when a thinking block
+// this request replays was produced under a different prefix. A thinking block
+// is valid only in the conversation that produced it: the endpoint compares
+// the tools, system and earlier messages the block was made under with the
+// ones sent now, and by default rejects the request with a 400 ("Invalid
+// signature in thinking block ... The tools list differs from the one this
+// block was created with").
+//
+// codeNERD edits its prefix on purpose mid-loop: the working policy opens raw
+// search or closes exploration (the catalog changes), and the context ledger
+// evicts and restates observations (earlier messages change). Those edits are
+// the harness's design, so a block whose prefix moved is dropped, which costs
+// that block's reasoning, rather than failing the whole turn. Models that do
+// not run the check are sent nothing.
+func bindThinkingToPrefix(req AnthropicRequest) AnthropicRequest {
+	if !config.AnthropicBindsThinking(req.Model) {
+		return req
+	}
+	if req.Thinking == nil {
+		req.Thinking = &AnthropicThinking{Type: "adaptive"}
+	}
+	if req.Thinking.Type != "adaptive" {
+		return req
+	}
+	bound := *req.Thinking
+	bound.BlockBinding = &AnthropicBlockBinding{PrefixMismatchBehavior: "drop_block"}
+	req.Thinking = &bound
+	return req
 }
 
 func waitAnthropic(ctx context.Context, delay time.Duration) error {
@@ -105,6 +144,7 @@ func readAnthropicBody(body io.Reader) ([]byte, error) {
 // Once a stream has started it is never replayed: the harness may already have
 // displayed output. Deterministic 4xx errors retain their request ID and fail fast.
 func (c *AnthropicClient) sendMessages(ctx context.Context, reqBody AnthropicRequest, plan anthropicCachePlan) (*http.Response, error) {
+	reqBody = bindThinkingToPrefix(reqBody)
 	data, err := marshalAnthropicRequest(reqBody, plan)
 	if err != nil {
 		return nil, fmt.Errorf("marshal Anthropic request: %w", err)
@@ -133,6 +173,9 @@ func (c *AnthropicClient) sendMessages(ctx context.Context, reqBody AnthropicReq
 		req.Header.Set("anthropic-version", config.AnthropicAPIVersion)
 		if c.options.WorkspaceID != "" {
 			req.Header.Set("anthropic-workspace-id", c.options.WorkspaceID)
+		}
+		if reqBody.Thinking != nil && reqBody.Thinking.BlockBinding != nil {
+			req.Header.Set("anthropic-beta", config.AnthropicThinkingBindingBeta)
 		}
 		if reqBody.Stream {
 			req.Header.Set("Accept", "text/event-stream")

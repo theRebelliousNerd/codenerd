@@ -217,3 +217,22 @@ func anthropicDynamicWebTools(model string) bool {
 func AnthropicSupportsEffort(model string) bool {
 	return AnthropicSupportsAdaptive(model) || strings.HasPrefix(model, "claude-opus-4-5")
 }
+
+// AnthropicThinkingBindingBeta is the anthropic-beta value that enables
+// thinking.block_binding, the control over a thinking block replayed under a
+// different prefix than it was made under.
+const AnthropicThinkingBindingBeta = "thinking-binding-controls-2026-08-01"
+
+// AnthropicBindsThinking reports whether a model runs the check that a
+// replayed thinking block was made under the same prefix (tools, system and
+// earlier messages) and so takes thinking.block_binding: Claude Fable 5.1 and
+// the 5.5 generation (Opus, Sonnet, Haiku). Other models neither run the
+// check nor take the field.
+func AnthropicBindsThinking(model string) bool {
+	for _, prefix := range []string{"claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"} {
+		if model == prefix || strings.HasPrefix(model, prefix+"-") {
+			return true
+		}
+	}
+	return false
+}

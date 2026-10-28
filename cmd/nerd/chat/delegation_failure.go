@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"codenerd/internal/observation"
+	"codenerd/internal/perception"
 	"codenerd/internal/verification"
 )
 
@@ -20,7 +21,7 @@ type delegationFailure struct {
 }
 
 func (f *delegationFailure) Error() string {
-	msg := f.err.Error()
+	msg := perception.UserFailureText(f.err)
 	if f.label != "" {
 		msg = f.label + ": " + msg
 	}

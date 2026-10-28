@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 // ProviderFailureClass is the provider-independent class of a failed model
@@ -127,4 +128,29 @@ func safeFailureMessage(class ProviderFailureClass, status int) string {
 		}
 		return "the model call failed"
 	}
+}
+
+// UserFailureText is err's text for a user: the message of err with the
+// provider's own diagnostic -- the error type, message and request id a pooled
+// or Anthropic failure carries, which can name request content -- replaced by
+// SafeProviderFailureMessage, and everything the caller wrapped around it kept.
+// The full text stays on the error for logs and problems.log; this is the form
+// a terminal, a chat surface or a CLI result prints.
+func UserFailureText(err error) string {
+	if err == nil {
+		return ""
+	}
+	text := err.Error()
+	var detailed error
+	var pooled *pooledCallError
+	var anthropic *AnthropicAPIError
+	switch {
+	case errors.As(err, &pooled):
+		detailed = pooled
+	case errors.As(err, &anthropic):
+		detailed = anthropic
+	default:
+		return text
+	}
+	return strings.Replace(text, detailed.Error(), SafeProviderFailureMessage(detailed), 1)
 }

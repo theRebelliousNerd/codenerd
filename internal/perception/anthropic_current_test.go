@@ -271,8 +271,8 @@ func TestAnthropicStream_RejectsTruncationMalformedDataAndProviderErrors(t *test
 			if err == nil {
 				t.Fatal("incomplete stream accepted")
 			}
-			if strings.Contains(err.Error(), "secret") {
-				t.Fatal("provider error body leaked")
+			if strings.Contains(UserFailureText(err), "secret") {
+				t.Fatal("provider error message reached user text")
 			}
 			if tc.truncated {
 				var truncated *types.OutputTruncated
@@ -457,7 +457,7 @@ func TestAnthropicTransport_CancelsRateAndRetryAfterWaits(t *testing.T) {
 	}
 }
 
-func TestAnthropicAPIError_PreservesDiagnosticsWithoutResponseBody(t *testing.T) {
+func TestAnthropicAPIError_PreservesDiagnosticsForTheOperatorOnly(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("request-id", "req_test")
 		w.WriteHeader(401)
@@ -469,8 +469,11 @@ func TestAnthropicAPIError_PreservesDiagnosticsWithoutResponseBody(t *testing.T)
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != 401 || apiErr.RequestID != "req_test" || apiErr.Type != "authentication_error" {
 		t.Fatalf("diagnostics: %v", err)
 	}
-	if strings.Contains(err.Error(), "secret-value") || ClassifyProviderFailure(err) != FailureAuth {
-		t.Fatalf("unsafe/misclassified error: %v", err)
+	if !strings.Contains(err.Error(), "secret-value") || ClassifyProviderFailure(err) != FailureAuth {
+		t.Fatalf("the provider's message was dropped or the failure misclassified: %v", err)
+	}
+	if user := UserFailureText(err); strings.Contains(user, "secret-value") || user != SafeProviderFailureMessage(err) {
+		t.Fatalf("user text carries the provider's message: %q", user)
 	}
 }
 

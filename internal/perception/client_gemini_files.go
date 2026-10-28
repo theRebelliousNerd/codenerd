@@ -140,7 +140,8 @@ func (c *GeminiClient) ListFiles(ctx context.Context) ([]string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("list files failed with status %d", resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+		return nil, fmt.Errorf("list files failed with status %d: %s", resp.StatusCode, body)
 	}
 
 	var listResp GeminiListFilesResponse
@@ -191,7 +192,8 @@ func (c *GeminiClient) GetFile(ctx context.Context, fileNameOrURI string) (any, 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get file failed with status %d", resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+		return nil, fmt.Errorf("get file failed with status %d: %s", resp.StatusCode, body)
 	}
 
 	var file GeminiFile
@@ -223,7 +225,8 @@ func (c *GeminiClient) DeleteFile(ctx context.Context, fileID string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("delete file failed with status %d", resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+		return fmt.Errorf("delete file failed with status %d: %s", resp.StatusCode, body)
 	}
 
 	return nil
@@ -332,7 +335,8 @@ func (c *GeminiClient) GetCachedContent(ctx context.Context, cacheName string) (
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get cache failed with status %d", resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+		return nil, fmt.Errorf("get cache failed with status %d: %s", resp.StatusCode, body)
 	}
 
 	var cache GeminiCachedContent
@@ -362,7 +366,8 @@ func (c *GeminiClient) DeleteCachedContent(ctx context.Context, cacheName string
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("delete cache failed with status %d", resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+		return fmt.Errorf("delete cache failed with status %d: %s", resp.StatusCode, body)
 	}
 
 	return nil
@@ -387,7 +392,8 @@ func (c *GeminiClient) ListCachedContent(ctx context.Context) ([]string, error) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("list cache failed with status %d", resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+		return nil, fmt.Errorf("list cache failed with status %d: %s", resp.StatusCode, body)
 	}
 
 	var listResp GeminiListCachedContentsResponse

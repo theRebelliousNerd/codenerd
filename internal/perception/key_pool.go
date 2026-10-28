@@ -126,10 +126,13 @@ func (p *providerKeyPool) release(i int, status int, after time.Duration) {
 }
 
 // pooledCallError is a pooled attempt's failure as the caller sees it: the
-// provider, the credential's alias and the status, never the secret. The
-// adapter's own error stays reachable through errors.Is/As, so a typed
-// failure (a refusal, a truncation, the provider failure class) survives the
-// pool.
+// provider, the credential's alias, the status and the adapter's own
+// diagnostic (the provider's error type, message and request id), never the
+// secret. A pool that reduced a 400 to "status 400" left an operator unable to
+// tell which field the provider rejected. The adapter's error stays reachable
+// through errors.Is/As, so a typed failure (a refusal, a truncation, the
+// provider failure class) survives the pool. User-facing text is
+// SafeProviderFailureMessage, never Error().
 type pooledCallError struct {
 	provider Provider
 	alias    string
@@ -141,6 +144,9 @@ func (e *pooledCallError) Error() string {
 	msg := fmt.Sprintf("%s credential %q: provider request failed with status %d", e.provider, e.alias, e.status)
 	if e.status == 403 {
 		msg += " (the request was denied; the credential stays in the pool and no other credential is tried)"
+	}
+	if e.cause != nil {
+		msg += ": " + e.cause.Error()
 	}
 	return msg
 }

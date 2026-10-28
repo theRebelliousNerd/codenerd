@@ -69,7 +69,8 @@ type anthropicStreamEvent struct {
 	} `json:"delta"`
 	Usage *anthropicUsage `json:"usage"`
 	Error *struct {
-		Type string `json:"type"`
+		Type    string `json:"type"`
+		Message string `json:"message"`
 	} `json:"error"`
 	RequestID string `json:"request_id"`
 }
@@ -114,7 +115,7 @@ func readAnthropicStream(ctx context.Context, body io.Reader, req AnthropicReque
 			return protocolError(ProviderAnthropic, req.Model, "malformed streaming event", err)
 		}
 		if evt.Error != nil {
-			return &AnthropicAPIError{StatusCode: anthropicErrorStatus(evt.Error.Type), Type: evt.Error.Type, RequestID: evt.RequestID}
+			return &AnthropicAPIError{StatusCode: anthropicErrorStatus(evt.Error.Type), Type: evt.Error.Type, Message: evt.Error.Message, RequestID: evt.RequestID}
 		}
 		switch evt.Type {
 		case "message_start":
