@@ -39,3 +39,45 @@ learning_correction(/jev) :-
 learning_correction(/rebuke_phrase) :-
     correction_rebuke_phrase(),
     !correction_judged().
+
+# Tool-need trigger: whether a request, and a failed attempt at it, is a
+# capability gap a generated tool should fill (autopoiesis/tool_need.go). Jev
+# reads the request and the attempt (internal/learnjudge/toolneed.go). Until
+# 2026-10-28 a capability regex, or any failed attempt at all, made a tool need
+# in Go. The regex survives as fallback evidence for a request Jev did not
+# judge; a failed attempt alone is never a gap.
+
+# tool_need_judgment(Request, Name, Percent): Jev's probability, as a whole
+# percent, that the named judgment holds for the request (a hash of its text).
+Decl tool_need_judgment(Request, Name, Percent) bound [/string, /string, /number].
+# tool_need_pattern(Request): a missingCapabilityPatterns regex matched.
+Decl tool_need_pattern(Request) bound [/string].
+
+Decl tool_need_judged(Request) bound [/string].
+Decl tool_need_yes(Request, Name) bound [/string, /string].
+# tool_gap_observed(Request, Source): the kernel's decision that the request is
+# a capability gap; Source is /jev or /pattern.
+Decl tool_gap_observed(Request, Source) bound [/string, /name].
+
+tool_need_judged(Request) :- tool_need_judgment(Request, Name, Percent).
+
+tool_need_yes(Request, Name) :-
+    tool_need_judgment(Request, Name, Percent),
+    config_param(/jev_yes_percent, Yes),
+    Percent >= Yes.
+
+# Truth table:
+#   asks_for_tool  failed_for_missing_tool  needs_missing_operation  gap
+#   yes            any                      any                      /jev
+#   not yes        yes                      yes                      /jev
+#   otherwise                                                        none
+#   no judgment, and the capability pattern matched                  /pattern
+# A large task the harness can already do is not a gap: the coder does it.
+tool_gap_observed(Request, /jev) :-
+    tool_need_yes(Request, "asks_for_tool").
+tool_gap_observed(Request, /jev) :-
+    tool_need_yes(Request, "failed_for_missing_tool"),
+    tool_need_yes(Request, "needs_missing_operation").
+tool_gap_observed(Request, /pattern) :-
+    tool_need_pattern(Request),
+    !tool_need_judged(Request).

@@ -359,6 +359,51 @@ module, with this repository's config.
   the source with the description (`withDescriptionHeader`, toolgen.go), so a
   restart keeps what each tool does.
 
+### Tool-need trigger: switch `tool_checks`
+
+Whether a request, and a failed attempt at it, is a capability gap that a
+generated tool should fill (`ToolGenerator.DetectToolNeed`, reached from
+`Orchestrator.DetectToolNeed`, `Analyze`, the chat `generate_tool` action, the
+campaign gatherer and `nerd tool`). Until 2026-10-28 Go decided: a
+`missingCapabilityPatterns` regex over the input, or any non-empty failed
+attempt, made a need, and `toolTypePatterns` picked the kind.
+
+- Questions (`internal/learnjudge/toolneed.go`), in one request:
+  - `asks_for_tool`: is the user asking for a new tool?
+  - `needs_missing_operation`: does the request need an operation that neither
+    the harness (stated in the state) nor any generated tool provides?
+  - `failed_for_missing_tool`, asked only with a failed attempt: did it fail
+    because no tool could perform an operation, rather than a wrong argument,
+    bad code, a failing test or a transient error?
+  - `tool_kind`, a Choice: a hint to the spec writer.
+- Facts and rule: `tool_need_judgment(Request, Name, Percent)` and the regex
+  match as `tool_need_pattern(Request)`, keyed by a hash of the request, and
+  retracted once read. `tool_gap_observed(Request, Source)` is derived in
+  `policy/jev_learning.mg`:
+
+  | asks_for_tool | failed_for_missing_tool | needs_missing_operation | gap |
+  |---|---|---|---|
+  | yes | any | any | `/jev` |
+  | not yes | yes | yes | `/jev` |
+  | otherwise | | | none |
+  | no judgment (Jev off, `tool_checks` off, failed), pattern matched | | | `/pattern` |
+
+  A failed attempt alone is never a gap, with or without Jev.
+- The Orchestrator installs the decider when it attaches its kernel
+  (`SetKernel`). A ToolGenerator with no kernel uses the pattern alone, and the
+  log says so.
+- The LLM (`refineToolNeedWithLLM`) now only writes the spec, after the kernel
+  has derived a gap. It no longer returns `needs_new_tool`.
+- Probe (`tool_need`, 10 cases): the kernel table on Jev's readings was right
+  10 of 10; the old trigger 5 of 10. The old trigger made tool needs out of a
+  provider timeout, a failing test, a bad regex argument, and the question "is
+  there no tool for listing goroutines?". Jev scored all four at or below 0.10
+  on `failed_for_missing_tool` or `asks_for_tool`. An Avro or PDF file the
+  harness could not read scored 0.94 and 0.87.
+- Tests: `TestToolGap_KernelTruthTable`,
+  `TestDetectToolNeed_LLMWritesTheSpecOnlyForAGap` (`tool_need_test.go`), and
+  `TestDetectToolNeed_FailedAttemptAloneIsNoNeed`.
+
 ### Autopoiesis checks: switch `autopoiesis_checks`
 
 As built 2026-10-28. Questions: `internal/learnjudge/autopoiesis.go`. Operation

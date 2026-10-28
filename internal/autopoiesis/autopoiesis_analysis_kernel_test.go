@@ -13,7 +13,12 @@ import (
 // yields a tool need, and asserts a missing_tool_for fact was recorded. It fails
 // if the assertion is absent — the regression this task fixes.
 func TestAnalyze_ToolNeed_AssertsMissingToolFor(t *testing.T) {
-	orch, kernel, llm := createTestOrchestrator(t)
+	orch, _, llm := createTestOrchestrator(t)
+	// Whether the input is a capability gap is the kernel's decision
+	// (tool_need.go, policy/jev_learning.mg), so the kernel is real. With no
+	// Jev configured, the capability pattern is the evidence.
+	kernel := newRecordingRealKernel(t)
+	orch.SetKernel(kernel)
 	// Enable the tool-generation branch and use heuristic-only complexity so no
 	// unrelated LLM calls are needed.
 	orch.config.EnableToolGeneration = true

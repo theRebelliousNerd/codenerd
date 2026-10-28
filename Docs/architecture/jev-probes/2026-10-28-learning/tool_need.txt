@@ -1,0 +1,11 @@
+tool-need probe: kernel table on Jev 10/10 right; old trigger (any failure or regex) 5/10 right
+ok   explicit-tool        gap=true  want=true  old=false asks=0.97 missing_op=0.35 failed_for_missing=0.00 kind=converter
+ok   explicit-regex       gap=true  want=true  old=true  asks=0.86 missing_op=0.27 failed_for_missing=0.00 kind=validator
+ok   avro-failed          gap=true  want=true  old=true  asks=0.07 missing_op=0.86 failed_for_missing=0.94 kind=parser
+ok   timeout-failed       gap=false want=false old=true  asks=0.02 missing_op=0.05 failed_for_missing=0.04 kind=utility
+ok   test-failed          gap=false want=false old=true  asks=0.03 missing_op=0.04 failed_for_missing=0.04 kind=utility
+ok   bad-arg-failed       gap=false want=false old=true  asks=0.03 missing_op=0.04 failed_for_missing=0.05 kind=analyzer
+ok   big-task             gap=false want=false old=false asks=0.02 missing_op=0.07 failed_for_missing=0.00 kind=utility
+ok   question             gap=false want=false old=false asks=0.03 missing_op=0.13 failed_for_missing=0.00 kind=analyzer
+ok   no-tool-for-question gap=false want=false old=true  asks=0.10 missing_op=0.32 failed_for_missing=0.00 kind=analyzer
+ok   pdf-failed           gap=true  want=true  old=true  asks=0.17 missing_op=0.86 failed_for_missing=0.87 kind=converter

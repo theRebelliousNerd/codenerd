@@ -99,40 +99,22 @@ func (tg *ToolGenerator) DetectToolNeed(ctx context.Context, input string, faile
 
 	lower := strings.ToLower(input)
 
-	// Check if input suggests missing capability
-	needsNewTool := false
-	var triggers []string
-
-	for _, pattern := range missingCapabilityPatterns {
-		if pattern.MatchString(lower) {
-			needsNewTool = true
-			triggers = append(triggers, pattern.String())
-		}
+	// Whether this is a capability gap is the kernel's decision over Jev's
+	// judgments, with the capability patterns as fallback evidence
+	// (tool_need.go). A failed attempt alone is never a gap.
+	decision := tg.decideToolGap(ctx, input, failedAttempt)
+	if !decision.gap {
+		logging.AutopoiesisDebug("No tool need: the kernel derived no capability gap (source %s)", decision.source)
+		return nil, nil
 	}
+	triggers := []string{"tool_gap_observed/" + decision.source}
+	logging.Autopoiesis("Tool need: the kernel derived a capability gap (source %s)", decision.source)
 
-	// Check if there was a failed attempt that suggests tool gap
-	if failedAttempt != "" {
-		needsNewTool = true
-		triggers = append(triggers, "Previous attempt failed")
-		logging.AutopoiesisDebug("Tool need triggered by failed attempt")
-	}
-
-	if !needsNewTool {
-		logging.AutopoiesisDebug("No tool need detected from input")
-		return nil, nil // No tool need detected
-	}
-
-	logging.AutopoiesisDebug("Tool need detected with %d triggers", len(triggers))
-
-	// Determine tool type from patterns
-	toolType := "utility" // default
-	for ttype, patterns := range toolTypePatterns {
-		for _, pattern := range patterns {
-			if pattern.MatchString(lower) {
-				toolType = ttype
-				break
-			}
-		}
+	// The tool kind is a hint for the spec writer: Jev's when it answered,
+	// else the patterns'.
+	toolType := decision.kind
+	if toolType == "" {
+		toolType = toolTypeByPattern(lower)
 	}
 	logging.AutopoiesisDebug("Detected tool type: %s", toolType)
 
@@ -158,32 +140,36 @@ func (tg *ToolGenerator) DetectToolNeed(ctx context.Context, input string, faile
 		return fallback, nil
 	}
 
-	// If LLM refinement says no tool needed, respect that decision
-	if need == nil {
-		logging.AutopoiesisDebug("LLM refinement concluded no tool is needed")
-		return nil, nil
-	}
-
 	logging.Autopoiesis("Tool need refined: name=%s, confidence=%.2f", need.Name, need.Confidence)
 	return need, nil
 }
 
+// toolTypeByPattern is the tool kind from toolTypePatterns, in a fixed order
+// so the same input always gets the same kind; "utility" when none matches.
+func toolTypeByPattern(lower string) string {
+	for _, ttype := range []string{"validator", "converter", "parser", "analyzer", "formatter"} {
+		for _, pattern := range toolTypePatterns[ttype] {
+			if pattern.MatchString(lower) {
+				return ttype
+			}
+		}
+	}
+	return "utility"
+}
+
 // refineToolNeedWithLLM uses LLM to better understand the tool need
 func (tg *ToolGenerator) refineToolNeedWithLLM(ctx context.Context, input, failedAttempt, toolType string, triggers []string) (*ToolNeed, error) {
-	prompt := fmt.Sprintf(`Analyze this user request and determine if a new tool is needed.
+	prompt := fmt.Sprintf(`codeNERD's kernel has found a capability gap in this request that a new tool will fill. Write the tool's spec.
 
 User Request: %q
 Previous Attempt Failed: %q
-Detected Tool Type: %s
-Trigger Patterns: %v
+Tool Kind: %s
+Why the kernel found a gap: %v
 
-Existing tools available: %v
-
-Only recommend a new tool if there is a clear capability gap that cannot be met by existing tools. New tools are expensive and risky; default to reuse unless strongly justified.
+Existing tools available (do not duplicate them): %v
 
 Return JSON only:
 {
-  "needs_new_tool": true/false,
   "tool_name": "snake_case_name",
   "purpose": "clear description of what the tool should do",
   "input_type": "go type for input (string, []byte, map[string]any, etc)",
@@ -202,24 +188,19 @@ JSON only:`, input, failedAttempt, toolType, triggers, tg.listExistingTools())
 
 	// Parse response
 	var result struct {
-		NeedsNewTool bool    `json:"needs_new_tool"`
-		ToolName     string  `json:"tool_name"`
-		Purpose      string  `json:"purpose"`
-		InputType    string  `json:"input_type"`
-		OutputType   string  `json:"output_type"`
-		Priority     float64 `json:"priority"`
-		Confidence   float64 `json:"confidence"`
-		Reasoning    string  `json:"reasoning"`
+		ToolName   string  `json:"tool_name"`
+		Purpose    string  `json:"purpose"`
+		InputType  string  `json:"input_type"`
+		OutputType string  `json:"output_type"`
+		Priority   float64 `json:"priority"`
+		Confidence float64 `json:"confidence"`
+		Reasoning  string  `json:"reasoning"`
 	}
 
 	// Extract JSON from response
 	jsonStr := extractJSON(resp)
 	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
 		return nil, fmt.Errorf("failed to parse LLM response: %w", err)
-	}
-
-	if !result.NeedsNewTool {
-		return nil, nil
 	}
 
 	need := &ToolNeed{

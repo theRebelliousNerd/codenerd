@@ -21,7 +21,12 @@ import (
 func (o *Orchestrator) SetKernel(kernel types.Kernel) {
 	o.mu.Lock()
 	o.kernel = kernel
+	tg := o.toolGen
 	o.mu.Unlock()
+	// The tool-need trigger is the kernel's decision (tool_need.go).
+	if tg != nil {
+		tg.setGapDecider(o.decideToolGap)
+	}
 
 	// Sync existing tools from registry to kernel (for tools restored from disk)
 	o.syncExistingToolsToKernel()

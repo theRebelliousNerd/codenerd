@@ -164,7 +164,7 @@ func TestToolGenerator_RegenerateWithFeedback_JITFallbackDoesNotRecurse(t *testi
 	}
 }
 
-func TestDetectToolNeed_WithFailedAttempt(t *testing.T) {
+func TestDetectToolNeed_FailedAttemptAloneIsNoNeed(t *testing.T) {
 	client := &MockLLMClient{
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return `{"needs_new_tool": true, "tool_name": "retry_tool", "purpose": "Retry failed operation", "input_type": "string", "output_type": "string", "priority": 0.9, "confidence": 0.95, "reasoning": "Previous attempt failed"}`, nil
@@ -172,13 +172,15 @@ func TestDetectToolNeed_WithFailedAttempt(t *testing.T) {
 	}
 	tg := NewToolGenerator(client, "/tmp/tools")
 
+	// A failed attempt alone is not a capability gap (tool_need.go): until
+	// 2026-10-28 any failure made one, so every failure looked like a
+	// missing tool.
 	need, err := tg.DetectToolNeed(context.Background(), "Try again", "Previous tool execution failed")
 	if err != nil {
 		t.Fatalf("DetectToolNeed error: %v", err)
 	}
-
-	if need == nil {
-		t.Error("Expected tool need to be detected when there's a failed attempt")
+	if need != nil {
+		t.Errorf("a failed attempt alone produced a tool need: %+v", need)
 	}
 }
 

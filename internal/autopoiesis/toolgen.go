@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"codenerd/internal/atomicfile"
 	"codenerd/internal/logging"
@@ -30,6 +31,11 @@ type ToolGenerator struct {
 
 	// Learnings injection - aggregated patterns from past tool generation
 	learningsContext string
+
+	// gapDecider is the kernel's tool-need decision (tool_need.go),
+	// installed when the Orchestrator attaches its kernel.
+	gapMu      sync.RWMutex
+	gapDecider toolGapDecider
 }
 
 // NewToolGenerator creates a new tool generator
@@ -127,6 +133,15 @@ func (tg *ToolGenerator) listExistingTools() []string {
 		tools = append(tools, name)
 	}
 	return tools
+}
+
+// snapshotTools copies the known tool schemas.
+func (tg *ToolGenerator) snapshotTools() map[string]ToolSchema {
+	out := make(map[string]ToolSchema, len(tg.existingTools))
+	for name, schema := range tg.existingTools {
+		out[name] = schema
+	}
+	return out
 }
 
 // HasTool returns true if a tool with the given name is already registered.
