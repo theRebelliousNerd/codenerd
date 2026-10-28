@@ -495,7 +495,11 @@ func (k *RealKernel) Reset() {
 func (k *RealKernel) Clone() *RealKernel {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
+	return k.cloneLocked()
+}
 
+// cloneLocked is Clone's body; the caller holds at least k.mu.RLock.
+func (k *RealKernel) cloneLocked() *RealKernel {
 	clone := &RealKernel{
 		facts:             make([]Fact, len(k.facts)),
 		cachedAtoms:       nil, // Rebuild fresh to avoid shared memory pointers

@@ -172,6 +172,7 @@ func (k *RealKernel) markDirtyLocked(preds ...string) {
 			k.dirtyPreds[pred] = struct{}{}
 		}
 	}
+	k.generation.Add(1)
 	k.factsDirty.Store(true)
 }
 
