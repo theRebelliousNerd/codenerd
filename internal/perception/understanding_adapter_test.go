@@ -42,8 +42,11 @@ func TestUnderstandingSupportingAtom_CanonicalSchemaAndExamples(test *testing.T)
 	}
 	for index, block := range blocks[1:] {
 		object, _, closed := strings.Cut(block, "```")
-		if !closed || !isValidUnderstandingPromptContract(object) {
-			test.Fatalf("JSON block %d does not express the canonical nested envelope", index)
+		if !closed {
+			test.Fatalf("JSON block %d is not closed", index)
+		}
+		if reason := understandingPromptContractReason(object); reason != "" {
+			test.Fatalf("JSON block %d does not express the canonical nested envelope: %s", index, reason)
 		}
 		if index == 0 {
 			continue
@@ -214,7 +217,7 @@ func TestUnderstandingTransducer_MapActionToVerb(t *testing.T) {
 	}
 }
 
-func TestIsValidUnderstandingPromptContract(t *testing.T) {
+func TestUnderstandingPromptContractReason(t *testing.T) {
 	corpus, err := prompt.LoadEmbeddedCorpus()
 	if err != nil {
 		t.Fatalf("LoadEmbeddedCorpus: %v", err)
@@ -302,8 +305,9 @@ func TestIsValidUnderstandingPromptContract(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isValidUnderstandingPromptContract(tt.prompt); got != tt.want {
-				t.Fatalf("isValidUnderstandingPromptContract() = %v, want %v", got, tt.want)
+			reason := understandingPromptContractReason(tt.prompt)
+			if got := reason == ""; got != tt.want {
+				t.Fatalf("understandingPromptContractReason() = %q, want valid=%v", reason, tt.want)
 			}
 		})
 	}

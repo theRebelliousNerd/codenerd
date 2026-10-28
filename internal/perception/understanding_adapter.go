@@ -135,10 +135,10 @@ func getUnderstandingPrompt(ctx context.Context, pa PromptAssembler) string {
 	return prompt
 }
 
-func isValidUnderstandingPromptContract(prompt string) bool {
-	return understandingPromptContractReason(prompt) == ""
-}
-
+// understandingPromptContractReason reports why a compiled perception prompt
+// cannot be used ("" when it can): getUnderstandingPrompt falls back to the
+// embedded prompt on any reason, so a JIT prompt that teaches a conflicting or
+// malformed output shape never reaches the classifier.
 func understandingPromptContractReason(prompt string) string {
 	found := false
 	for offset := 0; offset < len(prompt); {

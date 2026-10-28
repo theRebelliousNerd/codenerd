@@ -772,7 +772,7 @@ func newSecondarySlotClient(userCfg *config.UserConfig, slot string, w *config.S
 		} else {
 			return nil, fmt.Errorf("%s LLM: no model configured for ollama: set %s.model or ollama.model in .nerd/config.json", slot, slot)
 		}
-	client := NewOllamaClientWithConfig(cfg)
+		client := NewOllamaClientWithConfig(cfg)
 		if err := slotInputCapEnforced(slot, provider, w.MaxInputTokens, client); err != nil {
 			return nil, err
 		}
