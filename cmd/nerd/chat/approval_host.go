@@ -47,6 +47,7 @@ func (m *Model) attachApprovalHost(b *approval.Broker) error {
 		return err
 	}
 	m.approvalHost = host
+	m.approvals = b
 	m.approvalView = ui.NewDiffApprovalView(m.styles, m.width, m.height)
 	return nil
 }
@@ -150,4 +151,49 @@ func (m Model) handleApprovalKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 func (m Model) renderApprovalView() string {
 	return m.styles.Layout.Content.Render(m.approvalView.View())
+}
+
+// handleCmdApprovals is the operator's read-only view of the approval record:
+// every request the journal retains (approval.journal_retention bounds it) and
+// its lifecycle state, or one request in full. It decides nothing; decisions
+// are only the review view's keys.
+func (m Model) handleCmdApprovals(_ string, parts []string) (tea.Model, tea.Cmd) {
+	return m.pushAssistantMsg(formatApprovalStatus(m.approvals, parts[1:])), nil
+}
+
+func formatApprovalStatus(b *approval.Broker, args []string) string {
+	if b == nil {
+		return "Human approval is unavailable this session: no approval journal could be opened, so approvable actions are refused."
+	}
+	if len(args) > 0 {
+		r, ok := b.Get(strings.TrimSpace(args[0]))
+		if !ok {
+			return fmt.Sprintf("No approval request %q.", args[0])
+		}
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "**%s** %s\n\n", r.ID, r.Status)
+		fmt.Fprintf(&sb, "- action: `%s` on `%s` via %s/%s\n", r.Subject.Action, r.Subject.Target, r.Subject.Backend, r.Subject.Tool)
+		fmt.Fprintf(&sb, "- digest: `%s`\n- created %s, expires %s\n", r.Digest, r.CreatedAt.Format(time.RFC3339), r.ExpiresAt.Format(time.RFC3339))
+		if r.Decision != nil {
+			fmt.Fprintf(&sb, "- decision: %s by %s on %s at %s\n", r.Decision.Verdict, r.Decision.Actor, r.Decision.Channel, r.Decision.DecidedAt.Format(time.RFC3339))
+		}
+		if r.Claim != nil {
+			fmt.Fprintf(&sb, "- claim: intent %s, outcome %q\n", r.Claim.IntentID, r.Claim.Outcome)
+		}
+		if r.StatusReason != "" {
+			fmt.Fprintf(&sb, "- reason: %s\n", r.StatusReason)
+		}
+		fmt.Fprintf(&sb, "\n```\n%s\n```", r.Preview.String())
+		return sb.String()
+	}
+	all := b.Snapshot()
+	if len(all) == 0 {
+		return "No human-approval requests in this workspace's journal."
+	}
+	var sb strings.Builder
+	sb.WriteString("**Human-approval requests** (most recent last; `/approvals <id>` for one)\n\n")
+	for _, r := range all {
+		fmt.Fprintf(&sb, "- `%s` %s — %s (%s)\n", r.ID, r.Status, r.Preview.Summary, r.CreatedAt.Format("2006-01-02 15:04"))
+	}
+	return sb.String()
 }

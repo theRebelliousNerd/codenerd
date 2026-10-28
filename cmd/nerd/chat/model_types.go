@@ -469,6 +469,9 @@ type Model struct {
 	// Human approval (approval_host.go): this TUI is the broker's decision
 	// channel, and approvalView renders the requests it is offered.
 	approvalHost *approval.Host
+	// approvals is the broker the host is attached to; /approvals reads its
+	// record (read-only).
+	approvals    *approval.Broker
 	approvalView ui.DiffApprovalView
 
 	// Boot State

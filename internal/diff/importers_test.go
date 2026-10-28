@@ -13,24 +13,31 @@ import (
 )
 
 // displayOnlyImporters are the production packages allowed to import this
-// one. Both render diffs for a reader -- the TUI's approval view and the repair
+// one with a caching engine. Both render diffs for a reader -- the TUI's
+// approval view (word-level spans inside a diff it is handed) and the repair
 // round's prompt (internal/session/turn_diff.go) -- and neither applies a hunk
-// to a file.
+// to a file or decides anything with one.
 //
-// That is what makes the cache's trusted keys an accepted risk rather than a
-// defect (GAP-DIFF-01, Docs/architecture/diff/TODO.md): both production
-// engines run with Options.VerifyCacheContent off, so a dual-FNV-1a key
-// collision would show one file's hunks for another's. Shown wrongly is a
-// display fault; applied wrongly is a corrupted file. A new importer that
-// applies diffs must turn VerifyCacheContent on for its engine (its collision
-// path is proven by TestCache_WhenVerifyEnabledAndKeyCollides_ShouldRecomputeRatherThanServeWrongDiff),
-// and then be added here.
+// That is what makes the cache's trusted keys an accepted risk for them
+// (GAP-DIFF-01, Docs/architecture/diff/TODO.md): a dual-FNV-1a key collision
+// would show one file's hunks for another's. Shown wrongly is a display fault.
 var displayOnlyImporters = map[string]bool{
 	"cmd/nerd/ui":      true,
 	"internal/session": true,
 }
 
-func TestDiffImporters_AreDisplayOnly(t *testing.T) {
+// decisionImporters compute diffs a person authorizes against. Once a diff
+// decides an approval, "display only" no longer dismisses a wrong preview, so
+// each of these builds its engine with the cache disabled or content
+// verification on, and proves it in its own package
+// (internal/approval: TestPreviewEngine_NeverServesFromCache). The approval
+// view renders the request's frozen Preview.Diff from here and never
+// recomputes it (Docs/audits/request-bound-human-approval.md §3).
+var decisionImporters = map[string]bool{
+	"internal/approval": true,
+}
+
+func TestDiffImporters_AreDisplayOnlyOrDecisionSafe(t *testing.T) {
 	root := repoRoot(t)
 	found := map[string]bool{}
 	fset := token.NewFileSet()
@@ -68,15 +75,15 @@ func TestDiffImporters_AreDisplayOnly(t *testing.T) {
 	}
 	var unexpected []string
 	for pkg := range found {
-		if !displayOnlyImporters[pkg] {
+		if !displayOnlyImporters[pkg] && !decisionImporters[pkg] {
 			unexpected = append(unexpected, pkg)
 		}
 	}
 	sort.Strings(unexpected)
 	for _, pkg := range unexpected {
-		t.Errorf("%s imports internal/diff and is not a known display-only consumer: if it applies diffs, "+
-			"build its engine with Options{VerifyCacheContent: true} (cache keys are trusted, not proven, by default), "+
-			"then add it to displayOnlyImporters", pkg)
+		t.Errorf("%s imports internal/diff and is not a known consumer: if it applies diffs or decides with them, "+
+			"build its engine with Options{DisableCache: true} or Options{VerifyCacheContent: true} (cache keys are trusted, not proven, by default), "+
+			"prove it with a test, then add it to decisionImporters; a display-only reader goes in displayOnlyImporters", pkg)
 	}
 }
 

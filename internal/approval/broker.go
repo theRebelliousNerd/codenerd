@@ -2,7 +2,6 @@ package approval
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -316,9 +315,6 @@ func (b *Broker) AttachHost(channel, actor string) (*Host, error) {
 	return h, nil
 }
 
-// Channel is the host's channel identity.
-func (h *Host) Channel() string { return h.channel }
-
 // Updates delivers a copy of every request offered to this host each time it
 // changes.
 func (h *Host) Updates() <-chan Request { return h.updates }
@@ -562,16 +558,6 @@ func (g *Grant) finish(from, to Status, reason, outcome string) {
 	}
 	*r = next
 	b.notifyLocked(r)
-}
-
-// IsRefusal reports whether err is one of the lifecycle refusals.
-func IsRefusal(err error) bool {
-	for _, target := range []error{ErrNoHost, ErrRejected, ErrCanceled, ErrExpired, ErrStale, ErrAlreadyClaimed} {
-		if errors.Is(err, target) {
-			return true
-		}
-	}
-	return false
 }
 
 // shared is the process's brokers by journal path. Several Cortex instances

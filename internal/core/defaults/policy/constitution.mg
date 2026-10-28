@@ -25,6 +25,7 @@ permitted(Action, Target, Payload) :-
 # admin_override(U)`, which approved every pending action of a type at once
 # and whose User was joined to nothing (2026-10-27).
 permitted(Action, Target, Payload) :-
+    dangerous_action(Action),
     human_approvable(Action),
     pending_action(ActionID, Action, Target, Payload, _),
     human_approval_granted(ActionID, Action, Target, Payload, _),
@@ -44,6 +45,7 @@ human_approvable(/run_arbitrary_command).
 # dangerous in the target or payload.
 human_approval_required(ActionID) :-
     pending_action(ActionID, Action, Target, Payload, _),
+    dangerous_action(Action),
     human_approvable(Action),
     !permitted(Action, Target, Payload),
     !dangerous_content(Action, Payload),

@@ -380,18 +380,22 @@
     Decl safe_action(ActionType).
     Decl pending_action(A1, A2, A3, A4, A5).
     Decl dangerous_action(ActionType).
-    Decl admin_override(User).
-    Decl signed_approval(ActionType).
+    Decl human_approvable(ActionType).
+    Decl human_approval_granted(ActionID, ActionType, Target, Payload, RequestDigest).
     permitted(ActionType, Target, Payload) :-
         safe_action(ActionType),
         pending_action(_, ActionType, Target, Payload, _).
 
-    # Dangerous actions require override + approval
+    # A dangerous action needs a person's approval of ONE exact pending
+    # request. The host asserts human_approval_granted for that tuple only;
+    # no rule, learned fact or model output can produce it.
     permitted(ActionType, Target, Payload) :-
         dangerous_action(ActionType),
-        admin_override(User),
-        signed_approval(ActionType),
-        pending_action(_, ActionType, Target, Payload, _).
+        human_approvable(ActionType),
+        pending_action(ActionID, ActionType, Target, Payload, _),
+        human_approval_granted(ActionID, ActionType, Target, Payload, _),
+        !dangerous_content(ActionType, Payload),
+        !dangerous_content(ActionType, Target).
     ```
 
     ### Safe Action Classification

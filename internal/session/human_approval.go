@@ -317,6 +317,7 @@ func (e *Executor) awaitHumanApproval(ctx context.Context, call ToolCall, cfg *c
 	if err := grant.Reserve(intent, current); err != nil {
 		return nil, fmt.Errorf("tool call blocked: approved request %s cannot run: %w — it was approved for the operation as it was, not as it is", req.ID, err)
 	}
+	logging.Get(logging.CategorySession).Info("Human approval %s claimed for %s %s (decided by %s)", grant.RequestID(), call.Name, target, req.Decision.Actor)
 	return &humanApproval{grant: grant, subject: current}, nil
 }
 

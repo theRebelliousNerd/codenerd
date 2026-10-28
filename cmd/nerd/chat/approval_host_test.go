@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,4 +140,30 @@ func TestApprovalHost_ShutdownCancelsWaitingCalls(t *testing.T) {
 	if res := <-done; !errors.Is(res.err, approval.ErrCanceled) {
 		t.Fatalf("a call stayed waiting on a detached TUI: %v", res.err)
 	}
+}
+
+// /approvals reads the record and decides nothing.
+func TestApprovalHost_StatusCommandIsReadOnly(t *testing.T) {
+	m, b := approvalModel(t)
+	done := openRequest(t, b, "exec-1", "a.md")
+	m = nextUpdate(t, m, "exec-1")
+	list := formatApprovalStatus(m.approvals, nil)
+	pending := b.Snapshot()[0]
+	if !strings.Contains(list, pending.ID) || !strings.Contains(list, "awaiting_human") {
+		t.Fatalf("listing = %q", list)
+	}
+	detail := formatApprovalStatus(m.approvals, []string{pending.ID})
+	if !strings.Contains(detail, pending.Digest) || !strings.Contains(detail, "Delete a.md") {
+		t.Fatalf("detail = %q", detail)
+	}
+	model, _ := m.handleCmdApprovals("/approvals", []string{"/approvals"})
+	_ = model
+	if got := b.Snapshot()[0]; got.Status != approval.StatusAwaitingHuman {
+		t.Fatalf("the status command changed the request to %s", got.Status)
+	}
+	if !strings.Contains(formatApprovalStatus(nil, nil), "unavailable") {
+		t.Fatal("a missing broker was not reported")
+	}
+	m.detachApprovalHost()
+	<-done
 }

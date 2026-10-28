@@ -57,7 +57,7 @@ func (p Preview) clone() Preview {
 // previewEngine computes decision previews. Its cache is off: once a diff
 // decides an authorization, a cache hit that served another input's hunks
 // would show a person one change and authorize another. Recomputing is the
-// cost of an exact preview (TestDiffImporters_AreDisplayOnly records why).
+// cost of an exact preview (TestDiffImporters_AreDisplayOnlyOrDecisionSafe records why).
 var previewEngine = diff.NewEngineWith(diff.Options{DisableCache: true})
 
 // PreviewInput is the operation-specific material a preview is built from.

@@ -493,8 +493,11 @@
         pending_action(_, ActionType, Target, Payload, _).
     permitted(ActionType, Target, Payload) :-
         dangerous_action(ActionType),
-        admin_override(_),
-        signed_approval(ActionType).
+        human_approvable(ActionType),
+        pending_action(ActionID, ActionType, Target, Payload, _),
+        human_approval_granted(ActionID, ActionType, Target, Payload, _),
+        !dangerous_content(ActionType, Payload),
+        !dangerous_content(ActionType, Target).
     ```
 
 - id: "language/mangle/docs/codenerd/predicates_reference/strategy-predicates"

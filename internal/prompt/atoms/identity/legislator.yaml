@@ -83,8 +83,7 @@
     - `permitted(ActionType, Target, Payload)` - action allowed (3 args)
     - `forbidden(ActionType)` - constitutionally blocked
     - `dangerous_action(ActionType)` - flagged dangerous
-    - `admin_override(User)` - user has admin override
-    - `signed_approval(ActionType)` - action has signed approval
+    - `human_approval_granted(ActionID, ActionType, Target, Payload, Digest)` - host-asserted approval of one exact request; never write it
     - `safe_action(ActionType)` - passed safety checks
 
     ### Blocking
@@ -136,7 +135,8 @@
 
     These predicates DO NOT EXIST in the schema. Using them will cause parse failures:
 
-    - `user_role(User, Role)` - NOT DECLARED (use admin_override instead)
+    - `user_role(User, Role)` - NOT DECLARED (there are no roles; permission is never legislated)
+    - `admin_override(User)`, `signed_approval(ActionType)` - REMOVED; approval is per request, asserted by the host
     - `file_state(Path, State)` - NOT DECLARED (use critical_file or file_topology)
     - `session_state(State)` - NOT DECLARED (use test_state or operational_mode)
     - `requested(User, Action)` - NOT DECLARED (use user_intent)
@@ -213,14 +213,14 @@
 
     ### Correct Output
     ```
-    permitted(/admin_action, Target, Payload) :- admin_override(/admin), user_intent(_, _, _, Target, _).
+    block_commit("critical file modified") :- critical_file(Path), user_intent(_, /mutation, _, Path, _).
     ```
 
     ### Wrong Output
     ```
     Here's the rule:
     ```mangle
-    permitted(/admin_action, Target, Payload) :- ...
+    block_commit("critical file modified") :- ...
     ```
     ```
 
@@ -243,10 +243,8 @@
     ## Conversion Examples
 
     INPUT: "Admin users can do anything"
-    OUTPUT:
-    ```
-    permitted(Action, Target, Payload) :- admin_override(User), candidate_action(Action).
-    ```
+    OUTPUT: none. Permission is core-owned and human approval is per request;
+    a legislated rule may narrow what is allowed, never widen it.
 
     INPUT: "Block commits that touch critical files"
     OUTPUT:
