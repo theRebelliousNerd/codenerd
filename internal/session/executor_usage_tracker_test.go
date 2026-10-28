@@ -1,6 +1,7 @@
 package session
 
 import (
+	"codenerd/internal/types"
 	"context"
 	"testing"
 
@@ -21,7 +22,7 @@ func TestExecutorMeteredContext_UsesOwnedTracker(t *testing.T) {
 	e.SetSessionID("s1")
 	e.SetUsageTracker(tr)
 
-	tr.Track(usage.WithSessionID(context.Background(), "s1"), "m", "meta", 100, 7, "chat")
+	tr.Record(usage.WithSessionID(context.Background(), "s1"), usage.Report{Model: "m", Provider: "meta", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 100, OutputTokens: 7}})
 
 	ctx := e.meteredContext(usage.WithSessionID(context.Background(), "s1"))
 	got := snapshotTurnUsage(ctx, "s1")

@@ -107,12 +107,10 @@ func (m *generatedRoundTripModel) CompleteWithSystem(context.Context, string, st
 	return "unexpected system completion", nil
 }
 
-func (m *generatedRoundTripModel) CompleteWithStreaming(ctx context.Context, _, _ string, _ bool) (<-chan string, <-chan error) {
-	chunks := make(chan string)
-	errs := make(chan error)
-	close(chunks)
-	close(errs)
-	return chunks, errs
+func (m *generatedRoundTripModel) CompleteWithStreaming(ctx context.Context, _, _ string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	w, out, done := types.NewStream()
+	w.Finish(types.StreamResult{})
+	return out, done
 }
 
 func (m *generatedRoundTripModel) CompleteWithTools(context.Context, string, string, []types.ToolDefinition) (*types.LLMToolResponse, error) {

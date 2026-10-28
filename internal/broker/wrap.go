@@ -47,9 +47,7 @@ func Wrap(underlying types.LLMClient, cfg Config) (types.LLMClient, error) {
 	_, hasSchema := underlying.(interface {
 		CompleteWithSchema(ctx context.Context, systemPrompt, userPrompt, jsonSchema string) (string, error)
 	})
-	_, hasThoughts := underlying.(interface {
-		CompleteWithStreamingAndThoughts(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan string, <-chan error)
-	})
+	_, hasThoughts := underlying.(types.ThoughtStreamer)
 
 	switch {
 	case hasToolResults && hasSchema && hasThoughts:
@@ -160,8 +158,8 @@ func (c clientSC) CompleteWithSchema(ctx context.Context, systemPrompt, userProm
 
 type clientTH struct{ baseClient }
 
-// CompleteWithStreamingAndThoughts implements core.LLMStreamingWithThoughts.
-func (c clientTH) CompleteWithStreamingAndThoughts(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan string, <-chan error) {
+// CompleteWithStreamingAndThoughts implements types.ThoughtStreamer.
+func (c clientTH) CompleteWithStreamingAndThoughts(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan string, <-chan types.StreamResult) {
 	return c.completeWithStreamingAndThoughts(ctx, systemPrompt, userPrompt, enableThinking)
 }
 
@@ -181,7 +179,7 @@ func (c clientTRTH) CompleteWithToolResults(ctx context.Context, systemPrompt st
 	return c.completeWithToolResults(ctx, systemPrompt, history, tools)
 }
 
-func (c clientTRTH) CompleteWithStreamingAndThoughts(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan string, <-chan error) {
+func (c clientTRTH) CompleteWithStreamingAndThoughts(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan string, <-chan types.StreamResult) {
 	return c.completeWithStreamingAndThoughts(ctx, systemPrompt, userPrompt, enableThinking)
 }
 
@@ -191,7 +189,7 @@ func (c clientSCTH) CompleteWithSchema(ctx context.Context, systemPrompt, userPr
 	return c.completeWithSchema(ctx, systemPrompt, userPrompt, jsonSchema)
 }
 
-func (c clientSCTH) CompleteWithStreamingAndThoughts(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan string, <-chan error) {
+func (c clientSCTH) CompleteWithStreamingAndThoughts(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan string, <-chan types.StreamResult) {
 	return c.completeWithStreamingAndThoughts(ctx, systemPrompt, userPrompt, enableThinking)
 }
 
@@ -205,7 +203,7 @@ func (c clientTRSCTH) CompleteWithSchema(ctx context.Context, systemPrompt, user
 	return c.completeWithSchema(ctx, systemPrompt, userPrompt, jsonSchema)
 }
 
-func (c clientTRSCTH) CompleteWithStreamingAndThoughts(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan string, <-chan error) {
+func (c clientTRSCTH) CompleteWithStreamingAndThoughts(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan string, <-chan types.StreamResult) {
 	return c.completeWithStreamingAndThoughts(ctx, systemPrompt, userPrompt, enableThinking)
 }
 

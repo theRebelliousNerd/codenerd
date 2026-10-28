@@ -30,13 +30,8 @@ func (m *transientErrLLMClient) CompleteWithTools(ctx context.Context, systemPro
 	return nil, m.err
 }
 
-func (m *transientErrLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
-	contentChan := make(chan string)
-	errorChan := make(chan error, 1)
-	errorChan <- m.err
-	close(contentChan)
-	close(errorChan)
-	return contentChan, errorChan
+func (m *transientErrLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
+	return types.FailedStream(m.err)
 }
 
 // TestParseIntentWithContext_TransientFailureMarksIntent proves Layer 2a: when the

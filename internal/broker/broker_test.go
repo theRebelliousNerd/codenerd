@@ -172,7 +172,7 @@ func invokeBrokerReserveMethod(test *testing.T, ctx context.Context, client type
 		return output, err
 	case "CompleteWithStreamingAndThoughts":
 		provider, supported := client.(interface {
-			CompleteWithStreamingAndThoughts(context.Context, string, string, bool) (<-chan string, <-chan string, <-chan error)
+			CompleteWithStreamingAndThoughts(context.Context, string, string, bool) (<-chan string, <-chan string, <-chan types.StreamResult)
 		})
 		if !supported {
 			test.Fatal("wrapper dropped thought-stream support")
@@ -189,15 +189,14 @@ func invokeBrokerReserveMethod(test *testing.T, ctx context.Context, client type
 	}
 }
 
-func drainBrokerReserveStreams(test *testing.T, ctx context.Context, content, thoughts <-chan string, failures <-chan error) (string, string, error) {
+func drainBrokerReserveStreams(test *testing.T, ctx context.Context, content, thoughts <-chan string, done <-chan types.StreamResult) (string, string, error) {
 	test.Helper()
-	if content == nil || failures == nil {
-		test.Fatal("broker returned a nil content or error channel")
+	if content == nil || done == nil {
+		test.Fatal("broker returned a nil content or terminal channel")
 	}
 	var output strings.Builder
 	var thoughtOutput strings.Builder
-	var callErr error
-	for content != nil || thoughts != nil || failures != nil {
+	for content != nil || thoughts != nil {
 		select {
 		case chunk, open := <-content:
 			if !open {
@@ -211,20 +210,15 @@ func drainBrokerReserveStreams(test *testing.T, ctx context.Context, content, th
 			} else {
 				thoughtOutput.WriteString(chunk)
 			}
-		case failure, open := <-failures:
-			if !open {
-				failures = nil
-			} else {
-				if failure == nil || callErr != nil {
-					test.Fatalf("invalid or duplicate stream failure: %v", failure)
-				}
-				callErr = failure
-			}
 		case <-ctx.Done():
 			test.Fatalf("broker stream did not terminate: %v", ctx.Err())
 		}
 	}
-	return output.String(), thoughtOutput.String(), callErr
+	res := types.AwaitStreamResult(ctx, done)
+	if _, extra := <-done; extra {
+		test.Fatal("broker published more than one terminal result")
+	}
+	return output.String(), thoughtOutput.String(), res.Err
 }
 
 func meteredClient(t *testing.T, underlying types.LLMClient, meter *Meter, sink ReceiptSink) types.LLMClient {

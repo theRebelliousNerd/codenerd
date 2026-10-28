@@ -14,28 +14,23 @@ import (
 type fakeMeteredLLMClient struct{}
 
 func (f *fakeMeteredLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
-	usage.TrackFromContext(ctx, "m", "meta", 10, 5, "chat")
+	usage.RecordFromContext(ctx, usage.Report{Model: "m", Provider: "meta", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
 	return "ok", nil
 }
 
 func (f *fakeMeteredLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-	usage.TrackFromContext(ctx, "m", "meta", 10, 5, "chat")
+	usage.RecordFromContext(ctx, usage.Report{Model: "m", Provider: "meta", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
 	return "ok", nil
 }
 
 func (f *fakeMeteredLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
-	usage.TrackFromContext(ctx, "m", "meta", 10, 5, "chat")
+	usage.RecordFromContext(ctx, usage.Report{Model: "m", Provider: "meta", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
 	return &types.LLMToolResponse{}, nil
 }
 
-func (f *fakeMeteredLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
-	usage.TrackFromContext(ctx, "m", "meta", 10, 5, "chat")
-	contentChan := make(chan string, 1)
-	errorChan := make(chan error, 1)
-	contentChan <- "ok"
-	close(contentChan)
-	close(errorChan)
-	return contentChan, errorChan
+func (f *fakeMeteredLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
+	usage.RecordFromContext(ctx, usage.Report{Model: "m", Provider: "meta", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
+	return types.StreamWhole(ctx, func(context.Context) (string, error) { return "ok", nil })
 }
 
 func TestSessionLLMAdapterMetersBareContext(t *testing.T) {

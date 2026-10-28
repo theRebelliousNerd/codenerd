@@ -1,7 +1,9 @@
 package core
 
 import (
+	"codenerd/internal/types"
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -341,53 +343,54 @@ func TestAPISchedulerGap_DurationOverflow(t *testing.T) {
 
 // ---------- Streaming Gaps ----------
 
-// mockStreamingClient implements llmStreamingChannels for streaming tests.
+// mockStreamingClient scripts the underlying stream for scheduled-streaming tests.
 type mockStreamingClient struct {
 	mockLLMClient
-	streamFunc func(ctx context.Context, sys, usr string, think bool) (<-chan string, <-chan error)
+	streamFunc func(ctx context.Context, sys, usr string, think bool) (<-chan string, <-chan types.StreamResult)
 }
 
-func (m *mockStreamingClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+func (m *mockStreamingClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
 	if m.streamFunc != nil {
 		return m.streamFunc(ctx, systemPrompt, userPrompt, enableThinking)
 	}
-	// Default: return immediately-closed channels
-	content := make(chan string)
-	errCh := make(chan error)
-	close(content)
-	close(errCh)
-	return content, errCh
+	// Default: an empty, complete stream.
+	w, content, done := types.NewStream()
+	w.Finish(types.StreamResult{StopReason: "stop"})
+	return content, done
 }
 
-// TestAPISchedulerGap_Streaming_NonStreamingClient tests streaming on a client that doesn't support it.
-func TestAPISchedulerGap_Streaming_NonStreamingClient(t *testing.T) {
+// TestAPISchedulerGap_Streaming_TerminalErrorPropagates checks that a failing
+// underlying terminal reaches the caller unchanged and the slot is released.
+// (Every LLMClient streams now; the old "streaming not supported" sentinel is
+// gone, so the meaningful failure is the provider's own terminal error.)
+func TestAPISchedulerGap_Streaming_TerminalErrorPropagates(t *testing.T) {
 	scheduler := NewAPIScheduler(DefaultAPISchedulerConfig())
 	scheduler.RegisterShard("test", "test")
 
-	// mockLLMClient does NOT implement streaming
-	call := &ScheduledLLMCall{
-		Scheduler: scheduler,
-		ShardID:   "test",
-		Client:    &mockLLMClient{StreamingNotSupported: true},
+	providerErr := errors.New("provider refused")
+	mock := &mockStreamingClient{
+		streamFunc: func(ctx context.Context, sys, usr string, think bool) (<-chan string, <-chan types.StreamResult) {
+			return types.FailedStream(providerErr)
+		},
 	}
+	call := &ScheduledLLMCall{Scheduler: scheduler, ShardID: "test", Client: mock}
 
 	ctx := context.Background()
-	contentCh, errCh := call.CompleteWithStreaming(ctx, "sys", "usr", false)
-
-	// Content channel should be closed immediately
-	_, ok := <-contentCh
-	if ok {
-		t.Error("Expected content channel to be closed for non-streaming client")
+	contentCh, doneCh := call.CompleteWithStreaming(ctx, "sys", "usr", false)
+	text, res := types.CollectStream(ctx, contentCh, doneCh, nil)
+	if text != "" {
+		t.Errorf("expected no content, got %q", text)
+	}
+	if !errors.Is(res.Err, providerErr) {
+		t.Fatalf("expected the underlying terminal error, got: %v", res.Err)
 	}
 
-	// Error channel should contain ErrStreamingNotSupported
-	err, ok := <-errCh
-	if !ok {
-		t.Fatal("Expected error channel to have an error before closing")
+	slotCtx, slotCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer slotCancel()
+	if err := scheduler.AcquireAPISlot(slotCtx, "test"); err != nil {
+		t.Fatalf("Slot was leaked after a failed stream: %v", err)
 	}
-	if err != ErrStreamingNotSupported {
-		t.Errorf("Expected ErrStreamingNotSupported, got: %v", err)
-	}
+	scheduler.ReleaseAPISlot("test")
 }
 
 // TestAPISchedulerGap_Streaming_NilChannelsFromUnderlying tests when the underlying
@@ -399,7 +402,7 @@ func TestAPISchedulerGap_Streaming_NilChannelsFromUnderlying(t *testing.T) {
 	scheduler.RegisterShard("test", "test")
 
 	mock := &mockStreamingClient{
-		streamFunc: func(ctx context.Context, sys, usr string, think bool) (<-chan string, <-chan error) {
+		streamFunc: func(ctx context.Context, sys, usr string, think bool) (<-chan string, <-chan types.StreamResult) {
 			return nil, nil
 		},
 	}
@@ -411,19 +414,16 @@ func TestAPISchedulerGap_Streaming_NilChannelsFromUnderlying(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	contentCh, errCh := call.CompleteWithStreaming(ctx, "sys", "usr", false)
+	contentCh, doneCh := call.CompleteWithStreaming(ctx, "sys", "usr", false)
 
-	// With the fix, nil channels are treated as immediately closed.
-	// The forwarding goroutine should exit cleanly and close output channels.
-
-	// Content channel should be closed (drain it)
-	for range contentCh {
+	// Nil channels are treated as immediately closed, and a stream with no
+	// terminal result is incomplete — never a clean empty success.
+	text, res := types.CollectStream(ctx, contentCh, doneCh, nil)
+	if text != "" {
 		t.Error("Expected no content from nil underlying channel")
 	}
-
-	// Error channel should be closed (drain it)
-	for range errCh {
-		// No error expected — nil channels just mean empty stream
+	if !errors.Is(res.Err, types.ErrStreamIncomplete) {
+		t.Errorf("expected an incomplete stream, got: %v", res.Err)
 	}
 
 	// Verify slot was released by acquiring it again
@@ -444,22 +444,20 @@ func TestAPISchedulerGap_Streaming_RapidCancel(t *testing.T) {
 
 	// Underlying stream that sends data slowly
 	mock := &mockStreamingClient{
-		streamFunc: func(ctx context.Context, sys, usr string, think bool) (<-chan string, <-chan error) {
-			content := make(chan string)
-			errCh := make(chan error)
+		streamFunc: func(ctx context.Context, sys, usr string, think bool) (<-chan string, <-chan types.StreamResult) {
+			w, content, done := types.NewStream()
 			go func() {
-				defer close(content)
-				defer close(errCh)
+				defer w.Close()
 				for i := range 100 {
-					select {
-					case content <- fmt.Sprintf("chunk_%d", i):
-						time.Sleep(10 * time.Millisecond)
-					case <-ctx.Done():
+					if err := w.Content(ctx, fmt.Sprintf("chunk_%d", i)); err != nil {
+						w.Fail(err)
 						return
 					}
+					time.Sleep(10 * time.Millisecond)
 				}
+				w.Finish(types.StreamResult{StopReason: "stop"})
 			}()
-			return content, errCh
+			return content, done
 		},
 	}
 
@@ -471,7 +469,7 @@ func TestAPISchedulerGap_Streaming_RapidCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	contentCh, errCh := call.CompleteWithStreaming(ctx, "sys", "usr", false)
+	contentCh, doneCh := call.CompleteWithStreaming(ctx, "sys", "usr", false)
 
 	// Read a few chunks then cancel rapidly
 	chunkCount := 0
@@ -487,7 +485,8 @@ func TestAPISchedulerGap_Streaming_RapidCancel(t *testing.T) {
 	// Drain remaining to avoid goroutine leak
 	for range contentCh {
 	}
-	for range errCh {
+	if res := types.AwaitStreamResult(context.Background(), doneCh); res.Outcome() != types.StreamCanceled {
+		t.Errorf("expected a canceled terminal after cancel, got %s: %v", res.Outcome(), res.Err)
 	}
 
 	// Verify slot was released by acquiring it again
@@ -535,26 +534,10 @@ func TestAPISchedulerGap_GlobalConfig_SyncOnce(t *testing.T) {
 	})
 }
 
-func (m *mockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
-	contentChan := make(chan string, 1)
-	errorChan := make(chan error, 1)
-	if m.StreamingNotSupported {
-		close(contentChan)
-		errorChan <- ErrStreamingNotSupported
-		close(errorChan)
-		return contentChan, errorChan
-	}
-	go func() {
-		defer close(contentChan)
-		defer close(errorChan)
-		res, err := m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		contentChan <- res
-	}()
-	return contentChan, errorChan
+func (m *mockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
+		return m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	})
 }
 
 // TestAPIScheduler_NoRace_ReconfigDuringAcquire pins the fix for a data race

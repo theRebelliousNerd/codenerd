@@ -608,7 +608,7 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 
 		c.captureThoughtSignature(&geminiResp)
 		c.lastThoughtSummary = geminiResp.ThoughtSummary
-		c.lastThinkingTokens = geminiResp.UsageMetadata.ThoughtsTokenCount
+		c.lastThinkingTokens = geminiResp.UsageMetadata.thoughts()
 
 		if len(geminiResp.Candidates) == 0 || len(geminiResp.Candidates[0].Content.Parts) == 0 {
 			return "", fmt.Errorf("no completion returned")
@@ -642,20 +642,16 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		c.captureGroundingSources(&geminiResp)
 
 		// Log thinking tokens if used
-		cachedTokens := geminiResp.UsageMetadata.CachedContentTokenCount
-		if geminiResp.UsageMetadata.ThoughtsTokenCount > 0 {
+		cachedTokens := geminiResp.UsageMetadata.cached()
+		if geminiResp.UsageMetadata.thoughts() > 0 {
 			logging.Perception("[Gemini] CompleteWithSystem: completed in %v response_len=%d thinking_tokens=%d thinking_chars=%d grounding_sources=%d cached_tokens=%d",
-				time.Since(startTime), len(response), geminiResp.UsageMetadata.ThoughtsTokenCount, len(thinkingText), len(c.lastGroundingSources), cachedTokens)
+				time.Since(startTime), len(response), geminiResp.UsageMetadata.thoughts(), len(thinkingText), len(c.lastGroundingSources), cachedTokens)
 		} else {
 			logging.Perception("[Gemini] CompleteWithSystem: completed in %v response_len=%d grounding_sources=%d cached_tokens=%d",
 				time.Since(startTime), len(response), len(c.lastGroundingSources), cachedTokens)
 		}
 
-		trackUsageDetailed(ctx, c.model, ProviderGemini,
-			geminiResp.UsageMetadata.PromptTokenCount,
-			geminiOutputTokens(geminiResp.UsageMetadata.CandidatesTokenCount, geminiResp.UsageMetadata.ThoughtsTokenCount),
-			geminiResp.UsageMetadata.CachedContentTokenCount, 0,
-			usageOpChat)
+		reportUsage(ctx, c.model, ProviderGemini, usageOpChat, geminiResp.UsageMetadata.metadata())
 
 		logging.LogLLMResponse("gemini", response, time.Since(startTime), len(response)/4)
 		return response, nil
@@ -888,7 +884,7 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 
 		c.captureThoughtSignature(&geminiResp)
 		c.lastThoughtSummary = geminiResp.ThoughtSummary
-		c.lastThinkingTokens = geminiResp.UsageMetadata.ThoughtsTokenCount
+		c.lastThinkingTokens = geminiResp.UsageMetadata.thoughts()
 
 		if len(geminiResp.Candidates) == 0 || len(geminiResp.Candidates[0].Content.Parts) == 0 {
 			return "", fmt.Errorf("no completion returned")
@@ -910,20 +906,16 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 		c.captureGroundingSources(&geminiResp)
 
 		// Log thinking tokens if used
-		cachedTokens := geminiResp.UsageMetadata.CachedContentTokenCount
-		if geminiResp.UsageMetadata.ThoughtsTokenCount > 0 {
+		cachedTokens := geminiResp.UsageMetadata.cached()
+		if geminiResp.UsageMetadata.thoughts() > 0 {
 			logging.Perception("[Gemini] CompleteWithSchema: completed in %v response_len=%d thinking_tokens=%d grounding_sources=%d cached_tokens=%d",
-				time.Since(startTime), len(response), geminiResp.UsageMetadata.ThoughtsTokenCount, len(c.lastGroundingSources), cachedTokens)
+				time.Since(startTime), len(response), geminiResp.UsageMetadata.thoughts(), len(c.lastGroundingSources), cachedTokens)
 		} else {
 			logging.Perception("[Gemini] CompleteWithSchema: completed in %v response_len=%d grounding_sources=%d cached_tokens=%d",
 				time.Since(startTime), len(response), len(c.lastGroundingSources), cachedTokens)
 		}
 
-		trackUsageDetailed(ctx, c.model, ProviderGemini,
-			geminiResp.UsageMetadata.PromptTokenCount,
-			geminiOutputTokens(geminiResp.UsageMetadata.CandidatesTokenCount, geminiResp.UsageMetadata.ThoughtsTokenCount),
-			geminiResp.UsageMetadata.CachedContentTokenCount, 0,
-			usageOpChat)
+		reportUsage(ctx, c.model, ProviderGemini, usageOpChat, geminiResp.UsageMetadata.metadata())
 
 		logging.LogLLMResponse("gemini-schema", response, time.Since(startTime), len(response)/4)
 		return response, nil

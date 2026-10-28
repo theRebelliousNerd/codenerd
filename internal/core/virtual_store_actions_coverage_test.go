@@ -185,7 +185,7 @@ func (m *mockActionsLLMClient) CompleteWithSystem(ctx context.Context, systemPro
 	return "mock llm response", nil
 }
 
-func (m *mockActionsLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+func (m *mockActionsLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
 	return nil, nil
 }
 

@@ -52,7 +52,8 @@ func TestOpenAIStreaming_CancelledBackoffExitsFast(t *testing.T) {
 	start := time.Now()
 	_, errCh := c.CompleteWithStreaming(ctx, "sys", "hi", false)
 	select {
-	case err := <-errCh:
+	case res := <-errCh:
+		err := res.Err
 		elapsed := time.Since(start)
 		if err == nil || !strings.Contains(err.Error(), "cancelled during retry backoff") {
 			t.Fatalf("err = %v, want cancellation during backoff", err)

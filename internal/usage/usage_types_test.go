@@ -1,6 +1,10 @@
 package usage
 
-import "testing"
+import (
+	"testing"
+
+	"codenerd/internal/types"
+)
 
 func TestTokenCounts_Add(t *testing.T) {
 	tests := []struct {
@@ -62,7 +66,7 @@ func TestTokenCounts_Add(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tc := tt.initial
-			tc.Add(tt.addInput, tt.addOutput)
+			tc.AddUsage(types.UsageMetadata{InputTokens: tt.addInput, OutputTokens: tt.addOutput}, 0)
 
 			if tc.Input != tt.wantInput {
 				t.Errorf("Input = %v, want %v", tc.Input, tt.wantInput)

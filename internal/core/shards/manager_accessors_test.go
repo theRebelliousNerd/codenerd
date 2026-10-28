@@ -73,12 +73,10 @@ func (s *stubLLM) Complete(context.Context, string) (string, error) { return s.n
 func (s *stubLLM) CompleteWithSystem(context.Context, string, string) (string, error) {
 	return s.name, nil
 }
-func (s *stubLLM) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan error) {
-	ch := make(chan string)
-	errCh := make(chan error)
-	close(ch)
-	close(errCh)
-	return ch, errCh
+func (s *stubLLM) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan types.StreamResult) {
+	w, out, done := types.NewStream()
+	w.Finish(types.StreamResult{})
+	return out, done
 }
 func (s *stubLLM) CompleteWithTools(context.Context, string, string, []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	return &types.LLMToolResponse{Text: s.name}, nil

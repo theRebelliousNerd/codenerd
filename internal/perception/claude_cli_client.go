@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os/exec"
 	"strings"
 	"time"
 
 	"codenerd/internal/config"
+	"codenerd/internal/types"
 )
 
 // RateLimitError indicates the LLM provider returned a rate limit response.
@@ -30,19 +30,6 @@ func (e *RateLimitError) Error() string {
 	return fmt.Sprintf("%s rate limit exceeded", e.Provider)
 }
 
-// StreamChunk represents a chunk of streaming output from Claude CLI.
-type StreamChunk struct {
-	Type    string `json:"type"`
-	Content string `json:"content,omitzero"`
-	Text    string `json:"text,omitzero"`
-	Done    bool   `json:"done,omitzero"`
-	Error   string `json:"error,omitzero"`
-}
-
-// StreamCallback is called for each chunk of streaming output.
-// Return an error to abort the stream.
-type StreamCallback func(chunk StreamChunk) error
-
 // ClaudeCodeCLIClient implements LLMClient using the Claude Code CLI subprocess.
 // It executes `claude -p --output-format json --model <model>` and parses the JSON response.
 //
@@ -53,7 +40,6 @@ type StreamCallback func(chunk StreamChunk) error
 //
 // Enhanced features (Claude CLI exclusive):
 // - JSON Schema validation for structured output (Piggyback Protocol)
-// - Streaming output for real-time responses
 // - Fallback model for rate limit resilience (handled in Go code)
 type ClaudeCodeCLIClient struct {
 	model         string
@@ -177,58 +163,23 @@ func (c *ClaudeCodeCLIClient) CompleteWithSchema(ctx context.Context, systemProm
 	return c.executeWithOptions(ctx, userPrompt, opts)
 }
 
-// CompleteStreaming sends a prompt and streams the response in real-time.
-// The callback is called for each chunk of output.
-func (c *ClaudeCodeCLIClient) CompleteStreaming(ctx context.Context, systemPrompt, userPrompt string, callback StreamCallback) error {
-	opts := &ExecutionOptions{
-		SystemPrompt: systemPrompt,
-		Streaming:    true,
-	}
-	return c.executeStreaming(ctx, userPrompt, opts, callback)
-}
-
-// CompleteWithStreaming adapts callback-based streaming into channel-based streaming.
-// This is used by system components that need cancellation-aware streaming (e.g. GCD).
-func (c *ClaudeCodeCLIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan error) {
-	contentChan := make(chan string, 100)
-	errorChan := make(chan error, 1)
-
-	go func() {
-		defer close(contentChan)
-		defer close(errorChan)
-
-		err := c.CompleteStreaming(ctx, systemPrompt, userPrompt, func(chunk StreamChunk) error {
-			if chunk.Error != "" {
-				return fmt.Errorf("stream error: %s", chunk.Error)
-			}
-			delta := chunk.Text
-			if delta == "" {
-				delta = chunk.Content
-			}
-			if delta == "" || chunk.Done {
-				return nil
-			}
-			select {
-			case contentChan <- delta:
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		})
-
-		if err != nil {
-			errorChan <- err
-		}
-	}()
-
-	return contentChan, errorChan
+// CompleteWithStreaming publishes the validated completion as one chunk.
+//
+// The CLI's stream-json events carry no top-level text field, so the old
+// line-by-line adapter forwarded nothing from a real CLI and reported success
+// on any clean exit. CompleteWithSystem reads the CLI's final result object,
+// rejects an error or an empty result, and reports usage, which is the
+// terminal evidence this engine has.
+func (c *ClaudeCodeCLIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
+		return c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	})
 }
 
 // ExecutionOptions configures a single execution.
 type ExecutionOptions struct {
 	SystemPrompt string
 	JSONSchema   string
-	Streaming    bool
 }
 
 // executeWithOptions runs the CLI with the given options.
@@ -302,90 +253,6 @@ func (c *ClaudeCodeCLIClient) executeCLI(ctx context.Context, prompt, model stri
 	return response, nil
 }
 
-// executeStreaming runs the CLI in streaming mode.
-func (c *ClaudeCodeCLIClient) executeStreaming(ctx context.Context, prompt string, opts *ExecutionOptions, callback StreamCallback) error {
-	// Apply timeout to context
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-
-	// Force streaming output format
-	opts.Streaming = true
-	args := c.buildArgs(c.model, opts)
-
-	// Create command with context for cancellation support
-	// #nosec G204 -- command arguments are built securely and passed directly without shell invocation
-	cmd := exec.CommandContext(ctx, "claude", args...)
-	cmd.Stdin = strings.NewReader(prompt)
-
-	// Get stdout pipe for streaming
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("failed to get stdout pipe: %w", err)
-	}
-
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	// Start the command
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start claude CLI: %w", err)
-	}
-
-	// Read streaming output line by line with the shared 1MB pooled scanner.
-	scanner, releaseScanner := newPooledScanner(stdout, 1024*1024)
-	defer releaseScanner()
-	var fullContent strings.Builder
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
-
-		var chunk StreamChunk
-		if err := json.Unmarshal([]byte(line), &chunk); err != nil {
-			// Try to extract text content even if not valid JSON
-			chunk = StreamChunk{Type: "text", Text: line}
-		}
-
-		// Accumulate content
-		if chunk.Text != "" {
-			fullContent.WriteString(chunk.Text)
-		} else if chunk.Content != "" {
-			fullContent.WriteString(chunk.Content)
-		}
-
-		// Call the callback
-		if err := callback(chunk); err != nil {
-			// User requested abort
-			_ = cmd.Process.Kill()
-			return err
-		}
-
-		if chunk.Done {
-			break
-		}
-	}
-
-	if err := scanner.Err(); err != nil && err != io.EOF {
-		return fmt.Errorf("error reading stream: %w", err)
-	}
-
-	// Wait for command to finish
-	if err := cmd.Wait(); err != nil {
-		stderrStr := stderr.String()
-		if isRateLimitError(stderrStr) {
-			return &RateLimitError{
-				Provider:    "claude-cli",
-				RawResponse: stderrStr,
-			}
-		}
-		return fmt.Errorf("claude CLI streaming failed: %w (stderr: %s)", err, stderrStr)
-	}
-
-	return nil
-}
-
 // buildArgs constructs the CLI arguments.
 // CRITICAL: This configures Claude CLI as a SUBPROCESS LLM API, not as an agent.
 // - Tools are DISABLED (codeNERD has its own tools)
@@ -416,12 +283,9 @@ func (c *ClaudeCodeCLIClient) buildArgs(model string, opts *ExecutionOptions) []
 		args = append(args, "--tools", "") // DISABLE all Claude Code tools - codeNERD has its own
 	}
 
-	// Output format
-	if opts != nil && opts.Streaming {
-		args = append(args, "--output-format", "stream-json")
-	} else {
-		args = append(args, "--output-format", "json")
-	}
+	// Output format: one JSON result object, whose usage and error fields
+	// are the call's terminal evidence.
+	args = append(args, "--output-format", "json")
 
 	// System prompt REPLACES Claude Code instructions (not appends)
 	if opts != nil && opts.SystemPrompt != "" {
@@ -493,7 +357,7 @@ func (c *ClaudeCodeCLIClient) parseResponse(ctx context.Context, data []byte) (s
 				CacheCreationInputTokens: mu.CacheCreationInputTokens,
 				CacheReadInputTokens:     mu.CacheReadInputTokens,
 			}
-			trackUsageDetailed(ctx, model, ProviderAnthropic, u.promptTokens(), u.OutputTokens, u.CacheReadInputTokens, u.CacheCreationInputTokens, usageOpChat)
+			reportUsage(ctx, model, ProviderAnthropic, usageOpChat, u.usageMetadata())
 		}
 	} else if resp.Usage != nil {
 		u := anthropicUsage{
@@ -502,7 +366,7 @@ func (c *ClaudeCodeCLIClient) parseResponse(ctx context.Context, data []byte) (s
 			CacheCreationInputTokens: resp.Usage.CacheCreationInputTokens,
 			CacheReadInputTokens:     resp.Usage.CacheReadInputTokens,
 		}
-		trackUsageDetailed(ctx, c.model, ProviderAnthropic, u.promptTokens(), u.OutputTokens, u.CacheReadInputTokens, u.CacheCreationInputTokens, usageOpChat)
+		reportUsage(ctx, c.model, ProviderAnthropic, usageOpChat, u.usageMetadata())
 	}
 
 	// Priority 1: Check for structured_output (JSON Schema mode)

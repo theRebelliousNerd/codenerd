@@ -168,8 +168,6 @@ func emitFakeOutput(args []string) int {
 		return 1
 	case "fallback":
 		return emitFakeFallback(args)
-	case "stream_long":
-		return emitFakeStreamLong()
 	default:
 		fmt.Fprint(os.Stdout, os.Getenv("CLAUDE_TEST_PAYLOAD"))
 		return 0
@@ -192,12 +190,6 @@ func emitFakeFallback(args []string) int {
 	}
 	fmt.Fprint(os.Stderr, "rate limit reached\n")
 	return 1
-}
-
-func emitFakeStreamLong() int {
-	fmt.Fprint(os.Stdout, `{"type":"text","text":"`+strings.Repeat("A", 102400)+"\"}\n")
-	fmt.Fprint(os.Stdout, "{\"type\":\"done\",\"done\":true}\n")
-	return 0
 }
 
 // runFakeCodex serves both codex fakes (exec transport and probe);

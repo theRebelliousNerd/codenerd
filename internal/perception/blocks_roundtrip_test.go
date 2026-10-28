@@ -402,10 +402,11 @@ func TestMetaResponsesTextOnlyTurnReplaysNoReasoning(t *testing.T) {
 
 func TestMetaToolResponseFromReply_CarriesUsage(t *testing.T) {
 	u := &metaResponsesUsage{InputTokens: 100, OutputTokens: 40, TotalTokens: 140}
-	u.OutputTokensDetails.ReasoningTokens = 30
-	u.InputTokensDetails.CachedTokens = 60
+	u.OutputTokensDetails = &metaOutputTokensDetails{ReasoningTokens: 30}
+	u.InputTokensDetails = &metaInputTokensDetails{CachedTokens: 60}
 	resp := metaToolResponseFromReply(&metaResponsesReply{Usage: u})
-	want := types.UsageMetadata{InputTokens: 100, OutputTokens: 40, TotalTokens: 140, ThinkingTokens: 30, CachedContentTokens: 60}
+	want := types.UsageMetadata{InputTokens: 100, OutputTokens: 40, TotalTokens: 140, ThinkingTokens: 30, CachedContentTokens: 60,
+		Known: types.UsageTokens | types.UsageReasoning | types.UsageCacheRead}
 	if resp.Usage != want {
 		t.Fatalf("resp.Usage = %#v, want %#v", resp.Usage, want)
 	}

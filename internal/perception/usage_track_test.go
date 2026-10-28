@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"codenerd/internal/config"
+	"codenerd/internal/types"
 	"codenerd/internal/usage"
 )
 
@@ -56,8 +57,8 @@ func TestUsageProviderID_WhenProviderUnknown_ShouldNotSilentlyImpersonateAKnownO
 	}
 }
 
-func TestTrackUsage_WhenContextHasNoTracker_ShouldNotPanic(t *testing.T) {
-	trackUsage(context.Background(), "m", ProviderZAI, 10, 20, usageOpChat)
+func TestReportUsage_WhenContextHasNoTracker_ShouldNotPanic(t *testing.T) {
+	reportUsage(context.Background(), "m", ProviderZAI, usageOpChat, types.UsageMetadata{InputTokens: 10, OutputTokens: 20, Known: types.UsageTokens})
 }
 
 // openAIChatBody is a minimal non-streaming chat completion payload with usage.
@@ -231,8 +232,10 @@ func TestClients_WhenCompletionSucceeds_ShouldTrackUsageUnderCanonicalProvider(t
 	}
 }
 
-// sseChatStream writes an OpenAI-style SSE stream whose final chunk carries the
-// billed usage and no choices, which is what include_usage produces.
+// sseChatStream writes an OpenAI-style SSE stream: content deltas, the finish
+// chunk that is the protocol's terminal evidence, then the trailing usage
+// chunk include_usage produces (no choices, with the cache-read and reasoning
+// detail blocks).
 func sseChatStream(w http.ResponseWriter, deltas []string, prompt, completion int) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	flusher, _ := w.(http.Flusher)
@@ -242,7 +245,9 @@ func sseChatStream(w http.ResponseWriter, deltas []string, prompt, completion in
 			flusher.Flush()
 		}
 	}
-	fmt.Fprintf(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":%d,\"completion_tokens\":%d,\"total_tokens\":%d}}\n\n",
+	fmt.Fprint(w, "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n")
+	fmt.Fprintf(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":%d,\"completion_tokens\":%d,\"total_tokens\":%d,"+
+		"\"prompt_tokens_details\":{\"cached_tokens\":4},\"completion_tokens_details\":{\"reasoning_tokens\":2}}}\n\n",
 		prompt, completion, prompt+completion)
 	fmt.Fprint(w, "data: [DONE]\n\n")
 	if flusher != nil {
@@ -257,13 +262,17 @@ func TestStreamingClients_WhenStreamCompletes_ShouldTrackOnceWithFinalBilledToke
 		name         string
 		wantProvider string
 		handler      http.HandlerFunc
-		stream       func(ctx context.Context, baseURL string) (<-chan string, <-chan error)
+		stream       func(ctx context.Context, baseURL string) (<-chan string, <-chan types.StreamResult)
+		// wantCache/wantReasoning are the sub-counts the provider reported
+		// in the fixture, which must reach the tracker with the totals.
+		wantCache, wantReasoning int64
 	}{
 		{
 			name:         "openai",
 			wantProvider: "openai",
-			handler:      func(w http.ResponseWriter, r *http.Request) { sseChatStream(w, deltas, 11, 7) },
-			stream: func(ctx context.Context, baseURL string) (<-chan string, <-chan error) {
+			wantCache:    4, wantReasoning: 2,
+			handler: func(w http.ResponseWriter, r *http.Request) { sseChatStream(w, deltas, 11, 7) },
+			stream: func(ctx context.Context, baseURL string) (<-chan string, <-chan types.StreamResult) {
 				c := NewOpenAIClientWithConfig(OpenAIConfig{APIKey: "k", BaseURL: baseURL, Model: "gpt-x", Timeout: 5 * time.Second})
 				return c.CompleteWithStreaming(ctx, "sys", "user", false)
 			},
@@ -271,8 +280,9 @@ func TestStreamingClients_WhenStreamCompletes_ShouldTrackOnceWithFinalBilledToke
 		{
 			name:         "openrouter",
 			wantProvider: "openrouter",
-			handler:      func(w http.ResponseWriter, r *http.Request) { sseChatStream(w, deltas, 11, 7) },
-			stream: func(ctx context.Context, baseURL string) (<-chan string, <-chan error) {
+			wantCache:    4, wantReasoning: 2,
+			handler: func(w http.ResponseWriter, r *http.Request) { sseChatStream(w, deltas, 11, 7) },
+			stream: func(ctx context.Context, baseURL string) (<-chan string, <-chan types.StreamResult) {
 				c := NewOpenRouterClientWithConfig(OpenRouterConfig{APIKey: "k", BaseURL: baseURL, Model: "some/model", Timeout: 5 * time.Second})
 				return c.CompleteWithStreaming(ctx, "sys", "user", false)
 			},
@@ -280,8 +290,9 @@ func TestStreamingClients_WhenStreamCompletes_ShouldTrackOnceWithFinalBilledToke
 		{
 			name:         "dashscope",
 			wantProvider: "dashscope",
-			handler:      func(w http.ResponseWriter, r *http.Request) { sseChatStream(w, deltas, 11, 7) },
-			stream: func(ctx context.Context, baseURL string) (<-chan string, <-chan error) {
+			wantCache:    4, wantReasoning: 2,
+			handler: func(w http.ResponseWriter, r *http.Request) { sseChatStream(w, deltas, 11, 7) },
+			stream: func(ctx context.Context, baseURL string) (<-chan string, <-chan types.StreamResult) {
 				c, err := NewOpenAICompatClient(OpenAICompatConfig{Vendor: ProviderDashScope, APIKey: "k", BaseURL: baseURL, Model: "qwen", Timeout: 5 * time.Second})
 				if err != nil {
 					t.Fatalf("client: %v", err)
@@ -292,8 +303,9 @@ func TestStreamingClients_WhenStreamCompletes_ShouldTrackOnceWithFinalBilledToke
 		{
 			name:         "zai",
 			wantProvider: "zai",
-			handler:      func(w http.ResponseWriter, r *http.Request) { sseChatStream(w, deltas, 11, 7) },
-			stream: func(ctx context.Context, baseURL string) (<-chan string, <-chan error) {
+			wantCache:    4, wantReasoning: 2,
+			handler: func(w http.ResponseWriter, r *http.Request) { sseChatStream(w, deltas, 11, 7) },
+			stream: func(ctx context.Context, baseURL string) (<-chan string, <-chan types.StreamResult) {
 				c := NewZAIClientWithConfig(ZAIConfig{APIKey: "k", BaseURL: baseURL, Model: "glm", Timeout: 5 * time.Second, DisableSemaphore: true})
 				return c.CompleteWithStreaming(ctx, "sys", "user", false)
 			},
@@ -301,10 +313,11 @@ func TestStreamingClients_WhenStreamCompletes_ShouldTrackOnceWithFinalBilledToke
 		{
 			name:         "anthropic",
 			wantProvider: "anthropic",
+			wantCache:    6,
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "text/event-stream")
 				flusher, _ := w.(http.Flusher)
-				fmt.Fprint(w, "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":11,\"output_tokens\":1}}}\n\n")
+				fmt.Fprint(w, "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":5,\"cache_read_input_tokens\":6,\"output_tokens\":1}}}\n\n")
 				for _, d := range deltas {
 					fmt.Fprintf(w, "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":%q}}\n\n", d)
 				}
@@ -314,14 +327,15 @@ func TestStreamingClients_WhenStreamCompletes_ShouldTrackOnceWithFinalBilledToke
 					flusher.Flush()
 				}
 			},
-			stream: func(ctx context.Context, baseURL string) (<-chan string, <-chan error) {
+			stream: func(ctx context.Context, baseURL string) (<-chan string, <-chan types.StreamResult) {
 				c := NewAnthropicClientWithConfig(AnthropicConfig{APIKey: "k", BaseURL: baseURL, Model: "claude-x", Timeout: 5 * time.Second})
 				return c.CompleteWithStreaming(ctx, "sys", "user", false)
 			},
 		},
 		{
-			name:         "gemini",
-			wantProvider: "gemini",
+			name:          "gemini",
+			wantProvider:  "gemini",
+			wantReasoning: 3,
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "text/event-stream")
 				flusher, _ := w.(http.Flusher)
@@ -333,7 +347,7 @@ func TestStreamingClients_WhenStreamCompletes_ShouldTrackOnceWithFinalBilledToke
 					flusher.Flush()
 				}
 			},
-			stream: func(ctx context.Context, baseURL string) (<-chan string, <-chan error) {
+			stream: func(ctx context.Context, baseURL string) (<-chan string, <-chan types.StreamResult) {
 				c := NewGeminiClientWithConfig(GeminiConfig{APIKey: "k", BaseURL: baseURL, Model: "gemini-x", Timeout: 5 * time.Second})
 				return c.CompleteWithStreaming(ctx, "sys", "user", false)
 			},
@@ -352,8 +366,8 @@ func TestStreamingClients_WhenStreamCompletes_ShouldTrackOnceWithFinalBilledToke
 			for chunk := range contentChan {
 				sb.WriteString(chunk)
 			}
-			for err := range errChan {
-				t.Fatalf("stream error: %v", err)
+			if res := types.AwaitStreamResult(ctx, errChan); res.Err != nil {
+				t.Fatalf("stream error (%s): %v", res.Outcome(), res.Err)
 			}
 			if sb.String() != "one two three" {
 				t.Fatalf("streamed content=%q", sb.String())
@@ -369,6 +383,10 @@ func TestStreamingClients_WhenStreamCompletes_ShouldTrackOnceWithFinalBilledToke
 			}
 			if stats.TotalProject.Total != 18 {
 				t.Errorf("total=%d, want 18 — a stream tracked per delta or not at all", stats.TotalProject.Total)
+			}
+			if got.CacheRead != tc.wantCache || got.Reasoning != tc.wantReasoning {
+				t.Errorf("provider %s: cache_read=%d reasoning=%d, want %d/%d — the sub-counts must travel with the report",
+					tc.wantProvider, got.CacheRead, got.Reasoning, tc.wantCache, tc.wantReasoning)
 			}
 		})
 	}

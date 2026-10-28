@@ -935,22 +935,11 @@ func (p *PerceptionFirewallShard) GetLearnedPatterns() map[string][]string {
 //   internal/prompt/atoms/system/perception.yaml
 // The UnderstandingTransducer handles prompt assembly via its PromptAssembler.
 
-func (g guardedPerceptionClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
-	contentChan := make(chan string, 1)
-	errorChan := make(chan error, 1)
-	go func() {
-		defer close(contentChan)
-		defer close(errorChan)
+func (g guardedPerceptionClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
 		if g.base == nil {
-			errorChan <- fmt.Errorf("no base shard configured")
-			return
+			return "", fmt.Errorf("no base shard configured")
 		}
-		res, err := g.base.GuardedLLMCall(ctx, systemPrompt, userPrompt)
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		contentChan <- res
-	}()
-	return contentChan, errorChan
+		return g.base.GuardedLLMCall(ctx, systemPrompt, userPrompt)
+	})
 }

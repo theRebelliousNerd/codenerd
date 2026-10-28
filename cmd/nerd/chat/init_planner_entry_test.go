@@ -63,16 +63,10 @@ func (c *initEntryClient) Complete(_ context.Context, prompt string) (string, er
 func (c *initEntryClient) CompleteWithSystem(_ context.Context, system, user string) (string, error) {
 	return c.answer(system, user)
 }
-func (c *initEntryClient) CompleteWithStreaming(_ context.Context, system, user string, _ bool) (<-chan string, <-chan error) {
-	content, errs := make(chan string, 1), make(chan error, 1)
-	if text, err := c.answer(system, user); err != nil {
-		errs <- err
-	} else {
-		content <- text
-	}
-	close(content)
-	close(errs)
-	return content, errs
+func (c *initEntryClient) CompleteWithStreaming(_ context.Context, system, user string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(context.Background(), func(context.Context) (string, error) {
+		return c.answer(system, user)
+	})
 }
 func (c *initEntryClient) CompleteWithTools(_ context.Context, system, user string, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	text, err := c.answer(system, user)

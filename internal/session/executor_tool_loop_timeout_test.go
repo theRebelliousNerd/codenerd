@@ -151,12 +151,10 @@ func (c *deadlineToolLoopClient) CompleteWithSystem(context.Context, string, str
 
 func (c *deadlineToolLoopClient) CompleteWithStreaming(
 	context.Context, string, string, bool,
-) (<-chan string, <-chan error) {
-	out := make(chan string)
-	errs := make(chan error)
-	close(out)
-	close(errs)
-	return out, errs
+) (<-chan string, <-chan types.StreamResult) {
+	w, out, done := types.NewStream()
+	w.Finish(types.StreamResult{})
+	return out, done
 }
 
 func (c *deadlineToolLoopClient) CompleteWithTools(

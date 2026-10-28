@@ -1,6 +1,7 @@
 package usage
 
 import (
+	"codenerd/internal/types"
 	"context"
 	"encoding/json"
 	"os"
@@ -65,7 +66,7 @@ func TestShared_WhenOneOwnerClosesTwice_ShouldNotStealThePeersReference(t *testi
 		t.Fatalf("owner A second Close: %v", err)
 	}
 
-	b.Track(context.Background(), "m", "p", 100, 50, "op")
+	b.Record(context.Background(), Report{Model: "m", Provider: "p", Operation: "op", Usage: types.UsageMetadata{InputTokens: 100, OutputTokens: 50}})
 	if got := b.Stats().TotalProject.Total; got != 150 {
 		t.Fatalf("owner B stopped metering after its peer double-closed: total=%d, want 150", got)
 	}
@@ -96,8 +97,8 @@ func TestShared_WhenOwnersCloseInEitherOrder_ShouldPersistEverything(t *testing.
 			}
 
 			ctx := context.Background()
-			a.Track(ctx, "m", "p", 10, 0, "opA")
-			b.Track(ctx, "m", "p", 0, 7, "opB")
+			a.Record(ctx, Report{Model: "m", Provider: "p", Operation: "opA", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 0}})
+			b.Record(ctx, Report{Model: "m", Provider: "p", Operation: "opB", Usage: types.UsageMetadata{InputTokens: 0, OutputTokens: 7}})
 
 			first, second := a, b
 			if order == "B-then-A" {
@@ -107,7 +108,7 @@ func TestShared_WhenOwnersCloseInEitherOrder_ShouldPersistEverything(t *testing.
 				t.Fatalf("first Close: %v", err)
 			}
 			// The survivor must still be metering after its peer let go.
-			second.Track(ctx, "m", "p", 3, 0, "opC")
+			second.Record(ctx, Report{Model: "m", Provider: "p", Operation: "opC", Usage: types.UsageMetadata{InputTokens: 3, OutputTokens: 0}})
 			if err := second.Close(); err != nil {
 				t.Fatalf("second Close: %v", err)
 			}
@@ -169,8 +170,8 @@ func TestShared_WhenAnOwnerReleases_ShouldFlushBothOwnersWork(t *testing.T) {
 	defer b.Close()
 
 	ctx := context.Background()
-	a.Track(ctx, "m", "p", 1000, 0, "opA")
-	b.Track(ctx, "m", "p", 0, 2000, "opB")
+	a.Record(ctx, Report{Model: "m", Provider: "p", Operation: "opA", Usage: types.UsageMetadata{InputTokens: 1000, OutputTokens: 0}})
+	b.Record(ctx, Report{Model: "m", Provider: "p", Operation: "opB", Usage: types.UsageMetadata{InputTokens: 0, OutputTokens: 2000}})
 
 	// Non-final close: a handle release, but it must still flush.
 	if err := a.Close(); err != nil {

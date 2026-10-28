@@ -26,8 +26,7 @@ func geminiSSEServer(t *testing.T, failCount int32, failStatus int, hits *atomic
 		for _, text := range []string{"he", "llo"} {
 			fmt.Fprintf(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":%q}]}}]}\n\n", text)
 		}
-		fmt.Fprint(w, "data: {\"candidates\":[],\"usageMetadata\":{\"promptTokenCount\":5,\"candidatesTokenCount\":2,\"totalTokenCount\":7}}\n\n")
-		fmt.Fprint(w, "data: [DONE]\n\n")
+		fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"parts\":[]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":5,\"candidatesTokenCount\":2,\"totalTokenCount\":7}}\n\n")
 	}))
 }
 
@@ -60,7 +59,8 @@ func TestGeminiStreaming_CancelledBackoffExitsFast(t *testing.T) {
 	start := time.Now()
 	_, errCh := c.CompleteWithStreaming(ctx, "sys", "hi", false)
 	select {
-	case err := <-errCh:
+	case res := <-errCh:
+		err := res.Err
 		elapsed := time.Since(start)
 		if err == nil || !strings.Contains(err.Error(), "cancelled during retry backoff") {
 			t.Fatalf("err = %v, want cancellation during backoff", err)
@@ -79,8 +79,7 @@ func TestGeminiStreaming_CancelledBackoffExitsFast(t *testing.T) {
 func TestGeminiStreaming_ThoughtsRoutedSeparately(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hmm\",\"thought\":true},{\"text\":\"hi\"}]}}]}\n\n")
-		fmt.Fprint(w, "data: [DONE]\n\n")
+		fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hmm\",\"thought\":true},{\"text\":\"hi\"}]},\"finishReason\":\"STOP\"}]}\n\n")
 	}))
 	defer srv.Close()
 
@@ -101,13 +100,13 @@ func TestGeminiStreaming_ThoughtsRoutedSeparately(t *testing.T) {
 				continue
 			}
 			thoughts.WriteString(thought)
-		case err, ok := <-errCh:
+		case res, ok := <-errCh:
 			if !ok {
 				errCh = nil
 				continue
 			}
-			if err != nil {
-				t.Fatalf("stream error: %v", err)
+			if res.Err != nil {
+				t.Fatalf("stream error: %v", res.Err)
 			}
 		case <-time.After(10 * time.Second):
 			t.Fatal("timed out draining stream")

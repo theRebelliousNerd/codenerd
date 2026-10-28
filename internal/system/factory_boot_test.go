@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"codenerd/internal/config"
+	"codenerd/internal/types"
 )
 
 func TestBootCortexWithConfig_Overrides(t *testing.T) {
@@ -175,18 +176,8 @@ func TestBootCortexWithConfig_NoLLMConfigured(t *testing.T) {
 
 func (m *MockSystemKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }
 
-func (m *MockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
-	contentChan := make(chan string, 1)
-	errorChan := make(chan error, 1)
-	go func() {
-		defer close(contentChan)
-		defer close(errorChan)
-		res, err := m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		contentChan <- res
-	}()
-	return contentChan, errorChan
+func (m *MockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
+		return m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	})
 }

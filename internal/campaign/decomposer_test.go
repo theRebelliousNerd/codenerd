@@ -3,6 +3,7 @@ package campaign
 import (
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
+	"codenerd/internal/types"
 	"context"
 	"errors"
 	"fmt"
@@ -47,29 +48,17 @@ func (m *mockLLMClient) CompleteWithStructuredOutput(ctx context.Context, system
 }
 
 // CompleteWithStreaming sends a request with streaming enabled
-func (m *mockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
-	ch := make(chan string, 1)
-	errCh := make(chan error, 1)
-	if m.completeWithSystemFunc != nil {
-		res, err := m.completeWithSystemFunc(ctx, systemPrompt, userPrompt)
-		if err != nil {
-			errCh <- err
-		} else {
-			ch <- res
+func (m *mockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
+		switch {
+		case m.completeWithSystemFunc != nil:
+			return m.completeWithSystemFunc(ctx, systemPrompt, userPrompt)
+		case m.completeFunc != nil:
+			return m.completeFunc(ctx, userPrompt)
+		default:
+			return "", nil
 		}
-	} else if m.completeFunc != nil {
-		res, err := m.completeFunc(ctx, userPrompt)
-		if err != nil {
-			errCh <- err
-		} else {
-			ch <- res
-		}
-	} else {
-		ch <- ""
-	}
-	close(ch)
-	close(errCh)
-	return ch, errCh
+	})
 }
 
 // CompleteWithTools is needed for the interface

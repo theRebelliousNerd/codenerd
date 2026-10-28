@@ -10,11 +10,6 @@ import (
 // LLMClient is an alias to types.LLMClient to avoid type mismatches.
 type LLMClient = types.LLMClient
 
-// ErrStreamingNotSupported is returned when a client doesn't implement a streaming method.
-// Defined in core so wrappers (scheduler) can return a shared sentinel without importing
-// perception and creating cycles.
-var ErrStreamingNotSupported = errors.New("streaming not supported")
-
 // ErrSchemaNotSupported is returned when a client doesn't support response schema validation.
 var ErrSchemaNotSupported = errors.New("schema validation not supported")
 

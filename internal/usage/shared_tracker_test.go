@@ -1,6 +1,7 @@
 package usage
 
 import (
+	"codenerd/internal/types"
 	"context"
 	"encoding/json"
 	"os"
@@ -61,14 +62,14 @@ func TestShared_WhenOneOwnerCloses_ShouldKeepTrackingForTheOther(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	cortex.Track(ctx, "m", "zai", 10, 5, "chat")
+	cortex.Record(ctx, Report{Model: "m", Provider: "zai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
 
 	// The first Close is a handle release, not a shutdown: the other owner is
 	// still metering.
 	if err := chat.Close(); err != nil {
 		t.Fatalf("first Close: %v", err)
 	}
-	cortex.Track(ctx, "m", "zai", 1, 1, "chat")
+	cortex.Record(ctx, Report{Model: "m", Provider: "zai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 1, OutputTokens: 1}})
 
 	if total := cortex.Stats().TotalProject.Total; total != 17 {
 		t.Fatalf("total=%d, want 17 — tracking stopped when the first owner closed", total)
@@ -99,7 +100,7 @@ func TestShared_AfterFinalClose_ShouldCreateAFreshUsableTracker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Shared: %v", err)
 	}
-	first.Track(context.Background(), "m", "zai", 3, 4, "chat")
+	first.Record(context.Background(), Report{Model: "m", Provider: "zai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 3, OutputTokens: 4}})
 	if err := first.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -113,7 +114,7 @@ func TestShared_AfterFinalClose_ShouldCreateAFreshUsableTracker(t *testing.T) {
 	if second.tracker == first.tracker {
 		t.Fatal("Shared returned a closed tracker; it would silently drop every Track")
 	}
-	second.Track(context.Background(), "m", "zai", 1, 1, "chat")
+	second.Record(context.Background(), Report{Model: "m", Provider: "zai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 1, OutputTokens: 1}})
 	// The replacement loads what the first owner persisted, so totals accumulate
 	// rather than restart.
 	if total := second.Stats().TotalProject.Total; total != 9 {
@@ -166,7 +167,7 @@ func TestNewTracker_ShouldCloseOnFirstClose(t *testing.T) {
 	if err := tr.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	tr.Track(context.Background(), "m", "zai", 5, 5, "chat")
+	tr.Record(context.Background(), Report{Model: "m", Provider: "zai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 5, OutputTokens: 5}})
 	if total := tr.Stats().TotalProject.Total; total != 0 {
 		t.Fatalf("closed tracker recorded %d tokens", total)
 	}
@@ -189,7 +190,7 @@ func TestWithShardContext_ShouldUseTypedKeysInvisibleToStringLookups(t *testing.
 		t.Fatalf("NewTracker: %v", err)
 	}
 	defer tr.Close()
-	tr.Track(ctx, "m", "zai", 2, 3, "chat")
+	tr.Record(ctx, Report{Model: "m", Provider: "zai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 2, OutputTokens: 3}})
 
 	stats := tr.Stats()
 	if stats.ByShardName["planner"].Total != 5 {
@@ -216,7 +217,7 @@ func TestShared_WhenCalledTwice_ShouldIgnoreOptionsOnSecondCall(t *testing.T) {
 		}
 		defer func() { _ = a.Close(); _ = b.Close() }()
 
-		a.Track(context.Background(), "m", "zai", 10, 5, "chat")
+		a.Record(context.Background(), Report{Model: "m", Provider: "zai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
 		if b.Events() != nil {
 			t.Fatalf("Expected no events, as WithEventLog on the second call should be ignored")
 		}
@@ -234,7 +235,7 @@ func TestShared_WhenCalledTwice_ShouldIgnoreOptionsOnSecondCall(t *testing.T) {
 		}
 		defer func() { _ = a.Close(); _ = b.Close() }()
 
-		b.Track(context.Background(), "m", "zai", 10, 5, "chat")
+		b.Record(context.Background(), Report{Model: "m", Provider: "zai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
 		if len(b.Events()) == 0 {
 			t.Fatalf("Expected events, as first call configured WithEventLog")
 		}

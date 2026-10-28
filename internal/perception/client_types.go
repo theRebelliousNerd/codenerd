@@ -238,16 +238,7 @@ type ZAIResponse struct {
 		} `json:"delta,omitzero"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
-	Usage struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
-		// Thinking mode tokens
-		ThinkingTokens      int `json:"thinking_tokens,omitzero"`
-		PromptTokensDetails struct {
-			CachedTokens int `json:"cached_tokens,omitzero"`
-		} `json:"prompt_tokens_details,omitzero"`
-	} `json:"usage"`
+	Usage chatUsage `json:"usage"`
 	Error *struct {
 		Message string       `json:"message"`
 		Type    string       `json:"type"`
@@ -495,15 +486,22 @@ func (u anthropicUsage) promptTokens() int {
 
 // usageMetadata projects the usage block onto the neutral shape: input is the
 // whole prompt, with the cache read and write recorded as sub-counts of it.
+// Anthropic always reports both cache categories (zero when no cache was
+// touched), so they are known whenever totals are. It reports no reasoning
+// sub-count: thinking is inside output_tokens and stays unknown.
 func (u anthropicUsage) usageMetadata() types.UsageMetadata {
 	in := u.promptTokens()
-	return types.UsageMetadata{
+	m := types.UsageMetadata{
 		InputTokens:         in,
 		OutputTokens:        u.OutputTokens,
 		TotalTokens:         in + u.OutputTokens,
 		CachedContentTokens: u.CacheReadInputTokens,
 		CacheWriteTokens:    u.CacheCreationInputTokens,
 	}
+	if in > 0 || u.OutputTokens > 0 {
+		m.Known = types.UsageTokens | types.UsageCacheRead | types.UsageCacheWrite
+	}
+	return m
 }
 
 // AnthropicResponse represents the API response.
@@ -625,16 +623,7 @@ type OpenAIResponse struct {
 		} `json:"delta,omitzero"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
-	Usage struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
-		// CachedTokens is the cache-read subset of PromptTokens, reported
-		// by OpenAI and compatible routers that return prompt_tokens_details.
-		PromptTokensDetails struct {
-			CachedTokens int `json:"cached_tokens,omitzero"`
-		} `json:"prompt_tokens_details,omitzero"`
-	} `json:"usage"`
+	Usage chatUsage `json:"usage"`
 	Error *struct {
 		Message string       `json:"message"`
 		Type    string       `json:"type"`
@@ -790,13 +779,7 @@ type GeminiResponseCandidate struct {
 // GeminiResponse represents the API response.
 type GeminiResponse struct {
 	Candidates    []GeminiResponseCandidate `json:"candidates"`
-	UsageMetadata struct {
-		PromptTokenCount        int `json:"promptTokenCount"`
-		CandidatesTokenCount    int `json:"candidatesTokenCount"`
-		TotalTokenCount         int `json:"totalTokenCount"`
-		ThoughtsTokenCount      int `json:"thoughtsTokenCount,omitzero"`      // Tokens used for thinking
-		CachedContentTokenCount int `json:"cachedContentTokenCount,omitzero"` // Tokens read from cache
-	} `json:"usageMetadata"`
+	UsageMetadata geminiUsage               `json:"usageMetadata"`
 	// ThoughtSummary contains the model's reasoning process (when thinking is enabled)
 	ThoughtSummary string `json:"thoughtSummary,omitzero"`
 	// ThoughtSignature is an encrypted blob for multi-turn function calling (Gemini 3)

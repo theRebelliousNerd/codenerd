@@ -194,12 +194,10 @@ type metaResponsesUsage struct {
 	OutputTokens int `json:"output_tokens"`
 	TotalTokens  int `json:"total_tokens"`
 
-	OutputTokensDetails struct {
-		ReasoningTokens int `json:"reasoning_tokens"`
-	} `json:"output_tokens_details"`
-	InputTokensDetails struct {
-		CachedTokens int `json:"cached_tokens"`
-	} `json:"input_tokens_details"`
+	// The detail blocks are pointers so a category the response did not
+	// carry stays unknown rather than reading as an observed zero.
+	OutputTokensDetails *metaOutputTokensDetails `json:"output_tokens_details,omitempty"`
+	InputTokensDetails  *metaInputTokensDetails  `json:"input_tokens_details,omitempty"`
 
 	// PromptTokens and CompletionTokens are the Chat Completions names. A
 	// response that uses them and leaves the Responses names at zero still
@@ -224,6 +222,54 @@ func (u *metaResponsesUsage) resolved() (in, out, total int) {
 		total = in + out
 	}
 	return in, out, total
+}
+
+type metaOutputTokensDetails struct {
+	ReasoningTokens int `json:"reasoning_tokens"`
+}
+
+type metaInputTokensDetails struct {
+	CachedTokens int `json:"cached_tokens"`
+}
+
+// reasoningTokens is the reasoning subset of output, 0 when unreported.
+func (u *metaResponsesUsage) reasoningTokens() int {
+	if u == nil || u.OutputTokensDetails == nil {
+		return 0
+	}
+	return u.OutputTokensDetails.ReasoningTokens
+}
+
+// cachedTokens is the cache-read subset of input, 0 when unreported.
+func (u *metaResponsesUsage) cachedTokens() int {
+	if u == nil || u.InputTokensDetails == nil {
+		return 0
+	}
+	return u.InputTokensDetails.CachedTokens
+}
+
+// metadata normalizes the block. Responses reports reasoning inside
+// output_tokens and cached tokens inside input_tokens, the categories
+// types.UsageMetadata uses, so nothing is folded. Muse Spark turns are mostly
+// reasoning: the sub-count is what shows it.
+func (u *metaResponsesUsage) metadata() types.UsageMetadata {
+	if u == nil {
+		return types.UsageMetadata{}
+	}
+	in, out, total := u.resolved()
+	m := types.UsageMetadata{InputTokens: in, OutputTokens: out, TotalTokens: total}
+	if in > 0 || out > 0 {
+		m.Known |= types.UsageTokens
+	}
+	if u.OutputTokensDetails != nil {
+		m.ThinkingTokens = u.OutputTokensDetails.ReasoningTokens
+		m.Known |= types.UsageReasoning
+	}
+	if u.InputTokensDetails != nil {
+		m.CachedContentTokens = u.InputTokensDetails.CachedTokens
+		m.Known |= types.UsageCacheRead
+	}
+	return m
 }
 
 func (u *metaResponsesUsage) outputTokens() int {
@@ -556,16 +602,15 @@ func (c *OpenAICompatClient) executeResponses(ctx context.Context, reqBody metaR
 	}
 
 	if reply.Usage != nil {
-		// Reasoning tokens are billed as output, so they are folded in here
-		// rather than dropped — Muse Spark turns are mostly reasoning.
-		in, out, _ := reply.Usage.resolved()
-		trackUsageDetailed(ctx, c.model, c.vendor, in, out, reply.Usage.InputTokensDetails.CachedTokens, 0, op)
+		// Reasoning tokens are billed as output and reported inside it; the
+		// sub-count travels with the report so both consumers see it.
+		reportUsage(ctx, c.model, c.vendor, op, reply.Usage.metadata())
 
 		logging.Get(logging.CategoryAPI).Debug(
 			"meta responses: in=%d out=%d reasoning=%d cached=%d status=%s in %v",
 			reply.Usage.InputTokens, reply.Usage.OutputTokens,
-			reply.Usage.OutputTokensDetails.ReasoningTokens,
-			reply.Usage.InputTokensDetails.CachedTokens,
+			reply.Usage.reasoningTokens(),
+			reply.Usage.cachedTokens(),
 			reply.Status, time.Since(start).Round(time.Millisecond),
 		)
 	}
@@ -847,15 +892,8 @@ func metaToolResponseFromReply(reply *metaResponsesReply) *LLMToolResponse {
 		out.StopReason = "tool_use"
 	}
 	if reply.Usage != nil {
-		in, outTokens, total := reply.Usage.resolved()
-		out.Usage = types.UsageMetadata{
-			InputTokens:         in,
-			OutputTokens:        outTokens,
-			TotalTokens:         total,
-			ThinkingTokens:      reply.Usage.OutputTokensDetails.ReasoningTokens,
-			CachedContentTokens: reply.Usage.InputTokensDetails.CachedTokens,
-		}
-		shareReasoningTokens(out.Blocks, reply.Usage.OutputTokensDetails.ReasoningTokens)
+		out.Usage = reply.Usage.metadata()
+		shareReasoningTokens(out.Blocks, reply.Usage.reasoningTokens())
 	}
 	return out
 }

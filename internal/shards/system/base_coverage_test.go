@@ -665,19 +665,11 @@ func (m *mockLLMClient) CompleteWithSystem(_ context.Context, _, _ string) (stri
 	return m.response, m.err
 }
 
-func (m *mockLLMClient) CompleteWithStreaming(_ context.Context, _, _ string, _ bool) (<-chan string, <-chan error) {
-	ch := make(chan string, 1)
-	ech := make(chan error, 1)
-	go func() {
-		defer close(ch)
-		defer close(ech)
-		if m.err != nil {
-			ech <- m.err
-			return
-		}
-		ch <- m.response
-	}()
-	return ch, ech
+func (m *mockLLMClient) CompleteWithStreaming(_ context.Context, _, _ string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	if m.err != nil {
+		return types.FailedStream(m.err)
+	}
+	return types.StreamWhole(context.Background(), func(context.Context) (string, error) { return m.response, nil })
 }
 
 func (m *mockLLMClient) CompleteWithTools(_ context.Context, _, _ string, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {

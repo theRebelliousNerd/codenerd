@@ -422,8 +422,8 @@ func TestMetaGrounding_StreamingIsOneResponsesDelta(t *testing.T) {
 	for delta := range content {
 		got += delta
 	}
-	for err := range errs {
-		t.Fatalf("stream: %v", err)
+	if res := types.AwaitStreamResult(context.Background(), errs); res.Err != nil {
+		t.Fatalf("stream: %v", res.Err)
 	}
 	if got != "grounded answer" {
 		t.Fatalf("deltas = %q", got)

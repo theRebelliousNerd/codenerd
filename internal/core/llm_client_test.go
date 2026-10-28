@@ -76,58 +76,25 @@ func TestAsSchemaCapable(t *testing.T) {
 }
 
 func TestLLMClient_ErrorConstants(t *testing.T) {
-	if ErrStreamingNotSupported.Error() != "streaming not supported" {
-		t.Errorf("Unexpected ErrStreamingNotSupported message: %s", ErrStreamingNotSupported.Error())
-	}
 	if ErrSchemaNotSupported.Error() != "schema validation not supported" {
 		t.Errorf("Unexpected ErrSchemaNotSupported message: %s", ErrSchemaNotSupported.Error())
 	}
 }
 
-func (m *mockSchemaBasicClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
-	contentChan := make(chan string, 1)
-	errorChan := make(chan error, 1)
-	go func() {
-		defer close(contentChan)
-		defer close(errorChan)
-		res, err := m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		contentChan <- res
-	}()
-	return contentChan, errorChan
+func (m *mockSchemaBasicClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
+		return m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	})
 }
 
-func (m *mockSchemaCapableClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
-	contentChan := make(chan string, 1)
-	errorChan := make(chan error, 1)
-	go func() {
-		defer close(contentChan)
-		defer close(errorChan)
-		res, err := m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		contentChan <- res
-	}()
-	return contentChan, errorChan
+func (m *mockSchemaCapableClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
+		return m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	})
 }
 
-func (m *mockDynamicSchemaTestClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
-	contentChan := make(chan string, 1)
-	errorChan := make(chan error, 1)
-	go func() {
-		defer close(contentChan)
-		defer close(errorChan)
-		res, err := m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		contentChan <- res
-	}()
-	return contentChan, errorChan
+func (m *mockDynamicSchemaTestClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
+		return m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	})
 }

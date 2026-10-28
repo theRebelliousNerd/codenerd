@@ -24,13 +24,11 @@ func (s *stubLLM) CompleteWithSystem(ctx context.Context, systemPrompt, userProm
 func (s *stubLLM) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	return &types.LLMToolResponse{Text: "ok", StopReason: "end_turn"}, nil
 }
-func (s *stubLLM) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
-	ch := make(chan string, 1)
-	ch <- "ok"
-	close(ch)
-	errCh := make(chan error)
-	close(errCh)
-	return ch, errCh
+func (s *stubLLM) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
+	w, out, done := types.NewStream()
+	_ = w.Content(context.Background(), "ok")
+	w.Finish(types.StreamResult{})
+	return out, done
 }
 
 // The campaign section of the user's config reaches the kernel as

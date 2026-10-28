@@ -28,12 +28,10 @@ func (*nilResponseClient) CompleteWithSystem(context.Context, string, string) (s
 }
 func (*nilResponseClient) CompleteWithStreaming(
 	context.Context, string, string, bool,
-) (<-chan string, <-chan error) {
-	out := make(chan string)
-	errs := make(chan error)
-	close(out)
-	close(errs)
-	return out, errs
+) (<-chan string, <-chan types.StreamResult) {
+	w, out, done := types.NewStream()
+	w.Finish(types.StreamResult{})
+	return out, done
 }
 func (c *nilResponseClient) CompleteWithTools(
 	context.Context, string, string, []types.ToolDefinition,
@@ -59,12 +57,10 @@ func (c *proseRetryClient) CompleteWithSystem(context.Context, string, string) (
 
 func (c *proseRetryClient) CompleteWithStreaming(
 	context.Context, string, string, bool,
-) (<-chan string, <-chan error) {
-	out := make(chan string)
-	errs := make(chan error)
-	close(out)
-	close(errs)
-	return out, errs
+) (<-chan string, <-chan types.StreamResult) {
+	w, out, done := types.NewStream()
+	w.Finish(types.StreamResult{})
+	return out, done
 }
 
 func (c *proseRetryClient) CompleteWithTools(

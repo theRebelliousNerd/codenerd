@@ -50,13 +50,11 @@ func (c *historyRecordingClient) CompleteWithSystem(_ context.Context, _, user s
 	return "ok", nil
 }
 
-func (c *historyRecordingClient) CompleteWithStreaming(_ context.Context, _, _ string, _ bool) (<-chan string, <-chan error) {
-	out := make(chan string, 1)
-	errs := make(chan error, 1)
-	out <- c.responseText
-	close(out)
-	close(errs)
-	return out, errs
+func (c *historyRecordingClient) CompleteWithStreaming(_ context.Context, _, _ string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	w, out, done := types.NewStream()
+	_ = w.Content(context.Background(), c.responseText)
+	w.Finish(types.StreamResult{})
+	return out, done
 }
 
 func (c *historyRecordingClient) CompleteWithTools(_ context.Context, sys, user string, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {

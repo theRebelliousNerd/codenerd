@@ -29,14 +29,12 @@ type recordingLLMClient struct {
 	firstTurnToolCalls []types.ToolCall
 }
 
-func (c *recordingLLMClient) CompleteWithStreaming(ctx context.Context, sys, user string, enableThinking bool) (<-chan string, <-chan error) {
+func (c *recordingLLMClient) CompleteWithStreaming(ctx context.Context, sys, user string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
 	c.record()
-	out := make(chan string, 1)
-	errs := make(chan error, 1)
-	out <- c.name
-	close(out)
-	close(errs)
-	return out, errs
+	w, out, done := types.NewStream()
+	_ = w.Content(context.Background(), c.name)
+	w.Finish(types.StreamResult{})
+	return out, done
 }
 
 func (c *recordingLLMClient) record() int {

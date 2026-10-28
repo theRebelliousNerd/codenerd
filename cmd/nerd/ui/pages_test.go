@@ -214,7 +214,7 @@ func TestUsagePageModelContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create tracker: %v", err)
 	}
-	tracker.Track(context.Background(), "model-a", "provider-a", 10, 5, "complete")
+	tracker.Record(context.Background(), usage.Report{Model: "model-a", Provider: "provider-a", Operation: "complete", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
 
 	model = NewUsagePageModel(tracker, DefaultStyles())
 	model.SetSize(80, 20)

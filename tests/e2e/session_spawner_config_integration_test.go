@@ -225,20 +225,10 @@ func (m *mockRealLLM) CompleteWithSystem(ctx context.Context, sys, user string) 
 	return resp, nil
 }
 
-func (m *mockRealLLM) CompleteWithStreaming(ctx context.Context, system, prompt string, requireSchema bool) (<-chan string, <-chan error) {
-	ch := make(chan string)
-	errCh := make(chan error)
-	go func() {
-		defer close(ch)
-		defer close(errCh)
-		res, err := m.CompleteWithSystem(ctx, system, prompt)
-		if err != nil {
-			errCh <- err
-			return
-		}
-		ch <- res
-	}()
-	return ch, errCh
+func (m *mockRealLLM) CompleteWithStreaming(ctx context.Context, system, prompt string, requireSchema bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
+		return m.CompleteWithSystem(ctx, system, prompt)
+	})
 }
 
 func (m *mockRealLLM) CompleteWithTools(ctx context.Context, system, prompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {

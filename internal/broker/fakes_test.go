@@ -19,8 +19,11 @@ type fakeClient struct {
 	reportInput  int
 	reportOutput int
 	// reportTimes lets a fake emit several usage reports for one logical call,
-	// which is what a retrying or streaming client does.
+	// which is what a retrying client does.
 	reportTimes int
+	// reportUsage, when set, is the full normalized report sent instead of
+	// reportInput/reportOutput.
+	reportUsage *types.UsageMetadata
 
 	respText string
 	respErr  error
@@ -31,6 +34,13 @@ type fakeClient struct {
 
 	// streamChunks are delivered on CompleteWithStreaming.
 	streamChunks []string
+	// streamUsage is the usage the stream's terminal result carries
+	// (response-carried evidence, as a real adapter attaches it).
+	streamUsage types.UsageMetadata
+	// streamNoTerminal closes the stream without a terminal result.
+	streamNoTerminal bool
+	// streamGate, when set, holds the terminal until it is closed.
+	streamGate chan struct{}
 
 	usageOnResponse *types.UsageMetadata
 }
@@ -54,8 +64,12 @@ func (f *fakeClient) callNames() []string {
 }
 
 func (f *fakeClient) report(ctx context.Context) {
+	u := types.UsageMetadata{InputTokens: f.reportInput, OutputTokens: f.reportOutput}
+	if f.reportUsage != nil {
+		u = *f.reportUsage
+	}
 	for i := 0; i < f.reportTimes; i++ {
-		usage.TrackFromContext(ctx, "fake-model", "fake", f.reportInput, f.reportOutput, "test")
+		usage.RecordFromContext(ctx, usage.Report{Model: "fake-model", Provider: "fake", Operation: "test", Usage: u})
 	}
 }
 
@@ -84,26 +98,29 @@ func (f *fakeClient) CompleteWithTools(ctx context.Context, _, _ string, _ []typ
 	return resp, nil
 }
 
-func (f *fakeClient) CompleteWithStreaming(ctx context.Context, _, _ string, _ bool) (<-chan string, <-chan error) {
+func (f *fakeClient) CompleteWithStreaming(ctx context.Context, _, _ string, _ bool) (<-chan string, <-chan types.StreamResult) {
 	f.record("CompleteWithStreaming")
 
-	content := make(chan string, len(f.streamChunks)+1)
-	errs := make(chan error, 1)
-
+	w, content, done := types.NewStream()
 	go func() {
-		defer close(content)
-		defer close(errs)
+		defer w.Close()
 		for _, chunk := range f.streamChunks {
-			content <- chunk
+			if err := w.Content(ctx, chunk); err != nil {
+				w.Fail(err)
+				return
+			}
 		}
-		// Providers report usage as the stream finishes, not when it starts.
+		// Providers report usage as the stream finishes, before the terminal.
 		f.report(ctx)
-		if f.respErr != nil {
-			errs <- f.respErr
+		if f.streamGate != nil {
+			<-f.streamGate
 		}
+		if f.streamNoTerminal {
+			return
+		}
+		w.Finish(types.StreamResult{StopReason: "end_turn", Usage: f.streamUsage, Err: f.respErr})
 	}()
-
-	return content, errs
+	return content, done
 }
 
 var _ types.LLMClient = (*fakeClient)(nil)
@@ -135,23 +152,24 @@ func (f *fakeSchema) CompleteWithSchema(ctx context.Context, _, _, _ string) (st
 
 type fakeThoughts struct{ *fakeClient }
 
-func (f *fakeThoughts) CompleteWithStreamingAndThoughts(ctx context.Context, _, _ string, _ bool) (<-chan string, <-chan string, <-chan error) {
+func (f *fakeThoughts) CompleteWithStreamingAndThoughts(ctx context.Context, _, _ string, _ bool) (<-chan string, <-chan string, <-chan types.StreamResult) {
 	f.record("CompleteWithStreamingAndThoughts")
 
-	content := make(chan string, 1)
-	thoughts := make(chan string, 1)
-	errs := make(chan error, 1)
-
+	w, content, thoughts, done := types.NewThoughtStream()
 	go func() {
-		defer close(content)
-		defer close(thoughts)
-		defer close(errs)
-		thoughts <- "thinking"
-		content <- f.respText
+		defer w.Close()
+		if err := w.Thought(ctx, "thinking"); err != nil {
+			w.Fail(err)
+			return
+		}
+		if err := w.Content(ctx, f.respText); err != nil {
+			w.Fail(err)
+			return
+		}
 		f.report(ctx)
+		w.Finish(types.StreamResult{StopReason: "end_turn"})
 	}()
-
-	return content, thoughts, errs
+	return content, thoughts, done
 }
 
 type fakeAll struct {
@@ -179,7 +197,7 @@ func (f *fakeAll) CompleteWithSchema(ctx context.Context, s, u, j string) (strin
 	return f.sc.CompleteWithSchema(ctx, s, u, j)
 }
 
-func (f *fakeAll) CompleteWithStreamingAndThoughts(ctx context.Context, s, u string, think bool) (<-chan string, <-chan string, <-chan error) {
+func (f *fakeAll) CompleteWithStreamingAndThoughts(ctx context.Context, s, u string, think bool) (<-chan string, <-chan string, <-chan types.StreamResult) {
 	return f.th.CompleteWithStreamingAndThoughts(ctx, s, u, think)
 }
 

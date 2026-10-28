@@ -2,6 +2,7 @@ package init
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,12 +53,8 @@ func (s *stubDistinctLLM) CompleteWithSystem(_ context.Context, systemPrompt str
 	return s.Complete(context.Background(), userPrompt)
 }
 
-func (s *stubDistinctLLM) CompleteWithStreaming(_ context.Context, _ string, _ string, _ bool) (<-chan string, <-chan error) {
-	ch := make(chan string, 1)
-	eh := make(chan error, 1)
-	close(ch)
-	close(eh)
-	return ch, eh
+func (s *stubDistinctLLM) CompleteWithStreaming(_ context.Context, _ string, _ string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	return types.FailedStream(errors.New("stubDistinctLLM does not stream"))
 }
 
 func (s *stubDistinctLLM) CompleteWithTools(_ context.Context, _ string, _ string, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {
@@ -75,12 +72,8 @@ func (s *stubHostileLLM) CompleteWithSystem(_ context.Context, _ string, _ strin
 	return s.Complete(context.Background(), "")
 }
 
-func (s *stubHostileLLM) CompleteWithStreaming(_ context.Context, _ string, _ string, _ bool) (<-chan string, <-chan error) {
-	ch := make(chan string, 1)
-	eh := make(chan error, 1)
-	close(ch)
-	close(eh)
-	return ch, eh
+func (s *stubHostileLLM) CompleteWithStreaming(_ context.Context, _ string, _ string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	return types.FailedStream(errors.New("stubHostileLLM does not stream"))
 }
 
 func (s *stubHostileLLM) CompleteWithTools(_ context.Context, _ string, _ string, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {

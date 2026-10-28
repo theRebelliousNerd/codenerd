@@ -34,12 +34,8 @@ func (s *stubImageLLM) CompleteWithSystem(ctx context.Context, system, user stri
 	return s.response, nil
 }
 
-func (s *stubImageLLM) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan error) {
-	ch := make(chan string)
-	errCh := make(chan error, 1)
-	close(ch)
-	errCh <- errors.New("not implemented")
-	return ch, errCh
+func (s *stubImageLLM) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan types.StreamResult) {
+	return types.FailedStream(errors.New("not implemented"))
 }
 
 func (s *stubImageLLM) CompleteWithTools(context.Context, string, string, []types.ToolDefinition) (*types.LLMToolResponse, error) {

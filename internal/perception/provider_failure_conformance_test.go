@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"codenerd/internal/config"
+	"codenerd/internal/types"
 )
 
 const conformanceSecret = "sk-live-CONFORMANCE-SECRET-0123"
@@ -198,11 +199,7 @@ func TestCLIProviderFailureConformance(t *testing.T) {
 			for range content {
 			}
 			var streamErr error
-			for err := range errorsCh {
-				if err != nil {
-					streamErr = err
-				}
-			}
+			streamErr = types.AwaitStreamResult(context.Background(), errorsCh).Err
 			assertRateLimited("CompleteWithStreaming", streamErr)
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -216,11 +213,7 @@ func TestCLIProviderFailureConformance(t *testing.T) {
 			for range content {
 			}
 			streamErr = nil
-			for err := range errorsCh {
-				if err != nil {
-					streamErr = err
-				}
-			}
+			streamErr = types.AwaitStreamResult(context.Background(), errorsCh).Err
 			if got := ClassifyProviderFailure(streamErr); got != FailureCanceled {
 				t.Fatalf("canceled CompleteWithStreaming classified %q, want %q (err: %v)", got, FailureCanceled, streamErr)
 			}

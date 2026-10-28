@@ -36,7 +36,7 @@ func TestWrapPreservesCapabilityMatrix(t *testing.T) {
 		}},
 		{"StreamingWithThoughts", func(c types.LLMClient) bool {
 			_, ok := c.(interface {
-				CompleteWithStreamingAndThoughts(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan string, <-chan error)
+				CompleteWithStreamingAndThoughts(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan string, <-chan types.StreamResult)
 			})
 			return ok
 		}},
@@ -229,7 +229,7 @@ func (p *passthroughDecorator) Complete(ctx context.Context, prompt string) (str
 func (p *passthroughDecorator) CompleteWithSystem(ctx context.Context, s, u string) (string, error) {
 	return p.inner.CompleteWithSystem(ctx, s, u)
 }
-func (p *passthroughDecorator) CompleteWithStreaming(ctx context.Context, s, u string, t bool) (<-chan string, <-chan error) {
+func (p *passthroughDecorator) CompleteWithStreaming(ctx context.Context, s, u string, t bool) (<-chan string, <-chan types.StreamResult) {
 	return p.inner.CompleteWithStreaming(ctx, s, u, t)
 }
 func (p *passthroughDecorator) CompleteWithTools(ctx context.Context, s, u string, t []types.ToolDefinition) (*types.LLMToolResponse, error) {

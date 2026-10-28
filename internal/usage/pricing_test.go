@@ -1,6 +1,7 @@
 package usage
 
 import (
+	"codenerd/internal/types"
 	"context"
 	"math"
 	"testing"
@@ -101,7 +102,7 @@ func TestTrack_ShouldAccumulateCost(t *testing.T) {
 	ctx := WithShardContext(context.Background(), "coder-1", "specialist", "sess-1")
 
 	// 1M input @ $2.50 + 1M output @ $10.00 = $12.50
-	tr.Track(ctx, "gpt-4o", "openai", 1_000_000, 1_000_000, "chat")
+	tr.Record(ctx, Report{Model: "gpt-4o", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 1_000_000, OutputTokens: 1_000_000}})
 	stats := tr.Stats()
 
 	approx(t, stats.TotalProject.Cost, 12.50, "TotalProject.Cost")
@@ -120,7 +121,7 @@ func TestTrack_ShouldCountUnpricedTokens(t *testing.T) {
 	tr, _ := newTestTracker(t)
 	ctx := WithShardContext(context.Background(), "c", "coder", "s")
 
-	tr.Track(ctx, "some-local-llama", "ollama", 400, 100, "chat")
+	tr.Record(ctx, Report{Model: "some-local-llama", Provider: "ollama", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 400, OutputTokens: 100}})
 	stats := tr.Stats()
 
 	if stats.TotalProject.Cost != 0 {

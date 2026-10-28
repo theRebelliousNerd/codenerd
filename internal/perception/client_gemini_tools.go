@@ -96,7 +96,7 @@ func (c *GeminiClient) mapToolsResponse(ctx context.Context, geminiResp *GeminiR
 	c.captureThoughtSignature(geminiResp)
 	c.lastToolCalls = c.extractToolCalls(geminiResp)
 	c.lastThoughtSummary = geminiResp.ThoughtSummary
-	c.lastThinkingTokens = geminiResp.UsageMetadata.ThoughtsTokenCount
+	c.lastThinkingTokens = geminiResp.UsageMetadata.thoughts()
 
 	result := &LLMToolResponse{}
 	if geminiResp.ThoughtSummary != "" {
@@ -106,19 +106,12 @@ func (c *GeminiClient) mapToolsResponse(ctx context.Context, geminiResp *GeminiR
 		result.ThoughtSignature = c.lastThoughtSignature
 	}
 
-	result.Usage = types.UsageMetadata{
-		InputTokens:         geminiResp.UsageMetadata.PromptTokenCount,
-		OutputTokens:        geminiResp.UsageMetadata.CandidatesTokenCount,
-		TotalTokens:         geminiResp.UsageMetadata.TotalTokenCount,
-		ThinkingTokens:      geminiResp.UsageMetadata.ThoughtsTokenCount,
-		CachedContentTokens: geminiResp.UsageMetadata.CachedContentTokenCount,
-	}
+	// The same normalized report the observer receives: output includes
+	// thoughts. It used to carry candidates alone, so the response block and
+	// the billed count disagreed on every thinking turn.
+	result.Usage = geminiResp.UsageMetadata.metadata()
 
-	trackUsageDetailed(ctx, c.model, ProviderGemini,
-		geminiResp.UsageMetadata.PromptTokenCount,
-		geminiOutputTokens(geminiResp.UsageMetadata.CandidatesTokenCount, geminiResp.UsageMetadata.ThoughtsTokenCount),
-		geminiResp.UsageMetadata.CachedContentTokenCount, 0,
-		usageOpFor(toolsLen))
+	reportUsage(ctx, c.model, ProviderGemini, usageOpFor(toolsLen), geminiResp.UsageMetadata.metadata())
 
 	if len(geminiResp.Candidates) > 0 {
 		result.StopReason = geminiResp.Candidates[0].FinishReason
@@ -223,9 +216,9 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 	}
 
 	// Log thinking tokens if used
-	if geminiResp.UsageMetadata.ThoughtsTokenCount > 0 {
+	if geminiResp.UsageMetadata.thoughts() > 0 {
 		logging.Perception("[Gemini] CompleteWithTools: completed in %v text_len=%d tool_calls=%d stop_reason=%s thinking_tokens=%d",
-			time.Since(startTime), len(result.Text), len(result.ToolCalls), result.StopReason, geminiResp.UsageMetadata.ThoughtsTokenCount)
+			time.Since(startTime), len(result.Text), len(result.ToolCalls), result.StopReason, geminiResp.UsageMetadata.thoughts())
 	} else {
 		logging.Perception("[Gemini] CompleteWithTools: completed in %v text_len=%d tool_calls=%d stop_reason=%s",
 			time.Since(startTime), len(result.Text), len(result.ToolCalls), result.StopReason)

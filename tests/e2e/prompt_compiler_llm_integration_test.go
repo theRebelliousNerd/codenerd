@@ -90,13 +90,11 @@ func (m *pcbMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, 
 	return &types.LLMToolResponse{Text: resp}, nil
 }
 
-func (m *pcbMockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
-	ch := make(chan string, 1)
-	errCh := make(chan error, 1)
+func (m *pcbMockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
+	w, ch, done := types.NewStream()
 
 	go func() {
-		defer close(ch)
-		defer close(errCh)
+		defer w.Close()
 
 		m.mu.Lock()
 		delay := m.Delay
@@ -110,32 +108,26 @@ func (m *pcbMockLLMClient) CompleteWithStreaming(ctx context.Context, systemProm
 			select {
 			case <-time.After(delay):
 			case <-ctx.Done():
-				errCh <- ctx.Err()
+				w.Fail(ctx.Err())
 				return
 			}
 		}
 
 		if err != nil {
-			errCh <- err
+			w.Fail(err)
 			return
 		}
 
-		select {
-		case ch <- "stream chunk 1 ":
-		case <-ctx.Done():
-			errCh <- ctx.Err()
-			return
+		for _, chunk := range []string{"stream chunk 1 ", "stream chunk 2"} {
+			if err := w.Content(ctx, chunk); err != nil {
+				w.Fail(err)
+				return
+			}
 		}
-
-		select {
-		case ch <- "stream chunk 2":
-		case <-ctx.Done():
-			errCh <- ctx.Err()
-			return
-		}
+		w.Finish(types.StreamResult{StopReason: "stop"})
 	}()
 
-	return ch, errCh
+	return ch, done
 }
 
 // =============================================================================
@@ -257,7 +249,7 @@ func TestE2E_PromptCompilerLLM_Temporal_StreamingCancellation(t *testing.T) {
 
 	mockLLM := &pcbMockLLMClient{Delay: 100 * time.Millisecond}
 
-	ch, errCh := mockLLM.CompleteWithStreaming(ctx, "system", "user", false)
+	ch, done := mockLLM.CompleteWithStreaming(ctx, "system", "user", false)
 
 	// Cancel almost immediately
 	time.AfterFunc(10*time.Millisecond, cancel)
@@ -267,9 +259,9 @@ func TestE2E_PromptCompilerLLM_Temporal_StreamingCancellation(t *testing.T) {
 		if ok {
 			// Expected to either get nothing or be closed early
 		}
-	case err := <-errCh:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("Expected context.Canceled error, got: %v", err)
+	case res := <-done:
+		if !errors.Is(res.Err, context.Canceled) {
+			t.Fatalf("Expected context.Canceled error, got: %v", res.Err)
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatal("Streaming goroutine leaked or failed to handle cancellation promptly")

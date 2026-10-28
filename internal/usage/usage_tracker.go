@@ -13,6 +13,7 @@ import (
 
 	"codenerd/internal/atomicfile"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 type contextKey struct{}
@@ -339,30 +340,34 @@ func addTokenCounts(dst *TokenCounts, delta TokenCounts) {
 	dst.Output += delta.Output
 	dst.Total += delta.Total
 	dst.Cost += delta.Cost
+	dst.CacheRead += delta.CacheRead
+	dst.CacheWrite += delta.CacheWrite
+	dst.Reasoning += delta.Reasoning
+	dst.PartialReports += delta.PartialReports
 }
 
 func contributionSince(current, baseline AggregatedStats) AggregatedStats {
+	// Never emit negative values: if a subtraction would go below zero (which
+	// can only happen if the file was truncated or reset underneath us), the
+	// current value is taken as the contribution so the tokens this process
+	// just counted are not discarded. Every field goes through it: a merge
+	// that dropped the cache and reasoning sub-counts erased them from
+	// usage.json at the first cross-process save.
+	sub := func(cur, base int64) int64 {
+		if cur >= base {
+			return cur - base
+		}
+		return cur
+	}
 	diff := func(cur, base TokenCounts) TokenCounts {
-		var d TokenCounts
-		// Never emit negative values: if a subtraction would go below zero
-		// (which can only happen if the file was truncated or reset underneath
-		// us), clamp that component to zero and treat current as the
-		// contribution so we don't discard the tokens this process just
-		// counted.
-		if cur.Input >= base.Input {
-			d.Input = cur.Input - base.Input
-		} else {
-			d.Input = cur.Input
-		}
-		if cur.Output >= base.Output {
-			d.Output = cur.Output - base.Output
-		} else {
-			d.Output = cur.Output
-		}
-		if cur.Total >= base.Total {
-			d.Total = cur.Total - base.Total
-		} else {
-			d.Total = cur.Total
+		d := TokenCounts{
+			Input:          sub(cur.Input, base.Input),
+			Output:         sub(cur.Output, base.Output),
+			Total:          sub(cur.Total, base.Total),
+			CacheRead:      sub(cur.CacheRead, base.CacheRead),
+			CacheWrite:     sub(cur.CacheWrite, base.CacheWrite),
+			Reasoning:      sub(cur.Reasoning, base.Reasoning),
+			PartialReports: sub(cur.PartialReports, base.PartialReports),
 		}
 		if cur.Cost >= base.Cost {
 			d.Cost = cur.Cost - base.Cost
@@ -623,25 +628,20 @@ func (t *tracker) saveLocked() error {
 	return nil
 }
 
-// Track records a new usage event.
+// Record adds one normalized usage report to the aggregates.
 //
 // Negative token counts are rejected: they can only come from a provider bug or
 // a bad cast, and letting them through silently corrupts every aggregate they
 // touch with no way to reconstruct the truth.
-func (t *tracker) Track(ctx context.Context, model, provider string, input, output int, operation string) {
-	t.TrackDetailed(ctx, model, provider, input, output, 0, 0, operation)
-}
-
-// TrackDetailed is Track with the cache sub-counts of input (cache-read and
-// cache-write tokens, already included in input by every producer).
-func (t *tracker) TrackDetailed(ctx context.Context, model, provider string, input, output, cacheRead, cacheWrite int, operation string) {
-	if input < 0 || output < 0 || cacheRead < 0 || cacheWrite < 0 {
+func (t *tracker) Record(ctx context.Context, r Report) {
+	u := r.Usage
+	if u.InputTokens < 0 || u.OutputTokens < 0 || u.CachedContentTokens < 0 || u.CacheWriteTokens < 0 || u.ThinkingTokens < 0 {
 		logging.Get(logging.CategorySession).Warn(
-			"usage: rejecting negative token counts for model=%q provider=%q input=%d output=%d cache_read=%d cache_write=%d",
-			model, provider, input, output, cacheRead, cacheWrite)
+			"usage: rejecting negative token counts for model=%q provider=%q input=%d output=%d cache_read=%d cache_write=%d reasoning=%d",
+			r.Model, r.Provider, u.InputTokens, u.OutputTokens, u.CachedContentTokens, u.CacheWriteTokens, u.ThinkingTokens)
 		return
 	}
-	if input == 0 && output == 0 {
+	if u.InputTokens == 0 && u.OutputTokens == 0 {
 		return
 	}
 
@@ -649,7 +649,7 @@ func (t *tracker) TrackDetailed(ctx context.Context, model, provider string, inp
 	shardType := shardMetaFromContext(ctx, shardTypeKey)
 	sessionID := shardMetaFromContext(ctx, sessionIDKey)
 
-	cost, priced := EstimateCostDetailed(model, int64(input), int64(output), int64(cacheRead), int64(cacheWrite))
+	cost, priced := EstimateCostDetailed(r.Model, int64(u.InputTokens), int64(u.OutputTokens), int64(u.CachedContentTokens), int64(u.CacheWriteTokens))
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -660,24 +660,24 @@ func (t *tracker) TrackDetailed(ctx context.Context, model, provider string, inp
 	t.ensureMapsLocked()
 
 	a := &t.data.Aggregate
-	a.TotalProject.AddDetailed(input, output, cacheRead, cacheWrite, cost)
+	a.TotalProject.AddUsage(u, cost)
 
 	if alias := CredentialAliasFromContext(ctx); alias != "" {
-		addDetailedToMap(a.ByCredential, alias, input, output, cacheRead, cacheWrite, cost)
+		addUsageToMap(a.ByCredential, alias, u, cost)
 	}
-	addDetailedToMap(a.ByProvider, provider, input, output, cacheRead, cacheWrite, cost)
-	addDetailedToMap(a.ByModel, model, input, output, cacheRead, cacheWrite, cost)
-	addDetailedToMap(a.ByShardType, shardType, input, output, cacheRead, cacheWrite, cost)
-	addDetailedToMap(a.ByShardName, shardName, input, output, cacheRead, cacheWrite, cost)
-	addDetailedToMap(a.ByOperation, operation, input, output, cacheRead, cacheWrite, cost)
-	addDetailedToMap(a.BySession, sessionID, input, output, cacheRead, cacheWrite, cost)
+	addUsageToMap(a.ByProvider, r.Provider, u, cost)
+	addUsageToMap(a.ByModel, r.Model, u, cost)
+	addUsageToMap(a.ByShardType, shardType, u, cost)
+	addUsageToMap(a.ByShardName, shardName, u, cost)
+	addUsageToMap(a.ByOperation, r.Operation, u, cost)
+	addUsageToMap(a.BySession, sessionID, u, cost)
 
 	if turnID := shardMetaFromContext(ctx, turnIDKey); turnID != "unknown" {
-		t.recordTurnLocked(turnID, input, output, cacheRead, cacheWrite, cost)
+		t.recordTurnLocked(turnID, u, cost)
 	}
 
 	if !priced {
-		a.UnpricedTokens += int64(input + output)
+		a.UnpricedTokens += int64(u.InputTokens + u.OutputTokens)
 	}
 
 	t.pruneSessionsLocked()
@@ -686,16 +686,19 @@ func (t *tracker) TrackDetailed(ctx context.Context, model, provider string, inp
 		t.appendEventLocked(UsageEvent{
 			CredentialAlias:  CredentialAliasFromContext(ctx),
 			Timestamp:        time.Now().UTC(),
-			Model:            model,
-			Provider:         provider,
-			InputTokens:      input,
-			OutputTokens:     output,
-			CacheReadTokens:  cacheRead,
-			CacheWriteTokens: cacheWrite,
+			Model:            r.Model,
+			Provider:         r.Provider,
+			InputTokens:      u.InputTokens,
+			OutputTokens:     u.OutputTokens,
+			CacheReadTokens:  u.CachedContentTokens,
+			CacheWriteTokens: u.CacheWriteTokens,
+			ReasoningTokens:  u.ThinkingTokens,
+			Known:            u.Known,
+			Partial:          u.Partial,
 			ShardType:        shardType,
 			ShardName:        shardName,
 			SessionID:        sessionID,
-			OperationType:    operation,
+			OperationType:    r.Operation,
 			CostUSD:          cost,
 		})
 	}
@@ -891,16 +894,12 @@ func copyTokenCountsMap(src map[string]TokenCounts) map[string]TokenCounts {
 	return dst
 }
 
-func addToMap(m map[string]TokenCounts, key string, input, output int, cost float64) {
-	addDetailedToMap(m, key, input, output, 0, 0, cost)
-}
-
-func addDetailedToMap(m map[string]TokenCounts, key string, input, output, cacheRead, cacheWrite int, cost float64) {
+func addUsageToMap(m map[string]TokenCounts, key string, u types.UsageMetadata, cost float64) {
 	if key == "" {
 		key = "unknown"
 	}
 	entry := m[key]
-	entry.AddDetailed(input, output, cacheRead, cacheWrite, cost)
+	entry.AddUsage(u, cost)
 	m[key] = entry
 }
 
@@ -960,7 +959,7 @@ func WithSessionID(ctx context.Context, sessionID string) context.Context {
 const maxTurns = 1024
 
 // recordTurnLocked accumulates a turn's counts. Caller holds t.mu.
-func (t *tracker) recordTurnLocked(turnID string, input, output, cacheRead, cacheWrite int, cost float64) {
+func (t *tracker) recordTurnLocked(turnID string, u types.UsageMetadata, cost float64) {
 	if t.turns == nil {
 		t.turns = make(map[string]TokenCounts)
 	}
@@ -972,7 +971,7 @@ func (t *tracker) recordTurnLocked(turnID string, input, output, cacheRead, cach
 		}
 	}
 	tc := t.turns[turnID]
-	tc.AddDetailed(input, output, cacheRead, cacheWrite, cost)
+	tc.AddUsage(u, cost)
 	t.turns[turnID] = tc
 }
 
@@ -1022,25 +1021,20 @@ func (h *Tracker) SessionTokens(sessionID string) TokenCounts {
 	return h.data.Aggregate.BySession[sessionID]
 }
 
-// TrackFromContext records usage against the tracker carried by ctx, if any.
-// Every LLM client should call this rather than reaching for a tracker field,
-// so a client used outside a tracked session simply records nothing.
-func TrackFromContext(ctx context.Context, model, provider string, input, output int, operation string) {
-	TrackDetailedFromContext(ctx, model, provider, input, output, 0, 0, operation)
-}
-
-// TrackDetailedFromContext is TrackFromContext with the cache sub-counts of
-// input. The observer still receives whole input/output totals.
-func TrackDetailedFromContext(ctx context.Context, model, provider string, input, output, cacheRead, cacheWrite int, operation string) {
+// RecordFromContext delivers one normalized usage report to the tracker
+// carried by ctx, if any, and to the in-flight Observer, if one is installed —
+// the same Report to both. Every LLM client reports through this rather than
+// reaching for a tracker field, so a client used outside a tracked session
+// simply records nothing.
+func RecordFromContext(ctx context.Context, r Report) {
 	if t := FromContext(ctx); t != nil {
-		t.TrackDetailed(ctx, model, provider, input, output, cacheRead, cacheWrite, operation)
+		t.Record(ctx, r)
 	}
-	// Deliver the same report to an in-flight observer, if one is installed.
-	// This is what lets the broker learn the provider's actual token counts for
-	// a single request; see internal/usage/observer.go for why it lives here
-	// rather than in each provider client.
+	// This is what lets the broker learn the provider's actual counts for a
+	// single request; see observer.go for why it lives here rather than in
+	// each provider client.
 	if obs := ObserverFromContext(ctx); obs != nil {
-		obs.Observed(model, provider, input, output, operation)
+		obs.Observed(r)
 	}
 }
 

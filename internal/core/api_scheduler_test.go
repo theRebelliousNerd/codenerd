@@ -12,10 +12,9 @@ import (
 
 // MockLLMClient for testing
 type mockLLMClient struct {
-	completeFunc          func(ctx context.Context, prompt string) (string, error)
-	delay                 time.Duration
-	callCount             int32
-	StreamingNotSupported bool
+	completeFunc func(ctx context.Context, prompt string) (string, error)
+	delay        time.Duration
+	callCount    int32
 }
 
 func (m *mockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {

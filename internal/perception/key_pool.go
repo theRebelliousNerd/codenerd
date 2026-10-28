@@ -247,17 +247,18 @@ func (r *providerKeyRouter) Do(ctx context.Context, call func(context.Context, t
 }
 
 // Stream retries only before either content or thoughts have been emitted.
-// One child context and active lease span the entire selected stream.
-func (r *providerKeyRouter) Stream(ctx context.Context, start func(context.Context, types.LLMClient) (<-chan string, <-chan string, <-chan error)) (<-chan string, <-chan string, <-chan error) {
-	content, thoughts, errs := make(chan string, 64), make(chan string, 64), make(chan error, 1)
+// One child context and active lease span the entire selected stream. The
+// selected credential's terminal result is published unchanged except for the
+// error the lease bookkeeping settles on; a pool that runs out of credentials
+// publishes the last failure, and one with nothing to try ends incomplete.
+func (r *providerKeyRouter) Stream(ctx context.Context, start func(context.Context, types.LLMClient) (<-chan string, <-chan string, <-chan types.StreamResult)) (<-chan string, <-chan string, <-chan types.StreamResult) {
+	w, content, thoughts, done := types.NewThoughtStream()
 	go func() {
 		r.configurationMu.RLock()
 		defer r.configurationMu.RUnlock()
 		ctx, stop := context.WithTimeout(ctx, r.timeout)
 		defer stop()
-		defer close(content)
-		defer close(thoughts)
-		defer close(errs)
+		defer w.Close()
 		excluded := map[int]bool{}
 		var lastErr error
 		for len(excluded) < len(r.clients) {
@@ -268,84 +269,33 @@ func (r *providerKeyRouter) Stream(ctx context.Context, start func(context.Conte
 				} else if lastErr != nil {
 					err = lastErr
 				}
-				errs <- err
+				w.Fail(err)
 				return
 			}
 			excluded[i] = true
-			in, thinking, failures := func() (content <-chan string, thoughts <-chan string, errs <-chan error) {
+			in, thinking, finished := func() (content <-chan string, thoughts <-chan string, done <-chan types.StreamResult) {
 				defer func() {
 					if recover() != nil {
-						failure := make(chan error, 1)
-						failure <- fmt.Errorf("provider credential %q panicked during stream initialization", r.aliases[i])
-						close(failure)
-						content = nil
-						thoughts = nil
-						errs = failure
+						content, thoughts, done = types.FailedThoughtStream(
+							fmt.Errorf("provider credential %q panicked during stream initialization", r.aliases[i]))
 					}
 				}()
 				return start(child, r.clients[i])
 			}()
-			emitted := false
-			var callErr error
-			canceled := false
-			for in != nil || thinking != nil || failures != nil {
-				select {
-				case value, ok := <-in:
-					if !ok {
-						in = nil
-						continue
-					}
-					if value != "" {
-						emitted = true
-					}
-					select {
-					case content <- value:
-					case <-ctx.Done():
-						canceled = true
-					}
-				case value, ok := <-thinking:
-					if !ok {
-						thinking = nil
-						continue
-					}
-					if value != "" {
-						emitted = true
-					}
-					select {
-					case thoughts <- value:
-					case <-ctx.Done():
-						canceled = true
-					}
-				case failure, ok := <-failures:
-					if !ok {
-						failures = nil
-						continue
-					}
-					if failure != nil && callErr == nil {
-						callErr = failure
-					}
-				case <-ctx.Done():
-					canceled = true
-				}
-				if canceled {
-					callErr = ctx.Err()
-					break
-				}
-			}
+			res, emitted := types.RelayStream(ctx, w, in, thinking, finished)
 			cancel()
-			final, retry := r.finish(ctx, i, attempt, callErr)
+			final, retry := r.finish(ctx, i, attempt, res.Err)
 			if retry && !emitted {
 				lastErr = final
 				continue
 			}
-			if final != nil {
-				errs <- final
-			}
+			res.Err = final
+			w.Finish(res)
 			return
 		}
 		if lastErr != nil {
-			errs <- lastErr
+			w.Fail(lastErr)
 		}
 	}()
-	return content, thoughts, errs
+	return content, thoughts, done
 }

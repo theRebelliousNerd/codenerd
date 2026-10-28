@@ -1,6 +1,10 @@
 package usage
 
-import "time"
+import (
+	"time"
+
+	"codenerd/internal/types"
+)
 
 // UsageData represents the root structure stored in persistence.
 type UsageData struct {
@@ -25,13 +29,22 @@ type UsageEvent struct {
 	// provider's input figure here already includes cached prompt tokens
 	// (Anthropic's is folded by anthropicUsage.promptTokens), so they are
 	// recorded for visibility and pricing, never added to Total.
-	CacheReadTokens  int     `json:"cache_read_tokens,omitempty"`
-	CacheWriteTokens int     `json:"cache_write_tokens,omitempty"`
-	ShardType        string  `json:"shard_type"` // ephemeral, specialist, system, user
-	ShardName        string  `json:"shard_name"`
-	SessionID        string  `json:"session_id"`
-	OperationType    string  `json:"operation_type"`     // chat, embedding, tool_gen
-	CostUSD          float64 `json:"cost_usd,omitempty"` // estimate; 0 when the model is unpriced
+	CacheReadTokens  int `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
+	// ReasoningTokens is the reasoning sub-count of OutputTokens, when the
+	// provider reports one. Never added to a total.
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
+	// Known names the categories the provider reported (types.UsageFields), so
+	// a zero cache count reads as "observed zero" only when it was observed.
+	Known types.UsageFields `json:"known,omitempty"`
+	// Partial marks a report whose counts are lower bounds: the stream ended
+	// before the provider's final usage block.
+	Partial       bool    `json:"partial,omitempty"`
+	ShardType     string  `json:"shard_type"` // ephemeral, specialist, system, user
+	ShardName     string  `json:"shard_name"`
+	SessionID     string  `json:"session_id"`
+	OperationType string  `json:"operation_type"`     // chat, embedding, tool_gen
+	CostUSD       float64 `json:"cost_usd,omitempty"` // estimate; 0 when the model is unpriced
 }
 
 // AggregatedStats holds counters broken down by various dimensions.
@@ -56,29 +69,27 @@ type TokenCounts struct {
 	Output int64   `json:"output"`
 	Total  int64   `json:"total"`
 	Cost   float64 `json:"cost_est_usd,omitempty"` // USD estimate, not billing truth
-	// CacheRead/CacheWrite are sub-counts of Input (see UsageEvent), kept
-	// so a reader can tell how much of the prompt spend was cache traffic.
+	// CacheRead/CacheWrite are sub-counts of Input and Reasoning of Output
+	// (see types.UsageMetadata), kept so a reader can tell how much of the
+	// spend was cache traffic or reasoning. None is ever added to Total.
 	CacheRead  int64 `json:"cache_read,omitempty"`
 	CacheWrite int64 `json:"cache_write,omitempty"`
+	Reasoning  int64 `json:"reasoning,omitempty"`
+	// PartialReports counts reports whose counts are lower bounds, so a total
+	// built from them is visibly incomplete rather than quietly cheap.
+	PartialReports int64 `json:"partial_reports,omitempty"`
 }
 
-// Add accumulates tokens without cost attribution.
-func (tc *TokenCounts) Add(input, output int) {
-	tc.AddCost(input, output, 0)
-}
-
-// AddCost accumulates tokens and an estimated USD cost.
-func (tc *TokenCounts) AddCost(input, output int, cost float64) {
-	tc.AddDetailed(input, output, 0, 0, cost)
-}
-
-// AddDetailed is AddCost with the cache sub-counts of input. They are not
-// added to Total: input already contains them.
-func (tc *TokenCounts) AddDetailed(input, output, cacheRead, cacheWrite int, cost float64) {
-	tc.Input += int64(input)
-	tc.Output += int64(output)
-	tc.Total += int64(input + output)
-	tc.CacheRead += int64(cacheRead)
-	tc.CacheWrite += int64(cacheWrite)
+// AddUsage accumulates one normalized report and its estimated USD cost.
+func (tc *TokenCounts) AddUsage(u types.UsageMetadata, cost float64) {
+	tc.Input += int64(u.InputTokens)
+	tc.Output += int64(u.OutputTokens)
+	tc.Total += int64(u.InputTokens + u.OutputTokens)
+	tc.CacheRead += int64(u.CachedContentTokens)
+	tc.CacheWrite += int64(u.CacheWriteTokens)
+	tc.Reasoning += int64(u.ThinkingTokens)
+	if u.Partial {
+		tc.PartialReports++
+	}
 	tc.Cost += cost
 }

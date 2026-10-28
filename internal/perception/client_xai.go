@@ -176,8 +176,7 @@ func (c *XAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 			return "", fmt.Errorf("no completion returned")
 		}
 
-		trackUsageDetailed(ctx, c.model, ProviderXAI,
-			xaiResp.Usage.PromptTokens, xaiResp.Usage.CompletionTokens, xaiResp.Usage.PromptTokensDetails.CachedTokens, 0, usageOpChat)
+		reportUsage(ctx, c.model, ProviderXAI, usageOpChat, xaiResp.Usage.metadata())
 
 		response := strings.TrimSpace(xaiResp.Choices[0].Message.Content)
 		if finish := xaiResp.Choices[0].FinishReason; types.LengthStop(finish) {
@@ -223,8 +222,7 @@ func (c *XAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPro
 	if err != nil {
 		return nil, err
 	}
-	trackUsageDetailed(ctx, c.model, ProviderXAI,
-		resp.Usage.PromptTokens, resp.Usage.CompletionTokens, resp.Usage.PromptTokensDetails.CachedTokens, 0, usageOpFor(len(tools)))
+	reportUsage(ctx, c.model, ProviderXAI, usageOpFor(len(tools)), resp.Usage.metadata())
 	return OpenAIToolResponseFromResponse(resp)
 }
 
@@ -253,8 +251,7 @@ func (c *XAIClient) CompleteWithToolResults(ctx context.Context, systemPrompt st
 	if err != nil {
 		return nil, err
 	}
-	trackUsageDetailed(ctx, c.model, ProviderXAI,
-		resp.Usage.PromptTokens, resp.Usage.CompletionTokens, resp.Usage.PromptTokensDetails.CachedTokens, 0, usageOpFor(len(tools)))
+	reportUsage(ctx, c.model, ProviderXAI, usageOpFor(len(tools)), resp.Usage.metadata())
 	return OpenAIToolResponseFromResponse(resp)
 }
 
@@ -264,23 +261,10 @@ func (c *XAIClient) CompleteWithToolResults(ctx context.Context, systemPrompt st
 // emits the whole answer as one chunk. Usage is therefore tracked by that call
 // and must not be tracked again here, or every xAI streaming turn would count
 // twice.
-func (c *XAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan error) {
-	contentChan := make(chan string, 1)
-	errorChan := make(chan error, 1)
-
-	go func() {
-		defer close(contentChan)
-		defer close(errorChan)
-
-		res, err := c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		contentChan <- res
-	}()
-
-	return contentChan, errorChan
+func (c *XAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
+		return c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	})
 }
 
 // ModelIdentity reports the provider and model this client serves, satisfying

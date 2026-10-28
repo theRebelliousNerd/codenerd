@@ -133,15 +133,8 @@ func (m *oerMockLLMClient) ToolCallWithSystem(ctx context.Context, systemPrompt,
 func (m *oerMockLLMClient) ToolCallWithSystemStreaming(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition, chunkHandler func(string)) (*types.LLMToolResponse, error) {
 	return m.response(), nil
 }
-func (m *oerMockLLMClient) CompleteWithStreaming(ctx context.Context, prompt string, model string, stream bool) (<-chan string, <-chan error) {
-	ch := make(chan string)
-	errCh := make(chan error)
-	go func() {
-		defer close(ch)
-		defer close(errCh)
-		ch <- "mock response"
-	}()
-	return ch, errCh
+func (m *oerMockLLMClient) CompleteWithStreaming(ctx context.Context, prompt string, model string, stream bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(context.Context) (string, error) { return "mock response", nil })
 }
 
 // setupRaceEnvironment builds an environment whose turns can actually complete.

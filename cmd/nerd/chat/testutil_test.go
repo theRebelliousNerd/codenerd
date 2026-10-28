@@ -350,31 +350,22 @@ func (m *MockLLMClient) CompleteWithTools(_ context.Context, systemPrompt, userP
 }
 
 // CompleteWithStreaming implements types.LLMClient - completion with streaming.
-func (m *MockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+func (m *MockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.callCount++
 	m.lastPrompt = userPrompt
 	m.systemPrompts = append(m.systemPrompts, systemPrompt)
 
-	ch := make(chan string, 1)
-	errCh := make(chan error)
-
 	if m.shouldError {
-		close(ch)
-		errCh <- &MockError{msg: m.errorMsg}
-		close(errCh)
-		return ch, errCh
+		return types.FailedStream(&MockError{msg: m.errorMsg})
 	}
 
-	if resp, ok := m.responses[userPrompt]; ok {
-		ch <- resp
-	} else {
-		ch <- m.defaultResp
+	resp, ok := m.responses[userPrompt]
+	if !ok {
+		resp = m.defaultResp
 	}
-	close(ch)
-	close(errCh)
-	return ch, errCh
+	return types.StreamWhole(ctx, func(context.Context) (string, error) { return resp, nil })
 }
 
 // SetResponse configures a specific response for a prompt.

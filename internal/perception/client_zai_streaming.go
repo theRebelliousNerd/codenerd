@@ -15,13 +15,11 @@ import (
 // CompleteWithStreaming sends a request with streaming enabled.
 // Returns a channel that receives content chunks as they arrive.
 // The control_packet MUST be buffered and extracted before streaming surface_response.
-func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
-	contentChan := make(chan string, 100)
-	errorChan := make(chan error, 1)
+func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
+	w, contentChan, doneChan := types.NewStream()
 
 	go func() {
-		defer close(contentChan)
-		defer close(errorChan)
+		defer w.Close()
 
 		// Auto-apply timeout if context has no deadline (centralized timeout handling)
 		// For streaming, this applies a streaming-specific timeout as a maximum duration
@@ -45,7 +43,7 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 		}
 
 		if c.apiKey == "" {
-			errorChan <- fmt.Errorf("API key not configured")
+			w.Fail(fmt.Errorf("API key not configured"))
 			return
 		}
 
@@ -87,19 +85,19 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 					// backoff just would not fit before it. Sending ctx.Err()
 					// delivered a nil error the consumer reads as clean success
 					// with zero chunks. Name the give-up explicitly.
-					errorChan <- fmt.Errorf("retry backoff of %v would exceed the context deadline in %v; giving up: %w",
-						backoffDuration, remainingBeforeBackoff, context.DeadlineExceeded)
+					w.Fail(fmt.Errorf("retry backoff of %v would exceed the context deadline in %v; giving up: %w",
+						backoffDuration, remainingBeforeBackoff, context.DeadlineExceeded))
 					return
 				}
 
 				if err := sleepWithContext(ctx, backoffDuration); err != nil {
-					errorChan <- err
+					w.Fail(err)
 					return
 				}
 			}
 
 			if ctx.Err() != nil {
-				errorChan <- ctx.Err()
+				w.Fail(ctx.Err())
 				return
 			}
 
@@ -111,7 +109,7 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 				case c.sem <- struct{}{}:
 					acquired = true
 				case <-ctx.Done():
-					errorChan <- ctx.Err()
+					w.Fail(ctx.Err())
 					return
 				}
 			}
@@ -120,7 +118,7 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 				if acquired {
 					<-c.sem
 				}
-				errorChan <- err
+				w.Fail(err)
 				return
 			}
 
@@ -159,7 +157,7 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 				if acquired {
 					<-c.sem
 				}
-				errorChan <- fmt.Errorf("failed to marshal request: %w", err)
+				w.Fail(fmt.Errorf("failed to marshal request: %w", err))
 				return
 			}
 
@@ -168,7 +166,7 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 				if acquired {
 					<-c.sem
 				}
-				errorChan <- fmt.Errorf("failed to create request: %w", err)
+				w.Fail(fmt.Errorf("failed to create request: %w", err))
 				return
 			}
 
@@ -209,7 +207,7 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 					retryDelayOverride = retryDelay
 					continue
 				}
-				errorChan <- fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+				w.Fail(fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body)))
 				return
 			}
 
@@ -218,94 +216,10 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 			}
 			defer resp.Body.Close()
 
-			// Read SSE stream with context cancellation support.
-			// The scanner runs in a separate goroutine so we can monitor ctx.Done()
-			// and force-close the response body to unblock scanner.Scan() on timeout.
-			// Buffer is pooled (64 KiB initial, 1 MiB max line) to match the other
-			// streaming clients and reduce GC pressure on long-running sessions.
-			scanner, releaseScanner := newPooledScanner(resp.Body, 1024*1024)
-			defer releaseScanner()
-
-			// Channel to signal scanner goroutine completion
-			scanDone := make(chan struct{})
-			// Channel to capture scanner error (buffered to avoid goroutine leak)
-			scanErrChan := make(chan error, 1)
-
-			// Final billed usage arrives in its own trailing chunk (that is what
-			// stream_options.include_usage buys). It is recorded once after the
-			// stream ends, never per delta: tracking a delta would multiply one
-			// turn's cost by its chunk count.
-			var billed struct {
-				input, output, cached int
-			}
-
-			go func() {
-				defer close(scanDone)
-				for scanner.Scan() {
-					line := scanner.Text()
-
-					// SSE format: "data: {...}"
-					if !strings.HasPrefix(line, "data: ") {
-						continue
-					}
-
-					data := strings.TrimPrefix(line, "data: ")
-					if data == "[DONE]" {
-						return
-					}
-
-					var chunk ZAIResponse
-					if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-						continue // Skip malformed chunks
-					}
-
-					if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
-						billed.input = chunk.Usage.PromptTokens
-						billed.output = chunk.Usage.CompletionTokens
-						billed.cached = chunk.Usage.PromptTokensDetails.CachedTokens
-					}
-
-					if len(chunk.Choices) > 0 && chunk.Choices[0].Delta != nil {
-						content := chunk.Choices[0].Delta.Content
-						if content != "" {
-							select {
-							case contentChan <- content:
-							case <-ctx.Done():
-								// Context cancelled while trying to send
-								return
-							}
-						}
-					}
-				}
-				// Capture scanner error for the main goroutine to handle
-				if err := scanner.Err(); err != nil {
-					scanErrChan <- err
-				}
-			}()
-
-			// Wait for either scanner completion or context cancellation
-			defer func() {
-				trackUsageDetailed(ctx, c.model, ProviderZAI, billed.input, billed.output, billed.cached, 0, usageOpChat)
-			}()
-
-			select {
-			case <-scanDone:
-				// Normal completion - check for scanner errors
-				select {
-				case err := <-scanErrChan:
-					errorChan <- fmt.Errorf("stream error: %w", err)
-				default:
-					// No error, clean completion
-				}
-			case <-ctx.Done():
-				// Context cancelled - force close response body to unblock scanner.Scan()
-				// This is safe because we're in the goroutine that owns resp.Body,
-				// and the defer resp.Body.Close() will be a no-op after this.
-				resp.Body.Close()
-				// Wait briefly for scanner to notice the closed body and exit
-				<-scanDone
-				errorChan <- ctx.Err()
-			}
+			res := readChatStream(ctx, resp.Body, chatStreamProfile{provider: ProviderZAI, model: c.model, limit: reqBody.MaxTokens}, w)
+			reportUsage(ctx, c.model, ProviderZAI, usageOpChat, res.Usage)
+			logStreamEnd("ZAI", startTime, res)
+			w.Finish(res)
 			return
 		}
 
@@ -325,8 +239,8 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 		if lastErr == nil {
 			lastErr = fmt.Errorf("request failed without error details")
 		}
-		errorChan <- fmt.Errorf("streaming retries exhausted: %w", lastErr)
+		w.Fail(fmt.Errorf("streaming retries exhausted: %w", lastErr))
 	}()
 
-	return contentChan, errorChan
+	return contentChan, doneChan
 }

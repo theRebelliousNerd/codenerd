@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -88,7 +89,7 @@ type trthFake struct {
 func (f *trthFake) CompleteWithToolResults(ctx context.Context, s string, h []types.Message, t []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	return f.tr.CompleteWithToolResults(ctx, s, h, t)
 }
-func (f *trthFake) CompleteWithStreamingAndThoughts(ctx context.Context, s, u string, think bool) (<-chan string, <-chan string, <-chan error) {
+func (f *trthFake) CompleteWithStreamingAndThoughts(ctx context.Context, s, u string, think bool) (<-chan string, <-chan string, <-chan types.StreamResult) {
 	return f.th.CompleteWithStreamingAndThoughts(ctx, s, u, think)
 }
 
@@ -101,17 +102,17 @@ type scthFake struct {
 func (f *scthFake) CompleteWithSchema(ctx context.Context, s, u, j string) (string, error) {
 	return f.sc.CompleteWithSchema(ctx, s, u, j)
 }
-func (f *scthFake) CompleteWithStreamingAndThoughts(ctx context.Context, s, u string, think bool) (<-chan string, <-chan string, <-chan error) {
+func (f *scthFake) CompleteWithStreamingAndThoughts(ctx context.Context, s, u string, think bool) (<-chan string, <-chan string, <-chan types.StreamResult) {
 	return f.th.CompleteWithStreamingAndThoughts(ctx, s, u, think)
 }
 
 // drainThoughts consumes a thoughts-and-content stream to completion, which is
 // what makes a streamed turn settle and emit its receipt.
-func drainThoughts(t *testing.T, content, thoughts <-chan string, errs <-chan error) (string, string) {
+func drainThoughts(t *testing.T, content, thoughts <-chan string, done <-chan types.StreamResult) (string, string) {
 	t.Helper()
 
 	var gotContent, gotThoughts string
-	for content != nil || thoughts != nil || errs != nil {
+	for content != nil || thoughts != nil {
 		select {
 		case s, ok := <-content:
 			if !ok {
@@ -125,14 +126,12 @@ func drainThoughts(t *testing.T, content, thoughts <-chan string, errs <-chan er
 				continue
 			}
 			gotThoughts += s
-		case _, ok := <-errs:
-			if !ok {
-				errs = nil
-				continue
-			}
 		case <-timeAfter():
 			t.Fatal("stream did not close; a leaked receipt never settles")
 		}
+	}
+	if res := types.AwaitStreamResult(context.Background(), done); res.Err != nil {
+		t.Fatalf("thought stream terminal: %v", res.Err)
 	}
 	return gotContent, gotThoughts
 }
@@ -190,7 +189,7 @@ func TestEveryShapeActuallyServesWhatItAdvertises(t *testing.T) {
 
 			if tc.th {
 				p, ok := client.(interface {
-					CompleteWithStreamingAndThoughts(context.Context, string, string, bool) (<-chan string, <-chan string, <-chan error)
+					CompleteWithStreamingAndThoughts(context.Context, string, string, bool) (<-chan string, <-chan string, <-chan types.StreamResult)
 				})
 				if !ok {
 					t.Fatal("shape lost CompleteWithStreamingAndThoughts")
@@ -259,13 +258,18 @@ func TestThoughtStreamingDegradesWhenTheUnderlyingCannotServeIt(t *testing.T) {
 	// has to answer safely rather than panic, because a future shape could.
 	c := wrapCore(t, newFakeClient())
 
-	content, thoughts, errs := c.completeWithStreamingAndThoughts(
+	content, thoughts, done := c.completeWithStreamingAndThoughts(
 		context.Background(), "sys", "user", true)
 
-	gotContent, gotThoughts := drainThoughts(t, content, thoughts, errs)
-	if gotContent != "" || gotThoughts != "" {
-		t.Errorf("a client with no thought streaming produced content %q / thoughts %q",
-			gotContent, gotThoughts)
+	for range thoughts {
+		t.Error("a client with no thought streaming produced thoughts")
+	}
+	gotContent, res := types.CollectStream(context.Background(), content, done, nil)
+	if gotContent != "" {
+		t.Errorf("a client with no thought streaming produced content %q", gotContent)
+	}
+	if !errors.Is(res.Err, ErrNoUnderlying) {
+		t.Errorf("terminal = %v, want ErrNoUnderlying", res.Err)
 	}
 }
 
