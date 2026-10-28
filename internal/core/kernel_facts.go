@@ -817,6 +817,14 @@ func (k *RealKernel) compactFactsLocked(keep func(Fact) bool) (removed int) {
 	for _, f := range k.facts {
 		if !keep(f) {
 			removed++
+			// The dedupe index follows the removal fact by fact: k.facts
+			// holds no two canonically equal facts (every write goes through
+			// the index), so the removed fact's key is free. Rebuilding the
+			// whole index after each retract re-canonicalized every
+			// remaining fact (7.9 s of one 52 s turn, measured 2026-10-27).
+			if k.factIndex != nil {
+				delete(k.factIndex, k.canonFact(f))
+			}
 			continue
 		}
 		k.facts[newLen] = f
@@ -832,14 +840,12 @@ func (k *RealKernel) compactFactsLocked(keep func(Fact) bool) (removed int) {
 	return removed
 }
 
-// filterFactsLocked compacts the EDB by keep and rebuilds the dedupe index.
-// The atom cache is deliberately NOT maintained here: every retract path
-// funnels through rebuild(), which invalidates it. Call only while holding k.mu.
+// filterFactsLocked compacts the EDB by keep; compactFactsLocked keeps the
+// dedupe index in step. The atom cache is deliberately NOT maintained here:
+// every retract path funnels through rebuild(), which invalidates it. Call
+// only while holding k.mu.
 func (k *RealKernel) filterFactsLocked(keep func(Fact) bool) (removed int) {
-	if removed = k.compactFactsLocked(keep); removed > 0 {
-		k.rebuildFactIndexLocked()
-	}
-	return removed
+	return k.compactFactsLocked(keep)
 }
 
 // Retract removes all facts of a given predicate.

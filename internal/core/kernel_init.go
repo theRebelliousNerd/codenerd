@@ -60,10 +60,19 @@ func newRealKernelBase() *RealKernel {
 // first evaluation. QUIESCENT BOOT: ephemeral facts are filtered to prevent
 // stale actions at boot.
 func (k *RealKernel) injectBootFacts() {
-	if len(k.bootFacts) > 0 {
-		k.facts = append(k.facts, filterBootFacts(k.bootFacts)...)
-	}
+	// Boot facts join the EDB through the dedupe index like every other
+	// write, so k.facts never holds two canonically equal facts. Retraction
+	// relies on that: it drops a removed fact's key from the index instead of
+	// rebuilding the index over every remaining fact.
 	k.rebuildFactIndexLocked()
+	for _, f := range filterBootFacts(k.bootFacts) {
+		key := k.canonFact(f)
+		if _, dup := k.factIndex[key]; dup {
+			continue
+		}
+		k.factIndex[key] = struct{}{}
+		k.facts = append(k.facts, f)
+	}
 }
 
 // NewRealKernel creates a new kernel instance.

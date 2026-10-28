@@ -149,10 +149,9 @@ func (tx *KernelTransaction) Commit() error {
 		}
 	}
 
-	// Rebuild index once after all retracts
+	// The dedupe index followed each removal (compactFactsLocked).
 	if mutated {
 		k.cachedAtoms = nil // Invalidate atom cache
-		k.rebuildFactIndexLocked()
 	}
 
 	// Phase 5: Asserts. Rejections are collected, not swallowed: the good

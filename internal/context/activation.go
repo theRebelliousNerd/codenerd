@@ -536,13 +536,35 @@ func factKey(f core.Fact) string {
 
 // sortScoredFactsDesc orders scored facts by score descending, breaking ties
 // on the fact string so repeated scores of the same set come out identical.
+//
+// Each fact's string is rendered once, not inside the comparator: rendering
+// both sides of every comparison built about 2·n·log n strings per scoring
+// pass, the bulk of GetHighActivationFacts on a large kernel (up to 7 s per
+// call measured 2026-10-27). The order is the same.
 func sortScoredFactsDesc(scored []ScoredFact) {
-	sort.SliceStable(scored, func(i, j int) bool {
-		if scored[i].Score != scored[j].Score {
-			return scored[i].Score > scored[j].Score
-		}
-		return scored[i].Fact.String() < scored[j].Fact.String()
-	})
+	keys := make([]string, len(scored))
+	for i := range scored {
+		keys[i] = scored[i].Fact.String()
+	}
+	sort.Stable(scoredByScoreThenKey{scored: scored, keys: keys})
+}
+
+// scoredByScoreThenKey sorts scored facts and their precomputed keys together.
+type scoredByScoreThenKey struct {
+	scored []ScoredFact
+	keys   []string
+}
+
+func (s scoredByScoreThenKey) Len() int { return len(s.scored) }
+func (s scoredByScoreThenKey) Less(i, j int) bool {
+	if s.scored[i].Score != s.scored[j].Score {
+		return s.scored[i].Score > s.scored[j].Score
+	}
+	return s.keys[i] < s.keys[j]
+}
+func (s scoredByScoreThenKey) Swap(i, j int) {
+	s.scored[i], s.scored[j] = s.scored[j], s.scored[i]
+	s.keys[i], s.keys[j] = s.keys[j], s.keys[i]
 }
 
 // extractPredicate extracts the predicate name from a fact key.
