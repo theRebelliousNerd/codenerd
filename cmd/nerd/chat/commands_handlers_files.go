@@ -11,6 +11,7 @@ import (
 
 	"codenerd/internal/config"
 	nerdinit "codenerd/internal/init"
+	"codenerd/internal/logging"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -118,21 +119,37 @@ func (m Model) handleCmdModel(input string, parts []string) (tea.Model, tea.Cmd)
 	return m, nil
 }
 
-// handleCmdNewSession handles the corresponding chat slash-command.
+// handleCmdNewSession starts a session with a fresh id. The outgoing session
+// is saved first, its conversation detached, and the compressor reset to
+// the new session, so starting fresh is fresh (session_owner.go).
 func (m Model) handleCmdNewSession(input string, parts []string) (tea.Model, tea.Cmd) {
-	// Start a completely new session with fresh ID
+	previous := m.sessionID
+	saved := "Previous session `" + previous + "` saved."
+	if err := m.saveSessionState(); err != nil {
+		saved = fmt.Sprintf("Previous session `%s` could not be saved: %v", previous, err)
+	} else if previous == "" || m.workspace == "" {
+		saved = "There was no previous session to save."
+	}
+	m = m.detachConversation()
 	m.history = []Message{}
 	m.sessionID = fmt.Sprintf("sess_%d", time.Now().UnixNano())
+	m.selected.set(m.sessionID)
 	m.turnCount = 0
+	if m.shardMgr != nil {
+		m.shardMgr.SetSessionID(m.sessionID)
+	}
+	m.hydrateCompressorForSession(m.sessionID)
 	m = m.addMessage(Message{
 		Role:    "assistant",
-		Content: fmt.Sprintf("Started new session: `%s`\n\nPrevious history saved.", m.sessionID),
+		Content: fmt.Sprintf("Started new session: `%s`\n\n%s", m.sessionID, saved),
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
 	m.textarea.Reset()
-	m.saveSessionState()
+	if err := m.saveSessionState(); err != nil {
+		logging.Get(logging.CategorySession).Error("new session %s: save: %v", m.sessionID, err)
+	}
 	return m, nil
 }
 

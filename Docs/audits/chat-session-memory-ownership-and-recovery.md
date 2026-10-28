@@ -1,7 +1,7 @@
 ---
 doc-class: deep-dive
 subsystem: chat-session-context-store
-implementation-status: planned
+implementation-status: partially-implemented (see As-built status)
 last-verified: 2026-10-28
 verified-against: c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c
 verification-method: static-source-inspection
@@ -211,3 +211,36 @@ Start with the sequential `/new-session` witness and an owner check at storage/h
 [dynamic-hydrate]: https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/core/virtual_store_predicates.go#L673-L760
 [dynamic-caller]: https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/cmd/nerd/chat/process.go#L790-L800
 [reuse-intent]: https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/cmd/nerd/chat/process.go#L168-L201
+
+## As-built status
+
+Verified and built 2026-10-28 on `main` after `c28a1212`. The session commands, hydration and deferred save were unchanged from the audited pins.
+
+### Claim ledger
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| M1: `/new-session` keeps the compressor; its first save stores A's memory under B | Real, fixed | `/new-session` saves A synchronously, detaches A's conversation, resets the compressor to B (`cmd/nerd/chat/commands_handlers_files.go:125`); `saveSessionState` refuses to store a compressor holding another session's memory (`session_persistence.go:95`) |
+| M1: "Previous history saved" is claimed without saving | Real, fixed | The notice reports the synchronous save's result; `saveSessionState` now returns the state and history write errors (`session_persistence.go:34`) |
+| M1: `LoadState` adopts the embedded session id without comparing it | Real, fixed at hydration | `hydrateCompressorForSession` refuses a row whose embedded id is another session's (`session_persistence.go:155`) |
+| M2: loading B keeps A's `session_note`, brief and held proposal; `/go` can approve A's work in B | Real, fixed | `detachConversation` retracts `session_note` and the brief predicates in one transaction and clears held work and shard results (`session_owner.go`); called on load (`session_persistence.go:240`) and new session |
+| M2: `HotFacts` restore is additive and not key-level supersession | Confirmed; contained by the detach (the outgoing notes are gone before the load), not changed in `LoadState` |
+| M3: a deferred save reads the live compressor and can store B's memory under A | Real, fixed | Owner check on store; a save for a session that is no longer open writes nothing (`selectedSession`, `session_persistence.go:39`) |
+| M3: an older deferred save of A can overwrite the switch's newer save of A, and rewrite `session.json` | Real, fixed for the cross-session case by the same skip | `TestDeferredSave_AfterTheSwitchWritesNothing` |
+| M3: same-session older-after-newer saves; non-atomic JSON; no generation manifest | Confirmed, left open |
+| Fresh boot does not auto-resume | Confirmed, intended; boot records the open session (`model_update.go`) |
+
+### What was built
+
+- Rulings: (1) conversational facts are detached on every session transition, not partitioned by a session argument (`session_note/2` keeps its schema); the selected session's compressed `HotFacts` restore its own. (2) The open session is a shared `selectedSession` set at boot, load and new session; a deferred save for any other id is stale. (3) A refused or missing compressed row leaves an empty compressor for the session, not another's memory.
+- `cmd/nerd/chat/session_owner.go`, `session_persistence.go`, `commands_handlers_files.go`, `model_update.go`, `session.go`, `model_types.go`; spec `Docs/architecture/cli/03-GAP-ANALYSIS.md` `GAP-CLI-SESSION-OWNERSHIP`.
+
+### Tests
+
+`cmd/nerd/chat/session_owner_test.go`: `/new-session` from a session with compressed memory, a brief, a note and held work starts with none of them, owns its compressor and saved A first; loading B detaches A; a row under B holding A's memory is refused; a save deferred under A that runs after the switch neither regresses A's history nor stores B's memory under A.
+
+### Left open
+
+- Per-session generation fencing for saves of the same session, atomic multi-store checkpoints, and schema/frontier validation of compressed rows beyond the owner check.
+- Notes detached on a switch come back on return only if A's compressed `HotFacts` carried them; a durable per-session note store was not built.
+- The turn queue and running side turns are not session-scoped (see the side-turn and background audits).

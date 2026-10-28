@@ -14,6 +14,7 @@ import (
 	// "codenerd/internal/shards/tool_generator"
 
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,10 +27,18 @@ import (
 
 // saveSessionState saves the current session state and history.
 // Implements dual persistence: JSON files + SQLite for redundancy and queryability.
-func (m *Model) saveSessionState() {
+// It returns the failures of the session-state and history writes; the
+// compression and SQLite projections are best-effort and logged. A save for
+// a session that is no longer open (a deferred save that ran after a
+// switch) writes nothing (session_owner.go).
+func (m *Model) saveSessionState() error {
 	if m.workspace == "" || m.sessionID == "" {
 		logging.Session("saveSessionState: early return - workspace=%q, sessionID=%q", m.workspace, m.sessionID)
-		return
+		return nil
+	}
+	if !m.selected.open(m.sessionID) {
+		logging.Session("saveSessionState: session %s is no longer open; this deferred save is skipped", m.sessionID)
+		return nil
 	}
 
 	// Always persist session state/history for observability and continuity.
@@ -37,7 +46,7 @@ func (m *Model) saveSessionState() {
 	nerdDir := filepath.Join(m.workspace, ".nerd")
 	if err := os.MkdirAll(nerdDir, 0755); err != nil {
 		logging.Get(logging.CategorySession).Error("saveSessionState: failed to create .nerd directory: %v", err)
-		return
+		return err
 	}
 
 	logging.Session("saveSessionState: saving session %s with %d messages, turnCount=%d", m.sessionID, len(m.history), m.turnCount)
@@ -57,8 +66,9 @@ func (m *Model) saveSessionState() {
 	}
 
 	// Save session state (JSON)
-	if err := session.SaveSessionState(m.workspace, state); err != nil {
-		logging.Get(logging.CategorySession).Error("Failed to save session state: %v", err)
+	stateErr := session.SaveSessionState(m.workspace, state)
+	if stateErr != nil {
+		logging.Get(logging.CategorySession).Error("Failed to save session state: %v", stateErr)
 	}
 
 	// Convert and save conversation history (JSON)
@@ -70,8 +80,9 @@ func (m *Model) saveSessionState() {
 			Time:    msg.Time,
 		}
 	}
-	if err := session.SaveSessionHistory(m.workspace, m.sessionID, messages); err != nil {
-		logging.Get(logging.CategorySession).Error("Failed to save session history: %v", err)
+	historyErr := session.SaveSessionHistory(m.workspace, m.sessionID, messages)
+	if historyErr != nil {
+		logging.Get(logging.CategorySession).Error("Failed to save session history: %v", historyErr)
 	} else {
 		logging.Session("Successfully saved %d messages to %s.json", len(messages), m.sessionID)
 	}
@@ -81,7 +92,12 @@ func (m *Model) saveSessionState() {
 	// after restart is going to read stale state.
 	if m.localDB != nil && m.compressor != nil {
 		state := m.compressor.GetState()
-		if state != nil {
+		if state != nil && state.SessionID != m.sessionID {
+			// The compressor holds another session's memory; storing it under
+			// this id would hand that memory to this session on its next load.
+			logging.Get(logging.CategorySession).Warn(
+				"StoreCompressedState: compressor holds session %q, not %q; not stored", state.SessionID, m.sessionID)
+		} else if state != nil {
 			data, marshalErr := ctxcompress.MarshalCompressedState(state)
 			if marshalErr != nil {
 				logging.Get(logging.CategorySession).Warn(
@@ -102,6 +118,7 @@ func (m *Model) saveSessionState() {
 	if m.localDB != nil {
 		m.syncSessionToSQLite()
 	}
+	return errors.Join(stateErr, historyErr)
 }
 
 // hydrateCompressorForSession resets and rehydrates the semantic compressor state for a session.
@@ -132,6 +149,14 @@ func (m *Model) hydrateCompressorForSession(sessionID string) {
 		logging.Session("hydrateCompressorForSession: failed to parse compressed state: %v", err)
 		return
 	}
+	// A row stored under this session but holding another's memory is not
+	// this session's memory: it is refused, and the session starts with an
+	// empty compressor rather than another conversation's summary.
+	if state.SessionID != "" && state.SessionID != sessionID {
+		logging.Get(logging.CategorySession).Warn("hydrateCompressorForSession: the state stored for %s belongs to %s; not loaded", sessionID, state.SessionID)
+		return
+	}
+	state.SessionID = sessionID
 
 	if err := m.compressor.LoadState(state); err != nil {
 		logging.Session("hydrateCompressorForSession: failed to load compressed state: %v", err)
@@ -192,7 +217,9 @@ func sessionTurns(history []Message) []sessionTurn {
 // Saves the current session first, then loads the selected session's history.
 func (m Model) loadSelectedSession(sessionID string) (tea.Model, tea.Cmd) {
 	// Save current session before switching
-	m.saveSessionState()
+	if err := m.saveSessionState(); err != nil {
+		logging.Get(logging.CategorySession).Error("loadSelectedSession: saving %s before the switch: %v", m.sessionID, err)
+	}
 
 	// Load the selected session's history
 	history, err := session.LoadSessionHistory(m.workspace, sessionID)
@@ -208,8 +235,11 @@ func (m Model) loadSelectedSession(sessionID string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Switch to the selected session
+	// Switch to the selected session: the outgoing conversation's facts
+	// leave the kernel before the selected one's memory is loaded.
+	m = m.detachConversation()
 	m.sessionID = sessionID
+	m.selected.set(sessionID)
 	m.history = make([]Message, len(history.Messages))
 	for i, msg := range history.Messages {
 		m.history[i] = Message{

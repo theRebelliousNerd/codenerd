@@ -206,6 +206,7 @@ func InitChat(cfg Config) Model {
 		jev:                 jev,
 		background:          newBackgroundJobs(),
 		turn:                newTurnState(),
+		selected:            &selectedSession{},
 		apiKeyFlag:          cfg.APIKey,
 		selfDebug:           newSelfDebugWatcher(),
 		// Mouse capture enabled by default (Alt+M to toggle for text selection)

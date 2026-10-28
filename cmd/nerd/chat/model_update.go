@@ -828,6 +828,7 @@ func (m Model) handleBootCompleteMsg(msg bootCompleteMsg) (tea.Model, tea.Cmd) {
 		if m.sessionID == "" {
 			m.sessionID = resolveSessionID(nil)
 		}
+		m.selected.set(m.sessionID)
 		if m.shardMgr != nil {
 			m.shardMgr.SetSessionID(m.sessionID)
 		}

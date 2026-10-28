@@ -58,6 +58,14 @@ Perception renders no compressed history, so it receives the whole conversation 
 |---|---|---|---|---|---|---|---|
 | GAP-CLI-HISTORY-HANDOFF | Conversation history coverage at compression | `processInput` passes all of `m.history` to perception; `articulationHistoryView` builds the articulation block or the coverage statement (`cmd/nerd/chat/process.go`, `cmd/nerd/chat/history_view.go`). Turns answered on the perception fast path or delegated are still not fed to the compressor. | Required contract above | P2 | Implemented for H1/H2; H3 (route-independent recording) open | Compressor feed in `processInput` | `TestPerception_GetsTheWholeConversationOnceCompressionIsActive` (20 of 20 prior messages reach perception with an active compressor); `TestArticulationHistoryView_AFailedBuildIsStatedNotSilent`. |
 
+## Required contract: Session ownership of conversation memory
+
+A session owns its transcript, its compressed memory, and the conversational facts the kernel holds for it (brief, `session_note`, held proposal, shard results for follow-ups). Selecting a session (`/new-session`, load, boot) saves the outgoing one synchronously, detaches its conversational facts in one transaction, resets the compressor to the selected id, and records the open session. A compressed row whose embedded session id differs from the requested one is refused; a compressor holding another session's memory is not stored under this id; a deferred save for a session no longer open writes nothing.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-CLI-SESSION-OWNERSHIP | Session ownership of conversation memory | `selectedSession`, `detachConversation` (`cmd/nerd/chat/session_owner.go`); owner checks in `saveSessionState` and `hydrateCompressorForSession` (`session_persistence.go`); `/new-session` (`commands_handlers_files.go`). Same-session save generations are not fenced; JSON writes are not atomic across the three stores. | Required contract above | P1 | Implemented for M1, M2 and the cross-session part of M3 | Existing compressor and store | `cmd/nerd/chat/session_owner_test.go`: `/new-session` resets the compressor and detaches brief, note and held work after saving A; loading B detaches A; a row under B holding A's memory is refused; a save deferred under A that runs after the switch leaves A's newer history and does not store B's memory under A. |
+
 ## Required contract: Chat information read containment
 
 The legacy /fs_read information-gathering action must enforce the same canonical workspace containment as typed read_file, rejecting traversal, outside absolute paths and symlink escapes before reading or asserting file_content. In-root reads remain supported.

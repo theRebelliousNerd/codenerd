@@ -309,6 +309,9 @@ type Model struct {
 	background *backgroundJobs
 	// turn is the in-flight turn (side_turn.go), shared across Model copies.
 	turn *turnState
+	// selected is the session the chat has open (session_owner.go), shared
+	// across Model copies so a deferred save can tell its session was left.
+	selected *selectedSession
 	// jev asks the turn's typed judgments (jev_turn.go); nil when the
 	// typesafe config section is absent.
 	jev                   turnjudge.Asker
