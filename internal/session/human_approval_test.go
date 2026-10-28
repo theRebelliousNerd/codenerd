@@ -308,3 +308,25 @@ func TestHumanApproval_ForgedFactDoesNotAdmit(t *testing.T) {
 		t.Fatal("deleted on a forged approval")
 	}
 }
+
+// Yolo is the operator's standing go-ahead: an approvable denial runs without
+// asking anyone, even headless, and the journal names codeNERD, not a person.
+func TestHumanApproval_YoloApprovesWithoutAPerson(t *testing.T) {
+	rig := newApprovalRig(t, time.Minute)
+	rig.host.Detach()
+	if err := rig.kernel.Assert(core.Fact{Predicate: "yolo_mode"}); err != nil {
+		t.Fatal(err)
+	}
+	path := rig.file(t, "scratch.md", "x\n")
+	if _, err := rig.exec.executeToolCall(context.Background(), deleteCall("y1", "scratch.md"), validCapabilityTestConfig("delete_file")); err != nil {
+		t.Fatalf("yolo did not run an approvable delete: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("the yolo-approved delete did not run")
+	}
+	reqs := rig.broker.Snapshot()
+	if len(reqs) != 1 || reqs[0].Decision == nil || reqs[0].Decision.Actor != approval.AutonomyActor {
+		t.Fatalf("journal = %+v; want one request decided by %q", reqs, approval.AutonomyActor)
+	}
+	rig.requireNoAuthorityLeft(t)
+}

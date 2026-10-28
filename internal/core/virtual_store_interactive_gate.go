@@ -231,6 +231,42 @@ func (v *VirtualStore) preflightFile(ctx context.Context, actionID, path string,
 	return v.dreamGate(ctx, actionID, "edit_file", ActionEditFile, payload)
 }
 
+// approvalLiftsDream reports whether an approval of this exact pending action
+// lifts the Dreamer's block: every panic reason must be liftable
+// (dream_reason_liftable, dreamer.mg) and a human_approval_granted row must
+// name this action. A failed or refused simulation has no panic reasons and is
+// never lifted.
+func (v *VirtualStore) approvalLiftsDream(actionID string, res DreamResult) bool {
+	if v == nil || v.kernel == nil || len(res.PanicReasons) == 0 {
+		return false
+	}
+	liftable, err := v.kernel.Query("dream_reason_liftable")
+	if err != nil {
+		return false
+	}
+	ok := map[string]bool{}
+	for _, f := range liftable {
+		if len(f.Args) == 1 {
+			ok[types.ExtractString(f.Args[0])] = true
+		}
+	}
+	for _, r := range res.PanicReasons {
+		if !ok[r] {
+			return false
+		}
+	}
+	grants, err := v.kernel.Query("human_approval_granted")
+	if err != nil {
+		return false
+	}
+	for _, g := range grants {
+		if len(g.Args) > 0 && types.ExtractString(g.Args[0]) == actionID {
+			return true
+		}
+	}
+	return false
+}
+
 // dreamGate is the speculative gate for one target: fail closed without a
 // Dreamer, block what it simulates as unsafe.
 func (v *VirtualStore) dreamGate(ctx context.Context, actionID, toolName string, at ActionType, args map[string]any) error {
@@ -245,6 +281,16 @@ func (v *VirtualStore) dreamGate(ctx context.Context, actionID, toolName string,
 	}
 
 	dreamResult := dreamer.SimulateAction(ctx, req)
+	if dreamResult.Unsafe && v.approvalLiftsDream(actionID, dreamResult) {
+		logging.Get(logging.CategoryVirtualStore).Warn(
+			"Dreamer flagged %s on %s (%s); the approval of this exact request lifts it",
+			toolName, req.Target, dreamResult.Reason)
+		v.injectFact(Fact{
+			Predicate: "dream_block_lifted",
+			Args:      []any{actionID, string(at), req.Target, dreamResult.Reason},
+		})
+		return nil
+	}
 	if dreamResult.Unsafe {
 		logging.Get(logging.CategoryVirtualStore).Warn(
 			"Dreamer BLOCKED interactive tool: %s on %s (reason: %s)",

@@ -26,8 +26,18 @@ Decl dream_block(ActionID, Reason) bound [/string, /string].
 # dream_blocked_action(DreamActionID, ActionType, Target, Reason) - Audit: RouteAction blocked by Dreamer gate
 Decl dream_blocked_action(DreamActionID, ActionType, Target, Reason) bound [/string, /string, /string, /string].
 
+# dream_block_lifted(ActionID, ActionType, Target, Reasons) - the Dreamer
+# flagged the action and the approval of that exact request lifted it
+# (VirtualStore.dreamGate). Host-asserted audit.
+Decl dream_block_lifted(ActionID, ActionType, Target, Reasons) bound [/string, /string, /string, /string].
+
 # critical_file(Path) - Enumerates files whose deletion is catastrophic
 Decl critical_file(Path) bound [/string].
+
+# dream_reason_liftable(Reason) - a panic reason that exists to put a human's
+# eyes on the action, so an approval of that exact request lifts it. A reason
+# not listed here (critical_file_missing, dangerous_exec, ...) is never lifted.
+Decl dream_reason_liftable(Reason) bound [/string].
 
 # critical_path_prefix(Prefix) - Paths that should never be removed recursively
 Decl critical_path_prefix(Prefix) bound [/string].

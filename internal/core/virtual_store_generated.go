@@ -159,7 +159,7 @@ func (v *VirtualStore) preflightGenerated(ctx context.Context, request types.Gen
 	if isDangerousCommand(request.Target) {
 		projected = append(projected, Fact{Predicate: "projected_fact", Args: []any{request.AuthorizationID, MangleAtom("/exec_danger"), request.Target}})
 	}
-	if unsafe, reason := dreamer.evaluateProjection(kernel, request.AuthorizationID, projected); unsafe {
+	if unsafe, reason, _ := dreamer.evaluateProjection(kernel, request.AuthorizationID, projected); unsafe {
 		return fmt.Errorf("generated Dreamer refusal: %s", reason)
 	}
 	return ctx.Err()

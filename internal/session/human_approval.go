@@ -286,7 +286,8 @@ func (e *Executor) awaitHumanApproval(ctx context.Context, call ToolCall, cfg *c
 	broker := e.approvalBroker()
 	action := gateAction(call.Name)
 	target := e.extractTarget(call.Args)
-	if !broker.HostAttached() {
+	yolo := e.yoloMode()
+	if !yolo && !broker.HostAttached() {
 		return nil, fmt.Errorf("tool call blocked by safety gate: action %s target %s denied (%s); a person may approve this exact request, but no approval host is attached to this run — do not retry the same call; ask the user to perform it or to run interactively", call.Name, target, denial)
 	}
 	keep := broker.PreviewMaxBytes()
@@ -299,8 +300,17 @@ func (e *Executor) awaitHumanApproval(ctx context.Context, call ToolCall, cfg *c
 		return nil, fmt.Errorf("tool call blocked by safety gate: approval preview for %s failed: %w", call.Name, err)
 	}
 	intent := "exec-" + call.ID
-	logging.Get(logging.CategorySession).Info("Awaiting human approval for %s %s", call.Name, target)
-	grant, req, err := broker.Await(ctx, intent, subject, preview)
+	var grant *approval.Grant
+	var req approval.Request
+	if yolo {
+		// The operator's standing instruction: nobody is asked. The approval
+		// is journaled as codeNERD's own, never as a person's.
+		logging.Get(logging.CategorySession).Info("Yolo approves %s %s (denied for: %s)", call.Name, target, denial)
+		grant, req, err = broker.AutoApprove(intent, subject, preview, "yolo: "+denial)
+	} else {
+		logging.Get(logging.CategorySession).Info("Awaiting human approval for %s %s", call.Name, target)
+		grant, req, err = broker.Await(ctx, intent, subject, preview)
+	}
 	if err != nil {
 		if errors.Is(err, approval.ErrRejected) {
 			e.assertSecurityViolation(types.MangleAtom(action), "human rejected approval request "+req.ID)
@@ -331,4 +341,14 @@ func (e *Executor) humanApprovalFact(actionID string, actionAtom types.MangleAto
 		Predicate: humanApprovalPredicate,
 		Args:      []any{actionID, actionAtom, target, payload, approved.grant.Digest()},
 	}, nil
+}
+
+// yoloMode reports whether the operator's yolo autonomy is on: yolo_mode(),
+// asserted by the host from config, --yolo or /yolo (schemas_intent.mg).
+func (e *Executor) yoloMode() bool {
+	if e == nil || e.kernel == nil {
+		return false
+	}
+	rows, err := e.kernel.Query("yolo_mode")
+	return err == nil && len(rows) > 0
 }
