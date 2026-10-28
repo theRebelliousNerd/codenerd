@@ -154,6 +154,9 @@ type elementEdit struct {
 	before *codemodel.File
 	out    *codemodel.Outcome
 	refs   map[string]string
+	// reads are what the edit relied on beyond its own file's bytes,
+	// re-established at commit (a delete's empty use set).
+	reads []readDependency
 }
 
 // parsedTarget loads the file at path and resolves ref within it.
@@ -216,7 +219,7 @@ func (ee *elementEdit) commit(ctx context.Context, verb string) (string, error) 
 	if info, err := os.Stat(ee.lf.abs); err == nil {
 		mode = info.Mode().Perm()
 	}
-	if err := commitFiles(ctx, []plannedWrite{{abs: ee.lf.abs, rel: ee.lf.rel, orig: ee.lf.data, data: data, mode: mode}}); err != nil {
+	if err := commitFiles(ctx, []plannedWrite{{abs: ee.lf.abs, rel: ee.lf.rel, orig: ee.lf.data, data: data, mode: mode}}, ee.reads...); err != nil {
 		return "", err
 	}
 	tools.RecordEdit(ctx, editedElements(ee.lf.rel, ee.before, ee.out)...)
@@ -556,9 +559,12 @@ func executeDeleteElement(ctx context.Context, args map[string]any) (string, err
 	}
 	ref = RefOf(re.file.rel, re.elem, re.refs)
 
-	uses, err := usesOutside(ctx, re)
+	uses, obs, err := usesOutside(ctx, re)
 	if err != nil {
 		return "", err
+	}
+	if !obs.Complete() {
+		return "", unresolvedUses("delete", ref, len(uses), obs)
 	}
 	if len(uses) > 0 && strings.TrimSpace(replaceWith) == "" {
 		return "", fmt.Errorf("refusing to delete %s: %d uses remain outside it --\n%s\nRewrite them first, or call again with replace_with (what they should point at) and paths (their files)", ref, len(uses), renderUses(uses))
@@ -570,30 +576,37 @@ func executeDeleteElement(ctx context.Context, args map[string]any) (string, err
 	if err != nil {
 		return "", err
 	}
+	// No use was found; that must still hold when the delete is written.
+	ee.reads = append(ee.reads, usesUnchanged(ref, uses, func(ctx context.Context) ([]StructureUse, Observation, error) {
+		return usesOutside(ctx, re)
+	}))
 	return ee.commit(ctx, "delete_element")
 }
 
 // usesOutside lists the uses of an element's name outside the element, from
-// the index. A syntax_error region has no name to be used.
-func usesOutside(ctx context.Context, re *resolvedElement) ([]StructureUse, error) {
+// the index, with the observation they come from: an empty list with an
+// incomplete observation is not "unused". A syntax_error region has no name
+// to be used.
+func usesOutside(ctx context.Context, re *resolvedElement) ([]StructureUse, Observation, error) {
 	if re.elem.Kind == codemodel.KindSyntaxError || re.elem.Name == "_" || re.elem.Name == "init" {
-		return nil, nil
+		return nil, Observation{}, nil
 	}
 	// Uses is the Go and Mangle scan. A script name is resolved from the
 	// bindings the element model already computed, which is what keeps a
 	// same-named local out of the list.
 	if codemodel.IsScriptLang(re.model.Language) {
-		return scriptUsesOutside(ctx, re)
+		uses, err := scriptUsesOutside(ctx, re)
+		return uses, Observation{}, err
 	}
 	provider := optionalStructureProvider()
 	if provider == nil {
-		return nil, fmt.Errorf("delete_element needs the structure index to check for remaining uses, and none is registered in this process")
+		return nil, Observation{}, fmt.Errorf("delete_element needs the structure index to check for remaining uses, and none is registered in this process")
 	}
-	_, uses, _, err := provider.Uses(ctx, RefOf(re.file.rel, re.elem, re.refs))
+	_, uses, obs, err := provider.Uses(ctx, RefOf(re.file.rel, re.elem, re.refs))
 	if err != nil {
-		return nil, err
+		return nil, Observation{}, err
 	}
-	return uses, nil
+	return uses, obs, nil
 }
 
 func renderUses(uses []StructureUse) string {

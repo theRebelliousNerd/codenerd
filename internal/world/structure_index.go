@@ -5,20 +5,14 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
-	"codenerd/internal/logging"
-	"codenerd/internal/tools"
 	"codenerd/internal/types"
-	"codenerd/internal/workspace"
 	"codenerd/internal/world/codemodel"
 )
 
@@ -127,252 +121,22 @@ type structFile struct {
 type StructureIndex struct {
 	root string
 
-	mu          sync.Mutex
-	files       map[string]*structFile // canonical path -> parsed file
-	module      string
-	moduleFP    string
-	lastRefresh time.Time
-	lastParsed  int
+	mu       sync.Mutex
+	files    map[string]*structFile // canonical path -> parsed file
+	module   string
+	moduleFP string
+	// generation moves whenever a refresh changes what a query can answer:
+	// a reparse, a removal, the module path, or the observation deficits.
+	// Pagination and edit read sets compare it; it never moves backwards.
+	generation uint64
+	// deficits are what the last refresh could not observe. The entries they
+	// cover are kept as they were last observed, never deleted for it.
+	deficits []StructDeficit
 }
 
 // NewStructureIndex creates an empty index; the first query fills it.
 func NewStructureIndex(root string) *StructureIndex {
 	return &StructureIndex{root: root, files: make(map[string]*structFile)}
-}
-
-// StructureStats describes the index after a refresh.
-type StructureStats struct {
-	Files        int           `json:"files"`
-	Symbols      int           `json:"symbols"`
-	Calls        int           `json:"calls"`
-	Reparsed     int           `json:"reparsed"`
-	Broken       int           `json:"broken"`
-	RefreshTook  time.Duration `json:"-"`
-	RefreshTookS string        `json:"refresh_took"`
-}
-
-// Line renders the stats as the footer every structural answer carries.
-func (s StructureStats) Line() string {
-	line := fmt.Sprintf("%d files, %d declarations, %d call sites; %d reparsed for this answer (%s)",
-		s.Files, s.Symbols, s.Calls, s.Reparsed, s.RefreshTookS)
-	if s.Broken > 0 {
-		line += fmt.Sprintf("; %d files do not parse (get_elements shows their errors)", s.Broken)
-	}
-	return line
-}
-
-// Refresh brings the index up to date with the tree. Caller holds no lock.
-func (s *StructureIndex) Refresh(ctx context.Context) (StructureStats, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.refreshLocked(ctx)
-}
-
-func (s *StructureIndex) refreshLocked(ctx context.Context) (StructureStats, error) {
-	started := time.Now()
-	type candidate struct{ fsPath, modelPath, canonical, sourcePath, fingerprint string }
-	var stale []candidate
-	seen := make(map[string]struct{}, len(s.files))
-	fingerprintUpdates := make(map[string]string)
-	var generations dirGenSnapshot
-	now := time.Now().UnixNano()
-
-	mem, err := workspace.For(s.root)
-	if err != nil {
-		return StructureStats{}, err
-	}
-	if err := mem.Refresh(); err != nil {
-		return StructureStats{}, err
-	}
-
-	err = filepath.WalkDir(s.root, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return nil // an unreadable directory is skipped, not fatal
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		name := d.Name()
-		member, admErr := mem.Admit(path, d.IsDir())
-		if admErr != nil {
-			return admErr
-		}
-		if !member {
-			return nil
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if codemodel.LanguageOf(name) == "" {
-			return nil
-		}
-		canonical := types.CanonicalPath(s.root, path)
-		// A secret file (execution.secret_paths) is never parsed: its
-		// signatures, doc lines and literals would reach the model through
-		// find_symbol, package_outline and find_text as surely as a read.
-		if tools.IsSecretPath(canonical) {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		fsPath := path
-		if info.Mode()&fs.ModeSymlink != 0 {
-			// WalkDir admits the link by its workspace path, but DirEntry.Info
-			// reports link metadata while parsing follows the link. Resolve and
-			// gate the target before reading so the cache stamp describes the
-			// bytes we index without opening a path outside workspace membership.
-			resolved, resolveErr := tools.ResolveWorkspacePath(ctx, s.root, path)
-			if resolveErr != nil {
-				return nil
-			}
-			targetCanonical := types.CanonicalPath(s.root, resolved)
-			if tools.IsSecretPath(targetCanonical) {
-				return nil
-			}
-			targetMember, admitErr := mem.Admit(resolved, false)
-			if admitErr != nil {
-				return admitErr
-			}
-			if !targetMember {
-				return nil
-			}
-			targetInfo, statErr := os.Stat(resolved)
-			if statErr != nil || targetInfo.IsDir() {
-				return nil
-			}
-			fsPath, info = resolved, targetInfo
-		}
-		seen[canonical] = struct{}{}
-		current := stampFromInfo(fsPath, info, generations.of(filepath.Dir(fsPath)))
-		var previous contentStamp
-		prev, exists := s.files[canonical]
-		if exists {
-			previous, _ = parseContentFingerprint(prev.fingerprint)
-			if prev.sourcePath != fsPath {
-				// A link can be retargeted without changing its own metadata.
-				// Do not trust a stamp captured from a different target.
-				previous = contentStamp{}
-			}
-		}
-		hash, changed, hashErr := resolveContent(fsPath, current, previous, now)
-		if hashErr != nil {
-			return fmt.Errorf("structure index content %s: %w", canonical, hashErr)
-		}
-		fp := formatContentFingerprint(current, hash)
-		if exists && !changed {
-			// Metadata-only changes such as a touch need to update the stored
-			// content stamp so a later refresh can take the warm path, but they
-			// do not require reparsing the source.
-			if prev.fingerprint != fp {
-				fingerprintUpdates[canonical] = fp
-			}
-			return nil
-		}
-		stale = append(stale, candidate{fsPath: fsPath, modelPath: path, canonical: canonical, sourcePath: fsPath, fingerprint: fp})
-		return nil
-	})
-	if err != nil {
-		return StructureStats{}, err
-	}
-	for canonical, fingerprint := range fingerprintUpdates {
-		if f, ok := s.files[canonical]; ok {
-			f.fingerprint = fingerprint
-		}
-	}
-	for canonical := range s.files {
-		if _, ok := seen[canonical]; !ok {
-			delete(s.files, canonical)
-		}
-	}
-	s.refreshModuleLocked(&generations, now)
-
-	if len(stale) > 0 {
-		parsed := make([]*structFile, len(stale))
-		workers := max(min(runtime.NumCPU(), 16), 2)
-		sem := make(chan struct{}, workers)
-		var wg sync.WaitGroup
-		for i, c := range stale {
-			wg.Go(func() {
-				sem <- struct{}{}
-				defer func() { <-sem }()
-				parsed[i] = parseStructFile(c.fsPath, c.modelPath, c.canonical, c.fingerprint)
-			})
-		}
-		wg.Wait()
-		for i, c := range stale {
-			next := parsed[i]
-			if next == nil {
-				delete(s.files, c.canonical)
-				continue
-			}
-			next.sourcePath = c.sourcePath
-			if !next.parsed {
-				if prev, ok := s.files[c.canonical]; ok {
-					if prev.parsed {
-						next.lastGood = prev.symbols
-					} else {
-						next.lastGood = prev.lastGood
-					}
-				}
-			}
-			s.files[c.canonical] = next
-		}
-		s.assignRefsLocked()
-	}
-
-	stats := StructureStats{Files: len(s.files), Reparsed: len(stale), RefreshTook: time.Since(started)}
-	for _, f := range s.files {
-		stats.Symbols += len(f.symbols)
-		stats.Calls += len(f.calls)
-		if !f.parsed {
-			stats.Broken++
-		}
-	}
-	stats.RefreshTookS = stats.RefreshTook.Round(time.Millisecond).String()
-	s.lastRefresh, s.lastParsed = time.Now(), len(stale)
-	if len(stale) > 0 {
-		logging.World("structure index refreshed: files=%d symbols=%d calls=%d reparsed=%d broken=%d in %v",
-			stats.Files, stats.Symbols, stats.Calls, stats.Reparsed, stats.Broken, stats.RefreshTook)
-	}
-	return stats, nil
-}
-
-// refreshModuleLocked reads the module path from go.mod when it changed.
-func (s *StructureIndex) refreshModuleLocked(generations *dirGenSnapshot, now int64) {
-	path := filepath.Join(s.root, "go.mod")
-	info, err := os.Stat(path)
-	if err != nil {
-		s.module, s.moduleFP = "", ""
-		return
-	}
-	current := stampFromInfo(path, info, generations.of(filepath.Dir(path)))
-	var previous contentStamp
-	previous, _ = parseContentFingerprint(s.moduleFP)
-	hash, changed, err := resolveContent(path, current, previous, now)
-	if err != nil {
-		// Keep the last known module path when a transient read failure prevents
-		// checking whether go.mod changed.
-		return
-	}
-	fp := formatContentFingerprint(current, hash)
-	if !changed {
-		s.moduleFP = fp
-		return
-	}
-	s.module = ""
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return
-	}
-	s.moduleFP = fp
-	for line := range strings.SplitSeq(string(data), "\n") {
-		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
-			s.module = strings.Trim(strings.TrimSpace(rest), `"`)
-			return
-		}
-	}
 }
 
 // assignRefsLocked gives every symbol its workspace ref. A Go, Python,
@@ -432,11 +196,8 @@ func dirRefPrefix(dir string) string {
 	return dir + "."
 }
 
-func parseStructFile(fsPath, modelPath, canonical, fingerprint string) *structFile {
-	data, err := os.ReadFile(fsPath)
-	if err != nil {
-		return nil
-	}
+// parseStructSource builds one file's entry from the bytes the refresh read.
+func parseStructSource(data []byte, modelPath, canonical, fingerprint string) *structFile {
 	f := &structFile{
 		fingerprint: fingerprint,
 		lang:        codemodel.LanguageOf(canonical),
@@ -727,7 +488,7 @@ func (s *StructureIndex) FindSymbol(ctx context.Context, q SymbolFilter) ([]Stru
 		}
 	}
 	sortSymbols(out)
-	return out, stats, nil
+	return out, stats.scoped(s.target(q.Path)), nil
 }
 
 // scopeLocked returns a predicate over files for a path filter: a file, or a
@@ -769,7 +530,7 @@ func (s *StructureIndex) Outline(ctx context.Context, path string) ([]StructSymb
 		}
 	}
 	sortSymbols(out)
-	return out, stats, nil
+	return out, stats.scoped(target), nil
 }
 
 // Resolve returns the declarations a ref or short name names.

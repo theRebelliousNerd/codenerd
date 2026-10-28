@@ -38,4 +38,6 @@
 
     `callers_of` marks a site `exact` when the package ties it to the target, and `by-name` when it is a method call through a variable: check a by-name site before relying on it.
 
+    A `-- incomplete observation:` footer names paths the index could not see. Rows from them are as last observed, and an empty answer is not an absence: do not conclude "unused" or "no callers" from it, and the edits that remove or move a name refuse on it. Restore access to, or repair, the named files and ask again. A long answer ends with `cursor="..."`: pass it back with the same arguments for the next page. A `stale cursor` error means the workspace changed between pages; restart without a cursor and never merge the earlier pages.
+
     `grep`, `glob`, `list_files` and `search_code` stay in the catalog, but the working loop withholds them from each request until the `working_search_open` gate derives -- after the structural queries above have had their trial, or have shown they have no answer. `read_file` is for files CodeDOM does not parse: prose, configuration, other languages.

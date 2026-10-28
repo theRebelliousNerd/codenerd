@@ -39,12 +39,24 @@ type plannedWrite struct {
 	mode   os.FileMode
 }
 
-// commitFiles writes every planned file or none. Under commitMu it re-checks
-// that each file still holds exactly what was read (a concurrent writer is an
-// optimistic conflict, not something to overwrite), writes in order, and on a
-// failure restores what it wrote -- in reverse, and only files still holding
-// what this commit wrote, so a restore never clobbers someone else's write.
-func commitFiles(ctx context.Context, planned []plannedWrite) error {
+// readDependency is evidence an edit was planned from that its own writes do
+// not cover: the use set a delete found empty, the uses a repoint rewrote,
+// the declaration it points them at. Comparing the planned files' bytes
+// protects against a change after planning; it cannot see a file the plan
+// does not write gaining a use (Docs/audits/structure-coverage-and-refactor-
+// preconditions.md, S3). commitFiles re-establishes each dependency under
+// commitMu, so no other codedom commit interleaves between the check and the
+// writes. A writer outside codedom is not serialized by commitMu: for it the
+// check narrows the window, and the answer never claims atomicity.
+type readDependency func(ctx context.Context) error
+
+// commitFiles writes every planned file or none. Under commitMu it first
+// re-establishes the plan's read dependencies, then re-checks that each file
+// still holds exactly what was read (a concurrent writer is an optimistic
+// conflict, not something to overwrite), writes in order, and on a failure
+// restores what it wrote -- in reverse, and only files still holding what
+// this commit wrote, so a restore never clobbers someone else's write.
+func commitFiles(ctx context.Context, planned []plannedWrite, reads ...readDependency) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -55,6 +67,11 @@ func commitFiles(ctx context.Context, planned []plannedWrite) error {
 	}
 	if commitBeforeHook != nil {
 		commitBeforeHook()
+	}
+	for _, read := range reads {
+		if err := read(ctx); err != nil {
+			return err
+		}
 	}
 	unchanged := func(p plannedWrite) error {
 		if p.create {
