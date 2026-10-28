@@ -76,18 +76,15 @@ func TestMangleRepairShard_BuildRepairPromptWithoutCorpus(t *testing.T) {
 		t.Error("Prompt should mention validation errors")
 	}
 
-	if !strings.Contains(prompt, "MangleSynth JSON object") {
-		t.Error("Prompt should ask for MangleSynth JSON output")
-	}
-
 	// Should list the errors
 	if !strings.Contains(prompt, "undefined predicate") {
 		t.Error("Prompt should include the actual errors")
 	}
 
-	// Should include repair instructions
-	if !strings.Contains(prompt, "Uses only declared predicates") {
-		t.Error("Prompt should include repair instructions")
+	// The instructions are the compiled system prompt's, not the request's
+	// (TestMangleRepairPrompt_IsCompiledFromTheRepairAtoms).
+	if strings.Contains(prompt, "Uses only declared predicates") {
+		t.Error("the repair request repeats the correction atom's instructions")
 	}
 }
 
@@ -189,9 +186,9 @@ func TestMangleRepairShard_FallbackWithoutSelector(t *testing.T) {
 
 	prompt := shard.buildRepairPrompt(rule, errors, nil, "", "")
 
-	// Should still generate a valid prompt with instructions
-	if !strings.Contains(prompt, "MangleSynth JSON object") {
-		t.Error("Prompt should still ask for MangleSynth JSON output even without corpus")
+	// Should still carry the rule and its errors
+	if !strings.Contains(prompt, rule) || !strings.Contains(prompt, "some error") {
+		t.Error("Prompt should carry the rule and its errors even without corpus")
 	}
 
 	// Should not have predicate listings

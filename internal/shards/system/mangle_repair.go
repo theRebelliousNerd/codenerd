@@ -833,17 +833,8 @@ func (m *MangleRepairShard) buildRepairPrompt(rule string, errors []string, corp
 		}
 	}
 
-	sb.WriteString("Please provide a CORRECTED version of this rule that:\n")
-	sb.WriteString("1. Uses only declared predicates\n")
-	sb.WriteString("2. Has all variables properly bound before any negation\n")
-	sb.WriteString("3. Ends with a period (.)\n")
-	sb.WriteString("4. Uses /atom syntax for constants (not \"strings\")\n\n")
-	sb.WriteString("Only include program.clauses (no package/use/decls).\n")
-	sb.WriteString("Output ONLY a MangleSynth JSON object (format mangle_synth_v1).\n")
-	sb.WriteString("If Piggyback Protocol is active, the surface_response field must be the JSON object and nothing else.\n")
-	sb.WriteString("Plain Mangle rules will be rejected; always wrap them in the JSON format.\n")
-	sb.WriteString("No commentary. No markdown.\n")
-
+	// What a corrected rule must satisfy, and the reply contract, are the
+	// system/mangle_repair/correction and output atoms; this is the data.
 	return sb.String()
 }
 

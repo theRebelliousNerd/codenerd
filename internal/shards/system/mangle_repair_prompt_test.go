@@ -102,9 +102,10 @@ func TestMangleRepairPrompt_IsCompiledFromTheRepairAtoms(t *testing.T) {
 
 	got := mock.systemPrompt
 	for _, atom := range []string{
-		"You are the MangleRepair shard.",       // system/mangle_repair/identity
-		"Key Mangle syntax rules:",              // system/mangle_repair/syntax
-		"Output ONLY a MangleSynth JSON object", // system/mangle_repair/output
+		"You are the MangleRepair shard.",                      // system/mangle_repair/identity
+		"Key Mangle syntax rules:",                             // system/mangle_repair/syntax
+		"Output ONLY a MangleSynth JSON object",                // system/mangle_repair/output
+		"Please provide a CORRECTED version of the rule that:", // system/mangle_repair/correction
 	} {
 		if !strings.Contains(got, atom) {
 			t.Errorf("the repair prompt lacks %q:\n%s", atom, got)
@@ -120,5 +121,26 @@ func TestMangleRepairPrompt_IsCompiledFromTheRepairAtoms(t *testing.T) {
 		"repaired(X) :- " + example + ".\n"
 	if _, err := mangle.ParseUnit(strings.NewReader(program)); err != nil {
 		t.Fatalf("the repair prompt's negation example does not parse (%q): %v", example, err)
+	}
+}
+
+// The legislator's compiled prompt carries its task and its reply contract:
+// both were Go text in its request, and the contract atom, filed under
+// protocol, was stripped from its structured-output compile.
+func TestLegislatorPrompt_CarriesItsTaskAndContract(t *testing.T) {
+	got, err := newRepairAssembler(t).AssembleSystemPrompt(context.Background(), &articulation.PromptContext{
+		ShardID:   "legislator",
+		ShardType: "legislator",
+	})
+	if err != nil {
+		t.Fatalf("AssembleSystemPrompt: %v", err)
+	}
+	for _, atom := range []string{
+		"Translate the constraint into a single MangleSynth JSON rule spec.", // system/legislator/task
+		"Output ONLY a MangleSynth JSON object.",                             // system/legislator/output
+	} {
+		if !strings.Contains(got, atom) {
+			t.Errorf("the legislator prompt lacks %q", atom)
+		}
 	}
 }

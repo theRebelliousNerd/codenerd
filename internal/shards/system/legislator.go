@@ -433,19 +433,12 @@ func buildLegislatorSemanticQuery(directive string) string {
 	return "mangle rule " + directive
 }
 
-// buildLegislatorPrompt constructs the user prompt for directive compilation.
-// The feedback loop enhances this with syntax guidance and predicate lists.
+// buildLegislatorPrompt constructs the user prompt for directive compilation:
+// the constraint. The task and reply contract are the system/legislator/task
+// and output atoms. The feedback loop enhances this with syntax guidance and
+// predicate lists.
 func (l *LegislatorShard) buildLegislatorPrompt(directive string) string {
-	var sb strings.Builder
-	sb.WriteString("Translate the constraint into a single MangleSynth JSON rule spec.\n")
-	sb.WriteString("Only include program.clauses (no package/use/decls).\n")
-	sb.WriteString("Use name constants (/atom) for enums; ensure predicates are declared.\n")
-	sb.WriteString("Avoid inventing new predicates outside declared schemas; prefer permitted/next_action/safety rules.\n")
-	sb.WriteString("Return only the JSON object, no commentary.\n")
-	sb.WriteString("If Piggyback Protocol is active, the surface_response field must be the JSON object and nothing else.\n\n")
-	sb.WriteString("Constraint:\n")
-	sb.WriteString(directive)
-	return sb.String()
+	return "Constraint:\n" + directive
 }
 
 // NOTE: Rule extraction from LLM output is now handled by feedback.ExtractRuleFromResponse.

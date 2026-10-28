@@ -65,3 +65,21 @@
     - Ensure all head variables appear in the body
     - Add binding predicates before any negation
     - Preserve the semantic intent of the original rule
+
+# What a corrected rule must satisfy. Until 2026-10-28 this closed every repair
+# request (buildRepairPrompt) in Go; the request now carries only the rule, its
+# errors, diagnostics, the previous attempt and the predicates.
+- id: "system/mangle_repair/correction"
+  category: "system"
+  is_mandatory: true
+  shard_types: ["/mangle_repair"]
+  content: |
+    Please provide a CORRECTED version of the rule that:
+    1. Uses only declared predicates
+    2. Has all variables properly bound before any negation
+    3. Ends with a period (.)
+    4. Uses /atom syntax for constants (not "strings")
+
+    Only include program.clauses (no package/use/decls).
+    Plain Mangle rules will be rejected; always wrap them in the JSON format.
+    No commentary. No markdown.

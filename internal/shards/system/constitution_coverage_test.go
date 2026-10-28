@@ -745,7 +745,7 @@ func TestLegislatorShard_Execute_WhenEmptyDirective_ShouldReturnReady(t *testing
 func TestLegislatorShard_BuildLegislatorPrompt_ShouldContainDirective(t *testing.T) {
 	shard := NewLegislatorShard()
 	prompt := shard.buildLegislatorPrompt("block all network access")
-	if !containsAll(prompt, "MangleSynth JSON", "block all network access") {
+	if !containsAll(prompt, "Constraint:", "block all network access") || containsAll(prompt, "MangleSynth JSON") {
 		t.Errorf("prompt missing expected content: %q", prompt)
 	}
 }

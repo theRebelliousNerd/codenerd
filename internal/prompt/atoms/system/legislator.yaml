@@ -135,8 +135,13 @@
     - WRONG: // This rule permits admin actions\npermitted(X) :- ...
     - CORRECT: permitted(X) :- ... (just the rule, nothing else)
 
+# The legislator's own reply contract. Filed under "system", not "protocol":
+# the legislator is structured-output-only (prompt.IsStructuredOutputOnly), so
+# every protocol-category atom is stripped from its compile, this one included
+# -- until 2026-10-28 the contract reached the model only through Go text in
+# buildLegislatorPrompt (now system/legislator/task).
 - id: "system/legislator/output"
-  category: "protocol"
+  category: "system"
   is_mandatory: true
   shard_types: ["/legislator"]
   content: |
@@ -181,3 +186,17 @@
     3. Rule ends with period
     4. No prose or explanation included
 
+
+# The legislator's task. Until 2026-10-28 it opened every request
+# (buildLegislatorPrompt) in Go; the request now carries only the constraint.
+- id: "system/legislator/task"
+  category: "system"
+  is_mandatory: true
+  shard_types: ["/legislator"]
+  content: |
+    Translate the constraint into a single MangleSynth JSON rule spec.
+    Only include program.clauses (no package/use/decls).
+    Use name constants (/atom) for enums; ensure predicates are declared.
+    Avoid inventing new predicates outside declared schemas; prefer permitted/next_action/safety rules.
+    Return only the JSON object, no commentary.
+    If Piggyback Protocol is active, the surface_response field must be the JSON object and nothing else.
