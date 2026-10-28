@@ -859,6 +859,9 @@ type (
 		Results         []KnowledgeResult // Results from all consulted specialists
 		OriginalInput   string            // The user input that triggered knowledge gathering
 		InterimResponse string            // The initial LLM response (may include "let me look that up")
+		// Parent is what the answering request of this turn was grounded
+		// in, frozen when the consultations started; synthesis renders it.
+		Parent knowledgeParent
 		// AwaitingKnowledge latches the re-entrancy guard on the Update thread.
 		// True while gathering was requested; cleared after synthesis.
 		AwaitingKnowledge bool

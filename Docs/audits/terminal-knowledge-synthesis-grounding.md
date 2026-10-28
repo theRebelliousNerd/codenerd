@@ -1,7 +1,7 @@
 ---
 doc-class: deep-dive
 subsystem: cli
-implementation-status: proposed
+implementation-status: partially-implemented (see As-built status)
 last-verified: 2026-10-28
 verified-against: c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c
 verification-method: static-source-inspection
@@ -99,7 +99,7 @@ The names are design notation, not existing APIs. Freeze the parent answer conte
 
 Introduce a synthesis-specific consumer role in the existing JIT context/need contract. Preserve relevant general identity, evidence and brief context, with the architect persona still at its required first position. Do not indiscriminately reuse the entire first prompt: it teaches `knowledge_requests` because the first response has a consumer for that field. Terminal plain-text synthesis intentionally has no such consumer. The existing [consumer_need distinction](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/core/defaults/policy/jit_needs.mg#L83-L102) already provides the right design principle.
 
-The need mapping is necessary but not sufficient. The current `protocol/piggyback/envelope`, `thought_first` and `mangle_updates` atoms are mandatory and do not declare a consumer-need selector; simply using a new consumer name does not exclude their JSON/control instructions. The terminal output-mode contract must explicitly govern selection of these protocol atoms and transitively dependent atoms, preserving dependency closure while excluding instructions whose controls the terminal reader will not execute. Keep this selection in the existing compiler and Mangle policy, not an ad hoc string-removal pass. Assert the actual terminal atom inventory and rendered output contract, including absence of mandatory Piggyback-envelope instructions on the plain-text synthesis path. Preserve the protected persona wording and verify that terminal output-mode framing does not cause its generic control references to be interpreted as a request to replay effects. [Mandatory protocol atoms](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/prompt/atoms/protocol/piggyback.yaml#L4-L83).
+The need mapping is necessary but not sufficient. The current `protocol/piggyback/envelope`, `control_first` and `mangle_updates` atoms are mandatory and do not declare a consumer-need selector; simply using a new consumer name does not exclude their JSON/control instructions. The terminal output-mode contract must explicitly govern selection of these protocol atoms and transitively dependent atoms, preserving dependency closure while excluding instructions whose controls the terminal reader will not execute. Keep this selection in the existing compiler and Mangle policy, not an ad hoc string-removal pass. Assert the actual terminal atom inventory and rendered output contract, including absence of mandatory Piggyback-envelope instructions on the plain-text synthesis path. Preserve the protected persona wording and verify that terminal output-mode framing does not cause its generic control references to be interpreted as a request to replay effects. [Mandatory protocol atoms](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/prompt/atoms/protocol/piggyback.yaml#L4-L83).
 
 The terminal role should not request another consultation, emit ignored controls or claim unavailable tools. It should explain source uncertainty and separate host observations from specialist advice. Mangle should derive required context and completion limits; Go should carry the owned snapshot, perform rendering and report measured omissions.
 
@@ -145,3 +145,35 @@ First update the CLI and prompt specs with the terminal grounding invariant and 
 
 The exit criterion is concrete: the provider request that writes the final answer can account for every answer-critical source and consultation obligation from the parent turn, including explicit absence. A first-call sentinel or a successful stored specialist response is not enough.
 
+
+## As-built status
+
+Verified and built 2026-10-28 on `main` after `c28a1212`. `synthesizeWithKnowledge` and the knowledge handoff were unchanged from the audited pins (the gathering loop had gained `withPartialState` on a failed consultation).
+
+### Claim ledger
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| Finding one: synthesis receives only the input and successful prose, not the first request's evidence, coverage or conversation context | Real, fixed for evidence, recent conversation and compressed history | `knowledgeParentOf(convCtx)` freezes them when consultations start (`cmd/nerd/chat/process_knowledge.go:50`; call `process.go:1041`); `knowledgeGatheredMsg.Parent` carries them; `knowledgeSynthesisPrompt` renders them (`process_knowledge.go:234`) |
+| Finding one: synthesis is not JIT-compiled and gets no brief | Real, left open | `synthesizeWithKnowledge` still uses `withArchitectPersona` plus fixed framing (`process_knowledge.go:189`) |
+| Finding two: a failed or empty consultation is skipped silently when another succeeded | Real, fixed | Each is listed with specialist, query, purpose and outcome under a "returned no knowledge" heading |
+| Finding two: `Purpose` is dropped | Real, fixed | Rendered with every consultation |
+| Finding two: requests past the cap of two are sliced away with only a log | Real, fixed | Each gets a `KnowledgeResult` with `errKnowledgeNotRun` (`process_knowledge.go:84`) |
+| Error outcomes are not persisted by `persistKnowledgeResults` | Confirmed, unchanged | Persistence stores knowledge, not failures; the failures now reach the answering request instead |
+| Controls are applied once before gathering and not replayed | Confirmed, unchanged | `process.go` control settlement precedes the knowledge branch |
+| Existing tests cover the two halves, not the composition | Confirmed; composed test added | `knowledge_grounding_test.go` |
+
+### What was built
+
+- Rulings: (1) the parent grounding is the answering request's own `ConversationContext` (recent turns, rendered evidence, compressed history), frozen at gathering, not the chat's later history. (2) Outcomes are data in the request body; the existing framing line is unchanged and no new instruction prose was added.
+- `cmd/nerd/chat/process_knowledge.go`, `process.go` (one call), `model_types.go` (`Parent` field), `model_update.go` (one call); spec `Docs/architecture/cli/03-GAP-ANALYSIS.md` `GAP-CLI-KNOWLEDGE-GROUNDING`.
+
+### Tests
+
+`cmd/nerd/chat/knowledge_grounding_test.go`: a real `processInput` turn that reads `app.log` partly and requests a specialist returns `knowledgeGatheredMsg`, and its synthesis request holds the head sentinel, `PARTIAL` and "the rest was NOT read" together with the specialist's answer; mixed answered/failed/empty outcomes are all rendered with purpose; a third request is reported not run. The existing synthesis tests pass with the new signature.
+
+### Left open
+
+- A synthesis-specific JIT consumer role (brief and evidence atoms in, Piggyback envelope and control atoms out): the compiler's mandatory protocol atoms carry no consumer-need selector, so this is a compiler and policy change, not a chat change.
+- No complete-request admission or budget for the terminal request; the parent's recent turns and evidence are rendered as the first request had them.
+- Not-run and failed consultations are not retried or escalated by policy; they are disclosed.

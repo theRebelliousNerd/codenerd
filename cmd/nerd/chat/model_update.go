@@ -928,7 +928,7 @@ func (m Model) handleKnowledgeGatheredMsg(msg knowledgeGatheredMsg) (tea.Model, 
 		persistCmd = m.saveSessionStateCmd()
 	}
 
-	return m, tea.Batch(persistCmd, m.synthesizeWithKnowledge(msg.OriginalInput, msg.Results))
+	return m, tea.Batch(persistCmd, m.synthesizeWithKnowledge(msg.OriginalInput, msg.Parent, msg.Results))
 
 }
 

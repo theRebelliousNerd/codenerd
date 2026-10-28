@@ -1038,7 +1038,7 @@ func (m Model) processInput(input string) tea.Cmd {
 					"LLM requested knowledge: %d specialists to consult",
 					len(artOutput.KnowledgeRequests),
 				)
-				resultChan <- m.handleKnowledgeRequests(streamCtx, artOutput.KnowledgeRequests, input, response)
+				resultChan <- m.handleKnowledgeRequests(streamCtx, artOutput.KnowledgeRequests, input, response, knowledgeParentOf(convCtx))
 				return
 			}
 

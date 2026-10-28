@@ -30,6 +30,34 @@ import (
 // bound on slow providers.
 const maxKnowledgeRequestsPerTurn = 2
 
+// errKnowledgeNotRun marks a requested consultation past the per-turn cap:
+// it was asked for and not run, which synthesis says rather than leaving it
+// indistinguishable from never asked.
+var errKnowledgeNotRun = fmt.Errorf("not run: a turn runs at most %d specialist consultations", maxKnowledgeRequestsPerTurn)
+
+// knowledgeParent is the grounding of the answering request that asked for
+// knowledge: its recent conversation, the workspace evidence the host read
+// for the turn (rendered with its coverage) and the compressed history. The
+// final answer is written from it and the consultations, not from the bare
+// input.
+type knowledgeParent struct {
+	RecentTurns   []Message
+	Evidence      string
+	CompressedCtx string
+}
+
+// knowledgeParentOf freezes the answering request's context.
+func knowledgeParentOf(convCtx *ConversationContext) knowledgeParent {
+	if convCtx == nil {
+		return knowledgeParent{}
+	}
+	return knowledgeParent{
+		RecentTurns:   append([]Message(nil), convCtx.RecentTurns...),
+		Evidence:      renderEvidence(convCtx.Evidence),
+		CompressedCtx: convCtx.CompressedCtx,
+	}
+}
+
 // handleKnowledgeRequests spawns specialists in parallel to gather knowledge
 // requested by the LLM. Returns a knowledgeGatheredMsg when all specialists
 // have responded; the Update handler then synthesizes a final answer with ONE
@@ -40,16 +68,21 @@ func (m *Model) handleKnowledgeRequests(
 	requests []articulation.KnowledgeRequest,
 	originalInput string,
 	interimResponse string,
+	parent knowledgeParent,
 ) knowledgeGatheredMsg {
 	// NOTE: do not set m.awaitingKnowledge here — m is a copy (processInput has a
 	// value receiver), so the write would be discarded. The flag is carried on
 	// the returned message and applied on the Update thread.
 
+	var notRun []KnowledgeResult
 	if len(requests) > maxKnowledgeRequestsPerTurn {
 		logging.Get(logging.CategoryContext).Info(
 			"Knowledge requests capped: %d requested, honoring first %d",
 			len(requests), maxKnowledgeRequestsPerTurn,
 		)
+		for _, r := range requests[maxKnowledgeRequestsPerTurn:] {
+			notRun = append(notRun, KnowledgeResult{Specialist: r.Specialist, Query: r.Query, Purpose: r.Purpose, Timestamp: time.Now(), Error: errKnowledgeNotRun})
+		}
 		requests = requests[:maxKnowledgeRequestsPerTurn]
 	}
 
@@ -133,9 +166,10 @@ If you need to search documentation or the web, do so to provide accurate inform
 	}
 
 	return knowledgeGatheredMsg{
-		Results:           results,
+		Results:           append(results, notRun...),
 		OriginalInput:     originalInput,
 		InterimResponse:   interimResponse,
+		Parent:            parent,
 		AwaitingKnowledge: true,
 	}
 }
@@ -146,7 +180,13 @@ If you need to search documentation or the web, do so to provide accurate inform
 // DECIDE waterfall again, articulation again) with the gathered knowledge
 // appended to the input — which doubled or tripled turn cost and re-rolled
 // the routing dice mid-turn.
-func (m *Model) synthesizeWithKnowledge(originalInput string, results []KnowledgeResult) tea.Cmd {
+//
+// The request carries the answering request's grounding (parent: recent
+// conversation, workspace evidence with its coverage, compressed history)
+// and every consultation's outcome: a failed, empty or not-run consultation
+// is listed with its query and purpose, so a partial answer is not written
+// as if every question had been answered.
+func (m *Model) synthesizeWithKnowledge(originalInput string, parent knowledgeParent, results []KnowledgeResult) tea.Cmd {
 	return func() (msg tea.Msg) {
 		defer func() {
 			if r := recover(); r != nil {
@@ -162,22 +202,13 @@ func (m *Model) synthesizeWithKnowledge(originalInput string, results []Knowledg
 		ctx, cancel := context.WithTimeout(baseCtx, config.GetLLMTimeouts().ArticulationTimeout)
 		defer cancel()
 
-		var sb strings.Builder
-		sb.WriteString("The user asked:\n\n")
-		sb.WriteString(originalInput)
-		sb.WriteString("\n\n---\nSpecialist consultations returned the following knowledge:\n\n")
+		sb := knowledgeSynthesisPrompt(originalInput, parent, results)
 		gathered := 0
 		for _, kr := range results {
-			if kr.Error != nil || strings.TrimSpace(kr.Response) == "" {
-				continue
+			if kr.Error == nil && strings.TrimSpace(kr.Response) != "" {
+				gathered++
 			}
-			sb.WriteString(fmt.Sprintf("### From %s (query: %s)\n%s\n\n", kr.Specialist, kr.Query, kr.Response))
-			gathered++
 		}
-		if gathered == 0 {
-			sb.WriteString("(All consultations failed — answer from your own knowledge and say what could not be verified.)\n")
-		}
-		sb.WriteString("---\n\nAnswer the user's question directly and completely using this knowledge. Cite which specialist informed which part when relevant. Do not describe the consultation process.")
 
 		// Same seam, same position as the main chat turn: the persona leads,
 		// the role framing for this particular call follows it. See
@@ -185,7 +216,7 @@ func (m *Model) synthesizeWithKnowledge(originalInput string, results []Knowledg
 		systemPrompt := withArchitectPersona("You are codeNERD answering a user's question after consulting internal specialists.")
 		recordArchitectPersonaDelivery("knowledge synthesis", systemPrompt)
 
-		response, err := m.client.CompleteWithSystem(ctx, systemPrompt, sb.String())
+		response, err := m.client.CompleteWithSystem(ctx, systemPrompt, sb)
 		if err != nil {
 			return errorMsg(fmt.Errorf("knowledge synthesis failed: %w", err))
 		}
@@ -195,6 +226,64 @@ func (m *Model) synthesizeWithKnowledge(originalInput string, results []Knowledg
 		)
 		return assistantMsg{Surface: response}
 	}
+}
+
+// knowledgeSynthesisPrompt is the synthesis request body: the parent's
+// grounding, the question, each consultation that returned knowledge, and
+// each that did not, with why.
+func knowledgeSynthesisPrompt(originalInput string, parent knowledgeParent, results []KnowledgeResult) string {
+	var sb strings.Builder
+	if len(parent.RecentTurns) > 0 {
+		sb.WriteString("## Recent Conversation History\n")
+		for _, turn := range parent.RecentTurns {
+			if turn.Role == "user" {
+				fmt.Fprintf(&sb, "**User**: %s\n", turn.Content)
+			} else {
+				fmt.Fprintf(&sb, "**Assistant**: %s\n", turn.Content)
+			}
+		}
+		sb.WriteString("\n")
+	}
+	if parent.CompressedCtx != "" {
+		sb.WriteString("## Compressed Session Context\n")
+		sb.WriteString(parent.CompressedCtx)
+		sb.WriteString("\n\n")
+	}
+	if parent.Evidence != "" {
+		sb.WriteString(parent.Evidence)
+		sb.WriteString("\n")
+	}
+	sb.WriteString("The user asked:\n\n")
+	sb.WriteString(originalInput)
+	sb.WriteString("\n\n---\nSpecialist consultations returned the following knowledge:\n\n")
+	gathered := 0
+	var missing []string
+	for _, kr := range results {
+		label := fmt.Sprintf("%s (query: %s", kr.Specialist, kr.Query)
+		if p := strings.TrimSpace(kr.Purpose); p != "" {
+			label += "; purpose: " + p
+		}
+		label += ")"
+		switch {
+		case kr.Error != nil:
+			missing = append(missing, fmt.Sprintf("- %s: %v", label, kr.Error))
+		case strings.TrimSpace(kr.Response) == "":
+			missing = append(missing, fmt.Sprintf("- %s: returned nothing", label))
+		default:
+			fmt.Fprintf(&sb, "### From %s\n%s\n\n", label, kr.Response)
+			gathered++
+		}
+	}
+	if gathered == 0 {
+		sb.WriteString("(All consultations failed — answer from your own knowledge and say what could not be verified.)\n")
+	}
+	if len(missing) > 0 {
+		sb.WriteString("\nConsultations that returned no knowledge; what they were asked is not answered by the knowledge above:\n")
+		sb.WriteString(strings.Join(missing, "\n"))
+		sb.WriteString("\n")
+	}
+	sb.WriteString("---\n\nAnswer the user's question directly and completely using this knowledge. Cite which specialist informed which part when relevant. Do not describe the consultation process.")
+	return sb.String()
 }
 
 // matchSpecialistForQuery attempts to find the best specialist for a given query

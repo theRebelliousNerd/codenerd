@@ -33,7 +33,7 @@ func TestSynthesizeWithKnowledge_OneLLMCallNoReentry(t *testing.T) {
 		},
 	}
 
-	msg := m.synthesizeWithKnowledge("what is the jit system", results)()
+	msg := m.synthesizeWithKnowledge("what is the jit system", knowledgeParent{}, results)()
 
 	aMsg, ok := msg.(assistantMsg)
 	if !ok {
@@ -68,7 +68,7 @@ func TestSynthesizeWithKnowledge_AllConsultationsFailed(t *testing.T) {
 		{Specialist: "researcher", Query: "q", Response: "", Timestamp: time.Now()},
 	}
 
-	msg := m.synthesizeWithKnowledge("what is X", results)()
+	msg := m.synthesizeWithKnowledge("what is X", knowledgeParent{}, results)()
 	if _, ok := msg.(assistantMsg); !ok {
 		t.Fatalf("synthesis returned %T, want assistantMsg even when consultations were empty", msg)
 	}

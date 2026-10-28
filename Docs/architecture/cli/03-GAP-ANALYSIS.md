@@ -66,6 +66,14 @@ A session owns its transcript, its compressed memory, and the conversational fac
 |---|---|---|---|---|---|---|---|
 | GAP-CLI-SESSION-OWNERSHIP | Session ownership of conversation memory | `selectedSession`, `detachConversation` (`cmd/nerd/chat/session_owner.go`); owner checks in `saveSessionState` and `hydrateCompressorForSession` (`session_persistence.go`); `/new-session` (`commands_handlers_files.go`). Same-session save generations are not fenced; JSON writes are not atomic across the three stores. | Required contract above | P1 | Implemented for M1, M2 and the cross-session part of M3 | Existing compressor and store | `cmd/nerd/chat/session_owner_test.go`: `/new-session` resets the compressor and detaches brief, note and held work after saving A; loading B detaches A; a row under B holding A's memory is refused; a save deferred under A that runs after the switch leaves A's newer history and does not store B's memory under A. |
 
+## Required contract: Grounded knowledge synthesis
+
+The request that writes the final answer after specialist consultations carries the answering request's grounding, frozen when the consultations start (recent conversation, workspace evidence rendered with its coverage, compressed history), and every consultation's outcome: answered, failed, returned nothing, or not run because of the per-turn cap, each with its query and purpose. First-call controls are not replayed and synthesis stays one model call.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-CLI-KNOWLEDGE-GROUNDING | Grounded knowledge synthesis | `knowledgeParent`/`knowledgeParentOf`, `errKnowledgeNotRun`, `knowledgeSynthesisPrompt` (`cmd/nerd/chat/process_knowledge.go`); carried on `knowledgeGatheredMsg.Parent` from `processInput` to `synthesizeWithKnowledge`. Synthesis is not JIT-compiled for a terminal consumer role. | Required contract above | P2 | Implemented except the JIT terminal role | Prompt compiler consumer roles | `cmd/nerd/chat/knowledge_grounding_test.go`: a turn that reads `app.log` partly and asks a specialist sends the sentinel and PARTIAL coverage in the synthesis request; mixed success, failure and empty outcomes are all named; a third request is reported not run. |
+
 ## Required contract: Chat information read containment
 
 The legacy /fs_read information-gathering action must enforce the same canonical workspace containment as typed read_file, rejecting traversal, outside absolute paths and symlink escapes before reading or asserting file_content. In-root reads remain supported.
