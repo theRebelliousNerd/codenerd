@@ -834,27 +834,3 @@
         assert result == "cancelled"
     ```
 
-- id: "language/python/testing/async/testing-timeouts"
-  section_of: "language/python/testing/async"
-  section_order: 2
-  category: "language"
-  subcategory: "python"
-  is_mandatory: false
-  shard_types: ["/coder", "/tester"]
-  languages: ["/python"]
-  depends_on: ["language/python/testing/fundamentals"]
-  content: |
-    *Part of: ASYNC TESTING*
-
-    ### Testing Timeouts
-
-    ```python
-    @pytest.mark.asyncio
-    async def test_timeout_handling():
-        async def slow_operation():
-            await asyncio.sleep(10)
-            return "done"
-
-        with pytest.raises(asyncio.TimeoutError):
-            await asyncio.wait_for(slow_operation(), timeout=0.1)
-    ```

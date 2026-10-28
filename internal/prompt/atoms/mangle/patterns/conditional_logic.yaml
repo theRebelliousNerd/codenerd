@@ -475,23 +475,6 @@
     # clamped("x3", 0)
     ```
 
-- id: "language/mangle/docs/patterns/conditional_logic/variation-8-state-machine"
-  section_of: "language/mangle/docs/patterns/conditional_logic"
-  section_order: 8
-  category: "language"
-  subcategory: "mangle"
-  description: "Conditional Logic Patterns: Variation 8: State Machine"
-  is_mandatory: false
-  languages: ["/mangle"]
-  content: |
-    *Part of: Conditional Logic Patterns*
-
-    ## Variation 8: State Machine
-
-    ### Problem
-
-    Transition between states based on conditions.
-
 - id: "language/mangle/docs/patterns/conditional_logic/variation-8-state-machine-solution"
   section_of: "language/mangle/docs/patterns/conditional_logic"
   section_order: 9

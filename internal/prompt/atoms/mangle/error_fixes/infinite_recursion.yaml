@@ -166,20 +166,3 @@
         table2(X, Y).
     ```
 
-- id: "language/mangle/docs/error_fixes/infinite_recursion/detection-checklist"
-  section_of: "language/mangle/docs/error_fixes/infinite_recursion"
-  section_order: 3
-  category: "language"
-  subcategory: "mangle"
-  description: "Fix: Infinite Recursion: Detection Checklist"
-  is_mandatory: false
-  languages: ["/mangle"]
-  content: |
-    *Part of: Fix: Infinite Recursion*
-
-    ## Detection Checklist
-
-    1. Does the rule call itself (directly or indirectly)?
-    2. Is there a base case that eventually stops?
-    3. Does each recursive step make progress toward termination?
-    4. Is there a maximum depth/count limit?

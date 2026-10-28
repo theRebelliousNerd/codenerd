@@ -100,6 +100,7 @@ func main() {
 	importanceLedger := flag.String("importance-ledger", "internal/prompt/atom_importance.json", "Importance ledger to update with -score-importance")
 	configPath := flag.String("config", ".nerd/config.json", "codeNERD config holding the typesafe section (-score-importance)")
 	rescoreAll := flag.Bool("rescore-all", false, "With -score-importance, score every atom, not only the uncovered ones")
+	auditAtomicity := flag.String("audit-atomicity", "", "Ask Jev how atomic and concise every embedded atom is, compare each with its embedding neighbours, and write the report to this path")
 	flag.Parse()
 
 	fmt.Println("=================================================")
@@ -109,6 +110,14 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
+
+	if *auditAtomicity != "" {
+		if err := runAuditAtomicity(ctx, *configPath, *auditAtomicity); err != nil {
+			fmt.Printf("ERROR: atomicity audit: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if *scoreImportance {
 		if err := runScoreImportance(ctx, *configPath, *importanceLedger, *rescoreAll); err != nil {

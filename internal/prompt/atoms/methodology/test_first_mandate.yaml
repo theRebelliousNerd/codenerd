@@ -42,22 +42,13 @@
   shard_types: ["/coder", "/tester"]
   world_states: ["authoring_code"]
   content: |
-    ## TEST COVERAGE IS PART OF THE WORK, NOT A FOLLOW-UP
+    ## Test coverage is part of the work
 
-    Code you write is not finished until it is exercised. When this turn creates
-    or changes behaviour, it also writes or updates the test that proves it.
-    Shipping the implementation and saying tests "can be added next" is an
-    unfinished turn, not a completed one.
-
-    ### WHAT THIS MEANS CONCRETELY
-
-    - New function, method, or branch -> a test that calls it.
-    - Bug fix -> a test that FAILS before your fix and passes after. If you
-      cannot state which assertion would have failed yesterday, you have not
-      characterised the bug.
-    - Changed behaviour -> update the existing test to state the new contract.
-      Do not leave a test asserting the old one.
-    - Pure rename, comment, or formatting change -> no new test needed. Say so.
+    A turn that creates or changes behaviour also writes or updates the test that proves it; "tests can be added next" is an unfinished turn.
+    - New function, method or branch: a test that calls it.
+    - Bug fix: a test that fails before the fix and passes after; name the assertion that would have failed.
+    - Changed behaviour: update the existing test to the new contract.
+    - Pure rename, comment or formatting: no new test; say so.
 
 - id: "methodology/tdd/coverage_mandate/the-two-evasions-do-not-use-them"
   section_of: "methodology/tdd/coverage_mandate"
@@ -68,19 +59,9 @@
   shard_types: ["/coder", "/tester"]
   world_states: ["authoring_code"]
   content: |
-    *Part of: TEST COVERAGE IS PART OF THE WORK, NOT A FOLLOW-UP*
-
-    ### THE TWO EVASIONS - DO NOT USE THEM
-
-    1. **The tautological test.** A test that mirrors the implementation line
-       for line, asserts on a mock you just configured, or can never fail proves
-       nothing and costs maintenance forever. Ask: what wrong implementation
-       would this catch? If the answer is "none", the test is decoration.
-    2. **Weakening the test to get green.** Deleting a failing test, loosening
-       its assertion, or skipping it turns red green while destroying the thing
-       that made the suite worth running. A failing test is a specification you
-       have not met yet. If the test itself is genuinely wrong, say so
-       explicitly and explain why before changing it.
+    Two evasions are not coverage:
+    1. A tautological test: one that mirrors the implementation, asserts on a mock you just configured, or cannot fail. Ask which wrong implementation it would catch.
+    2. Weakening a test to get green: deleting, loosening or skipping a failing test. If the test itself is wrong, say why before changing it.
 
 - id: "methodology/tdd/coverage_mandate/verification-is-automatic-so-do-not-guess"
   section_of: "methodology/tdd/coverage_mandate"
@@ -91,24 +72,4 @@
   shard_types: ["/coder", "/tester"]
   world_states: ["authoring_code"]
   content: |
-    *Part of: TEST COVERAGE IS PART OF THE WORK, NOT A FOLLOW-UP*
-
-    ### VERIFICATION IS AUTOMATIC, SO DO NOT GUESS
-
-    Your edits are compiled and the affected packages are tested after this turn
-    regardless of what you report. Claiming success does not make a turn
-    successful; passing does. Run the tests yourself before you finish rather
-    than finding out afterwards.
-
-    Table-driven tests with named cases are the house style. Cover the boundary
-    and the error path, not only the happy path -- the happy path is the case
-    least likely to be wrong.
-
-    ### WHERE A TEST GOES
-
-    - Extend the existing `<file>_test.go` for the file under test. Create a new
-      test file only when that file has none.
-    - Name tests and test files for the behaviour they pin
-      (`TestParseAtom_RejectsTrailingDot`), never for the process that wrote them:
-      no step, wave, phase, shard, task, campaign or finding ids in a file or
-      test name.
+    Your edits are compiled and the affected packages tested after the turn whatever you report, so run the tests yourself before finishing. Cover the boundary and the error path, as table-driven tests with named cases. Extend the file under test's existing `<file>_test.go`; create a test file only when it has none. Name tests for the behaviour they pin (`TestParseAtom_RejectsTrailingDot`), never with step, wave, phase, shard, task, campaign or finding ids.

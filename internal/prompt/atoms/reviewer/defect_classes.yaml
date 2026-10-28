@@ -1,0 +1,22 @@
+# The defect classes a review checks: one recall list in place of 85 generic
+# checklist atoms (correctness, concurrency, security, performance,
+# maintainability, test coverage, feedback style) that a capable reviewer
+# already knows and that cost ~19k tokens on every review compile. Findings
+# use the identity/reviewer output contract.
+
+- id: "reviewer/defect_classes"
+  category: "methodology"
+  subcategory: "review"
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check", "/analyze", "/inspect"]
+  content: |
+    ## Defect classes to check on every changed path
+
+    - Logic: inverted or wrong conditions, off-by-one bounds, nil/null/empty inputs, errors dropped or swallowed.
+    - Concurrency: shared state without synchronization, inconsistent lock order, goroutine/task leaks, missing cancellation.
+    - Resources: files, connections, locks and timers released on every path, error paths included.
+    - Security: untrusted input reaching a query, shell, path or template; missing authorization; secrets in code or logs.
+    - Cost: work that grows with input inside loops (N+1 queries, quadratic scans, unbounded buffers).
+    - Tests: the new behavior and its failure paths are asserted, not merely executed.
+    - Model-written code: calls to APIs, packages or flags that do not exist in this codebase's versions.

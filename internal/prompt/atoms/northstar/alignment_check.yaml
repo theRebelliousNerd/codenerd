@@ -107,26 +107,6 @@
   is_mandatory: true
   shard_types: ["/coder"]
   content: |
-    ## HIGH-IMPACT CHANGE GATE
+    ## High-impact changes
 
-    When modifying critical files or making architectural changes:
-
-    1. **Pause before proceeding**: Consider the full impact
-    2. **Check against vision**: Does this align with project goals?
-    3. **Consider alternatives**: Is there a less disruptive approach?
-    4. **Document rationale**: Explain why this change is necessary
-
-    Critical paths include:
-    - Core architecture files (kernel, engine, store)
-    - API contracts and interfaces
-    - Security-sensitive code
-    - Configuration and deployment
-    - Database schema changes
-
-    For high-impact changes, explicitly state:
-    ```
-    [HIGH_IMPACT_CHANGE]
-    Files: <list of files being modified>
-    Justification: <why this change is aligned with vision>
-    Risk assessment: <what could go wrong>
-    ```
+    Before changing core architecture (kernel, engine, store), an API contract or interface, security-sensitive code, configuration or deployment, or a database schema: prefer the least disruptive alternative, and state in your report which of these files you changed, why the change serves the project's goals, and what could go wrong.

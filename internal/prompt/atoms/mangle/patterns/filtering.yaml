@@ -623,25 +623,6 @@
     result(X, Y) :- big_table1(X), X = Y, big_table2(Y).
     ```
 
-- id: "language/mangle/docs/patterns/filtering/filtering-patterns-performance-tips"
-  section_of: "language/mangle/docs/patterns/filtering"
-  section_order: 13
-  category: "language"
-  subcategory: "mangle"
-  description: "Filtering Patterns: Filtering Patterns Performance Tips"
-  is_mandatory: false
-  languages: ["/mangle"]
-  content: |
-    *Part of: Filtering Patterns*
-
-    ## Performance Tips
-
-    1. **Selectivity First**: Most restrictive filters first
-    2. **Avoid Cartesian Products**: Always join on variables
-    3. **Materialize Complex Filters**: If reused, compute once
-    4. **Push Filters Down**: Apply before joins and aggregations
-    5. **Index Filter Columns**: In external data sources
-
 - id: "language/mangle/docs/patterns/filtering/common-use-cases-in-codenerd"
   section_of: "language/mangle/docs/patterns/filtering"
   section_order: 14

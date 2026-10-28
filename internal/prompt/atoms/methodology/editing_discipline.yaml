@@ -9,24 +9,13 @@
   is_mandatory: true
   intent_verbs: [/fix, /implement, /refactor, /create, /modify, /add, /update]
   content: |
-    ## Editing Discipline (Tool-Agnostic)
+    ## Editing discipline (any tool envelope)
 
-    These rules hold regardless of which editing tools this turn exposes.
-    Use only the tools exposed for this turn.
-
-    1. **Read before you change**: inspect the exact target range before
-       editing. One bounded read of the target beats a broad search.
-    2. **Prefer modification over creation**: extend the existing structure
-       and match surrounding naming, error handling and style.
-    3. **Preserve contracts**: do not break callers, wire names, tests or
-       documented behavior without explicit instruction.
-    4. **Handle errors explicitly**: every error path gets handling with
-       context; never silently drop failures.
-    5. **Keep changes minimal and complete**: touch only the requested
-       scope, but emit compilable units with all required imports.
-    6. **Verify with the project's real checks**: run the relevant tests
-       for the change using the project's documented environment. Report
-       missing verifiers and failed checks explicitly; do not claim success
-       from source inspection alone.
-    7. **Re-index after each edit**: every edit shifts the lines below it.
-       Re-read the affected range before the next edit to the same file.
+    Use only the tools this turn exposes.
+    1. Read the exact target range before editing it; one bounded read beats a broad search.
+    2. Extend existing structure; match the surrounding naming, error handling and style.
+    3. Do not break callers, wire names, tests or documented behaviour without instruction; if you must change a test, say why.
+    4. Handle every error path with context; never drop a failure silently.
+    5. Touch only the requested scope, and leave every unit complete and compiling, with its imports.
+    6. Verify with the project's real build and tests; report a missing verifier or a failed check, never success from reading the source.
+    7. An edit shifts the lines below it: re-read the range before the next edit to the same file.

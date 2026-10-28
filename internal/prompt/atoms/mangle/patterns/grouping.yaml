@@ -152,23 +152,6 @@
     # dept_stats("sales", 170000, 85000.0, 2)
     ```
 
-- id: "language/mangle/docs/patterns/grouping/variation-3-conditional-aggregation"
-  section_of: "language/mangle/docs/patterns/grouping"
-  section_order: 3
-  category: "language"
-  subcategory: "mangle"
-  description: "Grouping Patterns: Variation 3: Conditional Aggregation"
-  is_mandatory: false
-  languages: ["/mangle"]
-  content: |
-    *Part of: Grouping Patterns*
-
-    ## Variation 3: Conditional Aggregation
-
-    ### Problem
-
-    Aggregate only values that meet certain criteria.
-
 - id: "language/mangle/docs/patterns/grouping/variation-3-conditional-aggregation-solution"
   section_of: "language/mangle/docs/patterns/grouping"
   section_order: 4

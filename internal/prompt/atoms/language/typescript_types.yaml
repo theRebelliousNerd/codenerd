@@ -249,38 +249,6 @@
     }
     ```
 
-- id: "language/typescript/types/discriminated_unions/redux-action-pattern"
-  section_of: "language/typescript/types/discriminated_unions"
-  section_order: 2
-  category: "language"
-  subcategory: "typescript"
-  is_mandatory: false
-  shard_types: ["/coder", "/reviewer"]
-  languages: ["/typescript"]
-  content: |
-    *Part of: DISCRIMINATED UNIONS (CRITICAL PATTERN)*
-
-    ### Redux Action Pattern
-
-    ```typescript
-    type Action =
-      | { type: "ADD_TODO"; payload: { text: string } }
-      | { type: "TOGGLE_TODO"; payload: { id: number } }
-      | { type: "DELETE_TODO"; payload: { id: number } };
-
-    function reducer(state: State, action: Action): State {
-      switch (action.type) {
-        case "ADD_TODO":
-          return { ...state, todos: [...state.todos, action.payload] };
-        case "TOGGLE_TODO":
-          // action.payload is { id: number } here
-          return toggleTodo(state, action.payload.id);
-        case "DELETE_TODO":
-          return deleteTodo(state, action.payload.id);
-      }
-    }
-    ```
-
 - id: "language/typescript/types/conditional"
   category: "language"
   subcategory: "typescript"

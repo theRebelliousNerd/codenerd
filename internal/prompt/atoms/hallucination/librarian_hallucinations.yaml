@@ -1,27 +1,6 @@
 # Librarian Shard Hallucination Prevention Atoms
 # Decomposed from LibrarianLogic hallucination section
 
-- id: "hallucination/librarian/layer_confusion"
-  category: "hallucination"
-  subcategory: "prevention"
-  is_mandatory: true
-  shard_types: ["/librarian"]
-  content: |
-    ## HALLUCINATION PREVENTION: LAYER CONFUSION
-
-    You will be tempted to classify based on filename alone.
-
-    ### WRONG
-    "handler.go" -> /transport (might be a generic handler pattern in domain)
-
-    ### CORRECT
-    Analyze imports and function signatures FIRST, then consider filename.
-
-    ### MITIGATION
-    - Always check imports before making classification decisions
-    - Filename is a hint, not a verdict
-    - Look at what the code DOES, not what it's called
-
 - id: "hallucination/librarian/framework_blindness"
   category: "hallucination"
   subcategory: "prevention"

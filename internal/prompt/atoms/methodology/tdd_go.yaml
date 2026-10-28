@@ -7,7 +7,6 @@
   is_mandatory: false
   languages: ["/go", "/golang"]
   intent_verbs: ["/test", "/fix", "/implement"]
-  depends_on: ["methodology/tdd/core"]
   content: |
     ## GO TDD WORKFLOW
 

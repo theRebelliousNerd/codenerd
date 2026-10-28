@@ -7,7 +7,6 @@
   is_mandatory: false
   languages: ["/javascript", "/typescript", "/js", "/ts"]
   intent_verbs: ["/test", "/fix", "/implement"]
-  depends_on: ["methodology/tdd/core"]
   content: |
     ## JAVASCRIPT/TYPESCRIPT TDD WORKFLOW
 

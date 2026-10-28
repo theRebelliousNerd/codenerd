@@ -185,19 +185,15 @@ func unionSorted(a, b []string) []string {
 // the need (the gate is the need, not the language).
 func TestSkeletonNeeds_GoGuidanceFollowsAGoTarget(t *testing.T) {
 	c, k := newEmbeddedCorpusCompiler(t)
-	// The eleven measured on a Markdown turn (2026-09-22), plus any atom gated
-	// on the need since.
+	// The Go guards measured on a Markdown turn (2026-09-22), as the atomicity
+	// pass (2026-10-28) consolidated them, plus any atom gated on the need since.
 	goAtoms := unionSorted([]string{
-		"language/go/ai_failures/overview",
 		"language/go/ai_failures/loop_capture",
 		"language/go/ai_failures/nil_interface",
 		"language/go/ai_failures/defer_gotchas",
 		"language/go/ai_failures/slice_append",
-		"language/go/ai_failures/map_safety",
 		"language/go/ai_failures/error_handling",
 		"language/go/ai_failures/goroutine_leaks",
-		"hallucination/coder/error_suppression",
-		"hallucination/coder/scope_leak",
 		"hallucination/coder/deprecated_pattern",
 	}, gatedOn(t, "authoring_go", true))
 
@@ -232,30 +228,23 @@ func TestSkeletonNeeds_GoGuidanceFollowsAGoTarget(t *testing.T) {
 }
 
 // The code-authoring guidance -- compile check, self-correction, the coder's
-// 7-phase protocol, the coverage mandate, import/API fabrication, scratch
+// before-writing protocol, the coverage mandate, API fabrication, scratch
 // programs -- is served on a compile that writes code and one whose language
 // is undetected, and not on a compile writing a Markdown document. The
 // guidance that holds for any file the coder writes stays on every coder
 // compile: that is the audit's other half, pinned here.
 func TestSkeletonNeeds_CodeGuidanceFollowsACodeTarget(t *testing.T) {
 	c, k := newEmbeddedCorpusCompiler(t)
-	// Served on a coder /create compile; ai_era_fundamentals and the debugging
-	// atoms also need a /fix-class verb, so they are checked on /fix below.
+	// Served on a coder /create compile.
 	createServed := []string{
 		"methodology/tdd/coverage_mandate",
 		"shards/coder/compile_check",
 		"shards/coder/self_correction_protocol",
 		"shards/coder/cognitive_protocol",
-		"hallucination/coder/import_fabrication",
 		"hallucination/coder/api_fabrication",
 		"hallucination/coder/scratch_artifacts",
 	}
-	fixServed := []string{
-		"methodology/tdd/ai_era_fundamentals",
-		"methodology/debugging/ai_code_debugging",
-		"methodology/debugging/concurrent_debugging",
-	}
-	codeAtoms := unionSorted(append(slices.Clone(createServed), fixServed...), gatedOn(t, "authoring_code", true))
+	codeAtoms := unionSorted(slices.Clone(createServed), gatedOn(t, "authoring_code", true))
 	// Kept on every coder compile, prose included (the audit's reasons are in
 	// the lane log and the atoms): editing and file-creation discipline hold
 	// for a document as much as for code.
@@ -286,13 +275,6 @@ func TestSkeletonNeeds_CodeGuidanceFollowsACodeTarget(t *testing.T) {
 			}
 		}
 	}
-	goFix, _ := compiledAtoms(t, c, coderTurnContext(t, "/fix", "internal/session/work_steps.go", "/go", kernelTargetNeeds(t, k, "/go")))
-	for _, id := range fixServed {
-		if goFix[id] == nil {
-			t.Errorf("go /fix: %s not served", id)
-		}
-	}
-
 	mdNeeds := kernelTargetNeeds(t, k, "/markdown")
 	if slices.Contains(mdNeeds, "authoring_code") {
 		t.Fatalf("the kernel derives authoring_code for a Markdown target: %v", mdNeeds)

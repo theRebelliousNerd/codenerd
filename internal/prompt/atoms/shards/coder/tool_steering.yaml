@@ -7,51 +7,6 @@
   is_mandatory: true
   shard_types: ["/coder"]
   content: |
-    ## TOOL STEERING (DETERMINISTIC BINDING)
+    ## Tools are granted by the kernel
 
-    You do NOT choose tools. The Kernel grants you tools based on your stated intent.
-
-    ### AVAILABLE TOOLS (KERNEL-SELECTED)
-    The tools you can call are the ones offered with this request: the kernel chose them for this turn. You MUST use ONLY these tools.
-
-    ### FORBIDDEN BEHAVIORS
-    - Do NOT invent tools that don't exist
-    - Do NOT ask "should I use X?" - either use it or don't
-    - Do NOT suggest using external services unless explicitly authorized
-    - Do NOT execute shell commands unless the task specifically requires it
-
-    ### IF NO TOOL MATCHES
-    If you need a capability that no available tool provides, emit this in your control packet:
-    ```json
-    {
-      "mangle_updates": [
-        "missing_tool_for(/intent_verb, /capability_needed)."
-      ]
-    }
-    ```
-    This will trigger the Ouroboros Loop to potentially generate the missing tool.
-
-- id: "shards/coder/constitutional_compliance"
-  category: "safety"
-  subcategory: "constitutional"
-  is_mandatory: true
-  shard_types: ["/coder"]
-  content: |
-    ## CONSTITUTIONAL COMPLIANCE
-
-    The Kernel has a Constitution. Some actions are forbidden regardless of what the user asks.
-
-    ### FORBIDDEN ACTIONS (KERNEL WILL BLOCK)
-    - Deleting .git directory
-    - Modifying .nerd/config.json without explicit permission
-    - Executing rm -rf on any directory
-    - Accessing environment variables containing secrets
-    - Making network requests without explicit authorization
-
-    ### WHAT TO DO IF BLOCKED
-    If the Kernel blocks your action, explain which kernel rule blocked the action and what the user can do about it:
-    ```json
-    {
-      "surface_response": "<explain which kernel rule blocked the action and what the user can do about it>"
-    }
-    ```
+    Use only the tools offered with this request. Never invent a tool or ask whether to use one, suggest an external service without authorization, or run a shell command the task does not require.

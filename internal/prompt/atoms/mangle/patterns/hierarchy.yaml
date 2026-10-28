@@ -468,24 +468,6 @@
     # Result: Empty predicate (nothing to build from)
     ```
 
-- id: "language/mangle/docs/patterns/hierarchy/hierarchy-patterns-performance-tips"
-  section_of: "language/mangle/docs/patterns/hierarchy"
-  section_order: 9
-  category: "language"
-  subcategory: "mangle"
-  description: "Hierarchy Patterns: Hierarchy Patterns Performance Tips"
-  is_mandatory: false
-  languages: ["/mangle"]
-  content: |
-    *Part of: Hierarchy Patterns*
-
-    ## Performance Tips
-
-    1. **Materialize Depth First**: If doing multiple level-based queries, compute depth once
-    2. **Use Subtree Predicates**: Don't recompute transitive closure per query
-    3. **Index on Parent**: Most queries walk up from child to parent
-    4. **Bound Recursion**: For deep trees, add depth limits
-
 - id: "language/mangle/docs/patterns/hierarchy/common-use-cases-in-codenerd"
   section_of: "language/mangle/docs/patterns/hierarchy"
   section_order: 10

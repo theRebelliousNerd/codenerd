@@ -136,34 +136,6 @@
     int sum = stream.reduce(0, Integer::sum);  // With identity
     ```
 
-- id: "language/java/streams/operations/stream-operations-best-practices"
-  section_of: "language/java/streams/operations"
-  section_order: 2
-  category: "language"
-  subcategory: "java"
-  is_mandatory: false
-  shard_types: ["/coder", "/reviewer"]
-  languages: ["/java"]
-  content: |
-    *Part of: STREAM OPERATIONS*
-
-    ### Best Practices
-
-    ```java
-    // Filter EARLY to reduce work
-    items.stream()
-        .filter(Item::isActive)    // Filter first!
-        .map(Item::getName)
-        .toList();
-
-    // Avoid stateful lambdas
-    List<String> bad = new ArrayList<>();
-    stream.forEach(item -> bad.add(item));  // WRONG
-
-    // Use collect instead
-    List<String> good = stream.collect(Collectors.toList());
-    ```
-
 - id: "language/java/streams/collectors"
   category: "language"
   subcategory: "java"

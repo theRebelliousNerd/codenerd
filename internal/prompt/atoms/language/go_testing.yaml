@@ -1,286 +1,12 @@
 # Go Testing - Encyclopedic Reference
 # Comprehensive guidance for testing in Go
 
-- id: "language/go/testing/fundamentals"
-  category: "language"
-  subcategory: "go"
-  is_mandatory: false
-  shard_types: ["/coder", "/tester", "/reviewer"]
-  languages: ["/go", "/golang"]
-  content: |
-    ## GO TESTING FUNDAMENTALS
-
-    ### Test File Conventions
-
-    - Test files: `*_test.go` in same package
-    - Test functions: `func TestXxx(t *testing.T)`
-    - Example functions: `func ExampleXxx()`
-    - Benchmark functions: `func BenchmarkXxx(b *testing.B)`
-
-    ### Basic Test Structure
-
-    ```go
-    func TestAdd(t *testing.T) {
-        got := Add(2, 3)
-        want := 5
-        if got != want {
-            t.Errorf("Add(2, 3) = %d, want %d", got, want)
-        }
-    }
-    ```
-  content_concise: |
-    ## Go Testing Basics
-    - Files: `*_test.go`, functions: `func TestXxx(t *testing.T)`
-    - `t.Errorf()` reports and continues, `t.Fatalf()` stops
-    - `t.Helper()` improves error line numbers
-    - `t.Parallel()` enables concurrent execution
-    - Run: `go test -v -race ./...`
-
-- id: "language/go/testing/fundamentals/testing-methods"
-  section_of: "language/go/testing/fundamentals"
-  section_order: 1
-  category: "language"
-  subcategory: "go"
-  is_mandatory: false
-  shard_types: ["/coder", "/tester", "/reviewer"]
-  languages: ["/go", "/golang"]
-  content: |
-    *Part of: GO TESTING FUNDAMENTALS*
-
-    ### Testing Methods
-
-    **t.Error vs t.Fatal:**
-    ```go
-    // t.Errorf: Report error, continue test
-    if got != want {
-        t.Errorf("got %v, want %v", got, want)
-    }
-
-    // t.Fatalf: Report error, stop test immediately
-    if setup == nil {
-        t.Fatalf("setup failed, cannot continue")
-    }
-    ```
-
-    **t.Helper for better stack traces:**
-    ```go
-    func assertEqual(t *testing.T, got, want int) {
-        t.Helper()  // Marks this as helper, error reports caller's line
-        if got != want {
-            t.Errorf("got %d, want %d", got, want)
-        }
-    }
-    ```
-
-    **t.Parallel for concurrent tests:**
-    ```go
-    func TestSomething(t *testing.T) {
-        t.Parallel()  // Run concurrently with other parallel tests
-        // Test code...
-    }
-    ```
-
-    **t.Skip for conditional skipping:**
-    ```go
-    func TestIntegration(t *testing.T) {
-        if testing.Short() {
-            t.Skip("skipping integration test in short mode")
-        }
-        // Long-running test...
-    }
-    ```
-
-- id: "language/go/testing/fundamentals/running-tests"
-  section_of: "language/go/testing/fundamentals"
-  section_order: 2
-  category: "language"
-  subcategory: "go"
-  is_mandatory: false
-  shard_types: ["/coder", "/tester", "/reviewer"]
-  languages: ["/go", "/golang"]
-  content: |
-    *Part of: GO TESTING FUNDAMENTALS*
-
-    ### Running Tests
-
-    ```bash
-    go test                     # Run tests in current package
-    go test ./...              # Run tests in all packages
-    go test -v                 # Verbose output
-    go test -run TestName      # Run specific test
-    go test -run TestName/Case # Run specific subtest
-    go test -short             # Skip long tests
-    go test -race              # Enable race detector
-    go test -cover             # Show coverage
-    go test -coverprofile=c.out && go tool cover -html=c.out
-    ```
-
-- id: "language/go/testing/table_driven"
-  category: "language"
-  subcategory: "go"
-  is_mandatory: false
-  shard_types: ["/coder", "/tester"]
-  languages: ["/go", "/golang"]
-  depends_on: ["language/go/testing/fundamentals"]
-  content: |
-    ## TABLE-DRIVEN TESTS
-
-    Table-driven tests are the idiomatic Go pattern for testing multiple cases.
-
-    ### Basic Table-Driven Test
-
-    ```go
-    func TestAdd(t *testing.T) {
-        tests := []struct {
-            name string
-            a, b int
-            want int
-        }{
-            {"positive", 2, 3, 5},
-            {"negative", -1, -2, -3},
-            {"zero", 0, 0, 0},
-            {"mixed", -1, 5, 4},
-        }
-
-        for _, tt := range tests {
-            t.Run(tt.name, func(t *testing.T) {
-                got := Add(tt.a, tt.b)
-                if got != tt.want {
-                    t.Errorf("Add(%d, %d) = %d, want %d", tt.a, tt.b, got, tt.want)
-                }
-            })
-        }
-    }
-    ```
-  content_concise: |
-    ## Table-Driven Tests
-    ```go
-    tests := []struct{
-        name string
-        input int
-        want int
-    }{
-        {"case1", 1, 2},
-        {"case2", 2, 4},
-    }
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            if got := fn(tt.input); got != tt.want {
-                t.Errorf("got %v, want %v", got, tt.want)
-            }
-        })
-    }
-    ```
-
-- id: "language/go/testing/table_driven/with-error-cases"
-  section_of: "language/go/testing/table_driven"
-  section_order: 1
-  category: "language"
-  subcategory: "go"
-  is_mandatory: false
-  shard_types: ["/coder", "/tester"]
-  languages: ["/go", "/golang"]
-  depends_on: ["language/go/testing/fundamentals"]
-  content: |
-    *Part of: TABLE-DRIVEN TESTS*
-
-    ### With Error Cases
-
-    ```go
-    func TestDivide(t *testing.T) {
-        tests := []struct {
-            name    string
-            a, b    float64
-            want    float64
-            wantErr bool
-        }{
-            {"positive", 6, 2, 3, false},
-            {"negative", -6, 2, -3, false},
-            {"divByZero", 1, 0, 0, true},
-        }
-
-        for _, tt := range tests {
-            t.Run(tt.name, func(t *testing.T) {
-                got, err := Divide(tt.a, tt.b)
-                if (err != nil) != tt.wantErr {
-                    t.Errorf("Divide() error = %v, wantErr %v", err, tt.wantErr)
-                    return
-                }
-                if !tt.wantErr && got != tt.want {
-                    t.Errorf("Divide() = %v, want %v", got, tt.want)
-                }
-            })
-        }
-    }
-    ```
-
-- id: "language/go/testing/table_driven/parallel-table-tests"
-  section_of: "language/go/testing/table_driven"
-  section_order: 2
-  category: "language"
-  subcategory: "go"
-  is_mandatory: false
-  shard_types: ["/coder", "/tester"]
-  languages: ["/go", "/golang"]
-  depends_on: ["language/go/testing/fundamentals"]
-  content: |
-    *Part of: TABLE-DRIVEN TESTS*
-
-    ### Parallel Table Tests
-
-    ```go
-    func TestProcess(t *testing.T) {
-        tests := []struct {
-            name  string
-            input string
-            want  string
-        }{
-            // ... test cases
-        }
-
-        for _, tt := range tests {
-            t.Run(tt.name, func(t *testing.T) {
-                t.Parallel()  // Run subtests in parallel
-                got := Process(tt.input)
-                if got != tt.want {
-                    t.Errorf("got %q, want %q", got, tt.want)
-                }
-            })
-        }
-    }
-    ```
-
-    ### Named Fields for Clarity
-
-    ```go
-    tests := []struct {
-        name     string
-        input    Input
-        setup    func()       // Optional setup
-        want     Output
-        wantErr  error        // Specific error expected
-        check    func(Output) // Custom validation
-    }{
-        {
-            name:  "valid input",
-            input: Input{Value: "test"},
-            want:  Output{Result: "TEST"},
-        },
-        {
-            name:    "empty input",
-            input:   Input{},
-            wantErr: ErrEmptyInput,
-        },
-    }
-    ```
-
 - id: "language/go/testing/testify"
   category: "language"
   subcategory: "go"
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
-  depends_on: ["language/go/testing/fundamentals"]
   content: |
     ## TESTIFY ASSERTION LIBRARY
 
@@ -341,7 +67,6 @@
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
-  depends_on: ["language/go/testing/fundamentals"]
   content: |
     *Part of: TESTIFY ASSERTION LIBRARY*
 
@@ -369,7 +94,6 @@
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
-  depends_on: ["language/go/testing/fundamentals"]
   content: |
     *Part of: TESTIFY ASSERTION LIBRARY*
 
@@ -419,7 +143,6 @@
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
-  depends_on: ["language/go/testing/fundamentals"]
   content: |
     *Part of: TESTIFY ASSERTION LIBRARY*
 
@@ -463,7 +186,6 @@
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
-  depends_on: ["language/go/testing/fundamentals"]
   content: |
     ## HTTP TESTING
 
@@ -517,52 +239,6 @@
     client := NewClient(server.URL)
     ```
 
-- id: "language/go/testing/httptest/testing-http-client-code"
-  section_of: "language/go/testing/httptest"
-  section_order: 1
-  category: "language"
-  subcategory: "go"
-  is_mandatory: false
-  shard_types: ["/coder", "/tester"]
-  languages: ["/go", "/golang"]
-  depends_on: ["language/go/testing/fundamentals"]
-  content: |
-    *Part of: HTTP TESTING*
-
-    ### Testing HTTP Client Code
-
-    ```go
-    func TestAPIClient(t *testing.T) {
-        // Create test server
-        server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            // Verify request
-            if r.Method != "POST" {
-                t.Errorf("method = %s, want POST", r.Method)
-            }
-            if r.URL.Path != "/api/users" {
-                t.Errorf("path = %s, want /api/users", r.URL.Path)
-            }
-
-            // Send response
-            w.Header().Set("Content-Type", "application/json")
-            w.WriteHeader(http.StatusCreated)
-            w.Write([]byte(`{"id": "123", "name": "John"}`))
-        }))
-        defer server.Close()
-
-        // Test client with mock server
-        client := NewAPIClient(server.URL)
-        user, err := client.CreateUser("John")
-
-        if err != nil {
-            t.Fatalf("CreateUser() error = %v", err)
-        }
-        if user.ID != "123" {
-            t.Errorf("user.ID = %s, want 123", user.ID)
-        }
-    }
-    ```
-
 - id: "language/go/testing/httptest/testing-with-tls"
   section_of: "language/go/testing/httptest"
   section_order: 2
@@ -571,7 +247,6 @@
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
-  depends_on: ["language/go/testing/fundamentals"]
   content: |
     *Part of: HTTP TESTING*
 
@@ -618,7 +293,6 @@
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
-  depends_on: ["language/go/testing/fundamentals"]
   content: |
     ## BENCHMARKS AND FUZZING
 
@@ -694,7 +368,6 @@
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
-  depends_on: ["language/go/testing/fundamentals"]
   content: |
     *Part of: BENCHMARKS AND FUZZING*
 
@@ -747,7 +420,6 @@
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
-  depends_on: ["language/go/testing/fundamentals"]
   content: |
     *Part of: BENCHMARKS AND FUZZING*
 
@@ -768,7 +440,6 @@
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
-  depends_on: ["language/go/testing/fundamentals"]
   content: |
     ## MOCKING AND DEPENDENCY INJECTION
 
@@ -833,47 +504,6 @@
     func (m *MockRepo) Find(id string) (*User, error) { return m.users[id], nil }
     ```
 
-- id: "language/go/testing/mocking/function-type-mocking"
-  section_of: "language/go/testing/mocking"
-  section_order: 1
-  category: "language"
-  subcategory: "go"
-  is_mandatory: false
-  shard_types: ["/coder", "/tester"]
-  languages: ["/go", "/golang"]
-  depends_on: ["language/go/testing/fundamentals"]
-  content: |
-    *Part of: MOCKING AND DEPENDENCY INJECTION*
-
-    ### Function Type Mocking
-
-    ```go
-    // Define function type
-    type TimeFunc func() time.Time
-
-    // Service using function
-    type Service struct {
-        now TimeFunc
-    }
-
-    func NewService() *Service {
-        return &Service{now: time.Now}  // Default
-    }
-
-    func (s *Service) IsExpired(expiry time.Time) bool {
-        return s.now().After(expiry)
-    }
-
-    // Test with custom time
-    func TestIsExpired(t *testing.T) {
-        fixedTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-        svc := &Service{now: func() time.Time { return fixedTime }}
-
-        assert.True(t, svc.IsExpired(fixedTime.Add(-time.Hour)))
-        assert.False(t, svc.IsExpired(fixedTime.Add(time.Hour)))
-    }
-    ```
-
 - id: "language/go/testing/mocking/gomock-code-generation"
   section_of: "language/go/testing/mocking"
   section_order: 2
@@ -882,7 +512,6 @@
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
-  depends_on: ["language/go/testing/fundamentals"]
   content: |
     *Part of: MOCKING AND DEPENDENCY INJECTION*
 

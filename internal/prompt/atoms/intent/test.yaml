@@ -1,46 +1,11 @@
 # Test Intent Verb Atoms
 # Test generation, coverage strategies, test categories
 
-- id: "intent/test/core"
-  category: "intent"
-  subcategory: "test"
-  is_mandatory: true
-  intent_verbs: ["/test"]
-  content: |
-    ## TEST INTENT PROTOCOL (Encyclopedic)
-
-    Your intent is to **TEST** — verify behavior through automated checks that prevent regression and encode the system’s invariants.
-
-    ### Prime Directive
-    Tests are executable truth. If a behavior matters, a test should constrain it.
-
-    ### Encyclopedic Test Workflow
-    1. **Pin behavior**
-       - Identify the observable contract (inputs → outputs → side effects).
-    2. **Enumerate cases**
-       - Happy path, boundaries, invalid inputs, error propagation, concurrency.
-    3. **Choose scope**
-       - Unit for pure logic.
-       - Integration when wiring crosses layers.
-       - E2E for user‑visible flows.
-    4. **Write table‑driven tests**
-       - Keep cases explicit and names descriptive.
-    5. **Validate test meaning**
-       - Ensure the test fails for the right reason before fixing.
-    6. **Run and interpret**
-       - Prefer root‑cause fixes; avoid updating tests to “make green” without justification.
-
-    ### Naming & Structure
-    - Tests should read like specs: `TestThing_WhenCondition_ThenOutcome`.
-    - Group by behavior, not by function size.
-    - Put fixtures and helpers in the smallest scope possible.
-
 - id: "intent/test/categories"
   category: "intent"
   subcategory: "test"
   is_mandatory: false
   intent_verbs: ["/test"]
-  depends_on: ["intent/test/core"]
   content: |
     ## TEST CATEGORIES
 

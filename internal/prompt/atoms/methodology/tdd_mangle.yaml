@@ -7,7 +7,6 @@
   is_mandatory: false
   languages: ["/mangle"]
   intent_verbs: ["/test", "/fix", "/implement"]
-  depends_on: ["methodology/tdd/core"]
   content: |
     ## MANGLE LOGIC TDD PROTOCOL
 

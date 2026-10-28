@@ -408,48 +408,6 @@
     # The 'conn' parameter is handled by decorator
     ```
 
-- id: "language/python/typing/paramspec/common-decorator-patterns"
-  section_of: "language/python/typing/paramspec"
-  section_order: 2
-  category: "language"
-  subcategory: "python"
-  is_mandatory: false
-  shard_types: ["/coder", "/reviewer"]
-  languages: ["/python"]
-  depends_on: ["language/python/typing/generics"]
-  content: |
-    *Part of: PARAMSPEC AND CONCATENATE*
-
-    ### Common Decorator Patterns
-
-    ```python
-    # Retry decorator
-    def retry(
-        times: int
-    ) -> Callable[[Callable[P, R]], Callable[P, R]]:
-        def decorator(func: Callable[P, R]) -> Callable[P, R]:
-            @wraps(func)
-            def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-                for i in range(times):
-                    try:
-                        return func(*args, **kwargs)
-                    except Exception:
-                        if i == times - 1:
-                            raise
-            return wrapper
-        return decorator
-
-    # Async decorator
-    def async_logged(
-        func: Callable[P, Awaitable[R]]
-    ) -> Callable[P, Awaitable[R]]:
-        @wraps(func)
-        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-            print(f"Calling {func.__name__}")
-            return await func(*args, **kwargs)
-        return wrapper
-    ```
-
 - id: "language/python/typing/narrowing"
   category: "language"
   subcategory: "python"
@@ -543,28 +501,3 @@
     # Use for internal invariants, not runtime validation
     ```
 
-- id: "language/python/typing/narrowing/typing-cast-escape-hatch"
-  section_of: "language/python/typing/narrowing"
-  section_order: 2
-  category: "language"
-  subcategory: "python"
-  is_mandatory: false
-  shard_types: ["/coder", "/reviewer"]
-  languages: ["/python"]
-  depends_on: ["language/python/typing/fundamentals"]
-  content: |
-    *Part of: TYPE NARROWING*
-
-    ### typing.cast (Escape Hatch)
-
-    ```python
-    from typing import cast
-
-    # When you know better than the type checker
-    data: object = get_data()
-    user = cast(User, data)  # Tell type checker "trust me, it's a User"
-
-    # WARNING: cast does NO runtime checking
-    # Use only when type checker can't infer correctly
-    # Prefer isinstance/TypeGuard for actual validation
-    ```

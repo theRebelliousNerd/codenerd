@@ -57,38 +57,6 @@
     - `?` operator propagates errors early
     - Key combinators: `map`, `and_then`, `unwrap_or`
 
-- id: "language/rust/errors/result_option/the-operator-error-propagation"
-  section_of: "language/rust/errors/result_option"
-  section_order: 1
-  category: "language"
-  subcategory: "rust"
-  is_mandatory: false
-  shard_types: ["/coder", "/reviewer"]
-  languages: ["/rust"]
-  content: |
-    *Part of: RESULT AND OPTION FUNDAMENTALS*
-
-    ### The ? Operator - Error Propagation
-
-    ```rust
-    // ? unwraps Ok or returns Err early
-    fn process() -> Result<Output, Error> {
-        let file = File::open("input.txt")?;  // Returns Err if failed
-        let data = read_data(&file)?;
-        let result = parse_data(&data)?;
-        Ok(result)
-    }
-
-    // Equivalent to:
-    fn process_verbose() -> Result<Output, Error> {
-        let file = match File::open("input.txt") {
-            Ok(f) => f,
-            Err(e) => return Err(e.into()),
-        };
-        // ...
-    }
-    ```
-
 - id: "language/rust/errors/result_option/essential-combinators"
   section_of: "language/rust/errors/result_option"
   section_order: 2

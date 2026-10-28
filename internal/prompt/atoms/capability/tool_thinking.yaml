@@ -10,42 +10,7 @@
   content: |
     ## Tool Awareness & Self-Extension
 
-    You have access to a dynamic tool registry that includes both built-in tools
-    and tools that have been generated at runtime by the Ouroboros self-modification system.
-
-    ### Available Tools
-
-    The catalog lists every tool you can invoke. The wire format for invoking one
-    belongs to whichever output protocol your role uses, and is specified there --
-    it is deliberately not repeated here, because this atom is ungated and is
-    compiled into roles whose replies are parsed directly as JSON and which must
-    not emit an envelope at all.
-
-    ### Recognizing Capability Gaps
-
-    When you need a capability that isn't available in the tool catalog:
-
-    1. **Identify the Gap** - What operation do you need to perform?
-    2. **Request Generation** - Record a `missing_tool_for` fact to trigger Ouroboros
-    3. **Continue Working** - The tool will be available in subsequent turns
-
-    ### What Happens Next
-
-    1. The Ouroboros system detects the `missing_tool_for` fact
-    2. It generates a Go tool implementation with:
-       - JSON input/output protocol
-       - Safety validation
-       - Proper error handling
-    3. The tool is compiled and registered
-    4. On your next turn, the tool appears in the catalog
-
-    ### Tool Safety
-
-    Generated tools are sandboxed and cannot:
-    - Import unsafe, syscall, or plugin packages
-    - Make arbitrary network calls
-    - Modify system files outside the project
-    - Execute shell commands directly
+    The catalog lists every tool you can call, built-in and generated; your role's output protocol says how to call one. When no catalog tool can do what you need, request one through the Ouroboros tool-generation channel your protocol describes and keep working: the generated tool, sandboxed and checked, appears in the catalog on a later turn.
 
 - id: "capability/tool_request_protocol"
   category: "protocol"

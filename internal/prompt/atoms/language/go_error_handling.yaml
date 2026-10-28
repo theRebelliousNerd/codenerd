@@ -1,146 +1,12 @@
 # Go Error Handling - Encyclopedic Reference
 # Comprehensive guidance for error handling, wrapping, and patterns
 
-- id: "language/go/errors/fundamentals"
-  category: "language"
-  subcategory: "go"
-  is_mandatory: false
-  shard_types: ["/coder", "/reviewer"]
-  languages: ["/go", "/golang"]
-  content: |
-    ## GO ERROR HANDLING FUNDAMENTALS
-
-    ### The Go Error Philosophy
-
-    Errors are values. They are not exceptions - they are explicit return values
-    that must be handled by the caller. This makes error handling visible and
-    forces developers to consider failure modes.
-
-    ### Basic Error Handling
-
-    ```go
-    result, err := doSomething()
-    if err != nil {
-        return fmt.Errorf("failed to do something: %w", err)
-    }
-    // Use result
-    ```
-
-    **CRITICAL RULE: Never ignore errors**
-    ```go
-    // BAD: Ignoring error
-    result, _ := doSomething()
-
-    // GOOD: Handle or explicitly ignore with comment
-    result, err := doSomething()
-    if err != nil {
-        log.Printf("warning: %v (continuing anyway)", err)
-    }
-    ```
-  content_concise: |
-    ## Go Error Handling
-    - Always check: `if err != nil { return fmt.Errorf("context: %w", err) }`
-    - Use `%w` for wrapping (preserves chain)
-    - `errors.Is(err, target)` - check error identity
-    - `errors.As(err, &target)` - extract error type
-    - Sentinel errors: `var ErrNotFound = errors.New("not found")`
-
-- id: "language/go/errors/fundamentals/error-creation"
-  section_of: "language/go/errors/fundamentals"
-  section_order: 1
-  category: "language"
-  subcategory: "go"
-  is_mandatory: false
-  shard_types: ["/coder", "/reviewer"]
-  languages: ["/go", "/golang"]
-  content: |
-    *Part of: GO ERROR HANDLING FUNDAMENTALS*
-
-    ### Error Creation
-
-    **Simple errors:**
-    ```go
-    import "errors"
-
-    err := errors.New("something went wrong")
-    ```
-
-    **Formatted errors:**
-    ```go
-    import "fmt"
-
-    err := fmt.Errorf("failed to process %s: invalid format", filename)
-    ```
-
-    **Sentinel errors (package-level constants):**
-    ```go
-    var (
-        ErrNotFound     = errors.New("not found")
-        ErrUnauthorized = errors.New("unauthorized")
-        ErrInvalidInput = errors.New("invalid input")
-    )
-    ```
-
-- id: "language/go/errors/fundamentals/error-wrapping-go-1-13"
-  section_of: "language/go/errors/fundamentals"
-  section_order: 2
-  category: "language"
-  subcategory: "go"
-  is_mandatory: false
-  shard_types: ["/coder", "/reviewer"]
-  languages: ["/go", "/golang"]
-  content: |
-    *Part of: GO ERROR HANDLING FUNDAMENTALS*
-
-    ### Error Wrapping (Go 1.13+)
-
-    **Wrap with context using %w:**
-    ```go
-    func ReadConfig(path string) (*Config, error) {
-        data, err := os.ReadFile(path)
-        if err != nil {
-            return nil, fmt.Errorf("read config %s: %w", path, err)
-        }
-        // ...
-    }
-    ```
-
-    **Unwrap chain:**
-    ```go
-    // errors.Unwrap returns the wrapped error
-    inner := errors.Unwrap(err)
-
-    // errors.Is checks if any error in chain matches
-    if errors.Is(err, os.ErrNotExist) {
-        // File doesn't exist
-    }
-
-    // errors.As extracts specific error type from chain
-    var pathErr *os.PathError
-    if errors.As(err, &pathErr) {
-        fmt.Println("Path:", pathErr.Path)
-    }
-    ```
-
-    ### When to Use %w vs %v
-
-    **Use %w when:**
-    - Caller needs to inspect the underlying error
-    - Error is part of your API contract
-    - You want errors.Is/errors.As to work
-
-    **Use %v when:**
-    - Underlying error is an implementation detail
-    - You want to hide the error source
-    - Breaking the error chain is intentional
-
 - id: "language/go/errors/custom_types"
   category: "language"
   subcategory: "go"
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
-  depends_on: ["language/go/errors/fundamentals"]
   content: |
     ## CUSTOM ERROR TYPES
 
@@ -195,7 +61,6 @@
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
-  depends_on: ["language/go/errors/fundamentals"]
   content: |
     *Part of: CUSTOM ERROR TYPES*
 
@@ -259,7 +124,6 @@
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
-  depends_on: ["language/go/errors/fundamentals"]
   content: |
     *Part of: CUSTOM ERROR TYPES*
 
@@ -303,7 +167,6 @@
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
-  depends_on: ["language/go/errors/fundamentals"]
   content: |
     ## ERROR HANDLING PATTERNS
 
@@ -354,49 +217,6 @@
     - Log at top level, wrap at lower levels
     - Must pattern: panic for unrecoverable init errors
 
-- id: "language/go/errors/patterns/panic-recovery"
-  section_of: "language/go/errors/patterns"
-  section_order: 1
-  category: "language"
-  subcategory: "go"
-  is_mandatory: false
-  shard_types: ["/coder", "/reviewer"]
-  languages: ["/go", "/golang"]
-  depends_on: ["language/go/errors/fundamentals"]
-  content: |
-    *Part of: ERROR HANDLING PATTERNS*
-
-    ### Panic Recovery
-
-    ```go
-    func SafeCall(fn func()) (err error) {
-        defer func() {
-            if r := recover(); r != nil {
-                err = fmt.Errorf("panic: %v\n%s", r, debug.Stack())
-            }
-        }()
-        fn()
-        return nil
-    }
-    ```
-
-    ### Error Transformation at Boundaries
-
-    ```go
-    // Internal error -> API error
-    func ToAPIError(err error) *APIError {
-        switch {
-        case errors.Is(err, sql.ErrNoRows):
-            return &APIError{Code: 404, Message: "not found"}
-        case errors.Is(err, ErrUnauthorized):
-            return &APIError{Code: 401, Message: "unauthorized"}
-        default:
-            log.Printf("internal error: %v", err)
-            return &APIError{Code: 500, Message: "internal error"}
-        }
-    }
-    ```
-
 - id: "language/go/errors/patterns/must-pattern-panic-on-error"
   section_of: "language/go/errors/patterns"
   section_order: 2
@@ -405,7 +225,6 @@
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
-  depends_on: ["language/go/errors/fundamentals"]
   content: |
     *Part of: ERROR HANDLING PATTERNS*
 
@@ -425,249 +244,3 @@
     var emailRegex = MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
     ```
 
-- id: "language/go/errors/patterns/retry-with-exponential-backoff"
-  section_of: "language/go/errors/patterns"
-  section_order: 3
-  category: "language"
-  subcategory: "go"
-  is_mandatory: false
-  shard_types: ["/coder", "/reviewer"]
-  languages: ["/go", "/golang"]
-  depends_on: ["language/go/errors/fundamentals"]
-  content: |
-    *Part of: ERROR HANDLING PATTERNS*
-
-    ### Retry with Exponential Backoff
-
-    ```go
-    func Retry(ctx context.Context, maxAttempts int, fn func() error) error {
-        var lastErr error
-        for attempt := 0; attempt < maxAttempts; attempt++ {
-            lastErr = fn()
-            if lastErr == nil {
-                return nil
-            }
-
-            // Check if retryable
-            if !IsRetryable(lastErr) {
-                return lastErr
-            }
-
-            // Exponential backoff
-            backoff := time.Duration(1<<uint(attempt)) * 100 * time.Millisecond
-            select {
-            case <-ctx.Done():
-                return ctx.Err()
-            case <-time.After(backoff):
-            }
-        }
-        return fmt.Errorf("failed after %d attempts: %w", maxAttempts, lastErr)
-    }
-    ```
-
-- id: "language/go/errors/patterns/error-logging-best-practices"
-  section_of: "language/go/errors/patterns"
-  section_order: 4
-  category: "language"
-  subcategory: "go"
-  is_mandatory: false
-  shard_types: ["/coder", "/reviewer"]
-  languages: ["/go", "/golang"]
-  depends_on: ["language/go/errors/fundamentals"]
-  content: |
-    *Part of: ERROR HANDLING PATTERNS*
-
-    ### Error Logging Best Practices
-
-    ```go
-    // Log at the top level, wrap at lower levels
-    func handleRequest(w http.ResponseWriter, r *http.Request) {
-        err := processRequest(r)
-        if err != nil {
-            // Log with full context at top level
-            log.Printf("request %s failed: %v", r.URL.Path, err)
-            http.Error(w, "internal error", 500)
-        }
-    }
-
-    func processRequest(r *http.Request) error {
-        // Don't log here, just wrap and return
-        if err := validateInput(r); err != nil {
-            return fmt.Errorf("validate: %w", err)
-        }
-        // ...
-    }
-    ```
-
-- id: "language/go/errors/anti_patterns"
-  category: "language"
-  subcategory: "go"
-  is_mandatory: false
-  shard_types: ["/coder", "/reviewer"]
-  languages: ["/go", "/golang"]
-  depends_on: ["language/go/errors/fundamentals"]
-  content: |
-    ## ERROR HANDLING ANTI-PATTERNS
-
-    ### Anti-Pattern 1: Ignoring Errors
-
-    ```go
-    // BAD: Silent failure
-    result, _ := doSomething()
-
-    // BAD: Error checked but ignored
-    if err := doSomething(); err != nil {
-        // Nothing here
-    }
-
-    // GOOD: Handle appropriately
-    result, err := doSomething()
-    if err != nil {
-        return fmt.Errorf("do something: %w", err)
-    }
-    ```
-
-    ### Anti-Pattern 2: Logging and Returning
-
-    ```go
-    // BAD: Error logged multiple times
-    func processItem(item Item) error {
-        err := validate(item)
-        if err != nil {
-            log.Printf("validation failed: %v", err)  // Logged here
-            return fmt.Errorf("validate: %w", err)    // And again upstream!
-        }
-        return nil
-    }
-
-    // GOOD: Return only, let caller decide
-    func processItem(item Item) error {
-        if err := validate(item); err != nil {
-            return fmt.Errorf("validate item %s: %w", item.ID, err)
-        }
-        return nil
-    }
-    ```
-  content_concise: |
-    ## Error Anti-Patterns
-    - Don't ignore errors with `_`
-    - Don't log AND return (pick one)
-    - Don't wrap without adding context
-    - Don't match error strings, use errors.Is/As
-    - Don't panic for recoverable errors
-    - Don't over-wrap (readable chain > detailed chain)
-
-- id: "language/go/errors/anti_patterns/anti-pattern-3-wrapping-without-context"
-  section_of: "language/go/errors/anti_patterns"
-  section_order: 1
-  category: "language"
-  subcategory: "go"
-  is_mandatory: false
-  shard_types: ["/coder", "/reviewer"]
-  languages: ["/go", "/golang"]
-  depends_on: ["language/go/errors/fundamentals"]
-  content: |
-    *Part of: ERROR HANDLING ANTI-PATTERNS*
-
-    ### Anti-Pattern 3: Wrapping Without Context
-
-    ```go
-    // BAD: No useful context added
-    if err != nil {
-        return fmt.Errorf("%w", err)
-    }
-
-    // BAD: Generic message
-    if err != nil {
-        return fmt.Errorf("error: %w", err)
-    }
-
-    // GOOD: Add meaningful context
-    if err != nil {
-        return fmt.Errorf("read config file %s: %w", path, err)
-    }
-    ```
-
-    ### Anti-Pattern 4: String Matching Errors
-
-    ```go
-    // BAD: Brittle string matching
-    if err.Error() == "not found" {
-        // Handle not found
-    }
-
-    // GOOD: Use errors.Is with sentinel
-    if errors.Is(err, ErrNotFound) {
-        // Handle not found
-    }
-
-    // GOOD: Use errors.As with type
-    var notFoundErr *NotFoundError
-    if errors.As(err, &notFoundErr) {
-        // Handle not found
-    }
-    ```
-
-- id: "language/go/errors/anti_patterns/anti-pattern-5-panic-for-normal-errors"
-  section_of: "language/go/errors/anti_patterns"
-  section_order: 2
-  category: "language"
-  subcategory: "go"
-  is_mandatory: false
-  shard_types: ["/coder", "/reviewer"]
-  languages: ["/go", "/golang"]
-  depends_on: ["language/go/errors/fundamentals"]
-  content: |
-    *Part of: ERROR HANDLING ANTI-PATTERNS*
-
-    ### Anti-Pattern 5: Panic for Normal Errors
-
-    ```go
-    // BAD: Panic for recoverable errors
-    func GetUser(id string) *User {
-        user, err := db.Find(id)
-        if err != nil {
-            panic(err)  // Don't panic for normal errors!
-        }
-        return user
-    }
-
-    // GOOD: Return error
-    func GetUser(id string) (*User, error) {
-        user, err := db.Find(id)
-        if err != nil {
-            return nil, fmt.Errorf("get user %s: %w", id, err)
-        }
-        return user, nil
-    }
-    ```
-
-    ### Anti-Pattern 6: Over-wrapping
-
-    ```go
-    // BAD: Wrapping at every level
-    // Level 3: "process: handle: execute: read: open: no such file"
-    // Hard to read!
-
-    // GOOD: Add context only when meaningful
-    // "process user 123: read config: no such file"
-    ```
-
-    ### Anti-Pattern 7: Checking err != nil After Successful Operation
-
-    ```go
-    // BAD: Redundant nil check
-    result, err := doSomething()
-    if err == nil {
-        if err != nil {  // This is always false!
-            return err
-        }
-    }
-
-    // GOOD: Simple and clear
-    result, err := doSomething()
-    if err != nil {
-        return err
-    }
-    // Use result
-    ```

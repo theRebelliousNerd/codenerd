@@ -704,24 +704,6 @@
     # Sets must be finite and grounded
     ```
 
-- id: "language/mangle/docs/patterns/set_operations/set-operations-patterns-performance-tips"
-  section_of: "language/mangle/docs/patterns/set_operations"
-  section_order: 13
-  category: "language"
-  subcategory: "mangle"
-  description: "Set Operations Patterns: Set Operations Patterns Performance Tips"
-  is_mandatory: false
-  languages: ["/mangle"]
-  content: |
-    *Part of: Set Operations Patterns*
-
-    ## Performance Tips
-
-    1. **Materialize Intermediate Sets**: For complex operations
-    2. **Filter Early**: Reduce set sizes before operations
-    3. **Use Indices**: Index predicates representing sets
-    4. **Avoid Cartesian Products**: In multi-set operations
-
 - id: "language/mangle/docs/patterns/set_operations/common-use-cases-in-codenerd"
   section_of: "language/mangle/docs/patterns/set_operations"
   section_order: 14

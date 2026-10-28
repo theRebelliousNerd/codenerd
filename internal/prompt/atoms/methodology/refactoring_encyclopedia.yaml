@@ -7,70 +7,11 @@
 # PART 1: FOUNDATIONAL PRINCIPLES
 # =============================================================================
 
-- id: "methodology/refactoring/foundation"
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: true
-  intent_verbs: ["/refactor"]
-  content: |
-    ## REFACTORING FOUNDATION: THE IMMUTABLE LAWS
-
-    ### Definition (Martin Fowler)
-
-    Refactoring is "a disciplined technique for restructuring an existing body of code,
-    altering its internal structure without changing its external behavior."
-
-    ### The Three Laws of Refactoring
-
-    **Law 1: Behavior Preservation is Non-Negotiable**
-    - Every refactoring MUST preserve observable behavior
-    - If you cannot prove behavior is preserved, you are not refactoring
-    - "Refactoring changes the programs in small steps, so if you make a mistake,
-      it is easy to find where the bug is." - Martin Fowler
-
-    **Law 2: Small Steps, Continuous Integration**
-    - Each transformation should be "too small to be worth doing"
-    - The system must remain fully working after each refactoring
-    - Atomic changes reduce risk and simplify rollback
-    - Research shows: review time drops 60% when changes stay below 200 lines
-
-    **Law 3: Tests Are Your Safety Net**
-    - Tests must exist BEFORE refactoring begins
-    - Run tests after EVERY step
-    - If tests don't exist, write characterization tests first
-    - "Legacy code is code without tests" - Michael Feathers
-
-- id: "methodology/refactoring/foundation/the-kent-beck-sequence"
-  section_of: "methodology/refactoring/foundation"
-  section_order: 1
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  content: |
-    *Part of: REFACTORING FOUNDATION: THE IMMUTABLE LAWS*
-
-    ### The Kent Beck Sequence
-
-    "Make it work, make it right, make it fast" - always in that order:
-    1. Working code is the prerequisite
-    2. Refactoring makes it "right" (clean, maintainable)
-    3. Performance optimization comes last (and only when measured)
-
-    ### When Refactoring is NOT Appropriate
-
-    - No tests exist (write them first or use Golden Master)
-    - Deadline pressure (refactoring debt compounds, but ship first)
-    - Code is being replaced soon (don't polish what you'll discard)
-    - Refactoring doesn't serve current goals (YAGNI applies)
-    - You don't understand what the code does (understand first)
-
 - id: "methodology/refactoring/behavior_preservation"
   category: "methodology"
   subcategory: "refactoring"
   is_mandatory: true
   intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     ## BEHAVIOR PRESERVATION: VERIFICATION STRATEGIES
 
@@ -115,7 +56,6 @@
   subcategory: "refactoring"
   is_mandatory: false
   intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     ## BEHAVIOR PRESERVATION (continued)
 
@@ -141,131 +81,11 @@
     - Mask volatile values (timestamps, UUIDs) in output
     - Stub external service calls
 
-- id: "methodology/refactoring/catalog_composition"
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    ## REFACTORING CATALOG: COMPOSING CODE
-
-    ### Extract Method (Most Important Refactoring)
-
-    **When:** A code fragment can be grouped together and named
-    **Why:** Improves readability, enables reuse, isolates complexity
-    **Mechanics:**
-    1. Create new method with intention-revealing name
-    2. Copy extracted code to new method
-    3. Identify local variables used (become parameters)
-    4. Identify local variables modified (become return values)
-    5. Replace original code with method call
-    6. Run tests
-
-    **Preconditions:**
-    - Extracted code has clear single responsibility
-    - Variables can be cleanly passed in/out
-    - No control flow jumps (break, continue, return) that escape scope
-
-    **Risks:**
-    - Arrays passed by reference may have subtle mutations
-    - Side effects on instance variables need careful handling
-    - Loop extraction may change iteration semantics
-
-- id: "methodology/refactoring/catalog_composition/extract-variable-introduce-explaining"
-  section_of: "methodology/refactoring/catalog_composition"
-  section_order: 1
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: REFACTORING CATALOG: COMPOSING CODE*
-
-    ### Extract Variable (Introduce Explaining Variable)
-
-    **When:** Complex expression is hard to understand
-    **Why:** Names communicate intent; simplifies debugging
-    **Mechanics:**
-    1. Declare immutable variable with descriptive name
-    2. Assign expression result to variable
-    3. Replace expression occurrences with variable reference
-    4. Run tests
-
-    **Example:**
-    ```
-    // Before
-    if order.Quantity > 100 && order.Customer.LoyaltyYears > 2 {
-
-    // After
-    isLargeOrder := order.Quantity > 100
-    isLoyalCustomer := order.Customer.LoyaltyYears > 2
-    if isLargeOrder && isLoyalCustomer {
-    ```
-
-    ### Inline Variable
-
-    **When:** Variable name adds no clarity beyond expression itself
-    **Why:** Reduces indirection; expression is already clear
-    **Mechanics:**
-    1. Verify variable is assigned only once
-    2. Replace all references with right-hand expression
-    3. Remove variable declaration
-    4. Run tests
-
-- id: "methodology/refactoring/catalog_composition/inline-method"
-  section_of: "methodology/refactoring/catalog_composition"
-  section_order: 2
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: REFACTORING CATALOG: COMPOSING CODE*
-
-    ### Inline Method
-
-    **When:** Method body is as clear as its name
-    **Why:** Removes unnecessary indirection
-    **Mechanics:**
-    1. Verify method is not polymorphic (not overridden)
-    2. Find all call sites
-    3. Replace each call with method body
-    4. Remove method definition
-    5. Run tests
-
-    ### Extract Class
-
-    **When:** Class has responsibilities that should be separate
-    **Why:** Single Responsibility Principle; smaller classes easier to understand
-    **Mechanics:**
-    1. Identify subset of data/methods forming cohesive unit
-    2. Create new class with appropriate name
-    3. Create link from old class to new class
-    4. Move fields to new class
-    5. Move methods to new class
-    6. Review interfaces, reduce coupling
-    7. Run tests
-
-    ### Inline Class
-
-    **When:** Class is too small to justify existence
-    **Why:** Removes unnecessary abstraction; simplifies design
-    **Mechanics:**
-    1. Declare all public methods of source on target
-    2. Change all references to delegate to target
-    3. Move methods and data from source to target
-    4. Delete empty source class
-    5. Run tests
-
 - id: "methodology/refactoring/catalog_movement"
   category: "methodology"
   subcategory: "refactoring"
   is_mandatory: false
   intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     ## REFACTORING CATALOG: MOVING FEATURES
 
@@ -294,64 +114,6 @@
     5. Remove field from source
     6. Run tests
 
-- id: "methodology/refactoring/catalog_movement/move-statements-into-function"
-  section_of: "methodology/refactoring/catalog_movement"
-  section_order: 1
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: REFACTORING CATALOG: MOVING FEATURES*
-
-    ### Move Statements into Function
-
-    **When:** Same code appears before/after every call to a function
-    **Why:** DRY principle; single source of truth
-    **Mechanics:**
-    1. Verify statements are identical at all call sites
-    2. Extract statements into the called function
-    3. Remove duplicated statements from call sites
-    4. Run tests
-
-    ### Move Statements to Callers
-
-    **When:** Function does slightly different things in different contexts
-    **Why:** Caller-specific behavior should be in caller
-    **Mechanics:**
-    1. Identify statements that vary by caller
-    2. Extract variant statements
-    3. Inline the extracted function at call sites
-    4. Remove now-empty function body portions
-    5. Run tests
-
-- id: "methodology/refactoring/catalog_movement/split-loop"
-  section_of: "methodology/refactoring/catalog_movement"
-  section_order: 2
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: REFACTORING CATALOG: MOVING FEATURES*
-
-    ### Split Loop
-
-    **When:** Single loop does multiple unrelated operations
-    **Why:** Single Responsibility; enables further extraction
-    **Mechanics:**
-    1. Duplicate the loop
-    2. Remove different operations from each copy
-    3. Run tests
-    4. Consider further refactoring (extract to methods)
-
-    **Concern:** "Won't two loops be slower?"
-    - Usually negligible; modern CPUs optimize sequential access
-    - Profile before assuming performance impact
-    - Clean code first, optimize measured bottlenecks later
-
 - id: "methodology/refactoring/catalog_movement/replace-loop-with-pipeline"
   section_of: "methodology/refactoring/catalog_movement"
   section_order: 3
@@ -359,7 +121,6 @@
   subcategory: "refactoring"
   is_mandatory: false
   intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     *Part of: REFACTORING CATALOG: MOVING FEATURES*
 
@@ -388,162 +149,11 @@
               Map(func(i Item) string { return i.Name })
     ```
 
-- id: "methodology/refactoring/catalog_data"
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    ## REFACTORING CATALOG: ORGANIZING DATA
-
-    ### Replace Primitive with Object (Replace Data Value with Object)
-
-    **When:** Primitive carries more meaning than its type suggests
-    **Why:** Enables behavior attachment; type safety; validation
-    **Mechanics:**
-    1. Create class for the data value
-    2. Change field type from primitive to new class
-    3. Add accessor for underlying value
-    4. Migrate behavior onto new class
-    5. Run tests
-
-    **Example:**
-    ```
-    // Before
-    type Order struct {
-        CustomerPhoneNumber string  // Just a string!
-    }
-
-    // After
-    type PhoneNumber struct {
-        countryCode string
-        number      string
-    }
-    func (p PhoneNumber) Format() string { ... }
-    func (p PhoneNumber) IsValid() bool { ... }
-
-    type Order struct {
-        CustomerPhone PhoneNumber
-    }
-    ```
-
-- id: "methodology/refactoring/catalog_data/replace-magic-number-with-symbolic-constant"
-  section_of: "methodology/refactoring/catalog_data"
-  section_order: 1
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: REFACTORING CATALOG: ORGANIZING DATA*
-
-    ### Replace Magic Number with Symbolic Constant
-
-    **When:** Literal number appears with special meaning
-    **Why:** Communicates intent; single point of change
-    **Mechanics:**
-    1. Declare constant with intention-revealing name
-    2. Replace all occurrences of literal with constant
-    3. Run tests
-
-    **Example:**
-    ```
-    // Before
-    if employee.Age > 65 { ... }
-
-    // After
-    const RetirementAge = 65
-    if employee.Age > RetirementAge { ... }
-    ```
-
-    ### Encapsulate Collection
-
-    **When:** Class exposes collection directly
-    **Why:** Prevents unexpected modification; maintains invariants
-    **Mechanics:**
-    1. Encapsulate collection variable
-    2. Create add/remove methods for collection
-    3. Return copy or immutable view from getter
-    4. Update all modifying code to use add/remove
-    5. Run tests
-
-- id: "methodology/refactoring/catalog_data/encapsulate-record-replace-record-with-data"
-  section_of: "methodology/refactoring/catalog_data"
-  section_order: 2
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: REFACTORING CATALOG: ORGANIZING DATA*
-
-    ### Encapsulate Record (Replace Record with Data Class)
-
-    **When:** Record structures need behavior
-    **Why:** Provides encapsulation; enables validation
-    **Mechanics:**
-    1. Create class wrapping record
-    2. Add getters for each field
-    3. Replace record usage with class
-    4. Move behavior onto class as methods
-    5. Run tests
-
-    ### Introduce Parameter Object
-
-    **When:** Same group of parameters travels together
-    **Why:** Reduces parameter count; creates home for shared behavior
-    **Mechanics:**
-    1. Create new class for parameter group
-    2. Add constructor taking all parameters
-    3. Replace parameter list with single object parameter
-    4. Update all call sites
-    5. Move related behavior to new object
-    6. Run tests
-
-    **Example:**
-    ```
-    // Before
-    func AmountOwed(startDate, endDate time.Time, customer Customer) float64
-
-    // After
-    type DateRange struct {
-        Start, End time.Time
-    }
-    func (d DateRange) Days() int { ... }
-    func AmountOwed(period DateRange, customer Customer) float64
-    ```
-
-- id: "methodology/refactoring/catalog_data/replace-derived-variable-with-query"
-  section_of: "methodology/refactoring/catalog_data"
-  section_order: 3
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: REFACTORING CATALOG: ORGANIZING DATA*
-
-    ### Replace Derived Variable with Query
-
-    **When:** Variable is calculated from other data
-    **Why:** Eliminates data synchronization bugs
-    **Mechanics:**
-    1. Identify all updates to derived variable
-    2. Create function to calculate the value
-    3. Replace all reads with function call
-    4. Remove derived variable
-    5. Run tests
-
 - id: "methodology/refactoring/catalog_conditionals"
   category: "methodology"
   subcategory: "refactoring"
   is_mandatory: false
   intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     ## REFACTORING CATALOG: SIMPLIFYING CONDITIONAL LOGIC
 
@@ -574,105 +184,6 @@
     }
     ```
 
-- id: "methodology/refactoring/catalog_conditionals/consolidate-conditional-expression"
-  section_of: "methodology/refactoring/catalog_conditionals"
-  section_order: 1
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: REFACTORING CATALOG: SIMPLIFYING CONDITIONAL LOGIC*
-
-    ### Consolidate Conditional Expression
-
-    **When:** Multiple conditions yield same result
-    **Why:** Combines related logic; enables extraction
-    **Mechanics:**
-    1. Verify conditions have no side effects
-    2. Combine conditions with logical operators
-    3. Extract consolidated condition to function
-    4. Run tests
-
-    **Example:**
-    ```
-    // Before
-    if employee.Seniority < 2 { return 0 }
-    if employee.MonthsDisabled > 12 { return 0 }
-    if employee.PartTime { return 0 }
-
-    // After
-    if isNotEligibleForDisability(employee) { return 0 }
-    ```
-
-- id: "methodology/refactoring/catalog_conditionals/replace-nested-conditional-with-guard"
-  section_of: "methodology/refactoring/catalog_conditionals"
-  section_order: 2
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: REFACTORING CATALOG: SIMPLIFYING CONDITIONAL LOGIC*
-
-    ### Replace Nested Conditional with Guard Clauses
-
-    **When:** Nested if-else creates arrow anti-pattern
-    **Why:** Guard clauses flatten structure; highlight exceptional cases
-    **Mechanics:**
-    1. Identify conditions that exit early (guards)
-    2. Convert to early returns at function start
-    3. Simplify remaining logic (now linear)
-    4. Run tests
-
-    **Example:**
-    ```
-    // Before (arrow anti-pattern)
-    func PayAmount(employee Employee) float64 {
-        if employee.IsSeparated {
-            result = SeparatedAmount(employee)
-        } else {
-            if employee.IsRetired {
-                result = RetiredAmount(employee)
-            } else {
-                result = NormalPayAmount(employee)
-            }
-        }
-        return result
-    }
-
-    // After (guard clauses)
-    func PayAmount(employee Employee) float64 {
-        if employee.IsSeparated { return SeparatedAmount(employee) }
-        if employee.IsRetired { return RetiredAmount(employee) }
-        return NormalPayAmount(employee)
-    }
-    ```
-
-- id: "methodology/refactoring/catalog_conditionals/replace-conditional-with-polymorphism"
-  section_of: "methodology/refactoring/catalog_conditionals"
-  section_order: 3
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: REFACTORING CATALOG: SIMPLIFYING CONDITIONAL LOGIC*
-
-    ### Replace Conditional with Polymorphism
-
-    **When:** Switch/type-check on type code scattered across code
-    **Why:** New types don't require modifying existing code (Open/Closed)
-    **Mechanics:**
-    1. Create superclass with common interface
-    2. Create subclass for each type code value
-    3. Move type-specific behavior to subclass methods
-    4. Replace conditionals with polymorphic calls
-    5. Run tests
-
 - id: "methodology/refactoring/catalog_conditionals/introduce-special-case-introduce-null-object"
   section_of: "methodology/refactoring/catalog_conditionals"
   section_order: 4
@@ -680,7 +191,6 @@
   subcategory: "refactoring"
   is_mandatory: false
   intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     *Part of: REFACTORING CATALOG: SIMPLIFYING CONDITIONAL LOGIC*
 
@@ -716,7 +226,6 @@
   subcategory: "refactoring"
   is_mandatory: false
   intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     ## REFACTORING CATALOG: REFACTORING APIs
 
@@ -745,7 +254,6 @@
   subcategory: "refactoring"
   is_mandatory: false
   intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     *Part of: REFACTORING CATALOG: REFACTORING APIs*
 
@@ -777,103 +285,11 @@
     }
     ```
 
-- id: "methodology/refactoring/catalog_api/remove-flag-argument"
-  section_of: "methodology/refactoring/catalog_api"
-  section_order: 2
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: REFACTORING CATALOG: REFACTORING APIs*
-
-    ### Remove Flag Argument
-
-    **When:** Boolean parameter controls behavior branch
-    **Why:** Separate functions are clearer than boolean flags
-    **Mechanics:**
-    1. Create explicit function for each flag value
-    2. Replace flagged calls with specific function
-    3. Remove flag parameter from original
-    4. Run tests
-
-    **Example:**
-    ```
-    // Before
-    delivery.ScheduleDelivery(order, true)  // What does true mean?
-
-    // After
-    delivery.ScheduleRushDelivery(order)    // Crystal clear
-    ```
-
-    ### Replace Constructor with Factory Function
-
-    **When:** Constructor limitations require more flexibility
-    **Why:** Factory can return subtype, use caching, have meaningful name
-    **Mechanics:**
-    1. Create factory function calling constructor
-    2. Replace all constructor calls with factory
-    3. Make constructor private if possible
-    4. Run tests
-
-- id: "methodology/refactoring/catalog_api/replace-error-code-with-exception"
-  section_of: "methodology/refactoring/catalog_api"
-  section_order: 3
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: REFACTORING CATALOG: REFACTORING APIs*
-
-    ### Replace Error Code with Exception
-
-    **When:** Function returns special value to indicate error
-    **Why:** Errors can't be ignored; normal flow is clear
-    **Mechanics:**
-    1. Create exception/error type for error condition
-    2. Replace error code return with throw/return error
-    3. Update all callers to handle exception/error
-    4. Run tests
-
-    ### Replace Exception with Precheck
-
-    **When:** Exception is used for expected condition
-    **Why:** Exceptions are for exceptional circumstances
-    **Mechanics:**
-    1. Add check before operation that might throw
-    2. Remove try/catch wrapping the operation
-    3. Run tests
-
-    **Example:**
-    ```
-    // Before
-    try {
-        value := array[index]
-    } catch IndexOutOfBounds {
-        value = defaultValue
-    }
-
-    // After
-    if index < len(array) {
-        value = array[index]
-    } else {
-        value = defaultValue
-    }
-    ```
-
-    ===========================================================================
-    RT 3: CODE SMELLS - DETECTION AND REMEDIATION
-    ===========================================================================
-
 - id: "methodology/refactoring/smells_bloaters"
   category: "methodology"
   subcategory: "refactoring"
   is_mandatory: false
   intent_verbs: ["/refactor", "/review"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     ## CODE SMELLS: BLOATERS
 
@@ -905,7 +321,6 @@
   subcategory: "refactoring"
   is_mandatory: false
   intent_verbs: ["/refactor", "/review"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     *Part of: CODE SMELLS: BLOATERS*
 
@@ -945,78 +360,11 @@
     - Parameters > 4: Warning
     - Parameters > 7: Critical
 
-- id: "methodology/refactoring/smells_bloaters/primitive-obsession"
-  section_of: "methodology/refactoring/smells_bloaters"
-  section_order: 2
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor", "/review"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: CODE SMELLS: BLOATERS*
-
-    ### Primitive Obsession
-
-    **Symptoms:**
-    - Strings used for complex data (phone, email, currency)
-    - Integers for type codes
-    - String constants for field names
-    - Arrays for multi-part data
-
-    **Remediation:**
-    - Replace Primitive with Object (PhoneNumber, Money, Email)
-    - Replace Type Code with Subclass
-    - Replace Type Code with State/Strategy
-    - Introduce Parameter Object
-
-    **Examples of Primitives That Should Be Objects:**
-    - `string` for phone number -> `PhoneNumber` with validation
-    - `float64` for money -> `Money` with currency
-    - `int` for status -> `Status` enum with methods
-    - `string` for email -> `Email` with validation
-
-- id: "methodology/refactoring/smells_bloaters/data-clumps"
-  section_of: "methodology/refactoring/smells_bloaters"
-  section_order: 3
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor", "/review"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: CODE SMELLS: BLOATERS*
-
-    ### Data Clumps
-
-    **Symptoms:**
-    - Same 3+ variables appear together repeatedly
-    - Same parameters passed to multiple methods
-    - Related fields without encapsulation
-
-    **Remediation:**
-    - Extract Class for the clump
-    - Introduce Parameter Object
-    - Preserve Whole Object
-
-    **Example:**
-    ```
-    // Data clump: startDate, endDate appear everywhere
-    func PrintReport(startDate, endDate time.Time) { ... }
-    func CalculateTotal(startDate, endDate time.Time) { ... }
-
-    // After: DateRange encapsulates the clump
-    type DateRange struct { Start, End time.Time }
-    func PrintReport(period DateRange) { ... }
-    func CalculateTotal(period DateRange) { ... }
-    ```
-
 - id: "methodology/refactoring/smells_oo_abusers"
   category: "methodology"
   subcategory: "refactoring"
   is_mandatory: false
   intent_verbs: ["/refactor", "/review"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     ## CODE SMELLS: OBJECT-ORIENTATION ABUSERS
 
@@ -1052,44 +400,6 @@
     - Move Field to consolidate data
     - Use composition instead of inheritance
 
-- id: "methodology/refactoring/smells_oo_abusers/refused-bequest"
-  section_of: "methodology/refactoring/smells_oo_abusers"
-  section_order: 1
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor", "/review"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: CODE SMELLS: OBJECT-ORIENTATION ABUSERS*
-
-    ### Refused Bequest
-
-    **Symptoms:**
-    - Subclass doesn't use inherited methods/fields
-    - Subclass throws "not supported" for inherited methods
-    - Inheritance used for code reuse, not IS-A relationship
-
-    **Remediation:**
-    - Replace Inheritance with Delegation
-    - Push Down Method for unused parent methods
-    - Extract Subclass to separate concerns
-
-    **Key Question:** "Is this truly an IS-A relationship?"
-
-    ### Alternative Classes with Different Interfaces
-
-    **Symptoms:**
-    - Two classes do similar things with different method names
-    - Code duplicated across classes with slight variations
-    - Clients must know which class they're using
-
-    **Remediation:**
-    - Rename Method for consistency
-    - Move Method to consolidate
-    - Extract Superclass for shared behavior
-    - Extract Interface for polymorphism
-
 - id: "methodology/refactoring/smells_oo_abusers/temporary-field"
   section_of: "methodology/refactoring/smells_oo_abusers"
   section_order: 2
@@ -1097,7 +407,6 @@
   subcategory: "refactoring"
   is_mandatory: false
   intent_verbs: ["/refactor", "/review"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     *Part of: CODE SMELLS: OBJECT-ORIENTATION ABUSERS*
 
@@ -1122,7 +431,6 @@
   subcategory: "refactoring"
   is_mandatory: false
   intent_verbs: ["/refactor", "/review"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     ## CODE SMELLS: CHANGE PREVENTERS
 
@@ -1167,7 +475,6 @@
   subcategory: "refactoring"
   is_mandatory: false
   intent_verbs: ["/refactor", "/review"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     *Part of: CODE SMELLS: CHANGE PREVENTERS*
 
@@ -1188,244 +495,11 @@
     - Method calls > 3 getters on single external object: Warning
     - Method references external object more than `this`: Warning
 
-- id: "methodology/refactoring/smells_dispensables"
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor", "/review"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    ## CODE SMELLS: DISPENSABLES
-
-    Pointless code that should be removed to improve clarity.
-
-    ### Comments (When They're a Smell)
-
-    **Symptoms:**
-    - Comments explain "what" instead of "why"
-    - Comments compensate for poor naming
-    - Outdated comments contradict code
-    - Commented-out code
-
-    **Remediation:**
-    - Rename Method/Variable to explain "what"
-    - Extract Method for commented blocks
-    - Delete commented-out code (git has history)
-    - Introduce Assertion for non-obvious invariants
-
-    **When Comments Are Good:**
-    - "Why" explanations (business rules, workarounds)
-    - Public API documentation
-    - Performance explanations
-    - TODO with ticket numbers
-
-- id: "methodology/refactoring/smells_dispensables/duplicate-code-dry-violation"
-  section_of: "methodology/refactoring/smells_dispensables"
-  section_order: 1
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor", "/review"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: CODE SMELLS: DISPENSABLES*
-
-    ### Duplicate Code (DRY Violation)
-
-    **Symptoms:**
-    - Identical code in multiple places
-    - Nearly identical code with small variations
-    - Same algorithm implemented differently
-
-    **Remediation:**
-    - Extract Method for duplicates in same class
-    - Extract Superclass for duplicates in sibling classes
-    - Extract Class for duplicates in unrelated classes
-    - Form Template Method for similar algorithms
-
-    **Acceptable Duplication:**
-    - Test code (readability over DRY)
-    - Coincidental similarity (different concepts)
-
-    ### Lazy Class (Freeloader)
-
-    **Symptoms:**
-    - Class does very little (< 50 lines)
-    - Class exists only to hold data passed elsewhere
-    - Class added for "future extensibility" never used
-
-    **Remediation:**
-    - Inline Class if truly unnecessary
-    - Collapse Hierarchy for unused subclasses
-    - Move Method to give class responsibility
-
-- id: "methodology/refactoring/smells_dispensables/dead-code"
-  section_of: "methodology/refactoring/smells_dispensables"
-  section_order: 2
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor", "/review"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: CODE SMELLS: DISPENSABLES*
-
-    ### Dead Code
-
-    **Symptoms:**
-    - Unreachable code (after return, in impossible branch)
-    - Unused methods/classes
-    - Variables assigned but never read
-    - Commented-out code
-
-    **Remediation:**
-    - Remove Dead Code (trust version control)
-    - Remove unused parameters
-    - Collapse Hierarchy for unused classes
-
-    **Detection:**
-    - Static analysis tools
-    - Coverage reports showing 0% coverage
-    - Compiler warnings for unused
-
-    ### Speculative Generality
-
-    **Symptoms:**
-    - Abstract classes with single implementation
-    - Parameters/methods "for future use"
-    - Hooks that are never called
-    - Overly flexible design without use cases
-
-    **Remediation:**
-    - Collapse Hierarchy for unused abstractions
-    - Inline Class for unused delegations
-    - Remove Parameter for unused params
-    - Rename Method to remove generic names
-
-    **YAGNI:** You Aren't Gonna Need It - add complexity only when required.
-
-- id: "methodology/refactoring/smells_couplers"
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor", "/review"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    ## CODE SMELLS: COUPLERS
-
-    These smells indicate excessive coupling between classes.
-
-    ### Feature Envy (See Change Preventers)
-
-    ### Inappropriate Intimacy
-
-    **Symptoms:**
-    - Classes access each other's private parts (reflection, friend)
-    - Bidirectional dependencies
-    - One class "knows too much" about another's implementation
-
-    **Remediation:**
-    - Move Method to rightful owner
-    - Move Field to appropriate class
-    - Change Bidirectional to Unidirectional association
-    - Extract Class for shared concerns
-    - Hide Delegate to reduce knowledge
-
-- id: "methodology/refactoring/smells_couplers/message-chains-train-wreck"
-  section_of: "methodology/refactoring/smells_couplers"
-  section_order: 1
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor", "/review"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: CODE SMELLS: COUPLERS*
-
-    ### Message Chains (Train Wreck)
-
-    **Symptoms:**
-    - Long chains: `a.getB().getC().getD().doThing()`
-    - Client navigates object graph
-    - Intermediate objects serve only as conduits
-
-    **Remediation:**
-    - Hide Delegate to simplify chain
-    - Extract Method to encapsulate navigation
-    - Move Method to reduce need for navigation
-
-    **Law of Demeter:** Only talk to immediate friends.
-
-    **Example:**
-    ```
-    // Before (message chain)
-    customer.GetAddress().GetCity().GetZipCode()
-
-    // After (hidden delegate)
-    customer.GetShippingZipCode()
-    ```
-
-    ### Middle Man
-
-    **Symptoms:**
-    - Class delegates most methods to another class
-    - Methods just pass-through with no added logic
-    - Unnecessary layer of indirection
-
-    **Remediation:**
-    - Remove Middle Man (access delegate directly)
-    - Inline Method for trivial delegations
-    - Replace Delegation with Inheritance if appropriate
-
-    **Balance:** Some delegation is good (Hide Delegate). Too much creates Middle Man.
-
-- id: "methodology/refactoring/smells_couplers/incomplete-library-class"
-  section_of: "methodology/refactoring/smells_couplers"
-  section_order: 2
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor", "/review"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: CODE SMELLS: COUPLERS*
-
-    ### Incomplete Library Class
-
-    **Symptoms:**
-    - Need functionality that library class should provide
-    - Can't modify library source
-    - Workarounds scattered throughout code
-
-    **Remediation:**
-    - Introduce Foreign Method (utility method taking library class)
-    - Introduce Local Extension (wrapper or subclass)
-    - Use adapter pattern
-
-    **Example:**
-    ```
-    // Foreign method - can't modify Date class
-    func DaysBetween(start, end Date) int {
-        // Implementation using Date's public API
-    }
-
-    // Local extension - wrapper providing missing methods
-    type ExtendedDate struct {
-        Date
-    }
-    func (e ExtendedDate) DaysBetween(other ExtendedDate) int { ... }
-    ```
-
-    ===========================================================================
-    RT 4: ADVANCED REFACTORING STRATEGIES
-    ===========================================================================
-
 - id: "methodology/refactoring/legacy_strategies"
   category: "methodology"
   subcategory: "refactoring"
   is_mandatory: false
   intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     ## LEGACY CODE REFACTORING STRATEGIES
 
@@ -1458,7 +532,6 @@
   subcategory: "refactoring"
   is_mandatory: false
   intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     *Part of: LEGACY CODE REFACTORING STRATEGIES*
 
@@ -1502,7 +575,6 @@
   subcategory: "refactoring"
   is_mandatory: false
   intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     *Part of: LEGACY CODE REFACTORING STRATEGIES*
 
@@ -1537,33 +609,11 @@
     }
     ```
 
-- id: "methodology/refactoring/legacy_strategies/branch-by-abstraction"
-  section_of: "methodology/refactoring/legacy_strategies"
-  section_order: 3
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: LEGACY CODE REFACTORING STRATEGIES*
-
-    ### Branch by Abstraction
-
-    **When:** Need to replace implementation while code still runs
-    **Process:**
-    1. Create abstraction layer over current implementation
-    2. Convert all uses to go through abstraction
-    3. Create new implementation behind abstraction
-    4. Gradually switch traffic to new implementation
-    5. Remove old implementation
-
 - id: "methodology/refactoring/testability"
   category: "methodology"
   subcategory: "refactoring"
   is_mandatory: false
   intent_verbs: ["/refactor", "/test"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     ## REFACTORING FOR TESTABILITY
 
@@ -1575,82 +625,6 @@
 
     **Refactoring Goal:** Enable more unit tests, fewer integration tests.
 
-- id: "methodology/refactoring/testability/breaking-dependencies-for-testing"
-  section_of: "methodology/refactoring/testability"
-  section_order: 1
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor", "/test"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: REFACTORING FOR TESTABILITY*
-
-    ### Breaking Dependencies for Testing
-
-    **Pattern 1: Extract Interface**
-    ```
-    // Before: Concrete dependency
-    type OrderService struct {
-        db *sql.DB
-    }
-
-    // After: Interface dependency
-    type OrderRepository interface {
-        Save(Order) error
-        Find(id string) (*Order, error)
-    }
-    type OrderService struct {
-        repo OrderRepository
-    }
-    ```
-
-    **Pattern 2: Dependency Injection**
-    ```
-    // Before: Internal construction
-    func NewService() *Service {
-        return &Service{
-            client: http.DefaultClient,
-        }
-    }
-
-    // After: Constructor injection
-    func NewService(client HTTPClient) *Service {
-        return &Service{
-            client: client,
-        }
-    }
-    ```
-
-    **Pattern 3: Extract and Override (Seam)**
-    ```
-    // Before: Untestable static call
-    func (s *Service) Process() {
-        timestamp := time.Now()  // Can't control!
-        // ...
-    }
-
-    // After: Overridable method
-    func (s *Service) Process() {
-        timestamp := s.now()
-        // ...
-    }
-    func (s *Service) now() time.Time {
-        return time.Now()
-    }
-    // In test: override now() to return fixed time
-    ```
-
-    **Pattern 4: Introduce Indirection**
-    ```
-    // Before: Global function call
-    result := ValidateWithExternalService(data)
-
-    // After: Inject validator
-    result := s.validator.Validate(data)
-    // Test can inject mock validator
-    ```
-
 - id: "methodology/refactoring/testability/static-cling-problem"
   section_of: "methodology/refactoring/testability"
   section_order: 2
@@ -1658,7 +632,6 @@
   subcategory: "refactoring"
   is_mandatory: false
   intent_verbs: ["/refactor", "/test"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     *Part of: REFACTORING FOR TESTABILITY*
 
@@ -1696,184 +669,17 @@
     - Protected methods for test hooks
     - Friend classes for white-box testing
 
-- id: "methodology/refactoring/performance"
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor", "/optimize"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    ## PERFORMANCE REFACTORING
-
-    ### The Cardinal Rule: Measure First
-
-    **Donald Knuth:** "Premature optimization is the root of all evil"
-    **Full Quote:** "We should forget about small efficiencies, say about 97%
-    of the time: premature optimization is the root of all evil. Yet we should
-    not pass up our opportunities in that critical 3%."
-
-    **Process:**
-    1. Write clean, maintainable code first
-    2. Profile to identify actual bottlenecks
-    3. Optimize only measured hot spots
-    4. Verify optimization actually helped
-    5. Document why optimization was necessary
-
-    ### Profiling Before Optimizing
-
-    **Tools:**
-    - Go: `pprof`, `trace`
-    - Python: `cProfile`, `py-spy`
-    - Java: `async-profiler`, `JFR`
-    - JavaScript: Chrome DevTools, `clinic.js`
-
-    **What to Measure:**
-    - CPU time (where is time spent?)
-    - Memory allocation (where are allocations?)
-    - I/O wait (what's blocking?)
-    - Lock contention (what's synchronized?)
-
-- id: "methodology/refactoring/performance/high-value-optimizations"
-  section_of: "methodology/refactoring/performance"
-  section_order: 1
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor", "/optimize"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: PERFORMANCE REFACTORING*
-
-    ### High-Value Optimizations
-
-    **Algorithmic Improvements (10-100x gains):**
-    - O(n2) -> O(n log n)
-    - Eliminate N+1 queries
-    - Add caching for repeated work
-    - Use appropriate data structures
-
-    **I/O Optimization (10x gains):**
-    - Batch database queries
-    - Add indices for common queries
-    - Use connection pooling
-    - Implement pagination
-
-    **Memory Optimization (2-5x gains):**
-    - Reduce allocations in hot paths
-    - Use object pools
-    - Stream instead of loading all
-    - Use appropriate sizes ([]byte vs string)
-
-    ### Low-Value Optimizations (Usually Not Worth It)
-
-    - Micro-benchmarking individual operations
-    - Manual loop unrolling (compilers do this)
-    - Avoiding "slow" language features
-    - Pre-computing trivial operations
-
-- id: "methodology/refactoring/performance/refactoring-for-performance-when-needed"
-  section_of: "methodology/refactoring/performance"
-  section_order: 2
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor", "/optimize"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: PERFORMANCE REFACTORING*
-
-    ### Refactoring for Performance (When Needed)
-
-    **Replace Loop with Algorithm:**
-    ```
-    // Before: O(n^2) nested loop
-    for _, a := range items {
-        for _, b := range items {
-            if a.ID == b.ParentID { ... }
-        }
-    }
-
-    // After: O(n) with map
-    byParent := make(map[string][]Item)
-    for _, b := range items {
-        byParent[b.ParentID] = append(byParent[b.ParentID], b)
-    }
-    for _, a := range items {
-        children := byParent[a.ID]
-        // ...
-    }
-    ```
-
-    **Lazy Initialization:**
-    ```
-    // Before: Always computed
-    func NewService() *Service {
-        return &Service{
-            cache: buildExpensiveCache(),
-        }
-    }
-
-    // After: Computed on demand
-    func (s *Service) getCache() *Cache {
-        s.once.Do(func() {
-            s.cache = buildExpensiveCache()
-        })
-        return s.cache
-    }
-    ```
-
-    ===========================================================================
-    RT 5: AI-ASSISTED REFACTORING
-    ===========================================================================
-
 - id: "methodology/refactoring/ai_safety"
   category: "methodology"
   subcategory: "refactoring"
   is_mandatory: true
   intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     ## AI-ASSISTED REFACTORING: SAFETY GUIDELINES
 
     Risk tiers: **Low** (minimal review): Rename, Extract Variable, Inline Variable, Format/Style, Remove Dead Code (proven unreachable), Replace Magic Number with Constant. **Moderate** (needs test verification or human review): Extract Method, Move Method/Field, Simplify Conditional, Replace Conditional with Polymorphism. **High** (AI proposes, does NOT execute without approval): Change Function Signature, Extract Class/Interface, Replace Algorithm, Strangler Fig / Large Migration.
 
     Process: Analyze (smell, test coverage, dependencies) -> Propose (change, preservation argument, files) -> Execute atomically (smallest change, under 200 lines, each step compiles) -> Verify (existing tests, regressions, observable behavior) -> Document (why, trade-offs, related docs).
-
-- id: "methodology/refactoring/ai_safety/low-risk-refactorings"
-  section_of: "methodology/refactoring/ai_safety"
-  section_order: 1
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    ### Safe Refactorings for AI (Low Risk)
-    These can be performed with minimal human review:
-
-    1. **Rename** (variable, function, class, file)
-       - Pure name change, no logic change
-       - IDE tools verify all references updated
-
-    2. **Extract Variable**
-       - Introduces name for expression
-       - Behavior trivially preserved
-
-    3. **Inline Variable**
-       - Removes unnecessary name
-       - Single-use variables only
-
-    4. **Format/Style** Changes
-       - Whitespace, line length, brace style
-       - No semantic change
-
-    5. **Remove Dead Code**
-       - Code proven unreachable
-       - Static analysis confirmed
-
-    6. **Replace Magic Number with Constant**
-       - Pure naming improvement
-       - Value unchanged
 
 - id: "methodology/refactoring/ai_safety/moderate-and-high-risk"
   section_of: "methodology/refactoring/ai_safety"
@@ -1882,7 +688,6 @@
   subcategory: "refactoring"
   is_mandatory: false
   intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     ### Moderate Risk Refactorings (Require Verification)
     These need test verification or human review:
@@ -1930,7 +735,6 @@
   subcategory: "refactoring"
   is_mandatory: false
   intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     ### AI Refactoring Process
 
@@ -1958,48 +762,6 @@
     - Explain why refactoring was done
     - Note any trade-offs or caveats
     - Update related documentation
-
-- id: "methodology/refactoring/ai_safety/common-mistakes-and-verification"
-  section_of: "methodology/refactoring/ai_safety"
-  section_order: 4
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    ### Common AI Refactoring Mistakes
-
-    1. **Over-Engineering**
-       - Adding abstractions without use cases
-       - Creating patterns where simple code suffices
-
-    2. **Breaking Behavior**
-       - Subtle semantic changes
-       - Error handling changes
-       - Performance characteristics changes
-
-    3. **Incomplete Changes**
-       - Missing call site updates
-       - Orphaned imports
-       - Dangling references
-
-    4. **Context Loss**
-       - Removing important comments
-       - Breaking Chesterton's Fence
-       - Ignoring historical decisions
-
-    ### Verification Steps After AI Refactoring
-
-    ```
-    [ ] All tests pass
-    [ ] No new compiler warnings
-    [ ] No new static analysis issues
-    [ ] Code coverage unchanged or improved
-    [ ] No breaking API changes
-    [ ] Documentation updated if needed
-    [ ] Manual review of changed logic
-    ```
 
 - id: "methodology/refactoring/ai_workflow"
   category: "methodology"
@@ -2099,306 +861,11 @@
     RT 6: REFACTORING BY GOAL
     ===========================================================================
 
-- id: "methodology/refactoring/goals_readability"
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    ## REFACTORING FOR READABILITY
-
-    ### Naming Improvements
-
-    **Principles:**
-    - Names should reveal intent (what, not how)
-    - Names should be pronounceable
-    - Names should be searchable
-    - Avoid abbreviations unless universally understood
-    - Use consistent vocabulary (don't mix "fetch" and "get")
-
-    **Naming Patterns:**
-    ```
-    // Bad -> Good
-    d -> daysSinceModification
-    genymdhms -> generationTimestamp
-    hp -> healthPoints
-    s -> source
-    temp -> unparsedInput
-    ```
-
-    **Function Naming:**
-    - Verbs for actions: `save`, `calculate`, `validate`
-    - Questions for booleans: `isValid`, `hasPermission`, `canProcess`
-    - Factory pattern: `create`, `build`, `make`
-    - Conversion: `toJson`, `fromBytes`, `asMap`
-
-    ### Structure Improvements
-
-    **Reduce Nesting:**
-    - Guard clauses for early returns
-    - Extract nested logic to methods
-    - Maximum 3 levels of indentation
-
-    **Clarify Control Flow:**
-    - Positive conditions: `if isValid` not `if !isInvalid`
-    - Simple conditions first
-    - Extract complex conditions to named variables/methods
-
-- id: "methodology/refactoring/goals_readability/comment-improvements"
-  section_of: "methodology/refactoring/goals_readability"
-  section_order: 1
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: REFACTORING FOR READABILITY*
-
-    ### Comment Improvements
-
-    **Replace Comment with Better Code:**
-    ```
-    // Bad: Comment explains what
-    // Calculate the total price
-    total = items.Sum(i => i.Price)
-
-    // Good: Name explains what
-    totalPrice = items.Sum(i => i.Price)
-    ```
-
-    **Keep Useful Comments:**
-    ```
-    // Good: Explains WHY
-    // Using insertion sort because data is nearly sorted (benchmark showed 3x faster)
-
-    // Good: Warns about non-obvious behavior
-    // WARNING: This must be called before Initialize() or config will be ignored
-
-    // Good: Documents business rule
-    // Per legal requirement SOX-123, transactions over $10k require manager approval
-    ```
-
-- id: "methodology/refactoring/goals_coupling"
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    ## REFACTORING TO REDUCE COUPLING
-
-    ### Types of Coupling (Worst to Best)
-
-    1. **Content Coupling:** Class modifies internals of another (worst)
-    2. **Common Coupling:** Shared global state
-    3. **Control Coupling:** Flag parameters controlling behavior
-    4. **Stamp Coupling:** Passing entire object when only part needed
-    5. **Data Coupling:** Only passing needed data (best for non-trivial)
-    6. **Message Coupling:** Only method calls (ideal)
-
-    ### Dependency Injection Pattern
-
-    **Constructor Injection (Preferred):**
-    ```
-    type Service struct {
-        repo Repository
-        cache Cache
-    }
-
-    func NewService(repo Repository, cache Cache) *Service {
-        return &Service{repo: repo, cache: cache}
-    }
-    ```
-
-    **Benefits:**
-    - Dependencies explicit in constructor
-    - Immutable after construction
-    - Easy to test with mocks
-    - Compiler catches missing dependencies
-
-- id: "methodology/refactoring/goals_coupling/interface-segregation"
-  section_of: "methodology/refactoring/goals_coupling"
-  section_order: 1
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: REFACTORING TO REDUCE COUPLING*
-
-    ### Interface Segregation
-
-    **Problem:** Depending on large interface when small one suffices
-    **Solution:** Create focused interfaces
-
-    ```
-    // Before: Depends on entire Repository
-    func ProcessOrder(repo Repository) { // Has 20 methods!
-        order := repo.GetOrder(id)
-        // ...
-    }
-
-    // After: Depends only on what's needed
-    type OrderGetter interface {
-        GetOrder(id string) (*Order, error)
-    }
-    func ProcessOrder(getter OrderGetter) {
-        order := getter.GetOrder(id)
-        // ...
-    }
-    ```
-
-    ### Breaking Circular Dependencies
-
-    **Pattern 1: Extract Interface**
-    ```
-    // Before: A -> B -> A (circular)
-    // After: A -> BInterface <- B (unidirectional)
-    ```
-
-    **Pattern 2: Introduce Mediator**
-    ```
-    // Before: A <-> B (bidirectional)
-    // After: A -> Mediator <- B (both depend on mediator)
-    ```
-
-    **Pattern 3: Event-Based Decoupling**
-    ```
-    // Before: A.method() calls B.method() calls A.callback()
-    // After: A publishes event, B subscribes, A subscribes to result
-    ```
-
-- id: "methodology/refactoring/goals_coupling/law-of-demeter-compliance"
-  section_of: "methodology/refactoring/goals_coupling"
-  section_order: 2
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: REFACTORING TO REDUCE COUPLING*
-
-    ### Law of Demeter Compliance
-
-    **Rule:** Only talk to immediate friends
-    - Your own fields
-    - Parameters passed to you
-    - Objects you create
-    - NOT: Fields of fields (`a.b.c`)
-
-    **Refactoring:**
-    ```
-    // Before (Demeter violation)
-    order.Customer.Address.City.PostalCode
-
-    // After (tell, don't ask)
-    order.ShippingPostalCode()
-    ```
-
-- id: "methodology/refactoring/goals_testability"
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor", "/test"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    ## REFACTORING FOR TESTABILITY
-
-    ### Remove Static Dependencies
-
-    **Problem:** Static/global calls can't be mocked
-    ```
-    // Untestable
-    func GetUser(id string) *User {
-        return Database.Query("SELECT * FROM users WHERE id = ?", id)
-    }
-
-    // Testable
-    func (s *UserService) GetUser(id string) *User {
-        return s.db.Query("SELECT * FROM users WHERE id = ?", id)
-    }
-    ```
-
-    ### Extract Time/Randomness
-
-    **Problem:** Non-deterministic code is hard to test
-    ```
-    // Untestable
-    func GenerateToken() string {
-        return fmt.Sprintf("%d-%d", time.Now().Unix(), rand.Int())
-    }
-
-    // Testable
-    func (g *TokenGenerator) GenerateToken() string {
-        return fmt.Sprintf("%d-%d", g.clock.Now().Unix(), g.random.Int())
-    }
-    ```
-
-- id: "methodology/refactoring/goals_testability/seam-creation-for-legacy-code"
-  section_of: "methodology/refactoring/goals_testability"
-  section_order: 1
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor", "/test"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: REFACTORING FOR TESTABILITY*
-
-    ### Seam Creation for Legacy Code
-
-    **Extract and Override:**
-    ```
-    // Original method with untestable dependency
-    func (s *Service) Process() {
-        result := s.callExternalAPI()  // Can't mock!
-        // ...
-    }
-
-    // After: Extracted to mockable method
-    func (s *Service) Process() {
-        result := s.fetchData()  // Can override in test
-        // ...
-    }
-    func (s *Service) fetchData() Data {
-        return s.callExternalAPI()
-    }
-    ```
-
-    ### Reduce Test Setup Complexity
-
-    **Builder Pattern for Test Data:**
-    ```
-    func TestOrderProcessing(t *testing.T) {
-        order := NewOrderBuilder().
-            WithCustomer("C123").
-            WithItems(3).
-            WithDiscount(0.1).
-            Build()
-
-        // Clear, focused test setup
-    }
-    ```
-
-    **Test Fixtures:**
-    ```
-    func setupTestService(t *testing.T) (*Service, *MockRepo) {
-        repo := NewMockRepo()
-        service := NewService(repo)
-        return service, repo
-    }
-    ```
-
 - id: "methodology/refactoring/goals_features"
   category: "methodology"
   subcategory: "refactoring"
   is_mandatory: false
   intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     ## REFACTORING TO ENABLE FEATURES
 
@@ -2440,55 +907,6 @@
     }
     ```
 
-- id: "methodology/refactoring/goals_features/open-closed-principle-refactoring"
-  section_of: "methodology/refactoring/goals_features"
-  section_order: 1
-  category: "methodology"
-  subcategory: "refactoring"
-  is_mandatory: false
-  intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
-  content: |
-    *Part of: REFACTORING TO ENABLE FEATURES*
-
-    ### Open/Closed Principle Refactoring
-
-    **Goal:** Open for extension, closed for modification
-    **Approach:** Use polymorphism to enable new behavior without changing existing code
-
-    **Before (must modify for new types):**
-    ```
-    func ProcessNotification(n Notification) {
-        switch n.Type {
-        case "email":
-            sendEmail(n)
-        case "sms":
-            sendSMS(n)
-        // Must add case for each new type!
-        }
-    }
-    ```
-
-    **After (extend without modification):**
-    ```
-    type NotificationSender interface {
-        Send(n Notification) error
-    }
-
-    var senders = map[string]NotificationSender{
-        "email": &EmailSender{},
-        "sms":   &SMSSender{},
-    }
-
-    func RegisterSender(typ string, sender NotificationSender) {
-        senders[typ] = sender  // New types added here
-    }
-
-    func ProcessNotification(n Notification) {
-        senders[n.Type].Send(n)
-    }
-    ```
-
 - id: "methodology/refactoring/goals_features/feature-toggle-infrastructure"
   section_of: "methodology/refactoring/goals_features"
   section_order: 2
@@ -2496,7 +914,6 @@
   subcategory: "refactoring"
   is_mandatory: false
   intent_verbs: ["/refactor"]
-  depends_on: ["methodology/refactoring/foundation"]
   content: |
     *Part of: REFACTORING TO ENABLE FEATURES*
 

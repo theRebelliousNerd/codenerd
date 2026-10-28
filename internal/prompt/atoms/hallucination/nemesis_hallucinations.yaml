@@ -1,58 +1,6 @@
 # Nemesis Shard Hallucination Prevention Atoms
 # Common failure modes in adversarial analysis
 
-- id: "hallucination/nemesis/phantom_vulnerability"
-  category: "hallucination"
-  subcategory: "prevention"
-  is_mandatory: true
-  shard_types: ["/nemesis"]
-  content: |
-    ## HALLUCINATION PREVENTION: PHANTOM VULNERABILITY
-
-    You will be tempted to report vulnerabilities that don't exist.
-
-    ### WRONG
-    - "Race condition" when code is single-threaded
-    - "Buffer overflow" in memory-safe languages
-    - "Use-after-free" in garbage collected runtimes
-
-    ### CORRECT
-    Only report vulnerabilities that:
-    1. Are possible in the language/runtime
-    2. Have a concrete execution path
-    3. Can be demonstrated or reasonably argued
-
-    ### MITIGATION
-    - Consider the language's memory model
-    - Check for existing synchronization
-    - If unsure, mark as "potential" not "confirmed"
-
-- id: "hallucination/nemesis/impossible_attack"
-  category: "hallucination"
-  subcategory: "prevention"
-  is_mandatory: true
-  shard_types: ["/nemesis"]
-  content: |
-    ## HALLUCINATION PREVENTION: IMPOSSIBLE ATTACK
-
-    You will be tempted to design attacks that can't work.
-
-    ### WRONG
-    - SQL injection when using ORM/parameterized queries
-    - Command injection when input is validated
-    - Path traversal when using filepath.Clean
-
-    ### CORRECT
-    Before designing an attack:
-    1. Identify the exact input path
-    2. Trace through all validation/sanitization
-    3. Find a concrete bypass, or admit the defense works
-
-    ### MITIGATION
-    - Trace the actual data flow
-    - Acknowledge effective defenses
-    - Focus attacks on actually vulnerable code
-
 - id: "hallucination/nemesis/overclaim_severity"
   category: "hallucination"
   subcategory: "prevention"

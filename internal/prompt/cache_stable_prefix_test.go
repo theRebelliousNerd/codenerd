@@ -105,11 +105,11 @@ func TestCompiledPromptKeepsTheSkeletonAsASharedPrefix(t *testing.T) {
 	c, k := newEmbeddedCorpusCompiler(t)
 	vs := &queryVectorSearcher{hits: map[string][]SearchResult{
 		"race": {
-			{AtomID: "identity/coder/quality_principles", Score: 0.95},
+			{AtomID: "capability/codedom_visibility", Score: 0.95},
 			{AtomID: "methodology/debugging/binary_search", Score: 0.94},
 		},
 		"leak": {
-			{AtomID: "hallucination/coder/confident_comment", Score: 0.95},
+			{AtomID: "capability/codedom_polyglot", Score: 0.95},
 			{AtomID: "methodology/debugging/rubber_duck", Score: 0.94},
 		},
 	}}

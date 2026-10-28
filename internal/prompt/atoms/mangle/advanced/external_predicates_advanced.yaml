@@ -629,62 +629,6 @@
     }
     ```
 
-- id: "language/mangle/docs/advanced/external_predicates_advanced/2-document-performance-characteristics"
-  section_of: "language/mangle/docs/advanced/external_predicates_advanced"
-  section_order: 12
-  category: "language"
-  subcategory: "mangle"
-  description: "Mangle External Predicates: Advanced Patterns: 2. Document Performance Characteristics"
-  is_mandatory: false
-  languages: ["/mangle"]
-  content: |
-    *Part of: Mangle External Predicates: Advanced Patterns > Best Practices*
-
-    ### 2. Document Performance Characteristics
-
-    ```go
-    // SlowExternalAPI fetches data from remote API.
-    // WARNING: Can take 5-10 seconds. Cache results if calling multiple times.
-    func SlowExternalAPI(query engine.Query, cb func(engine.Fact)) error {
-        // ...
-    }
-    ```
-
-    ### 3. Fail Fast
-
-    ```go
-    func ValidatedPredicate(query engine.Query, cb func(engine.Fact)) error {
-        // Validate arguments immediately
-        if len(query.Args) != 2 {
-            return fmt.Errorf("invalid arguments")
-        }
-
-        // Early return on errors
-        data, err := fetchData()
-        if err != nil {
-            return err
-        }
-
-        // Process data
-        // ...
-    }
-    ```
-
-    ### 4. Use Specific Queries When Possible
-
-    ```go
-    func OptimizedPredicate(query engine.Query, cb func(engine.Fact)) error {
-        if query.Args[0].IsWildcard() {
-            // Must fetch all data (expensive)
-            return fetchAll(cb)
-        } else {
-            // Can fetch specific item (cheap)
-            key := query.Args[0].AsAtom().Value
-            return fetchOne(key, cb)
-        }
-    }
-    ```
-
 - id: "language/mangle/docs/advanced/external_predicates_advanced/5-limit-result-set-size"
   section_of: "language/mangle/docs/advanced/external_predicates_advanced"
   section_order: 13
@@ -757,26 +701,3 @@
     }
     ```
 
-- id: "language/mangle/docs/advanced/external_predicates_advanced/mangle-external-predicates-advanced"
-  section_of: "language/mangle/docs/advanced/external_predicates_advanced"
-  section_order: 15
-  category: "language"
-  subcategory: "mangle"
-  description: "Mangle External Predicates: Advanced Patterns: Mangle External Predicates: Advanced Patterns Checklist"
-  is_mandatory: false
-  languages: ["/mangle"]
-  content: |
-    *Part of: Mangle External Predicates: Advanced Patterns*
-
-    ## Checklist
-
-    - [ ] External predicate is pure (no side effects)
-    - [ ] Arguments are validated before processing
-    - [ ] Errors are handled and returned appropriately
-    - [ ] Performance characteristics are documented
-    - [ ] Caching is used for expensive operations
-    - [ ] Results are streamed for large datasets
-    - [ ] Wildcard vs. specific queries are optimized differently
-    - [ ] Result set size is bounded
-    - [ ] Unit tests cover edge cases
-    - [ ] Thread-safety is ensured (use mutexes if needed)

@@ -1,91 +1,12 @@
 # TypeScript Generics - Encyclopedic Reference
 # Comprehensive guidance for constraints, inference, and utility types
 
-- id: "language/typescript/generics/fundamentals"
-  category: "language"
-  subcategory: "typescript"
-  is_mandatory: false
-  shard_types: ["/coder", "/reviewer"]
-  languages: ["/typescript"]
-  content: |
-    ## GENERICS FUNDAMENTALS
-
-    ### Basic Generic Functions
-    ```typescript
-    function identity<T>(value: T): T {
-      return value;
-    }
-
-    // Type inference
-    const x = identity("hello"); // T inferred as "hello" (literal)
-    const y = identity(42);      // T inferred as 42 (literal)
-
-    // Explicit type argument
-    const z = identity<string>("hello"); // T is string
-    ```
-
-    ### Generic Interfaces
-    ```typescript
-    interface Container<T> {
-      value: T;
-      getValue(): T;
-    }
-
-    const stringContainer: Container<string> = {
-      value: "hello",
-      getValue() { return this.value; }
-    };
-    ```
-
-    ### Generic Classes
-    ```typescript
-    class Stack<T> {
-      private items: T[] = [];
-
-      push(item: T): void {
-        this.items.push(item);
-      }
-
-      pop(): T | undefined {
-        return this.items.pop();
-      }
-    }
-
-    const numberStack = new Stack<number>();
-    numberStack.push(1);
-    numberStack.push(2);
-    const n = numberStack.pop(); // number | undefined
-    ```
-
-    ### Multiple Type Parameters
-    ```typescript
-    function pair<T, U>(first: T, second: U): [T, U] {
-      return [first, second];
-    }
-
-    const p = pair("hello", 42); // [string, number]
-
-    // Map-like structure
-    interface Dictionary<K, V> {
-      get(key: K): V | undefined;
-      set(key: K, value: V): void;
-    }
-    ```
-
-  content_concise: |
-    ## Generics Basics
-    - `function identity<T>(value: T): T`
-    - TypeScript infers generic types from arguments
-    - Use explicit type args when inference fails
-    - Multiple params: `<T, U>`, `<K, V>`
-
 - id: "language/typescript/generics/constraints"
   category: "language"
   subcategory: "typescript"
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
-  depends_on: ["language/typescript/generics/fundamentals"]
   content: |
     ## GENERIC CONSTRAINTS
 

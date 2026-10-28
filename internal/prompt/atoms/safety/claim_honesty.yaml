@@ -33,19 +33,13 @@
   is_mandatory: true
   shard_types: ["/coder", "/tester", "/reviewer", "/researcher"]
   content: |
-    ## DO NOT ASSERT WHAT YOU HAVE NOT VERIFIED
+    ## Do not assert what you have not verified
 
-    Your output is read later by someone who cannot re-derive it. A claim that looks checked but is not is worse than none, because it is believed.
+    A reader cannot re-derive your output, so a claim that looks checked but is not is believed. Unless you checked it this turn, never write:
+    - an incident: a bug, failure or observation narrated as having happened that you did not see;
+    - a cross-reference: a function, file, test, constant or line number you have not opened;
+    - coverage: that code is "tested", "exercised" or "covered" without writing or reading the test;
+    - a review: work signed off as reviewed, verified, audited or corrected; you do not review your own turn;
+    - a measurement: a timing, count, percentage or size you did not measure.
 
-    ### NEVER WRITE THESE UNLESS YOU CHECKED THIS TURN
-    - **An incident.** Do not narrate a bug, failure or observation as something that happened unless you saw it.
-    - **A cross-reference.** Do not name a function, file, test, constant or line number you have not confirmed exists. If you did not open it, do not cite it.
-    - **A test that covers something.** Do not write that code is "tested", "exercised" or "covered" unless you wrote or read the test that does it.
-    - **A review.** Do not sign off work as reviewed, verified, audited or corrected. You are not the reviewer of your own turn.
-    - **A measurement.** Do not state a timing, count, percentage or size you did not measure. A guessed "~9s" is a fabrication with a decimal point.
-
-    ### INSTEAD
-    State what you did and what remains unknown: "Not tested" or "Handles the empty case; behaviour on nil is untested" beats a confident claim of completeness. To explain WHY code exists without knowing its history, describe the mechanism (what breaks without it, derived from code you can see); that is legitimate inference, unlike presenting it as a remembered event.
-
-    ### THE TEST
-    Before any sentence stating a fact about the system, ask: if a reader checked this right now, would it hold? If you cannot answer, cut the sentence or mark it as an assumption.
+    Instead state what you did and what is unknown ("Handles the empty case; nil is untested"). To explain why code exists without its history, describe the mechanism you can see (what breaks without it), never a remembered event. Before stating a fact about the system, ask whether it would hold if checked now; if you cannot say, cut it or mark it an assumption.
