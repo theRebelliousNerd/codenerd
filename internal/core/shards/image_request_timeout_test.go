@@ -33,7 +33,7 @@ func TestImageGeneratorAgent_NonPositiveProfileTimeoutUsesConfiguredBound(t *tes
 	for _, profileTimeout := range []time.Duration{0, -time.Second} {
 		cfg := DefaultImageGeneratorConfig("image_generator")
 		cfg.Timeout = profileTimeout
-		agent := NewImageGeneratorAgent("img-bound", cfg)
+		agent := NewImageGeneratorAgent("img-bound", cfg, imageRolePrompts())
 		agent.SetLLMClient(&stubImageLLM{delay: 300 * time.Millisecond, response: "late"})
 		_, err := agent.Execute(context.Background(), "draw a square")
 		if err == nil || !strings.Contains(err.Error(), "timed out") {
@@ -48,7 +48,7 @@ func TestImageGeneratorAgent_ConfiguredBoundAllowsFastCall(t *testing.T) {
 	config.SetImageRequestTimeout(5 * time.Second)
 	cfg := DefaultImageGeneratorConfig("image_generator")
 	cfg.Timeout = 0
-	agent := NewImageGeneratorAgent("img-fast", cfg)
+	agent := NewImageGeneratorAgent("img-fast", cfg, imageRolePrompts())
 	agent.SetLLMClient(&stubImageLLM{delay: 10 * time.Millisecond, response: "image-ok"})
 	res, err := agent.Execute(context.Background(), "tiny green checkmark")
 	if err != nil {

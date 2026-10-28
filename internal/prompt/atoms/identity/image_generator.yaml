@@ -1,0 +1,24 @@
+# The image generation role (internal/core/shards/image_generator.go): its
+# system prompt is compiled through types.RolePromptCompiler for shard type
+# /image_generator, a regime dimension, so this atom is live only there. Until
+# 2026-10-28 it was a Go string literal in Execute that also named one model;
+# the model is configuration, so the name was dropped. A failed compile fails
+# the request. The task is the user message. Its reply is relayed as-is, so it
+# supersedes the Piggyback protocol and the tool atoms (conflicts_with).
+
+- id: "identity/image_generator/role"
+  category: "identity"
+  subcategory: "image_generator"
+  is_mandatory: true
+  shard_types: ["/image_generator"]
+  conflicts_with:
+    - "protocol/piggyback/envelope"
+    - "protocol/piggyback/control_first"
+    - "protocol/piggyback/mangle_updates"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  content: |
+    You are an image generation assistant. Produce or describe the requested image. If you cannot emit binary image data, return a concise textual description and any file paths you would write.

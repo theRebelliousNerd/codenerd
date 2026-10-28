@@ -15,11 +15,18 @@ import (
 // for image_generator / image / nano_banana shard types.
 type ImageGeneratorAgent struct {
 	*BaseShardAgent
+	// rolePrompts compiles the image role's system prompt from its atoms
+	// (atoms/identity/image_generator.yaml); nil fails every request.
+	rolePrompts types.RolePromptCompiler
 }
 
-// NewImageGeneratorAgent constructs an image generation agent.
-func NewImageGeneratorAgent(id string, config types.ShardConfig) *ImageGeneratorAgent {
-	return &ImageGeneratorAgent{BaseShardAgent: NewBaseShardAgent(id, config)}
+// imageGeneratorRole is the shard type the image role's atoms answer to.
+const imageGeneratorRole = "image_generator"
+
+// NewImageGeneratorAgent constructs an image generation agent whose system
+// prompt rolePrompts compiles.
+func NewImageGeneratorAgent(id string, config types.ShardConfig, rolePrompts types.RolePromptCompiler) *ImageGeneratorAgent {
+	return &ImageGeneratorAgent{BaseShardAgent: NewBaseShardAgent(id, config), rolePrompts: rolePrompts}
 }
 
 // Execute sends the task to the image LLM with a bounded timeout.
@@ -46,9 +53,13 @@ func (a *ImageGeneratorAgent) Execute(ctx context.Context, task string) (string,
 		return "", fmt.Errorf("image_generator requires a non-empty task/prompt")
 	}
 
-	system := "You are an image generation assistant (Gemini Nano Banana 2 / gemini-3.1-flash-image). " +
-		"Produce or describe the requested image. If you cannot emit binary image data, " +
-		"return a concise textual description and any file paths you would write."
+	if a.rolePrompts == nil {
+		return "", fmt.Errorf("image_generator: %w: no role prompt compiler", types.ErrRolePromptUnavailable)
+	}
+	system, err := a.rolePrompts.CompileRolePrompt(execCtx, types.RolePromptRequest{Role: imageGeneratorRole, SemanticQuery: prompt})
+	if err != nil {
+		return "", fmt.Errorf("image_generator: %w", err)
+	}
 
 	logging.Shards("image_generator: calling image LLM (timeout=%v)", timeout)
 	result, err := client.CompleteWithSystem(execCtx, system, prompt)

@@ -579,6 +579,9 @@ type RegistryContext struct {
 	Workspace    string
 	JITCompiler  *prompt.JITPromptCompiler
 	JITConfig    config.JITConfig
+	// RolePrompts compiles the system prompt of a role that is not a persona
+	// shard turn (the image generator); nil fails that role's requests.
+	RolePrompts types.RolePromptCompiler
 	// World is the loaded world section. The world-model ingestor reads
 	// MaxFilesPerScan from it at construction. The zero value resolves to
 	// the default cap (100); a non-positive cap stays unbounded.
@@ -706,7 +709,7 @@ func (r *shardFactoryRegistrar) registerEphemeralShards() {
 	// Image generation (Gemini Nano Banana 2). Client is injected at spawn via
 	// ShardManager.clientForShardTypeLocked — never the worker/Ollama LLM.
 	registerImageGenerator := func(id string, cfg types.ShardConfig) types.ShardAgent {
-		return coreshards.NewImageGeneratorAgent(id, cfg)
+		return coreshards.NewImageGeneratorAgent(id, cfg, r.ctx.RolePrompts)
 	}
 	for _, name := range []string{
 		"image_generator", "image-generator", "imagegenerator",
