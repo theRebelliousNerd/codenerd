@@ -137,3 +137,22 @@ func injectedLines(t *testing.T, m Model) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// The running-job line is the main agent's alone: a shard that read another
+// job's task took it up as its own.
+func TestBackground_RunningJobIsNamedToTheMainAgentOnly(t *testing.T) {
+	m := admissionModel(t, config.WorkModePropose, nil)
+	job := backgroundJob{ID: "bg-scope", Shard: "reviewer", Task: "review internal/auth", Started: time.Now()}
+	m.assertBackgroundJob(job, "/running")
+	rows, err := m.kernel.Query("injectable_context")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if len(r.Args) == 2 && strings.Contains(types.ExtractString(r.Args[1]), "already working on") {
+			if target := types.ExtractString(r.Args[0]); target != chatShardID {
+				t.Fatalf("the running-job line goes to %q, want only %q", target, chatShardID)
+			}
+		}
+	}
+}

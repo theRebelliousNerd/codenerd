@@ -317,9 +317,11 @@ route_background() :-
     route_decision(/delegate, Shard),
     user_intent(/current_intent, /query, _, _, _).
 
-# Name running background work to the model, so it is not started twice and
-# the conversation can refer to it.
-injectable_context("*", Line) :-
+# Name running background work to the main agent (the chat turn compiles as
+# "chat", persona.go), so it is not started twice and the conversation can
+# refer to it. Not to every shard: a researcher that read another job's task
+# here took it up as its own (live journey, 2026-10-28).
+injectable_context("chat", Line) :-
     background_job(JobID, Shard, Task, /running),
     Line = fn:string:concat("A background ", Shard, " shard is already working on: ", Task).
 
