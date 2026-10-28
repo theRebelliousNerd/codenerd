@@ -7,26 +7,18 @@ name: CI
 # while leaving exactly the class of defect this repo keeps finding.
 
 on:
-  push:
-    branches: [main]
+  # Not on every push: main is pushed many times a day, and a full run per
+  # push burned runner minutes on commits nobody read the result of. CI runs
+  # on pull requests, on demand (`gh workflow run CI`), and once a night when
+  # main has new commits since the last nightly.
   pull_request:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: "17 7 * * *"
 
-# Supersede a PR's own earlier runs, and never a push to main.
-#
-# Without this, every commit on a branch gets a full six-job run and they queue
-# behind each other. Pushing five fixes in twenty minutes meant thirty jobs
-# executing for commits nobody would read the result of, and the answer for the
-# HEAD commit — the only one that matters — arriving an hour and a quarter late.
-# That is not just runner time: a feedback loop that slow is one people stop
-# using, and this pipeline exists to catch a class of defect that only appears
-# on Windows.
-#
-# cancel-in-progress is deliberately conditional. A superseded PR run has been
-# made irrelevant by a newer commit on the same branch; a run on main has not,
-# and cancelling those would leave the default branch with gaps in its history
-# of what passed.
+# A superseded PR run has been made irrelevant by a newer commit on the same
+# branch, so it is cancelled. Nightly and manual runs on main are not.
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -38,7 +30,29 @@ env:
   CGO_CFLAGS: -I${{ github.workspace }}/sqlite_headers
 
 jobs:
+  changes:
+    # The nightly run is skipped when main has no commit in the last 24h.
+    name: changed since last nightly
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+      - id: check
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ] || [ -n "$(git log --since='24 hours ago' --format=%H -1)" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build-and-test:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     name: build + test
     runs-on: windows-latest
     timeout-minutes: 45
@@ -173,6 +187,8 @@ jobs:
         run: ./scripts/test_windows_path_identity.ps1 -Full
 
   formatting:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     name: gofmt
     # Linux, not the Windows runner the rest of this file uses.
     #
@@ -231,6 +247,8 @@ jobs:
           echo "gofmt clean ($count files)."
 
   deadcode:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     # The Go half of this repo's recurring defect: a function defined and
     # exported that nothing calls. Its Mangle twin — a predicate declared and
     # read by rules that nothing produces — is gated by
@@ -265,6 +283,8 @@ jobs:
         run: ./scripts/deadcode-budget.sh
 
   runonce:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     # The repeat-run defect: a test that passes once and fails the second time
     # in the same process, because it reads process-global state as if it were
     # fresh. `go test` runs each test once, so it never shows.
@@ -299,6 +319,8 @@ jobs:
         run: go test -count=2 ./internal/session/ ./internal/tools/ ./internal/prompt/ ./internal/broker/ ./internal/system/ ./internal/perception/
 
   race:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     # Closes the mcp backlog item "-race CI for manager+store". Scoped to those
     # two packages rather than the whole tree: -race is slow, and these are the
     # ones with concurrent manager state worth pinning.
@@ -315,6 +337,8 @@ jobs:
         run: go test -race -tags sqlite_vec ./internal/mcp/... ./internal/store/...
 
   simd:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     # Builds and tests the GOEXPERIMENT=simd configuration the binaries ship
     # with. The experiment alone selects internal/embedding's AVX2+FMA cosine
     # kernel (math_amd64.go, build constraint goexperiment.simd && amd64);
