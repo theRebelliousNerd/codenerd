@@ -73,10 +73,8 @@ func (q *unixProcessQuerier) QueryChromeProcesses(ctx context.Context) ([]Proces
 			continue
 		}
 		first := strings.Fields(command)[0]
-		name := strings.ToLower(filepath.Base(first))
 		macApp := strings.HasPrefix(command, "/") && (strings.Contains(command, "/Google Chrome.app/Contents/") || strings.Contains(command, "/Chromium.app/Contents/"))
-		if name != "chrome" && name != "chromium" && name != "chromium-browser" && name != "chrome-headless-shell" &&
-			!macApp {
+		if !isChromeExecutableName(first) && !isChromeExecutableName(processExecutable(process.PID)) && !macApp {
 			continue
 		}
 		if macApp {
@@ -109,6 +107,27 @@ func (q *unixProcessQuerier) QueryChromeProcesses(ctx context.Context) ([]Proces
 	return chrome, nil
 }
 
+// chromeExecutableNames are the browser binaries and the distribution wrapper
+// names Rod's LookPath launches. Google Chrome's Linux wrapper ends with
+// `exec -a "$0" .../chrome`, so the browser process keeps the wrapper's name
+// (google-chrome, google-chrome-stable) as argv[0] while /proc/PID/exe names
+// the real chrome binary; either must identify it, or the launched root is
+// invisible to cleanup and Shutdown refuses to reap it.
+var chromeExecutableNames = map[string]bool{
+	"chrome": true, "chromium": true, "chromium-browser": true,
+	"chrome-headless-shell": true, "headless_shell": true,
+	"google-chrome": true, "google-chrome-stable": true,
+	"google-chrome-beta": true, "google-chrome-unstable": true,
+	"msedge": true, "microsoft-edge": true, "microsoft-edge-stable": true,
+}
+
+func isChromeExecutableName(path string) bool {
+	if path == "" {
+		return false
+	}
+	return chromeExecutableNames[strings.ToLower(filepath.Base(path))]
+}
+
 // procCmdlineArgs splits /proc/<pid>/cmdline into arguments. Chrome
 // rewrites its own cmdline (SetProcessTitle) into ONE space-joined string
 // with no NUL separators, for the main process as well as children.
@@ -130,6 +149,16 @@ func procCmdlineArgs(raw []byte) []string {
 		args = strings.Fields(args[0])
 	}
 	return args
+}
+
+// processExecutable is the kernel's record of the running binary, independent
+// of the argv[0] a wrapper chose. Empty where /proc is unavailable.
+func processExecutable(pid int) string {
+	exe, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSuffix(exe, " (deleted)")
 }
 
 func (q *unixProcessQuerier) IsProcessAlive(pid int) bool {

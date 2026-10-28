@@ -34,6 +34,24 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 	m.mu.Unlock()
 	mainFrameMu := &sync.RWMutex{}
 	mainFrameID := ""
+	// epochLoader is the main-frame document loader the live epoch belongs to.
+	// A navigation's epoch begins when its document request is sent, not when
+	// the frame commits: the request, its response, and a failed load all
+	// precede the commit and describe the new page, so rolling at commit would
+	// retract the very evidence (page_load_failed) policy needs. A navigation
+	// with no network request (about:blank, cache) rolls at commit instead.
+	epochLoader := proto.NetworkLoaderID("")
+	rollForLoader := func(loader proto.NetworkLoaderID) bool {
+		mainFrameMu.Lock()
+		if loader != "" && loader == epochLoader {
+			mainFrameMu.Unlock()
+			return false
+		}
+		epochLoader = loader
+		mainFrameMu.Unlock()
+		m.RollSessionEpoch(sessionID)
+		return true
+	}
 	if tree, err := (proto.PageGetFrameTree{}).Call(page); err == nil && tree != nil && tree.FrameTree != nil && tree.FrameTree.Frame != nil {
 		mainFrameID = string(tree.FrameTree.Frame.ID)
 	}
@@ -48,14 +66,21 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 		// CDP can deliver queued frame events after a rapid navigate/back pair.
 		// Ignore an event that no longer describes the live target; otherwise it
 		// would roll metadata backward and invalidate freshly observed refs.
-		if info, infoErr := page.Context(ctx).Info(); infoErr == nil && info != nil && info.URL != "" && info.URL != ev.Frame.URL {
+		// A failed load commits Chrome's error document: the frame URL is
+		// chrome-error://chromewebdata/ and the attempted URL, which the
+		// target reports, is UnreachableURL.
+		frameURL := ev.Frame.URL
+		if ev.Frame.UnreachableURL != "" {
+			frameURL = ev.Frame.UnreachableURL
+		}
+		if info, infoErr := page.Context(ctx).Info(); infoErr == nil && info != nil && info.URL != "" && info.URL != frameURL {
 			return
 		}
 		mainFrameMu.Lock()
 		mainFrameID = string(ev.Frame.ID)
 		mainFrameMu.Unlock()
 		now := time.Now()
-		safeURL := m.redactor.SanitizeString(ev.Frame.URL)
+		safeURL := m.redactor.SanitizeString(frameURL)
 		registry := m.Registry(sessionID)
 		// EachEvent may replay the page's initial same-URL frame event when the
 		// stream is attached. That is not a navigation and must not race the
@@ -66,17 +91,18 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 		}
 		// A navigation retires everything the previous page asserted, so it is
 		// the natural garbage-collection boundary and the point where the
-		// per-epoch fact budget resets.
-		m.RollSessionEpoch(sessionID)
+		// per-epoch fact budget resets. The document request may already have
+		// opened this loader's epoch.
+		rollForLoader(ev.Frame.LoaderID)
 		facts := []mangle.Fact{
 			{
 				Predicate: "navigation_event",
-				Args:      []any{sessionID, ev.Frame.URL, now.UnixMilli()},
+				Args:      []any{sessionID, frameURL, now.UnixMilli()},
 				Timestamp: now,
 			},
 			{
 				Predicate: "current_url",
-				Args:      []any{sessionID, ev.Frame.URL},
+				Args:      []any{sessionID, frameURL},
 				Timestamp: now,
 			},
 		}
@@ -269,6 +295,14 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 					return
 				}
 				clock.observe(ev.WallTime, ev.Timestamp)
+				if ev.Type == proto.NetworkResourceTypeDocument && ev.LoaderID != "" && string(ev.LoaderID) == string(ev.RequestID) {
+					mainFrameMu.RLock()
+					mainFrame := mainFrameID == "" || string(ev.FrameID) == mainFrameID
+					mainFrameMu.RUnlock()
+					if mainFrame {
+						rollForLoader(ev.LoaderID)
+					}
+				}
 				initiatorType := ""
 				initiatorID := ""
 				initiatorScript := ""

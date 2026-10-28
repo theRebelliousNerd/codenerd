@@ -3,9 +3,13 @@
 package browser
 
 import (
+	"context"
+	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
+
+	"codenerd/internal/config"
 )
 
 var _ ProcessQuerier = (*unixProcessQuerier)(nil)
@@ -43,4 +47,46 @@ func TestParsePsOutput(t *testing.T) {
 	if _, err := parsePsOutput("10 missing chrome"); err == nil {
 		t.Fatal("malformed process row accepted")
 	}
+}
+
+func TestIsChromeExecutableName_WrapperAndBinaryNames(t *testing.T) {
+	for _, name := range []string{"/opt/google/chrome/chrome", "/usr/bin/google-chrome", "google-chrome-stable", "/x/headless_shell", "/opt/microsoft/msedge/msedge"} {
+		if !isChromeExecutableName(name) {
+			t.Errorf("%q not recognized as a Chrome executable", name)
+		}
+	}
+	for _, name := range []string{"", "/bin/sleep", "/usr/bin/google-chrome-helper-tool", "chromedriver"} {
+		if isChromeExecutableName(name) {
+			t.Errorf("%q wrongly recognized as a Chrome executable", name)
+		}
+	}
+}
+
+// The Google Chrome wrapper execs the real binary with argv[0] set to the
+// wrapper's own path. The querier must still list that process, or Shutdown
+// refuses to reap the browser it launched.
+func TestUnixProcessQuerier_FindsWrapperNamedArgv0(t *testing.T) {
+	cmd := exec.Command("/bin/sh", "-c", "sleep 30", "sh", "--user-data-dir=/tmp/codenerd-argv0-probe")
+	cmd.Args[0] = "/usr/bin/google-chrome"
+	if err := cmd.Start(); err != nil {
+		t.Skipf("start probe process: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	q := newProcessQuerier(config.DefaultBrowserReaperConfig())
+	processes, err := q.QueryChromeProcesses(context.Background())
+	if err != nil {
+		t.Fatalf("QueryChromeProcesses: %v", err)
+	}
+	for _, process := range processes {
+		if process.PID == cmd.Process.Pid {
+			if !strings.Contains(process.CommandLine, "codenerd-argv0-probe") {
+				t.Fatalf("command line lost its profile argument: %q", process.CommandLine)
+			}
+			return
+		}
+	}
+	t.Fatalf("process with argv[0]=/usr/bin/google-chrome (pid %d) not listed", cmd.Process.Pid)
 }

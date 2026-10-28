@@ -195,10 +195,10 @@ setTimeout(() => { window.__dialogResult = confirm('access_token=dialog-secret-m
 		}
 	}
 	for _, fact := range initial {
-		if fact.Predicate != "net_http_error" && fact.Predicate != "browser_log" && fact.Predicate != "js_dialog" {
+		index, timed := map[string]int{"net_http_error": 5, "browser_log": 5, "js_dialog": 5, "console_event": 3}[fact.Predicate]
+		if !timed {
 			continue
 		}
-		index := map[string]int{"net_http_error": 5, "browser_log": 5, "js_dialog": 5}[fact.Predicate]
 		if len(fact.Args) <= index {
 			t.Fatalf("%s missing timestamp slot: %v", fact.Predicate, fact.Args)
 		}
