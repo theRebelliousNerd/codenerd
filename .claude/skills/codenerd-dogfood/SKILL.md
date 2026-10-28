@@ -47,8 +47,13 @@ loop: what was exercised, what was found, what was fixed, what's still open.
 
 ## Build / run cheatsheet
 
+```bash
+# Linux: ./nerd is what ~/.local/bin/nerd points at
+CGO_CFLAGS="-I$(pwd)/sqlite_headers" go build -tags sqlite_vec -o nerd ./cmd/nerd
+```
+
 ```powershell
-# Build with sqlite-vec (PowerShell)
+# Windows (PowerShell)
 if (Test-Path .\nerd.exe) { Remove-Item .\nerd.exe -Force }
 $env:CGO_CFLAGS = "-IC:/CodeProjects/codeNERD/sqlite_headers"
 go build -o nerd.exe ./cmd/nerd
@@ -59,7 +64,40 @@ go build -o nerd.exe ./cmd/nerd
 - **Exercise the OODA loop / coder path:** `nerd run "<instruction>"`
 - **Raw git commit path (no LLM):** `nerd commit "<msg>"`
 - Rebuild is required after editing `.mg` policy (go:embed) and after any Go change.
-- `nerd.exe` is locked while running — never `Remove-Item` it mid-run; wait for exit.
+- On Windows `nerd.exe` is locked while running, so never `Remove-Item` it mid-run; wait for it to exit.
+
+## Talking to codeNERD the way a person does
+
+Two drivers, both in [scripts/](scripts/), run from the repo root:
+
+- **[scripts/tui_driver.py](scripts/tui_driver.py)**, a persistent conversation
+  with the real TUI. It runs `./nerd` in a detached tmux session and reads
+  replies from `.nerd/sessions/<id>/`. This is the whole chat layer: work
+  modes, hold and "go", background jobs and their progress, side turns, the
+  brief and Jev turn judgments. Use it for anything conversational.
+  ```bash
+  python3 .claude/skills/codenerd-dogfood/scripts/tui_driver.py start      # boot; --yolo to skip holds
+  python3 .claude/skills/codenerd-dogfood/scripts/tui_driver.py say "fix the bug in X"
+  python3 .claude/skills/codenerd-dogfood/scripts/tui_driver.py wait       # until the reply settles
+  python3 .claude/skills/codenerd-dogfood/scripts/tui_driver.py read 6     # last 6 messages
+  python3 .claude/skills/codenerd-dogfood/scripts/tui_driver.py progress   # each agent's transcript activity
+  python3 .claude/skills/codenerd-dogfood/scripts/tui_driver.py screen     # the raw screen
+  python3 .claude/skills/codenerd-dogfood/scripts/tui_driver.py stop
+  ```
+- **[scripts/chat_driver.py](scripts/chat_driver.py)** drives `nerd chat`, the
+  headless executor path. It skips the TUI's routing layer, so it reaches none
+  of the chat behaviour above. Use it only for cheap executor-only checks.
+- **[scripts/shard_join_audit.py](scripts/shard_join_audit.py)** finds Mangle
+  rules that can never fire because their body joins facts living in different
+  kernel shards.
+
+What to read while it runs (`.nerd/sessions/<id>/`):
+- **`session.json`:** the conversation.
+- **`<role>-<id>/transcript.json`:** each agent, written by the harness: calls
+  started and answered, tool results, and the final answer.
+- **`chat/`, `jev/` and the agent folders:** one file per model call, written
+  only in debug mode.
+- **`.nerd/logs/*_problems.log`:** the defects the run itself noticed.
 
 ## Standing constraints (non-negotiable)
 
@@ -69,10 +107,12 @@ go build -o nerd.exe ./cmd/nerd
   live config produces is what the test runs against.
 - **NEVER `Write` `.nerd/config.json`.** Use Edit anchored on a unique string; no
   backup-and-restore. See `.claude/rules/never-overwrite-nerd-config.md`.
-- **Clear logs between runs; watch logs live** as the new run populates. If the
-  log-clear glob is guard-blocked, archive by moving files instead.
+- **Clear logs between runs, never during one.** A running `nerd` keeps writing
+  to deleted files, which are then only reachable through `/proc/<pid>/fd`.
+  Watch logs live as the new run populates. If the log-clear glob is
+  guard-blocked, archive by moving files instead.
 - **Conventional commits; push to GitHub regularly.** Branch off `main` first.
-- The stack is Gemini/Grok per the live `.nerd/config.json` — do not assume.
+- The model stack is whatever the live `.nerd/config.json` configures; do not assume.
 
 ## Grading rubric — the 10 campaign contracts (A+ target)
 

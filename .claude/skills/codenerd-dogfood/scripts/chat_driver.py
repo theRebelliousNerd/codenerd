@@ -3,7 +3,7 @@
 Usage, from the repo root:
   python .claude/skills/codenerd-dogfood/scripts/chat_driver.py <outfile> "turn 1" "turn 2" ...
 
-Starts `./nerd.exe chat`, waits for the `ready` line, then sends each turn
+Starts `./nerd chat`, waits for the `ready` line, then sends each turn
 only after the previous turn's footer line `[tools executed=...]` (or an
 `error:` line) has been seen, so every turn is a genuine follow-up. Records
 wall time per turn and mirrors everything to <outfile>.
@@ -25,7 +25,7 @@ def main() -> int:
     outfile = sys.argv[1]
     turns = sys.argv[2:]
     proc = subprocess.Popen(
-        ["./nerd.exe", "chat"],
+        ["./nerd", "chat"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
