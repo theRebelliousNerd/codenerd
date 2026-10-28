@@ -63,7 +63,7 @@ func TestWorkspaceTestRun_TheWorkspacesGateDecidesANonGoWrite(t *testing.T) {
 	ws := workspaceWithGate(t, "  - id: check\n    kind: test\n    run: >-\n      '"+filepath.ToSlash(bin)+"' {node}\n    scope: node\n")
 	e := newObligationExec(t)
 	e.SetConfig(ExecutorConfig{WorkspaceRoot: ws})
-	result := &ExecutionResult{WrittenPaths: []string{"svc/app.py"}, SuccessfulWriteTools: 1}
+	result := &ExecutionResult{WrittenPaths: []string{"svc/app.py"}, WriteToolEffects: 1}
 	// The write is one moment, before either run. The second run is a later
 	// seq, and that seq's exit is the gate.
 	turn := result.turnAtom()

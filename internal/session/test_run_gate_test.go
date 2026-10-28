@@ -70,7 +70,7 @@ func TestTestRunGate_IsTheLastRunAfterTheLastWrite(t *testing.T) {
 			for _, call := range tc.calls {
 				e.executeToolBatch(context.Background(), []types.ToolCall{call}, cfg, result)
 			}
-			if result.SuccessfulWriteTools == 0 {
+			if result.WriteToolEffects == 0 {
 				t.Fatal("no write succeeded; the probe measured nothing")
 			}
 			if got := derivedVerify(t, e, result.turnAtom(), "/test_run"); got != tc.want {
@@ -87,8 +87,8 @@ func TestAssertTurnEvidence_NamesEveryWrittenPathWithItsExtension(t *testing.T) 
 	e := NewExecutor(kernel, &testExecutiveStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
 	turn := types.MangleAtom("/turn_written_probe")
 	e.assertTurnEvidence(turn, "/fix", &ExecutionResult{
-		SuccessfulWriteTools: 2,
-		WrittenPaths:         []string{"Docs/Guide.MD", "internal/core/defaults/policy/x.mg"},
+		WriteToolEffects: 2,
+		WrittenPaths:     []string{"Docs/Guide.MD", "internal/core/defaults/policy/x.mg"},
 	})
 
 	facts, err := kernel.Query("turn_written")
@@ -123,7 +123,7 @@ func TestAssertTurnEvidence_MarksWritesUnderADeclaredDocsPath(t *testing.T) {
 	e.SetConfig(ExecutorConfig{WorkspaceRoot: root})
 	turn := types.MangleAtom("/turn_doc_probe")
 	e.assertTurnEvidence(turn, "/fix", &ExecutionResult{
-		SuccessfulWriteTools: 2,
+		WriteToolEffects: 2,
 		WrittenPaths: []string{
 			filepath.Join(root, "Docs", "architecture", "corpus.toml"),
 			filepath.Join(root, "config", "corpus.toml"),

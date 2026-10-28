@@ -13,7 +13,7 @@ import (
 // denies it contradicts the response itself.
 func TestCloseChangeEvidence_ResponseNamesWrittenFiles(t *testing.T) {
 	e, result := verifyGateExecutor(t)
-	result.SuccessfulWriteTools = 1
+	result.WriteToolEffects = 1
 	result.WrittenPaths = []string{"x.go"}
 	result.Response = "did stuff"
 
@@ -50,7 +50,7 @@ func TestCloseChangeEvidence_TagGatedPackageIsNotAFailure(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ws, "e2e", "gated_test.go"), []byte("//go:build integration\n\npackage e2e\n\nimport \"testing\"\n\nfunc TestGated(t *testing.T) { t.Log(\"gated\") }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result.SuccessfulWriteTools = 1
+	result.WriteToolEffects = 1
 	result.WrittenPaths = []string{"e2e/gated_test.go"}
 	result.Response = "did stuff"
 
@@ -90,10 +90,10 @@ func closeProbe(t *testing.T, withKernel bool, calc string) (*Executor, *Executi
 	writeWorkspaceFile(t, ws, "calc.go", calc)
 	writeWorkspaceFile(t, ws, "calc_test.go", probeTest)
 	result := &ExecutionResult{
-		SuccessfulWriteTools: 1,
-		WrittenPaths:         []string{"calc.go"},
-		PreWriteContents:     map[string]PreImage{"calc.go": existed(probeCalc)},
-		roundsRan:            goWriteRounds(),
+		WriteToolEffects: 1,
+		WrittenPaths:     []string{"calc.go"},
+		PreWriteContents: map[string]PreImage{"calc.go": existed(probeCalc)},
+		roundsRan:        goWriteRounds(),
 	}
 	// before is empty: the closure cannot rule the workspace unchanged, so
 	// it remeasures. The gates then describe this tree.
@@ -197,8 +197,8 @@ func TestCloseChangeEvidence_PinningRerunsWhenPreExistingFailuresPassTheGate(t *
 	rounds := goWriteRounds()
 	rounds["/pinned"] = true
 	result := &ExecutionResult{
-		SuccessfulWriteTools: 1,
-		WrittenPaths:         []string{"calc.go", "helper.go", "helper_test.go"},
+		WriteToolEffects: 1,
+		WrittenPaths:     []string{"calc.go", "helper.go", "helper_test.go"},
 		PreWriteContents: map[string]PreImage{
 			"calc.go":        existed(pinCalcBefore),
 			"helper.go":      {},
@@ -249,8 +249,8 @@ func pinRoundFixture(t *testing.T, breakPolite bool) (*Executor, *ExecutionResul
 	writeWorkspaceFile(t, ws, "helper_test.go", pinHelperTests)
 	writeWorkspaceFile(t, ws, "legacy_test.go", "package pinprobe\n\nimport \"testing\"\n\nfunc TestAlwaysFails(t *testing.T) { t.Fatal(\"always fails\") }\n")
 	result := &ExecutionResult{
-		SuccessfulWriteTools: 1,
-		WrittenPaths:         []string{"calc.go", "helper.go", "helper_test.go"},
+		WriteToolEffects: 1,
+		WrittenPaths:     []string{"calc.go", "helper.go", "helper_test.go"},
 		PreWriteContents: map[string]PreImage{
 			"calc.go":        existed(pinCalcBefore),
 			"helper.go":      {},

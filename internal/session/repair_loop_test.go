@@ -467,7 +467,7 @@ func TestRepairLoop_GiveUpRecord(t *testing.T) {
 	executor.config.WorkspaceRoot = ws
 	executor.config.EnableSafetyGate = false
 	executor.config.RepairMaxAttempts = 2
-	result := &ExecutionResult{WrittenPaths: []string{"main_test.go", "main.go"}, SuccessfulWriteTools: 1}
+	result := &ExecutionResult{WrittenPaths: []string{"main_test.go", "main.go"}, WriteToolEffects: 1}
 	history := []types.Message{{Role: "user", Text: "fix the tests"}}
 	allowCfg := &jitconfig.EffectiveAgentRuntimeConfig{AllowedTools: []string{"write_file", "read_file", "edit_file"}}
 	// A repair runs inside the turn's working loop, as every production
@@ -520,7 +520,7 @@ func TestRepairLoop_CancelBeforeStart(t *testing.T) {
 	executor.config.EnableSafetyGate = false
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	result := &ExecutionResult{WrittenPaths: []string{"x.go"}, SuccessfulWriteTools: 1}
+	result := &ExecutionResult{WrittenPaths: []string{"x.go"}, WriteToolEffects: 1}
 	history := []types.Message{{Role: "user", Text: "fix"}}
 	spec := repairSpec{
 		kind:      "tests",

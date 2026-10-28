@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"codenerd/internal/core"
+	"codenerd/internal/types"
 	"os"
 )
 
@@ -182,9 +183,9 @@ func TestE2E_InteractiveGate_ValidatorContextTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 	defer cancel()
 
-	err := vs.ValidateInteractiveToolResult(ctx, "action_val", "write_file", map[string]any{"filepath": "test.txt", "content": "hello"}, "success", true)
-	if err != nil {
-		t.Logf("Validator implementation returned error: %v", err)
+	// An expired context measures nothing: incomplete, never verified.
+	if got := vs.ValidateInteractiveToolResult(ctx, "action_val", "write_file", map[string]any{"filepath": "test.txt", "content": "hello"}, "success", true); got.State == types.ToolValidationVerified {
+		t.Errorf("validation under an expired context = %+v, want it not verified", got)
 	}
 }
 
@@ -192,11 +193,8 @@ func TestE2E_InteractiveGate_ValidatorContextTimeout(t *testing.T) {
 func TestE2E_InteractiveGate_ValidatorFailure(t *testing.T) {
 	vs, _, _, tmpDir := setupTestVirtualStore(t)
 
-	err := vs.ValidateInteractiveToolResult(context.Background(), "action_val2", "write_file", map[string]any{"filepath": filepath.Join(tmpDir, "doesnotexist.txt"), "content": "hello"}, "success", true)
-	if err == nil {
-		t.Errorf("Expected validation to fail because file wasn't written, got nil")
-	} else if !strings.Contains(err.Error(), "validation failed") {
-		t.Errorf("Expected validation failed error, got: %v", err)
+	if got := vs.ValidateInteractiveToolResult(context.Background(), "action_val2", "write_file", map[string]any{"filepath": filepath.Join(tmpDir, "doesnotexist.txt"), "content": "hello"}, "success", true); got.State != types.ToolValidationRejected {
+		t.Errorf("Expected validation to reject the unwritten file, got %+v", got)
 	}
 }
 
@@ -314,9 +312,8 @@ func TestE2E_InteractiveGate_EndToEndDataIntegrity(t *testing.T) {
 	filePath := filepath.Join(tmpDir, "real_file.txt")
 	os.WriteFile(filePath, []byte("hello"), 0644)
 
-	err := vs.ValidateInteractiveToolResult(context.Background(), "action_e2e", "write_file", map[string]any{"filepath": filePath, "content": "hello"}, "success", true)
-	if err != nil {
-		t.Errorf("Validation failed: %v", err)
+	if got := vs.ValidateInteractiveToolResult(context.Background(), "action_e2e", "write_file", map[string]any{"filepath": filePath, "content": "hello"}, "success", true); got.State == types.ToolValidationRejected {
+		t.Errorf("Validation rejected a written file: %+v", got)
 	}
 
 	// Wait briefly for spreading activation / fact processing
@@ -370,7 +367,7 @@ func TestE2E_InteractiveGate_PartialPipelineFailure(t *testing.T) {
 	}
 
 	// Validate fails (file not actually written)
-	err = vs.ValidateInteractiveToolResult(context.Background(), "action_partial", "write_file", map[string]any{"filepath": filepath.Join(tmpDir, "missing.txt")}, "success", true)
+	err = rejection(vs.ValidateInteractiveToolResult(context.Background(), "action_partial", "write_file", map[string]any{"filepath": filepath.Join(tmpDir, "missing.txt")}, "success", true))
 	if err == nil {
 		t.Errorf("Expected validation failure")
 	}
@@ -455,7 +452,7 @@ func TestE2E_InteractiveGate_ConcurrentValidation(t *testing.T) {
 			filePath := filepath.Join(tmpDir, fmt.Sprintf("val_test_%d.txt", i))
 			os.WriteFile(filePath, []byte("hello"), 0644)
 
-			err := vs.ValidateInteractiveToolResult(context.Background(), fmt.Sprintf("action_val_%d", i), "write_file", map[string]any{"filepath": filePath, "content": "hello"}, "success", true)
+			err := rejection(vs.ValidateInteractiveToolResult(context.Background(), fmt.Sprintf("action_val_%d", i), "write_file", map[string]any{"filepath": filePath, "content": "hello"}, "success", true))
 			if err != nil {
 				errs <- err
 			}
@@ -549,7 +546,7 @@ func TestE2E_InteractiveGate_ValidatorMetadataHandling(t *testing.T) {
 	os.WriteFile(filePath, []byte("hello"), 0644)
 
 	// Pass complex metadata through the validation phase
-	err := vs.ValidateInteractiveToolResult(context.Background(), "action_meta", "write_file", map[string]any{"filepath": filePath, "content": "hello", "custom_tag": []string{"a", "b"}}, "success output", true)
+	err := rejection(vs.ValidateInteractiveToolResult(context.Background(), "action_meta", "write_file", map[string]any{"filepath": filePath, "content": "hello", "custom_tag": []string{"a", "b"}}, "success output", true))
 	if err != nil {
 		t.Errorf("Expected validation to pass even with complex metadata, got: %v", err)
 	}
@@ -605,7 +602,7 @@ func TestE2E_InteractiveGate_ValidationOutputTruncation(t *testing.T) {
 	// Provide an massive output string to the validator
 	largeOutput := strings.Repeat("O", 5*1024*1024) // 5MB
 
-	err := vs.ValidateInteractiveToolResult(context.Background(), "action_trunc", "write_file", map[string]any{"filepath": filePath, "content": "hello"}, largeOutput, true)
+	err := rejection(vs.ValidateInteractiveToolResult(context.Background(), "action_trunc", "write_file", map[string]any{"filepath": filePath, "content": "hello"}, largeOutput, true))
 	if err != nil {
 		t.Errorf("Expected validation to handle large output safely, got: %v", err)
 	}
@@ -691,12 +688,12 @@ func TestE2E_InteractiveGate_ValidatorIsolation(t *testing.T) {
 	filePath := filepath.Join(tmpDir, "iso_test.txt")
 	os.WriteFile(filePath, []byte("hello"), 0644)
 
-	err1 := vs.ValidateInteractiveToolResult(context.Background(), "action_iso_1", "write_file", map[string]any{"filepath": filePath, "content": "hello"}, "success", true)
+	err1 := rejection(vs.ValidateInteractiveToolResult(context.Background(), "action_iso_1", "write_file", map[string]any{"filepath": filePath, "content": "hello"}, "success", true))
 	if err1 != nil {
 		t.Errorf("Expected success for first validation")
 	}
 
-	err2 := vs.ValidateInteractiveToolResult(context.Background(), "action_iso_2", "read_file", map[string]any{"filepath": filePath}, "success", true)
+	err2 := rejection(vs.ValidateInteractiveToolResult(context.Background(), "action_iso_2", "read_file", map[string]any{"filepath": filePath}, "success", true))
 	if err2 != nil {
 		t.Errorf("Expected success for second non-destructive validation")
 	}
@@ -709,7 +706,7 @@ func TestE2E_InteractiveGate_ToolSuccessFlagValidation(t *testing.T) {
 	filePath := filepath.Join(tmpDir, "success_flag.txt")
 
 	// If the tool failed, the validator shouldn't run or fail, it should just pass quickly.
-	err := vs.ValidateInteractiveToolResult(context.Background(), "action_failed_flag", "write_file", map[string]any{"filepath": filePath}, "error", false)
+	err := rejection(vs.ValidateInteractiveToolResult(context.Background(), "action_failed_flag", "write_file", map[string]any{"filepath": filePath}, "error", false))
 	if err != nil {
 		t.Errorf("Expected nil error for tool that already failed, got: %v", err)
 	}

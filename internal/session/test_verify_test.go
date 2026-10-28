@@ -462,7 +462,7 @@ func TestVerifyAndRepairTests_SkipsWhenNotApplicable(t *testing.T) {
 		cfgOn  bool
 		result *ExecutionResult
 	}{
-		{"disabled by config", false, &ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"a.go"}}},
+		{"disabled by config", false, &ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"a.go"}}},
 		{"nil result", true, nil},
 	}
 	for _, tc := range cases {

@@ -66,6 +66,10 @@ func observedReturn(agent, task string, res *ExecutionResult) observation.Return
 	out.Outcome = string(res.TurnOutcome)
 	out.Missing = append(out.Missing, res.MissingEvidence...)
 	out.Stage = res.ChangeStage
+	out.Snapshot = res.ChecksSnapshot
+	if res.Acceptance != nil && res.Acceptance.Status == "verified" && res.Acceptance.After != "" {
+		out.Snapshot = res.Acceptance.After
+	}
 	if res.Acceptance != nil {
 		out.Acceptance = &observation.Acceptance{
 			Status:   res.Acceptance.Status,

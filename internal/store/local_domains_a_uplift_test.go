@@ -131,10 +131,11 @@ func TestKnowledgeAtom_DualWriteAndDegrade(t *testing.T) {
 // groups failing patterns by their violations blob.
 func TestVerification_RoundTripAndStats(t *testing.T) {
 	s := openLocalTestStore(t)
-	if err := s.StoreVerification("sess", 1, "task", "coder", 1, false, 0.3, "bad", `["v1"]`, "{}", "{}", "h1"); err != nil {
+	if err := s.StoreVerification(VerificationRecord{SessionID: "sess", TurnNumber: 1, Task: "task", ShardType: "coder", AttemptNumber: 1, Confidence: 0.3, Reason: "bad", ViolationsJSON: `["v1"]`, CorrectiveJSON: "{}", EvidenceJSON: "{}", ResultHash: "h1",
+		JudgeContract: "judge/v2", JudgeClaimed: "defect", JudgeStatus: "defect", JudgeExplanation: "empty body"}); err != nil {
 		t.Fatalf("StoreVerification: %v", err)
 	}
-	if err := s.StoreVerification("sess", 1, "task", "coder", 2, true, 0.9, "good", `[]`, "{}", "{}", "h2"); err != nil {
+	if err := s.StoreVerification(VerificationRecord{SessionID: "sess", TurnNumber: 1, Task: "task", ShardType: "coder", AttemptNumber: 2, Success: true, Confidence: 0.9, Reason: "good", ViolationsJSON: `[]`, CorrectiveJSON: "{}", EvidenceJSON: "{}", ResultHash: "h2"}); err != nil {
 		t.Fatalf("StoreVerification: %v", err)
 	}
 	h, err := s.GetVerificationHistory("sess", 10)
@@ -143,6 +144,16 @@ func TestVerification_RoundTripAndStats(t *testing.T) {
 	}
 	if len(h) != 2 {
 		t.Fatalf("history = %d records, want 2", len(h))
+	}
+	// The judge's own judgment round-trips beside the disposition.
+	judged := 0
+	for _, r := range h {
+		if r.JudgeStatus == "defect" && r.JudgeContract == "judge/v2" && r.JudgeExplanation == "empty body" && !r.Success {
+			judged++
+		}
+	}
+	if judged != 1 {
+		t.Errorf("history = %+v, want the judged attempt's judgment kept beside its disposition", h)
 	}
 	stats, err := s.GetQualityViolationStats()
 	if err != nil {

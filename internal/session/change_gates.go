@@ -462,7 +462,7 @@ func (e *Executor) verifyAndRepairRemovedTests(
 	cfg *jitconfig.EffectiveAgentRuntimeConfig,
 	result *ExecutionResult,
 ) (*types.LLMToolResponse, []string, error) {
-	if result == nil || result.SuccessfulWriteTools == 0 || len(result.PreWriteContents) == 0 {
+	if result == nil || result.WriteToolEffects == 0 || len(result.PreWriteContents) == 0 {
 		return nil, nil, nil
 	}
 	workspace := e.workspaceForVerification()

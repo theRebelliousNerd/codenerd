@@ -78,9 +78,10 @@ type InteractiveExecutiveGate interface {
 	// must be blocked.
 	PreflightDestructiveToolCall(ctx context.Context, actionID, toolName string, args map[string]any) error
 	// ValidateInteractiveToolResult runs post-action validators AFTER the tool
-	// executes and asserts validation facts to the kernel. A non-nil error means
-	// a validator failed with high confidence (the side effect did not land).
-	ValidateInteractiveToolResult(ctx context.Context, actionID, toolName string, args map[string]any, output string, success bool) error
+	// executes, asserts validation facts to the kernel, and returns what the
+	// pass established: verified, rejected, incomplete or unvalidated. A
+	// rejection says the result is wrong, not that nothing changed.
+	ValidateInteractiveToolResult(ctx context.Context, actionID, toolName string, args map[string]any, output string, success bool) types.ToolValidation
 }
 
 // warnInteractiveGateUnavailable logs the missing gate exactly once per
@@ -811,10 +812,21 @@ type ExecutionResult struct {
 	// intent merely because it was attempted.
 	SuccessfulToolCalls int
 
-	// SuccessfulWriteTools counts write_file/edit_file (and peers) that
-	// completed without error. Used to block hollow success on write-oriented
-	// intents that only produced prose or non-mutating tool calls.
-	SuccessfulWriteTools int
+	// WriteToolEffects counts the write_file/edit_file (and peer) calls the
+	// turn must account for: every one that completed, and every one that
+	// failed -- in its handler or its post-action validation -- after
+	// observably changing a file (tool_effects.go). It is what "this turn
+	// wrote" means to the gates, the hollow-success check and the verdict.
+	//
+	// It was SuccessfulWriteTools until 2026-10-27 and counted completed
+	// calls only, so a write whose validator rejected the bytes it had
+	// already left on disk was invisible to the write set, the gates and
+	// the test-witness invalidation (a failed postcondition is not proof of
+	// no mutation). ToolReceipts says which calls failed.
+	WriteToolEffects int
+	// ToolReceipts is each effectful call's receipt: what it changed and
+	// what its validation established, in call order.
+	ToolReceipts []ToolEffectReceipt
 	// SelfReportedIncomplete is set when the turn's own final report says
 	// part of the requested work was not done (auditFinalReport). A model's
 	// claim of success is not evidence; its admission of failure is.
@@ -2579,6 +2591,10 @@ func (e *Executor) assertTurnEvidence(turn types.MangleAtom, verb string, result
 	// corpus already asks for them by name. Assert them before turn_evidence
 	// so !turn_build_red(Turn) can exclude turn_executed on the same pass.
 	e.recordBuildState(turn, result)
+	// A receipted change a later, unobserved writer replaced no longer
+	// describes the file: its validation must not withhold (or vouch for)
+	// bytes that are gone.
+	e.assertSupersededEffects(turn, result)
 	if result.Acceptance != nil && result.Acceptance.Status == "verified" {
 		e.assertTurnFact(types.Fact{Predicate: "turn_acceptance", Args: []any{turn, result.Acceptance.ContractID, result.Acceptance.After}})
 	}
@@ -2605,7 +2621,7 @@ func (e *Executor) assertTurnEvidence(turn types.MangleAtom, verb string, result
 		turn,
 		types.MangleAtom(verb),
 		result.SuccessfulToolCalls,
-		result.SuccessfulWriteTools,
+		result.WriteToolEffects,
 		testRuns,
 		claimedOutput,
 		dreamMode,
@@ -2884,7 +2900,7 @@ func (e *Executor) consumeHollowSuccessVerdict(turn types.MangleAtom, verb strin
 				)
 			}
 		}
-		if e.writeOrientedIntent(verb) && result.SuccessfulWriteTools == 0 {
+		if e.writeOrientedIntent(verb) && result.WriteToolEffects == 0 {
 			return newHollowSuccessError(
 				"write-oriented intent %s completed without a recognized write-mutation tool (tool_calls=%d)",
 				verb, result.ToolCallsExecuted,
@@ -3013,6 +3029,10 @@ func missingEvidenceSentence(atom string) string {
 		return "a change this turn made is pinned by no test it wrote: the tests still pass with the change taken out"
 	case "/self_reported_incomplete":
 		return "the turn's own report says part of the requested work was not done"
+	case "/effect_rejected":
+		return "a file this turn changed was rejected by its post-action validator and not repaired"
+	case "/effect_unmeasured":
+		return "a file this turn changed was never measured by a completed validation"
 	default:
 		return strings.TrimPrefix(atom, "/")
 	}

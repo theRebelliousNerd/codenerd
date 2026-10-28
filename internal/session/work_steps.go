@@ -804,7 +804,7 @@ func (e *Executor) runPlannedSteps(
 		step := &steps[i]
 		stepCtx := *compilationCtx
 		stepCtx.IntentTarget = step.File
-		writesBefore, callsBefore := result.SuccessfulWriteTools, result.ToolCallsExecuted
+		writesBefore, callsBefore := result.WriteToolEffects, result.ToolCallsExecuted
 		stepNum := i + 1
 
 		// The window is compiled for THIS step, when the step starts: the
@@ -824,7 +824,7 @@ func (e *Executor) runPlannedSteps(
 			logging.Get(logging.CategorySession).Warn("Step %d/%d (%s) ended in error: %v", stepNum, len(steps), step.File, err)
 		}
 		passCalls := result.ToolCallsExecuted - callsBefore
-		if recErr := e.recordStepPass(turn, stepNum, step.File, result.SuccessfulWriteTools-writesBefore, passCalls); recErr != nil {
+		if recErr := e.recordStepPass(turn, stepNum, step.File, result.WriteToolEffects-writesBefore, passCalls); recErr != nil {
 			result.StepReport = workStepReport(steps)
 			return last, toolErrs, fmt.Errorf("step %d (%s): %w", stepNum, step.File, recErr)
 		}
@@ -854,14 +854,14 @@ func (e *Executor) runPlannedSteps(
 			if retried != nil {
 				resp = retried
 			}
-			if recErr := e.recordStepPass(turn, stepNum, step.File, result.SuccessfulWriteTools-writesBefore, result.ToolCallsExecuted-callsBefore); recErr != nil {
+			if recErr := e.recordStepPass(turn, stepNum, step.File, result.WriteToolEffects-writesBefore, result.ToolCallsExecuted-callsBefore); recErr != nil {
 				result.StepReport = workStepReport(steps)
 				return last, toolErrs, fmt.Errorf("step %d (%s): %w", stepNum, step.File, recErr)
 			}
 		}
 		// Edited and Calls record the measurement for the anchor and the
 		// report. The retry above and the verdict below are the policy's.
-		step.Edited = result.SuccessfulWriteTools > writesBefore
+		step.Edited = result.WriteToolEffects > writesBefore
 		step.Calls = result.ToolCallsExecuted - callsBefore
 		if resp != nil {
 			// The closing word is the envelope's surface text, not its first

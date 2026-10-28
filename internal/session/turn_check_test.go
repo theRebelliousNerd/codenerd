@@ -327,7 +327,7 @@ func TestCheckGate_IsTheLastRunAfterTheLastWrite(t *testing.T) {
 			for _, call := range tc.calls {
 				e.executeToolBatch(context.Background(), []types.ToolCall{call}, cfg, result)
 			}
-			if result.SuccessfulWriteTools == 0 {
+			if result.WriteToolEffects == 0 {
 				t.Fatal("no write succeeded; the probe measured nothing")
 			}
 			if got := derivedVerify(t, e, result.turnAtom(), "/check"); got != tc.want {

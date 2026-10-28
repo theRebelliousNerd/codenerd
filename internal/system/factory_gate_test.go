@@ -7,6 +7,7 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/session"
+	"codenerd/internal/types"
 	"codenerd/internal/types/typestest"
 )
 
@@ -44,10 +45,10 @@ func TestSessionVirtualStoreAdapterGate(t *testing.T) {
 		t.Fatalf("PreflightDestructiveToolCall(read_file) = %v, want nil", err)
 	}
 	// Post-action validation with success=false runs no validators.
-	if err := adapter.ValidateInteractiveToolResult(ctx, "gate-test-val", "write_file", map[string]any{
+	if v := adapter.ValidateInteractiveToolResult(ctx, "gate-test-val", "write_file", map[string]any{
 		"path": "blocked.go",
-	}, "", false); err != nil {
-		t.Fatalf("ValidateInteractiveToolResult(success=false) = %v, want nil", err)
+	}, "", false); v.State != types.ToolValidationNotRun {
+		t.Fatalf("ValidateInteractiveToolResult(success=false) = %+v, want not_run", v)
 	}
 
 	// (c) A nil store fails closed for a destructive tool and passes for a
@@ -63,10 +64,10 @@ func TestSessionVirtualStoreAdapterGate(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("nil-store PreflightDestructiveToolCall(read_file) = %v, want nil", err)
 	}
-	if err := nilAdapter.ValidateInteractiveToolResult(ctx, "nil-val", "write_file", map[string]any{
+	if v := nilAdapter.ValidateInteractiveToolResult(ctx, "nil-val", "write_file", map[string]any{
 		"path": "blocked.go",
-	}, "", true); err != nil {
-		t.Fatalf("nil-store ValidateInteractiveToolResult = %v, want nil", err)
+	}, "", true); v.State != types.ToolValidationUnvalidated {
+		t.Fatalf("nil-store ValidateInteractiveToolResult = %+v, want unvalidated (never verified)", v)
 	}
 	// A nil receiver must behave like a nil store, never panic.
 	var nilRecv *sessionVirtualStoreAdapter

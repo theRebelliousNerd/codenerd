@@ -702,7 +702,7 @@ func (e *Executor) noteCheckRun(result *ExecutionResult, exitCode int) {
 // the tool loop already advanced is left alone: that write is already a fact,
 // or a run was recorded first and a write invented after it would hide the run.
 func (e *Executor) ensureWriteSequenced(turn types.MangleAtom, result *ExecutionResult) {
-	if e == nil || e.kernel == nil || result == nil || result.writeSequenced || result.SuccessfulWriteTools == 0 {
+	if e == nil || e.kernel == nil || result == nil || result.writeSequenced || result.WriteToolEffects == 0 {
 		return
 	}
 	if result.gateSeq > 0 {

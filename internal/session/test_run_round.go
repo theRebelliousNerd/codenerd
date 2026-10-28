@@ -33,7 +33,7 @@ func (e *Executor) verifyAndRepairTestRun(
 	cfg *jitconfig.EffectiveAgentRuntimeConfig,
 	result *ExecutionResult,
 ) (*types.LLMToolResponse, []string, error) {
-	if result == nil || result.SuccessfulWriteTools == 0 || trp == nil || e.kernel == nil {
+	if result == nil || result.WriteToolEffects == 0 || trp == nil || e.kernel == nil {
 		return nil, nil, nil
 	}
 	if e.sessionContext != nil && e.sessionContext.DreamMode {

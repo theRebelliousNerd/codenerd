@@ -90,7 +90,7 @@ func TestChatLifecycle_OneDeadlineAcrossTurnsAndPreservesArtifacts(test *testing
 					if err := os.WriteFile(artifactPath, artifactContent, 0600); err != nil {
 						return nil, err
 					}
-					return &session.ExecutionResult{Response: "saved", SuccessfulWriteTools: 1}, nil
+					return &session.ExecutionResult{Response: "saved", WriteToolEffects: 1}, nil
 				}
 				<-turnCtx.Done()
 				return nil, turnCtx.Err()

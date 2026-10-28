@@ -265,6 +265,10 @@ func (s *LocalStore) initialize() error {
 		corrective_action TEXT,
 		evidence TEXT,
 		result_hash TEXT,
+		judge_contract TEXT,
+		judge_claimed TEXT,
+		judge_status TEXT,
+		judge_explanation TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE INDEX IF NOT EXISTS idx_verifications_session ON task_verifications(session_id);

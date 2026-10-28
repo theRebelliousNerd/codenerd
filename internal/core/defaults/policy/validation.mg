@@ -78,6 +78,15 @@ side_effect_attempted(ActionID, ActionType) :-
 side_effect_attempted(ActionID, ActionType) :-
     action_validation_failed(ActionID, ActionType, _, _, _),
     interactive_side_effect_type(ActionType).
+# A validator that held no opinion or could not complete still proves the tool
+# ran: the action stays in validation limbo (unvalidated_side_effect), neither
+# verified nor failed.
+side_effect_attempted(ActionID, ActionType) :-
+    action_validation_skipped(ActionID, ActionType, _, _),
+    interactive_side_effect_type(ActionType).
+side_effect_attempted(ActionID, ActionType) :-
+    action_validation_unavailable(ActionID, ActionType, _, _),
+    interactive_side_effect_type(ActionType).
 
 # An action's work is POSITIVELY VERIFIED COMPLETE only if it both (a) was a
 # side-effecting action and (b) passed positive validation (>=80 confidence via

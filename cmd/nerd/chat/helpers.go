@@ -351,8 +351,15 @@ func formatVerifiedResponse(
 	sb.WriteString(fmt.Sprintf("## %s Result\n\n", titleWords(shardType)))
 
 	if verificationResult != nil {
-		sb.WriteString(fmt.Sprintf("**Verification**: ✅ Passed (confidence: %.0f%%)\n\n",
-			verificationResult.Confidence*100))
+		// The disposition is the kernel's; the confidence shown is the
+		// judge's own, when a judge spoke, never a number the disposition
+		// invented.
+		if j := verificationResult.Judgment; j != nil {
+			sb.WriteString(fmt.Sprintf("**Verification**: ✅ Accepted (judge: %s, confidence: %.0f%%)\n\n",
+				j.Status, j.Confidence*100))
+		} else {
+			sb.WriteString(fmt.Sprintf("**Verification**: ✅ Accepted (%s)\n\n", verificationResult.Reason))
+		}
 	}
 
 	// Include the LLM's surface response if meaningful
@@ -400,54 +407,37 @@ func formatVerificationEscalation(
 
 	if verificationResult != nil {
 		sb.WriteString("### Last Verification Result\n\n")
-		// Synthesize a Reason from QualityViolations + Evidence when the
-		// verifier LLM returns success=false without filling in `reason`
-		// in the JSON response (observed against Gemini 3.5-flash). The
-		// previous template printed "**Reason**: " with a blank tail and
-		// gave the user no useful signal.
+		// The reason is the disposition's, always set: the judge's reply
+		// contract refuses a blank explanation, and the kernel's turn verdict
+		// names itself. The judge's own judgment follows it, unedited.
 		reason := strings.TrimSpace(verificationResult.Reason)
 		if reason == "" {
-			parts := make([]string, 0, 2)
-			if len(verificationResult.QualityViolations) > 0 {
-				viols := make([]string, 0, len(verificationResult.QualityViolations))
-				for _, v := range verificationResult.QualityViolations {
-					viols = append(viols, string(v))
-				}
-				parts = append(parts, "violations="+strings.Join(viols, ","))
-			}
-			if len(verificationResult.Evidence) > 0 {
-				parts = append(parts, "evidence="+verificationResult.Evidence[0])
-			}
-			if len(parts) == 0 {
-				reason = "(verifier returned no reason — see logs)"
-			} else {
-				reason = strings.Join(parts, "; ")
-			}
+			reason = "(the delegation recorded no reason — see logs)"
 		}
 		sb.WriteString(fmt.Sprintf("**Reason**: %s\n\n", reason))
 
-		if len(verificationResult.QualityViolations) > 0 {
-			sb.WriteString("**Quality Violations Detected**:\n")
-			for _, v := range verificationResult.QualityViolations {
-				sb.WriteString(fmt.Sprintf("- %s\n", v))
+		if j := verificationResult.Judgment; j != nil {
+			if len(j.Violations) > 0 {
+				sb.WriteString("**Quality Violations Detected**:\n")
+				for _, v := range j.Violations {
+					sb.WriteString(fmt.Sprintf("- %s\n", v))
+				}
+				sb.WriteString("\n")
 			}
-			sb.WriteString("\n")
-		}
-
-		if len(verificationResult.Evidence) > 0 {
-			sb.WriteString("**Evidence**:\n")
-			for _, e := range verificationResult.Evidence {
-				sb.WriteString(fmt.Sprintf("- %s\n", e))
+			if cited := verificationResult.CitedEvidence(); len(cited) > 0 {
+				sb.WriteString("**Evidence**:\n")
+				for _, e := range cited {
+					sb.WriteString(fmt.Sprintf("- %s\n", e))
+				}
+				sb.WriteString("\n")
 			}
-			sb.WriteString("\n")
-		}
-
-		if len(verificationResult.Suggestions) > 0 {
-			sb.WriteString("**Suggestions**:\n")
-			for _, s := range verificationResult.Suggestions {
-				sb.WriteString(fmt.Sprintf("- %s\n", s))
+			if len(j.Suggestions) > 0 {
+				sb.WriteString("**Suggestions**:\n")
+				for _, s := range j.Suggestions {
+					sb.WriteString(fmt.Sprintf("- %s\n", s))
+				}
+				sb.WriteString("\n")
 			}
-			sb.WriteString("\n")
 		}
 	}
 

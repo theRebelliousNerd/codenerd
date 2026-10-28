@@ -39,7 +39,7 @@ func newObligationExec(t *testing.T) *Executor {
 // turn produces, so checkHollowSuccess reaches the obligation check instead of
 // failing earlier for want of a write.
 func mutationResult() *ExecutionResult {
-	res := &ExecutionResult{ToolCallsExecuted: 1, SuccessfulToolCalls: 1, SuccessfulWriteTools: 1}
+	res := &ExecutionResult{ToolCallsExecuted: 1, SuccessfulToolCalls: 1, WriteToolEffects: 1}
 	res.Intent.Verb = "/create"
 	res.Intent.Category = "/mutation"
 	return res

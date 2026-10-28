@@ -291,5 +291,5 @@ func renderChatTurn(w io.Writer, errW io.Writer, turnNum int, result *session.Ex
 		errFlag = "yes"
 	}
 	fmt.Fprintf(w, "[tools executed=%d ok=%d writes=%d err=%s elapsed=%s]\n",
-		result.ToolCallsExecuted, result.SuccessfulToolCalls, result.SuccessfulWriteTools, errFlag, elapsed)
+		result.ToolCallsExecuted, result.SuccessfulToolCalls, result.WriteToolEffects, errFlag, elapsed)
 }

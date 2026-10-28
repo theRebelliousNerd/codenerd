@@ -1,7 +1,7 @@
 ---
 doc-class: deep-dive
 subsystem: tools
-implementation-status: planned
+implementation-status: partial
 last-verified: 2026-10-27
 verified-against: e16f5a3ac94e9b5887039bb5ce96832dfcf5b74a
 supersedes: []
@@ -185,3 +185,21 @@ These research IDs are local to this proposal, not declarations that the archite
 
 Before implementation, reconcile the owning session/tools/core specs without replacing protected guidance or changing permissions. The immediate useful outcome is accurate effect accounting—not stronger prose about accuracy.
 
+
+## As built (2026-10-27)
+
+**Implemented (TOOL-EFFECT-01, -02, and the policy half of -03):**
+
+- Typed validation states: `types.ToolValidation` / `ToolValidationState` (`internal/types/tool_validation.go`: verified, rejected, incomplete, unvalidated, not_run). `core.ValidationResult.State`/`Validator`, `core.classifyValidation` (a deferral is skipped, a timed-out failure unavailable), `core.SummarizeValidation` (rejected when *any* reading fails at `DefinitiveValidationConfidence`, so a low-confidence objection can no longer hide a later definitive failure). `ValidateAll`/`FirstFailure` are deleted; RouteAction and the interactive bridge both use the summary.
+- `VirtualStore.ValidateInteractiveToolResult` returns `types.ToolValidation` instead of `error`; `apply_edits` merges every file's reading. Canceled validation emits `action_validation_unavailable`, a deferral `action_validation_skipped` (no longer `action_verified` at 0); both feed `side_effect_attempted`/limbo in `policy/validation.mg`, never the self-healing failure arms. `validation_method_used` now carries a `/name` (the raw string never satisfied its schema).
+- Receipts: `session.ToolEffectReceipt`, `snapshotEffectTargets`/`observeEffects`, `Executor.settleToolEffects` (`internal/session/tool_effects.go`), called from `executeAndRecordToolCall` on every terminal path before an error returns. A rejected postcondition is `*PostconditionError` and carries the handler's output. A failed write that observably changed a file joins `WrittenPaths`, advances the write clock (invalidating earlier test witnesses), and records what it left for the restore.
+- Executive contract: `policy/tool_effects.mg` (`turn_tool_effect`, append-only `turn_tool_validation` rounds, `turn_effect_current`, `turn_effect_unsettled`, `tool_effect_recovery` = /revalidate, /repair, /inspect, /reconcile). `coder_safety.mg` withholds `turn_verified` and names `/effect_rejected` / `/effect_unmeasured`. The host carries out /revalidate once; the other moves are said to the model beside the output. `Executor.assertSupersededEffects` marks, at closure, receipts an unobserved writer replaced. All receipt and validation predicates are host-witness-only (`core.hostWitnessPredicates`).
+
+**Ruled differently:**
+
+- `SuccessfulWriteTools` was renamed `WriteToolEffects` and widened to every write the turn must account for (completed, or failed after an observed change), rather than adding a parallel counter: every reader meant "this turn wrote", and two counters would drift. `ToolReceipts` says which calls failed.
+- A failure below 0.8 confidence stays an objection the result stands over (visible in the observations, not incomplete), matching the existing threshold; making it block `/done` would regress turns on weak validators.
+- Validation state is per call, not per (call, resource): a multi-file call's rejection marks every path it changed until a later write supersedes it.
+- Effects are observed for write-mutation tools only. Shell and generated-tool effects keep their existing gates and receipts.
+
+**Deferred:** the durable replay/rendezvous ledger and duplicate-identity conflict detection (ablation C / TOOL-EFFECT-03's replay half). The doc itself rates B as possibly sufficient, and replay needs crash-coupled storage. Also deferred: attribution under concurrent writers (no exclusive-ownership CAS exists to prove authorship), and the TOOL-EFFECT-04 production-entry evaluation, which needs live models.

@@ -218,8 +218,8 @@ func TestRunToolLoop_PlannedSteps_RunsEachStepAsItsOwnPass(t *testing.T) {
 	if resp == nil || resp.Text != "finished b.txt" {
 		t.Fatalf("response = %+v, want the last step's closing sentence", resp)
 	}
-	if result.SuccessfulWriteTools != 2 {
-		t.Fatalf("writes = %d, want one per step", result.SuccessfulWriteTools)
+	if result.WriteToolEffects != 2 {
+		t.Fatalf("writes = %d, want one per step", result.WriteToolEffects)
 	}
 	if !strings.Contains(result.StepReport, "Planned steps: 2, edited: 2.") {
 		t.Fatalf("report = %q", result.StepReport)
@@ -262,8 +262,8 @@ func TestRunToolLoop_PlannedSteps_RetriesAStepThatMadeNoEditWithReadingClosed(t 
 	if err != nil {
 		t.Fatalf("runToolLoop: %v (tool errors: %q)", err, toolErrs)
 	}
-	if result.SuccessfulWriteTools != 2 {
-		t.Fatalf("writes = %d, want both steps edited after the retry; report:\n%s", result.SuccessfulWriteTools, result.StepReport)
+	if result.WriteToolEffects != 2 {
+		t.Fatalf("writes = %d, want both steps edited after the retry; report:\n%s", result.WriteToolEffects, result.StepReport)
 	}
 	if !anyContains(client.anchors, "This step's first pass made no edit. Reading is closed") {
 		t.Fatalf("no retry anchor seen; anchors: %q", client.anchors)
@@ -302,8 +302,8 @@ func TestRunToolLoop_PlannedSteps_ReportsAStepThatNeverEdited(t *testing.T) {
 	if !strings.Contains(err.Error(), "[1] a.txt") {
 		t.Fatalf("the error must name the step that made no edit: %v", err)
 	}
-	if result.SuccessfulWriteTools != 1 {
-		t.Fatalf("writes = %d, want the second step's edit despite the first step's failure", result.SuccessfulWriteTools)
+	if result.WriteToolEffects != 1 {
+		t.Fatalf("writes = %d, want the second step's edit despite the first step's failure", result.WriteToolEffects)
 	}
 	if !strings.Contains(result.StepReport, "[1] a.txt :: create it — no edit") || !strings.Contains(result.StepReport, "[2] b.txt :: create it — edited") {
 		t.Fatalf("report = %q", result.StepReport)
@@ -335,8 +335,8 @@ func TestRunToolLoop_PlannedSteps_AStepThatNeedsNoChangeIsReportedNotFailed(t *t
 	if err != nil {
 		t.Fatalf("runToolLoop: %v (tool errors: %q); report:\n%s", err, toolErrs, result.StepReport)
 	}
-	if result.SuccessfulWriteTools != 1 {
-		t.Fatalf("writes = %d, want the second step's edit", result.SuccessfulWriteTools)
+	if result.WriteToolEffects != 1 {
+		t.Fatalf("writes = %d, want the second step's edit", result.WriteToolEffects)
 	}
 	if !strings.Contains(result.StepReport, "[1] a.txt :: move tests only if needed — no change needed") {
 		t.Fatalf("report = %q", result.StepReport)
@@ -424,8 +424,8 @@ func TestRunToolLoop_PlannedSteps_AStepOnAFileAlreadyEditedIsNotAFailure(t *test
 	if err != nil {
 		t.Fatalf("runToolLoop: %v (tool errors: %q); report:\n%s", err, toolErrs, result.StepReport)
 	}
-	if result.SuccessfulWriteTools != 2 {
-		t.Fatalf("writes = %d, want one per file", result.SuccessfulWriteTools)
+	if result.WriteToolEffects != 2 {
+		t.Fatalf("writes = %d, want one per file", result.WriteToolEffects)
 	}
 	if !strings.Contains(result.StepReport, "[2] a.txt :: add the import it needs — no edit (file edited in step 1)") {
 		t.Fatalf("report = %q", result.StepReport)

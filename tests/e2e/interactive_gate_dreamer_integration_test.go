@@ -246,7 +246,7 @@ func TestE2E_InteractiveGate_Integrity_FactFlow(t *testing.T) {
 		t.Fatalf("Preflight failed: %v", err)
 	}
 
-	err = vstore.ValidateInteractiveToolResult(ctx, actionID, "write_file", args, "success", true)
+	err = rejection(vstore.ValidateInteractiveToolResult(ctx, actionID, "write_file", args, "success", true))
 	if err != nil {
 		t.Logf("Validation returned error: %v", err)
 	}
@@ -474,7 +474,7 @@ func TestE2E_InteractiveGate_MissingValidatorRegistry(t *testing.T) {
 	// A write reported successful whose file does not exist is a false
 	// success: the post-action validators must refuse it.
 	missing := filepath.Join(t.TempDir(), "never_written.txt")
-	err = vstore.ValidateInteractiveToolResult(context.Background(), "action-16", "write_file", map[string]any{"path": missing, "content": "x"}, "wrote it", true)
+	err = rejection(vstore.ValidateInteractiveToolResult(context.Background(), "action-16", "write_file", map[string]any{"path": missing, "content": "x"}, "wrote it", true))
 	if err == nil {
 		t.Fatal("a write that left no file validated as a success")
 	}
@@ -493,7 +493,7 @@ func TestE2E_InteractiveGate_FailedToolExecutionValidation(t *testing.T) {
 	args := map[string]any{"path": "/tmp/failedtool.txt"}
 
 	// If the tool failed (success = false), the post-action validation should be skipped and return nil error.
-	err := vstore.ValidateInteractiveToolResult(ctx, "action-17", "write_file", args, "error output", false)
+	err := rejection(vstore.ValidateInteractiveToolResult(ctx, "action-17", "write_file", args, "error output", false))
 	if err != nil {
 		t.Fatalf("Validation should be skipped on tool failure: %v", err)
 	}
@@ -670,7 +670,7 @@ func TestE2E_InteractiveGate_CanceledContextValidation(t *testing.T) {
 	cancel()
 
 	// Ensure validation layer doesn't panic on canceled context
-	err := vstore.ValidateInteractiveToolResult(ctx, "action-24", "write_file", map[string]any{"path": "a"}, "out", true)
+	err := rejection(vstore.ValidateInteractiveToolResult(ctx, "action-24", "write_file", map[string]any{"path": "a"}, "out", true))
 	if err != nil {
 		t.Logf("Validation correctly aborted on canceled context: %v", err)
 	}
@@ -852,7 +852,7 @@ func TestE2E_InteractiveGate_Temporal_TimeoutDuringValidation(t *testing.T) {
 	time.Sleep(5 * time.Millisecond) // ensure timeout
 
 	args := map[string]any{"path": "/tmp/val-timeout.txt"}
-	err := vstore.ValidateInteractiveToolResult(ctx, "action-tf1", "write_file", args, "out", true)
+	err := rejection(vstore.ValidateInteractiveToolResult(ctx, "action-tf1", "write_file", args, "out", true))
 
 	// Depending on implementation, it might fail open (nil error) or return context error.
 	// The key is it must not panic.

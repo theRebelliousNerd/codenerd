@@ -401,6 +401,20 @@ var hostWitnessPredicates = map[string]struct{}{
 	// could invent findings about, or erase findings from, the corpus it
 	// may itself have written.
 	"doc_problem": {},
+	// What a tool call changed and what its validation established
+	// (tool_effects.mg, validation.mg): a model that could write a receipt
+	// could hide a rejected change, or affirm a validation nothing ran.
+	"turn_tool_effect": {}, "turn_tool_validation": {}, "turn_tool_effect_superseded": {},
+	"turn_effect_last_seq": {}, "turn_effect_current": {}, "turn_tool_validated": {},
+	"turn_tool_validation_round": {}, "turn_tool_validation_state": {}, "turn_effect_unsettled": {},
+	"turn_has_rejected_effect": {}, "turn_has_unmeasured_effect": {}, "tool_effect_recovery": {},
+	"action_verified": {}, "action_validation_failed": {}, "action_validation_skipped": {},
+	"action_validation_unavailable": {},
+	// A delegation's attempts and the judge's host-validated judgment
+	// (delegation.mg): a model that could write judge_verdict could accept
+	// its own attempt.
+	"delegation_request": {}, "delegation_attempt": {}, "judge_verdict": {}, "judge_round": {},
+	"judge_evidence_requested": {}, "delegation_move": {},
 }
 
 func predicateAllowed(predicate string, policy MangleUpdatePolicy) bool {

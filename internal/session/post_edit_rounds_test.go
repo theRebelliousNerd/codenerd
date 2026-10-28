@@ -54,7 +54,7 @@ func schedule(t *testing.T, e *Executor, result *ExecutionResult) []string {
 
 func TestPostEditRounds_AGoFixOwesEveryRoundInOrder(t *testing.T) {
 	e := roundsExecutor(t)
-	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}, SuccessfulWriteTools: 1, WrittenPaths: []string{"internal/x/x.go"}}
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}, WriteToolEffects: 1, WrittenPaths: []string{"internal/x/x.go"}}
 	want := []string{"/build", "/test", "/critic", "/coverage", "/pinned", "/vet", "/removed_tests"}
 	if got := schedule(t, e, result); strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("rounds = %v, want %v", got, want)
@@ -66,7 +66,7 @@ func TestPostEditRounds_AGoFixOwesEveryRoundInOrder(t *testing.T) {
 // verdict could only be /unverified.
 func TestPostEditRounds_AWriteWithNoRecordedPathOwesTheBuild(t *testing.T) {
 	e := roundsExecutor(t)
-	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}, SuccessfulWriteTools: 1}
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}, WriteToolEffects: 1}
 	got := schedule(t, e, result)
 	if len(got) == 0 || got[0] != "/build" {
 		t.Fatalf("rounds = %v, want the build first", got)
@@ -76,7 +76,7 @@ func TestPostEditRounds_AWriteWithNoRecordedPathOwesTheBuild(t *testing.T) {
 // A document write owes no Go round and no test run.
 func TestPostEditRounds_ADocumentWriteOwesNoGoRound(t *testing.T) {
 	e := roundsExecutor(t)
-	result := &ExecutionResult{Intent: perception.Intent{Verb: "/create"}, SuccessfulWriteTools: 1, WrittenPaths: []string{"Docs/x.md"}}
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/create"}, WriteToolEffects: 1, WrittenPaths: []string{"Docs/x.md"}}
 	for _, round := range schedule(t, e, result) {
 		if round != "/removed_tests" {
 			t.Errorf("a .md write was scheduled %s", round)
@@ -93,7 +93,7 @@ func TestPostEditRounds_ARoundWithNoDriverIsAnError(t *testing.T) {
 		t.Fatalf("kernel %T cannot take policy", e.kernel)
 	}
 	rk.AppendPolicy("round_order(/probe, 0).\nturn_round_owed(Turn, /probe) :- turn_wrote(Turn).\n")
-	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}, SuccessfulWriteTools: 1, WrittenPaths: []string{"internal/x/x.go"}}
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}, WriteToolEffects: 1, WrittenPaths: []string{"internal/x/x.go"}}
 	_, _, err := e.verifyCompletedToolTurn(context.Background(), nil, "", nil, &types.LLMToolResponse{Text: "done"}, nil, nil, result)
 	if err == nil || !strings.Contains(err.Error(), "/probe") {
 		t.Fatalf("verifyCompletedToolTurn = %v, want an error naming the round with no driver", err)
@@ -105,7 +105,7 @@ func TestPostEditRounds_ARoundWithNoDriverIsAnError(t *testing.T) {
 func TestPostEditRounds_NoKernel(t *testing.T) {
 	e := createTestExecutor(t)
 	e.kernel = nil
-	if _, err := e.nextPostEditRound(&ExecutionResult{SuccessfulWriteTools: 1}); err == nil {
+	if _, err := e.nextPostEditRound(&ExecutionResult{WriteToolEffects: 1}); err == nil {
 		t.Fatal("a turn with writes was scheduled with no kernel")
 	}
 	if next, err := e.nextPostEditRound(&ExecutionResult{}); err != nil || next != "" {
@@ -118,7 +118,7 @@ func TestPostEditRounds_NoKernel(t *testing.T) {
 // model only when pinning FAILED.
 func TestPostEditRounds_SurvivorsOfAPassingPinGateOweAnAdvisoryRound(t *testing.T) {
 	e := roundsExecutor(t)
-	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}, SuccessfulWriteTools: 1, WrittenPaths: []string{"internal/x/x.go"}}
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}, WriteToolEffects: 1, WrittenPaths: []string{"internal/x/x.go"}}
 	var got []string
 	for i := 0; i < 20; i++ {
 		next, err := e.nextPostEditRound(result)

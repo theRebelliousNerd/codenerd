@@ -261,42 +261,50 @@ func (v *VirtualStore) dreamGate(ctx context.Context, actionID, toolName string,
 }
 
 // ValidateInteractiveToolResult runs the post-action validator registry for an
-// interactive tool call AFTER it has executed, asserting validation facts to
-// the kernel (so policy — e.g. task_complete/1 — can reason over them).
+// interactive tool call AFTER it has executed, asserts the validation facts to
+// the kernel (so policy — e.g. task_complete/1 — can reason over them), and
+// returns what the pass established, typed: verified, rejected (a definitive
+// failure anywhere in the pass), incomplete (a validator could not complete)
+// or unvalidated (no validator holds an opinion).
 //
-// It returns a non-nil error only when a validator fails with high confidence
-// (>= 0.8), mirroring RouteActionResult's threshold
-// (virtual_store_routing.go, post-action validation). A nil
-// return means "verified or no opinion" — the caller should treat a non-nil
-// error as "the tool reported success but the side effect did not actually
-// land," and surface that to the model.
+// It used to return an error only when the FIRST failed reading had
+// confidence >= 0.8, and nil for "verified or no opinion": a canceled
+// validator read as a pass to the session, and a low-confidence objection
+// ahead of a definitive failure hid it. The session decides from the state now,
+// and keeps the effect when the state is rejected: a failed postcondition is
+// not proof the bytes did not change.
 //
-// success reflects whether the tool itself reported success; validators only
-// run on success (a tool that already errored needs no side-effect check).
-func (v *VirtualStore) ValidateInteractiveToolResult(ctx context.Context, actionID, toolName string, args map[string]any, output string, success bool) error {
+// success reflects whether the tool reported a result; validators only run on
+// one. The session passes true for a failed handler that left an observed
+// change, so the change is measured rather than assumed.
+func (v *VirtualStore) ValidateInteractiveToolResult(ctx context.Context, actionID, toolName string, args map[string]any, output string, success bool) types.ToolValidation {
 	if v == nil {
-		return &InteractiveGateError{Reason: "validator store unavailable"}
+		return types.ToolValidation{State: types.ToolValidationIncomplete, Reason: "validator store unavailable"}
 	}
-	if !success || v.validators == nil {
-		return nil
+	if !success {
+		return types.ToolValidation{State: types.ToolValidationNotRun, Reason: "the tool reported no result to validate"}
+	}
+	if v.validators == nil {
+		return types.ToolValidation{State: types.ToolValidationUnvalidated, Reason: "no validator registry"}
 	}
 	if isMultiFileTool(toolName, args) {
 		paths, err := projectdoc.TargetPaths(args)
 		if err != nil || len(paths) == 0 {
-			return &InteractiveGateError{Reason: "invalid " + toolName + " validation targets"}
+			return types.ToolValidation{State: types.ToolValidationRejected, Reason: "invalid " + toolName + " validation targets"}
 		}
+		// apply_edits verifies staged replacements internally. Apply the
+		// post-write existence/syntax validators to every resulting file, and
+		// keep every file's reading: one rejected file must not hide behind
+		// the others.
+		var out types.ToolValidation
 		for i, path := range paths {
-			// apply_edits verifies staged replacements internally. Apply the
-			// post-write existence/syntax validators to every resulting file.
-			if err := v.ValidateInteractiveToolResult(ctx, fmt.Sprintf("%s:%d", actionID, i), "edit_file", map[string]any{"path": path}, output, true); err != nil {
-				return err
-			}
+			out = out.Merge(v.ValidateInteractiveToolResult(ctx, fmt.Sprintf("%s:%d", actionID, i), "edit_file", map[string]any{"path": path}, output, true))
 		}
-		return nil
+		return out
 	}
 	at, ok := actionTypeForToolName(toolName)
 	if !ok {
-		return nil // unmapped tool: no validators to dispatch
+		return types.ToolValidation{State: types.ToolValidationUnvalidated, Reason: "no validators for " + toolName}
 	}
 
 	req := buildInteractiveActionRequest(actionID, at, args)
@@ -312,15 +320,13 @@ func (v *VirtualStore) ValidateInteractiveToolResult(ctx context.Context, action
 	// uses, so Step 2's task_complete/1 has facts to reason over).
 	v.processValidationResults(req, res, validations)
 
-	if !ValidateAll(validations) {
-		if failure := FirstFailure(validations); failure != nil && failure.Confidence >= 0.8 {
-			logging.Get(logging.CategoryVirtualStore).Warn(
-				"Post-action validation failed (interactive): %s on %s - %s (confidence=%.2f)",
-				toolName, req.Target, failure.Error, failure.Confidence)
-			return &InteractiveGateError{Reason: "validation failed: " + failure.Error}
-		}
+	summary := SummarizeValidation(req.Target, validations)
+	if summary.State == types.ToolValidationRejected {
+		logging.Get(logging.CategoryVirtualStore).Warn(
+			"Post-action validation failed (interactive): %s on %s - %s",
+			toolName, req.Target, summary.Reason)
 	}
-	return nil
+	return summary
 }
 
 // InteractiveGateError marks an error originating from the interactive

@@ -69,6 +69,10 @@ type stubTaskExecutor struct {
 	outcomes    []string
 	missing     []string
 	err         error
+	// writes, changed and snapshot are each attempt's observed change set.
+	writes   []observation.FileWrite
+	changed  []string
+	snapshot string
 }
 
 var _ session.ObservedTaskExecutor = (*stubTaskExecutor)(nil)
@@ -84,7 +88,7 @@ func (s *stubTaskExecutor) ExecuteObserved(_ context.Context, req session.TaskRe
 	}
 	s.calls++
 	s.tasks = append(s.tasks, req.Task)
-	ret := observation.Return{Output: s.result, Outcome: outcome}
+	ret := observation.Return{Output: s.result, Outcome: outcome, Writes: s.writes, Changed: s.changed, Snapshot: s.snapshot}
 	if outcome != "/done" {
 		ret.Missing = s.missing
 	}
@@ -113,7 +117,7 @@ func newDelegationVerifier(t *testing.T, client perception.LLMClient, db *store.
 
 // delegation is a coder delegation with the delegation section's defaults.
 func delegation(task string, attempts int) Delegation {
-	return Delegation{Task: task, Persona: "coder", MaxAttempts: attempts, Params: config.DefaultDelegationConfig().Params()}
+	return Delegation{Task: task, Persona: "coder", MaxAttempts: attempts, Config: config.DefaultDelegationConfig()}
 }
 
 func (s *stubTaskExecutor) ExecuteWithContext(ctx context.Context, req session.TaskRequest, _ *types.SessionContext, _ types.SpawnPriority) (string, error) {
@@ -167,11 +171,11 @@ func assertFailClosed(t *testing.T, result string, verification *VerificationRes
 	if verification == nil {
 		t.Fatal("verification should not be nil")
 	}
-	if verification.Success {
-		t.Error("verification.Success = true, want false (fail closed)")
+	if verification.Accepted {
+		t.Error("verification.Accepted = true, want false (fail closed)")
 	}
-	if verification.Confidence != 0 {
-		t.Errorf("verification.Confidence = %v, want 0", verification.Confidence)
+	if verification.Judgment != nil {
+		t.Errorf("verification.Judgment = %+v, want none from a judge that could not be had", verification.Judgment)
 	}
 	if !strings.Contains(verification.Reason, "verification unavailable") {
 		t.Errorf("verification.Reason = %q, want it to report unavailability", verification.Reason)
@@ -202,8 +206,8 @@ func TestVerifyWithRetry_WhenVerificationErrors_ShouldFailClosed(t *testing.T) {
 	if len(recs) != 1 {
 		t.Fatalf("stored %d verification records, want exactly 1", len(recs))
 	}
-	if recs[0].Success {
-		t.Error("stored record Success = true, want false")
+	if recs[0].Success || recs[0].JudgeStatus != "unavailable" || !strings.Contains(recs[0].JudgeExplanation, "model overloaded") {
+		t.Errorf("stored record = %+v, want a failure recording the judge unavailable and why", recs[0])
 	}
 }
 
@@ -231,7 +235,7 @@ func TestVerifyWithRetry_WhenVerificationSucceeds_ShouldStoreSuccess(t *testing.
 	db := newFailClosedTestStore(t)
 	client := &stubLLMClient{
 		completeWithSystem: func(_ context.Context, _, _ string) (string, error) {
-			return `{"success":true,"confidence":0.9,"reason":"clean implementation"}`, nil
+			return `{"contract":"judge/v2","status":"pass","confidence":0.9,"explanation":"clean implementation"}`, nil
 		},
 	}
 	exec := &stubTaskExecutor{outcome: "/done", result: "func Add(a, b int) int { return a + b }"}
@@ -245,8 +249,8 @@ func TestVerifyWithRetry_WhenVerificationSucceeds_ShouldStoreSuccess(t *testing.
 	if result != "func Add(a, b int) int { return a + b }" {
 		t.Fatalf("VerifyWithRetry result = %q, want shard output", result)
 	}
-	if verification == nil || !verification.Success {
-		t.Fatalf("verification = %#v, want success", verification)
+	if verification == nil || !verification.Accepted || verification.Judgment == nil || verification.Judgment.Status != JudgePass {
+		t.Fatalf("verification = %#v, want an accepted attempt the judge passed", verification)
 	}
 	if exec.calls != 1 {
 		t.Errorf("shard executed %d times, want exactly 1", exec.calls)
@@ -256,8 +260,8 @@ func TestVerifyWithRetry_WhenVerificationSucceeds_ShouldStoreSuccess(t *testing.
 	if len(recs) != 1 {
 		t.Fatalf("stored %d verification records, want exactly 1", len(recs))
 	}
-	if !recs[0].Success {
-		t.Error("stored record Success = false, want true for a genuinely verified result")
+	if !recs[0].Success || recs[0].JudgeStatus != "pass" || recs[0].JudgeContract != JudgeContract || recs[0].JudgeExplanation != "clean implementation" {
+		t.Errorf("stored record = %+v, want the disposition and the judge's own pass beside it", recs[0])
 	}
 }
 
@@ -267,8 +271,8 @@ func TestVerifyWithRetry_WhenVerificationKeepsFailing_ShouldExhaustRetries(t *te
 	db := newFailClosedTestStore(t)
 	client := &stubLLMClient{
 		completeWithSystem: func(_ context.Context, _, _ string) (string, error) {
-			return `{"success":false,"confidence":0.2,"reason":"mock code found",` +
-				`"quality_violations":["mock_code"],"evidence":["line 1: Mock"],` +
+			return `{"contract":"judge/v2","status":"defect","confidence":0.2,"explanation":"mock code found",` +
+				`"violations":["mock_code"],"citations":["E2"],` +
 				`"suggestions":["implement for real"]}`, nil
 		},
 	}
@@ -280,7 +284,7 @@ func TestVerifyWithRetry_WhenVerificationKeepsFailing_ShouldExhaustRetries(t *te
 	if !errors.Is(err, ErrMaxRetriesExceeded) {
 		t.Fatalf("VerifyWithRetry error = %v, want ErrMaxRetriesExceeded", err)
 	}
-	if verification == nil || verification.Success {
+	if verification == nil || verification.Accepted {
 		t.Fatalf("verification = %#v, want a failed verification", verification)
 	}
 	if exec.calls != maxRetries {

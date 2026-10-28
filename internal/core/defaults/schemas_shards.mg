@@ -80,15 +80,29 @@ Decl delegation_request(Root, Persona, Cap) bound [/string, /name, /number].
 # /done, /unverified, /hollow, /failed, or /none when the turn returned none.
 Decl delegation_attempt(Root, Attempt, Outcome) bound [/string, /number, /name].
 # judge_verdict(Root, Attempt, Verdict, Confidence) - the LLM judge on a done
-# attempt: /pass or /fail, with its confidence as a percent.
+# attempt, held to the judge/v2 reply contract and grounded in the attempt's
+# evidence packet: /pass, /defect or /insufficient_evidence, with its
+# confidence as a percent. A reply that broke the contract asserts nothing.
 Decl judge_verdict(Root, Attempt, Verdict, Confidence) bound [/string, /number, /name, /number].
+# judge_round(Root, Attempt, Round) - each round the judge was asked about the
+# attempt, from 1; a later round supplies evidence an earlier one requested.
+Decl judge_round(Root, Attempt, Round) bound [/string, /number, /number].
+# judge_evidence_requested(Root, Attempt) - the latest round requested packet
+# evidence the host can supply.
+Decl judge_evidence_requested(Root, Attempt) bound [/string, /number].
+Decl judge_unresolved(Root, Attempt) bound [/string, /number].
+Decl judge_last_round(Root, Attempt, Round) bound [/string, /number, /number].
+Decl judge_may_acquire(Root, Attempt) bound [/string, /number].
+Decl delegation_attempt_failed(Root, Attempt) bound [/string, /number].
 Decl delegation_judge_due(Root, Attempt) bound [/string, /number].
 Decl analysis_persona(Persona) bound [/name].
 Decl delegation_judge_rubric(Root, Rubric) bound [/string, /name].
 Decl judge_rejects(Root, Attempt) bound [/string, /number].
 Decl delegation_attempt_accepted(Root, Attempt) bound [/string, /number].
 Decl delegation_attempt_count(Root, N) bound [/string, /number].
-# delegation_move(Root, Attempt, Move) - derived: /accept, /retry or /escalate.
+# delegation_move(Root, Attempt, Move) - derived: /accept, /retry, /escalate,
+# /acquire_evidence (another judge round over the same packet) or
+# /unverifiable (the judge cannot settle it; fail closed, no worker rerun).
 Decl delegation_move(Root, Attempt, Move) bound [/string, /number, /name].
 
 # -----------------------------------------------------------------------------

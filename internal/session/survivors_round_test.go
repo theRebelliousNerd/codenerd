@@ -26,7 +26,7 @@ func TestAdviseOnSurvivors(t *testing.T) {
 			e := &Executor{config: DefaultExecutorConfig()}
 			e.config.WorkspaceRoot = t.TempDir()
 			trp := &recordingToolResults{}
-			result := &ExecutionResult{SuccessfulWriteTools: 1, PinCheck: tc.pin, PinAdvisory: tc.survivors}
+			result := &ExecutionResult{WriteToolEffects: 1, PinCheck: tc.pin, PinAdvisory: tc.survivors}
 			if _, err := e.adviseOnSurvivors(context.Background(), trp, "sys", nil, nil, nil, result); err != nil {
 				t.Fatalf("adviseOnSurvivors: %v", err)
 			}

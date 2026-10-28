@@ -73,7 +73,7 @@ func TestRepairLoop_UnderTheCommitRegimeTheSentenceIsSentOncePerMessage(t *testi
 	}
 	t.Cleanup(closeLoop)
 	cfg := &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{readTool, "create_file"}}
-	result := &ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"main.go"}}
+	result := &ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"main.go"}}
 	_, _, _ = e.verifyAndRepairBuild(ctx, client, "system", nil, nil, e.buildToolDefinitions(cfg), cfg, result)
 
 	const sentence = "Reading is closed for this task"

@@ -167,10 +167,10 @@ func TestCheckHollowSuccess_WriteOrientedWithWriteTool(t *testing.T) {
 		&MockTransducer{},
 	)
 	result := &ExecutionResult{
-		Intent:               perception.Intent{Verb: "/create"},
-		ToolCallsExecuted:    1,
-		SuccessfulToolCalls:  1,
-		SuccessfulWriteTools: 1,
+		Intent:              perception.Intent{Verb: "/create"},
+		ToolCallsExecuted:   1,
+		SuccessfulToolCalls: 1,
+		WriteToolEffects:    1,
 	}
 	if err := exec.checkHollowSuccess(result); err != nil {
 		t.Fatalf("expected success when write tool landed: %v", err)
@@ -290,8 +290,8 @@ func TestProcessWithIntent_HollowCreateFails(t *testing.T) {
 	if result == nil {
 		t.Fatal("expected partial result even on hollow failure")
 	}
-	if result.SuccessfulWriteTools != 0 {
-		t.Fatalf("expected 0 write tools, got %d", result.SuccessfulWriteTools)
+	if result.WriteToolEffects != 0 {
+		t.Fatalf("expected 0 write tools, got %d", result.WriteToolEffects)
 	}
 	if !strings.Contains(err.Error(), "hollow success blocked") {
 		t.Fatalf("expected hollow success error, got: %v", err)
