@@ -175,7 +175,7 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case backgroundDoneMsg:
 		var cmd tea.Cmd
 		m, cmd = m.finishBackground(msg)
-		return m, cmd
+		return m, tea.Batch(cmd, m.saveSessionStateCmd())
 
 	case holdMsg:
 		// Work held for the user's go-ahead: the conversation stays open.

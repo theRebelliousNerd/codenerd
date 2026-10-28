@@ -14,6 +14,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/session"
 	"codenerd/internal/types"
 )
 
@@ -38,6 +39,9 @@ type backgroundJob struct {
 	// succeeds, with the result appended: the next step of a chain (a self
 	// diagnosis proposes its fix). The work mode decides whether it runs.
 	FollowUp string
+	// Session is the chat session that started the job (startBackground);
+	// its result settles there even if the user has moved to another one.
+	Session string
 }
 
 // backgroundJobs is shared across Model copies: Update works on values, and
@@ -46,10 +50,14 @@ type backgroundJobs struct {
 	mu      sync.Mutex
 	running map[string]backgroundJob
 	cancel  map[string]context.CancelFunc
+	// stopped latches a stop the user asked for, so a job whose work had
+	// already returned when the stop came still settles as stopped and does
+	// not start its next step.
+	stopped map[string]bool
 }
 
 func newBackgroundJobs() *backgroundJobs {
-	return &backgroundJobs{running: map[string]backgroundJob{}, cancel: map[string]context.CancelFunc{}}
+	return &backgroundJobs{running: map[string]backgroundJob{}, cancel: map[string]context.CancelFunc{}, stopped: map[string]bool{}}
 }
 
 // add records a running job and the cancel that stops it.
@@ -65,9 +73,11 @@ func (b *backgroundJobs) add(job backgroundJob, cancel context.CancelFunc) {
 	}
 }
 
-func (b *backgroundJobs) remove(id string) {
+// settle retires job id once. It reports whether the job was running (a
+// second done message for it was not) and whether a stop was latched for it.
+func (b *backgroundJobs) settle(id string) (wasRunning, stopped bool) {
 	if b == nil {
-		return
+		return false, false
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -75,7 +85,11 @@ func (b *backgroundJobs) remove(id string) {
 		cancel()
 		delete(b.cancel, id)
 	}
+	_, wasRunning = b.running[id]
+	stopped = b.stopped[id]
 	delete(b.running, id)
+	delete(b.stopped, id)
+	return wasRunning, stopped
 }
 
 // cancelAll stops every running job; each still reports back, as stopped.
@@ -86,9 +100,12 @@ func (b *backgroundJobs) cancelAll() []backgroundJob {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	var stopped []backgroundJob
-	for id, cancel := range b.cancel {
-		cancel()
-		stopped = append(stopped, b.running[id])
+	for id, job := range b.running {
+		b.stopped[id] = true
+		if cancel, ok := b.cancel[id]; ok {
+			cancel()
+		}
+		stopped = append(stopped, job)
 	}
 	return stopped
 }
@@ -156,6 +173,7 @@ func (m Model) startBackground(job backgroundJob, input string) tea.Cmd {
 		parent = context.Background()
 	}
 	ctx, cancel := context.WithCancel(parent)
+	job.Session = m.sessionID
 	m.background.add(job, cancel)
 	m.assertBackgroundJob(job, "/running")
 	return func() tea.Msg {
@@ -188,35 +206,94 @@ func (m Model) startBackground(job backgroundJob, input string) tea.Cmd {
 	}
 }
 
-// finishBackground applies a finished job to the session: its facts, its
-// kernel row, the message, and the chain's next step.
+// finishBackground applies a finished job to the session that started it:
+// its facts, its kernel row, the message, and the chain's next step. A
+// second done message for a job is ignored. A stop the user asked for is
+// honored even when the work had already returned: the result is shown and
+// the next step is not started. A busy chat queues the next step instead of
+// dropping it. A job started in another session settles there.
 func (m Model) finishBackground(msg backgroundDoneMsg) (Model, tea.Cmd) {
-	m.background.remove(msg.Job.ID)
+	wasRunning, stopped := m.background.settle(msg.Job.ID)
+	if !wasRunning {
+		logging.Get(logging.CategorySession).Warn("background %s: done again after it settled; ignored", msg.Job.ID)
+		return m, nil
+	}
 	if m.kernel != nil && len(msg.Facts) > 0 {
 		if err := m.kernel.LoadFacts(msg.Facts); err != nil {
 			logging.Get(logging.CategoryKernel).Warn("background %s: load result facts: %v", msg.Job.ID, err)
 		}
 	}
 	elapsed := time.Since(msg.Job.Started).Round(time.Second)
-	if msg.Err != nil && errors.Is(msg.Err, context.Canceled) {
-		m.assertBackgroundJob(msg.Job, "/failed")
-		return m.pushAssistantMsg(fmt.Sprintf("**Stopped background %s** after %s, as you asked: %s", msg.Job.Shard, elapsed, oneLine(msg.Job.Task))), nil
-	}
 	if msg.Err != nil {
 		m.assertBackgroundJob(msg.Job, "/failed")
-		return m.pushAssistantMsg(fmt.Sprintf("**Background %s failed** after %s: %s\n\nTask: %s", msg.Job.Shard, elapsed, msg.Err, oneLine(msg.Job.Task))), nil
+	} else {
+		m.assertBackgroundJob(msg.Job, "/done")
 	}
-	m.assertBackgroundJob(msg.Job, "/done")
+	report := backgroundReport(msg, stopped, elapsed)
+	if msg.Job.Session != "" && msg.Job.Session != m.sessionID {
+		return m.settleElsewhere(msg, stopped, report), nil
+	}
+	if msg.Err != nil {
+		return m.pushAssistantMsg(report), nil
+	}
 	m.storeShardResult(msg.Job.Shard, msg.Job.Task, msg.Result, msg.Facts)
-	m = m.pushAssistantMsg(fmt.Sprintf("**Background %s finished** (%s): %s\n\n%s", msg.Job.Shard, elapsed, oneLine(msg.Job.Task), msg.Surface))
-	if msg.Job.FollowUp == "" || m.isLoading {
-		return m, nil
+	if msg.Job.FollowUp == "" || stopped {
+		return m.pushAssistantMsg(report), nil
 	}
 	// The chain's next step is a turn like any other: perception reads it and
 	// the kernel's work admission decides whether it runs, is proposed, or
-	// waits for go.
+	// waits for go. A turn in flight makes it wait its turn, not vanish.
+	next := msg.Job.FollowUp + "\n\n" + msg.Result
+	if m.isLoading || m.turn.current() != 0 {
+		m.turn.enqueue(next)
+		return m.pushAssistantMsg(report + "\n\n_Its next step is queued for when the current turn finishes._"), nil
+	}
+	m = m.pushAssistantMsg(report)
 	m.isLoading = true
-	return m, m.processInput(msg.Job.FollowUp + "\n\n" + msg.Result)
+	return m, m.processInput(next)
+}
+
+// backgroundReport is the message for a settled job.
+func backgroundReport(msg backgroundDoneMsg, stopped bool, elapsed time.Duration) string {
+	job := msg.Job
+	switch {
+	case msg.Err != nil && (stopped || errors.Is(msg.Err, context.Canceled)):
+		return fmt.Sprintf("**Stopped background %s** after %s, as you asked: %s", job.Shard, elapsed, oneLine(job.Task))
+	case msg.Err != nil:
+		return fmt.Sprintf("**Background %s failed** after %s: %s\n\nTask: %s", job.Shard, elapsed, msg.Err, oneLine(job.Task))
+	case stopped:
+		report := fmt.Sprintf("**Stopped background %s** after %s, as you asked; it had already finished its work: %s\n\n%s", job.Shard, elapsed, oneLine(job.Task), msg.Surface)
+		if job.FollowUp != "" {
+			report += "\n\n_Its next step was not started._"
+		}
+		return report
+	default:
+		return fmt.Sprintf("**Background %s finished** (%s): %s\n\n%s", job.Shard, elapsed, oneLine(job.Task), msg.Surface)
+	}
+}
+
+// settleElsewhere delivers a job's result to the session that started it,
+// which is not the one open now: the report is appended to that session's
+// saved history and only a notice is shown here. The open session does not
+// adopt the result or the chain's next step.
+func (m Model) settleElsewhere(msg backgroundDoneMsg, stopped bool, report string) Model {
+	if msg.Err == nil && !stopped && msg.Job.FollowUp != "" {
+		report += "\n\n_Its next step was not started: this session was not open when the job finished. Ask for it here to continue._"
+	}
+	if err := appendSessionMessage(m.workspace, msg.Job.Session, Message{Role: "assistant", Content: report, Time: time.Now()}); err != nil {
+		return m.pushAssistantMsg(fmt.Sprintf("_A background %s started in session `%s` finished, but its result could not be added to that session (%v), so here it is:_\n\n%s", msg.Job.Shard, msg.Job.Session, err, report))
+	}
+	return m.pushAssistantMsg(fmt.Sprintf("_The background %s started in session `%s` finished; its result was added to that session._", msg.Job.Shard, msg.Job.Session))
+}
+
+// appendSessionMessage appends one message to a saved session's history.
+func appendSessionMessage(workspace, sessionID string, msg Message) error {
+	history, err := session.LoadSessionHistory(workspace, sessionID)
+	if err != nil {
+		return err
+	}
+	messages := append(history.Messages, session.ChatMessage{Role: msg.Role, Content: msg.Content, Time: msg.Time})
+	return session.SaveSessionHistory(workspace, sessionID, messages)
 }
 
 // assertBackgroundJob replaces the job's background_job row with its status.

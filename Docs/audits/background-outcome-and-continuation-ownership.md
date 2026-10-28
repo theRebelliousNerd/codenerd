@@ -1,7 +1,7 @@
 ---
 doc-class: deep-dive
 subsystem: cli
-implementation-status: planned
+implementation-status: partially-implemented (see As-built status)
 last-verified: 2026-10-28
 verified-against: ac2f1fd3425dab9c14ff9066f9bf10cad02acc75
 verification-method: static-source-inspection
@@ -236,3 +236,38 @@ A scoped implementation should first update the CLI capability/gap spec with thi
 
 The desired behavior is simple for the person: **keep talking, receive the investigation you asked for, and never lose—or unexpectedly resume—the work that follows from it.** The implementation may be complex; the obligations should be explicit.
 
+
+## As-built status
+
+Verified and built 2026-10-28 on `main` after `c28a1212`, where `background.go` now ships (the feature branch is merged). The background lane had gained `Target`/`Constraint` and `withPartialState` on failure since the audited pin; the continuation and ownership branches below were unchanged.
+
+### Claim ledger
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| Section 1: job-owned delivery, raw result kept, mutations excluded | Confirmed, kept | `backgroundDoneMsg` (`background.go:136`); `route_background` unchanged |
+| B1: `FollowUp == "" \|\| m.isLoading` drops the next step when busy | Real, fixed | A busy chat (loading or an owned foreground slot) enqueues the next step in the turn queue and says so (`finishBackground`, `background.go:215`) |
+| B1: two chains finishing together lose one next step | Real, fixed | The second is queued; `TestBackground_TwoChainsFinishingTogetherKeepBothNextSteps` |
+| B2: `cancelAll` latches nothing; a stop after the work returned still starts `FollowUp` | Real, fixed | `cancelAll` latches `stopped[id]`; `settle` returns it; a stopped job shows its result and does not start its next step (`background.go:78`, `:96`, `backgroundReport` `:257`) |
+| B3: job and done message carry no origin session; a late result is adopted by the open session | Real, fixed | `backgroundJob.Session` set by `startBackground` (`background.go:170`); `settleElsewhere` appends the report to the origin session's saved history and shows only a notice (`background.go:279`, `appendSessionMessage` `:290`); no blackboard write and no next step in the open session |
+| Duplicate done message settles twice | Real (robustness), fixed | `settle` reports `wasRunning`; a second done is ignored |
+| Structured observation reduced to `ret.Output` and the error | Partly superseded, rest left open | Failure now carries `withPartialState`; a successful return still keeps only `Output` |
+| `LoadFacts` failure logged while the result is displayed | Confirmed, left as is | Display is not withheld; no retry of projection was built |
+| Done branch schedules no session save | Real, fixed | `model_update.go:178` batches `saveSessionStateCmd` |
+| SQLite pairing assumes strict alternation; an unsolicited message shifts later turns | Real, fixed | `sessionTurns` pairs each user message with the next assistant reply (`session_persistence.go:173`); the store upserts by turn |
+
+### What was built
+
+- Rulings: (1) a busy chat's owed next step goes into the existing turn queue as the same string the idle path submits, so it passes the same perception and work admission when it runs; no new scheduler. (2) A latched stop cancels the next step but keeps the completed result and marks the job `/done` (its work did finish); a stop that interrupted the work keeps `/failed`. (3) Background work survives navigation; its result settles to the starting session's saved history, and resuming the chain there is a new request. (4) A job with no recorded session (built outside `startBackground`) settles in the open session.
+- `cmd/nerd/chat/background.go`, `model_update.go`, `session_persistence.go`; spec `Docs/architecture/conversation-first-agent.md` (background section).
+
+### Tests
+
+`cmd/nerd/chat/background_ownership_test.go`: busy completion queues the next step with the result; two chains keep both next steps; a stop latched after the work returned shows the result and starts nothing; a duplicate done settles once; a job from session A finishing in B lands in A's saved history with B showing only a notice and adopting nothing; completion schedules a save; SQLite pairing survives an unsolicited result. Existing background and Jev stop journeys pass.
+
+### Left open
+
+- Queued next steps and queued messages are not session-scoped: a message queued in A runs in B after a switch (shared with the side-turn queue).
+- No per-destination delivery state (chat, facts, persistence) and no retry of a failed fact projection; a failed append to the origin session falls back to showing the result in the open one.
+- The successful observation (`observation.Return` verdict, missing evidence) is not carried to the completion message; source-revision revalidation of a queued next step is left to the turn that runs it.
+- Policy-derived coalescing or supersession of concurrent chains was not added; both are queued in completion order.

@@ -52,6 +52,17 @@ delegation runs off the turn:
 
 "Stop" cancels running background jobs (Jev `wants_to_stop`).
 
+A job settles once (`backgroundJobs.settle`); a second done message is
+ignored. A stop is latched per job, so a job whose work had already returned
+when the stop came is reported as stopped with its result, and its chain's
+next step (`FollowUp`) does not start. A next step owed while a turn is in
+flight is queued in the turn queue, not dropped. A job records the session
+that started it; if another session is open when it finishes, the result is
+appended to the starting session's saved history, the open session shows a
+notice, and the next step is not started there. Completion schedules a
+session save. SQLite `session_history` pairs each user message with the first
+assistant reply after it, so an unsolicited result does not shift later turns.
+
 ## Talking while work runs (`cmd/nerd/chat/side_turn.go`, `policy/side_turns.mg`)
 
 A message typed while a turn runs work is a side turn. A full turn would
@@ -68,6 +79,22 @@ asserts none of them.
 
 A message sent before work starts is queued whole. Ctrl+X cancels the running
 turn. Before this branch it only hid the spinner.
+
+Ownership (`turnState`): every foreground execution is accepted with an id
+when `processInput` builds its command, before it runs. Its cancel, working
+label and release (`begin`, `setWorking`, `end`) name that id, so a stopped
+turn still unwinding cannot clear its successor, and a stop that arrives
+before the turn registered its cancel is latched. A side turn captures the
+execution it was typed under and its queue place on receipt: its `/stop`
+cancels only that execution (an ended one is reported as already finished),
+and a `/later` message keeps the place it was received in, so queue order is
+receipt order, not classification order. A side turn's kernel section (its
+decision facts, the query, the brief publication) runs serialized and is
+never held across a model call. Its brief is published only while its
+execution still runs, against the brief it was read with, and never for
+`/later` work; otherwise the reply says the brief was not changed. The brief
+is swapped in one transaction. After Ctrl+X, queued and newly typed messages
+wait until the stopped turn has ended.
 
 ## "Debug yourself" (`cmd/nerd/chat/self_diagnosis.go`, `policy/self_diagnosis.mg`)
 
@@ -98,5 +125,14 @@ self-diagnosis triage. They never replace perception or the LLM.
 - `cmd/nerd/chat/journey_side_turn_test.go`: conversation while work runs
   steers the brief, stop cancels, new work queues then runs, a message during
   perception queues, and Ctrl+X cancels.
+- `cmd/nerd/chat/side_turn_ownership_test.go`: a delayed stop cannot reach
+  the next turn, stale and concurrent brief changes are not lost, deferred
+  work does not steer the brief, concurrent decisions do not mix judgments,
+  queued work waits for a stopped turn, a stop before start is latched, and
+  the queue keeps receipt order.
 - `cmd/nerd/chat/journey_jev_test.go`: the Jev evidence journeys.
 - `cmd/nerd/chat/work_admission_test.go`, `background_test.go`: kernel lanes.
+- `cmd/nerd/chat/background_ownership_test.go`: a busy chat queues the next
+  step, two chains keep both, a late stop cancels the next step, a duplicate
+  done settles once, a result settles in the session that started it,
+  completion is saved, and SQLite turn pairing survives an unsolicited result.

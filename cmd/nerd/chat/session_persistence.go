@@ -151,35 +151,41 @@ func (m *Model) syncSessionToSQLite() {
 		return
 	}
 
-	// Process message pairs (user + assistant = 1 turn)
-	// History format: [user1, asst1, user2, asst2, ...]
-	for i := 0; i < len(m.history)-1; i += 2 {
-		userMsg := m.history[i]
-		asstMsg := m.history[i+1]
-
-		// Skip if not a proper user-assistant pair
-		if userMsg.Role != "user" || asstMsg.Role != "assistant" {
-			continue
-		}
-
-		turnNumber := i / 2
-
-		// Store to SQLite (StoreSessionTurn handles duplicates gracefully)
+	for _, t := range sessionTurns(m.history) {
+		// Store to SQLite (StoreSessionTurn upserts by session and turn).
 		// Intent and atoms JSON are empty for now - can be populated by OODA loop
-		err := m.localDB.StoreSessionTurn(
-			m.sessionID,
-			turnNumber,
-			userMsg.Content,
-			"{}", // intent_json placeholder
-			asstMsg.Content,
-			"[]", // atoms_json placeholder
-		)
-		if err != nil {
-			// Log but don't fail - JSON is the primary store
-			// Duplicate key errors are expected and harmless
-			continue
+		if err := m.localDB.StoreSessionTurn(m.sessionID, t.number, t.user, "{}", t.assistant, "[]"); err != nil {
+			logging.Get(logging.CategorySession).Warn("session %s turn %d: store to SQLite: %v", m.sessionID, t.number, err)
 		}
 	}
+}
+
+// sessionTurn is one user message and the first assistant reply after it.
+type sessionTurn struct {
+	number          int
+	user, assistant string
+}
+
+// sessionTurns pairs each user message with the first assistant message
+// that follows it, numbering turns by user message. Assistant messages
+// nobody asked for (a background result, a notice) do not shift the
+// pairing of the turns after them.
+func sessionTurns(history []Message) []sessionTurn {
+	var out []sessionTurn
+	n := 0
+	for i := 0; i < len(history); i++ {
+		if history[i].Role != "user" {
+			continue
+		}
+		for j := i + 1; j < len(history) && history[j].Role != "user"; j++ {
+			if history[j].Role == "assistant" {
+				out = append(out, sessionTurn{number: n, user: history[i].Content, assistant: history[j].Content})
+				break
+			}
+		}
+		n++
+	}
+	return out
 }
 
 // loadSelectedSession loads a session from the sessions list and switches to it.
