@@ -11,6 +11,7 @@ import (
 
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/perception"
 )
 
 func TestClassificationClientFor_AnthropicCarriesWorkspaceAndEndpointToHTTP(t *testing.T) {
@@ -65,9 +66,9 @@ func TestClassificationClientFor_AnthropicCarriesWorkspaceAndEndpointToHTTP(t *t
 			if err != nil || got != "hello" || inferred.Load() != 1 || counted.Load() != 1 {
 				t.Fatalf("response=%q inference=%d count=%d err=%v", got, inferred.Load(), counted.Load(), err)
 			}
-			resolved := boot.providerCfgForClassification
-			if resolved.Anthropic == nil || resolved.Anthropic.WorkspaceID != workspace || resolved.BaseURL != srv.URL {
-				t.Fatal("shard classification registration would lose resolved settings")
+			boot.classificationClient = scheduled
+			if shardRegistryContext(boot).ClassificationClient != perception.LLMClient(scheduled) {
+				t.Fatal("shard classification registration does not use the resolved classifier")
 			}
 		})
 	}

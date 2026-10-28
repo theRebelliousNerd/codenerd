@@ -897,44 +897,48 @@ type bootContext struct {
 	shardProfileContext          session.ShardProfileContext // persona profile -> call context, for executor and spawner
 	imageLLMClient               perception.LLMClient        // Gemini Nano Banana 2 for image_generator only
 	providerCfgForClassification *perception.ProviderConfig
-	perceptionInitialized        bool
-	meterSink                    broker.ReceiptSink
-	couseLog                     *jsonl.Appender
-	localDB                      *store.LocalStore
-	learningStore                *store.LearningStore
-	kernel                       SystemKernel
-	transducer                   perception.Transducer
-	virtualStore                 *core.VirtualStore
-	embeddingEngine              embedding.EmbeddingEngine
-	retriever                    *retrieval.SparseRetriever
-	mcpBridge                    *mcp.MCPIntegrationBridge
-	mcpCancel                    context.CancelFunc
-	mcpDone                      <-chan struct{}
-	approvals                    *approval.Broker
-	approvalsRelease             func() error
-	toolStore                    *store.ToolStore
-	ouroborosCtx                 context.Context
-	ouroborosCancel              context.CancelFunc
-	ouroborosDone                <-chan struct{}
-	generatedExecutor            *orchestratorToolExecutor
-	ouroborosQueue               chan core.ToolNeed
-	projectDB                    *sql.DB
-	atomLoader                   *prompt.AtomLoader
-	jitCompiler                  *prompt.JITPromptCompiler
-	promptAssembler              *articulation.PromptAssembler
-	shardManager                 *coreshards.ShardManager
-	executor                     tactile.Executor
-	sessionExecutor              *session.Executor
-	sessionSpawner               *session.Spawner
-	taskExecutor                 session.TaskExecutor
-	poiesis                      *autopoiesis.Orchestrator
-	promptEvolver                *promptevolution.PromptEvolver
-	contextFeedback              *ctxlearn.ContextFeedbackStore
-	browserMgr                   *browser.SessionManager
-	researchBrowser              *research.BrowserRuntime
-	scanner                      *world.Scanner
-	tracker                      *usage.Tracker
-	projectDoc                   *projectdoc.Document // nerd.md, nil when absent or invalid
+	// classificationClient is the one resolved per-turn classifier (worker
+	// tier failing over to the main fast tier): the direct transducer and
+	// the registered perception firewall both classify through it.
+	classificationClient  perception.LLMClient
+	perceptionInitialized bool
+	meterSink             broker.ReceiptSink
+	couseLog              *jsonl.Appender
+	localDB               *store.LocalStore
+	learningStore         *store.LearningStore
+	kernel                SystemKernel
+	transducer            perception.Transducer
+	virtualStore          *core.VirtualStore
+	embeddingEngine       embedding.EmbeddingEngine
+	retriever             *retrieval.SparseRetriever
+	mcpBridge             *mcp.MCPIntegrationBridge
+	mcpCancel             context.CancelFunc
+	mcpDone               <-chan struct{}
+	approvals             *approval.Broker
+	approvalsRelease      func() error
+	toolStore             *store.ToolStore
+	ouroborosCtx          context.Context
+	ouroborosCancel       context.CancelFunc
+	ouroborosDone         <-chan struct{}
+	generatedExecutor     *orchestratorToolExecutor
+	ouroborosQueue        chan core.ToolNeed
+	projectDB             *sql.DB
+	atomLoader            *prompt.AtomLoader
+	jitCompiler           *prompt.JITPromptCompiler
+	promptAssembler       *articulation.PromptAssembler
+	shardManager          *coreshards.ShardManager
+	executor              tactile.Executor
+	sessionExecutor       *session.Executor
+	sessionSpawner        *session.Spawner
+	taskExecutor          session.TaskExecutor
+	poiesis               *autopoiesis.Orchestrator
+	promptEvolver         *promptevolution.PromptEvolver
+	contextFeedback       *ctxlearn.ContextFeedbackStore
+	browserMgr            *browser.SessionManager
+	researchBrowser       *research.BrowserRuntime
+	scanner               *world.Scanner
+	tracker               *usage.Tracker
+	projectDoc            *projectdoc.Document // nerd.md, nil when absent or invalid
 	// sessionID is the process-unique session identity minted in
 	// initFinalExecutors (or taken from BootConfig.SessionID). It is the
 	// single source of truth propagated to the session executor, the
@@ -1187,7 +1191,8 @@ func initPerceptionLayer(bctx *bootContext) error {
 	// to the main model "a bug" — but it was only ever wired into shard
 	// registration, never into the transducer that does the classifying. This
 	// is that wiring.
-	bctx.transducer = perception.NewUnderstandingTransducer(classificationClientFor(bctx))
+	bctx.classificationClient = classificationClientFor(bctx)
+	bctx.transducer = perception.NewUnderstandingTransducer(bctx.classificationClient)
 	return nil
 }
 
@@ -1195,7 +1200,7 @@ func initPerceptionLayer(bctx *bootContext) error {
 // intent classification, preferring, in order:
 //
 //  1. the worker slot's provider — the cheap tier by definition, with thinking
-//     disabled (a reasoning trace in front of a labelling task is pure latency);
+//     disabled (an explanation in front of a labelling task is pure latency);
 //  2. the main provider's fast tier (Haiku / Flash-Lite / gpt-4o-mini, or an
 //     explicit classification_model);
 //  3. the main client, when neither of the above can be built.
@@ -1207,9 +1212,8 @@ func initPerceptionLayer(bctx *bootContext) error {
 // understanding to a non-LLM guess — policy then derives the wrong
 // next_action and the run reports success on work it never did.
 func classificationClientFor(bctx *bootContext) perception.LLMClient {
-	// Captured before the worker branch below overwrites it for shard
-	// registration: the main provider's fast-tier config is the failover
-	// secondary, not the worker config.
+	// The main provider's fast-tier config is the failover secondary, not
+	// the worker config.
 	mainCfg := bctx.providerCfgForClassification
 	var primary perception.LLMClient
 	if bctx.appCfg != nil {
@@ -1250,9 +1254,6 @@ func classificationClientFor(bctx *bootContext) perception.LLMClient {
 				if client, err := perception.NewClassificationClientFromConfig(workerCfg); err == nil && client != nil {
 					logging.Get(logging.CategoryPerception).Info(
 						"Classification on the worker tier: provider=%s", workerCfg.Provider)
-					// Reuse the classification client for shard registration too,
-					// so both paths agree on the cheap tier.
-					bctx.providerCfgForClassification = workerCfg
 					primary = client
 				}
 			}
@@ -2044,6 +2045,31 @@ func (s browserKernelSink) AddFacts(facts []mangle.Fact) error {
 	return s.kernel.AssertBatch(converted)
 }
 
+// shardRegistryContext is what every registered shard factory is built with.
+func shardRegistryContext(bctx *bootContext) shards.RegistryContext {
+	regLLM := bctx.llmClient
+	if bctx.shardLLMClient != nil {
+		regLLM = bctx.shardLLMClient
+	}
+	regCtx := shards.RegistryContext{
+		Kernel:       bctx.kernel,
+		LLMClient:    regLLM,
+		VirtualStore: bctx.virtualStore,
+		Workspace:    bctx.workspace,
+		JITCompiler:  bctx.jitCompiler,
+		JITConfig:    bctx.jitCfg,
+		World:        bctx.appCfg.GetWorldConfig(),
+	}
+	// The firewall classifies through the same resolved client as the
+	// direct transducer. Until 2026-10-28 it was rebuilt here from the worker
+	// config alone, so a worker that failed at call time degraded the
+	// firewall's intent (nil error, chat treats perception as handled) and
+	// the main-tier secondary the direct transducer would have used was never
+	// asked (Docs/audits/stream-completion-contract.md, appendix N3).
+	regCtx.ClassificationClient = bctx.classificationClient
+	return regCtx
+}
+
 func initShardManagement(bctx *bootContext) error {
 	coreLimits := bctx.appCfg.GetCoreLimits()
 	limitsEnforcer := core.NewLimitsEnforcer(core.LimitsConfig{
@@ -2058,24 +2084,7 @@ func initShardManagement(bctx *bootContext) error {
 	bctx.shardManager.SetSpawnQueue(spawnQueue)
 	_ = spawnQueue.Start()
 
-	regLLM := bctx.llmClient
-	if bctx.shardLLMClient != nil {
-		regLLM = bctx.shardLLMClient
-	}
-	regCtx := shards.RegistryContext{
-		Kernel:       bctx.kernel,
-		LLMClient:    regLLM,
-		VirtualStore: bctx.virtualStore,
-		Workspace:    bctx.workspace,
-		JITCompiler:  bctx.jitCompiler,
-		JITConfig:    bctx.jitCfg,
-		World:        bctx.appCfg.GetWorldConfig(),
-	}
-	if bctx.providerCfgForClassification != nil {
-		if classClient, classErr := perception.NewClassificationClientFromConfig(bctx.providerCfgForClassification); classErr == nil && classClient != nil {
-			regCtx.ClassificationClient = classClient
-		}
-	}
+	regCtx := shardRegistryContext(bctx)
 	shards.RegisterAllShardFactories(bctx.shardManager, regCtx)
 
 	nerdDir := filepath.Join(bctx.workspace, ".nerd")
@@ -2101,7 +2110,7 @@ func initShardManagement(bctx *bootContext) error {
 		shard := system.NewTactileRouterShard()
 		shard.SetParentKernel(bctx.kernel)
 		shard.SetVirtualStore(bctx.virtualStore)
-		shard.SetLLMClient(regLLM)
+		shard.SetLLMClient(regCtx.LLMClient)
 		if setter, ok := any(shard).(interface{ SetJITConfig(config.JITConfig) }); ok {
 			setter.SetJITConfig(bctx.jitCfg)
 		}
@@ -2118,7 +2127,7 @@ func initShardManagement(bctx *bootContext) error {
 		shard := system.NewCampaignRunnerShard()
 		shard.SetParentKernel(bctx.kernel)
 		shard.SetVirtualStore(bctx.virtualStore)
-		shard.SetLLMClient(regLLM)
+		shard.SetLLMClient(regCtx.LLMClient)
 		if setter, ok := any(shard).(interface{ SetJITConfig(config.JITConfig) }); ok {
 			setter.SetJITConfig(bctx.jitCfg)
 		}

@@ -199,3 +199,33 @@ The narrow first step is to make every adapter tell the truth about how generati
 
 - STREAM-TERM-04 UI replace/restart contract for regenerated attempts (no regeneration path streams today) and STREAM-TERM-05 paired fault-injection study (needs live models).
 - Thought streaming for Anthropic (`thinking_delta` → thoughts) would enable thinking on chat turns and change cost; not done without a decision.
+
+## Appendix reconciled: non-stream outcome identity and classification recovery (2026-10-28)
+
+The research branch (`codenerd-research-docs`) carries a source-review appendix with three findings: N1, an HTTP 200 Anthropic message with empty content and `stop_reason: "refusal"` is rejected as `anthropicIncompleteError` and retried; N2, `FallbackClient`'s non-stream methods fail over on any primary error, refusals included; N3, the registered perception firewall classifies through a client rebuilt from the worker config, not through the worker-to-main failover pair the direct transducer uses.
+
+## As-built status
+
+Re-verified 2026-10-28 on main (after `1377835c`).
+
+### Claim ledger
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| STREAM-TERM-01..03 (typed terminal, SSE framing, consumers require a complete terminal) | Confirmed built (As built 2026-10-27) | `internal/types/stream.go`; `stream_sse.go`; `stream_chat.go:57` `readChatStream`; `anthropic_stream.go:86`; `client_gemini_streaming.go:208` `readGeminiStream`; `stream_conformance_test.go` passes |
+| STREAM-TERM-04/05 | Still deferred | No regenerating stream path; paired study needs live models |
+| N1: empty-content refusal retried as incomplete | Real, still present at `anthropic_transport.go:226` (`len(message.Content) == 0` before any stop-reason check). Owned by lane C (Anthropic transport refusal handling); not edited here | `anthropic_transport.go:198-233` |
+| N2: non-stream failover ignores refusal/filter/truncation | Real. Being fixed by lane C in the working tree (`useSecondary` consults `failoverable`; Anthropic refusals become `*types.StreamError{Outcome: StreamRefused}`), uncommitted when this was written | `client_fallback.go:103`, `client_anthropic.go:294` |
+| N2: parent cancellation still fails over (secondary then fails fast) | Confirmed, left: the secondary receives the same canceled context and makes no request | `client_fallback.go` doc comment |
+| N3: firewall classifier bypasses the failover pair | Real, fixed. Before: `initShardManagement` rebuilt `NewClassificationClientFromConfig(bctx.providerCfgForClassification)`, which `classificationClientFor` had overwritten with the worker config | `factory.go:1194` stores the one resolved client; `shardRegistryContext` (`factory.go:2049`) hands it to the firewall (`:2069`) |
+
+### What was built
+
+- `bootContext.classificationClient`: the resolved, scheduled classifier (worker tier failing over to the main fast tier). The direct transducer and the registered firewall use the same instance, so there is one scheduler charge per call and the same recovery semantics on both paths. The per-turn understanding caches live in each transducer, not the client, and stay separate.
+- `classificationClientFor` no longer overwrites `providerCfgForClassification`; that field now only carries the main provider's classification config into the resolution.
+- `shardRegistryContext` extracted from `initShardManagement` so the registry wiring is testable.
+- Tests: `TestShardRegistry_FirewallClassifiesThroughTheResolvedFailoverPair`; the pool and Anthropic wiring tests now assert the registry receives the resolved client instead of reading the overwritten config.
+
+### Left open
+
+N1 and N2 belong to lane C's refusal work. The production chat path (boot, registry, firewall, a worker returning 503) was not driven end to end; the wiring test proves the firewall holds the failover pair, and `FallbackClient` is covered by its own tests.

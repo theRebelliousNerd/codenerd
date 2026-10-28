@@ -74,8 +74,9 @@ func TestCredentialPools_AreWiredThroughAllBootSlots(t *testing.T) {
 	if len(seen) != 4 {
 		t.Fatalf("calls=%d", len(seen))
 	}
-	if len(boot.providerCfgForClassification.APIKeys) != 2 {
-		t.Fatal("shard classification registration lost pool")
+	boot.classificationClient = classifier
+	if shardRegistryContext(boot).ClassificationClient != perception.LLMClient(classifier) {
+		t.Fatal("shard classification registration does not use the pooled classifier")
 	}
 }
 
