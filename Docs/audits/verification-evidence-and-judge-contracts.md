@@ -188,3 +188,94 @@ Before implementation, reconcile these findings into the verification/observatio
 
 No code or tests were changed by this document.
 
+## As built (2026-10-27)
+
+**Implemented:**
+
+- Reply contract `judge/v2`: `parseJudgment`, `rejectDuplicateKeys`, `Judgment`, `JudgeStatus` (`internal/verification/judge_contract.go`). The reply must be a single non-null object with no unknown or duplicate keys and no trailing value. `contract`, `status`, `confidence` and `explanation` are required, and presence is tracked apart from zero. Confidence must be in [0,1] and is refused rather than clamped. Violation and corrective types must be known. Contradictory combinations are refused, and so is a reply over `delegation.judge_reply_bytes`. A broken reply fails the delegation closed and the worker is never rerun.
+- Evidence packet: `buildEvidencePacket`, `EvidencePacket`, `EvidenceItem` (`internal/verification/evidence_packet.go`). The packet holds the kernel verdict and missing obligations, stage, acceptance, each check with its own source, changed files as bounded diffs with before/after sha256 identities, findings, untested paths, notes, and the worker narrative labelled `reported`. It is bounded by `delegation.judge_evidence_bytes`. `observation.Return.Snapshot` now carries the closing evidence snapshot (`observedReturn`).
+- Grounding: `Judgment.ground` resolves citations against the frozen packet and checks file freshness. A defect with no usable citation, or one that only labels a suspicion, becomes `insufficient_evidence`; `Claimed` and `Downgraded` keep what the judge said.
+- Decision/retry algorithm in policy (`delegation.mg`): `judge_verdict` is /pass, /defect or /insufficient_evidence. New moves are `/acquire_evidence` (`judge_may_acquire`, bounded by `delegation.judge_evidence_rounds`; the host expands the requested elided items over the same packet) and `/unverifiable` (fail closed, no worker rerun). `delegation_attempt_failed` keeps judge limits out of retry/escalate. `TaskVerifier.judge` runs the rounds. A retry carries the grounded defect and the cited evidence IDs (`retryTask`, `VerificationResult.CitedEvidence`).
+- Raw judgment vs disposition: `VerificationResult{Accepted, Reason, Judgment, Evidence}`, so the judgment is never edited. `task_verifications` gains `judge_contract`, `judge_claimed`, `judge_status` and `judge_explanation` (migration plus schema), and `StoreVerification` takes a `VerificationRecord`.
+- JIT atoms `eval/delegation_judge/*` teach the packet and contract. The shipped prompt-corpus seed was refreshed for both atoms; their embeddings are null until re-embedded.
+
+**Ruled differently:**
+
+- The judge's evidence requests are limited to the packet's elided items (full post-change content of a changed file, re-checked fresh at expansion). No arbitrary path reads: anything else would need a new permission path.
+- `CorrectiveAction.ShardHint` was removed, so a reply naming a shard is refused: who retries belongs to the persona, not the judge (F5).
+- A defect citing only the worker's narrative is grounded. It is packet evidence, labelled reported, and for the review rubric it is the very thing being judged.
+
+**Deferred:** toolchain/config/environment identities per check receipt (the observed `Verification` carries none, and none are invented), and the complete-system and calibration evaluation in section 6, which needs live models and held-out tasks. The cheap socket-level cases (empty/null/missing-field/duplicate/out-of-range replies, omitted vs genuine low confidence, stale citation after a concurrent edit, evidence acquisition) are implemented as tests in `internal/verification/*_test.go`.
+
+## Follow-up 2026-10-28 Reply member identity
+
+**Decision:** preserve the implemented `judge/v2` contract and kernel-owned disposition. Make the ingress validator and typed decoder agree on what constitutes one decision-bearing member. Today the duplicate-name walk compares exact decoded JSON strings, but the subsequent `encoding/json` v1 struct decoder also accepts case-insensitive names. Two different names can therefore write the same field, changing a judgment according to their order instead of rejecting the reply as contract-invalid.
+
+This is a narrow residual contract defect in the as-built implementation above, not a reason to reopen the completed judge redesign. Exact schema names and parser-consistent duplicate handling are established techniques; the finding is their specific mismatch on this production boundary, not a claim of a new parsing technique. It is distinct from stale applicability, prefix-only evidence expansion and request-budget accounting in [verification applicability and progressive evidence](https://github.com/theRebelliousNerd/codenerd/blob/c4539f041ddee0ce15cbda02771af7422cdf053e/Docs/audits/verification-applicability-and-progressive-evidence.md).
+
+**Source freeze:** rechecked at approximately 10:45 UTC, main was `356f65e0e6bb639adaa90ab36212daa714114871`, `feat/conversation-brief` was `c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c`, and `codenerd-research-docs` was `c4539f041ddee0ce15cbda02771af7422cdf053e`. Main and the feature branch both carry `internal/verification/judge_contract.go` blob `c309bb1176cf7247e0b1af288fbdf40ff3cd315f`. Their path histories identify the same latest change, [judge/v2 implementation commit e4e4d4a](https://github.com/theRebelliousNerd/codenerd/commit/e4e4d4ab554c661ffc0bccf4c74ef6a4121b17d3). No open pull request was returned by the repository's open-PR search. The research branch does not carry the new source file; it must not be used as evidence that main lacks the implementation.
+
+**Verification limit:** static source and official standard-library documentation only. No codeNERD runtime, test, benchmark, live-model inference, failure injection, code change or GitHub write was performed. The payloads below are source-derived witnesses, not executed reproductions or incidents. Frequency in natural model output is unknown.
+
+### Preserve the completed work
+
+Main's [as-built reconciliation](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/Docs/audits/verification-evidence-and-judge-contracts.md#L192-L209) records required fields, valid statuses and confidence, bounded replies, exact duplicate-key checks, contradictory-combination checks, host evidence packets and policy-derived acquisition. Those paths exist. In particular, `parseJudgment` rejects missing/null required fields and invalid combinations, while `judge` returns unavailable when parsing fails; this report does not classify those protections as absent. [Parser](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/verification/judge_contract.go#L105-L196), [judge call](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/verification/verifier.go#L328-L359).
+
+The governing requirement is already in the JIT contract: use the named keys once. The proposal is to enforce that existing requirement at ingress, not to teach the model a new protocol. [Contract atom](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/atoms/eval/delegation_judge.yaml#L98-L113). This serves the root North Star's separation between model creativity and deterministic executive facts; it leaves the executive decision in Mangle. [Root guidance](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/agents.md#L5-L27).
+
+### Two stages use different member identities
+
+The `judgeWire` shape defines lower-case JSON tags including `status`, `confidence` and `corrective_action`. `parseJudgment` first invokes `rejectDuplicateKeys`, then creates an `encoding/json` decoder, calls `DisallowUnknownFields`, and decodes into that shape. [Wire shape and decode order](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/verification/judge_contract.go#L90-L124).
+
+The duplicate walk keeps a fresh `map[string]bool` per object. It obtains each decoded member name with `Token`, tests `seen[key]`, and records that exact string. `status` and `Status` are therefore distinct to the walk. JSON escape spellings of the *same decoded string* are already handled by token decoding; they are not the gap. [Exact-key walk](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/verification/judge_contract.go#L238-L280).
+
+The repository declares Go 1.27.3. Its source imports the v1 `encoding/json` package, whose official documentation preserves case-insensitive matching of incoming object names to struct fields. Consequently `Status` is not an unknown field even with `DisallowUnknownFields`: it names the same destination as `status`. The v1 compatibility contract also permits duplicate object names and preserves legacy merging behavior. [Module toolchain](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/go.mod#L1-L3), [Go 1.27.3 JSON contract](https://pkg.go.dev/encoding/json@go1.27.3#Unmarshal).
+
+The precise defect is a **semantic field collision**, not a claim that JSON itself makes those two strings the same member name. A wire object can satisfy exact-name uniqueness while assigning one contract field twice.
+
+### Source derived acceptance witness
+
+Consider this unexecuted reply:
+
+```json
+{
+  "contract": "judge/v2",
+  "status": "insufficient_evidence",
+  "Status": "pass",
+  "confidence": 0.9,
+  "explanation": "Assessment of the supplied packet"
+}
+```
+
+The exact-key walk finds no repeated string. Both status names map to `judgeWire.Status`; the later value is the pass presented to subsequent validation. Required fields exist, confidence is in range, and the decoded pass carries none of the forbidden auxiliary fields. `Judgment.Claimed` and `Status` are initialized from that decoded status, so they do not retain both assignments. [Construction and pass validation](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/verification/judge_contract.go#L162-L196).
+
+On the normal delegated-mutation path, the TUI calls `VerifyWithRetry`. The worker must still return `/done`; the judge cannot manufacture the worker's mechanical completion. `judge` then parses, grounds and asserts the resulting pass. The delegation policy accepts a done attempt when neither judge rejection nor unresolved evidence derives. The verifier sets `Accepted=true`, and the TUI displays Accepted. [Production caller](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/cmd/nerd/chat/process.go#L455-L528), [judge publication](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/verification/verifier.go#L337-L385), [acceptance rules](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/defaults/policy/delegation.mg#L378-L423), [display](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/cmd/nerd/chat/helpers.go#L329-L373).
+
+Swapping the two status assignments instead leaves insufficient evidence and follows the unresolved path. The contract-invalid ambiguity is thus decision-bearing. Neither reading is the intended outcome: the existing invalid-reply policy should apply before any judgment fact is published.
+
+Other field identities share the same seam. For example, `confidence` and `Confidence` can supply different values to one confidence field; a grounded defect could move across a nonzero rejection threshold. That threshold effect is conditional on configuration, not an assertion about the default threshold. Repeating a name variant inside `corrective_action` can change the advice carried to a worker, but it does not directly run a tool: `retryTask` renders corrective action as advice. [Confidence policy](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/defaults/policy/delegation.mg#L380-L383), [retry advice](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/verification/verifier.go#L482-L522).
+
+### Proposed contract
+
+Prefer exact decoded member names for this versioned protocol. At each schema object, validate names against that object's canonical allowed set before projecting into a Go struct. Keep exact duplicate detection after JSON string unescaping. A root-only check is insufficient because `corrective_action` has its own members. Reject aliases rather than silently lower-casing and choosing one value.
+
+An alternative is explicitly supported aliases with a unique destination-field identity: map each admitted alias to its one canonical field and reject a second assignment even if its spelling differs. That is more compatibility surface and needs a versioned reason; the current atom already asks for exact keys. A decoder migration may supply useful strictness, but changing JSON packages alone is not an acceptance criterion. Unknown-name, duplicate-name, required-field, null, trailing-value and nested-object semantics must still be shown to match the intended contract.
+
+Any refusal follows today's unavailable-verification route and never triggers a worker rerun just to repair a malformed judge reply. Do not recover by selecting the first value, selecting the last, voting between statuses, or scanning the explanation for pass/fail words. The Go boundary establishes one valid judgment; Mangle retains acceptance, retry and escalation authority.
+
+### Checkable exit and cost
+
+Add one scoped contract gap to the verification specification, preserving existing closed gaps and citing the current parser seam. Its exit is:
+
+1. Canonical valid pass, defect and insufficient-evidence replies retain their present behavior.
+2. A mixed-case alias by itself is refused under an exact-name contract; aliases combined with a canonical name are refused in both orders.
+3. Exercise every decision-bearing member, optional lists that can be erased or replaced, and nested corrective-action fields. A single escaped spelling that decodes to a canonical name remains allowed; canonical and escaped spellings together that decode to the same name are refused as a duplicate.
+4. A refused reply publishes no new `judge_verdict`, cannot reach Accepted, and does not spawn a second worker for a judge-format limitation. Cover both an invalid first reply and an invalid reply after a valid insufficient-evidence acquisition round: an earlier round's fact may remain until delegation cleanup, but the refused reply must not replace it or turn it into acceptance.
+5. Drive the normal TUI delegation path with world-model and CodeDOM context enabled, and check both internal disposition and user-visible output. Parser cases alone do not establish production wiring.
+6. Preserve existing missing-field, duplicate-key, stale-citation, insufficient-evidence and non-done-worker behavior.
+
+The inspected rejection table currently covers identical `status` keys and identical nested `type` keys, not case variants. This is a statement about that inspected table, not a claim to have executed the test suite. [Existing contract cases](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/verification/judge_contract_test.go#L15-L66).
+
+No extra model call or wider evidence permission is required by this correction. The validator already walks bounded replies; the proposed work adds schema-aware name validation. Measure parser overhead and natural-output refusal rates rather than claiming an unmeasured efficiency gain. Count an invalid reply as unavailable, not a failed worker or a verified completion. A rise in correct refusals can initially reduce reported acceptance while improving the truthfulness of that metric.
+
+The research stopping point is this source-grounded contract refinement. This appendix qualifies the as-built no-duplicate-keys claim without reopening the completed judge redesign or creating a second verification program.
