@@ -198,3 +198,90 @@ Equivalence, not just speed: `kernel_perf_test.go` checks cone results against a
 - KERNEL-PERF-06 overlays: the 60k-EDB profile now shows store copy plus GC dominating a dream check (the cone itself is small), which is the evidence §3 asked for. The masking, tombstone and lifetime design is still unbuilt.
 - KERNEL-PERF-05 smallest-bound-bucket lookup: this is an upstream `factstore` change. Also upstream, `EvalStratifiedProgramWithStats` copies every Decl and rebuilds per-stratum EDB sets on each call, a cost proportional to the program rather than to the cone.
 - Lock wait/hold, peak memory and external-call timing in `EvaluationStats`. Per-stratum engine durations are summed, not exposed.
+
+## Post-implementation refinement: stored-fact ownership must support shared kernel clones
+
+**Recommendation:** preserve the implemented clone and predicate-index optimizations, but establish immutable ownership of retained facts at admission and snapshot boundaries. The present implementation shares mutable argument storage with callers. Under an explicit external-API mutation sequence, this can desynchronize EDB rows, canonical index keys and evaluated atoms—and let cone restoration reintroduce a retracted row.
+
+**Evidence boundary:** static source inspection only. No implementation, tests, inference, profiling or benchmarks were executed. **No production caller that mutates an admitted argument or exported snapshot was established.** This is a source-derived API correctness finding, not an observed production incident or authorization bypass.
+
+At the final branch check, main was `356f65e0e6bb639adaa90ab36212daa714114871`, feature `feat/conversation-brief` was `c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c`, research was `a636eed04b7650ea4037c9494d86e7337d4df6b3`, and historical research was `c592ff223cd207fca4c29ae793d5eba57aa4781d`. All cited kernel ownership/index/evaluation files and the system adapter have identical main/feature blobs. The `Fact` conversion section is also identical, although the surrounding `types.go` file differs.
+
+### What already works—and the missing precondition
+
+The [performance audit’s as-built section](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/Docs/audits/mangle-kernel-performance.md#as-built-2026-10-27) records predicate-bucketed EDB access, compiled retractions, cached cone plans and shared stored facts. Those improvements should not be described as missing or discarded without cost evidence.
+
+Their ownership precondition is not fully enforced:
+
+| Boundary | Source-grounded behavior |
+|---|---|
+| Input admission | `internFact` allocates an argument slice only when a top-level argument is a plain `string` or `MangleAtom`. Otherwise it returns the original slice. Even its copying path leaves nested mutable values shared. [Source](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_facts_intern.go#L19-L63) |
+| Retained representations | Admission computes a canonical key, converts the fact, then retains the raw `Fact` in both `k.facts` and the index. [Source](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_facts.go#L446-L490) |
+| Snapshot export | `GetBaseFacts` copies only the outer `[]Fact`; each `Args` slice still references internal storage. The iterator yields stored `Fact` values directly. [Accessor](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_accessors.go#L5-L16), [iterator](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_facts.go#L1306-L1329) |
+| Clone | `cloneLocked` copies outer fact slices; the argument values remain shared. The index clone copies maps, not the nested contents of their `Fact` values. [Kernel clone](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_eval.go#L507-L580), [index clone](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_edb_index.go#L82-L95) |
+
+The distinction matters: **the kernel not modifying a stored fact does not make that fact immutable if another owner can modify its backing storage.** The Go specification describes slices as references to underlying arrays; copying a struct containing a slice does not independently copy that array. [Go specification](https://go.dev/ref/spec#Slice_types), [Go’s slice explanation](https://go.dev/blog/slices-intro)
+
+### Concrete API witness—unrun
+
+Use a minimal, successfully analyzed kernel with:
+
+- Numeric `probe/1` and `seen/1` declarations.
+- A rule deriving `seen(N)` from `probe(N)`.
+- No initial `probe` fact.
+- Provenance disabled, no intervening program change, and otherwise ordinary cone eligibility.
+
+Then:
+
+1. Assert `probe(1)` using a caller-retained numeric-only argument slice. Materialize the kernel successfully.
+2. Optionally clone it while clean.
+3. Change the retained argument element from integer `1` to integer `2`, without invoking a kernel mutation method. An independent variant obtains the row through `GetBaseFacts` and changes that returned row’s `Args[0]`.
+4. The raw EDB row and index’s stored `Fact` now contain `2`; the index key remains the previously computed `probe(1)`; the evaluated store still contains the atom for `1`. A previously created clone shares the altered argument storage. This external assignment invokes no generation or dirty-state update.
+5. Call `RetractExactFact` for `probe(2)`. Its scan matches and removes the raw EDB row. However, compaction attempts to remove the index entry under the row’s **current** canonical key, `probe(2)`. The surviving entry is still keyed by `probe(1)`. Index removal simply returns when the requested key is absent. [Retraction](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_facts.go#L917-L949), [compaction](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_facts.go#L790-L822), [index removal](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_edb_index.go#L59-L69)
+6. On the next eligible cone evaluation, the kernel removes touched store rows and restores EDB facts from the index bucket. The surviving entry supplies the altered `probe(2)`, and the rule can derive `seen(2)`—despite the successful retraction and reduced `FactCount`. [Cone eligibility and restoration](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_eval_cone.go#L247-L347)
+
+This sequence establishes the conditional mechanism from source; it is **not an executed reproduction**. Forcing a full evaluation is an important control: it repopulates from `k.facts`, not the stale predicate bucket, so it does not demonstrate the same immediate resurrection. It also does not itself establish that the stale dedupe index was repaired.
+
+### Scope and controls
+
+- The numeric-only witness does not depend on malformed values, concurrency, external predicates, failed evaluation or missed reset invalidation.
+- Some inputs are already protected at the top level: string/name interning copies their argument array; the special sanitizer copies arguments for three named priority predicates. Neither is general recursive ownership. [Sanitizer](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_facts.go#L1195-L1203)
+- `Query` and `QueryAll` construct fresh public argument slices from AST atoms. They are **not** the raw aliasing accessor in this finding. [Readback conversion](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_query.go#L406-L448)
+- Container inputs are genuinely supported: specified map/slice shapes are JSON-encoded into string atoms while the raw container remains in the retained fact.
+- Do **not** claim pointers are uniformly rejected. The fallback accepts other JSON-encodable values when their encoding is nonempty and neither `null` nor `{}`; this can include nonnil pointers to exported-field structures. Explicit nil and unsupported/unencodable values are rejected. [Conversion](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/types/types.go#L219-L325)
+- A top-level argument copy alone does not isolate nested maps, slices, pointers or custom JSON-backed objects.
+
+Real consumers make the contract consequential, without establishing that they currently mutate shared values: Dreamer uses `Clone` for projected safety evaluation; JIT creates private compilation scopes with `CloneWithIdentity`; snapshot export calls `GetBaseFacts`. [Dreamer](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/dreamer.go#L288-L315), [JIT scope](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/system/factory_adapters.go#L124-L138), [export](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/cmd/nerd/cmd_snapshot.go#L144-L175)
+
+### Proposed ownership contract
+
+After successful admission, later changes to caller-owned objects must not change the admitted fact. Exported snapshots must not provide writable access to retained state. Internal clones may then safely share genuinely immutable representations.
+
+Compare two bounded designs:
+
+1. **Owned raw facts:** recursively snapshot the supported input shapes at admission; independently copy mutable output structures at snapshot export. Explicitly define treatment of fallback/custom JSON values rather than assuming arbitrary Go graphs can safely be deep-copied.
+2. **Immutable admitted representation:** retain a canonical typed/serialized value as authoritative, and construct public views from it. Preserve Name/String identity, declaration-directed adaptation and existing raw-export compatibility—or document and validate a migration.
+
+Do not merely increment the generation: an untracked external assignment cannot reliably trigger that increment, and a new generation would not repair an already mismatched index key. Do not restore per-fact deep copying on every Dreamer clone as the first response; ownership at admission/export can preserve cheap internal sharing.
+
+### Proposed evaluation—none executed
+
+| Fixture | Required observations |
+|---|---|
+| Numeric-only caller arguments changed after admission | EDB, evaluated facts, index and identity remain consistent with the admitted value. |
+| Returned `GetBaseFacts` arguments changed | Neither parent nor clone changes. |
+| Iterator-retained arguments changed after iteration | Same isolation; distinguish replacing the outer `Fact` from changing its backing arguments. |
+| String/name input control | Existing top-level protection remains; nested mutable values still receive coverage. |
+| Containers and accepted JSON-backed pointers | Capture admitted content once; subsequent caller mutation cannot alter retained truth. |
+| Explicit nil, cycles and unencodable values | Existing rejection behavior remains clear; no panic or partial ownership transfer. |
+| Exact/first-argument/predicate/batched retractions | No stale bucket entry, resurrection or false duplicate; index agrees with canonical EDB. |
+| Clean clone, dirty clone, cone and forced-full paths | Snapshot isolation and successful closure equivalence hold across representations. |
+| Normal `Query`/`QueryAll` result mutation | Already-correct readback isolation remains. |
+
+The current iterator “copy” test replaces an outer slice element and checks only the count; it does not mutate nested arguments. The interning test explicitly expects numeric-only arguments to retain their original backing array. These definitions show where future coverage must change; they were not run here. [Snapshot test](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_facts_gaps_test.go#L456-L470), [interning tests](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_facts_intern_test.go)
+
+Measure admission allocations/bytes, container serialization, snapshot-export cost, clone latency, cone preparation, GC and retained memory. Compare current behavior, admission/export ownership and immutable normalized storage separately. Include string-heavy production facts, numeric-only facts, nested values and repeated clones; charge copying where it actually occurs. No speedup or end-to-end token saving is established.
+
+**Nonduplication:** this refines the implemented performance audit’s immutable-fact assumption. It is distinct from its failed-evaluation publication appendix and the fresh JIT audit’s reset/staged/heartbeat generation omissions: here a caller-held alias changes data outside any kernel mutation API.
+
+**Checkable exit:** all admitted values and exported snapshots have explicit ownership semantics; external mutation cannot change retained facts; canonical keys, EDB rows and evaluated facts stay aligned; retractions cannot restore a removed row from an alias-corrupted index; internal clone sharing retains its measured benefits.
