@@ -72,16 +72,15 @@ var substantiveEventMarkers = [][]byte{
 
 // generateRunPrefix returns a process-unique, lexically sortable prefix.
 // Format: 20060102_150405.000000000_<pid>_<seq>_<rand> where the timestamp
-// is UTC with nanosecond precision (fixed width, sortable), pid is a
-// zero-padded fixed-width process ID (os.Getpid) for cross-process
+// is UTC with nanosecond precision (fixed width, sortable), pid is the
+// process ID (os.Getpid) zero-padded to at least six digits, for cross-process
 // uniqueness without relying solely on crypto/rand, seq is a zero-padded
 // monotonic counter guaranteeing ordering and uniqueness even within the same
 // nanosecond, and rand is 3 random bytes hex-encoded for additional
 // cross-process uniqueness. The leading timestamp ensures lexical order equals
 // chronological order; the counter ensures two rapid Initialize calls in the
-// same process yield different prefixes. Including pid as a fixed-width
-// numeric field preserves same-process lexical ordering (pid is constant
-// within a process).
+// same process yield different prefixes. Ordering never depends on the pid:
+// the timestamp before it decides.
 func generateRunPrefix() string {
 	ts := time.Now().UTC().Format("20060102_150405.000000000")
 	seq := atomic.AddUint64(&runPrefixSeq, 1)
@@ -126,73 +125,47 @@ func logsDirSymlinkRejected(logsDir string) bool {
 }
 
 // runPrefixFromLogName extracts the run prefix from a log filename if it
-// begins with a valid run prefix produced by generateRunPrefix. The prefix
-// format is 20060102_150405.000000000_<pid>_<seq>_<rand> (46 chars):
+// begins with a valid run prefix produced by generateRunPrefix:
+// 20060102_150405.000000000_<pid>_<seq>_<rand>, that is
 //
-//	8 digits date, '_' , 6 digits time, '.' , 9 digits nanos, '_' ,
-//	6 digits pid, '_' , 6 digits seq, '_' , 6 hex chars. Lexical order of
+//	8 digits date, '_', 6 digits time, '.', 9 digits nanos, '_',
+//	6 or more digits pid, '_', 6 digits seq, '_', 6 hex chars.
 //
-// this prefix equals chronological order. Returns the prefix string on
-// success or "" if the name does not start with a valid prefix.
+// The pid is zero-padded to six digits but not cut to them: a Linux pid runs
+// to 4194304. Reading it as exactly six digits filed every log of a 7-digit
+// pid as unprefixed legacy, and the next process to boot deleted that run's
+// logs while it was still writing them. Returns "" if the name does not start
+// with a valid prefix.
 func runPrefixFromLogName(name string) string {
-	const prefixLen = 46
-	if len(name) < prefixLen {
-		return ""
-	}
-	candidate := name[:prefixLen]
-	// 0-7: YYYYMMDD digits
-	for i := 0; i < 8; i++ {
-		if candidate[i] < '0' || candidate[i] > '9' {
-			return ""
+	digits := func(s string) bool {
+		for i := 0; i < len(s); i++ {
+			if s[i] < '0' || s[i] > '9' {
+				return false
+			}
 		}
+		return s != ""
 	}
-	if candidate[8] != '_' {
+	// 0-24: 20060102_150405.000000000
+	if len(name) < 26 || !digits(name[0:8]) || name[8] != '_' || !digits(name[9:15]) || name[15] != '.' || !digits(name[16:25]) || name[25] != '_' {
 		return ""
 	}
-	// 9-14: HHMMSS digits
-	for i := 9; i < 15; i++ {
-		if candidate[i] < '0' || candidate[i] > '9' {
-			return ""
-		}
-	}
-	if candidate[15] != '.' {
+	rest := name[26:]
+	pidEnd := strings.IndexByte(rest, '_')
+	if pidEnd < 6 || !digits(rest[:pidEnd]) {
 		return ""
 	}
-	// 16-24: nanoseconds 9 digits
-	for i := 16; i < 25; i++ {
-		if candidate[i] < '0' || candidate[i] > '9' {
-			return ""
-		}
-	}
-	if candidate[25] != '_' {
+	tail := rest[pidEnd+1:]
+	// <seq 6 digits>_<rand 6 hex>
+	if len(tail) < 13 || !digits(tail[0:6]) || tail[6] != '_' {
 		return ""
 	}
-	// 26-31: pid 6 digits
-	for i := 26; i < 32; i++ {
-		if candidate[i] < '0' || candidate[i] > '9' {
-			return ""
-		}
-	}
-	if candidate[32] != '_' {
-		return ""
-	}
-	// 33-38: seq 6 digits
-	for i := 33; i < 39; i++ {
-		if candidate[i] < '0' || candidate[i] > '9' {
-			return ""
-		}
-	}
-	if candidate[39] != '_' {
-		return ""
-	}
-	// 40-45: rand 6 hex chars
-	for i := 40; i < 46; i++ {
-		c := candidate[i]
+	for i := 7; i < 13; i++ {
+		c := tail[i]
 		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
 			return ""
 		}
 	}
-	return candidate
+	return name[:26+pidEnd+1+13]
 }
 
 // isSubstantiveAuditLog reports whether the audit log at path is

@@ -355,3 +355,34 @@ func TestClearOrdinaryLogs_RetentionWindow_KeepsNewest10(t *testing.T) {
 func isLogFile(name string) bool {
 	return strings.HasSuffix(strings.ToLower(name), ".log")
 }
+
+// A run whose pid has seven digits keeps its logs when another process boots.
+// The prefix parser read the pid as exactly six digits, so every log of pid
+// 2312297 was filed as unprefixed legacy and deleted while its run was still
+// writing it (dogfooding, 2026-10-28: three runs lost their logs this way).
+func TestClearOrdinaryLogs_KeepsALiveRunWithASevenDigitPid(t *testing.T) {
+	logsDir := filepath.Join(t.TempDir(), ".nerd", "logs")
+	if err := os.MkdirAll(logsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	live := "20261028_230239.391386541_2312297_000001_675bc3"
+	if got := runPrefixFromLogName(live + "_system_shards.log"); got != live {
+		t.Fatalf("runPrefixFromLogName = %q, want %q", got, live)
+	}
+	for _, name := range []string{live + "_kernel.log", live + "_system_shards.log", live + "_audit.log", "20261028_231346.187031560_239243_000001_409d66_boot.log"} {
+		if err := os.WriteFile(filepath.Join(logsDir, name), []byte("x\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	clearOrdinaryLogs(logsDir)
+	for _, name := range []string{live + "_kernel.log", live + "_system_shards.log", live + "_audit.log"} {
+		if _, err := os.Stat(filepath.Join(logsDir, name)); err != nil {
+			t.Errorf("%s was cleared: %v", name, err)
+		}
+	}
+	for _, bad := range []string{"20261028_230239.391386541_23122_000001_675bc3_kernel.log", "20261028_230239.391386541_2312297_00001_675bc3_kernel.log", "20261028_230239.391386541_2312297_000001_67zbc3_kernel.log"} {
+		if got := runPrefixFromLogName(bad); got != "" {
+			t.Errorf("runPrefixFromLogName(%q) = %q, want no prefix", bad, got)
+		}
+	}
+}
