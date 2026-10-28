@@ -37,9 +37,17 @@ FORBIDDEN = re.compile(
 )
 
 
+def _active_bases(root: Path) -> tuple[Path, ...]:
+    return (
+        root / ".codex" / "skills" / "corpus-build",
+        root / ".codex" / "skills" / "arch-propose",
+        root / ".codex" / "agents",
+    )
+
+
 def audit(root: Path = ROOT) -> list[dict[str, object]]:
     findings = []
-    for base in ACTIVE:
+    for base in _active_bases(root):
         if not base.exists():
             continue
         for path in base.rglob("*"):
@@ -47,14 +55,22 @@ def audit(root: Path = ROOT) -> list[dict[str, object]]:
                 not path.is_file()
                 or path.suffix.lower() not in TEXT_SUFFIXES
                 or path.name in SKIP_NAMES
-                or "historical" in path.parts
+                or any(part.casefold() == "historical" for part in path.parts)
                 or "__pycache__" in path.parts
             ):
                 continue
-            for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for number, line in enumerate(text.splitlines(), 1):
                 if FORBIDDEN.search(line) and "has no `internal/testing/remediation`" not in line:
+                    try:
+                        rel = path.relative_to(root).as_posix()
+                    except ValueError:
+                        rel = path.as_posix()
                     findings.append({
-                        "path": path.relative_to(root).as_posix(),
+                        "path": rel,
                         "line": number,
                         "text": line.strip()[:300],
                     })

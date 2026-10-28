@@ -67,7 +67,7 @@ class GoFunction:
 
 
 GO_FUNC_PATTERN = re.compile(
-    r'^func\s+(?:\(\s*(\w+)\s+\*?([\w.]+(?:\[[^\]]+\])?)\s*\)\s+)?(\w+)\s*\(',
+    r'^func\s+(?:\(\s*(\w+)\s+\*?([\w.]+(?:\[[^\]]+\])?)\s*\)\s+)?(\w+)(?:\[[^\]]+\])?\s*\(',
     re.MULTILINE,
 )
 
@@ -183,6 +183,35 @@ def inside_go_func(source: str, position: int) -> bool:
     return False
 
 
+def _is_passed_as_arg(scope: str, var_name: str) -> bool:
+    """Return True when var_name appears inside any call's argument list.
+
+    Balanced-paren scanning handles nested calls such as ``foo(bar(x), ch)``.
+    Builtins that do not transfer ownership to a reader (close/len/cap) are
+    ignored so ``close(ch)`` alone does not suppress the finding.
+    """
+    ignored = {"close", "len", "cap"}
+    var_pat = re.compile(rf'(?<![\w.]){re.escape(var_name)}(?![\w])')
+    for call in re.finditer(r'\b((?:\w+\.)*\w+)\s*\(', scope):
+        callee = call.group(1).split(".")[-1]
+        if callee in ignored:
+            continue
+        depth = 1
+        i = call.end()
+        while i < len(scope) and depth > 0:
+            ch = scope[i]
+            if ch == '(':
+                depth += 1
+            elif ch == ')':
+                depth -= 1
+            i += 1
+        if depth != 0:
+            continue
+        if var_pat.search(scope[call.end():i - 1]):
+            return True
+    return False
+
+
 class ExecutionAuditor:
     """Audits Go code for execution wiring gaps."""
 
@@ -190,42 +219,42 @@ class ExecutionAuditor:
     EXECUTION_PATTERNS = {
         # pattern: (creation_regex, required_methods, severity)
         "Orchestrator": (
-            r'^\s*(\w+)(?:\s*,\s*\w+)*\s*:?=\s*\w*\.?NewOrchestrator\s*\(',
+            r'^\s*(?:var\s+)?((?:\w+\s*,\s*)*\w+)\s*:?=\s*\w*\.?NewOrchestrator\s*\(',
             ["Run", "Start"],
             Severity.ERROR
         ),
         "Server": (
-            r'^\s*(\w+)(?:\s*,\s*\w+)*\s*:?=\s*\w*\.?NewServer\s*\(',
+            r'^\s*(?:var\s+)?((?:\w+\s*,\s*)*\w+)\s*:?=\s*\w*\.?NewServer\s*\(',
             ["Start", "ListenAndServe", "Serve"],
             Severity.ERROR
         ),
         "Watcher": (
-            r'^\s*(\w+)(?:\s*,\s*\w+)*\s*:?=\s*\w*\.?NewWatcher\s*\(',
+            r'^\s*(?:var\s+)?((?:\w+\s*,\s*)*\w+)\s*:?=\s*\w*\.?NewWatcher\s*\(',
             ["Start", "Watch", "Run"],
             Severity.WARNING
         ),
         "Ticker": (
-            r'^\s*(\w+)\s*:?=\s*time\.NewTicker\s*\(',
+            r'^\s*(?:var\s+)?(\w+)\s*:?=\s*time\.NewTicker\s*\(',
             [".C"],  # Channel read
             Severity.WARNING
         ),
         "Timer": (
-            r'^\s*(\w+)\s*:?=\s*time\.NewTimer\s*\(',
+            r'^\s*(?:var\s+)?(\w+)\s*:?=\s*time\.NewTimer\s*\(',
             [".C"],  # Channel read
             Severity.WARNING
         ),
         "Context": (
-            r'^\s*(\w+),\s*(\w+)\s*:?=\s*context\.WithCancel\s*\(',
+            r'^\s*(?:var\s+)?(\w+)\s*,\s*(\w+)\s*:?=\s*(?:\w+\.)?With(?:Cancel|Timeout|Deadline|CancelCause)\s*\(',
             ["cancel"],  # cancel function should be called
             Severity.INFO
         ),
     }
 
     # Bubbletea message pattern
-    MSG_TYPE_PATTERN = re.compile(r'type\s+(\w+Msg)\s+(?:struct|=)')
+    MSG_TYPE_PATTERN = re.compile(r'type\s+(\w+Msg)(?:\[[^\]]+\])?\s+(?:struct|=)')
 
     # Channel creation pattern
-    CHANNEL_PATTERN = re.compile(r'(\w+)\s*:?=\s*make\s*\(\s*chan\s+([^,\)]+)')
+    CHANNEL_PATTERN = re.compile(r'(?:var\s+)?(\w+)\s*:?=\s*make\s*\(\s*chan\s+([^,\)]+)')
 
     # Struct field check pattern (for detecting fields that are checked but not assigned)
     FIELD_CHECK_PATTERN = re.compile(r'\b(\w+)\.(\w+)\s*[!=]=\s*nil')
@@ -259,19 +288,17 @@ class ExecutionAuditor:
         # Collect all Go files
         go_files = self._collect_go_files()
         self._progress(f"Found {len(go_files)} Go files to audit")
-        self._progress()
 
-        # Run audits
-        self._progress("[1/6] Checking object execution (New*() without Run())...")
+        self._progress("[1/6] Checking object execution...")
         self._audit_object_execution(go_files)
 
         self._progress("[2/6] Checking channel listeners...")
         self._audit_channel_listeners(go_files)
 
-        self._progress("[3/6] Checking Bubbletea message handlers...")
+        self._progress("[3/6] Checking message handlers...")
         self._audit_message_handlers(go_files)
 
-        self._progress("[4/6] Checking struct field assignments...")
+        self._progress("[4/6] Checking field assignments...")
         self._audit_field_assignments(go_files)
 
         self._progress("[5/6] Checking goroutine spawning...")
@@ -292,7 +319,10 @@ class ExecutionAuditor:
         try:
             return filepath.read_text(encoding='utf-8')
         except Exception as exc:
-            rel_path = str(filepath.relative_to(self.workspace))
+            try:
+                rel_path = str(filepath.relative_to(self.workspace))
+            except ValueError:
+                rel_path = str(filepath)
             if rel_path not in self._read_failures:
                 self._read_failures.add(rel_path)
                 self.result.findings.append(Finding(
@@ -344,39 +374,70 @@ class ExecutionAuditor:
                     if function is None:
                         continue
                     scope = source[function.start:function.end]
-                    var_name = match.group(2) if pattern_name == "Context" else match.group(1)
-                    escaped = re.escape(var_name)
+                    if pattern_name == "Context":
+                        raw_vars = [match.group(2)]
+                    else:
+                        raw_vars = [v.strip() for v in match.group(1).split(",")]
+                    var_names = [v for v in raw_vars if v and v != "_" and v != "var"]
+                    if not var_names:
+                        continue
                     line_num = source[:match.start()].count('\n') + 1
 
                     method_found = False
-                    for method in required_methods:
-                        if pattern_name == "Context":
-                            call_pattern = rf'\b{escaped}\s*\('
-                        elif method.startswith('.'):
-                            call_pattern = rf'\b{escaped}{re.escape(method)}\b'
-                        else:
-                            call_pattern = rf'\b{escaped}\.{re.escape(method)}\w*\s*\('
-                        if re.search(call_pattern, scope):
-                            method_found = True
+                    for var_name in var_names:
+                        escaped = re.escape(var_name)
+                        for method in required_methods:
+                            if pattern_name == "Context":
+                                call_pattern = rf'\b{escaped}\s*\('
+                            elif method.startswith('.'):
+                                channel = re.escape(method[1:])
+                                call_pattern = (
+                                    rf'<-\s*\b{escaped}\.{channel}\b'
+                                    rf'|\brange\s+\b{escaped}\.{channel}\b'
+                                )
+                            else:
+                                call_pattern = rf'\b{escaped}\.{re.escape(method)}\b\s*\('
+                            if re.search(call_pattern, scope):
+                                method_found = True
+                                break
+                        if method_found:
                             break
                     if method_found:
                         continue
 
                     after_creation = source[match.end():function.end]
-                    returned = re.search(rf'(?m)\breturn[^\n]*\b{escaped}\b', after_creation)
-                    stored = re.search(
-                        rf'\b\w+\.\w+\s*=\s*\b{escaped}\b|\b\w+\s*:\s*\b{escaped}\b',
-                        after_creation,
-                    )
-                    if returned or stored:
+                    ownership_transferred = False
+                    for var_name in var_names:
+                        escaped = re.escape(var_name)
+                        returned = re.search(
+                            rf'\breturn\b[\s\S]{{0,300}}?\b{escaped}\b',
+                            after_creation,
+                        )
+                        stored = re.search(
+                            rf'\b\w+(?:\.\w+|\[[^\]]+\])\s*=\s*\b{escaped}\b'
+                            rf'|\b\w+\s*:\s*\b{escaped}\b',
+                            after_creation,
+                        )
+                        if returned or stored:
+                            ownership_transferred = True
+                            break
+                    if ownership_transferred:
                         continue
 
+                    var_name = var_names[0]
                     first_method = required_methods[0]
-                    suggestion = (
-                        f"Call {var_name}() or defer {var_name}()"
-                        if pattern_name == "Context"
-                        else f"Add {var_name}{first_method if first_method.startswith('.') else '.' + first_method + '()'} or store in struct field"
-                    )
+                    if pattern_name == "Context":
+                        suggestion = f"Call {var_name}() or defer {var_name}()"
+                    elif first_method.startswith('.'):
+                        suggestion = (
+                            f"Receive from {var_name}{first_method} "
+                            f"(e.g. '<-{var_name}{first_method}' or "
+                            f"'range {var_name}{first_method}') or pass to consumer"
+                        )
+                    else:
+                        suggestion = (
+                            f"Add {var_name}.{first_method}() or store in struct field"
+                        )
                     self.result.findings.append(Finding(
                         severity=severity,
                         message=f"{pattern_name} '{var_name}' created but {'/'.join(required_methods)} never called",
@@ -412,8 +473,8 @@ class ExecutionAuditor:
                 # Passing the channel as an actual argument transfers ownership
                 # to another consumer. Restrict the suppression to call syntax
                 # inside the enclosing function; comments and strings are blanked.
-                passed_pattern = rf'\b\w+(?:\.\w+)*\s*\([^)]*\b{escaped}\b[^)]*\)'
-                if re.search(passed_pattern, scope):
+                # Builtins like close/len/cap do not transfer ownership to a reader.
+                if _is_passed_as_arg(scope, chan_name):
                     continue
 
                 self.result.findings.append(Finding(
@@ -556,7 +617,7 @@ class ExecutionAuditor:
 
             if not assigned_on_type(receiver_type, set()):
                 display_name = display_names[key]
-                if len(field_name) > 2 and not field_name.startswith('_'):
+                if not field_name.startswith('_'):
                     rel_path, line = sorted(checks)[0]
                     self.result.findings.append(Finding(
                         # Regex evidence cannot prove reflection/generated
@@ -573,7 +634,7 @@ class ExecutionAuditor:
         """Check for blocking operations that should be in goroutines."""
         # Patterns that suggest blocking operations
         blocking_patterns = [
-            (r'\.Run\s*\(\s*ctx', 'Run()'),
+            (r'\.Run\s*\(', 'Run()'),
             (r'\.Listen\s*\(', 'Listen()'),
             (r'time\.Sleep\s*\([^)]*time\.(Minute|Hour)', 'Long Sleep'),
             (r'for\s*\{\s*select\s*\{', 'Select loop'),
@@ -629,25 +690,28 @@ class ExecutionAuditor:
             functions = go_functions(source)
 
             for candidate in store_candidates:
-                pattern = rf'(\w+)\s*:=\s*\w*\.?New{candidate}\s*\('
+                pattern = rf'(?:var\s+)?(\w+)\s*:?=\s*\w*\.?New{candidate}\s*\('
                 for match in re.finditer(pattern, source):
                     function = enclosing_function(functions, match.start())
                     if function is None:
                         continue
-                    scope = source[function.start:function.end]
-                    if len(scope.split('\n')) >= 30:
-                        continue
-
                     var_name = match.group(1)
+                    if var_name in ("_", "var"):
+                        continue
                     escaped = re.escape(var_name)
                     after_creation = source[match.end():function.end]
                     stored = re.search(
-                        rf'\b\w+\.\w+\s*=\s*\b{escaped}\b|\b\w+\s*:\s*\b{escaped}\b',
+                        rf'\b\w+(?:\.\w+|\[[^\]]+\])\s*=\s*\b{escaped}\b'
+                        rf'|\b\w+\s*:\s*\b{escaped}\b',
                         after_creation,
                     )
-                    returned = re.search(rf'(?m)\breturn[^\n]*\b{escaped}\b', after_creation)
-                    used = re.search(rf'\b{escaped}\b', after_creation)
-                    if stored or returned or used:
+                    returned = re.search(
+                        rf'\breturn\b[\s\S]{{0,300}}?\b{escaped}\b',
+                        after_creation,
+                    )
+                    if stored or returned:
+                        continue
+                    if _is_passed_as_arg(after_creation, var_name):
                         continue
 
                     self.result.findings.append(Finding(
