@@ -83,7 +83,7 @@ func (m Model) selfDiagnosisJob(ctx context.Context, shard string) (job backgrou
 	// Jev triages, when on: defects in codeNERD's own code first, failures of
 	// its surroundings (network, providers, config, machine) listed apart.
 	defects, around := hot, []problemlog.Problem(nil)
-	if m.jev != nil {
+	if m.jev != nil && m.Config.TypeSafe.Uses().DiagnosisTriage {
 		if probs, err := turnjudge.TriageProblems(ctx, m.jev, hot); err != nil {
 			logging.Get(logging.CategoryKernel).Warn("%s jev triage failed, the log's order stands: %v", selfDebugMarker, err)
 		} else {

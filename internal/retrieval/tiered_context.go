@@ -43,6 +43,11 @@ type TieredContextBuilder struct {
 	// a judged probability at or below relevanceDrop leaves the file out.
 	relevance     RelevanceJudge
 	relevanceDrop float64
+	// relevancePool widens the keyword pool the judge sees beyond what Tier 2
+	// keeps, so a source file ranked under docs that name every term can
+	// rise; relevanceHead bounds each file's head in a question.
+	relevancePool int
+	relevanceHead int
 
 	// Budget allocation (percentages)
 	tier1Budget float64
@@ -77,6 +82,10 @@ type TieredContextConfig struct {
 	// left out.
 	Relevance     RelevanceJudge
 	RelevanceDrop float64
+	// RelevancePoolFactor and RelevanceHeadBytes are typesafe.
+	// relevance_pool_factor and relevance_head_bytes.
+	RelevancePoolFactor int
+	RelevanceHeadBytes  int
 }
 
 // DefaultTieredContextConfig returns sensible defaults.
@@ -130,6 +139,8 @@ func NewTieredContextBuilder(cfg *TieredContextConfig) *TieredContextBuilder {
 		semantic:      semantic,
 		relevance:     cfg.Relevance,
 		relevanceDrop: cfg.RelevanceDrop,
+		relevancePool: max(cfg.RelevancePoolFactor, 1),
+		relevanceHead: cfg.RelevanceHeadBytes,
 		tier1Budget:   cfg.Tier1Budget,
 		tier2Budget:   cfg.Tier2Budget,
 		tier3Budget:   cfg.Tier3Budget,
@@ -404,7 +415,7 @@ func (b *TieredContextBuilder) searchKeywordFiles(ctx context.Context, request s
 	selection := ranked
 	var judged []JudgedFile
 	if b.relevance != nil {
-		pool := b.retriever.RankFiles(hits, keywords, b.maxTier2*relevancePoolFactor)
+		pool := b.retriever.RankFiles(hits, keywords, b.maxTier2*b.relevancePool)
 		selection, judged = b.judgeTier2(ctx, request, pool, addedFiles)
 	}
 

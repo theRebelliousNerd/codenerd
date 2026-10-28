@@ -55,6 +55,20 @@ acts on nothing.
 Nothing is defaulted except the timeout and the thresholds. An absent section
 means Jev is off.
 
+Each use has its own switch, on when the key is absent: `turn_judgments`,
+`retrieval_relevance`, `review_checks`, `diagnosis_triage`.
+
+The tuning is in the section too, with zero meaning the default
+(`config.DefaultTypeSafeUses`):
+
+| Key | Default |
+|---|---|
+| `recent_turns` | 12 |
+| `batch_size` | 20 |
+| `relevance_pool_factor` | 6 |
+| `relevance_head_bytes` | 3000 |
+| `finding_context_lines` | 12 |
+
 ## Live probe
 
 `go run ./cmd/tools/jev_probe -config .nerd/config.json -runs 3` scores every

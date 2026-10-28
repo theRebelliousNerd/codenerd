@@ -94,11 +94,13 @@ func (m *Model) seedIssueFacts(ctx context.Context, intent perception.Intent, ra
 		// Jev, when configured, judges Tier 2's keyword candidates for
 		// relevance (turnjudge.RelevanceJudge); off, the keyword ranking
 		// stands.
-		Relevance:     m.relevanceJudge(),
-		RelevanceDrop: m.relevanceDrop(),
-		Timeout:       retrieval.DefaultSeedTimeout,
-		GlassBox:      bus,
-		TurnID:        m.turnCount,
+		Relevance:           m.relevanceJudge(),
+		RelevanceDrop:       m.relevanceDrop(),
+		RelevancePoolFactor: m.Config.TypeSafe.Uses().RelevancePoolFactor,
+		RelevanceHeadBytes:  m.Config.TypeSafe.Uses().RelevanceHeadBytes,
+		Timeout:             retrieval.DefaultSeedTimeout,
+		GlassBox:            bus,
+		TurnID:              m.turnCount,
 	}); err != nil {
 		logging.Context("[seedIssueFacts] retrieval seed failed: %v", err)
 	}

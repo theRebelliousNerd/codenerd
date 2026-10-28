@@ -33,6 +33,10 @@ type Input struct {
 	Brief *perception.Brief
 	// HeldWork describes work held for a go-ahead; empty when none is.
 	HeldWork string
+	// RecentTurns bounds Recent (typesafe.recent_turns): the judgments are
+	// about the latest message, the turns go whole, older ones are left out.
+	// Zero keeps them all.
+	RecentTurns int
 }
 
 // Asker is the Jev call (typesafe.Client.Ask).
@@ -49,11 +53,6 @@ type Result struct {
 	InputTokens int
 }
 
-// RecentWindow bounds the prior turns a judgment sees. Jev's context is 64k
-// tokens per request (docs.typesafe.ai/models), and the judgments are about
-// the latest message; the turns go whole, and older ones are left out.
-const RecentWindow = 12
-
 // Request builds the state and the questions for a turn. Only fields with
 // content go in the state: an empty list reads to the model as a signal.
 func Request(in Input) (state map[string]any, questions map[string]typesafe.Question, about map[string]string) {
@@ -62,8 +61,8 @@ func Request(in Input) (state map[string]any, questions map[string]typesafe.Ques
 		"message":   in.Message,
 	}
 	recent := in.Recent
-	if len(recent) > RecentWindow {
-		recent = recent[len(recent)-RecentWindow:]
+	if in.RecentTurns > 0 && len(recent) > in.RecentTurns {
+		recent = recent[len(recent)-in.RecentTurns:]
 	}
 	if len(recent) > 0 {
 		state["recent_turns"] = recent

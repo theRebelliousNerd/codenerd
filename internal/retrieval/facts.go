@@ -96,8 +96,10 @@ type SeedRequest struct {
 	// Relevance, when set, judges Tier 2's keyword candidates (relevance.go);
 	// RelevanceDrop is the probability at or below which a judged file is
 	// left out of the context.
-	Relevance     RelevanceJudge
-	RelevanceDrop float64
+	Relevance           RelevanceJudge
+	RelevanceDrop       float64
+	RelevancePoolFactor int
+	RelevanceHeadBytes  int
 
 	// Timeout bounds the whole pass. DefaultSeedTimeout when zero.
 	Timeout time.Duration
@@ -247,6 +249,8 @@ func SeedIssueFacts(ctx context.Context, sink FactSink, req SeedRequest) (*SeedR
 	}
 	cfg.Relevance = req.Relevance
 	cfg.RelevanceDrop = req.RelevanceDrop
+	cfg.RelevancePoolFactor = req.RelevancePoolFactor
+	cfg.RelevanceHeadBytes = req.RelevanceHeadBytes
 	builder := NewTieredContextBuilder(cfg)
 
 	tc, err := builder.BuildContext(cctx, issueText)

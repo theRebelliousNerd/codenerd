@@ -21,7 +21,7 @@ func TestCheckFindings_JudgesCitedCodeAndSkipsUncited(t *testing.T) {
 		{File: "x.go", Line: 4, Message: "nil pointer dereference on m"},
 		{File: "x.go", Message: "no line: not judged"},
 		{File: "missing.go", Line: 3, Message: "unreadable: not judged"},
-	})
+	}, FindingOptions{BatchSize: 20, ContextLines: 12})
 	if err != nil {
 		t.Fatal(err)
 	}

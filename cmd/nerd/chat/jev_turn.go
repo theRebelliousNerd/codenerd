@@ -31,10 +31,11 @@ type judgedTurn struct {
 // startTurnJudgments asks Jev about the turn in the background and returns
 // the channel its outcome arrives on; nil when Jev is off.
 func (m Model) startTurnJudgments(ctx context.Context, input string, history []perception.ConversationTurn) <-chan judgedTurn {
-	if m.jev == nil {
+	uses := m.Config.TypeSafe.Uses()
+	if m.jev == nil || !uses.TurnJudgments {
 		return nil
 	}
-	in := turnjudge.Input{Message: input, Brief: m.currentBrief(), HeldWork: describeHeldWork(m.pendingWork)}
+	in := turnjudge.Input{Message: input, Brief: m.currentBrief(), HeldWork: describeHeldWork(m.pendingWork), RecentTurns: uses.RecentTurns}
 	for _, h := range history {
 		if strings.TrimSpace(h.Content) == "" {
 			continue
@@ -118,10 +119,11 @@ func (m Model) stopRequestedBackground() []backgroundJob {
 
 // relevanceJudge is Jev's Tier 2 relevance judge, nil when Jev is off.
 func (m Model) relevanceJudge() retrieval.RelevanceJudge {
-	if m.jev == nil {
+	uses := m.Config.TypeSafe.Uses()
+	if m.jev == nil || !uses.RetrievalRelevance {
 		return nil
 	}
-	return turnjudge.RelevanceJudge{Asker: m.jev}
+	return turnjudge.RelevanceJudge{Asker: m.jev, BatchSize: uses.BatchSize}
 }
 
 // relevanceDrop is the configured "no" threshold as a probability: a file
@@ -143,7 +145,8 @@ const reviewerShard = "reviewer"
 // (review_finding_check), and returns a note naming each finding the kernel
 // derives as refuted; "" when none is, or Jev is off, or the check failed.
 func (m Model) checkReviewFindings(ctx context.Context, reviewID, result string) string {
-	if m.jev == nil || m.kernel == nil {
+	uses := m.Config.TypeSafe.Uses()
+	if m.jev == nil || m.kernel == nil || !uses.ReviewChecks {
 		return ""
 	}
 	var findings []turnjudge.Finding
@@ -154,7 +157,8 @@ func (m Model) checkReviewFindings(ctx context.Context, reviewID, result string)
 		findings = append(findings, turnjudge.Finding{File: file, Line: line, Message: msg})
 	}
 	log := logging.Get(logging.CategoryShards)
-	verdicts, err := turnjudge.CheckFindings(ctx, m.jev, m.workspace, findings)
+	verdicts, err := turnjudge.CheckFindings(ctx, m.jev, m.workspace, findings,
+		turnjudge.FindingOptions{BatchSize: uses.BatchSize, ContextLines: uses.FindingContextLines})
 	if err != nil {
 		log.Warn("jev: review %s findings unchecked: %v", reviewID, err)
 		return ""

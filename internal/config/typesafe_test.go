@@ -140,3 +140,29 @@ func TestTypeSafe_FullJSONKeepsAbsentOffAndPresentWhole(t *testing.T) {
 		t.Fatalf("present section did not round-trip: %v %+v", err, cfg.TypeSafe)
 	}
 }
+
+func TestTypeSafeUses_DefaultsSwitchesAndTuning(t *testing.T) {
+	var none *TypeSafeConfig
+	if u := none.Uses(); u.TurnJudgments || u.RetrievalRelevance {
+		t.Fatal("no section must mean every use off")
+	}
+	off := false
+	c := &TypeSafeConfig{RetrievalRelevance: &off, BatchSize: 7}
+	u := c.Uses()
+	if !u.TurnJudgments || u.RetrievalRelevance || !u.ReviewChecks || !u.DiagnosisTriage {
+		t.Fatalf("switches = %+v, want every use on but retrieval relevance", u)
+	}
+	if u.BatchSize != 7 || u.RecentTurns != DefaultTypeSafeUses().RecentTurns {
+		t.Fatalf("tuning = %+v, want batch 7 and the default window", u)
+	}
+	bad := &TypeSafeConfig{Model: "m", BaseURL: "https://x", APIKey: "k", RecentTurns: -1}
+	found := false
+	for _, p := range bad.Check("typesafe") {
+		if p.Path == "typesafe.recent_turns" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("a negative recent_turns must be refused")
+	}
+}

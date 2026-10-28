@@ -36,6 +36,77 @@ type TypeSafeConfig struct {
 	// Defaults 70 and 30, TypeSafe's own starting thresholds.
 	JudgmentYesPercent int `json:"judgment_yes_percent,omitempty"`
 	JudgmentNoPercent  int `json:"judgment_no_percent,omitempty"`
+
+	// Where Jev is used; each is on when the section exists and the key is
+	// absent (Docs/architecture/jev-turn-judgments.md).
+	TurnJudgments      *bool `json:"turn_judgments,omitempty"`
+	RetrievalRelevance *bool `json:"retrieval_relevance,omitempty"`
+	ReviewChecks       *bool `json:"review_checks,omitempty"`
+	DiagnosisTriage    *bool `json:"diagnosis_triage,omitempty"`
+
+	// Tuning; zero means the default (TypeSafeUses).
+	RecentTurns         int `json:"recent_turns,omitempty"`
+	BatchSize           int `json:"batch_size,omitempty"`
+	RelevancePoolFactor int `json:"relevance_pool_factor,omitempty"`
+	RelevanceHeadBytes  int `json:"relevance_head_bytes,omitempty"`
+	FindingContextLines int `json:"finding_context_lines,omitempty"`
+}
+
+// TypeSafeUses is the typesafe section resolved: which uses are on, and the
+// tuning each reads. The defaults are sized to Jev's context (64k tokens per
+// request, docs.typesafe.ai/models).
+type TypeSafeUses struct {
+	TurnJudgments, RetrievalRelevance, ReviewChecks, DiagnosisTriage bool
+	// RecentTurns bounds the prior turns a turn judgment sees.
+	RecentTurns int
+	// BatchSize bounds the questions in one request; batches run in parallel.
+	BatchSize int
+	// RelevancePoolFactor widens the keyword pool Jev judges beyond what
+	// retrieval's Tier 2 keeps.
+	RelevancePoolFactor int
+	// RelevanceHeadBytes bounds each file's head in a relevance question.
+	RelevanceHeadBytes int
+	// FindingContextLines is how many lines either side of a review
+	// finding's citation Jev sees.
+	FindingContextLines int
+}
+
+// DefaultTypeSafeUses is every use on with the default tuning.
+func DefaultTypeSafeUses() TypeSafeUses {
+	return TypeSafeUses{
+		TurnJudgments: true, RetrievalRelevance: true, ReviewChecks: true, DiagnosisTriage: true,
+		RecentTurns: 12, BatchSize: 20, RelevancePoolFactor: 6, RelevanceHeadBytes: 3000, FindingContextLines: 12,
+	}
+}
+
+// Uses resolves the section. A nil section is every use off: Jev is not
+// configured.
+func (c *TypeSafeConfig) Uses() TypeSafeUses {
+	if c == nil {
+		return TypeSafeUses{}
+	}
+	u := DefaultTypeSafeUses()
+	on := func(b *bool, def bool) bool {
+		if b == nil {
+			return def
+		}
+		return *b
+	}
+	u.TurnJudgments = on(c.TurnJudgments, u.TurnJudgments)
+	u.RetrievalRelevance = on(c.RetrievalRelevance, u.RetrievalRelevance)
+	u.ReviewChecks = on(c.ReviewChecks, u.ReviewChecks)
+	u.DiagnosisTriage = on(c.DiagnosisTriage, u.DiagnosisTriage)
+	set := func(v int, dst *int) {
+		if v > 0 {
+			*dst = v
+		}
+	}
+	set(c.RecentTurns, &u.RecentTurns)
+	set(c.BatchSize, &u.BatchSize)
+	set(c.RelevancePoolFactor, &u.RelevancePoolFactor)
+	set(c.RelevanceHeadBytes, &u.RelevanceHeadBytes)
+	set(c.FindingContextLines, &u.FindingContextLines)
+	return u
 }
 
 // Default Jev thresholds, as percents.
@@ -115,6 +186,14 @@ func (c TypeSafeConfig) Check(prefix string) []Problem {
 	}
 	if yes < 0 || yes > 100 || no < 0 || no > 100 || no >= yes {
 		add("judgment_yes_percent", fmt.Sprintf("yes %d and no %d must be percents with no below yes", yes, no), "for example 70 and 30, or remove both for the defaults")
+	}
+	for field, v := range map[string]int{
+		"recent_turns": c.RecentTurns, "batch_size": c.BatchSize, "relevance_pool_factor": c.RelevancePoolFactor,
+		"relevance_head_bytes": c.RelevanceHeadBytes, "finding_context_lines": c.FindingContextLines,
+	} {
+		if v < 0 {
+			add(field, fmt.Sprintf("%d is negative", v), "a positive number, or remove the key for the default")
+		}
 	}
 	if _, err := c.timeout(); err != nil {
 		add("request_timeout", err.Error(), `a positive Go duration such as "30s", or remove the key for the default`)

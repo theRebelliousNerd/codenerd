@@ -31,15 +31,18 @@ type FindingVerdict struct {
 	Probability float64
 }
 
-// findingContextLines is how many lines either side of the citation Jev sees:
-// enough for the statement and its surroundings; the finding is about that
-// spot, not the whole file.
-const findingContextLines = 12
+// FindingOptions are the check's tuning (typesafe.batch_size,
+// typesafe.finding_context_lines): questions per request, and lines either
+// side of a citation, enough for the statement and its surroundings.
+type FindingOptions struct {
+	BatchSize    int
+	ContextLines int
+}
 
 // CheckFindings judges every finding that cites a readable file and line, in
 // parallel batches. Findings without a usable citation are not judged. Any
 // failed batch fails the check: a partial verdict never flags a review.
-func CheckFindings(ctx context.Context, a Asker, workDir string, findings []Finding) ([]FindingVerdict, error) {
+func CheckFindings(ctx context.Context, a Asker, workDir string, findings []Finding, opts FindingOptions) ([]FindingVerdict, error) {
 	type item struct {
 		f    Finding
 		code string
@@ -49,7 +52,7 @@ func CheckFindings(ctx context.Context, a Asker, workDir string, findings []Find
 		if f.Line <= 0 || strings.TrimSpace(f.File) == "" || strings.TrimSpace(f.Message) == "" {
 			continue
 		}
-		if code, ok := citedLines(workDir, f.File, f.Line); ok {
+		if code, ok := citedLines(workDir, f.File, f.Line, opts.ContextLines); ok {
 			items = append(items, item{f, code})
 		}
 	}
@@ -58,8 +61,9 @@ func CheckFindings(ctx context.Context, a Asker, workDir string, findings []Find
 		err      error
 	}
 	var parts []chan part
-	for start := 0; start < len(items); start += relevanceBatch {
-		batch := items[start:min(start+relevanceBatch, len(items))]
+	size := max(opts.BatchSize, 1)
+	for start := 0; start < len(items); start += size {
+		batch := items[start:min(start+size, len(items))]
 		ch := make(chan part, 1)
 		parts = append(parts, ch)
 		go func() {
@@ -107,7 +111,7 @@ func CheckFindings(ctx context.Context, a Asker, workDir string, findings []Find
 }
 
 // citedLines returns the lines around line in file, numbered as in the file.
-func citedLines(workDir, file string, line int) (string, bool) {
+func citedLines(workDir, file string, line, around int) (string, bool) {
 	path := file
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(workDir, path)
@@ -120,8 +124,8 @@ func citedLines(workDir, file string, line int) (string, bool) {
 	if line > len(lines) {
 		return "", false
 	}
-	from := max(1, line-findingContextLines)
-	to := min(len(lines), line+findingContextLines)
+	from := max(1, line-around)
+	to := min(len(lines), line+around)
 	var b strings.Builder
 	for n := from; n <= to; n++ {
 		fmt.Fprintf(&b, "%d: %s\n", n, lines[n-1])

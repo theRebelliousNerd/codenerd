@@ -29,16 +29,6 @@ type RelevanceCandidate struct {
 	ExcerptOf int
 }
 
-// relevancePoolFactor widens the keyword pool the judge sees beyond the
-// files Tier 2 keeps, so a relevant file ranked low by keywords can rise:
-// keyword ranking puts a doc that names every term above the source file
-// that implements them.
-const relevancePoolFactor = 6
-
-// relevanceExcerptBytes bounds each file's head in the judgment request: Jev
-// reads every question against a 64k-token request context.
-const relevanceExcerptBytes = 3000
-
 // JudgedFile is one Tier 2 candidate's relevance judgment.
 type JudgedFile struct {
 	FilePath    string
@@ -94,8 +84,8 @@ func (b *TieredContextBuilder) relevanceCandidate(c CandidateFile) RelevanceCand
 	}
 	rc.ExcerptOf = len(data)
 	head := string(data)
-	if len(head) > relevanceExcerptBytes {
-		head = strings.ToValidUTF8(head[:relevanceExcerptBytes], "")
+	if b.relevanceHead > 0 && len(head) > b.relevanceHead {
+		head = strings.ToValidUTF8(head[:b.relevanceHead], "")
 	}
 	rc.Excerpt = head
 	return rc
