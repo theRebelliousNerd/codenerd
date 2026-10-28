@@ -459,7 +459,7 @@ Decl debug_why_blocked(TaskID, Dependency) bound [/string, /string].
 
 # campaign_risk_gate_outcome(CampaignID, Gate, Outcome) - one strict gate result
 # Gate: /northstar | /edge | /advisory | /override
-# Outcome: /passed | /blocked | /skipped
+# Outcome: /passed | /blocked | /skipped | /inconclusive (ran, no verdict)
 Decl campaign_risk_gate_outcome(CampaignID, Gate, Outcome) bound [/string, /name, /name].
 
 # campaign_risk_concern(CampaignID, Gate, Severity) - graded concern from a gate

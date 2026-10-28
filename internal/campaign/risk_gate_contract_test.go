@@ -252,6 +252,20 @@ func TestRiskClassification_KernelAndMirror_ShouldAgree(t *testing.T) {
 				Inputs: RiskInputSnapshot{BlockedActions: 1},
 			},
 		}},
+		{"inconclusive northstar on ordinary surface", riskContractFacts{
+			gateOutcomes: []RiskGateResult{{Name: RiskGateNorthstar, Outcome: RiskGateOutcomeInconclusive, Reason: "no llm"}},
+			decision:     &CampaignRiskDecision{Score: 80, Threshold: 70, Gated: true},
+		}},
+		{"inconclusive northstar on protected surface", riskContractFacts{
+			protectedRoots: []string{"internal/core"},
+			gateOutcomes:   []RiskGateResult{{Name: RiskGateNorthstar, Outcome: RiskGateOutcomeInconclusive, Reason: "no llm"}},
+			decision:       &CampaignRiskDecision{Score: 80, Threshold: 70, Gated: true},
+		}},
+		{"failed northstar is advice", riskContractFacts{
+			gateOutcomes: []RiskGateResult{{Name: RiskGateNorthstar, Outcome: RiskGateOutcomePassed, Reason: "drift"}},
+			concerns:     []riskConcern{{gate: RiskGateNorthstar, severity: riskConcernRequiresChanges, detail: "drift"}},
+			decision:     &CampaignRiskDecision{Score: 80, Threshold: 70, Gated: true},
+		}},
 		{"everything passed", riskContractFacts{
 			gateOutcomes: []RiskGateResult{{Name: RiskGateEdge, Outcome: RiskGateOutcomePassed, Reason: "ok"}},
 			decision:     &CampaignRiskDecision{Score: 10, Threshold: 70},

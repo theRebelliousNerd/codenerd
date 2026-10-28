@@ -663,6 +663,9 @@ func InstallDerivedVision(store *Store, nerdDir string, draft *Draft) (InstallRe
 // The insert guard belongs in the transaction: LoadVision followed by
 // SaveVision could overwrite a vision installed by another caller in between.
 func (s *Store) installDerivedVisionIfAbsent(v *Vision) (bool, error) {
+	if err := ValidateVision(v); err != nil {
+		return false, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	values := []any{v.Mission, v.Problem, v.VisionStmt}

@@ -67,6 +67,22 @@ Decl northstar_mitigation(RiskID, Strategy) bound [/string, /name].
 # context that need to SHOW the mitigation read this.
 Decl northstar_mitigation_text(RiskID, Text) bound [/string, /string].
 
+# northstar_mitigation_state(RiskID, State) - lifecycle of the mitigation.
+# State: /proposed | /implemented | /verified | /waived. Mitigation prose alone
+# projects /proposed; only a /verified state with fresh passing evidence
+# derives has_mitigation (prompt_northstar.mg).
+Decl northstar_mitigation_state(RiskID, State) bound [/string, /name].
+
+# northstar_mitigation_evidence(RiskID, Kind, Ref, Outcome, Revision) - one
+# typed check offered as evidence. Outcome: /passed | /failed | /skipped |
+# /cancelled | /unknown. Revision is the full commit SHA the check ran against.
+Decl northstar_mitigation_evidence(RiskID, Kind, Ref, Outcome, Revision) bound [/string, /name, /string, /name, /string].
+
+# northstar_risk_waiver(RiskID, Authority, Scope, Rationale, Expires) - the
+# record a /waived risk requires. Expires is Unix seconds, compared with
+# current_time. A waiver is never a mitigation.
+Decl northstar_risk_waiver(RiskID, Authority, Scope, Rationale, Expires) bound [/string, /string, /string, /string, /number].
+
 # -----------------------------------------------------------------------------
 # 43.5 Requirements
 # -----------------------------------------------------------------------------
@@ -108,10 +124,22 @@ Decl critical_capability(CapID) bound [/string].
 # high_risk(RiskID) - Derived: risk has high likelihood AND impact
 Decl high_risk(RiskID) bound [/string].
 
-# has_mitigation(RiskID) - Helper: risk has at least one mitigation
+# fresh_mitigation_evidence(RiskID) - passing evidence bound to the current git HEAD
+Decl fresh_mitigation_evidence(RiskID) bound [/string].
+
+# failing_mitigation_evidence(RiskID) - non-passing evidence at the current git HEAD
+Decl failing_mitigation_evidence(RiskID) bound [/string].
+
+# verified_mitigation(RiskID) - /verified with fresh passing and no fresh failing evidence
+Decl verified_mitigation(RiskID) bound [/string].
+
+# active_risk_waiver(RiskID) - /waived with an unexpired waiver record
+Decl active_risk_waiver(RiskID) bound [/string].
+
+# has_mitigation(RiskID) - Helper: risk has a verified mitigation (prose alone never counts)
 Decl has_mitigation(RiskID) bound [/string].
 
-# unmitigated_risk(RiskID) - Derived: high risk without mitigation
+# unmitigated_risk(RiskID) - Derived: high risk with no verified mitigation and no active waiver
 Decl unmitigated_risk(RiskID) bound [/string].
 
 # capability_addresses_need(CapID, PersonaID, Need) - Capability serves persona need

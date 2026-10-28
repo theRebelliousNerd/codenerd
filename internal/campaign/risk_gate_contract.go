@@ -151,6 +151,8 @@ func FormatRiskEvaluation(eval *RiskGateEvaluation) string {
 				state = "passed"
 			case RiskGateOutcomeBlocked:
 				state = "BLOCKED"
+			case RiskGateOutcomeInconclusive:
+				state = "UNKNOWN"
 			}
 			sb.WriteString(fmt.Sprintf("    %-11s %-8s %s\n", r.Name, state, truncateForDisplay(r.Reason, 120)))
 		}
@@ -367,7 +369,7 @@ func (o *Orchestrator) queryRiskFindings(pred, campaignID string, severity RiskB
 func annotateRiskFindings(findings []RiskFinding, m riskContractFacts) {
 	detail := make(map[RiskGateName]string, len(m.gateOutcomes))
 	for _, r := range m.gateOutcomes {
-		if r.Outcome == RiskGateOutcomeBlocked {
+		if r.Outcome == RiskGateOutcomeBlocked || r.Outcome == RiskGateOutcomeInconclusive {
 			detail[r.Name] = r.Reason
 		}
 	}
@@ -414,9 +416,13 @@ func riskGatePrecedence(name RiskGateName) int {
 func mirrorRiskClassification(m riskContractFacts) []RiskFinding {
 	hard := make(map[RiskGateName]string)
 	blocked := make([]RiskGateName, 0, len(m.gateOutcomes))
+	var inconclusive []RiskGateName
 	for _, r := range m.gateOutcomes {
-		if r.Outcome == RiskGateOutcomeBlocked {
+		switch r.Outcome {
+		case RiskGateOutcomeBlocked:
 			blocked = append(blocked, r.Name)
+		case RiskGateOutcomeInconclusive:
+			inconclusive = append(inconclusive, r.Name)
 		}
 	}
 
@@ -437,6 +443,11 @@ func mirrorRiskClassification(m riskContractFacts) []RiskFinding {
 			hard[gate] = "/gated_with_critical_signals"
 		}
 	}
+	if len(m.protectedRoots) > 0 {
+		for _, gate := range inconclusive {
+			hard[gate] = "/protected_surface_unassessed"
+		}
+	}
 	for _, c := range m.concerns {
 		if c.severity == riskConcernBlocking {
 			hard[c.gate] = "/critical_advisor_rejection"
@@ -453,6 +464,11 @@ func mirrorRiskClassification(m riskContractFacts) []RiskFinding {
 	for _, gate := range blocked {
 		if _, isHard := hard[gate]; !isHard {
 			findings = append(findings, RiskFinding{Gate: gate, Reason: "/advisory_only", Severity: RiskSeveritySoft})
+		}
+	}
+	for _, gate := range inconclusive {
+		if _, isHard := hard[gate]; !isHard {
+			findings = append(findings, RiskFinding{Gate: gate, Reason: "/inconclusive", Severity: RiskSeveritySoft})
 		}
 	}
 	for _, c := range m.concerns {

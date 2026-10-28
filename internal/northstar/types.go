@@ -116,6 +116,7 @@ func (v *Vision) ToFacts() []types.Fact {
 			facts = append(facts, types.Fact{Predicate: "northstar_mitigation", Args: []any{r.ID, MitigationStrategyAtom(r.Mitigation)}})
 			facts = append(facts, types.Fact{Predicate: "northstar_mitigation_text", Args: []any{r.ID, types.MangleString(r.Mitigation)}})
 		}
+		facts = append(facts, r.mitigationFacts()...)
 	}
 
 	for _, req := range v.Requirements {
@@ -264,12 +265,19 @@ type Capability struct {
 }
 
 // Risk represents an identified risk with likelihood, impact, and mitigation.
+//
+// Mitigation is prose: what the operator intends to do. Whether that intent is
+// real is MitigationStatus plus MitigationEvidence (see mitigation.go); prose
+// alone never counts as a mitigation for has_mitigation/1.
 type Risk struct {
-	ID          string `json:"id"`
-	Description string `json:"description"`
-	Likelihood  string `json:"likelihood"` // "high", "medium", "low"
-	Impact      string `json:"impact"`     // "high", "medium", "low"
-	Mitigation  string `json:"mitigation"`
+	ID                 string               `json:"id"`
+	Description        string               `json:"description"`
+	Likelihood         string               `json:"likelihood"` // "high", "medium", "low"
+	Impact             string               `json:"impact"`     // "high", "medium", "low"
+	Mitigation         string               `json:"mitigation"`
+	MitigationStatus   MitigationStatus     `json:"mitigation_status,omitempty"`
+	MitigationEvidence []MitigationEvidence `json:"mitigation_evidence,omitempty"`
+	Waiver             *RiskWaiver          `json:"waiver,omitempty"`
 }
 
 // Requirement represents a formal requirement.
@@ -356,7 +364,24 @@ const (
 	AlignmentFailed  AlignmentResult = "failed"  // Significant drift
 	AlignmentBlocked AlignmentResult = "blocked" // Cannot proceed without fix
 	AlignmentSkipped AlignmentResult = "skipped" // Check skipped (no vision defined)
+	// AlignmentUnknown means no assessment happened: no LLM was available, the
+	// completion failed, or the response carried no usable verdict. It is a
+	// non-passing state. It used to be reported as passed (no LLM, score 0.8) or
+	// as a default 0.7 score that the warning threshold classified as passed,
+	// which made "nobody looked" indistinguishable from "aligned".
+	AlignmentUnknown AlignmentResult = "unknown"
 )
+
+// Assessed reports whether the result is an actual verdict on the subject.
+// Skipped and unknown checks carry no score worth averaging or displaying.
+func (r AlignmentResult) Assessed() bool {
+	switch r {
+	case AlignmentPassed, AlignmentWarning, AlignmentFailed, AlignmentBlocked:
+		return true
+	default:
+		return false
+	}
+}
 
 // =============================================================================
 // DRIFT DETECTION TYPES

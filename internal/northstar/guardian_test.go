@@ -288,8 +288,9 @@ func TestGuardian_CheckAlignment_NoVision(t *testing.T) {
 	if check.Result != AlignmentSkipped {
 		t.Errorf("expected Skipped result, got %s", check.Result)
 	}
-	if check.Score != 1.0 {
-		t.Errorf("expected score 1.0, got %f", check.Score)
+	// Skipped carries no score: 1.0 used to read as "perfectly aligned".
+	if check.Score != 0 {
+		t.Errorf("expected no score for a skipped check, got %f", check.Score)
 	}
 }
 
@@ -342,11 +343,12 @@ func TestGuardian_CheckAlignment_NoLLM(t *testing.T) {
 		t.Fatalf("CheckAlignment error: %v", err)
 	}
 
-	if check.Result != AlignmentPassed {
-		t.Errorf("expected Passed result without LLM, got %s", check.Result)
+	// NS-VISION-02: no LLM means no assessment, never "assumed aligned".
+	if check.Result != AlignmentUnknown {
+		t.Errorf("expected Unknown result without LLM, got %s", check.Result)
 	}
-	if check.Score != 0.8 {
-		t.Errorf("expected score 0.8 without LLM, got %f", check.Score)
+	if check.Score != 0 {
+		t.Errorf("expected no score without LLM, got %f", check.Score)
 	}
 }
 
@@ -375,8 +377,8 @@ func TestGuardian_CheckAlignment_NoLLM_RecordsHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CheckAlignment error: %v", err)
 	}
-	if check.Result != AlignmentPassed {
-		t.Fatalf("expected passed result, got %s", check.Result)
+	if check.Result != AlignmentUnknown {
+		t.Fatalf("expected unknown result, got %s", check.Result)
 	}
 
 	history, err := store.GetAlignmentHistory(10)
@@ -473,12 +475,13 @@ func TestGuardian_CheckAlignment_EmptyResponse(t *testing.T) {
 	if check == nil {
 		t.Fatalf("expected check to be returned, got nil")
 	}
-	// The default fallback score is 0.7, which classifyScore evaluates to AlignmentPassed by default.
-	if check.Result != AlignmentPassed {
-		t.Errorf("expected fallback result to be AlignmentPassed, got %v", check.Result)
+	// NS-VISION-02: an empty response used to keep a default 0.7 that the
+	// default warning threshold classified as passed. It is now unknown.
+	if check.Result != AlignmentUnknown {
+		t.Errorf("expected empty response to be AlignmentUnknown, got %v", check.Result)
 	}
-	if check.Score != 0.7 {
-		t.Errorf("expected fallback score to be 0.7, got %v", check.Score)
+	if check.Score != 0 {
+		t.Errorf("expected no score for an empty response, got %v", check.Score)
 	}
 }
 func TestGuardian_CheckAlignment_Warning(t *testing.T) {

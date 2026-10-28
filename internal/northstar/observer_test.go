@@ -59,9 +59,12 @@ func TestCampaignObserver_StartCampaign(t *testing.T) {
 
 	observer := NewCampaignObserver(guardian)
 
-	err := observer.StartCampaign(context.Background(), "campaign-1", "Build feature X")
+	check, err := observer.StartCampaign(context.Background(), "campaign-1", "Build feature X")
 	if err != nil {
 		t.Fatalf("StartCampaign error: %v", err)
+	}
+	if check == nil || check.Result != AlignmentSkipped {
+		t.Fatalf("StartCampaign without a vision must report skipped, got %+v", check)
 	}
 
 	observer.mu.RLock()

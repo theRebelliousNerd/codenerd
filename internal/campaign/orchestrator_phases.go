@@ -429,7 +429,13 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 				logging.Campaign("Northstar blocked phase %s: %v", phaseID, err)
 				return fmt.Errorf("northstar alignment failed: %w", err)
 			}
-			if check != nil {
+			// Phase gates are advisory except for an explicit blocked verdict
+			// (handled above); the protected-surface hard stop for unassessed
+			// alignment is the preflight's job. An unassessed phase check is
+			// still reported as unassessed, never as a score.
+			if check != nil && !check.Result.Assessed() {
+				logging.CampaignWarn("Northstar phase %s alignment %s (not assessed): %s", phaseID, check.Result, check.Explanation)
+			} else if check != nil {
 				logging.Campaign("Northstar phase check: %s score=%.2f", check.Result, check.Score)
 			}
 		}

@@ -63,6 +63,11 @@ const (
 	SyncImported VisionSyncDirection = "imported"
 	// SyncExported means the store was newer and was written out to JSON + .mg.
 	SyncExported VisionSyncDirection = "exported"
+	// SyncRejected means the JSON surface could not be parsed or failed
+	// ValidateVision. Nothing was written anywhere: the store stays the
+	// authority and the operator's file is left exactly as they wrote it, so
+	// they can fix it rather than find it overwritten by an export.
+	SyncRejected VisionSyncDirection = "rejected"
 )
 
 // VisionSyncResult describes what SyncVisionAuthority did.
@@ -123,13 +128,17 @@ type WizardCapability struct {
 	Serves      []string `json:"serves,omitempty"`
 }
 
-// WizardRisk mirrors the wizard's risk shape.
+// WizardRisk mirrors the wizard's risk shape. The mitigation status, evidence
+// and waiver fields are optional; a risk without them is a proposal.
 type WizardRisk struct {
-	ID          string `json:"id,omitempty"`
-	Description string `json:"description"`
-	Likelihood  string `json:"likelihood"`
-	Impact      string `json:"impact"`
-	Mitigation  string `json:"mitigation"`
+	ID                 string               `json:"id,omitempty"`
+	Description        string               `json:"description"`
+	Likelihood         string               `json:"likelihood"`
+	Impact             string               `json:"impact"`
+	Mitigation         string               `json:"mitigation"`
+	MitigationStatus   MitigationStatus     `json:"mitigation_status,omitempty"`
+	MitigationEvidence []MitigationEvidence `json:"mitigation_evidence,omitempty"`
+	Waiver             *RiskWaiver          `json:"waiver,omitempty"`
 }
 
 // WizardRequirement mirrors the wizard's requirement shape.
@@ -187,13 +196,10 @@ func (d *WizardDocument) ToVision() *Vision {
 		if id == "" {
 			id = fmt.Sprintf("risk_%d", i+1)
 		}
-		v.Risks = append(v.Risks, Risk{
-			ID:          id,
-			Description: r.Description,
-			Likelihood:  r.Likelihood,
-			Impact:      r.Impact,
-			Mitigation:  r.Mitigation,
-		})
+		risk := cloneRisk(Risk(r))
+		risk.ID = id
+		risk.MitigationStatus = MitigationStatus(normalizeEnumWord(string(r.MitigationStatus)))
+		v.Risks = append(v.Risks, risk)
 	}
 	for i, r := range d.Requirements {
 		id := strings.ToLower(strings.TrimSpace(r.ID))
@@ -249,7 +255,7 @@ func WizardDocumentFromVision(v *Vision) *WizardDocument {
 		})
 	}
 	for _, r := range v.Risks {
-		d.Risks = append(d.Risks, WizardRisk(r))
+		d.Risks = append(d.Risks, WizardRisk(cloneRisk(r)))
 	}
 	for _, r := range v.Requirements {
 		d.Requirements = append(d.Requirements, WizardRequirement{
@@ -290,7 +296,7 @@ func LoadVisionJSON(nerdDir string) (*Vision, error) {
 	}
 	var doc WizardDocument
 	if err := json.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
+		return nil, fmt.Errorf("%w: parse %s: %w", ErrVisionImportRejected, path, err)
 	}
 	v := doc.ToVision()
 	if v == nil || v.Mission == "" {
@@ -298,6 +304,9 @@ func LoadVisionJSON(nerdDir string) (*Vision, error) {
 		// vision. Importing it would flip northstar_defined() on and start
 		// gating campaigns against nothing.
 		return nil, nil
+	}
+	if err := ValidateVision(v); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return v, nil
 }
@@ -408,6 +417,16 @@ func normalizeVision(v *Vision) Vision {
 			c.Capabilities[i].Serves = []string{}
 		}
 	}
+	for i := range c.Risks {
+		if len(c.Risks[i].MitigationEvidence) == 0 {
+			c.Risks[i].MitigationEvidence = nil
+		}
+		if w := c.Risks[i].Waiver; w != nil {
+			// A JSON round trip drops the monotonic reading and may change the
+			// zone representation; compare the instant, not the encoding.
+			w.Expires = w.Expires.UTC().Round(0)
+		}
+	}
 	for i := range c.Requirements {
 		if c.Requirements[i].Supports == nil {
 			c.Requirements[i].Supports = []string{}
@@ -449,11 +468,15 @@ func SyncVisionAuthority(store *Store, nerdDir string) (VisionSyncResult, error)
 	}
 	fileVision, err := LoadVisionJSON(nerdDir)
 	if err != nil {
-		// A corrupt import surface must not take the guardian down; the store
-		// stays authoritative and the operator gets a loud line.
+		// A corrupt or invalid import surface must not take the guardian down,
+		// and must not be "repaired" by exporting the store over it: that used
+		// to silently discard the operator's edit. Nothing is written; the
+		// store stays authoritative and the caller gets the diagnostics.
 		logging.Get(logging.CategoryNorthstar).Warn(
-			"northstar.json is unreadable (%v); continuing with the store as sole authority", err)
-		fileVision = nil
+			"northstar.json rejected (%v); the store remains the sole authority and the file was left untouched", err)
+		res.Direction = SyncRejected
+		res.Vision = stored
+		return res, err
 	}
 
 	switch {

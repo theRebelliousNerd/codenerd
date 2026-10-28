@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/northstar"
 	"codenerd/internal/projectdoc"
 )
 
@@ -65,6 +66,12 @@ const (
 	RiskGateOutcomePassed  RiskGateOutcome = "/passed"
 	RiskGateOutcomeBlocked RiskGateOutcome = "/blocked"
 	RiskGateOutcomeSkipped RiskGateOutcome = "/skipped"
+	// RiskGateOutcomeInconclusive means the gate ran but produced no verdict
+	// (e.g. the northstar alignment check had no LLM, errored, or got a
+	// malformed answer). It is neither passed nor blocked: campaign_rules.mg
+	// Section 13 makes it a hard stop on protected surfaces and a soft warning
+	// elsewhere, so "nobody assessed this" can never read as "assessed and fine".
+	RiskGateOutcomeInconclusive RiskGateOutcome = "/inconclusive"
 )
 
 type riskGateResolved struct {
@@ -365,8 +372,9 @@ func (o *Orchestrator) runRiskPreflight(ctx context.Context) (*RiskGateEvaluatio
 
 	if decision.NorthstarGateEnabled {
 		o.northstarObserver = o.configuredNorthstarObserver
-		res := o.runNorthstarRiskGate(ctx)
+		res, concerns := o.runNorthstarRiskGate(ctx)
 		measured.gateOutcomes = append(measured.gateOutcomes, res)
+		measured.concerns = append(measured.concerns, concerns...)
 		o.emitRiskAudit(EventRiskGateResult, "Northstar gate evaluated", map[string]any{
 			"gate":    string(res.Name),
 			"outcome": string(res.Outcome),
@@ -682,28 +690,56 @@ func applyRiskThreshold(score, threshold int, inputs RiskInputSnapshot, gates ri
 // lives in riskGatePrecedence (risk_gate_contract.go) and applies only AFTER
 // the kernel has separated hard findings from advisory ones.
 
-func (o *Orchestrator) runNorthstarRiskGate(ctx context.Context) RiskGateResult {
+// runNorthstarRiskGate grades the campaign goal's alignment check into a gate
+// outcome plus concerns. The mapping is the documented contract (NS-VISION-04):
+//
+//	blocked          -> /blocked       (hard everywhere: /vision_alignment)
+//	unknown / error  -> /inconclusive  (hard on protected surfaces, soft elsewhere)
+//	failed           -> /passed + /requires_changes concern (soft warning)
+//	warning, passed  -> /passed
+//	skipped          -> /skipped       (no vision defined: nothing to align with)
+//
+// It used to report /passed for everything except blocked, including checks
+// that never ran an assessment at all.
+func (o *Orchestrator) runNorthstarRiskGate(ctx context.Context) (RiskGateResult, []riskConcern) {
+	res := RiskGateResult{Name: RiskGateNorthstar, Enabled: true}
 	if o.northstarObserver == nil || o.campaign == nil {
-		return RiskGateResult{
-			Name:    RiskGateNorthstar,
-			Enabled: false,
-			Outcome: RiskGateOutcomeSkipped,
-			Reason:  "northstar observer not configured",
-		}
+		res.Enabled = false
+		res.Outcome = RiskGateOutcomeSkipped
+		res.Reason = "northstar observer not configured"
+		return res, nil
 	}
-	if err := o.northstarObserver.StartCampaign(ctx, o.campaign.ID, o.campaign.Goal); err != nil {
-		return RiskGateResult{
-			Name:    RiskGateNorthstar,
-			Enabled: true,
-			Outcome: RiskGateOutcomeBlocked,
-			Reason:  err.Error(),
-		}
+	check, err := o.northstarObserver.StartCampaign(ctx, o.campaign.ID, o.campaign.Goal)
+	if err != nil || check == nil {
+		res.Outcome = RiskGateOutcomeInconclusive
+		res.Reason = fmt.Sprintf("northstar alignment not assessed: %v", err)
+		return res, nil
 	}
-	return RiskGateResult{
-		Name:    RiskGateNorthstar,
-		Enabled: true,
-		Outcome: RiskGateOutcomePassed,
-		Reason:  "northstar campaign start alignment passed",
+	res.Data = map[string]any{"result": string(check.Result), "check_id": check.ID}
+	if check.Result.Assessed() {
+		res.Data["score"] = check.Score
+	}
+	switch check.Result {
+	case northstar.AlignmentBlocked:
+		res.Outcome = RiskGateOutcomeBlocked
+		res.Reason = "campaign goal does not align with vision: " + check.Explanation
+		return res, nil
+	case northstar.AlignmentFailed:
+		res.Outcome = RiskGateOutcomePassed
+		res.Reason = "northstar alignment failed (advisory): " + check.Explanation
+		return res, []riskConcern{{gate: RiskGateNorthstar, severity: riskConcernRequiresChanges, detail: res.Reason}}
+	case northstar.AlignmentPassed, northstar.AlignmentWarning:
+		res.Outcome = RiskGateOutcomePassed
+		res.Reason = fmt.Sprintf("northstar campaign start alignment %s", check.Result)
+		return res, nil
+	case northstar.AlignmentSkipped:
+		res.Outcome = RiskGateOutcomeSkipped
+		res.Reason = "northstar alignment skipped: " + check.Explanation
+		return res, nil
+	default:
+		res.Outcome = RiskGateOutcomeInconclusive
+		res.Reason = "northstar alignment not assessed: " + check.Explanation
+		return res, nil
 	}
 }
 

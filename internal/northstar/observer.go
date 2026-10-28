@@ -50,8 +50,14 @@ func NewCampaignObserver(guardian *Guardian) *CampaignObserver {
 	}
 }
 
-// StartCampaign initializes observation for a new campaign.
-func (o *CampaignObserver) StartCampaign(ctx context.Context, campaignID, goal string) error {
+// StartCampaign initializes observation for a new campaign and returns the
+// goal's alignment check. It does not decide whether the campaign may start:
+// the campaign risk gate grades the check (blocked, unknown, failed, passed)
+// under the kernel's hard/soft contract. It used to return an error only for
+// blocked, which collapsed "unassessed" and "failed" into "passed".
+//
+// With no vision defined the check is the guardian's skipped result.
+func (o *CampaignObserver) StartCampaign(ctx context.Context, campaignID, goal string) (*AlignmentCheck, error) {
 	o.mu.Lock()
 	o.campaignID = campaignID
 	o.currentPhase = ""
@@ -59,19 +65,14 @@ func (o *CampaignObserver) StartCampaign(ctx context.Context, campaignID, goal s
 	o.phaseChecks = make(map[string]*AlignmentCheck)
 	o.mu.Unlock()
 
-	// Perform initial alignment check for the campaign goal
-	if o.guardian.HasVision() {
-		check, err := o.guardian.CheckAlignment(ctx, TriggerCampaignStart, goal,
-			fmt.Sprintf("Campaign %s starting with goal: %s", campaignID, goal))
-		if err != nil {
-			logging.Get(logging.CategoryNorthstar).Debug("Campaign start alignment check failed: %v", err)
-		} else if check.Result == AlignmentBlocked {
-			return fmt.Errorf("campaign goal does not align with vision: %s", check.Explanation)
-		}
+	check, err := o.guardian.CheckAlignment(ctx, TriggerCampaignStart, goal,
+		fmt.Sprintf("Campaign %s starting with goal: %s", campaignID, goal))
+	if err != nil {
+		return nil, fmt.Errorf("campaign start alignment check: %w", err)
 	}
 
-	logging.Get(logging.CategoryNorthstar).Info("Campaign observer started for %s", campaignID)
-	return nil
+	logging.Get(logging.CategoryNorthstar).Info("Campaign observer started for %s (alignment %s)", campaignID, check.Result)
+	return check, nil
 }
 
 // OnPhaseStart is called when a new campaign phase begins.
@@ -317,7 +318,7 @@ func (h *BackgroundEventHandler) HandleEvent(ctx context.Context, eventType, sou
 		VisionMatch:  check.Explanation,
 		Deviations:   []string{}, // Not tracked separately
 		Suggestions:  check.Suggestions,
-		Metadata:     map[string]string{"trigger": string(trigger)},
+		Metadata:     map[string]string{"trigger": string(trigger), "result": string(check.Result)},
 		Timestamp:    check.Timestamp,
 	}, nil
 }
@@ -381,6 +382,10 @@ func (h *BackgroundEventHandler) resultToLevel(result AlignmentResult) string {
 		return "clarify"
 	case AlignmentBlocked:
 		return "block"
+	case AlignmentUnknown:
+		// Nobody assessed the event. "note" read as "proceed, with a remark";
+		// an unassessed event needs a human to look, which is "clarify".
+		return "clarify"
 	default:
 		return "note"
 	}

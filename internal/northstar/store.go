@@ -198,6 +198,11 @@ func (s *Store) SaveVision(v *Vision) error {
 	if v == nil {
 		return fmt.Errorf("vision is nil")
 	}
+	// The store is the authority every projection reads; nothing invalid may
+	// reach it, so validation runs before the first byte is written.
+	if err := ValidateVision(v); err != nil {
+		return err
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -472,14 +477,26 @@ func (s *Store) RecordAlignmentCheck(check *AlignmentCheck) error {
 		return fmt.Errorf("failed to record alignment check: %w", err)
 	}
 
-	// Update guardian state
-	_, err = tx.Exec(`
-		UPDATE guardian_state SET
-			last_check = ?,
-			tasks_since_check = 0,
-			overall_alignment = (overall_alignment * 0.8 + ? * 0.2)
-		WHERE id = 1
-	`, check.Timestamp, check.Score)
+	// Update guardian state. Only an actual verdict moves the running
+	// alignment average: a skipped or unknown check has no score, and folding
+	// its placeholder in would drift the average toward whatever constant the
+	// placeholder happened to be.
+	if check.Result.Assessed() {
+		_, err = tx.Exec(`
+			UPDATE guardian_state SET
+				last_check = ?,
+				tasks_since_check = 0,
+				overall_alignment = (overall_alignment * 0.8 + ? * 0.2)
+			WHERE id = 1
+		`, check.Timestamp, check.Score)
+	} else {
+		_, err = tx.Exec(`
+			UPDATE guardian_state SET
+				last_check = ?,
+				tasks_since_check = 0
+			WHERE id = 1
+		`, check.Timestamp)
+	}
 
 	if err != nil {
 		return fmt.Errorf("failed to update guardian state for alignment check: %w", err)

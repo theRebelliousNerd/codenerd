@@ -12,6 +12,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -82,7 +83,12 @@ func loadAuthoritativeVision() (*northstar.Vision, error) {
 	defer func() { _ = store.Close() }()
 
 	if _, err := northstar.SyncVisionAuthority(store, nerdDir); err != nil {
-		return nil, fmt.Errorf("reconcile vision: %w", err)
+		if !errors.Is(err, northstar.ErrVisionImportRejected) {
+			return nil, fmt.Errorf("reconcile vision: %w", err)
+		}
+		// A rejected import changed nothing; the stored vision is still the
+		// authority, so read commands keep working and say why the file was ignored.
+		fmt.Fprintf(os.Stderr, "warning: %v\n         (the stored vision was used; fix the file and run 'nerd northstar sync')\n", err)
 	}
 	vision, err := store.LoadVision()
 	if err != nil {
@@ -146,7 +152,9 @@ var northstarShowCmd = &cobra.Command{
 			for i, r := range v.Risks {
 				fmt.Printf("%d. [%s/%s] %s\n", i+1, r.Likelihood, r.Impact, r.Description)
 				if r.Mitigation != "" && r.Mitigation != "none" {
-					fmt.Printf("   Mitigation: %s\n", r.Mitigation)
+					fmt.Printf("   Mitigation (%s): %s\n", r.EffectiveMitigationStatus(), r.Mitigation)
+				} else if r.EffectiveMitigationStatus() == northstar.MitigationWaived {
+					fmt.Printf("   Waived (not mitigated)\n")
 				}
 			}
 			fmt.Println()
@@ -562,6 +570,7 @@ metrics (total checks, blocked rate, mean score).`,
 		fmt.Printf("Overall alignment:    %.3f\n", metrics.OverallAlignment)
 		fmt.Printf("Blocked rate:         %.1f%%\n", metrics.BlockedRate*100)
 		fmt.Printf("Failed rate:          %.1f%%\n", metrics.FailedRate*100)
+		fmt.Printf("Unassessed rate:      %.1f%%\n", metrics.UnknownRate*100)
 		fmt.Printf("Active drift:         %d\n", metrics.ActiveDrift)
 		fmt.Printf("Resolved drift:       %d\n", metrics.ResolvedDrift)
 		fmt.Printf("Ingested docs:        %d\n", metrics.IngestedDocs)
@@ -640,6 +649,11 @@ var northstarLoadCmd = &cobra.Command{
 		vision := doc.ToVision()
 		if vision == nil || vision.Mission == "" {
 			return fmt.Errorf("invalid northstar: Mission must not be empty")
+		}
+		// Validate before touching anything: a rejected file must leave the
+		// store, the export surfaces and the .nerd directory exactly as they were.
+		if err := northstar.ValidateVision(vision); err != nil {
+			return fmt.Errorf("%s not loaded: %w", args[0], err)
 		}
 
 		nerdDir := northstarNerdDir()
@@ -753,11 +767,11 @@ func generateNorthstarMarkdown(v *northstar.Vision) string {
 
 	if len(v.Risks) > 0 {
 		sb.WriteString("## Risks\n\n")
-		sb.WriteString("| ID | Description | Likelihood | Impact | Mitigation |\n")
-		sb.WriteString("|----|-------------|------------|--------|------------|\n")
+		sb.WriteString("| ID | Description | Likelihood | Impact | Mitigation | Status |\n")
+		sb.WriteString("|----|-------------|------------|--------|------------|--------|\n")
 		for _, r := range v.Risks {
-			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s |\n",
-				r.ID, r.Description, r.Likelihood, r.Impact, r.Mitigation))
+			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s |\n",
+				r.ID, r.Description, r.Likelihood, r.Impact, r.Mitigation, r.EffectiveMitigationStatus()))
 		}
 		sb.WriteString("\n")
 	}

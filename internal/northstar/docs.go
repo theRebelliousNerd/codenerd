@@ -304,17 +304,21 @@ func termOverlap(text, source string) float64 {
 // AlignmentMetrics is the guardian's operational rollup: how much checking has
 // happened, how often it refused, and how aligned the work has been.
 type AlignmentMetrics struct {
-	TotalChecks      int                     `json:"total_checks"`
-	ChecksByResult   map[AlignmentResult]int `json:"checks_by_result"`
-	BlockedRate      float64                 `json:"blocked_rate"`
-	FailedRate       float64                 `json:"failed_rate"`
-	MeanScore        float64                 `json:"mean_score"`
-	OverallAlignment float64                 `json:"overall_alignment"`
-	ActiveDrift      int                     `json:"active_drift"`
-	ResolvedDrift    int                     `json:"resolved_drift"`
-	FirstCheck       time.Time               `json:"first_check,omitempty"`
-	LastCheck        time.Time               `json:"last_check,omitempty"`
-	IngestedDocs     int                     `json:"ingested_docs"`
+	TotalChecks    int                     `json:"total_checks"`
+	ChecksByResult map[AlignmentResult]int `json:"checks_by_result"`
+	BlockedRate    float64                 `json:"blocked_rate"`
+	FailedRate     float64                 `json:"failed_rate"`
+	// UnknownRate is the share of checks that produced no verdict (no LLM,
+	// completion error, malformed response). It is reported rather than
+	// folded into MeanScore, which averages assessed checks only.
+	UnknownRate      float64   `json:"unknown_rate"`
+	MeanScore        float64   `json:"mean_score"`
+	OverallAlignment float64   `json:"overall_alignment"`
+	ActiveDrift      int       `json:"active_drift"`
+	ResolvedDrift    int       `json:"resolved_drift"`
+	FirstCheck       time.Time `json:"first_check,omitempty"`
+	LastCheck        time.Time `json:"last_check,omitempty"`
+	IngestedDocs     int       `json:"ingested_docs"`
 }
 
 // GetMetrics computes the alignment rollup directly in SQL.
@@ -335,6 +339,7 @@ func (s *Store) GetMetrics() (*AlignmentMetrics, error) {
 	defer rows.Close()
 
 	weightedScore := 0.0
+	assessed := 0
 	for rows.Next() {
 		var result string
 		var count int
@@ -344,14 +349,20 @@ func (s *Store) GetMetrics() (*AlignmentMetrics, error) {
 		}
 		m.ChecksByResult[AlignmentResult(result)] = count
 		m.TotalChecks += count
-		weightedScore += avgScore.Float64 * float64(count)
+		if AlignmentResult(result).Assessed() {
+			assessed += count
+			weightedScore += avgScore.Float64 * float64(count)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate alignment metrics: %w", err)
 	}
 
 	if m.TotalChecks > 0 {
-		m.MeanScore = weightedScore / float64(m.TotalChecks)
+		if assessed > 0 {
+			m.MeanScore = weightedScore / float64(assessed)
+		}
+		m.UnknownRate = float64(m.ChecksByResult[AlignmentUnknown]) / float64(m.TotalChecks)
 		m.BlockedRate = float64(m.ChecksByResult[AlignmentBlocked]) / float64(m.TotalChecks)
 		m.FailedRate = float64(m.ChecksByResult[AlignmentFailed]) / float64(m.TotalChecks)
 

@@ -52,6 +52,10 @@ func (k *RealKernel) UpdateSystemFacts() error {
 	}
 
 	branch, branchErr := gitCmd(gitRoot, "rev-parse", "--abbrev-ref", "HEAD")
+	// The full HEAD SHA is what revision-bound evidence is compared against
+	// (northstar mitigation evidence in prompt_northstar.mg): evidence recorded
+	// at another commit must not keep a claim verified.
+	head, headErr := gitCmd(gitRoot, "rev-parse", "HEAD")
 	statusOutput, statusErr := gitCmd(gitRoot, "status", "--porcelain")
 	commitOutput, commitErr := gitCmd(gitRoot, "log", "-n", "5", "--pretty=format:%s")
 
@@ -84,6 +88,11 @@ func (k *RealKernel) UpdateSystemFacts() error {
 	if branch != "" {
 		tx.Assert(Fact{Predicate: "git_state", Args: []any{"/branch", branch}})
 		tx.Assert(Fact{Predicate: "git_branch", Args: []any{branch}})
+	}
+	if head = strings.TrimSpace(head); headErr == nil && head != "" {
+		tx.Assert(Fact{Predicate: "git_state", Args: []any{"/head", head}})
+	} else if headErr != nil {
+		logging.KernelDebug("UpdateSystemFacts: git rev-parse HEAD failed: %v", headErr)
 	}
 	if statusOK && len(modifiedFiles) > 0 {
 		tx.Assert(Fact{Predicate: "git_state", Args: []any{"/modified_files", strings.Join(modifiedFiles, "\n")}})

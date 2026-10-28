@@ -16,13 +16,48 @@ high_risk(RiskID) :-
     northstar_risk(RiskID, _, /high, Impact),
     Impact >= 80.
 
-has_mitigation(RiskID) :-
-    northstar_mitigation(RiskID, _).
+# --- Mitigation state (blueprint section 9, NS-VISION-03) ---
+# has_mitigation used to fire on northstar_mitigation, i.e. on the existence of
+# mitigation PROSE, so writing a plan silenced the unmitigated-risk warning as
+# well as shipping and verifying the control did. A mitigation now counts only
+# when it is /verified AND has /passed evidence bound to the current git HEAD
+# AND no non-passing evidence at that HEAD. A new commit makes the evidence
+# stale and the risk re-surfaces until it is re-verified. Outside a git
+# checkout (no git_state(/head, _)) nothing can be shown fresh: fail closed.
 
-# Derive unmitigated risks (high risk without any mitigation)
+fresh_mitigation_evidence(RiskID) :-
+    northstar_mitigation_evidence(RiskID, _, _, /passed, Revision),
+    git_state(/head, Revision).
+
+# The inequality is not the last literal: "/passed." would lex as one name.
+failing_mitigation_evidence(RiskID) :-
+    northstar_mitigation_evidence(RiskID, _, _, Outcome, Revision),
+    Outcome != /passed,
+    git_state(/head, Revision).
+
+verified_mitigation(RiskID) :-
+    northstar_mitigation_state(RiskID, /verified),
+    fresh_mitigation_evidence(RiskID),
+    !failing_mitigation_evidence(RiskID).
+
+has_mitigation(RiskID) :-
+    verified_mitigation(RiskID).
+
+# A waiver is an authorized acceptance of the risk, recorded as waived and
+# never as mitigated: it derives nothing has_mitigation reads. While unexpired
+# it suppresses the unmitigated warning; once current_time passes Expires (or
+# when no clock fact exists) the risk is unmitigated again.
+active_risk_waiver(RiskID) :-
+    northstar_mitigation_state(RiskID, /waived),
+    northstar_risk_waiver(RiskID, _, _, _, Expires),
+    current_time(Now),
+    Now < Expires.
+
+# Derive unmitigated risks (high risk with no verified mitigation and no active waiver)
 unmitigated_risk(RiskID) :-
     high_risk(RiskID),
-    !has_mitigation(RiskID).
+    !has_mitigation(RiskID),
+    !active_risk_waiver(RiskID).
 
 # --- Alignment Analysis ---
 

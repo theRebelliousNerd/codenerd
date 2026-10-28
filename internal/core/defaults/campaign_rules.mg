@@ -963,6 +963,14 @@ campaign_risk_block(CampaignID, Gate, /protected_surface) :-
     campaign_risk_gate_outcome(CampaignID, Gate, /blocked),
     campaign_protected_surface(CampaignID, _).
 
+# HARD 1b: a gate that ran but produced no verdict (/inconclusive: e.g. the
+# northstar alignment check had no LLM or got a malformed answer) on a
+# protected surface. "Nobody assessed this" is not "assessed and fine" where
+# the change can disable the safety machinery itself.
+campaign_risk_block(CampaignID, Gate, /protected_surface_unassessed) :-
+    campaign_risk_gate_outcome(CampaignID, Gate, /inconclusive),
+    campaign_protected_surface(CampaignID, _).
+
 # HARD 2: northstar alignment is constitutional on every surface.
 campaign_risk_block(CampaignID, /northstar, /vision_alignment) :-
     campaign_risk_gate_outcome(CampaignID, /northstar, /blocked).
@@ -993,6 +1001,11 @@ campaign_risk_blocked_gate(CampaignID, Gate) :-
 # to the operator; the campaign proceeds.
 campaign_risk_warning(CampaignID, Gate, /advisory_only) :-
     campaign_risk_gate_outcome(CampaignID, Gate, /blocked),
+    !campaign_risk_blocked_gate(CampaignID, Gate).
+
+# SOFT: an inconclusive gate on an ordinary surface is surfaced, never passed.
+campaign_risk_warning(CampaignID, Gate, /inconclusive) :-
+    campaign_risk_gate_outcome(CampaignID, Gate, /inconclusive),
     !campaign_risk_blocked_gate(CampaignID, Gate).
 
 # SOFT: requested changes are advice unless a hard rule fired on the same gate.

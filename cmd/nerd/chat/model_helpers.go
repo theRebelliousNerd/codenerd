@@ -398,7 +398,6 @@ func (m *Model) runAlignmentCheck(subject string) tea.Cmd {
 			return alignmentCheckMsg{
 				Subject:     subject,
 				Result:      "skipped",
-				Score:       1.0,
 				Explanation: "No vision defined. Use /northstar to define your project vision first.",
 			}
 		}
@@ -497,6 +496,9 @@ func (m *Model) formatAlignmentCheckResult(msg alignmentCheckMsg) string {
 	case "skipped":
 		emoji = "⏭️"
 		color = "gray"
+	case "unknown":
+		emoji = "❔"
+		color = "gray"
 	default:
 		emoji = "❓"
 		color = "gray"
@@ -505,7 +507,13 @@ func (m *Model) formatAlignmentCheckResult(msg alignmentCheckMsg) string {
 
 	sb.WriteString("**Subject:** " + msg.Subject + "\n\n")
 	sb.WriteString("**Result:** " + emoji + " " + strings.ToUpper(msg.Result) + "\n\n")
-	sb.WriteString("**Alignment Score:** " + formatScore(msg.Score) + "\n\n")
+	// Skipped and unknown checks never produced a score; printing their zero
+	// (or the old placeholder) would present "not assessed" as a measurement.
+	if northstar.AlignmentResult(msg.Result).Assessed() {
+		sb.WriteString("**Alignment Score:** " + formatScore(msg.Score) + "\n\n")
+	} else {
+		sb.WriteString("**Alignment Score:** not assessed\n\n")
+	}
 
 	if msg.Explanation != "" {
 		sb.WriteString("**Explanation:** " + msg.Explanation + "\n\n")
@@ -523,6 +531,8 @@ func (m *Model) formatAlignmentCheckResult(msg alignmentCheckMsg) string {
 	switch msg.Result {
 	case "skipped":
 		sb.WriteString("*Tip: Run `/northstar` to define your project vision.*\n")
+	case "unknown":
+		sb.WriteString("*No assessment was made. This is not a pass: configure an LLM client or retry the check.*\n")
 	case "warning":
 		sb.WriteString("*Consider reviewing the suggestions above to improve alignment.*\n")
 	case "failed", "blocked":

@@ -22,6 +22,7 @@ var northstarPredicatesList = []string{
 	"northstar_persona", "northstar_pain_point", "northstar_need",
 	"northstar_capability", "northstar_serves",
 	"northstar_risk", "northstar_mitigation", "northstar_mitigation_text",
+	"northstar_mitigation_state", "northstar_mitigation_evidence", "northstar_risk_waiver",
 	"northstar_requirement", "northstar_supports", "northstar_addresses",
 	"northstar_constraint", "northstar_defined",
 }
@@ -343,23 +344,23 @@ func (g *Guardian) CheckAlignment(ctx context.Context, trigger AlignmentTrigger,
 		Context:   context,
 	}
 
-	// If no vision, skip
+	// No vision: nothing to align against. Skipped is non-passing and carries
+	// no score; a 1.0 here used to read as "perfectly aligned".
 	if vision == nil {
 		check.Result = AlignmentSkipped
-		check.Score = 1.0
 		check.Explanation = "No vision defined - skipping alignment check"
 		check.Duration = time.Since(startTime)
 		g.persistAlignmentOutcome(check, subject)
 		return check, nil
 	}
 
-	// If no LLM, do basic check
+	// No LLM: no assessment happened. This used to be "passed, 0.8, assuming
+	// aligned", which let every unassessed subject through every gate.
 	if llm == nil {
-		check.Result = AlignmentPassed
-		check.Score = 0.8
-		check.Explanation = "LLM not available for deep analysis - assuming aligned"
+		markUnknown(check, "LLM not available - alignment was not assessed")
 		check.Duration = time.Since(startTime)
 		g.persistAlignmentOutcome(check, subject)
+		g.logCheck(check, "alignment not assessed")
 		return check, nil
 	}
 
@@ -369,9 +370,7 @@ func (g *Guardian) CheckAlignment(ctx context.Context, trigger AlignmentTrigger,
 
 	response, err := g.complete(ctx, llm, systemPrompt, userPrompt)
 	if err != nil {
-		check.Result = AlignmentWarning
-		check.Score = 0.7
-		check.Explanation = fmt.Sprintf("Failed to complete alignment check: %v", err)
+		markUnknown(check, fmt.Sprintf("Alignment check could not complete: %v", err))
 		check.Duration = time.Since(startTime)
 		g.persistAlignmentOutcome(check, subject)
 		g.logCheck(check, "alignment check failed")
@@ -469,8 +468,12 @@ func (g *Guardian) buildAlignmentSystemPrompt(vision *Vision, subject ...string)
 		sb.WriteString("## Risks To Avoid\n")
 		for _, r := range vision.Risks {
 			sb.WriteString(fmt.Sprintf("- [%s/%s] %s", r.Likelihood, r.Impact, r.Description))
+			// The status travels with the prose so the judge never reads a
+			// proposed mitigation as one that exists.
 			if r.Mitigation != "" {
-				sb.WriteString(fmt.Sprintf(" | Mitigation: %s", r.Mitigation))
+				sb.WriteString(fmt.Sprintf(" | Mitigation (%s): %s", r.EffectiveMitigationStatus(), r.Mitigation))
+			} else if r.EffectiveMitigationStatus() == MitigationWaived {
+				sb.WriteString(" | Waived, not mitigated")
 			}
 			sb.WriteString("\n")
 		}
@@ -545,74 +548,6 @@ func (g *Guardian) buildAlignmentUserPrompt(subject, context string) string {
 	}
 	sb.WriteString(AlignmentAtom(atomGuardianUserInstruction))
 	return sb.String()
-}
-
-func (g *Guardian) parseAlignmentResponse(response string, check *AlignmentCheck) {
-	// Default values
-	check.Score = 0.7
-	check.Result = AlignmentWarning
-	check.Explanation = "Unable to parse alignment response"
-	explicitResult := false
-
-	lines := strings.SplitSeq(response, "\n")
-	for line := range lines {
-		line = strings.TrimSpace(line)
-		line = strings.ReplaceAll(line, "\"", "")
-		line = strings.TrimSuffix(line, ",")
-
-		if strings.HasPrefix(line, "SCORE:") {
-			var score float64
-			fmt.Sscanf(strings.TrimPrefix(line, "SCORE:"), "%f", &score)
-			if score >= 0 && score <= 1 {
-				check.Score = score
-			}
-		} else if after, ok := strings.CutPrefix(line, "RESULT:"); ok {
-			result := strings.TrimSpace(after)
-			switch strings.ToLower(result) {
-			case "passed":
-				check.Result = AlignmentPassed
-				explicitResult = true
-			case "warning":
-				check.Result = AlignmentWarning
-				explicitResult = true
-			case "failed":
-				check.Result = AlignmentFailed
-				explicitResult = true
-			case "blocked":
-				check.Result = AlignmentBlocked
-				explicitResult = true
-			}
-		} else if after, ok := strings.CutPrefix(line, "EXPLANATION:"); ok {
-			check.Explanation = strings.TrimSpace(after)
-		} else if after, ok := strings.CutPrefix(line, "SUGGESTIONS:"); ok {
-			sugStr := strings.TrimSpace(after)
-			if sugStr != "none" && sugStr != "" {
-				for s := range strings.SplitSeq(sugStr, ",") {
-					if s = strings.TrimSpace(s); s != "" {
-						check.Suggestions = append(check.Suggestions, s)
-					}
-				}
-			}
-		}
-	}
-
-	// Derive result from score only when the model did not explicitly provide one.
-	if !explicitResult {
-		check.Result = g.classifyScore(check.Score)
-	}
-}
-
-func (g *Guardian) scoreToSeverity(score float64) DriftSeverity {
-	switch g.classifyScore(score) {
-	case AlignmentPassed:
-		return DriftMinor
-	case AlignmentWarning:
-		return DriftModerate
-	case AlignmentFailed:
-		return DriftMajor
-	default:
-		return DriftCritical
-	}
 }
 
 // =============================================================================
@@ -898,19 +833,6 @@ func (g *Guardian) refreshState() error {
 	return nil
 }
 
-func (g *Guardian) classifyScore(score float64) AlignmentResult {
-	if score >= g.config.WarningThreshold {
-		return AlignmentPassed
-	}
-	if score >= g.config.FailureThreshold {
-		return AlignmentWarning
-	}
-	if score >= g.config.BlockThreshold {
-		return AlignmentFailed
-	}
-	return AlignmentBlocked
-}
-
 func cloneVision(v *Vision) *Vision {
 	if v == nil {
 		return nil
@@ -928,7 +850,12 @@ func cloneVision(v *Vision) *Vision {
 		}
 	}
 	clone.Capabilities = append([]Capability(nil), v.Capabilities...)
-	clone.Risks = append([]Risk(nil), v.Risks...)
+	if v.Risks != nil {
+		clone.Risks = make([]Risk, len(v.Risks))
+		for i, r := range v.Risks {
+			clone.Risks[i] = cloneRisk(r)
+		}
+	}
 	clone.Requirements = append([]Requirement(nil), v.Requirements...)
 	clone.Constraints = append([]string(nil), v.Constraints...)
 	return &clone
