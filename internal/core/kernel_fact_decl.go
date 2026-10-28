@@ -51,7 +51,8 @@ import (
 //
 // One documented tolerance remains. Go has no name type, so production code
 // passes bare strings ("coder", "data_integrity") into /name slots, and ToAtom
-// encodes them as strings. Rejecting them would refuse a large number of live
+// encodes them as strings (as it does a MangleAtom missing its slash).
+// Rejecting them would refuse a large number of live
 // producers at once, and their facts are readable by Go consumers that query
 // them back. Such a value is admitted against a bare /name bound only, and the
 // predicate/argument is reported once per process (lenientNameWarning) so each
@@ -303,15 +304,22 @@ func (pa *predAdmission) check(atom ast.Atom, raw []any) error {
 		atom.Predicate.Symbol, strings.Join(reasons, "; "))
 }
 
-// bareStringInNameSlot is the one tolerance: a plain Go string ToAtom encoded
-// as a string, against a bound that is exactly /name.
+// bareStringInNameSlot is the one tolerance: a bare value ToAtom encoded as a
+// string -- a plain Go string, or a MangleAtom without its leading slash, which
+// ToAtom deliberately degrades to a string -- against a bound that is exactly
+// /name. An explicit MangleString is never tolerated.
 func bareStringInNameSlot(bound ast.BaseTerm, c ast.Constant, raw []any, j int) bool {
 	b, ok := bound.(ast.Constant)
 	if !ok || !b.Equals(ast.NameBound) || c.Type != ast.StringType || j >= len(raw) {
 		return false
 	}
-	_, plain := raw[j].(string)
-	return plain
+	switch v := raw[j].(type) {
+	case string:
+		return true
+	case MangleAtom:
+		return !strings.HasPrefix(string(v), "/")
+	}
+	return false
 }
 
 func noteLenientName(sym ast.PredicateSym, j int) {
