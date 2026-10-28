@@ -1,7 +1,7 @@
 ---
 doc-class: deep-dive
 subsystem: verification
-implementation-status: proposed-refinement
+implementation-status: built (see As-built status)
 last-verified: 2026-10-28
 verified-against: 356f65e0e6bb639adaa90ab36212daa714114871
 verification-method: static-source-inspection
@@ -187,3 +187,41 @@ Acceptance criteria for future authorized work:
 7. End-to-end evaluation reports the added costs and quality tradeoffs before any efficiency or reliability claim.
 
 The stopping point of this research is the frozen source-grounded proposal. No implementation or test execution accompanies it.
+
+## As-built status
+
+Verified and built 2026-10-28 on main (after `c28a1212`). Every claim was re-read against current main; none had been fixed since the source freeze.
+
+### Claim ledger
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| Section 1: judge/v2 contract, typed packet, judge-only-done, evidence rounds, final-edit remeasurement are implemented | Confirmed | `judge_contract.go` `parseJudgment`; `evidence_packet.go` `buildEvidencePacket`; `delegation.mg` `delegation_judge_due`, `judge_may_acquire`; `change_evidence.go:70` |
+| Narrative-as-artifact is an intentional exception | Confirmed, kept | `ground` still accepts a narrative citation |
+| V1: a pass cites nothing, so no freshness check runs before `/accept` | Real, fixed. Before: `usable` was the only check (`evidence_packet.go:81`), reached only through citations; `delegation_attempt_accepted` had no applicability conjunct | `applicability.go:52` measures after every round; `verifier.go:382` asserts `judge_evidence_applicability`; `delegation.mg:408-467` |
+| V1: an unreferenced dependency can change while the cited file stays current | Real, fixed | The workspace snapshot (`evidence.Snapshot`) is re-measured, not only the written files |
+| V2: `expand` returns the first B bytes every time; a repeat request re-sends the prefix | Real, fixed. Before: `cutUTF8(it.full, budget)` (`evidence_packet.go:110`) | `evidence_disclosure.go:73`: per-item `disclosed` cursor, next range only, line-aligned |
+| V2: no explicit no-progress disposition | Real, fixed | `unexpandable` reasons (`evidence_disclosure.go:19`) become `Judgment.Unsupplied` and reach `unverifiableReason` |
+| V3: body budget is not a request budget (labels, details, findings, notes, framing uncharged) | Real, fixed | `admit` (`evidence_packet.go:286`) charges header, labels and worst-case markers first; bodies share the rest (`shareFairly`); disclosure charges its framing |
+| V3: follow-on requests accumulate repeated prefixes | Real, fixed by V2: requests still accumulate, but no range is disclosed twice, so each request is at most (1+rounds) budgets plus the task | `config/delegation.go` `JudgeEvidenceBytes` doc |
+
+### What was built
+
+- `observation.Return.Workspace`, set by `withTurnWrites` (`turn_writes.go:21`): the tree the turn's snapshot and writes describe. (The field landed in lane F's commit `c3f9333a`, which committed `subagent.go` whole.)
+- `Applicability` (`/current`, `/superseded`, `/unknown`), measured by the host after every judge round: each changed file by identity, then the workspace snapshot against the bound one. When the attempt bound no snapshot, the tree is measured when the packet is frozen, so the judge window is still covered.
+- Policy: `judge_evidence_current` is required for `delegation_attempt_accepted`; `judge_evidence_historical` (anything not current) derives `/unverifiable`, is excluded from `delegation_attempt_failed` (no worker retry) and from `judge_may_acquire` (no evidence round). Ruling: no new move atom; historical evidence is unverifiable for the workspace now, and the reason says the judgment stands for the attempt as it was.
+- An accepted delegation's reason names the snapshot it was current for.
+- Progressive disclosure: ranges from a cursor; a cut check detail, acceptance summary, finding, note or narrative is expandable from where its body stopped. Ruling: host-owned sequential cursor, no reply-contract change (random-access ranges would need judge/v3).
+- Request admission: labels are never cut; a packet whose labels alone overflow `judge_evidence_bytes` is refused and the judge is unavailable (fail closed). Long lists (untested paths, changed paths, finding messages, notes) moved from labels to bodies so they are cuttable and recoverable.
+- JIT atom `eval/delegation_judge/contract` teaches range requests.
+
+### Tests
+
+`applicability_test.go` (pass over a superseded changed file and over a changed dependency, unknown workspace, current control naming the snapshot); `evidence_disclosure_test.go` (decisive code past the first range reached in three rounds with each line disclosed once, unsuppliable requests named, cursor exhaustion, whole rendered packet within budget, label overflow refused); `verifier_delegation_test.go` broken reply after an evidence round.
+
+### Left open
+
+- Section 7 cost comparison and section 8 production-path evaluation: need live models and held-out tasks.
+- Leases or compare-and-set at acceptance publication: external writers are outside codeNERD's control; the linearization point is the last applicability measurement, and the accepted reason records the snapshot.
+- Remeasurement on supersession (a fresh packet for the new tree): not built; the attempt is unverifiable and the user sees why. A refresh would rerun gates, which is the worker's turn closure, not the judge's.
+- The embedded prompt corpus needs a rebuild for the atom change.

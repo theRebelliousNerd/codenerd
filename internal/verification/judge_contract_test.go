@@ -1,6 +1,7 @@
 package verification
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,7 +81,10 @@ func TestJudgmentGround(t *testing.T) {
 	ret := observation.Return{Outcome: "/done", Output: "done", Writes: []observation.FileWrite{{
 		Path: path, Before: observation.FileState{Known: true}, After: observation.FileState{Known: true, Exists: true, Content: "package a\n"},
 	}}}
-	packet := buildEvidencePacket(1, "/implementation", ret, 24000)
+	packet, err := buildEvidencePacket(context.Background(), 1, "/implementation", ret, 24000)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	judge := func(reply string) *Judgment {
 		t.Helper()
@@ -120,7 +124,10 @@ func TestEvidencePacket_BoundsAndProvenance(t *testing.T) {
 			Path: path, Before: observation.FileState{Known: true}, After: observation.FileState{Known: true, Exists: true, Content: content},
 		}},
 	}
-	p := buildEvidencePacket(1, "/implementation", ret, 4096)
+	p, err := buildEvidencePacket(context.Background(), 1, "/implementation", ret, 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
 	kinds := map[string]EvidenceItem{}
 	for _, it := range p.Items {
 		kinds[it.Kind+"/"+it.Source] = it
@@ -142,5 +149,31 @@ func TestEvidencePacket_BoundsAndProvenance(t *testing.T) {
 	}
 	if p.expandable("E1") {
 		t.Fatal("an unelided item is expandable")
+	}
+}
+
+// Follow-up 2026-10-28: encoding/json maps "Status" onto the status field, so
+// a reply naming both spellings passed the exact-duplicate check and was read
+// as whichever came last. Member names are the contract's, exactly.
+func TestParseJudgment_MemberNamesAreExact(t *testing.T) {
+	for name, reply := range map[string]string{
+		"alias alone":                 `{"contract":"judge/v2","Status":"pass","confidence":0.9,"explanation":"ok"}`,
+		"alias after the canonical":   `{"contract":"judge/v2","status":"insufficient_evidence","Status":"pass","confidence":0.9,"explanation":"ok"}`,
+		"alias before the canonical":  `{"contract":"judge/v2","Status":"pass","status":"insufficient_evidence","confidence":0.9,"explanation":"ok"}`,
+		"confidence alias":            `{"contract":"judge/v2","status":"pass","confidence":0.1,"CONFIDENCE":0.9,"explanation":"ok"}`,
+		"list alias":                  `{"contract":"judge/v2","status":"defect","confidence":0.9,"explanation":"x","citations":["E1"],"Citations":[]}`,
+		"nested alias":                `{"contract":"judge/v2","status":"defect","confidence":0.9,"explanation":"x","citations":["E1"],"corrective_action":{"type":"docs","Type":"tool","query":"q"}}`,
+		"escaped and canonical":       `{"contract":"judge/v2","status":"insufficient_evidence","status":"pass","confidence":0.9,"explanation":"ok"}`,
+		"an object where none is due": `{"contract":"judge/v2","status":"pass","confidence":0.9,"explanation":"ok","suggestions":[{"status":"defect"}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if j, err := parseJudgment(reply, 16384); err == nil {
+				t.Fatalf("parseJudgment(%s) = %+v, want it refused", reply, j)
+			}
+		})
+	}
+	// An escaped spelling that decodes to a contract name is that name.
+	if j, err := parseJudgment(`{"contract":"judge/v2","status":"pass","confidence":0.9,"explanation":"ok"}`, 16384); err != nil || j.Status != JudgePass {
+		t.Fatalf("escaped status = %+v, %v; want a pass", j, err)
 	}
 }

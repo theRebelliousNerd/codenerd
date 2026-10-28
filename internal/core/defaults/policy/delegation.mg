@@ -397,8 +397,24 @@ judge_last_round(Root, A, Last) :-
     judge_round(Root, A, R)
     |> do fn:group_by(Root, A), let Last = fn:max(R).
 
+# Applicability: whatever the judge said, the host measures after each round
+# whether the packet still describes the workspace
+# (internal/verification/applicability.go). A pass cites nothing, so
+# grounding never checked it: until 2026-10-28 a pass over a tree another
+# writer had since changed was accepted. Evidence that is superseded, or whose
+# currency cannot be established, is historical: it is never accepted, never
+# a worker retry (the worker did nothing wrong), and buys no further evidence
+# rounds -- the attempt is unverifiable for the workspace as it is now.
+judge_evidence_current(Root, A) :-
+    judge_evidence_applicability(Root, A, /current).
+
+judge_evidence_historical(Root, A) :-
+    judge_evidence_applicability(Root, A, Applicability),
+    /current != Applicability.
+
 judge_may_acquire(Root, A) :-
     judge_unresolved(Root, A),
+    !judge_evidence_historical(Root, A),
     judge_evidence_requested(Root, A),
     judge_last_round(Root, A, Last),
     config_param(/delegation_judge_evidence_rounds, Rounds),
@@ -406,6 +422,7 @@ judge_may_acquire(Root, A) :-
 
 delegation_attempt_accepted(Root, A) :-
     delegation_attempt(Root, A, /done),
+    judge_evidence_current(Root, A),
     !judge_rejects(Root, A),
     !judge_unresolved(Root, A).
 
@@ -414,7 +431,8 @@ delegation_attempt_accepted(Root, A) :-
 delegation_attempt_failed(Root, A) :-
     delegation_attempt(Root, A, Outcome),
     !delegation_attempt_accepted(Root, A),
-    !judge_unresolved(Root, A).
+    !judge_unresolved(Root, A),
+    !judge_evidence_historical(Root, A).
 
 delegation_attempt_count(Root, N) :-
     delegation_attempt(Root, A, Outcome)
@@ -444,6 +462,9 @@ delegation_move(Root, A, /acquire_evidence) :-
 delegation_move(Root, A, /unverifiable) :-
     judge_unresolved(Root, A),
     !judge_may_acquire(Root, A).
+
+delegation_move(Root, A, /unverifiable) :-
+    judge_evidence_historical(Root, A).
 
 # ONE PERSONA -> VERB TABLE (sweep finding F6). A persona name ("coder", or
 # "/coder" from a delegate_task fact) becomes the verb its turn runs, and the

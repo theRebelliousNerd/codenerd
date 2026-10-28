@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"reflect"
+	"slices"
 	"strings"
 )
 
@@ -78,9 +80,12 @@ type Judgment struct {
 	// labeled as such. It is kept for the record and never becomes a fact.
 	UnsupportedSuspicion string
 	// RequestedEvidence is what an insufficient-evidence reply asked to
-	// see; Expandable the requested items the host can supply.
+	// see; Expandable the requested items the host can supply, and
+	// Unsupplied each other one with why ("E7: every byte of it has been
+	// shown") -- a request that cannot progress is said, not repeated.
 	RequestedEvidence []string
 	Expandable        []string
+	Unsupplied        []string
 	Suggestions       []string
 	CorrectiveAction  *CorrectiveAction
 	// Downgraded says why the host's Status differs from Claimed.
@@ -113,7 +118,7 @@ func parseJudgment(reply string, maxBytes int) (*Judgment, error) {
 	body = strings.TrimPrefix(body, "```")
 	body = strings.TrimSuffix(body, "```")
 	body = strings.TrimSpace(body)
-	if err := rejectDuplicateKeys([]byte(body)); err != nil {
+	if err := checkMembers([]byte(body)); err != nil {
 		return nil, err
 	}
 	dec := json.NewDecoder(strings.NewReader(body))
@@ -212,7 +217,7 @@ func trimIDs(ids []string) []string {
 // labels a suspicion -- is insufficient evidence. An unsupported suspicion is
 // never laundered into a host fact.
 func (j *Judgment) ground(p *EvidencePacket) {
-	j.Grounded, j.Ungrounded, j.Expandable = nil, nil, nil
+	j.Grounded, j.Ungrounded, j.Expandable, j.Unsupplied = nil, nil, nil, nil
 	for _, id := range j.Citations {
 		if p.usable(id) {
 			j.Grounded = append(j.Grounded, id)
@@ -221,8 +226,12 @@ func (j *Judgment) ground(p *EvidencePacket) {
 		}
 	}
 	for _, id := range j.RequestedEvidence {
-		if p.expandable(id) {
+		switch why := p.unexpandable(id); {
+		case slices.Contains(j.Expandable, id):
+		case why == "":
 			j.Expandable = append(j.Expandable, id)
+		default:
+			j.Unsupplied = append(j.Unsupplied, id+": "+why)
 		}
 	}
 	if j.Claimed == JudgeDefect && len(j.Grounded) == 0 {
@@ -235,14 +244,44 @@ func (j *Judgment) ground(p *EvidencePacket) {
 	}
 }
 
-// rejectDuplicateKeys walks every object in a JSON document and refuses one
-// that repeats a key: the decoder would silently keep the last, so a reply
-// could say "status":"defect" and "status":"pass" and be read as either.
-func rejectDuplicateKeys(data []byte) error {
+// replyMembers is the exact member names of each object the reply contract
+// has, read off judgeWire's json tags so the two cannot drift: a member's
+// value is the nested object's names when it holds an object, nil when it
+// holds none.
+var replyMembers = membersOf(reflect.TypeOf(judgeWire{}))
+
+type memberNames map[string]memberNames
+
+func membersOf(t reflect.Type) memberNames {
+	names := memberNames{}
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		ft := f.Type
+		for ft.Kind() == reflect.Pointer || ft.Kind() == reflect.Slice {
+			ft = ft.Elem()
+		}
+		if ft.Kind() == reflect.Struct {
+			names[name] = membersOf(ft)
+		} else {
+			names[name] = nil
+		}
+	}
+	return names
+}
+
+// checkMembers walks every object in a JSON document and refuses one whose
+// member names are not exactly the contract's, or that repeats one. Exact
+// matters: encoding/json maps "Status" onto the status field too, so a reply
+// with "status":"insufficient_evidence" and "Status":"pass" passed an
+// exact-duplicate check and was read as whichever came last (Docs/audits/
+// verification-evidence-and-judge-contracts.md, follow-up 2026-10-28). An
+// escaped spelling that decodes to a contract name is that name.
+func checkMembers(data []byte) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
-	var walk func() error
-	walk = func() error {
+	var walk func(names memberNames, where string) error
+	walk = func(names memberNames, where string) error {
 		tok, err := dec.Token()
 		if err != nil {
 			return err
@@ -253,6 +292,9 @@ func rejectDuplicateKeys(data []byte) error {
 		}
 		switch delim {
 		case '{':
+			if names == nil {
+				return fmt.Errorf("%s holds an object; the contract has none there", where)
+			}
 			seen := map[string]bool{}
 			for dec.More() {
 				keyTok, err := dec.Token()
@@ -260,17 +302,21 @@ func rejectDuplicateKeys(data []byte) error {
 					return err
 				}
 				key, _ := keyTok.(string)
-				if seen[key] {
+				nested, known := names[key]
+				switch {
+				case !known:
+					return fmt.Errorf("%s has the member %q, which is not one of the contract's names (they are exact)", where, key)
+				case seen[key]:
 					return fmt.Errorf("the reply repeats the key %q", key)
 				}
 				seen[key] = true
-				if err := walk(); err != nil {
+				if err := walk(nested, fmt.Sprintf("%q", key)); err != nil {
 					return err
 				}
 			}
 		case '[':
 			for dec.More() {
-				if err := walk(); err != nil {
+				if err := walk(names, where); err != nil {
 					return err
 				}
 			}
@@ -278,7 +324,7 @@ func rejectDuplicateKeys(data []byte) error {
 		_, err = dec.Token() // the closing delimiter
 		return err
 	}
-	if err := walk(); err != nil {
+	if err := walk(replyMembers, "the reply"); err != nil {
 		var syntax *json.SyntaxError
 		if errors.As(err, &syntax) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 			return fmt.Errorf("not a %s object: %w", JudgeContract, err)

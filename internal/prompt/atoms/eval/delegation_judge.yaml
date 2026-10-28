@@ -109,5 +109,5 @@
     - contract, status, confidence and explanation are required.
     - pass: no violations, citations, suspicion, requested evidence or corrective action.
     - defect: cite the IDs that show it. A defect you cannot tie to an item goes in unsupported_suspicion; it will not withhold the attempt.
-    - insufficient_evidence: list the items marked "bytes omitted" that would settle it in requested_evidence; no violations or corrective action.
-    - Use only these keys, each once. corrective_action is optional.
+    - insufficient_evidence: list the items marked "bytes omitted" that would settle it in requested_evidence; no violations or corrective action. Each request shows the next range of an item, never one you have seen; when a range says bytes remain, request the item again for the next.
+    - Use only these keys, spelled exactly as here, each once. corrective_action is optional.

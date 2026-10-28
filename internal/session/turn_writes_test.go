@@ -45,3 +45,16 @@ func TestWithTurnWrites_RecordsEachWriteBeforeAndAfter(t *testing.T) {
 		}
 	}
 }
+
+// The delegation judge measures the turn's workspace again after it judges,
+// so the return names the tree its snapshot and writes describe -- also for a
+// turn that produced no result.
+func TestWithTurnWrites_BindsTheReturnToItsWorkspace(t *testing.T) {
+	ws := t.TempDir()
+	if got := withTurnWrites(observation.Return{}, ws, &ExecutionResult{}).Workspace; got != ws {
+		t.Errorf("Workspace = %q, want %q", got, ws)
+	}
+	if got := withTurnWrites(observation.Return{}, ws, nil).Workspace; got != ws {
+		t.Errorf("Workspace with no result = %q, want %q", got, ws)
+	}
+}

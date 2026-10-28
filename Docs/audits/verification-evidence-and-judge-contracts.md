@@ -207,3 +207,30 @@ No code or tests were changed by this document.
 - A defect citing only the worker's narrative is grounded. It is packet evidence, labelled reported, and for the review rubric it is the very thing being judged.
 
 **Deferred:** toolchain/config/environment identities per check receipt (the observed `Verification` carries none, and none are invented), and the complete-system and calibration evaluation in section 6, which needs live models and held-out tasks. The cheap socket-level cases (empty/null/missing-field/duplicate/out-of-range replies, omitted vs genuine low confidence, stale citation after a concurrent edit, evidence acquisition) are implemented as tests in `internal/verification/*_test.go`.
+
+## Follow-up 2026-10-28 Reply member identity
+
+The research branch (`codenerd-research-docs`) carries an addendum: `rejectDuplicateKeys` compared exact decoded names, but `encoding/json` v1 maps `Status` onto the `status` field, so `{"status":"insufficient_evidence","Status":"pass",...}` passed the duplicate check and decoded as the later value. The same held for `confidence`, list members and nested `corrective_action` members.
+
+## As-built status
+
+Verified and built 2026-10-28 on main.
+
+### Claim ledger
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| Gap A ingress contract, Gap B packet, grounding, decision algorithm, raw judgment vs disposition | Confirmed built (As built 2026-10-27 above) | `judge_contract.go` `parseJudgment`; `evidence_packet.go`; `delegation.mg`; `verifier.go` `VerificationResult` |
+| Follow-up: case-variant names collide in the typed decoder | Real, fixed. Before: `judge_contract.go:241-289` keyed `seen` on the exact string, then `Decode` matched case-insensitively | `checkMembers` (`judge_contract.go:280`) refuses any name not exactly the contract's, at every object level; the allowed names are read off `judgeWire`'s json tags (`replyMembers`, `:251`) so they cannot drift |
+| Follow-up: an escaped spelling of a contract name is that name | Confirmed, kept | escapes decode before the check |
+| Follow-up: a refused reply after a valid evidence round must not turn into acceptance or a rerun | Confirmed, now tested | `TestVerifyWithRetry_ABrokenReplyAfterAnEvidenceRoundFailsClosed` |
+| Freshness/applicability of a pass (section 3 "Freshness and concurrency") | Real, was open; built under the applicability audit | `Docs/audits/verification-applicability-and-progressive-evidence.md` As-built status |
+| Deferred: toolchain/config/environment identity per check | Still open | `observation.Verification` carries none; the workspace snapshot covers `.nerd/config.json` but not the toolchain |
+
+### What was built
+
+`checkMembers` replaces `rejectDuplicateKeys`: exact member names per object, duplicates refused, an object where the contract has none refused. The contract atom now says keys are spelled exactly. Tests: `TestParseJudgment_MemberNamesAreExact` (alias alone, both orders, confidence, list and nested aliases, escaped plus canonical, escaped alone accepted).
+
+### Left open
+
+Per-check toolchain identity, and the section 6 calibration and complete-system evaluation (live models, held-out tasks). The production TUI path was not driven end to end; the verifier tests run the real kernel and policy.

@@ -23,8 +23,12 @@ type DelegationConfig struct {
 	// frozen packet, before the attempt is unverifiable. 0 asks once. A
 	// round re-asks the judge; it never re-runs the worker.
 	JudgeEvidenceRounds *int `json:"judge_evidence_rounds,omitempty"`
-	// JudgeEvidenceBytes bounds the evidence packet the judge is shown (the
-	// diffs and the worker's own account share it), and each expansion.
+	// JudgeEvidenceBytes bounds the evidence packet as the judge reads it --
+	// headers, labels and omission markers as well as the bodies they share
+	// -- and each round's disclosure of requested evidence, framing
+	// included. A judge request is the task, the packet and every range
+	// disclosed so far (no range twice): at most (1+judge_evidence_rounds)
+	// times this, plus the task.
 	JudgeEvidenceBytes *int `json:"judge_evidence_bytes,omitempty"`
 	// JudgeReplyBytes bounds a judge reply; a longer one breaks the reply
 	// contract and the judgment is unavailable.

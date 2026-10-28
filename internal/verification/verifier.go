@@ -345,14 +345,20 @@ func (v *TaskVerifier) VerifyWithRetry(ctx context.Context, d Delegation) (strin
 }
 
 // judge asks the LLM judge about one done attempt, over the attempt's frozen
-// evidence packet, and asserts each round's grounded verdict. While the kernel
-// derives /acquire_evidence -- the judge asked for packet evidence the host
-// can supply, within delegation.judge_evidence_rounds -- it asks again with
-// that evidence expanded, over the same packet. A judge that cannot be had (no
-// client, a failed call, a reply that breaks the contract) is an error: the
-// caller fails closed, and the worker is not re-run for it.
+// evidence packet, and asserts each round's grounded verdict beside the
+// host's measurement of whether the packet still describes the workspace
+// (judge_evidence_applicability). While the kernel derives /acquire_evidence
+// -- the judge asked for packet evidence the host can supply, within
+// delegation.judge_evidence_rounds -- it asks again with the next range of
+// that evidence disclosed. A judge that cannot be had (no client, a failed
+// call, a reply that breaks the contract, a packet whose labels overflow its
+// budget) is an error: the caller fails closed, and the worker is not re-run
+// for it.
 func (v *TaskVerifier) judge(ctx context.Context, k Kernel, root string, attempt int64, d Delegation, ret observation.Return, rubric string) (*Judgment, *EvidencePacket, error) {
-	packet := buildEvidencePacket(attempt, rubric, ret, *d.Config.JudgeEvidenceBytes)
+	packet, err := buildEvidencePacket(ctx, attempt, rubric, ret, *d.Config.JudgeEvidenceBytes)
+	if err != nil {
+		return nil, packet, err
+	}
 	if v.client == nil {
 		return nil, packet, ErrVerificationUnavailable
 	}
@@ -360,6 +366,8 @@ func (v *TaskVerifier) judge(ctx context.Context, k Kernel, root string, attempt
 	if err != nil {
 		return nil, packet, err
 	}
+	// A request is the packet and every range disclosed so far, each held to
+	// delegation.judge_evidence_bytes; no range is disclosed twice.
 	userPrompt := packet.render(d.Task)
 	for round := int64(1); ; round++ {
 		reply, err := v.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
@@ -371,7 +379,8 @@ func (v *TaskVerifier) judge(ctx context.Context, k Kernel, root string, attempt
 			return nil, packet, fmt.Errorf("the judgment broke the %s contract: %w", JudgeContract, err)
 		}
 		judgment.ground(packet)
-		if err := assertJudgment(k, root, attempt, round, judgment); err != nil {
+		applies := packet.measureApplicability(ctx)
+		if err := assertJudgment(k, root, attempt, round, judgment, applies); err != nil {
 			return nil, packet, err
 		}
 		moves, err := derivedFor(k, "delegation_move", root, attempt)
@@ -386,10 +395,10 @@ func (v *TaskVerifier) judge(ctx context.Context, k Kernel, root string, attempt
 }
 
 // assertJudgment asserts one judge round: the round, the grounded verdict
-// (replacing the previous round's), and whether it requested evidence the
-// host can supply.
-func assertJudgment(k Kernel, root string, attempt, round int64, j *Judgment) error {
-	for _, p := range []string{"judge_verdict", "judge_evidence_requested"} {
+// and the evidence's applicability (replacing the previous round's), and
+// whether it requested evidence the host can supply.
+func assertJudgment(k Kernel, root string, attempt, round int64, j *Judgment, applies Applicability) error {
+	for _, p := range []string{"judge_verdict", "judge_evidence_requested", "judge_evidence_applicability"} {
 		if err := k.RetractFact(types.Fact{Predicate: p, Args: []any{root}}); err != nil {
 			return fmt.Errorf("retract the previous round's %s: %w", p, err)
 		}
@@ -397,6 +406,7 @@ func assertJudgment(k Kernel, root string, attempt, round int64, j *Judgment) er
 	facts := []types.Fact{
 		{Predicate: "judge_round", Args: []any{root, attempt, round}},
 		{Predicate: "judge_verdict", Args: []any{root, attempt, types.MangleAtom(j.Status.Atom()), percent(j.Confidence)}},
+		{Predicate: "judge_evidence_applicability", Args: []any{root, attempt, types.MangleAtom(applies.Atom())}},
 	}
 	if len(j.Expandable) > 0 {
 		facts = append(facts, types.Fact{Predicate: "judge_evidence_requested", Args: []any{root, attempt}})
@@ -425,12 +435,17 @@ func turnReason(outcome string, missing []string) string {
 }
 
 // acceptReason says why the kernel accepted, naming an objection it stood
-// over. The judgment itself is left as the judge gave it.
+// over and the workspace the evidence was current for. The judgment itself is
+// left as the judge gave it.
 func acceptReason(r *VerificationResult) string {
+	reason := r.Reason
 	if j := r.Judgment; j != nil && j.Status == JudgeDefect {
-		return fmt.Sprintf("accepted: the turn ended /done; the judge's grounded defect (%.0f%% confidence) is below delegation.judge_reject_confidence: %s", j.Confidence*100, j.Explanation)
+		reason = fmt.Sprintf("accepted: the turn ended /done; the judge's grounded defect (%.0f%% confidence) is below delegation.judge_reject_confidence: %s", j.Confidence*100, j.Explanation)
 	}
-	return r.Reason
+	if p := r.Evidence; p != nil && p.ApplicabilityWhy != "" {
+		reason += "; " + p.ApplicabilityWhy
+	}
+	return reason
 }
 
 // rejectReason says why an attempt was not accepted: the judge's grounded
@@ -442,15 +457,30 @@ func rejectReason(r *VerificationResult) string {
 	return r.Reason
 }
 
-// unverifiableReason says why the judge could not settle the attempt.
+// unverifiableReason says why the attempt cannot be verified: its evidence
+// no longer describes the workspace (or cannot be shown to), or the judge
+// could not settle it -- with each requested item the host could not supply.
 func unverifiableReason(r *VerificationResult) string {
 	j := r.Judgment
+	if p := r.Evidence; p != nil && p.Applicability != "" && p.Applicability != ApplicabilityCurrent {
+		reason := "unverifiable: the evidence the judge read no longer describes the workspace: " + p.ApplicabilityWhy
+		if p.Applicability == ApplicabilityUnknown {
+			reason = "unverifiable: whether the evidence still describes the workspace could not be established: " + p.ApplicabilityWhy
+		}
+		if j != nil {
+			reason += fmt.Sprintf("; the judge's %s stands for the attempt as it was, not for the workspace now", j.Status)
+		}
+		return reason
+	}
 	if j == nil {
 		return "unverifiable: the judge could not settle the attempt"
 	}
 	why := j.Explanation
 	if j.Downgraded != "" {
 		why = j.Downgraded + "; " + why
+	}
+	if len(j.Unsupplied) > 0 {
+		why += "; requested but not suppliable: " + strings.Join(j.Unsupplied, "; ")
 	}
 	return "unverifiable: the judge had insufficient evidence: " + why
 }
@@ -504,7 +534,7 @@ func derivedFor(k Kernel, predicate, root string, attempt int64) ([]string, erro
 // forgetDelegation retracts a finished delegation's facts: they describe
 // attempts that are over.
 func forgetDelegation(k Kernel, root string) {
-	for _, p := range []string{"delegation_request", "delegation_attempt", "judge_verdict", "judge_round", "judge_evidence_requested"} {
+	for _, p := range []string{"delegation_request", "delegation_attempt", "judge_verdict", "judge_round", "judge_evidence_requested", "judge_evidence_applicability"} {
 		if err := k.RetractFact(types.Fact{Predicate: p, Args: []any{root}}); err != nil {
 			logging.SystemShardsWarn("retract %s for %s: %v", p, root, err)
 		}

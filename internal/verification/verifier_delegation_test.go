@@ -2,6 +2,7 @@ package verification
 
 import (
 	"codenerd/internal/config"
+	"codenerd/internal/evidence"
 	"codenerd/internal/observation"
 	"context"
 	"errors"
@@ -304,8 +305,12 @@ func TestVerifyWithRetry_AStaleCitationIsNotADefect(t *testing.T) {
 func TestVerifyWithRetry_TheJudgeReadsTheEvidencePacket(t *testing.T) {
 	dir := t.TempDir()
 	write := changedFile(t, dir, "c.go", "package c\n\nfunc C() int { return 1 }\n")
+	snap, err := evidence.Snapshot(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	client, _, users := scriptedJudge(judgeSays)
-	exec := &stubTaskExecutor{result: "all tests pass", outcome: "/done", writes: []observation.FileWrite{write}, changed: []string{"c.go"}, snapshot: "snap-123"}
+	exec := &stubTaskExecutor{result: "all tests pass", outcome: "/done", writes: []observation.FileWrite{write}, changed: []string{"c.go"}, snapshot: snap, workspace: dir}
 	v := newDelegationVerifier(t, client, nil, exec)
 
 	if _, _, err := v.VerifyWithRetry(context.Background(), delegation("implement C", 1)); err != nil {
@@ -314,7 +319,7 @@ func TestVerifyWithRetry_TheJudgeReadsTheEvidencePacket(t *testing.T) {
 	got := (*users)[0]
 	for _, want := range []string{
 		"[E1] source=kernel kind=verdict: turn verdict /done",
-		"Workspace snapshot: snap-123",
+		"Workspace snapshot: " + snap,
 		"source=observed kind=change: changed c.go (before absent, after sha256:",
 		"+func C() int { return 1 }",
 		"source=reported kind=narrative: the worker's own account",
@@ -352,4 +357,29 @@ func TestRetryTask_TheJudgesCorrectiveActionIsAdviceNotAnAction(t *testing.T) {
 func TestStoreVerification_WhenNoLocalDB_ShouldNotPanic(t *testing.T) {
 	v := NewTaskVerifier(nil, nil, nil, config.JITConfig{})
 	v.storeVerification(delegation("task", 1), &VerificationResult{Accepted: true, Reason: "ok"}, 1, nil)
+}
+
+// A reply that breaks the contract after a valid insufficient-evidence round
+// does not turn the earlier round into acceptance, and the worker runs once.
+func TestVerifyWithRetry_ABrokenReplyAfterAnEvidenceRoundFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	big := "package a\n\n" + strings.Repeat("// filler line to push the diff past the evidence budget\n", 200) + "func Real() int { return 42 }\n"
+	write := changedFile(t, dir, "a.go", big)
+	client, _, users := scriptedJudge(
+		`{"contract":"judge/v2","status":"insufficient_evidence","confidence":0.5,"explanation":"cut","requested_evidence":["E2"]}`,
+		`{"contract":"judge/v2","status":"insufficient_evidence","Status":"pass","confidence":0.9,"explanation":"ok"}`,
+	)
+	exec := &stubTaskExecutor{result: "implemented Real", outcome: "/done", writes: []observation.FileWrite{write}, changed: []string{"a.go"}, workspace: dir}
+	v := newDelegationVerifier(t, client, nil, exec)
+	d := delegation("implement Real", 3)
+	budget := 12000
+	d.Config.JudgeEvidenceBytes = &budget
+
+	_, verdict, err := v.VerifyWithRetry(context.Background(), d)
+	if !errors.Is(err, ErrVerificationUnavailable) || verdict.Accepted {
+		t.Fatalf("VerifyWithRetry = %v (accepted %t), want unavailable", err, verdict.Accepted)
+	}
+	if exec.calls != 1 || len(*users) != 2 {
+		t.Fatalf("worker runs=%d judge rounds=%d, want 1 and 2", exec.calls, len(*users))
+	}
 }

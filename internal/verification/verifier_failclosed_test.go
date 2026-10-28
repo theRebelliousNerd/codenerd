@@ -68,6 +68,9 @@ type stubTaskExecutor struct {
 	writes   []observation.FileWrite
 	changed  []string
 	snapshot string
+	// workspace is the tree each attempt names; newDelegationVerifier gives
+	// a stub without one a fresh, empty tree.
+	workspace string
 }
 
 var _ session.ObservedTaskExecutor = (*stubTaskExecutor)(nil)
@@ -83,7 +86,7 @@ func (s *stubTaskExecutor) ExecuteObserved(_ context.Context, req session.TaskRe
 	}
 	s.calls++
 	s.tasks = append(s.tasks, req.Task)
-	ret := observation.Return{Output: s.result, Outcome: outcome, Writes: s.writes, Changed: s.changed, Snapshot: s.snapshot}
+	ret := observation.Return{Output: s.result, Outcome: outcome, Writes: s.writes, Changed: s.changed, Snapshot: s.snapshot, Workspace: s.workspace}
 	if outcome != "/done" {
 		ret.Missing = s.missing
 	}
@@ -103,6 +106,9 @@ func newDelegationVerifier(t *testing.T, client perception.LLMClient, db *store.
 	k, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
+	}
+	if exec.workspace == "" {
+		exec.workspace = t.TempDir()
 	}
 	v := NewTaskVerifier(client, db, newJudgeCompiler(t), config.DefaultJITConfig())
 	v.SetTaskExecutor(exec)

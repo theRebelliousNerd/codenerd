@@ -7,6 +7,17 @@
 
 ---
 
+## 0. Judge evidence contract (as built 2026-10-28)
+
+Sections below this one predate the judge/v2 rewrite and describe functions that no longer exist; read the code. Current judge evidence contract:
+
+- **Applicability.** After every judge round the host measures whether the packet still describes the workspace (`/current`, `/superseded`, `/unknown`: `internal/verification/applicability.go:52`), from each changed file's identity and the workspace snapshot (`observation.Return.Workspace`, set in `internal/session/turn_writes.go:21`), and asserts `judge_evidence_applicability`. `delegation_attempt_accepted` requires `judge_evidence_current`; anything else is `/unverifiable`, never a retry or an evidence round (`internal/core/defaults/policy/delegation.mg:408-467`).
+- **Progressive disclosure.** A requested item discloses its next range from a per-item cursor; an exhausted or stale item is named in `Judgment.Unsupplied` (`internal/verification/evidence_disclosure.go:19,73`).
+- **Request admission.** `delegation.judge_evidence_bytes` bounds the rendered packet (labels and markers charged, never cut; a packet whose labels overflow is refused) and each disclosure with its framing (`internal/verification/evidence_packet.go:286`).
+- **Exact member names.** A reply's member names must be exactly the contract's at every object level (`checkMembers`, `internal/verification/judge_contract.go:280`).
+
+Audits: `Docs/audits/verification-applicability-and-progressive-evidence.md`, `Docs/audits/verification-evidence-and-judge-contracts.md` (As-built status).
+
 ## 1. Purpose
 
 codeNERD treats the LLM as a **creative center** that will cut corners under pressure: mock handlers, `TODO`, `panic("not implemented")`, invented APIs, empty tests. The **executive** answer is not another free-form chat turn; it is a **deterministic control loop** that:

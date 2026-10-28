@@ -91,6 +91,12 @@ Decl judge_round(Root, Attempt, Round) bound [/string, /number, /number].
 # judge_evidence_requested(Root, Attempt) - the latest round requested packet
 # evidence the host can supply.
 Decl judge_evidence_requested(Root, Attempt) bound [/string, /number].
+# judge_evidence_applicability(Root, Attempt, Applicability) - the host's
+# measurement, after the latest judge round, of whether the attempt's evidence
+# still describes the workspace: /current, /superseded or /unknown.
+Decl judge_evidence_applicability(Root, Attempt, Applicability) bound [/string, /number, /name].
+Decl judge_evidence_current(Root, Attempt) bound [/string, /number].
+Decl judge_evidence_historical(Root, Attempt) bound [/string, /number].
 Decl judge_unresolved(Root, Attempt) bound [/string, /number].
 Decl judge_last_round(Root, Attempt, Round) bound [/string, /number, /number].
 Decl judge_may_acquire(Root, Attempt) bound [/string, /number].

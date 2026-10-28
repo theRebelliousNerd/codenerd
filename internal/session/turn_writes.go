@@ -15,8 +15,10 @@ import (
 // writes, including the ones outside anything it declared (ladder C4: a
 // rollback of the declared write set kept the coder's edit to a file outside
 // it, which imported the file the rollback removed, and the tree stopped
-// building).
+// building). The return is bound to that workspace too: it is the tree the
+// turn's snapshot was measured over.
 func withTurnWrites(ret observation.Return, workspace string, res *ExecutionResult) observation.Return {
+	ret.Workspace = workspace
 	if res == nil {
 		return ret
 	}
