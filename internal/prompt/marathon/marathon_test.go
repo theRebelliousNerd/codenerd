@@ -3,14 +3,18 @@ package marathon
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"codenerd/internal/atomjudge"
 	"codenerd/internal/prompt"
 	"codenerd/internal/types"
+	"codenerd/internal/typesafe"
 )
 
 // ---------------------------------------------------------------------------
@@ -372,7 +376,8 @@ func TestRun_EmitsPinnedVariantsToOverlay(t *testing.T) {
 	var ticks []Progress
 	res, err := Run(context.Background(), Config{
 		Workspace: workspace, Client: client, MaxAtoms: 2, Resume: false,
-		Progress: func(p Progress) { ticks = append(ticks, p) },
+		Admission: atomjudge.Admission{MaxChars: 1500},
+		Progress:  func(p Progress) { ticks = append(ticks, p) },
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -428,11 +433,63 @@ func TestRun_EmitsPinnedVariantsToOverlay(t *testing.T) {
 	}
 
 	// A resumed run skips the decided atoms and continues with the next ones.
-	res2, err := Run(context.Background(), Config{Workspace: workspace, Client: client, MaxAtoms: 2, Resume: true})
+	res2, err := Run(context.Background(), Config{Workspace: workspace, Client: client, MaxAtoms: 2, Resume: true, Admission: atomjudge.Admission{MaxChars: 1500}})
 	if err != nil {
 		t.Fatalf("resume Run: %v", err)
 	}
 	if res2.AtomsResumed != 2 || res2.AtomsOptimized != 2 {
 		t.Errorf("resume: resumed=%d optimized=%d, want 2/2", res2.AtomsResumed, res2.AtomsOptimized)
+	}
+}
+
+// knownAsker reads every variant as known by default: all of it is ordinary
+// practice (the known Score's top level).
+type knownAsker struct{}
+
+func (knownAsker) Ask(_ context.Context, _ any, questions map[string]typesafe.Question) (*typesafe.Response, error) {
+	answers := map[string]json.RawMessage{}
+	for name := range questions {
+		score := 0.2
+		if name == atomjudge.QuestionKnown {
+			score = 3.9
+		}
+		answers[name] = json.RawMessage(fmt.Sprintf(`{"type":"score","score":%g,"confidence":0.9,"legend":{"0":"a"},"probabilities":{"0":1}}`, score))
+	}
+	raw, _ := json.Marshal(map[string]any{"model": "jev-test", "answers": answers, "usage": map[string]int{"input_tokens": 1, "output_tokens": 0}})
+	var r typesafe.Response
+	return &r, json.Unmarshal(raw, &r)
+}
+
+// A variant the admission check refuses is not stored, is counted and named,
+// and is decided: a resumed run does not pay to regenerate it.
+func TestRun_RefusedVariantIsNotStored(t *testing.T) {
+	workspace := t.TempDir()
+	fc := &fakeClient{
+		provider: "anthropic", model: "claude-opus-4-20260501", supports: true,
+		searchResult: groundedResult("Use clear instructions.", "https://docs.example.com/prompting"),
+		completion:   "changed: true\nrationale: \"tightened per docs\"\ncontent: |\n  Write clear names.\n",
+	}
+	client := groundingClient{identifyingClient{fc}}
+	adm := atomjudge.Admission{Asker: knownAsker{}, MaxChars: 1500, Yes: 0.7}
+	res, err := Run(context.Background(), Config{Workspace: workspace, Client: client, MaxAtoms: 1, Admission: adm})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.AtomsRefused != 1 || res.AtomsOptimized != 0 || len(res.Refusals) != 1 || !strings.Contains(res.Refusals[0], atomjudge.KnownByDefault) {
+		t.Fatalf("refused=%d optimized=%d refusals=%v", res.AtomsRefused, res.AtomsOptimized, res.Refusals)
+	}
+	res2, err := Run(context.Background(), Config{Workspace: workspace, Client: client, MaxAtoms: 1, Resume: true, Admission: adm})
+	if err != nil {
+		t.Fatalf("resume Run: %v", err)
+	}
+	if res2.AtomsResumed != 1 {
+		t.Fatalf("resume: resumed=%d, want the refused atom decided", res2.AtomsResumed)
+	}
+}
+
+func TestRun_RequiresAnAdmissionBound(t *testing.T) {
+	client := groundingClient{identifyingClient{&fakeClient{provider: "anthropic", model: "claude-opus-4-20260501", supports: true}}}
+	if _, err := Run(context.Background(), Config{Workspace: t.TempDir(), Client: client}); err == nil || !strings.Contains(err.Error(), "atom_max_chars") {
+		t.Fatalf("Run without a bound: %v", err)
 	}
 }

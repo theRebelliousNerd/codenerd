@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"codenerd/internal/atomjudge"
 	nerdconfig "codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/embedding"
@@ -22,6 +23,7 @@ import (
 	"codenerd/internal/prompt/marathon"
 	"codenerd/internal/store"
 	"codenerd/internal/types"
+	"codenerd/internal/typesafe"
 	"codenerd/internal/world"
 
 	"github.com/spf13/cobra"
@@ -255,12 +257,17 @@ func runMarathon(ctx context.Context, workspace string, client perception.LLMCli
 	if err != nil {
 		return err
 	}
+	admission, err := buildMarathonAdmission(workspace)
+	if err != nil {
+		return err
+	}
 
 	var lastLine int
 	res, err := marathon.Run(ctx, marathon.Config{
 		Workspace:   workspace,
 		Client:      client,
 		EmbedEngine: embedEngine,
+		Admission:   admission,
 		MaxAtoms:    marathonMaxAtoms,
 		Resume:      !marathonRestart,
 		Progress: func(p marathon.Progress) {
@@ -326,6 +333,28 @@ func buildMarathonEmbedder(workspace string) (embedding.EmbeddingEngine, error) 
 			"and the embedding engine is unavailable: %w", err)
 	}
 	return engine, nil
+}
+
+// buildMarathonAdmission resolves the check every variant passes before it is
+// stored: the jit.atom_max_chars bound, and Jev's atomicity reading when the
+// typesafe section is on with atom_checks (atomjudge.AdmissionFor).
+func buildMarathonAdmission(workspace string) (atomjudge.Admission, error) {
+	appCfg, err := nerdconfig.LoadUserConfig(workspace)
+	if err != nil {
+		return atomjudge.Admission{}, fmt.Errorf("--marathon: load config: %w", err)
+	}
+	if appCfg == nil {
+		appCfg = nerdconfig.DefaultUserConfig()
+	}
+	client, err := typesafe.FromConfig(appCfg.TypeSafe)
+	if err != nil {
+		return atomjudge.Admission{}, fmt.Errorf("--marathon: typesafe client: %w", err)
+	}
+	var asker atomjudge.Asker
+	if client != nil {
+		asker = client
+	}
+	return atomjudge.AdmissionFor(asker, appCfg.TypeSafe, appCfg.GetEffectiveJITConfig().AtomMaxChars, 0), nil
 }
 
 // configureInitLLM builds init's clients from .nerd/config.json the way boot

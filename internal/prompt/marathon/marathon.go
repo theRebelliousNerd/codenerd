@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"codenerd/internal/atomicfile"
+	"codenerd/internal/atomjudge"
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
@@ -48,6 +49,13 @@ type Config struct {
 	// Resume continues from an existing checkpoint instead of starting over.
 	// Default true; a fresh run is the explicit choice.
 	Resume bool
+
+	// Admission checks every variant before it is stored: within
+	// jit.atom_max_chars, one concern, not known by default, not padded
+	// (atomjudge.Admission). A variant is a rewrite of its base by design, so
+	// it is compared with no existing atom. Required: a run without a bound
+	// is refused.
+	Admission atomjudge.Admission
 
 	// Progress receives one update per atom when non-nil.
 	Progress func(Progress)
@@ -91,6 +99,9 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	}
 	if cfg.Client == nil {
 		return nil, fmt.Errorf("marathon: an LLM client is required")
+	}
+	if cfg.Admission.MaxChars <= 0 {
+		return nil, fmt.Errorf("marathon: an admission bound (jit.atom_max_chars) is required")
 	}
 
 	// Phase 1 -- serving identity. Hard fail.
@@ -156,7 +167,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 			result.AtomsResumed++
 			continue
 		}
-		if budget > 0 && (result.AtomsOptimized+result.AtomsUnchanged+result.AtomsFailed) >= budget {
+		if budget > 0 && (result.AtomsOptimized+result.AtomsUnchanged+result.AtomsRefused+result.AtomsFailed) >= budget {
 			break
 		}
 
@@ -172,6 +183,27 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 			result.AtomsUnchanged++
 			cp.markDecided(base)
 		default:
+			verdict, admErr := cfg.Admission.Check(ctx, optimized.Atom, nil)
+			if admErr != nil {
+				result.AtomsFailed++
+				result.Errors = append(result.Errors, fmt.Sprintf("admit %s: %v", optimized.Atom.ID, admErr))
+				optErr = admErr
+				optimized = nil
+				break
+			}
+			if !verdict.Admit() {
+				// A refused variant is decided: the same base and profile
+				// would produce the same refusal on the next run.
+				result.AtomsRefused++
+				result.Refusals = append(result.Refusals, fmt.Sprintf("%s: %s", optimized.Atom.ID, verdict))
+				logging.Get(logging.CategoryJIT).Info("Marathon: %s refused: %s", optimized.Atom.ID, verdict)
+				cp.markDecided(base)
+				optimized = nil
+				break
+			}
+			if verdict.Decision == atomjudge.Unjudged {
+				logging.Get(logging.CategoryJIT).Info("Marathon: %s stored unjudged: %s", optimized.Atom.ID, verdict.Reason)
+			}
 			if err := emitVariant(ctx, loader, db, optimized); err != nil {
 				result.AtomsFailed++
 				result.Errors = append(result.Errors, fmt.Sprintf("emit %s: %v", optimized.Atom.ID, err))
@@ -200,8 +232,8 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 
 	result.Duration = time.Since(start)
 	logging.Get(logging.CategoryJIT).Info(
-		"Marathon complete: optimized=%d unchanged=%d failed=%d resumed=%d in %v",
-		result.AtomsOptimized, result.AtomsUnchanged, result.AtomsFailed,
+		"Marathon complete: optimized=%d unchanged=%d refused=%d failed=%d resumed=%d in %v",
+		result.AtomsOptimized, result.AtomsUnchanged, result.AtomsRefused, result.AtomsFailed,
 		result.AtomsResumed, result.Duration)
 
 	return result, nil

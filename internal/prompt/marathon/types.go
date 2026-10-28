@@ -124,6 +124,10 @@ type Result struct {
 	AtomsUnchanged  int `json:"atoms_unchanged"`
 	AtomsFailed     int `json:"atoms_failed"`
 	AtomsResumed    int `json:"atoms_resumed"`
+	// AtomsRefused counts variants the admission check refused; Refusals
+	// names each with the decision and its evidence.
+	AtomsRefused int      `json:"atoms_refused"`
+	Refusals     []string `json:"refusals,omitzero"`
 
 	Citations []Citation    `json:"citations,omitzero"`
 	Duration  time.Duration `json:"duration"`

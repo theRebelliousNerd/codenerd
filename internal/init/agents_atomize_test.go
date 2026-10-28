@@ -120,7 +120,7 @@ func TestResplitPromptsYAML_SplitsOversizeAndPreservesFields(t *testing.T) {
 
 func TestSplitMarkdownSections_UnbrokenTextStillSplits(t *testing.T) {
 	body := strings.Repeat("word ", 2000) // 10000 chars, no headings or paragraphs
-	pieces := splitMarkdownSections(body, testAtomCap)
+	pieces := splitMarkdownSections(body, testAtomCap, false)
 	require.Greater(t, len(pieces), 1)
 	total := 0
 	for _, p := range pieces {

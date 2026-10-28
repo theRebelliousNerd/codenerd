@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/atomjudge"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
@@ -284,6 +285,10 @@ type Initializer struct {
 	// atomCapOnce resolves jit.atom_max_chars once (atomMaxChars).
 	atomCapOnce sync.Once
 	atomCap     int
+	// admissionOnce resolves the generated-atom admission check once
+	// (atomAdmission, agents_admission.go).
+	admissionOnce sync.Once
+	admission     atomjudge.Admission
 
 	config              InitConfig
 	out                 io.Writer

@@ -39,16 +39,17 @@ type mdSection struct {
 // then packs any piece still over maxChars at paragraph, line, and finally
 // word boundaries. Every returned body is non-empty and at most maxChars
 // runes. A heading with no body of its own rides into the next section
-// instead of becoming a stub atom.
-func splitMarkdownSections(content string, maxChars int) []mdSection {
+// instead of becoming a stub atom. With perHeading false a body within the
+// cap stays one atom (an identity, whose base must not shrink to its first
+// line); with perHeading true every section is its own atom, because a
+// generated body is written one concern per section and each section must
+// be selectable on its own.
+func splitMarkdownSections(content string, maxChars int, perHeading bool) []mdSection {
 	content = strings.TrimSpace(strings.ReplaceAll(content, "\r\n", "\n"))
 	if content == "" {
 		return nil
 	}
-	// A body already within the cap is one atom, headings and all: splitting
-	// a 900-character identity into per-heading fragments would leave the
-	// mandatory base atom holding only its first line.
-	if utf8.RuneCountInString(content) <= maxChars {
+	if !perHeading && utf8.RuneCountInString(content) <= maxChars {
 		return []mdSection{{Body: content}}
 	}
 	var sections []mdSection
@@ -234,12 +235,13 @@ func sectionTitle(s mdSection) string {
 	return strings.Join(words, " ")
 }
 
-// atomizeContent turns one markdown body into capped atoms under baseID.
+// atomizeContent turns one markdown body into capped atoms under baseID,
+// one per heading when perHeading (splitMarkdownSections).
 // The first piece keeps baseID (and the concise/min variants, which describe
 // the whole), so existing depends_on references to baseID keep resolving;
 // later pieces get baseID/<slug> ids.
-func atomizeContent(baseID, category, subcategory string, mandatory bool, dependsOn []string, description, concise, min, content string, atomCap int) []agentPromptAtom {
-	pieces := splitMarkdownSections(content, atomCap)
+func atomizeContent(baseID, category, subcategory string, mandatory bool, dependsOn []string, description, concise, min, content string, atomCap int, perHeading bool) []agentPromptAtom {
+	pieces := splitMarkdownSections(content, atomCap, perHeading)
 	if len(pieces) == 0 {
 		pieces = []mdSection{{Body: strings.TrimSpace(content)}}
 	}
@@ -331,7 +333,7 @@ func resplitPromptsYAML(data []byte, atomCap int) ([]byte, bool, error) {
 			out = append(out, item)
 			continue
 		}
-		pieces := splitMarkdownSections(content, atomCap)
+		pieces := splitMarkdownSections(content, atomCap, false)
 		if len(pieces) <= 1 {
 			out = append(out, item)
 			continue

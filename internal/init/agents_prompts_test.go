@@ -157,7 +157,10 @@ func TestGenerateAgentPromptsYAML_DistinctLLMContentProducesDistinctFiles(t *tes
 	}
 }
 
-func TestGenerateAgentPromptsYAML_NilLLMClientFallsBackToStaticTemplate(t *testing.T) {
+// With no model to write a methodology or domain, the specialist gets its
+// identity alone: a generic template only rode into every prompt as advice the
+// model already follows, or as "[Add specific concepts]" placeholders.
+func TestGenerateAgentPromptsYAML_NilLLMClientWritesIdentityOnly(t *testing.T) {
 	tmp := t.TempDir()
 	ini := &Initializer{config: InitConfig{Workspace: tmp, LLMClient: nil}}
 
@@ -174,16 +177,11 @@ func TestGenerateAgentPromptsYAML_NilLLMClientFallsBackToStaticTemplate(t *testi
 	data, err := os.ReadFile(promptsPath)
 	require.NoError(t, err)
 
-	ids := parseAtomIDs(t, data)
-	require.Len(t, ids, 3)
-	assert.Contains(t, ids, "goexpert/identity")
-	assert.Contains(t, ids, "goexpert/methodology")
-	assert.Contains(t, ids, "goexpert/domain")
-
+	assert.Equal(t, []string{"goexpert/identity"}, parseAtomIDs(t, data))
 	content := string(data)
-	assert.Contains(t, content, "Understand the full context before acting")
-	assert.Contains(t, content, "Key Concepts")
-	assert.Contains(t, content, "Common Pitfalls")
+	assert.Contains(t, content, "Expert in Go idioms")
+	assert.NotContains(t, content, "Understand the full context before acting")
+	assert.NotContains(t, content, "[Add specific")
 }
 
 func TestGenerateAgentPromptsYAML_YAMLHostileLLMOutputStillParsesWithExpectedAtomIds(t *testing.T) {

@@ -54,7 +54,8 @@ const initFallbackNone = 0
 
 // generateAgentPromptsYAMLWithContext generates prompts.yaml with methodology
 // and domain content written by the planner client (the main client when no
-// planner is configured), falling back to the static template on any failure.
+// planner is configured), each atom admitted by the generated-atom check
+// (agents_admission.go); a failed generation writes no atom for its body.
 // The atoms are the specialist's standing instructions for every later task,
 // which is why they are planner work. Each request is bounded by withJITPrompt's
 // per-call deadline, and generation is per-agent so one bad agent cannot poison
@@ -88,14 +89,15 @@ func (i *Initializer) generateAgentPromptsYAMLWithContext(ctx context.Context, a
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	// A winning imported subagent or mode carries its own prompt. That text
-	// is the methodology and the domain; a generated template would replace
-	// the definition the corpus already stated.
+	// A winning imported subagent or mode carries its own prompt: the
+	// user's own definition, written once as the methodology body (it was
+	// written as both bodies, so every piece reached the prompt twice) and
+	// not judged by the generated-atom admission check.
 	if imported := ecosystemImportedPrompt(i.config.Workspace, agent.Name); imported != "" {
 		topicsStr := strings.Join(agent.Topics, ", ")
 		domainExpertise := formatDomainExpertise(agent.Topics)
 		agentNameLower := strings.ToLower(agent.Name)
-		yamlStr := buildPromptsYAML(agentNameLower, agent.Name, agent.Description, domainExpertise, topicsStr, imported, imported, i.atomMaxChars())
+		yamlStr := buildPromptsYAML(agentNameLower, agent.Name, agent.Description, domainExpertise, topicsStr, imported, "", i.atomMaxChars())
 		if err := validatePromptsYAML([]byte(yamlStr), agentNameLower, i.atomMaxChars()); err != nil {
 			logging.BootWarn("Imported prompt for %s failed validation: %v", agent.Name, err)
 		} else {
@@ -110,67 +112,36 @@ func (i *Initializer) generateAgentPromptsYAMLWithContext(ctx context.Context, a
 	domainExpertise := formatDomainExpertise(agent.Topics)
 	agentNameLower := strings.ToLower(agent.Name)
 
-	// Start with static content; replace with LLM content on success.
-	methodologyContent := staticMethodologyContent()
-	domainContent := staticDomainContent(topicsStr)
-	usingLLM := false
-
+	// Methodology and domain are model-written for this specialist. A failed
+	// or empty generation contributes no atom: a generic template would only
+	// ride into every prompt as advice the model already follows.
+	var methodologyContent, domainContent string
 	if i.route(slotPlanner).client == nil {
-		logging.BootWarn("No LLM client for %s, using static prompts template", agent.Name)
+		logging.BootWarn("No LLM client for %s: prompts.yaml holds its identity only", agent.Name)
 	} else {
-		// Methodology: per-atom bounded generation; failure of one atom does not poison the other.
 		if meth, err := i.generateMethodologyContent(ctx, agent); err != nil {
-			logging.BootWarn("Falling back to static methodology for %s: %v", agent.Name, err)
-		} else if strings.TrimSpace(meth) == "" {
-			logging.BootWarn("Falling back to static methodology for %s: empty LLM response", agent.Name)
+			logging.BootWarn("No methodology atoms for %s: %v", agent.Name, err)
 		} else {
 			methodologyContent = strings.TrimSpace(meth)
-			usingLLM = true
-			logging.Boot("Generated LLM methodology content for %s", agent.Name)
 		}
 		if dom, err := i.generateDomainContent(ctx, agent); err != nil {
-			logging.BootWarn("Falling back to static domain for %s: %v", agent.Name, err)
-		} else if strings.TrimSpace(dom) == "" {
-			logging.BootWarn("Falling back to static domain for %s: empty LLM response", agent.Name)
+			logging.BootWarn("No domain atoms for %s: %v", agent.Name, err)
 		} else {
 			domainContent = strings.TrimSpace(dom)
-			usingLLM = true
-			logging.Boot("Generated LLM domain content for %s", agent.Name)
-		}
-		if !usingLLM {
-			logging.BootWarn("LLM generation produced no usable content for %s, using static template", agent.Name)
 		}
 	}
 
-	yamlStr := buildPromptsYAML(agentNameLower, agent.Name, agent.Description, domainExpertise, topicsStr, methodologyContent, domainContent, i.atomMaxChars())
+	atoms := agentPromptAtoms(agentNameLower, agent.Name, agent.Description, domainExpertise, topicsStr, methodologyContent, domainContent, i.atomMaxChars())
+	atoms = i.admitAgentAtoms(ctx, agentNameLower, atoms)
+	yamlStr := renderPromptsYAML(agent.Name, atoms)
 	if err := validatePromptsYAML([]byte(yamlStr), agentNameLower, i.atomMaxChars()); err != nil {
-		logging.BootWarn("Generated YAML failed validation for %s: %v, falling back to static template", agent.Name, err)
-		yamlStr = buildPromptsYAML(agentNameLower, agent.Name, agent.Description, domainExpertise, topicsStr, staticMethodologyContent(), staticDomainContent(topicsStr), i.atomMaxChars())
-		if err2 := validatePromptsYAML([]byte(yamlStr), agentNameLower, i.atomMaxChars()); err2 != nil {
-			logging.BootWarn("Static template validation failed for %s: %v", agent.Name, err2)
-		}
-		usingLLM = false
-	} else if usingLLM {
-		logging.Boot("Generated LLM-driven prompts.yaml for %s at %s", agent.Name, promptsPath)
+		return fmt.Errorf("generated prompts.yaml for %s: %w", agent.Name, err)
 	}
-
 	if err := os.WriteFile(promptsPath, []byte(yamlStr), 0644); err != nil {
 		return fmt.Errorf("failed to write prompts.yaml: %w", err)
 	}
-	if !usingLLM {
-		logging.Boot("Generated prompts.yaml for %s at %s", agent.Name, promptsPath)
-	}
+	logging.Boot("Generated prompts.yaml for %s at %s (%d atoms)", agent.Name, promptsPath, len(atoms))
 	return nil
-}
-
-// staticMethodologyContent returns the static fallback methodology markdown.
-func staticMethodologyContent() string {
-	return "## Methodology\n\n### Analysis Approach\n- Understand the full context before acting\n- Consider edge cases and failure modes\n- Think through implications of changes\n\n### Implementation Standards\n- Follow language idioms and conventions\n- Write clear, maintainable code\n- Include comprehensive error handling\n- Document non-obvious decisions\n\n### Quality Assurance\n- Verify assumptions before proceeding\n- Test critical paths\n- Consider performance implications\n- Ensure backward compatibility when applicable"
-}
-
-// staticDomainContent returns the static fallback domain markdown with the agent's topics.
-func staticDomainContent(topicsStr string) string {
-	return fmt.Sprintf("## Domain-Specific Knowledge\n\n### Key Concepts\n[Add specific concepts, patterns, or frameworks relevant to this domain]\n\n### Common Pitfalls\n[Add known issues, gotchas, or anti-patterns to avoid]\n\n### Best Practices\n[Add domain-specific best practices and guidelines]\n\n### Resources\nResearch Topics: %s\n\n[Add additional references, documentation links, or learning resources]", topicsStr)
 }
 
 // indentForYAMLBlock indents every non-empty line of content with indent so the
@@ -190,8 +161,8 @@ func indentForYAMLBlock(content, indent string) string {
 }
 
 // validatePromptsYAML parses the assembled YAML and confirms it holds a
-// usable atom set: the base identity/methodology/domain atoms exist (each
-// possibly followed by capped sub-atoms under the same prefix), ids are
+// usable atom set: the identity atom exists, a methodology or domain body's
+// base atom exists whenever a capped sub-atom continues it, ids are
 // unique, contents are non-empty, and no atom exceeds
 // atomCap (jit.atom_max_chars). Any failure is treated as corruption.
 func validatePromptsYAML(data []byte, agentNameLower string, atomCap int) error {
@@ -221,79 +192,74 @@ func validatePromptsYAML(data []byte, agentNameLower string, atomCap int) error 
 			return fmt.Errorf("prompt atom %q content is %d characters, over the %d-character atom cap (jit.atom_max_chars): split it into smaller atoms under the same prefix", a.ID, n, atomCap)
 		}
 	}
-	for _, base := range []string{"/identity", "/methodology", "/domain"} {
-		if !found[agentNameLower+base] {
-			return fmt.Errorf("missing expected atom %q", agentNameLower+base)
+	if !found[agentNameLower+"/identity"] {
+		return fmt.Errorf("missing expected atom %q", agentNameLower+"/identity")
+	}
+	for _, body := range []string{"/methodology", "/domain"} {
+		base := agentNameLower + body
+		for id := range found {
+			if strings.HasPrefix(id, base+"/") && !found[base] {
+				return fmt.Errorf("atom %q continues %q, which is missing", id, base)
+			}
 		}
 	}
 	return nil
 }
 
-// buildPromptsYAML assembles the full prompts.yaml document from its pieces.
-// methodologyContent and domainContent are raw markdown; each body is
-// atomized at its heading boundaries into capped atoms (atomizeContent), so
-// no atom exceeds atomCap (jit.atom_max_chars) however long the generated
-// markdown is. The first piece of each body keeps the base id
-// (<agent>/methodology, <agent>/domain), so depends_on references and the
-// atom counts callers expect are unchanged for short content.
+// buildPromptsYAML assembles the full prompts.yaml document from its pieces
+// (agentPromptAtoms, renderPromptsYAML).
 func buildPromptsYAML(agentNameLower, displayName, description, domainExpertise, topicsStr, methodologyContent, domainContent string, atomCap int) string {
+	return renderPromptsYAML(displayName, agentPromptAtoms(agentNameLower, displayName, description, domainExpertise, topicsStr, methodologyContent, domainContent, atomCap))
+}
+
+// agentPromptAtoms builds a specialist's atoms: the identity from the
+// template, then the methodology and domain markdown, each atomized at its
+// heading boundaries into capped atoms (atomizeContent), so no atom exceeds
+// atomCap (jit.atom_max_chars). The first piece of each body keeps the base id
+// (<agent>/methodology, <agent>/domain). An empty body contributes no atom.
+func agentPromptAtoms(agentNameLower, displayName, description, domainExpertise, topicsStr, methodologyContent, domainContent string, atomCap int) []agentPromptAtom {
 	// domainExpertise arrives pre-indented for the old block-scalar template
 	// (formatDomainExpertise); the identity body is plain markdown here.
 	expertiseLines := strings.Split(domainExpertise, "\n")
 	for i, line := range expertiseLines {
 		expertiseLines[i] = strings.TrimPrefix(line, "    ")
 	}
-	identityContent := fmt.Sprintf(`You are %s, a specialist agent in the codeNERD ecosystem.
-
-## Role
-%s
-
-## Domain Expertise
-%s
-
-## Research Topics
-%s
-
-## Core Responsibilities
-- Provide expert guidance in your domain
-- Follow best practices and established patterns
-- Maintain high code quality standards
-- Integrate seamlessly with the codeNERD architecture
-
-## Execution Mode
-You operate under the control of the codeNERD kernel. You receive structured tasks
-with clear objectives, focus patterns, and success criteria. Execute precisely.`,
+	identityContent := fmt.Sprintf("You are %s, a specialist agent in the codeNERD ecosystem, carrying out the tasks the kernel assigns.\n\nRole: %s\n\nExpertise:\n%s\n\nResearch topics: %s",
 		displayName, description, strings.Join(expertiseLines, "\n"), topicsStr)
 
-	var atoms []agentPromptAtom
-	atoms = append(atoms, atomizeContent(
+	// Identity sub-atoms stay mandatory (atomizeContent propagates the
+	// flag): splitting the identity must not make pieces of who the agent is
+	// optional.
+	atoms := atomizeContent(
 		agentNameLower+"/identity", "identity", agentNameLower, true, nil,
 		"Identity and mission for "+displayName,
 		fmt.Sprintf("You are %s, a specialist agent in the codeNERD ecosystem.\nRole: %s\nTopics: %s", displayName, description, topicsStr),
-		fmt.Sprintf("You are %s (%s). Operate under the codeNERD kernel.", displayName, description),
-		identityContent, atomCap)...)
-	// Identity sub-atoms stay mandatory (atomizeContent propagates the
-	// flag): the identity was one mandatory atom before the cap existed,
-	// and splitting it must not make pieces of who the agent is optional.
-	atoms = append(atoms, atomizeContent(
-		agentNameLower+"/methodology", "methodology", agentNameLower, false,
-		[]string{agentNameLower + "/identity"},
-		"Methodology and quality bar for "+displayName,
-		"- Understand context before acting\n- Consider edge cases and failure modes\n- Write clear, maintainable code\n- Verify with tests when feasible",
-		"Be precise, verify assumptions, and preserve correctness.",
-		methodologyContent, atomCap)...)
-	atoms = append(atoms, atomizeContent(
-		agentNameLower+"/domain", "domain", agentNameLower, false,
-		[]string{agentNameLower + "/identity", agentNameLower + "/methodology"},
-		"Domain knowledge, pitfalls, and references for "+displayName,
-		fmt.Sprintf("Domain focus: %s\nTopics: %s", description, topicsStr),
-		fmt.Sprintf("Apply domain best practices for: %s", topicsStr),
-		domainContent, atomCap)...)
+		fmt.Sprintf("You are %s (%s).", displayName, description),
+		identityContent, atomCap, false)
+	domainDeps := []string{agentNameLower + "/identity"}
+	if strings.TrimSpace(methodologyContent) != "" {
+		atoms = append(atoms, atomizeContent(
+			agentNameLower+"/methodology", "methodology", agentNameLower, false,
+			[]string{agentNameLower + "/identity"},
+			"Methodology for "+displayName, "", "",
+			methodologyContent, atomCap, true)...)
+		domainDeps = append(domainDeps, agentNameLower+"/methodology")
+	}
+	if strings.TrimSpace(domainContent) != "" {
+		atoms = append(atoms, atomizeContent(
+			agentNameLower+"/domain", "domain", agentNameLower, false, domainDeps,
+			"Domain knowledge and pitfalls for "+displayName, "", "",
+			domainContent, atomCap, true)...)
+	}
+	return atoms
+}
 
+// renderPromptsYAML renders a specialist's atoms as its prompts.yaml.
+func renderPromptsYAML(displayName string, atoms []agentPromptAtom) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Prompt atoms for %s\n", displayName)
 	b.WriteString("# These are loaded into the JIT prompt compiler when the agent is spawned.\n")
-	b.WriteString("# Edit this file to customize the agent's identity, methodology, and domain knowledge.\n\n")
+	b.WriteString("# One concern per atom: each is selected and embedded on its own.\n\n")
 	for i, atom := range atoms {
 		if i > 0 {
 			b.WriteString("\n")
@@ -306,12 +272,12 @@ with clear objectives, focus patterns, and success criteria. Execute precisely.`
 // generateAgentAtomContent runs one per-atom generation on the planner route
 // through withJITPrompt, which bounds the request by the configured per-call
 // deadline and accounts for every provider attempt. Timeout and cancellation
-// are wrapped distinctly so callers fall back to the generic (static)
-// template with a clear reason while preserving
+// are wrapped distinctly so callers report a clear reason for the missing
+// atoms while preserving
 // errors.Is(err, context.DeadlineExceeded) and errors.Is(err, context.Canceled).
 func (i *Initializer) generateAgentAtomContent(ctx context.Context, agent RecommendedAgent, kind, phase, task string) (string, error) {
 	if err := ctx.Err(); err != nil {
-		return "", fmt.Errorf("%s generation for %q skipped, parent context done, falling back to generic template: %w", kind, agent.Name, err)
+		return "", fmt.Errorf("%s generation for %q skipped, parent context done: %w", kind, agent.Name, err)
 	}
 	res, err := i.withJITPrompt(ctx, initCall{slot: slotPlanner, phase: phase, task: task},
 		func(callCtx context.Context, client perception.LLMClient, systemPrompt string) (string, error) {
@@ -320,14 +286,14 @@ func (i *Initializer) generateAgentAtomContent(ctx context.Context, agent Recomm
 	if err != nil {
 		switch {
 		case errors.Is(err, context.DeadlineExceeded):
-			return "", fmt.Errorf("%s generation for %q timed out, falling back to generic template: %w", kind, agent.Name, err)
+			return "", fmt.Errorf("%s generation for %q timed out: %w", kind, agent.Name, err)
 		case errors.Is(err, context.Canceled):
-			return "", fmt.Errorf("%s generation for %q canceled, falling back to generic template: %w", kind, agent.Name, err)
+			return "", fmt.Errorf("%s generation for %q canceled: %w", kind, agent.Name, err)
 		}
 		return "", err
 	}
 	if strings.TrimSpace(res) == "" {
-		return "", fmt.Errorf("empty LLM response for %s generation for %q, falling back to generic template", kind, agent.Name)
+		return "", fmt.Errorf("empty LLM response for %s generation for %q, no atoms written", kind, agent.Name)
 	}
 	return strings.TrimSpace(res), nil
 }
