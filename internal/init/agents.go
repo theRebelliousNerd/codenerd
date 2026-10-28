@@ -132,7 +132,7 @@ func (i *Initializer) generateAgentPromptsYAMLWithContext(ctx context.Context, a
 	}
 
 	atoms := agentPromptAtoms(agentNameLower, agent.Name, agent.Description, domainExpertise, topicsStr, methodologyContent, domainContent, i.atomMaxChars())
-	atoms = i.admitAgentAtoms(ctx, agentNameLower, atoms)
+	atoms = admitAgentAtoms(ctx, i.atomAdmission(), agentNameLower, atoms)
 	yamlStr := renderPromptsYAML(agent.Name, atoms)
 	if err := validatePromptsYAML([]byte(yamlStr), agentNameLower, i.atomMaxChars()); err != nil {
 		return fmt.Errorf("generated prompts.yaml for %s: %w", agent.Name, err)
