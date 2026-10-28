@@ -250,3 +250,156 @@ The findings above describe main at [`356f65e0e6bb639adaa90ab36212daa714114871`]
 
 The implementation queue should therefore **reuse and verify the background result path**, not duplicate it, while repairing residual count ownership and establishing coverage-aware delivery for local reads. Test two active jobs, a newer chat turn, side-turn/queued submissions and late completion; verify the actual answering request receives the appropriate source observation. Separately test the old residual path with a nonzero prior baseline and a tail-only answer. These remain proposed validations, not passed results.
 
+## Authority-parity qualification — host evidence acquisition (2026-10-28)
+
+**Decision:** retain the feature branch's new evidence acquisition and delivery, but do not qualify it as operating under the session's existing authority contract until the host read passes the same applicable access checks. Workspace containment and read-only classification do not establish permission to disclose an in-workspace protected file to a model.
+
+This is a focused continuation of this audit, not a new independent discovery of the need for safe reads. Section 7.2, step 6 already requires the shared read/observation contract to retain secret-path policy and exact permission. The new contribution is a source-level verification that the feature's implementation does not yet satisfy that requirement. The feature audit's as-built TUI-EVID-03 account says the host reads under the same authority; the source call chain does not establish that parity. Correct that qualification without withdrawing credit for actual evidence delivery. [Feature audit, “What was built,” TUI-EVID-03](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/Docs/audits/tui-evidence-turn-ownership.md#L248-L252)
+
+### Freeze and evidence status
+
+Main is pinned to [`356f65e0e6bb639adaa90ab36212daa714114871`](https://github.com/theRebelliousNerd/codenerd/commit/356f65e0e6bb639adaa90ab36212daa714114871); `feat/conversation-brief` is pinned to [`c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c`](https://github.com/theRebelliousNerd/codenerd/commit/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c). The prior audit was read on `codenerd-research-docs` at [`0de7ff76968955ad5185d8dd13b85bc05775aa98`](https://github.com/theRebelliousNerd/codenerd/commit/0de7ff76968955ad5185d8dd13b85bc05775aa98), whose TUI evidence document blob was `c39bdb6ed9eee2c083ec15737f14c3a71fa3ebff`; the feature's separate as-built appendix was read at the feature pin, document blob `97b9bbdaba67773c9b99c46be60855a94c030720`. Inspection occurred approximately 13:38–13:50 UTC on October 28, 2026. No merge into main is implied.
+
+**Static inspection only.** No runtime, tests, inference, training, benchmark, exploit, or real secret-file access was performed. Examples below use proposed synthetic fixtures, not observed leaks. The supported finding is an admission-contract discrepancy with a complete source path to prompt construction; exposure frequency and actual user impact remain unmeasured.
+
+The root [North Star and runtime contract](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/agents.md#north-star) require typed policy-mediated operations and logic-owned safety, while tools reduce turns and deterministic work. [Session contributor guidance, capability/permission split](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/agents.md#L3-L17) makes capability, exact permission and execution separate stages. This appendix follows the [architecture-document standard, “What the corpus is for” and citation rules](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/Docs/journeys/09-architecture-doc-standard.md#what-the-corpus-is-for): present facts, proposed repair and future validation remain separate.
+
+### 1. Credit the feature's real improvements
+
+The research branch's older feature qualification stops at `9755db4`; it is not a current description of every mechanism at `c2d39e5`. The feature branch has its own [as-built account](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/Docs/audits/tui-evidence-turn-ownership.md#L232-L266), which credits new result identity, coverage and delivery while expressly leaving late-work ownership, timeout duplication, original-request handoff and multi-page revision continuity open. This appendix qualifies authority parity rather than re-auditing all of those items.
+
+At the newer feature pin:
+
+- `readEvidenceFile` bounds acquired bytes using `io.LimitReader`, reports whole/span/unavailable coverage, and retains source size and returned size. It no longer slurps a whole file just to retain an 8 KB prefix. [`cmd/nerd/chat/turn_evidence.go:47–108`, `evidenceReadBudget`, `readEvidenceFile`](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/cmd/nerd/chat/turn_evidence.go#L47-L108)
+- The residual `/fs_read` helper now returns observations and asserts `file_content` only for whole-file coverage. [`cmd/nerd/chat/process_helpers.go:95–130`, `executeInfoGatheringActions`](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/cmd/nerd/chat/process_helpers.go#L95-L130)
+- A new derived gather-evidence lane handles a workspace-evidence query when no earlier or delegated lane takes it. The branch no longer simply relies on a candidate always being available. [`internal/core/defaults/policy/routing_arbitration.mg:289–310`, `evidence_lane`, `route_decision`](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/core/defaults/policy/routing_arbitration.mg#L289-L310)
+- Observations are explicitly carried into `ConversationContext` and rendered into the answering prompt. There is a production-entry test definition whose sentinel assertion checks that prompt, not merely kernel fact presence. [`cmd/nerd/chat/process.go:842–904`, `processInput`](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/cmd/nerd/chat/process.go#L842-L904); [`cmd/nerd/chat/helpers_articulation.go:251–256`, evidence rendering](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/cmd/nerd/chat/helpers_articulation.go#L251-L256); [`cmd/nerd/chat/turn_evidence_test.go:232–264`, `TestProcessInput_EvidenceTurnDeliversTheFileToTheAnsweringCall`](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/cmd/nerd/chat/turn_evidence_test.go#L232-L264)
+
+These are substantive E2/E3 advances to preserve. They are not proof of full revision/freshness coverage, complete multi-file investigation, or policy parity. The newly effective delivery makes the admission boundary more important, not less: “the model finally received the body” is a success criterion only for an authorized body.
+
+### 2. The exact discrepancy
+
+The project already has a specific protection contract, not merely a generic preference to avoid secrets. `ExecutionConfig.SecretPaths` says protected file contents do not reach a model; its defaults include `.env` and `.nerd/config.json`. An explicitly configured empty list is intentionally different from an absent configuration. [`internal/config/execution.go:33–73`, `SecretPaths`, `DefaultSecretPaths`, `ResolvedSecretPaths`](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/config/execution.go#L33-L73)
+
+The governed session route measures the target and argument paths with `tools.IsSecretPath`, asserts `touches_secret_path`, then queries exact `permitted(Action, Target, Payload)`. Assertion failure fails closed. The constitution joins the measurement to the pending action as dangerous content. These are working pieces, not proposed replacements. [`internal/session/secret_paths_gate.go:31–66`, `secretPathFact`, `secretTarget`](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/session/secret_paths_gate.go#L31-L66); [`internal/session/executor_tools.go:3005–3046`, `admitToolCall`](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/session/executor_tools.go#L3005-L3046); [`internal/core/defaults/policy/constitution.mg:379–387`, `dangerous_content`](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/core/defaults/policy/constitution.mg#L379-L387)
+
+The feature's host-read route instead does this:
+
+| Boundary | Inspected source | What is established |
+|---|---|---|
+| Evidence need | `evidence_lane`, policy lines 301–307 above | Requires a query and evidence need, excludes earlier/clarify/delegate lanes. It does not test a concrete file's secret policy or exact permission. |
+| Target selection | [`turn_evidence.go:114–121`, `workspaceEvidenceTargets`](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/cmd/nerd/chat/turn_evidence.go#L114-L121) | Uses perception's nonempty `ScopeFile`, otherwise a path-like `Target`. This is an inferred source selection, not a trusted consent event. |
+| Host acquisition | [`turn_evidence.go:56–108`, `readEvidenceFile`](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/cmd/nerd/chat/turn_evidence.go#L56-L108) | Resolves workspace containment, opens the file, reads a bounded body. No call to the secret matcher, session admission, capability resolution or exact permission occurs in this function. |
+| Caller | [`turn_evidence.go:133–154`, `gatherWorkspaceEvidence`](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/cmd/nerd/chat/turn_evidence.go#L133-L154) | Calls that helper directly for selected targets. Duplicate-path avoidance is not an authorization check. |
+| Resolver | [`internal/tools/workspace_guard.go:143–232`, `ResolveWorkspacePath`](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/tools/workspace_guard.go#L143-L232) | Canonical/symlink-resolved containment, not secret classification or permission. The file is identical on both pins. A protected file genuinely inside the root passes containment. |
+| Delivery | `processInput`, prompt rendering references above; [`turn_evidence.go:160–185`, `renderEvidence`](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/cmd/nerd/chat/turn_evidence.go#L160-L185) | Whole and partial bodies are placed in the answering prompt. Fencing preserves content presentation; it does not withhold protected content from the provider. |
+
+The conclusion is narrower than “CodeNERD has no safety.” This is an alternate host acquisition path not using an existing protection measurement and exact-admission path. A Mangle-derived decision that evidence is needed does not establish permission for every concrete target later selected by perception. Conversely, fixing it does not require returning executive routing decisions to Go.
+
+### 3. Source-derived witness and limits
+
+A proposed deterministic witness uses a temporary workspace and a harmless sentinel in a file whose name matches the configured secret policy. No real credentials are needed.
+
+The conditions are:
+
+1. The protection pattern is active and matches the target; it was not intentionally disabled by an explicit empty configured list.
+2. The file is inside the canonical workspace, exists, and is readable by the host process.
+3. Perception supplies that file as `ScopeFile` or a suitable path-like target; the query reaches the gather-evidence lane because no higher-priority lane takes it.
+4. The evidence budget is positive and includes the sentinel. The file can be smaller than the budget, so truncation is not needed for the witness.
+5. The turn continues to articulation rather than returning through an intervening system-result branch, and the answering request is admitted by its provider/broker path.
+
+Under those conditions the inspected implementation reads the bytes and puts the body into the answering prompt without the existing secret-path check. The existing real-kernel, scripted-transducer test provides a useful entry-path scaffold, but it uses an ordinary `app.log`, not a protected-name fixture. This is a source deduction; it is not a test result or a claim that an attacker can force any arbitrary perception outcome.
+
+The risk is provider-bound input disclosure relative to the repository's own contract. The model need not echo the sentinel for that boundary to be crossed. This study does not establish provider retention, training use, onward disclosure, an external adversary, or an incident involving the user's data. A local provider changes the exposure destination but not the stated path-protection discrepancy.
+
+Important counterexamples:
+
+- An outside absolute path, traversal escape, or symlink resolving outside the workspace remains rejected by the shared resolver. Do not refile the already repaired containment gap.
+- A delegated query can use the governed session executor; this finding is not applied to every reviewer/researcher run.
+- Missing files, directories and zero-byte budgets yield unavailable observations. The defect is not that every target succeeds.
+- An explicitly empty secret-pattern configuration deliberately changes what is protected; the default-policy witness must not silently assume otherwise.
+- A protected-file denial should remain unavailable evidence, not a reason for the model to try another alias, slash command, generated helper or copy operation.
+
+### 4. Main and explicit `/read` are different cases
+
+On main, `executeInfoGatheringActions` calls the older containment-only `readFileContent`, then emits `file_content`; the helper does not call the secret matcher. However, main's evidence-delivery gap remains relevant: this alone is not proof that this local fact body reaches the answering provider on every residual turn. [`cmd/nerd/chat/process_helpers.go:83–112`, `executeInfoGatheringActions`](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/cmd/nerd/chat/process_helpers.go#L83-L112); [`cmd/nerd/chat/helpers_files.go:90–106`, `readFileContent`](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/cmd/nerd/chat/helpers_files.go#L90-L106)
+
+Both pins also retain the explicit `/read` path. `handleCmdRead` reads via `readFileRange`, writes the body as a **user** message, adds a question, and starts `processInput`. `readFileRange` performs containment and opens the file without the secret matcher. [`cmd/nerd/chat/commands_handlers_analysis.go:254–316`, `handleCmdRead`](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/cmd/nerd/chat/commands_handlers_analysis.go#L254-L316); [`cmd/nerd/chat/helpers_files.go:96–109`, `readFileRange`](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/cmd/nerd/chat/helpers_files.go#L96-L109)
+
+That is not the same authority case as inferred evidence acquisition. A person explicitly naming a file may intend to share its contents. The product must decide whether `/read` is subject to the documented unconditional protected-file rule or is a distinct user-upload operation with a visible sharing contract. The current code's conversion into user-history content cannot by itself settle that policy question. Do not describe an explicit operator action as an autonomous exploit, and do not infer from it that a natural-language routing fallback may make the same exception.
+
+This is also not a local-only preview: `addMessage` appends the supplied message without content filtering, and in the uncompressed case `processInput` copies history message content into perception history; the answering context likewise receives history. Provider exposure can therefore occur before a final answer. [`cmd/nerd/chat/model_handlers.go:28–43`, `addMessage`](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/cmd/nerd/chat/model_handlers.go#L28-L43); [`cmd/nerd/chat/process.go:141–156,189–200`, `processInput`](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/cmd/nerd/chat/process.go#L141-L200); [answering history context, lines 883–904](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/cmd/nerd/chat/process.go#L883-L904)
+
+### 5. Reconcile prior coverage rather than duplicate it
+
+- **This audit's §7.2 step 6** already specifies secret-path and exact-permission preservation. The new source check refines TUI-EVID-02/03 with an explicit authority-parity exit. It must not be marketed as a newly invented safety principle.
+- **GAP-CLI-CHAT-READ-CONTAINMENT** explicitly requires outside/traversal/symlink rejection and in-root success. Its implementation claim is accurate within that scope; it does not prove every in-root file is permitted. [`Docs/architecture/cli/03-GAP-ANALYSIS.md:45–51`, “Chat information read containment”](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/Docs/architecture/cli/03-GAP-ANALYSIS.md#L45-L51)
+- **Existing secret-path work** provides the matcher, configuration semantics and session measurement. Reuse those owners. Copying the pattern list into chat would create another drift-prone protection policy.
+- **Tool effect receipts** concern retaining actual effects/validation after dispatch. This finding is before disclosure admission; a receipt recording that a protected body was sent is not prevention.
+- **Request-visible tool contracts** concern the model's usable catalog. Describing a tool correctly does not authorize a host helper that bypasses its execution path; granting more tools is not this repair.
+- The feature tests for whole/prefix/rune handling, unavailable evidence and actual prompt sentinels are valuable. `TestReadEvidenceFile_UnavailableIsTyped` uses an outside file named `evidence-outside.txt` with a harmless body string, not an in-workspace secret-policy target. That is containment coverage, not secret-path coverage. [`cmd/nerd/chat/turn_evidence_test.go:14–72,100–128,232–264`](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/cmd/nerd/chat/turn_evidence_test.go#L14-L72)
+
+### 6. Proposed repair contract — not implemented here
+
+Treat **need for evidence**, **authority to acquire**, **what was acquired**, and **authority to deliver/reuse** as separate facts. The existing observation shape should carry the disposition rather than become a grant.
+
+1. Resolve the concrete source under the existing canonical workspace identity. Apply existing configured secret-path semantics to the requested and resolved source identity as appropriate; define and test alias handling explicitly. Do not weaken containment or redefine the pattern configuration.
+2. Route host acquisitions through an existing governed read service or factor a reusable admission boundary from current execution. Preserve applicable capability and exact `permitted(Action, Target, Payload)` checks. A host API must name its principal/call/turn ownership; a comment saying “host read” is not authority.
+3. Make admission precede opening/reading protected contents, fact publication and prompt/history insertion. A failed or unavailable policy check yields a typed unavailable/denied observation with no body, not a fallback raw read.
+4. Keep Mangle responsible for permission and continuation. Go supplies canonical identities, measurements and bounded IO. The model chooses neither an exemption nor a weaker backend after refusal.
+5. Preserve the feature's bounded observation and actual prompt delivery for permitted ordinary files. Do not solve the issue by reverting to a tool-less final answer or silently withholding all evidence.
+6. Bind retained observations to source and access-policy identity where reuse is supported; recheck authorization before later delivery if policy can change. Do not require a redundant reread merely to prove delivery. No new durable ledger is needed for the immediate pre-read parity repair.
+7. Decide explicit `/read` semantics separately. If it is policy-bound, deny before the body enters user history or any perception call. If a future distinct user-sharing operation is approved, its explicit consent, scope, visible destination and retention contract must not be reusable by inferred evidence acquisition. No such exception is granted by this proposal.
+8. Keep denial diagnostics useful without including the protected body. Do not log raw evidence in an additional receipt store. If blocked evidence is required for the answer, report the missing scope and ask for a sanitized alternative rather than claiming investigation succeeded.
+
+A minimal patch that invokes the existing secret matcher before these reads is a reasonable containment of the demonstrated omission, but it does not on its own establish general exact-permission parity. Compare it with the reusable governed-read boundary; do not conflate their completion claims. Prompt instructions, output-only redaction, and a larger context budget do not prevent protected input from reaching the provider.
+
+### 7. Principles and literature
+
+This is an application of complete mediation and fail-safe defaults, not an LLM-specific security invention. Saltzer and Schroeder require checking authority across access paths and caution about remembered authorization when authority changes. Applied here, a new evidence-delivery adapter must not omit a protection check that the normal executor performs. [Saltzer and Schroeder, “The Protection of Information in Computer Systems,” §I.A.3](https://web.mit.edu/Saltzer/www/publications/protection/Basic.html)
+
+OWASP's LLM02:2025 guidance calls for least-privilege access and restricting model data sources, and warns that prompt restrictions alone are not dependable protection. Applied here, controlling source admission is more relevant than telling the answering model not to repeat protected material after supplying it. These references motivate design; they neither demonstrate an exploit in CodeNERD nor establish provider training or retention behavior. [OWASP, “LLM02:2025 Sensitive Information Disclosure”](https://genai.owasp.org/llmrisk/llm022025-sensitive-information-disclosure/)
+
+### 8. Cost and efficiency accounting
+
+The goal is successful grounded investigation within the same authority boundary, not fewer reads at any price. Measure separately:
+
+- Host canonicalization, pattern checks and exact-policy evaluation CPU/latency; bytes read, allocations and observation serialization.
+- Provider calls and input/output/cache tokens across perception, answering, retries and follow-on work, including denied cases.
+- Correct authorized answers, correctly blocked protected targets, false refusals, missed protected disclosures and useful sanitized alternatives.
+- End-to-end time, human repair turns and policy/diagnostic maintenance burden.
+
+For P configured patterns, the direct matcher performs bounded path-pattern checks per source; its actual cost depends on path and pattern lengths. Reusing exact admission adds policy work but need not add an LLM turn. Delegating every trivial read to a full agent may introduce extra setup, model and catalog cost. No latency, token savings or risk reduction percentage is asserted here.
+
+Compare: **A**, current feature; **B**, immediate shared secret-matcher checks plus retained evidence delivery; **C**, unified governed read admission with the same delivery. Keep workspace, policy, model/version, budgets and tasks fixed. A protected-target refusal is not a failed task if the policy forbids the requested data; scoring should reward an honest blocker and safe alternative, not penalize a system for declining unauthorized disclosure. B is cheaper to integrate but has a narrower guarantee; C is preferable only if its wider contract and ownership justify its cost.
+
+### 9. Proposed validation and acceptance — not run
+
+Use only temporary synthetic fixtures and capture-only provider adapters. Never use real credentials or invoke a remote model to test whether protected bytes escape.
+
+| Fixture/journey | Required observation |
+|---|---|
+| In-root default protected filename with synthetic sentinel | No body acquisition/publication/delivery; typed policy denial. Ordinary neighbor file still answers correctly. |
+| In-root custom protected pattern | Same behavior under configured patterns, not a hardcoded default-only list. |
+| Absent versus explicitly empty protection list | Preserve documented default versus explicit-empty semantics; do not invent protection where policy intentionally disables it. |
+| Natural-language evidence query, no candidate and below-threshold candidate | Real gather-evidence entry path reaches the same admission result as a session read; no bypass from routing confidence. |
+| Residual `/fs_read` path | Same denial; no `file_content`, observation body or provider sentinel. |
+| Exact permission denied for a nonsecret ordinary file | No read. This distinguishes full admission parity from a secret-pattern-only patch. |
+| Missing kernel/gate or failed admission measurement | Explicit unavailable/denied outcome, no raw-read fallback. |
+| Allowed ordinary whole, partial and unavailable reads | Keep existing coverage labels, bounded IO and answering-request sentinel assertions. |
+| Absolute/traversal/outside symlink plus inside alias to protected target | Preserve containment; separately specify and verify canonical secret-target semantics. |
+| Explicit `/read` | Validate the chosen product contract before both perception-history and answer delivery, not only final output. |
+| Policy change before retained-observation reuse | Current denial prevents disclosure; stale authorization is not reused. |
+| Denied initial read followed by suggestion to use another backend | The denial cannot be laundered into permission through `/read`, copy, generated tool or a raw helper. |
+
+Assertions should observe the **actual provider request**, not the model's output. They should also instrument the acquisition boundary to distinguish “not read” from “read then hidden,” and inspect only synthetic sentinel membership in facts/history/retained observations. Keep the existing production-entry sentinel test and add denied-source variants; helper-only coverage is insufficient.
+
+Refine the existing queue rather than creating a competing project:
+
+| Existing research ID | Added exit |
+|---|---|
+| TUI-EVID-02 | An ordinary permitted body reaches the answering request; a protected/denied body does not enter acquisition, facts, user history or provider input through any supported evidence adapter. |
+| TUI-EVID-03 | Gather-evidence is a total **authority-aware** disposition: permitted observation, explicit partial, unavailable or denied; the no-candidate fallback never grants broader read scope than the governed executor. |
+| TUI-EVID-05 | Grounded authorized answers and safe follow-on work improve without a policy regression, measured at full end-to-end cost. |
+
+Before implementation, reconcile the CLI/read adapter and session safety specifications and settle `/read` semantics. Do not change protected safety guidance or widen rules merely to make an evidence test pass. The user-visible guarantee is: **the main chat can investigate and use the evidence it is allowed to see, and a routing fallback cannot quietly turn a protected file into model input.**
