@@ -98,7 +98,7 @@ func TestBruteForceRecallKeepsAndMarksCorruptMetadata(t *testing.T) {
 	defer store.Close()
 
 	if _, err := store.db.Exec(
-		`INSERT INTO vectors (content, metadata, embedding) VALUES ('good', '{"k":"v"}', '[0.1,0.2,0.3,0.4]')`,
+		`INSERT INTO vectors (content, metadata, embedding, embedding_model) VALUES ('good', '{"k":"v"}', '[0.1,0.2,0.3,0.4]', 'unit-space')`,
 	); err != nil {
 		t.Fatalf("insert good row: %v", err)
 	}
@@ -106,12 +106,12 @@ func TestBruteForceRecallKeepsAndMarksCorruptMetadata(t *testing.T) {
 		t.Fatalf("drop index: %v", err)
 	}
 	if _, err := store.db.Exec(
-		`INSERT INTO vectors (content, metadata, embedding) VALUES ('torn', '{"k":', '[0.1,0.2,0.3,0.4]')`,
+		`INSERT INTO vectors (content, metadata, embedding, embedding_model) VALUES ('torn', '{"k":', '[0.1,0.2,0.3,0.4]', 'unit-space')`,
 	); err != nil {
 		t.Fatalf("insert torn row: %v", err)
 	}
 
-	results, err := store.vectorRecallBruteForce("q", []float32{0.1, 0.2, 0.3, 0.4}, 10)
+	results, err := store.vectorRecallBruteForce("q", semanticQuery{vec: []float32{0.1, 0.2, 0.3, 0.4}, space: "unit-space"}, 10)
 	if err != nil {
 		t.Fatalf("vectorRecallBruteForce: %v", err)
 	}
@@ -298,7 +298,7 @@ func TestEmptyEmbeddingStringStillMatchesRecallQueries(t *testing.T) {
 	defer store.Close()
 
 	if _, err := store.db.Exec(
-		`INSERT INTO vectors (content, metadata, embedding) VALUES ('stranded', '{}', '')`,
+		`INSERT INTO vectors (content, metadata, embedding, embedding_model) VALUES ('stranded', '{}', '', 'unit-space')`,
 	); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestEmptyEmbeddingStringStillMatchesRecallQueries(t *testing.T) {
 	}
 
 	// It is selected, and it recalls nothing -- the row is invisible with no error.
-	results, err := store.vectorRecallBruteForce("q", []float32{0.1, 0.2}, 10)
+	results, err := store.vectorRecallBruteForce("q", semanticQuery{vec: []float32{0.1, 0.2}, space: "unit-space"}, 10)
 	if err != nil {
 		t.Fatalf("vectorRecallBruteForce: %v", err)
 	}

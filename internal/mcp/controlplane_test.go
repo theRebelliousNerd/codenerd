@@ -127,10 +127,9 @@ func (f *fatMCPServer) handle(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Method {
 	case "initialize":
-		write(map[string]any{
-			"capabilities": map[string]bool{"tools": true, "resources": true, "prompts": true},
-			"serverInfo":   map[string]string{"name": "fat", "version": "1.0"},
-		})
+		write(standardInitializeResult("tools", "resources", "prompts"))
+	case "notifications/initialized":
+		w.WriteHeader(http.StatusAccepted)
 	case "tools/list":
 		f.mu.Lock()
 		f.listCount++

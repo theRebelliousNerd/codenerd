@@ -109,25 +109,52 @@ func (a *AnthropicCounter) Count(ctx context.Context, req *Request) (Count, erro
 	}
 
 	key := cacheKey(body)
-	if cached, ok := a.lookup(key); ok {
-		return cached, nil
+	count, ok := a.lookup(key)
+	if !ok {
+		total, err := a.postCount(ctx, body)
+		if err != nil {
+			logging.Get(logging.CategoryAPI).Debug("broker: count_tokens unavailable, estimating: %v", err)
+			return a.fallback.Count(ctx, req)
+		}
+		count = Count{
+			Tokens:     total,
+			Segments:   splitProportional(total, measure(req)),
+			Confidence: ConfidenceExact,
+			Source:     "anthropic.count_tokens",
+			Model:      req.Model,
+		}
+		a.store(key, count)
 	}
+	return a.withServerContent(req, count), nil
+}
 
-	total, err := a.postCount(ctx, body)
-	if err != nil {
-		logging.Get(logging.CategoryAPI).Debug("broker: count_tokens unavailable, estimating: %v", err)
-		return a.fallback.Count(ctx, req)
+// withServerContent completes a provider count of the supported part of req
+// with the replayed server-tool content that part left out.
+//
+// The counting endpoint does not take server-tool content, and the body is
+// built without it (convertCountMessage). Presenting that body's count as the
+// request's would report a turn that replays a fetched page as exactly the
+// size of one that replays a snippet, under a label the admission decision
+// trusts. So the omitted content is added as a bounded estimate -- the
+// calibrator's chars-per-token ratio over types.ServerBlockChars -- and the
+// result takes that estimate's confidence, never exact, with the estimated
+// share in EstimatedTokens. The provider count is cached as it is; the
+// estimate is rebuilt each time from the current ratio.
+func (a *AnthropicCounter) withServerContent(req *Request, supported Count) Count {
+	chars := serverContentChars(req)
+	if chars == 0 {
+		return supported
 	}
-
-	count := Count{
-		Tokens:     total,
-		Segments:   splitProportional(total, measure(req)),
-		Confidence: ConfidenceExact,
-		Source:     "anthropic.count_tokens",
-		Model:      req.Model,
+	extra, conf, source := a.fallback.Calibrator().Estimate(req.Model, chars)
+	total := supported.Tokens + extra
+	return Count{
+		Tokens:          total,
+		Segments:        splitProportional(total, measure(req)),
+		Confidence:      conf,
+		EstimatedTokens: extra,
+		Source:          supported.Source + "+" + source + "(server content)",
+		Model:           req.Model,
 	}
-	a.store(key, count)
-	return count, nil
 }
 
 // Observe forwards observations to the fallback estimator.
@@ -303,6 +330,10 @@ func convertCountMessage(msg *types.Message) (anthropicCountMessage, bool) {
 				"type": "tool_result", "tool_use_id": b.ToolUseID,
 				"content": b.Text, "is_error": b.IsError,
 			})
+		case types.BlockServerTool:
+			// Not sent: the counting endpoint does not take server-tool
+			// content. It is not dropped from the count either -- Count adds
+			// it back as a declared estimate (withServerContent).
 		}
 	}
 	if len(blocks) == 0 {

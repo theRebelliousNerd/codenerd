@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"fmt"
 	"time"
 
 	"codenerd/internal/logging"
@@ -24,10 +25,18 @@ type sessionFactBudget struct {
 	asserted  int
 	dropped   int
 	saturated bool
-	// tracked holds the live epoch's facts so they can be retracted when the
-	// epoch retires. It is only populated when a retractor is wired, because
-	// the retained copy costs memory proportional to the epoch budget and is
-	// pure waste to a sink that cannot remove anything.
+	// saturatedEpochs counts retired epochs of this session that ended
+	// saturated. The browser_stream_saturated notice is retracted with its
+	// epoch, so this counter is the bounded receipt that stream observation
+	// of the session was incomplete at some point.
+	saturatedEpochs int
+	// tracked holds the live epoch's facts exactly as the sink stored them
+	// (post-sanitization), so they can be retracted when the epoch retires.
+	// It includes the browser_epoch watermark and browser_stream_saturated
+	// notice, which bypass the event budget but not the lifecycle. It is only
+	// populated when a retractor is wired, because the retained copy costs
+	// memory proportional to the epoch budget and is pure waste to a sink that
+	// cannot remove anything.
 	tracked []mangle.Fact
 }
 
@@ -65,6 +74,12 @@ type SessionFactStats struct {
 	Asserted int   `json:"asserted"`
 	Dropped  int   `json:"dropped"`
 	Budget   int   `json:"budget"`
+	// Saturated reports that the live epoch dropped stream facts: its event
+	// observation is incomplete, so a quiet stream is not evidence of a quiet
+	// page. SaturatedEpochs counts earlier epochs of this session that ended
+	// that way.
+	Saturated       bool `json:"saturated"`
+	SaturatedEpochs int  `json:"saturated_epochs"`
 }
 
 func (m *SessionManager) budgetFor(sessionID string) *sessionFactBudget {
@@ -89,7 +104,73 @@ func (m *SessionManager) SessionFactStats(sessionID string) SessionFactStats {
 		Asserted: budget.asserted,
 		Dropped:  budget.dropped,
 		Budget:   m.cfg.GetMaxEpochEventFacts(),
+
+		Saturated:       budget.saturated,
+		SaturatedEpochs: budget.saturatedEpochs,
 	}
+}
+
+// PendingRetirements reports how many exact facts a failed retraction left
+// behind for retry. Zero means every fact the manager has retired is gone.
+func (m *SessionManager) PendingRetirements() int {
+	m.budgetMu.Lock()
+	defer m.budgetMu.Unlock()
+	return len(m.pendingRetire)
+}
+
+// PublishSessionFacts asserts facts a caller observed for an open session
+// through the manager's own budgeted, sanitized path. The facts are counted
+// against the epoch budget and retracted exactly when the epoch rolls or the
+// session closes, so a caller-side sensor cannot leave transient evidence in
+// the kernel that the manager never learned about.
+func (m *SessionManager) PublishSessionFacts(sessionID string, facts []mangle.Fact) error {
+	m.mu.RLock()
+	_, open := m.sessions[sessionID]
+	m.mu.RUnlock()
+	if !open {
+		return fmt.Errorf("publish session facts: session %q is not open", sessionID)
+	}
+	return m.addStreamFacts(sessionID, facts)
+}
+
+// retireFacts removes exact facts through the owner's retractor. A failed
+// retraction keeps the same exact facts pending so the next retirement retries
+// them; they are never widened to a predicate or session sweep. Without a
+// retractor nothing was tracked, so there is nothing to retire.
+func (m *SessionManager) retireFacts(retired []mangle.Fact) error {
+	retractor := m.factRetractor()
+	if retractor == nil {
+		return nil
+	}
+	m.budgetMu.Lock()
+	batch := append(m.pendingRetire, retired...)
+	m.pendingRetire = nil
+	m.budgetMu.Unlock()
+	if len(batch) == 0 {
+		return nil
+	}
+	if err := retractor.RetractFacts(batch); err != nil {
+		m.budgetMu.Lock()
+		m.pendingRetire = append(batch, m.pendingRetire...)
+		m.budgetMu.Unlock()
+		return fmt.Errorf("retract %d browser facts: %w", len(batch), err)
+	}
+	return nil
+}
+
+// publishMarker asserts a lifecycle marker that bypasses the event budget
+// (browser_epoch, browser_stream_saturated) and tracks it with the live epoch
+// so it is retired with the epoch instead of outliving the page it describes.
+func (m *SessionManager) publishMarker(sessionID string, fact mangle.Fact) error {
+	safe := m.sanitizeFacts([]mangle.Fact{fact})
+	collecting := m.factRetractor() != nil
+	if collecting {
+		m.budgetMu.Lock()
+		budget := m.budgetFor(sessionID)
+		budget.tracked = append(budget.tracked, safe...)
+		m.budgetMu.Unlock()
+	}
+	return m.publishSanitized(safe)
 }
 
 // RollSessionEpoch retires the current epoch and starts a new one.
@@ -110,6 +191,9 @@ func (m *SessionManager) RollSessionEpoch(sessionID string) int64 {
 	m.budgetMu.Lock()
 	budget := m.budgetFor(sessionID)
 	budget.epoch++
+	if budget.saturated {
+		budget.saturatedEpochs++
+	}
 	budget.asserted = 0
 	budget.dropped = 0
 	budget.saturated = false
@@ -122,22 +206,20 @@ func (m *SessionManager) RollSessionEpoch(sessionID string) int64 {
 		delete(m.progressiveSnapshots, sessionID)
 	}
 
-	if len(retired) > 0 {
-		if retractor := m.factRetractor(); retractor != nil {
-			if err := retractor.RetractFacts(retired); err != nil {
-				logging.BrowserWarn("[session:%s] retiring epoch %d left %d facts behind: %v", sessionID, epoch-1, len(retired), err)
-			} else {
-				logging.BrowserDebug("[session:%s] collected %d facts from epoch %d", sessionID, len(retired), epoch-1)
-			}
+	if len(retired) > 0 || m.PendingRetirements() > 0 {
+		if err := m.retireFacts(retired); err != nil {
+			logging.BrowserWarn("[session:%s] retiring epoch %d left facts behind: %v", sessionID, epoch-1, err)
+		} else {
+			logging.BrowserDebug("[session:%s] collected %d facts from epoch %d", sessionID, len(retired), epoch-1)
 		}
 	}
 
 	now := time.Now()
-	if err := m.addFacts([]mangle.Fact{{
+	if err := m.publishMarker(sessionID, mangle.Fact{
 		Predicate: "browser_epoch",
 		Args:      []any{sessionID, epoch, now.UnixMilli()},
 		Timestamp: now,
-	}}); err != nil {
+	}); err != nil {
 		logging.BrowserDebug("[session:%s] browser_epoch fact error: %v", sessionID, err)
 	}
 	m.progressiveMu.Unlock()
@@ -145,9 +227,12 @@ func (m *SessionManager) RollSessionEpoch(sessionID string) int64 {
 }
 
 // forgetSessionBudget drops accounting for a closed session so the map does not
-// grow with the tab count over a long-lived process.
-func (m *SessionManager) forgetSessionBudget(sessionID string) {
+// grow with the tab count over a long-lived process, and retires the session's
+// tracked facts. A retraction failure is returned so the closer can report the
+// cleanup as pending; the exact facts stay queued for the next retirement.
+func (m *SessionManager) forgetSessionBudget(sessionID string) error {
 	m.progressiveMu.Lock()
+	defer m.progressiveMu.Unlock()
 	m.budgetMu.Lock()
 	var retired []mangle.Fact
 	if budget := m.budgets[sessionID]; budget != nil {
@@ -159,14 +244,11 @@ func (m *SessionManager) forgetSessionBudget(sessionID string) {
 	}
 	delete(m.progressiveSnapshots, sessionID)
 	m.budgetMu.Unlock()
-	if len(retired) > 0 {
-		if retractor := m.factRetractor(); retractor != nil {
-			if err := retractor.RetractFacts(retired); err != nil {
-				logging.BrowserWarn("[session:%s] closing session left %d facts behind: %v", sessionID, len(retired), err)
-			}
-		}
+	if err := m.retireFacts(retired); err != nil {
+		logging.BrowserWarn("[session:%s] closing session left facts behind: %v", sessionID, err)
+		return fmt.Errorf("retire session %s facts: %w", sessionID, err)
 	}
-	m.progressiveMu.Unlock()
+	return nil
 }
 
 // addStreamFacts is the budgeted path for continuous event-stream assertions.
@@ -183,6 +265,9 @@ func (m *SessionManager) addStreamFacts(sessionID string, facts []mangle.Fact) e
 	// Read before taking budgetMu: nothing may acquire the manager lock while
 	// holding the budget lock, or a concurrent SetFactQuerier would deadlock.
 	collecting := m.factRetractor() != nil
+	// Sanitize before tracking: the sink stores the redacted spelling, and an
+	// exact retraction keyed by the raw spelling would not match it.
+	safe := m.sanitizeFacts(facts)
 
 	m.budgetMu.Lock()
 	budget := m.budgetFor(sessionID)
@@ -196,13 +281,14 @@ func (m *SessionManager) addStreamFacts(sessionID string, facts []mangle.Fact) e
 		if firstSaturation {
 			logging.BrowserWarn("[session:%s] event fact budget exhausted at epoch %d (%d facts); dropping stream facts until the next navigation", sessionID, epoch, limit)
 			now := time.Now()
-			// Asserted through addFacts, not addStreamFacts: the saturation
-			// notice is exactly the fact that must survive saturation.
-			if err := m.addFacts([]mangle.Fact{{
+			// Asserted outside the event budget, not through it: the
+			// saturation notice is exactly the fact that must survive
+			// saturation. It is tracked so it retires with its epoch.
+			if err := m.publishMarker(sessionID, mangle.Fact{
 				Predicate: "browser_stream_saturated",
 				Args:      []any{sessionID, epoch, int64(limit), now.UnixMilli()},
 				Timestamp: now,
-			}}); err != nil {
+			}); err != nil {
 				logging.BrowserDebug("[session:%s] browser_stream_saturated fact error: %v", sessionID, err)
 			}
 		}
@@ -210,9 +296,9 @@ func (m *SessionManager) addStreamFacts(sessionID string, facts []mangle.Fact) e
 	}
 	budget.asserted += len(facts)
 	if collecting {
-		budget.tracked = append(budget.tracked, facts...)
+		budget.tracked = append(budget.tracked, safe...)
 	}
 	m.budgetMu.Unlock()
 
-	return m.addFacts(facts)
+	return m.publishSanitized(safe)
 }

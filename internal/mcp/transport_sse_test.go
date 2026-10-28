@@ -93,6 +93,11 @@ func (s *sseTestServer) serveRPC(w http.ResponseWriter, r *http.Request, respond
 	}
 	s.requests <- sseTestRequest{session: session, request: request}
 
+	if strings.HasPrefix(request.Method, "notifications/") {
+		// A notification has no ID and is never answered.
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
 	if result, ok := respond(session, request); ok {
 		resultJSON, err := json.Marshal(result)
 		if err != nil {
@@ -124,7 +129,7 @@ func TestSSETransport_LongLivedStreamOutlastsRequestTimeout(t *testing.T) {
 	respond := func(_ int, request mcpRequest) (any, bool) {
 		switch request.Method {
 		case "initialize":
-			return map[string]any{"capabilities": map[string]bool{"tools": true}}, true
+			return standardInitializeResult("tools"), true
 		case "tools/list":
 			return map[string]any{"tools": []any{}}, true
 		default:
@@ -157,7 +162,7 @@ func TestSSETransport_ReconnectUsesFreshEndpointAndRoundTrips(t *testing.T) {
 	respond := func(_ int, request mcpRequest) (any, bool) {
 		switch request.Method {
 		case "initialize":
-			return map[string]any{"capabilities": map[string]bool{"tools": true}}, true
+			return standardInitializeResult("tools"), true
 		case "tools/list":
 			return map[string]any{"tools": []any{}}, true
 		case "tools/call":
@@ -200,7 +205,7 @@ func TestSSETransport_ReconnectUsesFreshEndpointAndRoundTrips(t *testing.T) {
 	if streamCount != 2 {
 		t.Fatalf("opened %d event streams across reconnect, want 2", streamCount)
 	}
-	wantMethods := map[string]bool{"initialize": false, "tools/list": false, "tools/call": false}
+	wantMethods := map[string]bool{"initialize": false, "notifications/initialized": false, "tools/list": false, "tools/call": false}
 	seenIDs := make(map[int]bool, len(wantMethods))
 	for i := 0; i < len(wantMethods); i++ {
 		select {
@@ -212,6 +217,9 @@ func TestSSETransport_ReconnectUsesFreshEndpointAndRoundTrips(t *testing.T) {
 				t.Errorf("unexpected request after reconnect: %q", request.request.Method)
 			} else {
 				wantMethods[request.request.Method] = true
+			}
+			if strings.HasPrefix(request.request.Method, "notifications/") {
+				continue
 			}
 			if seenIDs[request.request.ID] {
 				t.Errorf("request ID %d was reused on the reconnected stream", request.request.ID)
@@ -242,7 +250,7 @@ func TestSSETransport_ReconnectUsesFreshEndpointAndRoundTrips(t *testing.T) {
 func TestSSETransport_CancelledCallIsRemovedAndReturnsPromptly(t *testing.T) {
 	respond := func(_ int, request mcpRequest) (any, bool) {
 		if request.Method == "initialize" {
-			return map[string]any{"capabilities": map[string]bool{"tools": true}}, true
+			return standardInitializeResult("tools"), true
 		}
 		return nil, false
 	}
@@ -275,7 +283,7 @@ func TestSSETransport_CancelledCallIsRemovedAndReturnsPromptly(t *testing.T) {
 func TestSSETransport_DisconnectReleasesPendingCall(t *testing.T) {
 	respond := func(_ int, request mcpRequest) (any, bool) {
 		if request.Method == "initialize" {
-			return map[string]any{"capabilities": map[string]bool{"tools": true}}, true
+			return standardInitializeResult("tools"), true
 		}
 		return nil, false
 	}

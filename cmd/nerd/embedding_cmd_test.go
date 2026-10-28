@@ -101,7 +101,7 @@ func TestEmbeddingReembedReturnsEngineCloseFailure(t *testing.T) {
 			return engine, nil
 		},
 		reembed: func(context.Context, []string, embedding.EmbeddingEngine, store.ReembedProgressFn) (store.ReembedResult, error) {
-			return store.ReembedResult{}, nil
+			return store.ReembedResult{Complete: true}, nil
 		},
 	}
 
@@ -167,4 +167,29 @@ func (*deadlineProbeEmbeddingEngine) Name() string    { return "deadline-probe" 
 func (engine *deadlineProbeEmbeddingEngine) Close() error {
 	engine.closed = true
 	return engine.closeErr
+}
+
+// A re-embed that left rows behind is not a success: the command says so and
+// exits non-zero, naming what was left.
+func TestEmbeddingReembedFailsWhenRowsWereLeftBehind(t *testing.T) {
+	withWorkspace(t, t.TempDir())
+	savedTimeout := timeout
+	t.Cleanup(func() { timeout = savedTimeout })
+	timeout = 0
+
+	engine := &deadlineProbeEmbeddingEngine{}
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	ops := embeddingReembedOps{
+		newEngine: func(context.Context, embedding.Config) (embedding.EmbeddingEngine, error) { return engine, nil },
+		reembed: func(context.Context, []string, embedding.EmbeddingEngine, store.ReembedProgressFn) (store.ReembedResult, error) {
+			return store.ReembedResult{
+				Skipped: []string{"/ws/.nerd/knowledge.db vectors: incomplete"},
+				Stores:  []store.StoreMigration{{Path: "/ws/.nerd/knowledge.db", Table: "vectors", Failed: 1, Total: 3, Detail: "1 of 3 failed"}},
+			}, nil
+		},
+	}
+	if err := runEmbeddingReembedWithOps(cmd, nil, ops); err == nil {
+		t.Fatal("an incomplete re-embed exited successfully")
+	}
 }

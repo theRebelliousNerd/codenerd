@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -30,6 +31,10 @@ type StdioTransport struct {
 
 	pendingReqs map[int]chan *mcpResponse
 	nextID      int
+
+	// failure records why the transport ended itself (an oversized message, the
+	// server closing its stdout), so waiting calls report it.
+	failure error
 
 	done chan struct{}
 	wg   sync.WaitGroup
@@ -71,16 +76,18 @@ func NewStdioTransport(endpoint string) *StdioTransport {
 	}
 }
 
-// Connect starts the subprocess and the reader loop.
+// Connect starts the subprocess and performs the initialization handshake. The
+// transport reports connected only once initialize, capability validation and
+// the initialized notification have all succeeded.
 func (t *StdioTransport) Connect(ctx context.Context) error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	if t.connected {
+		t.mu.Unlock()
 		return nil
 	}
 
 	if t.command == "" {
+		t.mu.Unlock()
 		return fmt.Errorf("empty command for stdio transport")
 	}
 
@@ -89,24 +96,32 @@ func (t *StdioTransport) Connect(ctx context.Context) error {
 	var err error
 	t.stdin, err = t.cmd.StdinPipe()
 	if err != nil {
+		t.mu.Unlock()
 		return fmt.Errorf("failed to get stdin pipe: %w", err)
 	}
 
 	t.stdout, err = t.cmd.StdoutPipe()
 	if err != nil {
+		t.mu.Unlock()
 		return fmt.Errorf("failed to get stdout pipe: %w", err)
 	}
 
 	t.stderr, err = t.cmd.StderrPipe()
 	if err != nil {
+		t.mu.Unlock()
 		return fmt.Errorf("failed to get stderr pipe: %w", err)
 	}
 
 	if err := t.cmd.Start(); err != nil {
+		t.mu.Unlock()
 		return fmt.Errorf("failed to start command %s: %w", t.command, err)
 	}
 
 	t.connected = true
+	t.failure = nil
+	t.serverInfo = nil
+	t.done = make(chan struct{})
+	t.pendingReqs = make(map[int]chan *mcpResponse)
 
 	// Start stderr reader
 	t.wg.Add(1)
@@ -115,29 +130,19 @@ func (t *StdioTransport) Connect(ctx context.Context) error {
 	// Start stdout reader
 	t.wg.Add(1)
 	go t.readStdout()
+	t.mu.Unlock()
 
-	// Try to get capabilities to verify connection (and initialize)
-	// We need to release the lock because getCapabilitiesLocked calls callLocked which waits for response
-	// But callLocked needs to register the ID.
-	// We can't call callLocked while holding the lock if callLocked sends and waits.
-	// Actually, callLocked should send and then wait.
-	// If we hold the lock while waiting, readStdout cannot acquire the lock to dispatch the response!
-	// So we must NOT hold the lock while waiting for response.
-
-	// We are holding the lock here. We should release it before calling getCapabilities.
-	// But we set t.connected = true. So other calls can proceed.
-	// However, if we fail to get capabilities, we should disconnect.
-
-	// Let's release the lock temporarily or just rely on the caller (client.go) calling GetCapabilities immediately.
-	// Client.go calls Connect then GetCapabilities.
-	// But HTTPTransport.Connect calls getCapabilitiesLocked.
-	// If we want consistency, we should do it here too.
-
-	// To do it safely:
-	// 1. Release lock.
-	// 2. Call GetCapabilities.
-	// 3. If error, Disconnect and return error.
-
+	// The lock is released: the reader goroutine needs it to dispatch the
+	// initialize response.
+	caps, err := t.initialize(ctx)
+	if err != nil {
+		_ = t.Disconnect()
+		return fmt.Errorf("failed to initialize MCP session: %w", err)
+	}
+	t.mu.Lock()
+	t.serverInfo = caps
+	t.mu.Unlock()
+	logging.Get(logging.CategoryTools).Info("MCP stdio transport connected to %s (protocol %s)", t.command, caps.ProtocolVersion)
 	return nil
 }
 
@@ -148,27 +153,7 @@ func (t *StdioTransport) Disconnect() error {
 		t.mu.Unlock()
 		return nil
 	}
-	t.connected = false
-
-	// Close channels to stop readers?
-	// Actually we should kill the process.
-	if t.cmd != nil && t.cmd.Process != nil {
-		_ = t.cmd.Process.Kill()
-	}
-
-	// Close stdin to unblock any writes?
-	if t.stdin != nil {
-		_ = t.stdin.Close()
-	}
-
-	// Close done channel to signal shutdown
-	close(t.done)
-
-	// Clear pending requests
-	for id, ch := range t.pendingReqs {
-		close(ch)
-		delete(t.pendingReqs, id)
-	}
+	t.teardownLocked(nil)
 	t.mu.Unlock()
 
 	// Wait for goroutines to finish
@@ -189,6 +174,39 @@ func (t *StdioTransport) Disconnect() error {
 	return nil
 }
 
+// teardownLocked ends the session: marks it disconnected, kills the process,
+// and wakes every pending call. cause is why the transport ended itself, nil
+// for a caller's Disconnect. The caller holds the write lock and has checked
+// that the transport was connected.
+func (t *StdioTransport) teardownLocked(cause error) {
+	t.connected = false
+	t.failure = cause
+	if t.cmd != nil && t.cmd.Process != nil {
+		_ = t.cmd.Process.Kill()
+	}
+	if t.stdin != nil {
+		_ = t.stdin.Close()
+	}
+	close(t.done)
+	for id, ch := range t.pendingReqs {
+		close(ch)
+		delete(t.pendingReqs, id)
+	}
+}
+
+// abort ends the session from the reader goroutine because the stream can no
+// longer be trusted: pending calls are woken with the cause instead of waiting
+// for a response that will never be read.
+func (t *StdioTransport) abort(cause error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.connected {
+		return
+	}
+	logging.Get(logging.CategoryTools).Warn("MCP stdio transport ended: %v", cause)
+	t.teardownLocked(cause)
+}
+
 // readStderr reads stderr and logs it.
 func (t *StdioTransport) readStderr() {
 	defer t.wg.Done()
@@ -200,98 +218,88 @@ func (t *StdioTransport) readStderr() {
 	}
 }
 
-// readStdout reads JSON-RPC messages from stdout.
+// readStdout reads newline-delimited JSON-RPC messages from stdout.
 func (t *StdioTransport) readStdout() {
 	defer t.wg.Done()
 	scanner := bufio.NewScanner(t.stdout)
-	// Increase buffer size if needed, but default is usually fine for messages
+	scanner.Buffer(make([]byte, 0, 64*1024), maxWireMessageBytes)
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
 			continue
 		}
-
-		var raw map[string]any
-		if err := json.Unmarshal(line, &raw); err != nil {
-			logging.Get(logging.CategoryTools).Warn("Failed to parse JSON from stdout: %v", err)
-			continue
-		}
-
-		// Check if it's a response (has "id")
-		if idVal, ok := raw["id"]; ok {
-			// ID can be int or string in JSON-RPC 2.0, but we use int.
-			// json.Unmarshal decodes numbers as float64.
-			var id int
-			switch v := idVal.(type) {
-			case float64:
-				id = int(v)
-			case int:
-				id = v
-			default:
-				// Log unexpected ID type
-				continue
-			}
-
-			// Decode as mcpResponse
-			var resp mcpResponse
-			if err := json.Unmarshal(line, &resp); err != nil {
-				logging.Get(logging.CategoryTools).Warn("Failed to unmarshal response: %v", err)
-				continue
-			}
-
-			t.mu.Lock()
-			ch, exists := t.pendingReqs[id]
-			if exists {
-				delete(t.pendingReqs, id)
-				ch <- &resp
-			} else {
-				logging.Get(logging.CategoryTools).Warn("Received response for unknown ID: %d", id)
-			}
-			t.mu.Unlock()
-		} else {
-			// Notification or Request from server (no ID means notification)
-			var notif mcpNotification
-			if err := json.Unmarshal(line, &notif); err != nil {
-				logging.Get(logging.CategoryTools).Warn("Failed to parse notification: %v", err)
-				continue
-			}
-
-			// Log notification details
-			logging.Get(logging.CategoryTools).Debug("Received server notification: method=%s", notif.Method)
-
-			// Dispatch to handler if configured
-			t.mu.RLock()
-			handler := t.notificationHandler
-			t.mu.RUnlock()
-
-			if handler != nil {
-				// Handle in goroutine to avoid blocking reader
-				go handler(notif.Method, notif.Params)
-			} else {
-				// Common MCP notifications we might receive
-				switch notif.Method {
-				case "notifications/progress":
-					logging.Get(logging.CategoryTools).Debug("Progress update: %s", redactForLog(string(notif.Params), maxLoggedPayload))
-				case "notifications/log":
-					logging.Get(logging.CategoryTools).Info("Server log: %s", redactForLog(string(notif.Params), maxLoggedPayload))
-				case "notifications/cancelled":
-					logging.Get(logging.CategoryTools).Debug("Request cancelled: %s", redactForLog(string(notif.Params), maxLoggedPayload))
-				default:
-					logging.Get(logging.CategoryTools).Debug("Unhandled notification '%s': %s", notif.Method, redactForLog(string(notif.Params), maxLoggedPayload))
-				}
-			}
-		}
+		t.dispatchLine(line)
 	}
 
-	if err := scanner.Err(); err != nil {
-		// If process was killed, we might get "file already closed" or similar
-		t.mu.RLock()
-		connected := t.connected
-		t.mu.RUnlock()
-		if connected {
-			logging.Get(logging.CategoryTools).Error("Error reading stdout: %v", err)
+	cause := scanner.Err()
+	switch {
+	case errors.Is(cause, bufio.ErrTooLong):
+		cause = fmt.Errorf("server message exceeds the %d byte wire limit", maxWireMessageBytes)
+	case cause != nil:
+		cause = fmt.Errorf("reading server stdout: %w", cause)
+	default:
+		cause = errors.New("server closed its stdout")
+	}
+	t.abort(cause)
+}
+
+// dispatchLine routes one message: a response completes the pending call with
+// that ID; a notification goes to the handler; a server request is logged, since
+// this client declares no capability a server could call.
+func (t *StdioTransport) dispatchLine(line []byte) {
+	msg, err := decodeRPCMessage(line)
+	if err != nil {
+		logging.Get(logging.CategoryTools).Warn("Dropping stdout message: %v", err)
+		return
+	}
+	switch msg.kind() {
+	case rpcResponse:
+		id, ok := msg.intID()
+		if !ok {
+			logging.Get(logging.CategoryTools).Warn("Dropping response with unusable id %s", string(msg.ID))
+			return
 		}
+		t.mu.Lock()
+		ch, exists := t.pendingReqs[id]
+		if exists {
+			delete(t.pendingReqs, id)
+			ch <- msg.response(id)
+		} else {
+			logging.Get(logging.CategoryTools).Warn("Received response for unknown or completed ID: %d", id)
+		}
+		t.mu.Unlock()
+	case rpcNotification:
+		t.handleNotification(mcpNotification{JSONRPC: msg.JSONRPC, Method: msg.Method, Params: msg.Params})
+	case rpcRequest:
+		logging.Get(logging.CategoryTools).Warn("Ignoring server request %q: this client declares no capability a server may call", msg.Method)
+	default:
+		logging.Get(logging.CategoryTools).Warn("Dropping stdout message that is neither a response, request nor notification")
+	}
+}
+
+func (t *StdioTransport) handleNotification(notif mcpNotification) {
+	logging.Get(logging.CategoryTools).Debug("Received server notification: method=%s", notif.Method)
+
+	t.mu.RLock()
+	handler := t.notificationHandler
+	t.mu.RUnlock()
+
+	if handler != nil {
+		// Handle in goroutine to avoid blocking reader
+		go handler(notif.Method, notif.Params)
+		return
+	}
+	// Common MCP notifications we might receive
+	switch notif.Method {
+	case "notifications/progress":
+		logging.Get(logging.CategoryTools).Debug("Progress update: %s", redactForLog(string(notif.Params), maxLoggedPayload))
+	case "notifications/log":
+		logging.Get(logging.CategoryTools).Info("Server log: %s", redactForLog(string(notif.Params), maxLoggedPayload))
+	case "notifications/cancelled":
+		logging.Get(logging.CategoryTools).Debug("Request cancelled: %s", redactForLog(string(notif.Params), maxLoggedPayload))
+	default:
+		logging.Get(logging.CategoryTools).Debug("Unhandled notification '%s': %s", notif.Method, redactForLog(string(notif.Params), maxLoggedPayload))
 	}
 }
 
@@ -335,6 +343,12 @@ func (t *StdioTransport) call(ctx context.Context, method string, params any) (*
 	select {
 	case resp := <-ch:
 		if resp == nil {
+			t.mu.RLock()
+			cause := t.failure
+			t.mu.RUnlock()
+			if cause != nil {
+				return nil, fmt.Errorf("connection closed: %w", cause)
+			}
 			return nil, fmt.Errorf("connection closed")
 		}
 		if resp.Error != nil {
@@ -349,21 +363,9 @@ func (t *StdioTransport) call(ctx context.Context, method string, params any) (*
 	}
 }
 
-// ListTools retrieves available tools from the server.
+// ListTools retrieves every page of the server's tools.
 func (t *StdioTransport) ListTools(ctx context.Context) ([]MCPToolSchema, error) {
-	resp, err := t.call(ctx, "tools/list", nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list tools: %w", err)
-	}
-
-	var result struct {
-		Tools []MCPToolSchema `json:"tools"`
-	}
-	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse tools response: %w", err)
-	}
-
-	return result.Tools, nil
+	return listToolsVia(ctx, t)
 }
 
 // CallTool invokes a tool on the MCP server.
@@ -386,81 +388,52 @@ func (t *StdioTransport) CallTool(ctx context.Context, name string, args map[str
 		}, nil
 	}
 
-	return &MCPCallResult{
-		Success:   true,
-		Output:    resp.Result,
-		LatencyMs: latencyMs,
-	}, nil
+	return callResultFromRPC(resp, latencyMs), nil
 }
 
-// GetCapabilities returns server capabilities.
+// GetCapabilities returns the capabilities observed during Connect.
 func (t *StdioTransport) GetCapabilities(ctx context.Context) (*MCPCapabilities, error) {
 	t.mu.RLock()
-	if t.serverInfo != nil {
-		caps := *t.serverInfo
-		t.mu.RUnlock()
-		return &caps, nil
+	defer t.mu.RUnlock()
+	if t.serverInfo == nil {
+		return nil, fmt.Errorf("not connected to MCP server")
 	}
-	t.mu.RUnlock()
+	caps := *t.serverInfo
+	return &caps, nil
+}
 
-	// Perform initialize handshake
-	// Note: In MCP, the first request should be 'initialize'.
-	// This method might be called multiple times, but we should only initialize once.
-	// However, if serverInfo is nil, we haven't initialized or cached it yet.
-
-	// We need to ensure only one initialize happens.
-	// But usually Client calls GetCapabilities once after Connect.
-
-	resp, err := t.call(ctx, "initialize", map[string]any{
-		"protocolVersion": "2024-11-05",
-		"capabilities":    map[string]any{},
-		"clientInfo": map[string]string{
-			"name":    "codeNERD",
-			"version": "1.0.0",
-		},
-	})
+// initialize runs the handshake: initialize, version and capability
+// validation, then the initialized notification.
+func (t *StdioTransport) initialize(ctx context.Context) (*MCPCapabilities, error) {
+	resp, err := t.call(ctx, "initialize", initializeParams())
 	if err != nil {
 		return nil, err
 	}
-
-	var result struct {
-		Capabilities MCPCapabilities `json:"capabilities"`
-		ServerInfo   struct {
-			Name    string `json:"name"`
-			Version string `json:"version"`
-		} `json:"serverInfo"`
+	caps, err := parseInitializeResult(resp.Result)
+	if err != nil {
+		return nil, err
 	}
-	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		// Try parsing as simpler structure
-		var simple MCPCapabilities
-		if err2 := json.Unmarshal(resp.Result, &simple); err2 != nil {
-			return nil, fmt.Errorf("failed to parse capabilities: %w", err)
-		}
-		t.mu.Lock()
-		t.serverInfo = &simple
-		t.mu.Unlock()
-		return &simple, nil
+	if err := t.notify(initializedNotification()); err != nil {
+		return nil, fmt.Errorf("initialized notification: %w", err)
 	}
+	return caps, nil
+}
 
+// notify writes a notification line: no ID, no response.
+func (t *StdioTransport) notify(notification mcpNotification) error {
+	data, err := json.Marshal(notification)
+	if err != nil {
+		return fmt.Errorf("failed to marshal notification: %w", err)
+	}
 	t.mu.Lock()
-	t.serverInfo = &result.Capabilities
-	t.mu.Unlock()
-
-	// After initialize, we must send 'notifications/initialized'
-	// We don't wait for response.
-	// We construct a notification (no ID).
-	notification := map[string]any{
-		"jsonrpc": "2.0",
-		"method":  "notifications/initialized",
+	defer t.mu.Unlock()
+	if !t.connected || t.stdin == nil {
+		return fmt.Errorf("not connected to MCP server")
 	}
-	notifBytes, _ := json.Marshal(notification)
-	t.mu.Lock()
-	if t.stdin != nil {
-		_, _ = t.stdin.Write(append(notifBytes, '\n'))
+	if _, err := t.stdin.Write(append(data, '\n')); err != nil {
+		return fmt.Errorf("failed to write to stdin: %w", err)
 	}
-	t.mu.Unlock()
-
-	return &result.Capabilities, nil
+	return nil
 }
 
 // Ping checks if the server is responsive.

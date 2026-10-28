@@ -68,7 +68,7 @@ This document specifies the leaf implementation tasks for `internal/orient`, spe
 - [ ] `TODO-ORIENT-30` (`GAP-ORIENT-14`, Lane TBD): Implement link transduction client in `internal/orient/spec_links.go` proposing candidate pairs and recording model confidence claims.
 - [ ] `TODO-ORIENT-31` (`GAP-ORIENT-15`, Lane TBD): Implement `internal/orient/spec_status.mg` deriving status atoms (`/aligned`, `/behind`, `/ahead`, `/missing`, `/stale`, `/not_trending`) using git committer timestamps (`%ct`).
 - [ ] `TODO-ORIENT-32` (`GAP-ORIENT-17`, Lane TBD): Implement `internal/orient/spec_templates.go` discovering foreign repository spec schemas into `repo_spec_template` facts.
-- [ ] `TODO-ORIENT-33` (`GAP-ORIENT-17`, Lane TBD): Generalize `internal/docscheck/docscheck.go` into runtime sensor asserting `doc_problem` facts into the live kernel.
+- [ ] `TODO-ORIENT-33` (`GAP-ORIENT-17`, Lane TBD): Give the shipped documentation evidence view (`nerd docs evidence`, `internal/docscheck/evidence.go`) a runtime kernel surface only together with its producer, declarations, host-owned admission, consumer, and invalidation. The `doc_problem` surface was removed (b0f04d78) and is not restored.
 - [ ] `TODO-ORIENT-34` (`GAP-ORIENT-20`, Lane TBD): Implement `internal/orient/debt_sensors.go` extracting unreferenced symbols, forwarding shims, deprecated tags, and dark fields into Mangle debt facts.
 
 ---

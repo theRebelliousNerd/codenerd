@@ -39,6 +39,7 @@ func (s *LocalStore) ReembedAllTracesForce(ctx context.Context) (int, error) {
 	}
 
 	totalEmbedded := 0
+	totalCandidates := 0
 	offset := 0
 	for {
 		candidates, err := s.traceStore.ListAllTraceEmbeddingCandidates(reflectionBatchSize, offset)
@@ -62,9 +63,19 @@ func (s *LocalStore) ReembedAllTracesForce(ctx context.Context) (int, error) {
 			}
 		}
 		totalEmbedded += embedCount
+		totalCandidates += len(candidates)
 		offset += len(candidates)
 	}
 
+	// A trace whose embedding failed is stored with no embedding (the force
+	// builder clears it), so it is a visible backlog -- but this pass was
+	// responsible for it, so the pass says it did not finish.
+	if totalEmbedded < totalCandidates {
+		return totalEmbedded, &IncompleteReembedError{
+			Table: "reasoning_traces", Target: expectedModel,
+			Total: int64(totalCandidates), Done: int64(totalEmbedded), Failed: int64(totalCandidates - totalEmbedded),
+		}
+	}
 	return totalEmbedded, nil
 }
 
@@ -89,6 +100,7 @@ func (ls *LearningStore) ReembedAllLearningsForce(ctx context.Context) (int, err
 	expectedDim := engine.Dimensions()
 
 	totalEmbedded := 0
+	totalCandidates := 0
 	shardTypes := ls.listShardTypes()
 	for _, shardType := range shardTypes {
 		// Rebuild the ANN index once per shard up front; batches insert
@@ -125,9 +137,16 @@ func (ls *LearningStore) ReembedAllLearningsForce(ctx context.Context) (int, err
 			}
 
 			totalEmbedded += embedCount
+			totalCandidates += len(candidates)
 			offset += len(candidates)
 		}
 	}
 
+	if totalEmbedded < totalCandidates {
+		return totalEmbedded, &IncompleteReembedError{
+			Table: "learnings", Target: expectedModel,
+			Total: int64(totalCandidates), Done: int64(totalEmbedded), Failed: int64(totalCandidates - totalEmbedded),
+		}
+	}
 	return totalEmbedded, nil
 }

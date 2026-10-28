@@ -458,3 +458,56 @@ func TestWorkingLoop_AWriteMakesItsFileHot(t *testing.T) {
 		t.Errorf("hot = %v: \".\" is not a file", hot)
 	}
 }
+
+// A provider's server-tool result is replayed to it whole, so the window the
+// request is fit to must include it. The flat estimator omitted every native
+// block: a history carrying a huge fetched page fit a window it overran, and
+// the provider refused it after the fact.
+func TestPrepareWorkingRequest_FitsToReplayedServerContent(t *testing.T) {
+	// The turn that searched also called a tool: one assistant message whose
+	// blocks are the server result and the tool call, as a provider returns it.
+	fetch := func(call types.ToolCall, page string) types.Message {
+		raw, err := json.Marshal(map[string]any{
+			"type": "web_fetch_tool_result", "tool_use_id": "srvtoolu_1",
+			"content": map[string]any{"type": "web_fetch_result", "url": "https://example.com",
+				"source": map[string]any{"type": "text", "media_type": "text/plain", "data": page}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return types.NewAssistantMessage(types.ServerToolBlock(raw), types.ToolUseBlock(call.ID, call.Name, call.Input))
+	}
+
+	t.Run("a page that fits is replayed untouched", func(t *testing.T) {
+		e, ctx, history, _ := oneWorkingRound(t, 200000)
+		history[1] = fetch(history[1].ToolCalls[0], "a small page")
+		provider := &captureProvider{MockLLMClient: &MockLLMClient{}}
+		if _, err := e.completeWithWorkingContext(ctx, provider, "system", history, nil); err != nil {
+			t.Fatalf("completeWithWorkingContext: %v", err)
+		}
+		var raws [][]byte
+		for _, m := range provider.history {
+			for _, b := range m.Content() {
+				if b.Kind == types.BlockServerTool {
+					raws = append(raws, b.Raw)
+				}
+			}
+		}
+		if len(raws) != 1 || !strings.Contains(string(raws[0]), "a small page") {
+			t.Fatalf("the native block must be replayed byte for byte; got %d blocks", len(raws))
+		}
+	})
+
+	t.Run("a page that cannot fit is a typed limit, not a silent cut", func(t *testing.T) {
+		e, ctx, history, _ := oneWorkingRound(t, 20000)
+		history[1] = fetch(history[1].ToolCalls[0], strings.Repeat("page ", 60000))
+		provider := &captureProvider{MockLLMClient: &MockLLMClient{}}
+		_, err := e.completeWithWorkingContext(ctx, provider, "system", history, nil)
+		if !errors.Is(err, ErrInputBudgetExceeded) {
+			t.Fatalf("a 300000-char replayed page in a 20000-token window must be refused with ErrInputBudgetExceeded, got %v", err)
+		}
+		if provider.history != nil {
+			t.Fatal("an over-window request reached the provider")
+		}
+	})
+}

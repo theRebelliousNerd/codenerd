@@ -45,6 +45,9 @@ func (s *LocalStore) SetEmbeddingEngine(engine embedding.EmbeddingEngine) {
 		// loops wait for the pending backfill (see waitForVecBackfill),
 		// otherwise the two writers race on the same vec_index rows.
 		dim := engine.Dimensions()
+		// The index holds the attached engine's space and nothing else, so
+		// the backfill is told which space that is (see vector_identity.go).
+		space := embeddingSpace(engine)
 		// Snapshot the vec flag with this generation: the background job must
 		// never read s.vectorExt itself (that unlocked read raced the test
 		// and init writers). The done channel below is the generation token.
@@ -60,7 +63,7 @@ func (s *LocalStore) SetEmbeddingEngine(engine embedding.EmbeddingEngine) {
 				<-hold
 			}
 			logging.Store("Background vector index backfill starting (dim=%d)", dim)
-			s.backfillVecIndex(dim, vecExt, done)
+			s.backfillVecIndex(dim, space, vecExt, done)
 			logging.Store("Background vector index backfill completed")
 			s.backfillMu.Lock()
 			if s.backfillDone == done {
@@ -158,6 +161,13 @@ func (s *LocalStore) StoreVectorWithEmbedding(ctx context.Context, content strin
 
 	logging.StoreDebug("Embedding generated: %d dimensions", len(embeddingVec))
 
+	// The stamp names the engine that produced these bytes: the one captured
+	// above, not whichever engine is attached when the lock is finally taken.
+	space, err := requireEmbeddingSpace(engine)
+	if err != nil {
+		return err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -175,8 +185,8 @@ func (s *LocalStore) StoreVectorWithEmbedding(ctx context.Context, content strin
 	}
 
 	res, err := s.db.Exec(
-		"INSERT OR REPLACE INTO vectors (content, embedding, metadata) VALUES (?, ?, ?)",
-		content, string(embeddingJSON), metaJSON,
+		"INSERT OR REPLACE INTO vectors (content, embedding, embedding_model, metadata) VALUES (?, ?, ?, ?)",
+		content, string(embeddingJSON), space, metaJSON,
 	)
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to store vector in SQLite: %v", err)
@@ -189,7 +199,13 @@ func (s *LocalStore) StoreVectorWithEmbedding(ctx context.Context, content strin
 	// vec_index doesn't, so ANN search returns nothing while brute-force
 	// returns the result. The earlier `_, _ = ...` swallowed both
 	// LastInsertId failures and vec_index Exec failures.
-	if s.vectorExt.Load() {
+	//
+	// Only a vector in the attached engine's space enters the index: an engine
+	// replaced during the provider call leaves its row stored and stamped, but
+	// the index belongs to the new space.
+	if s.vectorExt.Load() && s.currentSpaceLocked() != space {
+		logging.Get(logging.CategoryStore).Warn("embedding engine changed while embedding: vector stored in space %q and not indexed (current space %q)", space, s.currentSpaceLocked())
+	} else if s.vectorExt.Load() {
 		id, lidErr := res.LastInsertId()
 		if lidErr != nil {
 			logging.Get(logging.CategoryStore).Warn("vec_index skipped: LastInsertId failed: %v (vectors row %s persists; ANN index drift)", lidErr, content)
@@ -273,15 +289,25 @@ func (s *LocalStore) StoreVectorBatchWithEmbedding(ctx context.Context, contents
 	if len(embeddings) != len(contents) {
 		return 0, fmt.Errorf("embedding batch size mismatch: %d != %d", len(embeddings), len(contents))
 	}
+	space, err := requireEmbeddingSpace(engine)
+	if err != nil {
+		return 0, err
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// The index belongs to the attached engine's space; a batch produced by a
+	// since-replaced engine is stored and stamped but not indexed.
+	if vecEnabled && s.currentSpaceLocked() != space {
+		logging.Get(logging.CategoryStore).Warn("embedding engine changed while embedding a batch: vectors stored in space %q and not indexed (current space %q)", space, s.currentSpaceLocked())
+		vecEnabled = false
+	}
 
 	tx, err := s.db.Begin()
 	if err != nil {
 		return 0, err
 	}
-	stmt, err := tx.Prepare("INSERT OR REPLACE INTO vectors (content, embedding, metadata) VALUES (?, ?, ?)")
+	stmt, err := tx.Prepare("INSERT OR REPLACE INTO vectors (content, embedding, embedding_model, metadata) VALUES (?, ?, ?, ?)")
 	if err != nil {
 		_ = tx.Rollback()
 		return 0, err
@@ -333,7 +359,7 @@ func (s *LocalStore) StoreVectorBatchWithEmbedding(ctx context.Context, contents
 			}
 			continue
 		}
-		res, err := stmt.Exec(content, string(embeddingJSON), metaJSON)
+		res, err := stmt.Exec(content, string(embeddingJSON), space, metaJSON)
 		if err != nil {
 			failed++
 			if firstErr == nil {
@@ -469,13 +495,18 @@ func (s *LocalStore) VectorRecallSemantic(ctx context.Context, query string, lim
 
 	logging.StoreDebug("Query embedding generated: %d dimensions", len(queryEmbedding))
 
+	sq, err := newSemanticQuery(engine, queryEmbedding)
+	if err != nil {
+		return nil, err
+	}
+
 	if vecEnabled {
 		logging.StoreDebug("Using sqlite-vec ANN search")
-		return s.vectorRecallVec(query, queryEmbedding, limit, nil, "", nil)
+		return s.vectorRecallVec(query, sq, limit, nil, "", nil)
 	}
 
 	logging.StoreDebug("Using brute-force cosine similarity search")
-	return s.vectorRecallBruteForce(query, queryEmbedding, limit)
+	return s.vectorRecallBruteForce(query, sq, limit)
 }
 
 // VectorRecallSemanticByPaths restricts search to a list of allowed paths (matched via metadata).
@@ -525,13 +556,18 @@ func (s *LocalStore) VectorRecallSemanticByPaths(ctx context.Context, query stri
 		return nil, fmt.Errorf("failed to generate embedding: %w", err)
 	}
 
+	sq, err := newSemanticQuery(engine, queryEmbedding)
+	if err != nil {
+		return nil, err
+	}
+
 	if vecEnabled {
 		logging.StoreDebug("Using sqlite-vec ANN search with path filter")
-		return s.vectorRecallVec(query, queryEmbedding, limit, allowedPaths, "", nil)
+		return s.vectorRecallVec(query, sq, limit, allowedPaths, "", nil)
 	}
 
 	logging.StoreDebug("Using brute-force cosine similarity search with path filter")
-	return s.vectorRecallBruteForceByPaths(query, queryEmbedding, limit, allowedPaths)
+	return s.vectorRecallBruteForceByPaths(query, sq, limit, allowedPaths)
 }
 
 // VectorRecallSemanticFiltered restricts search to entries whose metadata contain a key/value pair.
@@ -583,13 +619,18 @@ func (s *LocalStore) VectorRecallSemanticFiltered(ctx context.Context, query str
 		return nil, fmt.Errorf("failed to generate embedding: %w", err)
 	}
 
+	sq, err := newSemanticQuery(engine, queryEmbedding)
+	if err != nil {
+		return nil, err
+	}
+
 	if vecEnabled {
 		logging.StoreDebug("Using sqlite-vec ANN search with metadata filter")
-		return s.vectorRecallVec(query, queryEmbedding, limit, nil, metaKey, metaValue)
+		return s.vectorRecallVec(query, sq, limit, nil, metaKey, metaValue)
 	}
 
 	logging.StoreDebug("Using brute-force cosine similarity search with metadata filter")
-	return s.vectorRecallBruteForceFiltered(query, queryEmbedding, limit, metaKey, metaValue)
+	return s.vectorRecallBruteForceFiltered(query, sq, limit, metaKey, metaValue)
 }
 
 // insertVecIndexRow writes one vec_index entry by delete-then-insert. Two
@@ -617,21 +658,23 @@ func (s *LocalStore) insertVecIndexRow(id int64, embeddingVec []float32, content
 }
 
 // vecIndexMissingWhere selects the embedded vectors rows ANN search cannot
-// find: an embedding of the index's dimension and no vec_index row. The
-// dimension filter matters -- a row embedded by an earlier model has a
-// different length and belongs to a re-embed, not to the index.
-const vecIndexMissingWhere = `embedding IS NOT NULL
+// find: an embedding in the attached engine's space, of the index's dimension,
+// with no vec_index row. The space filter is the point: a row embedded by an
+// earlier model of the SAME dimension passes every length check, and indexing
+// it would put another coordinate system into the index. The dimension filter
+// still matters for a stamped row whose JSON is torn.
+const vecIndexMissingWhere = vectorEligibleClause + `
 	AND json_valid(embedding) AND json_array_length(embedding) = ?
 	AND id NOT IN (SELECT rowid FROM vec_index)`
 
 // vecIndexMissingLocked counts the ANN drift: -1 when there is no sqlite-vec
 // index to drift from. Call holding s.mu (read or write).
-func (s *LocalStore) vecIndexMissingLocked(dim int) (int64, error) {
-	if s.db == nil || dim <= 0 || !s.vectorExt.Load() || !tableExists(s.db, "vec_index") {
+func (s *LocalStore) vecIndexMissingLocked(space string, dim int) (int64, error) {
+	if s.db == nil || dim <= 0 || space == "" || !s.vectorExt.Load() || !tableExists(s.db, "vec_index") {
 		return -1, nil
 	}
 	var n int64
-	if err := s.db.QueryRow("SELECT COUNT(*) FROM vectors WHERE "+vecIndexMissingWhere, dim).Scan(&n); err != nil {
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM vectors WHERE "+vecIndexMissingWhere, space, dim).Scan(&n); err != nil {
 		return 0, err
 	}
 	return n, nil
@@ -666,10 +709,13 @@ func (s *LocalStore) ReconcileVecIndex(ctx context.Context) (int, error) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !tableExists(s.db, "vec_index") {
+	// The space is read under the lock: an engine attached while the backfill
+	// was awaited must not be reconciled against the previous engine's rows.
+	space := s.currentSpaceLocked()
+	if space == "" || !tableExists(s.db, "vec_index") {
 		return 0, nil
 	}
-	rows, err := s.db.QueryContext(ctx, "SELECT id, content, embedding, metadata FROM vectors WHERE "+vecIndexMissingWhere, dim)
+	rows, err := s.db.QueryContext(ctx, "SELECT id, content, embedding, metadata FROM vectors WHERE "+vecIndexMissingWhere, space, dim)
 	if err != nil {
 		return 0, fmt.Errorf("select vectors missing from vec_index: %w", err)
 	}
@@ -812,15 +858,15 @@ func matchesMetadata(meta map[string]any, key string, value any) bool {
 	return false
 }
 
-func buildPathFilteredQuery(paths []string) (string, []any) {
-	base := "SELECT id, content, embedding, metadata, created_at FROM vectors WHERE embedding IS NOT NULL"
+func buildPathFilteredQuery(space string, paths []string) (string, []any) {
 	if len(paths) == 0 {
-		return base, nil
+		return bruteForceBaseQuery, []any{space}
 	}
 	var sb strings.Builder
-	sb.WriteString(base)
+	sb.WriteString(bruteForceBaseQuery)
 	sb.WriteString(" AND (")
-	args := make([]any, 0, len(paths)*2)
+	args := make([]any, 0, 1+len(paths)*2)
+	args = append(args, space)
 	for i, p := range paths {
 		if i > 0 {
 			sb.WriteString(" OR ")
@@ -853,7 +899,7 @@ func filterByPaths(entries []VectorEntry, paths []string) []VectorEntry {
 }
 
 // vectorRecallVec performs ANN search via sqlite-vec when available.
-func (s *LocalStore) vectorRecallVec(queryText string, queryVec []float32, limit int, allowedPaths []string, metaKey string, metaValue any) ([]VectorEntry, error) {
+func (s *LocalStore) vectorRecallVec(queryText string, q semanticQuery, limit int, allowedPaths []string, metaKey string, metaValue any) ([]VectorEntry, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "vectorRecallVec")
 	defer timer.Stop()
 
@@ -867,10 +913,13 @@ func (s *LocalStore) vectorRecallVec(queryText string, queryVec []float32, limit
 
 	logging.StoreDebug("sqlite-vec ANN search: limit=%d, paths=%d, metaFilter=%s", limit, len(allowedPaths), metaKey)
 
-	queryBlob := encodeFloat32Slice(queryVec)
+	queryBlob := encodeFloat32Slice(q.vec)
 
-	where := make([]string, 0)
-	args := make([]any, 0)
+	// Only rows embedded in the query's space are ranked. The index is built
+	// from such rows alone; the filter keeps a row that predates that rule, or
+	// outlived a failed clear, from being ranked against a foreign query.
+	where := []string{vecEligibleRowidFilter}
+	args := []any{q.space}
 
 	// Path filters
 	if len(allowedPaths) > 0 {
@@ -896,6 +945,7 @@ func (s *LocalStore) vectorRecallVec(queryText string, queryVec []float32, limit
 	args = append(args, limit)
 
 	s.mu.RLock()
+	s.noteExcludedLocked(q.space)
 	rows, err := s.db.Query(sqlStr, args...)
 	s.mu.RUnlock()
 	if err != nil {
@@ -968,8 +1018,8 @@ func encodeFloat32Slice(vec []float32) []byte {
 // backfillVecIndex migrates existing JSON-stored embeddings into sqlite-vec.
 // NOTE: This function runs in a background goroutine to avoid blocking startup.
 // Uses transaction batching for 30-50x speedup over individual INSERTs.
-func (s *LocalStore) backfillVecIndex(dim int, vecExt bool, done chan struct{}) {
-	if !vecExt || s.db == nil || dim <= 0 {
+func (s *LocalStore) backfillVecIndex(dim int, space string, vecExt bool, done chan struct{}) {
+	if !vecExt || s.db == nil || dim <= 0 || space == "" {
 		return
 	}
 
@@ -978,7 +1028,7 @@ func (s *LocalStore) backfillVecIndex(dim int, vecExt bool, done chan struct{}) 
 	// Phase 1: Read all rows into memory (quick read, then release rows).
 	// rows is closed deterministically once the scan loop exits so the
 	// connection returns to the pool before the transaction phase begins.
-	rows, err := s.db.Query("SELECT id, content, embedding, metadata FROM vectors WHERE embedding IS NOT NULL")
+	rows, err := s.db.Query("SELECT id, content, embedding, metadata FROM vectors WHERE "+vectorEligibleClause, space)
 	if err != nil {
 		logging.Get(logging.CategoryStore).Warn("Failed to query embeddings for backfill: %v", err)
 		return
@@ -1090,7 +1140,12 @@ func (s *LocalStore) backfillVecIndex(dim int, vecExt bool, done chan struct{}) 
 	logging.Store("Backfill complete: migrated=%d, skipped=%d", backfillCount, skippedCount)
 }
 
-// CountVectorsByMetadata returns the number of vectors whose metadata contains the key/value pair.
+// CountVectorsByMetadata returns the number of vectors whose metadata contains
+// the key/value pair. With an embedding engine attached it counts only the
+// vectors that engine can serve (see vector_identity.go): callers use the count
+// to decide whether a corpus is already indexed, and a vector in another
+// embedding space is not indexed for this engine, so counting it would stop the
+// caller from ever re-embedding what it stored.
 func (s *LocalStore) CountVectorsByMetadata(metaKey string, metaValue any) (int, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "CountVectorsByMetadata")
 	defer timer.Stop()
@@ -1103,14 +1158,23 @@ func (s *LocalStore) CountVectorsByMetadata(metaKey string, metaValue any) (int,
 	defer s.mu.RUnlock()
 
 	path := fmt.Sprintf(`$."%s"`, metaKey)
+	query := "SELECT COUNT(*) FROM vectors WHERE json_extract(metadata, ?) = ?"
+	args := []any{path, metaValue}
+	if space := s.currentSpaceLocked(); space != "" {
+		query += " AND " + vectorEligibleClause
+		args = append(args, space)
+	}
 	var count int
-	if err := s.db.QueryRow("SELECT COUNT(*) FROM vectors WHERE json_extract(metadata, ?) = ?", path, metaValue).Scan(&count); err != nil {
+	if err := s.db.QueryRow(query, args...).Scan(&count); err != nil {
 		return 0, err
 	}
 	return count, nil
 }
 
-// VectorContentsByMetadata returns a set of vector contents matching a metadata key/value.
+// VectorContentsByMetadata returns a set of vector contents matching a metadata
+// key/value. Like CountVectorsByMetadata it lists only what the attached engine
+// can serve, so a caller that skips contents already present re-embeds the ones
+// stored in another space.
 func (s *LocalStore) VectorContentsByMetadata(metaKey string, metaValue any) (map[string]struct{}, error) {
 	if metaKey == "" {
 		return nil, fmt.Errorf("metadata key is required")
@@ -1120,7 +1184,13 @@ func (s *LocalStore) VectorContentsByMetadata(metaKey string, metaValue any) (ma
 	defer s.mu.RUnlock()
 
 	path := fmt.Sprintf(`$."%s"`, metaKey)
-	rows, err := s.db.Query("SELECT content FROM vectors WHERE json_extract(metadata, ?) = ?", path, metaValue)
+	query := "SELECT content FROM vectors WHERE json_extract(metadata, ?) = ?"
+	args := []any{path, metaValue}
+	if space := s.currentSpaceLocked(); space != "" {
+		query += " AND " + vectorEligibleClause
+		args = append(args, space)
+	}
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1205,6 +1275,15 @@ func (s *LocalStore) GetVectorStats() (map[string]any, error) {
 	if s.embeddingEngine != nil {
 		stats["embedding_engine"] = s.embeddingEngine.Name()
 		stats["embedding_dimensions"] = s.embeddingEngine.Dimensions()
+		if space := s.currentSpaceLocked(); space != "" {
+			cov, err := s.vectorCoverageLocked(space)
+			if err != nil {
+				return nil, err
+			}
+			stats["eligible_vectors"] = cov.Eligible
+			stats["unattributed_vectors"] = cov.Unattributed
+			stats["foreign_vectors"] = cov.Foreign
+		}
 	} else {
 		stats["embedding_engine"] = "none (keyword search)"
 	}
@@ -1253,13 +1332,18 @@ func (s *LocalStore) VectorRecallSemanticWithTask(ctx context.Context, query str
 
 	logging.StoreDebug("Query embedding generated: %d dimensions", len(queryEmbedding))
 
+	sq, err := newSemanticQuery(engine, queryEmbedding)
+	if err != nil {
+		return nil, err
+	}
+
 	if vecEnabled {
 		logging.StoreDebug("Using sqlite-vec ANN search")
-		return s.vectorRecallVec(query, queryEmbedding, limit, nil, "", nil)
+		return s.vectorRecallVec(query, sq, limit, nil, "", nil)
 	}
 
 	// Fallback to brute-force search
-	return s.vectorRecallBruteForce(query, queryEmbedding, limit)
+	return s.vectorRecallBruteForce(query, sq, limit)
 }
 
 // VectorRecallForPromptAtoms searches for prompt atoms using RETRIEVAL_QUERY task type.
@@ -1313,11 +1397,16 @@ func (s *LocalStore) VectorRecallForPromptAtoms(ctx context.Context, query strin
 
 	logging.StoreDebug("Query embedding generated: %d dimensions", len(queryEmbedding))
 
+	sq, err := newSemanticQuery(engine, queryEmbedding)
+	if err != nil {
+		return nil, err
+	}
+
 	if vecEnabled {
 		logging.StoreDebug("Using sqlite-vec ANN search with prompt_atom filter")
-		return s.vectorRecallVec(query, queryEmbedding, limit, nil, "content_type", "prompt_atom")
+		return s.vectorRecallVec(query, sq, limit, nil, "content_type", "prompt_atom")
 	}
 
 	// Fallback to filtered brute-force search
-	return s.vectorRecallBruteForceFiltered(query, queryEmbedding, limit, "content_type", "prompt_atom")
+	return s.vectorRecallBruteForceFiltered(query, sq, limit, "content_type", "prompt_atom")
 }

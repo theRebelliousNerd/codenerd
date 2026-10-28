@@ -32,5 +32,9 @@ Page reads go through the browser (2026-09-29): `web_fetch`, `web_search` and
 `context7_fetch` call `readBrowserPage` (isolated tab, load + DOM stability,
 always closed), headless unless `research.browser_headless` is false. Do not
 add a `net/http` page read. Browser tools refuse with `requireBoundBrowser`
-when boot bound no manager; there is no fallback manager. Spec:
+when boot bound no manager; there is no fallback manager. A read leases the
+`BrowserRuntime` (`browser_runtime.go`) for its whole life: one manager, one
+kernel, one cancellation; its DOM sensor publishes through the leased manager
+(`PublishSessionFacts`) and is joined before the tab closes. A cleanup failure
+after good content is `browserPage.CleanupErr`, never a lost read. Spec:
 `Docs/architecture/tools/13-RESEARCH-READS-THROUGH-BROWSER.md`.

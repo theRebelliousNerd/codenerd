@@ -83,10 +83,10 @@ func (server *catalogGenerationServer) handle(w http.ResponseWriter, r *http.Req
 	var result any
 	switch request.Method {
 	case "initialize":
-		result = map[string]any{
-			"capabilities": map[string]bool{"tools": true, "resources": true, "prompts": true},
-			"serverInfo":   map[string]string{"name": "generation-test", "version": "1"},
-		}
+		result = standardInitializeResult("tools", "resources", "prompts")
+	case "notifications/initialized":
+		w.WriteHeader(http.StatusAccepted)
+		return
 	case "tools/list":
 		result = map[string]any{"tools": []map[string]any{{
 			"name":        fmt.Sprintf("offline_tool_%d", generation),

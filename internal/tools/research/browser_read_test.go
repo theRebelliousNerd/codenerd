@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,9 +16,39 @@ import (
 	"codenerd/internal/config"
 )
 
+// The live read tests share one runtime so Chrome launches once per test
+// binary. Tests that exercise ownership build their own runtimes.
+var (
+	sharedRuntimeOnce sync.Once
+	sharedRuntime     *BrowserRuntime
+)
+
+func sharedResearchRuntime() *BrowserRuntime {
+	sharedRuntimeOnce.Do(func() {
+		sentinel := browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil)
+		sharedRuntime = newBrowserRuntime(sentinel, &browserReasoningKernel{}, BrowserRuntimeOptions{})
+	})
+	return sharedRuntime
+}
+
+// bindForTest binds rt for one test and restores whatever was bound before,
+// but only if the test's runtime is still the binding.
+func bindForTest(t *testing.T, rt *BrowserRuntime) {
+	t.Helper()
+	prev := currentRuntime()
+	bindRuntime(rt)
+	t.Cleanup(func() {
+		if currentRuntime() == rt {
+			bindRuntime(prev)
+		}
+	})
+}
+
 func TestMain(m *testing.M) {
 	code := m.Run()
-	shutdownResearchBrowser()
+	if sharedRuntime != nil {
+		_ = sharedRuntime.Close(context.Background())
+	}
 	os.Exit(code)
 }
 
@@ -30,27 +61,12 @@ func withBoundResearchRuntime(t *testing.T) {
 	if !config.ResolvedResearchPolicy().BrowserHeadless {
 		t.Fatal("withBoundResearchRuntime requires research.browser_headless true; pin the default policy first")
 	}
-	browserMgrMu.Lock()
-	prevMgr := browserMgr
-	prevKernel := browserKernel
-	prevOwner := browserKernelOwner
-	browserMgrMu.Unlock()
-
-	sentinel := browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil)
-	SetBrowserRuntime(sentinel, &browserReasoningKernel{})
-	t.Cleanup(func() {
-		browserMgrMu.Lock()
-		defer browserMgrMu.Unlock()
-		if browserMgr == sentinel {
-			browserMgr = prevMgr
-			browserKernel = prevKernel
-			browserKernelOwner = prevOwner
-		}
-	})
+	rt := sharedResearchRuntime()
+	bindForTest(t, rt)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	if _, err := researchPageManager(ctx); err != nil {
+	if _, err := rt.pageManager(ctx); err != nil {
 		var launch *chromeLaunchError
 		if errors.As(err, &launch) {
 			t.Skipf("Chrome cannot be launched: %v. Set browser.launch to the Chrome binary.", err)
@@ -246,19 +262,7 @@ setInterval(function() {
 }
 
 func TestReadBrowserPage_UnboundRuntimeIsAnError(t *testing.T) {
-	browserMgrMu.Lock()
-	prevMgr, prevKernel, prevOwner := browserMgr, browserKernel, browserKernelOwner
-	browserMgr, browserKernel, browserKernelOwner = nil, nil, nil
-	browserMgrMu.Unlock()
-	t.Cleanup(func() {
-		browserMgrMu.Lock()
-		defer browserMgrMu.Unlock()
-		if browserMgr == nil && browserKernel == nil {
-			browserMgr = prevMgr
-			browserKernel = prevKernel
-			browserKernelOwner = prevOwner
-		}
-	})
+	bindForTest(t, nil)
 
 	_, err := readBrowserPage(context.Background(), "http://127.0.0.1/")
 	if err == nil || !strings.Contains(err.Error(), "SetBrowserRuntime") {
@@ -270,20 +274,8 @@ func TestReadBrowserPage_UnboundRuntimeIsAnError(t *testing.T) {
 }
 
 func TestReadBrowserPage_BoundWithoutKernelIsAnError(t *testing.T) {
-	browserMgrMu.Lock()
-	prevMgr, prevKernel, prevOwner := browserMgr, browserKernel, browserKernelOwner
-	browserMgrMu.Unlock()
 	sentinel := browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil)
-	SetBrowserRuntime(sentinel, nil)
-	t.Cleanup(func() {
-		browserMgrMu.Lock()
-		defer browserMgrMu.Unlock()
-		if browserMgr == sentinel {
-			browserMgr = prevMgr
-			browserKernel = prevKernel
-			browserKernelOwner = prevOwner
-		}
-	})
+	bindForTest(t, newBrowserRuntime(sentinel, nil, BrowserRuntimeOptions{}))
 
 	_, err := readBrowserPage(context.Background(), "http://127.0.0.1/")
 	if err == nil || !strings.Contains(err.Error(), "without a kernel") {
@@ -292,23 +284,12 @@ func TestReadBrowserPage_BoundWithoutKernelIsAnError(t *testing.T) {
 }
 
 func TestResearchPageManager_HeadlessFalseUsesBoundManager(t *testing.T) {
-	browserMgrMu.Lock()
-	prevMgr, prevKernel, prevOwner := browserMgr, browserKernel, browserKernelOwner
-	browserMgrMu.Unlock()
 	sentinel := browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil)
-	SetBrowserRuntime(sentinel, &browserReasoningKernel{})
-	t.Cleanup(func() {
-		browserMgrMu.Lock()
-		defer browserMgrMu.Unlock()
-		if browserMgr == sentinel {
-			browserMgr = prevMgr
-			browserKernel = prevKernel
-			browserKernelOwner = prevOwner
-		}
-	})
+	rt := newBrowserRuntime(sentinel, &browserReasoningKernel{}, BrowserRuntimeOptions{})
+	bindForTest(t, rt)
 	installResearchPolicy(t, func(p *config.ResearchPolicy) { p.BrowserHeadless = false })
 
-	mgr, err := researchPageManager(context.Background())
+	mgr, err := rt.pageManager(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

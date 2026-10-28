@@ -73,10 +73,9 @@ func (f *fakeMCPServer) handle(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Method {
 	case "initialize":
-		write(map[string]any{
-			"capabilities": map[string]bool{"tools": true, "resources": true},
-			"serverInfo":   map[string]string{"name": "fake", "version": "1.0"},
-		})
+		write(standardInitializeResult("tools", "resources"))
+	case "notifications/initialized":
+		w.WriteHeader(http.StatusAccepted)
 	case "tools/list":
 		write(map[string]any{
 			"tools": []map[string]any{
@@ -110,7 +109,7 @@ func (f *fakeMCPServer) handle(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		write(map[string]any{"content": "ok:" + params.Name})
+		write(standardToolResult("ok:"+params.Name, false))
 	case "resources/list":
 		write(map[string]any{
 			"resources": []map[string]any{
@@ -182,8 +181,8 @@ func TestHTTPTransport_WhenServerLive_ShouldListToolsOverJSONRPC(t *testing.T) {
 	}
 
 	methods := server.observedMethods()
-	if len(methods) < 2 || methods[0] != "initialize" || methods[1] != "tools/list" {
-		t.Errorf("expected initialize then tools/list, got %v", methods)
+	if len(methods) < 3 || methods[0] != "initialize" || methods[1] != "notifications/initialized" || methods[2] != "tools/list" {
+		t.Errorf("expected initialize, the initialized notification, then tools/list, got %v", methods)
 	}
 }
 

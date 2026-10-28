@@ -148,6 +148,21 @@ func (c *Cortex) Close() error {
 		shell.ClearCheckExecutor(c.Executor)
 	}
 
+	// Before the interactive manager: admitted research reads must drain, and
+	// the headless Chrome this runtime launched must exit, while the kernel
+	// that retires their observations is still alive.
+	if c.researchBrowser != nil {
+		researchBrowser := c.researchBrowser
+		if err := runCloseStep("ResearchBrowser.Close", closeStepTimeout, func() error {
+			ctx, cancel := context.WithTimeout(context.Background(), closeStepTimeout)
+			defer cancel()
+			return researchBrowser.Close(ctx)
+		}); err != nil {
+			errs = append(errs, err)
+		}
+		c.researchBrowser = nil
+	}
+
 	if c.BrowserManager != nil {
 		browserManager := c.BrowserManager
 		research.ClearBrowserManager(browserManager)

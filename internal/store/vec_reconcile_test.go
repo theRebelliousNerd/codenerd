@@ -101,7 +101,9 @@ func TestReconcileVecIndex_HealsTheDriftAFailedInsertLeaves(t *testing.T) {
 // job, not drift, and the reconcile must neither count nor index it.
 func TestReconcileVecIndex_IgnoresRowsOfAnotherDimension(t *testing.T) {
 	s := newVecStore(t)
-	if _, err := s.db.Exec("INSERT INTO vectors (content, embedding, metadata) VALUES (?, ?, ?)", "old-model", "[0.1,0.2,0.3]", "{}"); err != nil {
+	// Stamped with the current space on purpose: the dimension filter is under
+	// test here, and an unstamped row would be excluded by the space filter first.
+	if _, err := s.db.Exec("INSERT INTO vectors (content, embedding, embedding_model, metadata) VALUES (?, ?, ?, ?)", "old-model", "[0.1,0.2,0.3]", s.embeddingEngine.Name(), "{}"); err != nil {
 		t.Fatal(err)
 	}
 	if n, _ := statOf(t, s, StatVecIndexMissing); n != 0 {

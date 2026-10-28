@@ -121,6 +121,15 @@ var embeddingStatsCmd = &cobra.Command{
 			stats["embedding_engine"],
 			stats["embedding_dimensions"],
 		)
+		// Present only with an engine attached: how much of the table that
+		// engine can rank, and why the rest cannot.
+		if eligible, ok := stats["eligible_vectors"]; ok {
+			fmt.Printf("  Rankable by this engine: %v\n  Not rankable, written before the embedding space was recorded: %v\n  Not rankable, embedded by another model: %v\n",
+				eligible, stats["unattributed_vectors"], stats["foreign_vectors"])
+			if stats["unattributed_vectors"] != int64(0) || stats["foreign_vectors"] != int64(0) {
+				fmt.Println("  Run `nerd embedding reembed` to bring them into this engine's space.")
+			}
+		}
 		return nil
 	},
 }
@@ -195,15 +204,23 @@ func runEmbeddingReembedWithOps(cmd *cobra.Command, _ []string, ops embeddingRee
 		return fmt.Errorf("embedding reembed: %w", err)
 	}
 
-	fmt.Printf("\nRe-embedding complete.\n  DBs processed: %d\n  Vectors re-embedded: %d\n  Prompt atoms re-embedded: %d\n  Traces re-embedded: %d\n  Learnings re-embedded: %d\n  Duration: %.2fs\n",
-		res.DBCount, res.VectorsDone, res.AtomsDone, res.TracesDone, res.LearningsDone, res.Duration.Seconds())
-	if len(res.Skipped) > 0 {
-		fmt.Println("\nSkipped/errored DBs:")
-		for _, s := range res.Skipped {
-			fmt.Printf("  - %s\n", s)
-		}
+	verdict := "Re-embedding complete."
+	if !res.Complete {
+		verdict = "Re-embedding INCOMPLETE: some rows are still outside the target embedding space."
 	}
-	return nil
+	fmt.Printf("\n%s\n  DBs processed: %d\n  Vectors re-embedded: %d\n  Prompt atoms re-embedded: %d\n  Traces re-embedded: %d\n  Learnings re-embedded: %d\n  Duration: %.2fs\n",
+		verdict, res.DBCount, res.VectorsDone, res.AtomsDone, res.TracesDone, res.LearningsDone, res.Duration.Seconds())
+	if res.Complete {
+		return nil
+	}
+	fmt.Println("\nNot migrated (re-run `nerd embedding reembed` to resume vectors where they stopped):")
+	for _, m := range res.Stores {
+		if m.Complete {
+			continue
+		}
+		fmt.Printf("  - %s [%s]: %s\n", m.Path, m.Table, m.Detail)
+	}
+	return errors.New("embedding reembed incomplete: see the list above")
 }
 
 func init() {

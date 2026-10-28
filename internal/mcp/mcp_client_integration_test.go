@@ -62,14 +62,18 @@ func (s *MCPClientIntegrationSuite) SetupTest() {
 		switch req.Method {
 		case "initialize":
 			resp.Result = map[string]interface{}{
-				"capabilities": map[string]bool{
-					"tools": true,
+				"protocolVersion": "2024-11-05",
+				"capabilities": map[string]interface{}{
+					"tools": map[string]interface{}{},
 				},
 				"serverInfo": map[string]string{
 					"name":    "mock-server",
 					"version": "1.0.0",
 				},
 			}
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+			return
 		case "tools/list":
 			resp.Result = map[string]interface{}{
 				"tools": []map[string]interface{}{
@@ -96,8 +100,18 @@ func (s *MCPClientIntegrationSuite) SetupTest() {
 			} else if params.Name == "calculator" {
 				a, _ := params.Arguments["a"].(float64)
 				b, _ := params.Arguments["b"].(float64)
-				resp.Result = map[string]interface{}{
-					"sum": a + b,
+				if a < 0 {
+					// A tool-level failure: the JSON-RPC call succeeded and the
+					// tool reports isError, which the specification defines as
+					// a result, not a protocol error.
+					resp.Result = map[string]interface{}{
+						"content": []map[string]string{{"type": "text", "text": "negative operands rejected"}},
+						"isError": true,
+					}
+				} else {
+					resp.Result = map[string]interface{}{
+						"sum": a + b,
+					}
 				}
 			} else {
 				resp.Error = map[string]interface{}{"code": -32601, "message": "Method not found"}
@@ -108,6 +122,7 @@ func (s *MCPClientIntegrationSuite) SetupTest() {
 			resp.Error = map[string]interface{}{"code": -32601, "message": "Method not found"}
 		}
 
+		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 	}))
 	s.serverAddr = s.server.URL
@@ -214,6 +229,27 @@ func (s *MCPClientIntegrationSuite) TestConnectAndUseTools() {
 		t, err := s.store.GetTool(ctx, "test-server/calculator")
 		return err == nil && t.UsageCount == 1 && t.SuccessCount == 1
 	}, 2*time.Second, 100*time.Millisecond)
+}
+
+// A remote tool that reports isError ran and failed. The summary, the result and
+// the persisted usage counters must say failure; counting it as a success
+// teaches the affinity scorer to prefer a tool that is failing.
+func (s *MCPClientIntegrationSuite) TestCallTool_RemoteIsErrorIsFailureInResultAndUsage() {
+	ctx := context.Background()
+	s.Require().NoError(s.client.Connect(ctx, "test-server"))
+	s.reviewCalculator(ctx)
+
+	result, err := s.client.CallTool(ctx, "test-server/calculator", map[string]interface{}{"a": -1.0, "b": 2.0})
+	s.Require().NoError(err)
+	s.False(result.Success)
+	s.True(result.ToolError)
+	s.Equal("negative operands rejected", result.Error)
+	s.Contains(string(result.Output), "isError")
+
+	s.Eventually(func() bool {
+		t, err := s.store.GetTool(ctx, "test-server/calculator")
+		return err == nil && t.UsageCount == 1 && t.SuccessCount == 0
+	}, 2*time.Second, 50*time.Millisecond)
 }
 
 // -----------------------------------------------------------------------------

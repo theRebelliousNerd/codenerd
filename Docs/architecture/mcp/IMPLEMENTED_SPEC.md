@@ -209,29 +209,39 @@ internal/tools/mcpctl/
 
 All transports implement `MCPTransport` (`types.go`): Connect, Disconnect, ListTools, CallTool, GetCapabilities, Ping, IsConnected.
 
+### 4.1a Wire contract (`wire.go`)
+
+One protocol profile is implemented: the 2024-11-05 initialization lifecycle. `initialize` is answered with a `protocolVersion` the client implements and an object of **object-valued** capabilities (`{"tools":{}}` declares tools; `true`, `null` or a missing envelope is malformed and fails Connect). The client then sends `notifications/initialized`; a transport reports connected only after all three steps. A server answering with another version fails Connect with `UnsupportedProtocolError`. There is no boolean-capability fallback.
+
+- Request IDs are integers never reused for the life of a transport; a response must carry the request's ID, and a request or notification is never delivered as a response.
+- `tools/list`, `resources/list`, `prompts/list` follow `nextCursor` to exhaustion. A repeated cursor, a bound (1000 pages / 200000 items), cancellation or a failing later page yields the items so far plus `*IncompleteCatalogError`; the manager keeps unlisted tools registered (absence is not withdrawal), records `CatalogCoverage`, and the Atlas reports `incomplete_catalogs`.
+- `tools/call`: `isError:true` is `Success=false, ToolError=true` with the remote's text as `Error` and the full result in `Output`; a result that is not an object, a non-array `content`, or a non-boolean `isError` is a failure, not a success.
+- Messages, SSE events and HTTP bodies are bounded (`maxWireMessageBytes`, 64 MiB); exceeding it is an explicit error that ends the stream with its cause, never a cut.
+
 ### 4.2 HTTP (`transport_http.go`)
 
-- JSON-RPC style requests (`jsonrpc`, `id`, `method`, `params`)  
-- Connect probes capabilities  
-- Methods used: tools list/call, capabilities (implementation-specific method names in file)  
-- `http.Client` timeout from config  
+- One POST endpoint; JSON-RPC requests with transport-unique IDs  
+- Response is `application/json` (one document) or `text/event-stream` (request-scoped; notifications skipped until the matching response); any other content type is refused  
+- Connect = initialize + validation + `notifications/initialized`  
+- No `Mcp-Session-Id` / modern per-request-metadata profile (see the wire-fidelity audit)  
+- `http.Client` timeout from config; cross-host redirects are refused so static credential headers stay bound to the configured host  
 
 ### 4.3 Stdio (`transport_stdio.go`)
 
 - Endpoint string split on whitespace → `exec.Command`  
-- Pipes stdin/stdout/stderr  
-- Pending request map by JSON-RPC id  
-- Background stdout/stderr readers  
-- Optional notification handler  
+- Pipes stdin/stdout/stderr; newline-delimited messages  
+- Connect = start + initialize + `notifications/initialized` (no longer deferred to GetCapabilities)  
+- Pending request map by JSON-RPC id; the reader ending (EOF, oversized line) tears the session down and wakes pending calls with the cause  
+- Optional notification handler; server requests are logged and unanswered (the client declares no capabilities)  
 
 **Safety note:** subprocess is as powerful as the configured command — treat as trusted config.
 
 ### 4.4 SSE (`transport_sse.go`)
 
-- GET with `Accept: text/event-stream`  
+- GET with `Accept: text/event-stream`; events parsed per the SSE field grammar (`scanSSE`)  
 - Wait for endpoint event (timeout)  
-- POST path for requests; pending response channels  
-- Initialize capabilities after endpoint resolved  
+- POST path for requests (any 2xx acknowledges); responses matched by ID on the stream  
+- Initialize + `notifications/initialized` after the endpoint resolves  
 
 ### 4.5 Protocol selection
 

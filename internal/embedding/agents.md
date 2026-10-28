@@ -27,3 +27,6 @@
   go test -race -count=1 ./internal/embedding/...
   GOEXPERIMENT=simd go test -count=1 ./internal/embedding/...
   ```
+- Batch and single embeds must cover the same input: the native `/api/embed`
+  request sends `truncate:false` (the server default silently cuts), and a
+  refused chunk falls back to per-text `Embed` (split and pool).

@@ -177,11 +177,17 @@ func (manager *MCPClientManager) setReviewedToolEffectLocked(review ReviewedTool
 // The caller holds authorityMu. A review the config check would have refused
 // is skipped and logged, never installed half-valid.
 func (manager *MCPClientManager) installConfiguredReviewsLocked() {
-	for serverID, cfg := range manager.config {
-		for _, review := range cfg.Reviews {
-			if err := manager.setReviewedToolEffectLocked(review); err != nil {
-				logging.Get(logging.CategoryTools).Warn("MCP server %s: configured review not installed: %v", serverID, err)
-			}
+	for serverID := range manager.config {
+		manager.installConfiguredReviewsForServerLocked(serverID)
+	}
+}
+
+// installConfiguredReviewsForServerLocked installs one server's configured
+// reviews. The caller holds authorityMu.
+func (manager *MCPClientManager) installConfiguredReviewsForServerLocked(serverID string) {
+	for _, review := range manager.config[serverID].Reviews {
+		if err := manager.setReviewedToolEffectLocked(review); err != nil {
+			logging.Get(logging.CategoryTools).Warn("MCP server %s: configured review not installed: %v", serverID, err)
 		}
 	}
 }
@@ -613,7 +619,11 @@ func (manager *MCPClientManager) invalidateRemoteCatalog(operation RemoteOperati
 
 // Revoke changed or removed subjects as soon as the live catalog arrives,
 // before analysis or publication can fail. Unchanged subjects stay callable.
-func (manager *MCPClientManager) beginRemoteToolRefresh(serverID string, connection *MCPServerConnection, schemas []MCPToolSchema) error {
+//
+// complete says whether schemas is the server's whole catalog. A partial
+// listing cannot show that an unlisted tool was withdrawn, so unlisted tools are
+// left as they are; a listed tool whose schema changed is still revoked.
+func (manager *MCPClientManager) beginRemoteToolRefresh(serverID string, connection *MCPServerConnection, schemas []MCPToolSchema, complete bool) error {
 	hashes := make(map[string]string, len(schemas))
 	counts := make(map[string]int, len(schemas))
 	for _, schema := range schemas {
@@ -629,9 +639,15 @@ func (manager *MCPClientManager) beginRemoteToolRefresh(serverID string, connect
 	retained := make([]*MCPTool, 0, len(connection.Tools))
 	var stale []*MCPTool
 	for _, tool := range connection.Tools {
-		if tool != nil && tool.ServerID == serverID && counts[tool.ToolID] == 1 && hashes[tool.ToolID] == tool.SchemaHash && hashes[tool.ToolID] == remoteSchemaHash(tool) {
+		if tool == nil {
+			continue
+		}
+		_, listed := hashes[tool.ToolID]
+		if !complete && !listed {
 			retained = append(retained, tool)
-		} else if tool != nil {
+		} else if tool.ServerID == serverID && counts[tool.ToolID] == 1 && hashes[tool.ToolID] == tool.SchemaHash && hashes[tool.ToolID] == remoteSchemaHash(tool) {
+			retained = append(retained, tool)
+		} else {
 			stale = append(stale, tool)
 		}
 	}

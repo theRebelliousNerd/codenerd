@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"codenerd/internal/docdecl"
 )
 
 // defaultDocs is the docs tree the R6 grader scores. It is the flag default
@@ -117,7 +119,7 @@ func Audit(opt Options) (Report, error) {
 		return Report{}, fmt.Errorf("docs root %s is not a directory", docsSpec)
 	}
 
-	preds, err := loadPredicates(root)
+	preds, err := docdecl.LoadPredicates(root)
 	if err != nil {
 		return Report{}, fmt.Errorf("mangle corpus: %w", err)
 	}
@@ -129,7 +131,7 @@ func Audit(opt Options) (Report, error) {
 		root:  root,
 		preds: preds,
 		dirs:  dirs,
-		pkgs:  map[string]*pkgDecls{},
+		pkgs:  map[string]*docdecl.Package{},
 		lines: map[string]int{},
 	}
 	files, err := markdownFiles(docs)
@@ -162,17 +164,17 @@ type checker struct {
 	root  string
 	preds map[string]bool
 	dirs  map[string][]string
-	pkgs  map[string]*pkgDecls
+	pkgs  map[string]*docdecl.Package
 	lines map[string]int
 	// stdCache holds parsed standard-library packages keyed by qualifier.
 	// A nil value means the qualifier was looked up and is not a stdlib package.
-	stdCache map[string]*pkgDecls
+	stdCache map[string]*docdecl.Package
 }
 
 func (c *checker) scanText(docRel, text string) (int, []Finding, error) {
 	var cites int
 	var findings []Finding
-	for i, line := range splitLines(text) {
+	for i, line := range docdecl.SplitLines(text) {
 		n, fs, err := c.scanLine(docRel, i+1, line)
 		if err != nil {
 			return 0, nil, err
@@ -329,11 +331,11 @@ func (c *checker) judgeBoundSymbol(doc string, lineNo int, sym string, p pathHit
 		if c.foreignStdlib(pk, sym) {
 			return Finding{}, true, false, nil
 		}
-		if pk.has(sym) {
+		if pk.Has(sym) {
 			return Finding{}, false, false, nil
 		}
-		reason := fmt.Sprintf("`%s` is not declared in %s or package %s", sym, p.rel, pk.dirBase)
-		if pe, ok := pk.parseErr[p.rel]; ok {
+		reason := fmt.Sprintf("`%s` is not declared in %s or package %s", sym, p.rel, pk.DirBase)
+		if pe, ok := pk.ParseErr[p.rel]; ok {
 			reason += " (cited file did not parse: " + pe + ")"
 		}
 		return Finding{
@@ -346,12 +348,12 @@ func (c *checker) judgeBoundSymbol(doc string, lineNo int, sym string, p pathHit
 // foreignStdlib reports whether sym is `pkg.Sel` for a standard-library
 // package that is not the cited file's package and not a name the cited
 // package declares. `pkg.Good` and `Engine.Cache` stay citations of the file.
-func (c *checker) foreignStdlib(pk *pkgDecls, sym string) bool {
+func (c *checker) foreignStdlib(pk *docdecl.Package, sym string) bool {
 	q, rest, ok := splitPkg(sym)
 	if !ok || pk == nil {
 		return false
 	}
-	if pk.pkgNames[q] || q == pk.dirBase || pk.names[q] {
+	if pk.PkgNames[q] || q == pk.DirBase || pk.Names[q] {
 		return false
 	}
 	return c.stdlibHas(q, rest)
@@ -394,7 +396,7 @@ func (c *checker) judgeGlobal(doc string, lineNo int, sym string) (int, *Finding
 		if err != nil {
 			return 0, nil, err
 		}
-		if pk.has(sym) || pk.has(rest) {
+		if pk.Has(sym) || pk.Has(rest) {
 			return 1, nil, nil
 		}
 	}
@@ -415,7 +417,7 @@ func (c *checker) lineCount(rel string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("read %s: %w", rel, err)
 	}
-	n := len(splitLines(string(b)))
+	n := len(docdecl.SplitLines(string(b)))
 	c.lines[rel] = n
 	return n, nil
 }
@@ -819,22 +821,6 @@ func markdownFiles(docs string) ([]string, error) {
 
 func skipDocsDir(name string) bool {
 	return name == ".git" || name == "vendor" || name == "node_modules"
-}
-
-func splitLines(s string) []string {
-	if s == "" {
-		return nil
-	}
-	s = strings.TrimPrefix(s, "\uFEFF")
-	s = strings.ReplaceAll(s, "\r\n", "\n")
-	s = strings.ReplaceAll(s, "\r", "\n")
-	if strings.HasSuffix(s, "\n") {
-		s = s[:len(s)-1]
-	}
-	if s == "" {
-		return []string{""}
-	}
-	return strings.Split(s, "\n")
 }
 
 func oneLine(s string) string {

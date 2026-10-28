@@ -280,7 +280,14 @@ const (
 // per-text Embed for the chunk, which is also the path that splits an input
 // longer than the model's window.
 func (e *OllamaEngine) embedBatchNative(ctx context.Context, texts []string) ([][]float32, error) {
-	body, err := json.Marshal(ollamaBatchEmbedRequest{Model: e.Model(), Input: texts, KeepAlive: e.keepAlive})
+	// Truncate is sent explicitly, as false. /api/embed defaults it to true,
+	// and a text longer than the model's window would then come back as a
+	// valid, correctly sized vector of its opening only: the batch succeeds, the
+	// per-text split-and-pool path never runs, and nothing downstream can tell.
+	// With false the server refuses the chunk, and EmbedBatch embeds it text by
+	// text through Embed, which covers the whole input.
+	noTruncate := false
+	body, err := json.Marshal(ollamaBatchEmbedRequest{Model: e.Model(), Input: texts, Truncate: &noTruncate, KeepAlive: e.keepAlive})
 	if err != nil {
 		return nil, fmt.Errorf("marshal batch request: %w", err)
 	}
@@ -661,9 +668,11 @@ type ollamaEmbedResponse struct {
 }
 
 type ollamaBatchEmbedRequest struct {
-	Model     string   `json:"model"`
-	Input     []string `json:"input"`
-	KeepAlive string   `json:"keep_alive,omitempty"`
+	Model string   `json:"model"`
+	Input []string `json:"input"`
+	// Truncate is a pointer so false is sent: the server default is true.
+	Truncate  *bool  `json:"truncate,omitempty"`
+	KeepAlive string `json:"keep_alive,omitempty"`
 }
 
 type ollamaBatchEmbedResponse struct {

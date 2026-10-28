@@ -3,32 +3,29 @@ package research
 import (
 	"codenerd/internal/browser"
 	"codenerd/internal/config"
-	"context"
 	"strings"
 )
 
 // Test seams: conveniences only tests call. They live here, not in
 // production files, so the dead-code budget measures production code.
 
+// headlessIfStarted is the headless manager once a read has started it.
+func (rt *BrowserRuntime) headlessIfStarted() *browser.SessionManager {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	return rt.headless
+}
+
 // researchPageBrowser is the process the current policy would read with,
 // if one has been started. Tests use it to count tabs. It does not launch.
 func researchPageBrowser() *browser.SessionManager {
 	if config.ResolvedResearchPolicy().BrowserHeadless {
-		researchHeadlessMu.Lock()
-		defer researchHeadlessMu.Unlock()
-		return researchHeadless
+		if rt := currentRuntime(); rt != nil {
+			return rt.headlessIfStarted()
+		}
+		return nil
 	}
 	return getBrowserManager()
-}
-
-func shutdownResearchBrowser() {
-	researchHeadlessMu.Lock()
-	mgr := researchHeadless
-	researchHeadless = nil
-	researchHeadlessMu.Unlock()
-	if mgr != nil {
-		_ = mgr.Shutdown(context.Background())
-	}
 }
 
 // GetDocURLsForTech returns documentation URLs for a technology.

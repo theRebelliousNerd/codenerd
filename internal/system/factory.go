@@ -442,6 +442,7 @@ type Cortex struct {
 	mcpDone               <-chan struct{}
 	ouroborosCancel       context.CancelFunc
 	ouroborosDone         <-chan struct{}
+	researchBrowser       *research.BrowserRuntime
 	generatedExecutor     *orchestratorToolExecutor
 	onDemandStop          func()
 	perceptionInitialized bool
@@ -930,6 +931,7 @@ type bootContext struct {
 	promptEvolver                *promptevolution.PromptEvolver
 	contextFeedback              *ctxlearn.ContextFeedbackStore
 	browserMgr                   *browser.SessionManager
+	researchBrowser              *research.BrowserRuntime
 	scanner                      *world.Scanner
 	tracker                      *usage.Tracker
 	projectDoc                   *projectdoc.Document // nerd.md, nil when absent or invalid
@@ -1954,6 +1956,7 @@ func initAutopoiesisAndBrowser(bctx *bootContext) error {
 	browserCfg := browser.DefaultConfig()
 	browserCfg.DebuggerURL = configuredBrowser.DebuggerURL
 	browserCfg.Launch = append([]string(nil), configuredBrowser.Launch...)
+	browserCfg.Reaper = configuredBrowser.Reaper
 	browserCfg.Headless = configuredBrowser.Headless
 	browserCfg.ViewportWidth = configuredBrowser.ViewportWidth
 	browserCfg.ViewportHeight = configuredBrowser.ViewportHeight
@@ -1987,7 +1990,16 @@ func initAutopoiesisAndBrowser(bctx *bootContext) error {
 	bctx.browserMgr.SetFactQuerier(browser.NewKernelFactQuerier(bctx.kernel))
 	bctx.browserMgr.SetFactRetractor(browser.NewKernelFactRetractor(bctx.kernel))
 
-	research.SetBrowserRuntime(bctx.browserMgr, bctx.kernel)
+	// The research runtime owns the headless browser page reads launch lazily.
+	// It inherits the operator's browser binary, cleanup bounds, redaction keys
+	// and limits, and Cortex.Close (boot rollback included) closes it.
+	bctx.researchBrowser = research.SetBrowserRuntime(bctx.browserMgr, bctx.kernel, research.BrowserRuntimeOptions{
+		Launch:             append([]string(nil), configuredBrowser.Launch...),
+		Reaper:             configuredBrowser.Reaper,
+		ExtraSensitiveKeys: append([]string(nil), configuredBrowser.ExtraSensitiveKeys...),
+		MaxTabs:            configuredBrowser.MaxTabs,
+		MaxBrowsers:        configuredBrowser.MaxBrowsers,
+	})
 	// run_check runs a campaign's declared acceptance argv through the same
 	// audited executor the orchestrator's acceptance round uses (Cortex.Executor).
 	shell.SetCheckExecutor(bctx.virtualStore.AuditedExecutor())
@@ -2888,6 +2900,7 @@ func cortexFromBootContext(bctx *bootContext) *Cortex {
 		Transducer:            bctx.transducer,
 		Orchestrator:          bctx.poiesis,
 		BrowserManager:        bctx.browserMgr,
+		researchBrowser:       bctx.researchBrowser,
 		Scanner:               bctx.scanner,
 		UsageTracker:          bctx.tracker,
 		LocalDB:               bctx.localDB,

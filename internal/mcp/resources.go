@@ -73,18 +73,16 @@ type rpcCaller interface {
 	call(ctx context.Context, method string, params any) (*mcpResponse, error)
 }
 
+// listToolsVia, listResourcesVia and listPromptsVia consume every page. On a
+// partial collection they return the items gathered so far together with an
+// *IncompleteCatalogError; callers must treat that subset as descriptive, never
+// as proof of what the server no longer offers.
+func listToolsVia(ctx context.Context, caller rpcCaller) ([]MCPToolSchema, error) {
+	return listPaged[MCPToolSchema](ctx, caller, "tools", "tools/list", "tools")
+}
+
 func listResourcesVia(ctx context.Context, caller rpcCaller) ([]MCPResource, error) {
-	resp, err := caller.call(ctx, "resources/list", nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list resources: %w", err)
-	}
-	var result struct {
-		Resources []MCPResource `json:"resources"`
-	}
-	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse resources response: %w", err)
-	}
-	return result.Resources, nil
+	return listPaged[MCPResource](ctx, caller, "resources", "resources/list", "resources")
 }
 
 func readResourceVia(ctx context.Context, caller rpcCaller, uri string) ([]MCPResourceContent, error) {
@@ -96,26 +94,19 @@ func readResourceVia(ctx context.Context, caller rpcCaller, uri string) ([]MCPRe
 		return nil, fmt.Errorf("failed to read resource %s: %w", uri, err)
 	}
 	var result struct {
-		Contents []MCPResourceContent `json:"contents"`
+		Contents *[]MCPResourceContent `json:"contents"`
 	}
 	if err := json.Unmarshal(resp.Result, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse resource contents: %w", err)
 	}
-	return result.Contents, nil
+	if result.Contents == nil {
+		return nil, fmt.Errorf("malformed resources/read result for %s: no contents array", uri)
+	}
+	return *result.Contents, nil
 }
 
 func listPromptsVia(ctx context.Context, caller rpcCaller) ([]MCPPrompt, error) {
-	resp, err := caller.call(ctx, "prompts/list", nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list prompts: %w", err)
-	}
-	var result struct {
-		Prompts []MCPPrompt `json:"prompts"`
-	}
-	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse prompts response: %w", err)
-	}
-	return result.Prompts, nil
+	return listPaged[MCPPrompt](ctx, caller, "prompts", "prompts/list", "prompts")
 }
 
 func getPromptVia(ctx context.Context, caller rpcCaller, name string, args map[string]string) ([]MCPPromptMessage, error) {
@@ -134,7 +125,7 @@ func getPromptVia(ctx context.Context, caller rpcCaller, name string, args map[s
 	// The wire format allows content to be either a bare string or a typed
 	// content block; normalize both to text so callers get one shape.
 	var result struct {
-		Messages []struct {
+		Messages *[]struct {
 			Role    string          `json:"role"`
 			Content json.RawMessage `json:"content"`
 		} `json:"messages"`
@@ -142,9 +133,12 @@ func getPromptVia(ctx context.Context, caller rpcCaller, name string, args map[s
 	if err := json.Unmarshal(resp.Result, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse prompt response: %w", err)
 	}
+	if result.Messages == nil {
+		return nil, fmt.Errorf("malformed prompts/get result for %s: no messages array", name)
+	}
 
-	messages := make([]MCPPromptMessage, 0, len(result.Messages))
-	for _, m := range result.Messages {
+	messages := make([]MCPPromptMessage, 0, len(*result.Messages))
+	for _, m := range *result.Messages {
 		messages = append(messages, MCPPromptMessage{Role: m.Role, Content: promptContentText(m.Content)})
 	}
 	return messages, nil

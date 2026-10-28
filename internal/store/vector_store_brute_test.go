@@ -19,11 +19,11 @@ func TestVectorStore_BruteForceMethods(t *testing.T) {
 	_ = ctx
 
 	// Insert some embeddings
-	store.db.Exec("INSERT INTO vectors (content, metadata, embedding) VALUES ('text', '{\"path\":\"path1\", \"k\":\"v\"}', '[0.1, 0.2, 0.3, 0.4]')")
-	store.db.Exec("INSERT INTO vectors (content, metadata, embedding) VALUES ('text', '{\"path\":\"path2\", \"k\":\"v2\"}', '[0.5, 0.6, 0.7, 0.8]')")
+	store.db.Exec("INSERT INTO vectors (content, metadata, embedding, embedding_model) VALUES ('text', '{\"path\":\"path1\", \"k\":\"v\"}', '[0.1, 0.2, 0.3, 0.4]', 'unit-space')")
+	store.db.Exec("INSERT INTO vectors (content, metadata, embedding, embedding_model) VALUES ('text', '{\"path\":\"path2\", \"k\":\"v2\"}', '[0.5, 0.6, 0.7, 0.8]', 'unit-space')")
 
 	// Test vectorRecallBruteForce
-	results, err := store.vectorRecallBruteForce("test_query", []float32{0.1, 0.2, 0.3, 0.4}, 10)
+	results, err := store.vectorRecallBruteForce("test_query", semanticQuery{vec: []float32{0.1, 0.2, 0.3, 0.4}, space: "unit-space"}, 10)
 	if err != nil {
 		t.Fatalf("vectorRecallBruteForce failed: %v", err)
 	}
@@ -33,10 +33,10 @@ func TestVectorStore_BruteForceMethods(t *testing.T) {
 
 	// Test vectorRecallBruteForceByPaths
 	paths := []string{"path1", "path2"}
-	_, _ = store.vectorRecallBruteForceByPaths("test_query", []float32{0.1, 0.2, 0.3, 0.4}, 10, paths)
+	_, _ = store.vectorRecallBruteForceByPaths("test_query", semanticQuery{vec: []float32{0.1, 0.2, 0.3, 0.4}, space: "unit-space"}, 10, paths)
 
 	// Test vectorRecallBruteForceFiltered
-	filteredResults, err := store.vectorRecallBruteForceFiltered("test_query", []float32{0.1, 0.2, 0.3, 0.4}, 10, "k", "v")
+	filteredResults, err := store.vectorRecallBruteForceFiltered("test_query", semanticQuery{vec: []float32{0.1, 0.2, 0.3, 0.4}, space: "unit-space"}, 10, "k", "v")
 	if err != nil {
 		t.Fatalf("vectorRecallBruteForceFiltered failed: %v", err)
 	}
@@ -47,18 +47,18 @@ func TestVectorStore_BruteForceMethods(t *testing.T) {
 
 func TestVectorStore_FilterUtils(t *testing.T) {
 	// buildPathFilteredQuery
-	query, args := buildPathFilteredQuery([]string{"path1", "path2"})
-	expected := "SELECT id, content, embedding, metadata, created_at FROM vectors WHERE embedding IS NOT NULL AND (json_extract(metadata, ?) = ? OR json_extract(metadata, ?) = ?)"
+	query, args := buildPathFilteredQuery("unit-space", []string{"path1", "path2"})
+	expected := "SELECT id, content, embedding, metadata, created_at FROM vectors WHERE embedding IS NOT NULL AND embedding_model = ? AND (json_extract(metadata, ?) = ? OR json_extract(metadata, ?) = ?)"
 	if query != expected {
 		t.Errorf("Unexpected query: %s", query)
 	}
-	if len(args) != 4 || args[0] != "$.path" || args[1] != "path1" || args[2] != "$.path" || args[3] != "path2" {
+	if len(args) != 5 || args[0] != "unit-space" || args[1] != "$.path" || args[2] != "path1" || args[3] != "$.path" || args[4] != "path2" {
 		t.Errorf("Unexpected args: %v", args)
 	}
 
-	query2, args2 := buildPathFilteredQuery(nil)
-	expected2 := "SELECT id, content, embedding, metadata, created_at FROM vectors WHERE embedding IS NOT NULL"
-	if query2 != expected2 || len(args2) != 0 {
+	query2, args2 := buildPathFilteredQuery("unit-space", nil)
+	expected2 := "SELECT id, content, embedding, metadata, created_at FROM vectors WHERE embedding IS NOT NULL AND embedding_model = ?"
+	if query2 != expected2 || len(args2) != 1 || args2[0] != "unit-space" {
 		t.Errorf("Unexpected empty paths query: %s", query2)
 	}
 

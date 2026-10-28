@@ -2,7 +2,7 @@
 doc-class: shipped
 subsystem: tools
 implementation-status: shipped
-last-verified: 2026-09-29
+last-verified: 2026-10-28
 verified-against: b069d3e4
 supersedes: []
 ---
@@ -19,14 +19,14 @@ Steve, 2026-09-29: "instead of fetch for web page pulling or whatever we are usi
 browser capabilities native to codenerd to scrape data and do research." No research tool reads
 a web page with `net/http` any more.
 
-- **One page read.** `readBrowserPage` (`internal/tools/research/browser_read.go:205`) opens an
+- **One page read.** `readBrowserPage` (`internal/tools/research/browser_read.go`) opens an
   isolated tab, navigates, waits for load and then for DOM stability (the same stable-wait the
   `browser_wait` tool uses), reads the rendered HTML and text, and always closes the tab. A page
   that never goes quiet is an error with no body, never a blank-frame extract. A non-2xx document
   response is reported as `HTTP <code>`.
 - **Headless by default.** `research.browser_headless` (`internal/config/research.go:52`, default
   true at `internal/config/research.go:69`) runs research reads in a separate headless Chrome
-  (`researchHeadlessManager`, `internal/tools/research/browser_read.go:139`), so a read never pops
+  (`BrowserRuntime.headlessManager`, `internal/tools/research/browser_runtime.go`), so a read never pops
   a window even when the interactive browser (`browser.headless`) is visible. A missing Chrome is
   an error naming `browser.launch`.
 - **The three tools.** `web_fetch` (`internal/tools/research/web_fetch.go:56`) reads through the
@@ -56,5 +56,35 @@ the standard Windows path) on 2026-09-29.
 
 - The live DuckDuckGo site was not opened; headless Chrome may receive a challenge page there.
   The parser is proven on a local document with the same markup.
-- A custom `browser.launch` does not reach the headless research browser until the factory
-  passes it (`internal/system/factory.go`); auto-detected Chrome is used.
+- ~~A custom `browser.launch` does not reach the headless research browser until the factory
+  passes it.~~ Closed 2026-10-28: the factory passes `browser.launch`, `browser.reaper`,
+  `browser.extra_sensitive_keys`, `browser.max_tabs` and `browser.max_browsers` to
+  `research.SetBrowserRuntime`; see "Ownership and retirement" below.
+
+## Ownership and retirement (2026-10-28)
+
+Spec for `Docs/audits/research-browser-ownership-and-evidence-retirement.md`; built.
+
+- **One owner.** `research.BrowserRuntime` (`internal/tools/research/browser_runtime.go`) holds the
+  bound interactive manager, the kernel, and the lazily started headless manager. Boot creates it
+  (`initAutopoiesisAndBrowser`), `Cortex.Close` closes it before the interactive manager, and boot
+  rollback runs `Cortex.Close`. `Close` stops admission, cancels and joins admitted reads, then
+  shuts the headless Chrome down; it never touches a replacement runtime's binding.
+- **One lease per read.** `readBrowserPage` leases the runtime: manager, kernel and cancellation
+  are fixed for the read. The headless manager's sink and retractor are fixed to the runtime's
+  kernel (`runtimeKernelSink`); nothing consults the mutable process binding mid-read.
+- **Effective configuration.** Research inherits `browser.launch` (binary and flags, minus
+  `--user-data-dir` and `--remote-debugging-*`, which are dropped and logged), `browser.reaper`,
+  `browser.extra_sensitive_keys`, `browser.max_tabs` and `browser.max_browsers`. Unset
+  `browser.launch` falls back to discovery. Research still forces headless, isolated tabs, no
+  header ingestion, no bulk evidence recording, no session store, no debugger URL.
+- **Evidence retirement.** The DOM sensor publishes `dom_updated` through
+  `SessionManager.PublishSessionFacts` (budgeted, sanitized, tracked) and is joined before the tab
+  closes. The headless manager has a kernel retractor. Tracked facts are the sanitized spelling the
+  sink stored; `browser_epoch` and `browser_stream_saturated` are tracked with their epoch. A saturated
+  epoch leaves `SessionFactStats.SaturatedEpochs`. A failed retraction is returned by
+  `CloseSession` and queued (`PendingRetirements`) for exact-fact retry.
+- **Terminal states.** A sensor that cannot install/publish, or a saturated stream, makes the
+  read fail as observation-incomplete. Content read but cleanup failed is
+  `browserPage.CleanupErr`; `web_fetch` and `web_search` append a "cleanup pending" notice, and
+  Context7 (archived source text) logs it.

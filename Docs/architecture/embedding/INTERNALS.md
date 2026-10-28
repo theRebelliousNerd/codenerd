@@ -38,8 +38,12 @@ see `WIRING-AND-NOT-BUILT.md`.
   `invalidateModel` + `EnsureModel` + one retry with the attempt budget reset
   (`ollama.go:162`); 5xx responses are retried (`ollama.go:177`); the decoded
   body is validated (`ollama.go:209`) before return.
-- Batch (`ollama.go:233`) is sequential `Embed` calls — Ollama has no native
-  batch endpoint (`ollama.go:231`).
+- Batch (`OllamaEngine.EmbedBatch`) sends bounded chunks (32 texts / 256 KiB) to
+  the native `/api/embed` endpoint (`embedBatchNative`) with `"truncate": false`,
+  and falls back to per-text `Embed` for a chunk the server refuses, which
+  keeps long-input splitting and pooling. `/api/embed` truncates by default, so
+  omitting the field would let an oversized text come back as the vector of its
+  opening (`batch_truncation_test.go`).
 - Model management: the four-step chain (resolve bare names → prefer an
   installed match → `POST /api/pull` once → ensure-and-retry on 404) is
   documented on the struct (`ollama.go:28`) and implemented by

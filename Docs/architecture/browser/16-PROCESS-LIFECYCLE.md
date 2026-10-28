@@ -31,6 +31,12 @@ process cleanup is a private driver responsibility, never a model tool.
 - Detached metadata does not consume tab capacity.
 - Cleanup timeout and retry interval are per-operation settings in
   `browser.reaper`; runtime configuration adapters must carry that section.
+  As built 2026-10-28: the factory copies `browser.reaper` into the interactive
+  manager's config and into the research runtime's headless manager
+  (`research.BrowserRuntimeOptions.Reaper`).
+- `CloseSession` returns a failed fact retraction (the exact facts stay queued
+  for retry, `PendingRetirements`) in addition to a failed target close; the
+  research reader reports that as a pending cleanup beside valid content.
 
 ## Current state / implementation record (source review only)
 

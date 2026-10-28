@@ -53,8 +53,11 @@ func TestMCPCallFacade_ConfirmationCannotSupplyConstitutionalAuthority(t *testin
 		}
 		var result any
 		switch rpc.Method {
+		case "notifications/initialized":
+			writer.WriteHeader(http.StatusAccepted)
+			return
 		case "initialize":
-			result = map[string]any{"capabilities": map[string]any{"tools": true}}
+			result = map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{"tools": map[string]any{}}}
 		case "tools/list":
 			result = map[string]any{"tools": []any{map[string]any{
 				"name": "remove", "description": "Remove a remote record", "inputSchema": map[string]any{"type": "object"},
@@ -66,6 +69,7 @@ func TestMCPCallFacade_ConfirmationCannotSupplyConstitutionalAuthority(t *testin
 		default:
 			result = map[string]any{}
 		}
+		writer.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(writer).Encode(map[string]any{"jsonrpc": "2.0", "id": rpc.ID, "result": result}); err != nil {
 			t.Error(err)
 		}
