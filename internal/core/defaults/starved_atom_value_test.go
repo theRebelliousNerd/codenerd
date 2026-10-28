@@ -100,6 +100,10 @@ var (
 	// goAtomRe accepts "foo" and "/foo": Go writes both forms, and the
 	// auto-atomizer promotes an identifier-shaped string to a name.
 	goAtomRe = regexp.MustCompile(`"/?([a-zA-Z_][a-zA-Z0-9_]*)"`)
+	// quotedRe is a Mangle string literal, escapes included. What is inside is
+	// text, never an atom: a message naming ".nerd/code_families.json" selects
+	// nothing.
+	quotedRe = regexp.MustCompile(`"(?:[^"\\]|\\.)*"`)
 )
 
 // currentStarvedAtomValues returns "predicate\t/atom" for every atom a rule
@@ -140,7 +144,7 @@ func currentStarvedAtomValues(t *testing.T) []string {
 			if stmt == "" || strings.HasPrefix(stmt, "Decl") {
 				continue
 			}
-			head, body, isRule := strings.Cut(stmt, ":-")
+			head, body, isRule := strings.Cut(quotedRe.ReplaceAllString(stmt, `""`), ":-")
 			// A head, or a ground fact, produces the atoms it names.
 			for _, m := range atomLiteralRe.FindAllStringSubmatch(head, -1) {
 				for _, a := range atomValueRe.FindAllStringSubmatch(m[2], -1) {
