@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 4: Unsafe Negation (Unbounded Variables)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -48,7 +47,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Failure Mode 4: Unsafe Negation (Unbounded Variables) Correct Code"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -98,7 +96,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Failure Mode 4: Unsafe Negation (Unbounded Variables) Detection"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -127,7 +124,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Mental Model: Generators vs Filters"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -157,7 +153,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Safe Patterns Reference"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -206,7 +201,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Unsafe Patterns (DO NOT USE)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -237,7 +231,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Why This Restriction Exists"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -273,7 +266,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Complex Example: Finding Missing Relationships"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -319,7 +311,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Failure Mode 4: Unsafe Negation (Unbounded Variables) Quick Check"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

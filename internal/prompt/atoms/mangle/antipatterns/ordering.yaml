@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Ordering Assumptions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -25,7 +24,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Ordering Assumptions: Anti-Pattern 1: Rule Execution Order"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -78,7 +76,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Ordering Assumptions: Anti-Pattern 2: Atom Order in Rule Body"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -136,7 +133,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Ordering Assumptions: Anti-Pattern 3: Short-Circuit Evaluation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -196,7 +192,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Ordering Assumptions: Anti-Pattern 4: Negation Before Binding"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -245,7 +240,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Ordering Assumptions: Anti-Pattern 5: Aggregation Before Grouping"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -298,7 +292,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Ordering Assumptions: Anti-Pattern 6: Multiple Rules Overwriting"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -359,7 +352,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Ordering Assumptions: Anti-Pattern 7: \"First Match\" Semantics"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -422,7 +414,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Ordering Assumptions: Anti-Pattern 8: Assuming Stratification Order"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -477,7 +468,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Ordering Assumptions: Anti-Pattern 9: Ordered Choice"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -540,7 +530,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Ordering Assumptions: Anti-Pattern 10: File Order in Multi-File Programs"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -593,7 +582,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Ordering Assumptions: Anti-Pattern 11: Lazy vs Eager Evaluation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -645,7 +633,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Ordering Assumptions: Anti-Pattern 12: Statement-by-Statement Debugging"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -704,7 +691,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Ordering Assumptions: What Order DOES Matter"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -756,7 +742,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Ordering Assumptions: Key Principle: Declarative Semantics"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -784,7 +769,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Ordering Assumptions: Anti-Pattern: Ordering Assumptions Migration Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -814,7 +798,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Ordering Assumptions: Pro Tip: Embrace Declarative Thinking"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

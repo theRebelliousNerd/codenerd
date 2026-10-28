@@ -3,7 +3,6 @@
 - id: "campaign/assault/identity"
   category: "identity"
   subcategory: "campaign_assault"
-  priority: 80
   is_mandatory: true
   campaign_phases: ["/assault"]
   shard_types: ["/analyzer"]
@@ -21,7 +20,6 @@
 - id: "campaign/assault/protocol"
   category: "methodology"
   subcategory: "assault_protocol"
-  priority: 78
   is_mandatory: true
   campaign_phases: ["/assault"]
   shard_types: ["/analyzer"]
@@ -42,7 +40,6 @@
 - id: "campaign/assault/output_schema"
   category: "protocol"
   subcategory: "json_schema"
-  priority: 90
   is_mandatory: true
   campaign_phases: ["/assault"]
   shard_types: ["/analyzer"]

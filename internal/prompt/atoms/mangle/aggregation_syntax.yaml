@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Syntax"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -58,7 +57,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Syntax: Mangle Aggregation Syntax Common Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

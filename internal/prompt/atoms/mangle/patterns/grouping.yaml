@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -65,7 +64,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 1: Multi-Attribute Grouping"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -113,7 +111,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 2: Multiple Aggregations per Group"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -161,7 +158,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 3: Conditional Aggregation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -179,7 +175,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 3: Conditional Aggregation Solution"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -235,7 +230,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 3: Conditional Aggregation Example"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -263,7 +257,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 4: Hierarchical Grouping (Rollup)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -328,7 +321,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 5: Grouping with Filtering (HAVING)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -385,7 +377,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 6: Grouping with Min/Max"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -431,7 +422,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 7: Grouping with First/Last"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -485,7 +475,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 8: Distinct Values per Group"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -534,7 +523,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 9: Grouping with Percentiles"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -585,7 +573,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 10: Window Functions (Running Aggregates)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -633,7 +620,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 11: Grouping After Join"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -684,7 +670,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Anti-Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -740,7 +725,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Grouping Patterns Performance Tips"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -781,7 +765,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Code Complexity by Module"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

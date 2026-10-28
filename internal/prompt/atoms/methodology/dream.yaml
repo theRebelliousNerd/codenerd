@@ -4,7 +4,6 @@
 - id: "methodology/dream/simulation"
   category: "methodology"
   subcategory: "dream"
-  priority: 95
   is_mandatory: false
   operational_modes: ["/dream"]
   content: |
@@ -39,7 +38,6 @@
 - id: "methodology/dream/what_if"
   category: "methodology"
   subcategory: "dream"
-  priority: 90
   is_mandatory: false
   operational_modes: ["/dream"]
   depends_on: ["methodology/dream/simulation"]
@@ -65,7 +63,6 @@
 - id: "methodology/dream/multi_shard"
   category: "methodology"
   subcategory: "dream"
-  priority: 85
   is_mandatory: false
   operational_modes: ["/dream"]
   depends_on: ["methodology/dream/simulation"]

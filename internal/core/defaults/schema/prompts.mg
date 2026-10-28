@@ -44,9 +44,9 @@
 
 # --- 4. ATTRIBUTES ---
 
-# atom_priority(ID, Score)
-# Sorting priority (Higher = Earlier in prompt).
-# defined by: atom_priority(ID, Score).
+# atom_importance(ID, Level)
+# Jev's build-time importance level, 1..5 (internal/prompt/importance.go).
+# defined by: atom_importance(ID, Level).
 
 # is_mandatory(ID)
 # Flag: This atom is mandatory if context matches.

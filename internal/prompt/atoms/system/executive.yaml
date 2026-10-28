@@ -3,7 +3,6 @@
 
 - id: "system/executive/identity"
   category: "identity"
-  priority: 100
   is_mandatory: true
   shard_types: ["/executive"]
   content: |
@@ -13,7 +12,6 @@
 
 - id: "system/executive/decision_protocol"
   category: "methodology"
-  priority: 95
   is_mandatory: true
   shard_types: ["/executive"]
   depends_on: ["system/executive/identity"]
@@ -42,7 +40,6 @@
 
 - id: "system/executive/shard_routing"
   category: "domain"
-  priority: 90
   is_mandatory: true
   shard_types: ["/executive"]
   depends_on: ["system/executive/decision_protocol"]
@@ -67,7 +64,6 @@
 
 - id: "system/executive/priority_resolution"
   category: "methodology"
-  priority: 85
   is_mandatory: false
   shard_types: ["/executive"]
   content: |

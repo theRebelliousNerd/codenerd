@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 9: Go Integration Errors"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -29,7 +28,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 9: Go Integration Errors: Failure Mode 9: Go Integration Errors Wrong Code"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -83,7 +81,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 9: Go Integration Errors: Failure Mode 9: Go Integration Errors Correct Code"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -131,7 +128,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 9: Go Integration Errors: Correct Program Execution"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -176,7 +172,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 9: Go Integration Errors: Correct External Predicate"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -232,7 +227,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 9: Go Integration Errors: Failure Mode 9: Go Integration Errors Detection"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -253,7 +247,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 9: Go Integration Errors: Failure Mode 9: Go Integration Errors Prevention"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -287,7 +280,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 9: Go Integration Errors: Type Construction Reference"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -340,7 +332,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 9: Go Integration Errors: Struct/Map Construction"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -381,7 +372,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 9: Go Integration Errors: Pattern 1: Bound Argument (Filter)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -420,7 +410,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 9: Go Integration Errors: Pattern 2: Free Argument (Enumerate)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -469,7 +458,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 9: Go Integration Errors: Pattern 3: Mixed Bound/Free Arguments"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -527,7 +515,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 9: Go Integration Errors: Complete Integration Example"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -596,7 +583,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 9: Go Integration Errors: Complete Integration Example Training Bias Origins"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -628,7 +614,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 9: Go Integration Errors: Failure Mode 9: Go Integration Errors Quick Check"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -650,7 +635,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 9: Go Integration Errors: Debugging Aid"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

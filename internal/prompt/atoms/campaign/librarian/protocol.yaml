@@ -1,7 +1,6 @@
 - id: "campaign/librarian/protocol"
   category: "campaign"
   subcategory: "librarian"
-  priority: 95
   is_mandatory: true
   shard_types: ["librarian"]
   campaign_phases: ["taxonomy"]
@@ -35,7 +34,6 @@
   section_order: 1
   category: "campaign"
   subcategory: "librarian"
-  priority: 95
   is_mandatory: false
   shard_types: ["librarian"]
   campaign_phases: ["taxonomy"]
@@ -72,7 +70,6 @@
   section_order: 2
   category: "campaign"
   subcategory: "librarian"
-  priority: 95
   is_mandatory: false
   shard_types: ["librarian"]
   campaign_phases: ["taxonomy"]

@@ -4,7 +4,6 @@
 - id: "framework/django/models"
   category: "framework"
   subcategory: "django"
-  priority: 90
   is_mandatory: false
   languages: ["/python"]
   frameworks: ["/django"]
@@ -64,7 +63,6 @@
 - id: "framework/django/views"
   category: "framework"
   subcategory: "django"
-  priority: 85
   is_mandatory: false
   languages: ["/python"]
   frameworks: ["/django"]
@@ -91,7 +89,6 @@
   section_order: 1
   category: "framework"
   subcategory: "django"
-  priority: 85
   is_mandatory: false
   languages: ["/python"]
   frameworks: ["/django"]
@@ -128,7 +125,6 @@
   section_order: 2
   category: "framework"
   subcategory: "django"
-  priority: 85
   is_mandatory: false
   languages: ["/python"]
   frameworks: ["/django"]
@@ -157,7 +153,6 @@
 - id: "framework/django/middleware"
   category: "framework"
   subcategory: "django"
-  priority: 80
   is_mandatory: false
   languages: ["/python"]
   frameworks: ["/django"]

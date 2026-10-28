@@ -4,7 +4,6 @@
 - id: "safety/constitution/prime_directive"
   category: "safety"
   subcategory: "constitution"
-  priority: 100
   is_mandatory: true
   content: |
     ## CONSTITUTIONAL PRIME DIRECTIVE
@@ -25,7 +24,6 @@
 - id: "safety/constitution/forbidden_actions"
   category: "safety"
   subcategory: "constitution"
-  priority: 100
   is_mandatory: true
   depends_on: ["safety/constitution/prime_directive"]
   content: |
@@ -59,7 +57,6 @@
 - id: "safety/constitution/dangerous_actions"
   category: "safety"
   subcategory: "constitution"
-  priority: 95
   is_mandatory: true
   depends_on: ["safety/constitution/forbidden_actions"]
   content: |
@@ -93,7 +90,6 @@
 - id: "safety/constitution/override_protocol"
   category: "safety"
   subcategory: "constitution"
-  priority: 90
   is_mandatory: false
   depends_on: ["safety/constitution/dangerous_actions"]
   content: |
@@ -126,7 +122,6 @@
 - id: "safety/constitution/audit_trail"
   category: "safety"
   subcategory: "constitution"
-  priority: 85
   is_mandatory: false
   content: |
     ## AUDIT TRAIL REQUIREMENTS

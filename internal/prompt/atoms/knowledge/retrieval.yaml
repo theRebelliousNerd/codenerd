@@ -4,7 +4,6 @@
 - id: "knowledge/retrieval/semantic"
   category: "knowledge"
   subcategory: "retrieval"
-  priority: 90
   is_mandatory: false
   content: |
     ## SEMANTIC RETRIEVAL PROTOCOL
@@ -53,7 +52,6 @@
 - id: "knowledge/retrieval/context"
   category: "knowledge"
   subcategory: "retrieval"
-  priority: 85
   is_mandatory: false
   content: |
     ## CONTEXT-AWARE RETRIEVAL
@@ -97,7 +95,6 @@
 - id: "knowledge/retrieval/augmentation"
   category: "knowledge"
   subcategory: "retrieval"
-  priority: 80
   is_mandatory: false
   content: |
     ## RETRIEVAL AUGMENTATION

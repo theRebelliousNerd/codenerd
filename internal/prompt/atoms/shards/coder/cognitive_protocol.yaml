@@ -4,7 +4,6 @@
 - id: "shards/coder/cognitive_protocol"
   category: "methodology"
   subcategory: "protocol"
-  priority: 95
   is_mandatory: true
   shard_types: ["/coder"]
   depends_on: ["identity/coder/mission"]
@@ -35,7 +34,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "protocol"
-  priority: 95
   is_mandatory: false
   shard_types: ["/coder"]
   depends_on: ["identity/coder/mission"]
@@ -72,7 +70,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "protocol"
-  priority: 95
   is_mandatory: false
   shard_types: ["/coder"]
   depends_on: ["identity/coder/mission"]

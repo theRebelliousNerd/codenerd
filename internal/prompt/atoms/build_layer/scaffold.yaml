@@ -4,7 +4,6 @@
 - id: "build_layer/scaffold/core"
   category: "build_layer"
   subcategory: "scaffold"
-  priority: 95
   is_mandatory: true
   build_layers: ["/scaffold"]
   content: |
@@ -37,7 +36,6 @@
 - id: "build_layer/scaffold/boilerplate"
   category: "build_layer"
   subcategory: "scaffold"
-  priority: 90
   is_mandatory: false
   build_layers: ["/scaffold"]
   depends_on: ["build_layer/scaffold/core"]
@@ -88,7 +86,6 @@
 - id: "build_layer/scaffold/config"
   category: "build_layer"
   subcategory: "scaffold"
-  priority: 85
   is_mandatory: false
   build_layers: ["/scaffold"]
   content: |

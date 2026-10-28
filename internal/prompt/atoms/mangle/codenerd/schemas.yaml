@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -29,7 +28,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): user_intent/5"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -72,7 +70,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): focus_resolution/4"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -111,7 +108,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): ambiguity_flag/3"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -143,7 +139,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): file_topology/5"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -178,7 +173,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): file_content/4"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -222,7 +216,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): SECTION 3: World Model - Symbol Graph"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -261,7 +254,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): dependency_link/3"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -301,7 +293,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): SECTION 4: Diagnostics"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -349,7 +340,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): test_result/5"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -382,7 +372,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): SECTION 5: TDD Loop State"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -437,7 +426,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): SECTION 6: Shard Management"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -502,7 +490,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): SECTION 7: Research & Knowledge"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -566,7 +553,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): SECTION 8: Observations & Memory"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -629,7 +615,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): SECTION 9: Campaign & Goals"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -690,7 +675,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): SECTION 10: Autopoiesis (Tool Generation)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -759,7 +743,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): SECTION 11: Taxonomy & Intent Classification"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -825,7 +808,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): context_token/1"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -873,7 +855,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): SECTION 12: Autopoiesis State (Ouroboros Loop)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -951,7 +932,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): Usage Guidelines"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -46,7 +45,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Intent & Focus Queries"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -101,7 +99,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: File System Queries"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -180,7 +177,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Impact Analysis Queries"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -223,7 +219,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Symbol Graph Queries"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -282,7 +277,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Diagnostic Queries"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -363,7 +357,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: TDD Loop Queries"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -430,7 +423,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Permission & Safety Queries"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -478,7 +470,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Context Selection Queries"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -513,7 +504,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Shard Management Queries"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -563,7 +553,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Campaign Queries"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -633,7 +622,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Autopoiesis Queries (Ouroboros Loop)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -692,7 +680,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Aggregation Queries"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -752,7 +739,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Complex Join Queries"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -815,7 +801,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Debugging Queries"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -859,7 +844,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Mangle Query Patterns for codeNERD Performance Tips"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -906,7 +890,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Mangle Query Patterns for codeNERD Error Handling"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

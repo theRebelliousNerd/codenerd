@@ -3,7 +3,6 @@
 
 - id: "system/clarification/identity"
   category: "identity"
-  priority: 100
   is_mandatory: true
   shard_types: ["/clarification", "/clarifier"]
   content: |
@@ -12,7 +11,6 @@
 
 - id: "system/clarification/output_rules"
   category: "protocol"
-  priority: 90
   is_mandatory: true
   shard_types: ["/clarification", "/clarifier"]
   depends_on: ["system/clarification/identity"]

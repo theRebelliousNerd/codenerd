@@ -143,11 +143,9 @@ func (o *Optimizer) buildVariant(base *prompt.PromptAtom, content string) *promp
 	variant.ConflictsWith = append([]string(nil), base.ConflictsWith...)
 	variant.ConflictsWith = append(variant.ConflictsWith, base.ID)
 
-	// Priority is bumped so the variant also wins on the vector/flesh path,
-	// where supersession does not apply and precedence is decided by score.
-	if variant.Priority < 100 {
-		variant.Priority++
-	}
+	// The variant rewords the base's guidance for one model, so it carries
+	// the base's build-time importance: its own text was never scored.
+	variant.Importance = base.Importance
 
 	return variant
 }

@@ -89,7 +89,6 @@ func EvolvedCandidateHash(atom *PromptAtom) string {
 		ID, Category, Subcategory           string
 		Content, ContentConcise, ContentMin string
 		Selectors                           [][]string
-		Priority                            int
 		IsMandatory                         bool
 		IsExclusive                         string
 		DependsOn, ConflictsWith, Requires  []string
@@ -102,7 +101,7 @@ func EvolvedCandidateHash(atom *PromptAtom) string {
 			sorted(c.IntentVerbs), sorted(c.ShardTypes), sorted(c.Languages),
 			sorted(c.Frameworks), sorted(c.Models), sorted(c.Providers), sorted(c.WorldStates),
 		},
-		Priority: c.Priority, IsMandatory: c.IsMandatory, IsExclusive: c.IsExclusive,
+		IsMandatory: c.IsMandatory, IsExclusive: c.IsExclusive,
 		DependsOn: sorted(c.DependsOn), ConflictsWith: sorted(c.ConflictsWith), Requires: sorted(c.RequiresTools),
 	}
 	encoded, err := json.Marshal(identity)

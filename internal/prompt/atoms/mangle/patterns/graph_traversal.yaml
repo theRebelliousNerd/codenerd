@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Graph Traversal Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -60,7 +59,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Graph Traversal Patterns: Variation 1: Bidirectional Reachability"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -105,7 +103,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Graph Traversal Patterns: Variation 2: Path Length (Distance)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -162,7 +159,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Graph Traversal Patterns: Variation 3: Cycle Detection"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -207,7 +203,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Graph Traversal Patterns: Variation 4: Bounded Depth Traversal"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -257,7 +252,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Graph Traversal Patterns: Variation 5: All Nodes in Component"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -299,7 +293,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Graph Traversal Patterns: Anti-Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -338,7 +331,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Graph Traversal Patterns: Graph Traversal Patterns Performance Tips"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

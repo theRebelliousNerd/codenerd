@@ -1,7 +1,6 @@
 - id: "campaign/librarian/edge_cases"
   category: "campaign"
   subcategory: "librarian"
-  priority: 90
   is_mandatory: false
   shard_types: ["librarian"]
   campaign_phases: ["taxonomy"]
@@ -24,7 +23,6 @@
   section_order: 1
   category: "campaign"
   subcategory: "librarian"
-  priority: 90
   is_mandatory: false
   shard_types: ["librarian"]
   campaign_phases: ["taxonomy"]

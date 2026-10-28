@@ -4,7 +4,6 @@
 - id: "hallucination/coder/incomplete_output"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 95
   is_mandatory: true
   shard_types: ["/coder"]
   content: |
@@ -32,7 +31,6 @@
 - id: "hallucination/coder/scope_creep"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 90
   is_mandatory: true
   shard_types: ["/coder"]
   content: |
@@ -57,7 +55,6 @@
 - id: "hallucination/coder/error_suppression"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 95
   is_mandatory: true
   shard_types: ["/coder"]
   languages: ["/go"]
@@ -90,7 +87,6 @@
 - id: "hallucination/coder/import_fabrication"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 85
   is_mandatory: true
   shard_types: ["/coder"]
   world_states: ["authoring_code"]
@@ -120,7 +116,6 @@
 - id: "hallucination/coder/api_fabrication"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 85
   is_mandatory: true
   shard_types: ["/coder"]
   world_states: ["authoring_code"]
@@ -151,7 +146,6 @@
 - id: "hallucination/coder/scope_leak"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 90
   is_mandatory: true
   shard_types: ["/coder"]
   languages: ["/go"]
@@ -190,7 +184,6 @@
 - id: "hallucination/coder/confident_comment"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 75
   is_mandatory: false
   shard_types: ["/coder"]
   content: |
@@ -220,7 +213,6 @@
 - id: "hallucination/coder/deprecated_pattern"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 80
   is_mandatory: true
   shard_types: ["/coder"]
   languages: ["/go"]
@@ -252,7 +244,6 @@
 - id: "hallucination/coder/duplicate_file_creation"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 98
   is_mandatory: true
   shard_types: ["/coder"]
   content: |
@@ -299,7 +290,6 @@
   section_order: 1
   category: "hallucination"
   subcategory: "prevention"
-  priority: 98
   is_mandatory: false
   shard_types: ["/coder"]
   content: |
@@ -345,7 +335,6 @@
   section_order: 2
   category: "hallucination"
   subcategory: "prevention"
-  priority: 98
   is_mandatory: false
   shard_types: ["/coder"]
   content: |
@@ -362,7 +351,6 @@
 - id: "hallucination/coder/parallel_structure"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 95
   is_mandatory: true
   shard_types: ["/coder"]
   content: |

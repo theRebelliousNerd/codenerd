@@ -4,7 +4,6 @@
 - id: "methodology/tdd/mangle_workflow"
   category: "methodology"
   subcategory: "tdd"
-  priority: 95
   is_mandatory: false
   languages: ["/mangle"]
   intent_verbs: ["/test", "/fix", "/implement"]

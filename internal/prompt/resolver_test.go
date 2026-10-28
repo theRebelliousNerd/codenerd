@@ -43,9 +43,9 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 		{
 			name: "extreme Priority values max int64",
 			atoms: []*ScoredAtom{
-				{Atom: &PromptAtom{ID: "c", Priority: 50}, Combined: 0.5},
-				{Atom: &PromptAtom{ID: "a", Priority: 9223372036854775807}, Combined: 0.5},
-				{Atom: &PromptAtom{ID: "b", Priority: 100}, Combined: 0.5},
+				{Atom: &PromptAtom{ID: "c", Importance: 50}, Combined: 0.5},
+				{Atom: &PromptAtom{ID: "a", Importance: 9223372036854775807}, Combined: 0.5},
+				{Atom: &PromptAtom{ID: "b", Importance: 100}, Combined: 0.5},
 			},
 			expectError:   false,
 			expectedOrder: []string{"a", "b", "c"},
@@ -54,9 +54,9 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 		{
 			name: "extreme Priority values min int64",
 			atoms: []*ScoredAtom{
-				{Atom: &PromptAtom{ID: "c", Priority: -9223372036854775808}, Combined: 0.5},
-				{Atom: &PromptAtom{ID: "a", Priority: 100}, Combined: 0.5},
-				{Atom: &PromptAtom{ID: "b", Priority: -50}, Combined: 0.5},
+				{Atom: &PromptAtom{ID: "c", Importance: -9223372036854775808}, Combined: 0.5},
+				{Atom: &PromptAtom{ID: "a", Importance: 100}, Combined: 0.5},
+				{Atom: &PromptAtom{ID: "b", Importance: -50}, Combined: 0.5},
 			},
 			expectError:   false,
 			expectedOrder: []string{"a", "b", "c"},
@@ -85,9 +85,9 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 			name: "alternating nils with valid elements",
 			atoms: []*ScoredAtom{
 				nil,
-				{Atom: &PromptAtom{ID: "a", Priority: 50}, Combined: 0.5},
+				{Atom: &PromptAtom{ID: "a", Importance: 50}, Combined: 0.5},
 				nil,
-				{Atom: &PromptAtom{ID: "b", Priority: 60}, Combined: 0.8},
+				{Atom: &PromptAtom{ID: "b", Importance: 60}, Combined: 0.8},
 				nil,
 			},
 			expectError:   false,
@@ -100,7 +100,7 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 				nil,
 				{Atom: nil, Combined: 0.5},
 				{Atom: &PromptAtom{ID: ""}, Combined: 0.5},
-				{Atom: &PromptAtom{ID: "valid", Priority: 50}, Combined: 0.5},
+				{Atom: &PromptAtom{ID: "valid", Importance: 50}, Combined: 0.5},
 			},
 			expectError:   false,
 			expectedOrder: []string{"valid"},
@@ -150,7 +150,7 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 		{
 			name: "single atom no dependencies",
 			atoms: []*ScoredAtom{
-				{Atom: &PromptAtom{ID: "a", Priority: 50}, Combined: 0.5},
+				{Atom: &PromptAtom{ID: "a", Importance: 50}, Combined: 0.5},
 			},
 			expectError: false,
 			expectedLen: 1,
@@ -158,9 +158,9 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 		{
 			name: "multiple atoms no dependencies - sorted by score",
 			atoms: []*ScoredAtom{
-				{Atom: &PromptAtom{ID: "a", Priority: 50}, Combined: 0.5},
-				{Atom: &PromptAtom{ID: "b", Priority: 60}, Combined: 0.8},
-				{Atom: &PromptAtom{ID: "c", Priority: 40}, Combined: 0.3},
+				{Atom: &PromptAtom{ID: "a", Importance: 50}, Combined: 0.5},
+				{Atom: &PromptAtom{ID: "b", Importance: 60}, Combined: 0.8},
+				{Atom: &PromptAtom{ID: "c", Importance: 40}, Combined: 0.3},
 			},
 			expectError: false,
 			expectedLen: 3,
@@ -830,20 +830,20 @@ func TestDependencyResolver_Resolve_MassiveDependencyChain(t *testing.T) {
 }
 
 func TestResolve_PriorityTierSurvivesMidRunUnlock(t *testing.T) {
-	// A and B tie on score; B's higher declared priority must win even after
+	// A and B tie on score; B's higher build-time importance must win even after
 	// C joins the queue mid-run. The re-sort after each pop once dropped the
 	// priority tier, so peers reordered by ID the moment any unlock happened.
-	mk := func(id string, priority int, score float64, deps ...string) *ScoredAtom {
+	mk := func(id string, priority ImportanceLevel, score float64, deps ...string) *ScoredAtom {
 		return &ScoredAtom{
-			Atom:     &PromptAtom{ID: id, Category: CategoryProtocol, Content: "x", Priority: priority, DependsOn: deps},
+			Atom:     &PromptAtom{ID: id, Category: CategoryProtocol, Content: "x", Importance: priority, DependsOn: deps},
 			Combined: score,
 		}
 	}
 	atoms := []*ScoredAtom{
-		mk("root", 50, 1.0),
-		mk("a-peer", 10, 0.5),
-		mk("b-peer", 90, 0.5),
-		mk("c-unlocked", 50, 0.9, "root"),
+		mk("root", ImportanceEfficiency, 1.0),
+		mk("a-peer", ImportanceStyle, 0.5),
+		mk("b-peer", ImportanceCritical, 0.5),
+		mk("c-unlocked", ImportanceEfficiency, 0.9, "root"),
 	}
 	ordered, err := NewDependencyResolver().Resolve(atoms)
 	require.NoError(t, err)

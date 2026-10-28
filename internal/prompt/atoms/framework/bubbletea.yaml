@@ -4,7 +4,6 @@
 - id: "framework/bubbletea/architecture"
   category: "framework"
   subcategory: "bubbletea"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   frameworks: ["/bubbletea"]
@@ -40,7 +39,6 @@
 - id: "framework/bubbletea/patterns"
   category: "framework"
   subcategory: "bubbletea"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   frameworks: ["/bubbletea"]
@@ -75,7 +73,6 @@
 - id: "framework/bubbletea/styling"
   category: "framework"
   subcategory: "bubbletea"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   frameworks: ["/bubbletea"]
@@ -112,7 +109,6 @@
 - id: "framework/bubbletea/bubbles"
   category: "framework"
   subcategory: "bubbletea"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   frameworks: ["/bubbletea"]

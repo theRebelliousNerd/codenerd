@@ -4,7 +4,6 @@
 - id: "framework/zap/core"
   category: "framework"
   subcategory: "zap"
-  priority: 61
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   frameworks: ["/zap"]

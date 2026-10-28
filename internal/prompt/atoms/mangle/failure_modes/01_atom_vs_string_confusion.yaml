@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 1: Atom vs String Confusion"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -46,7 +45,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 1: Atom vs String Confusion: Failure Mode 1: Atom vs String Confusion Correct Code"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -85,7 +83,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 1: Atom vs String Confusion: Failure Mode 1: Atom vs String Confusion Prevention"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -120,7 +117,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 1: Atom vs String Confusion: Failure Mode 1: Atom vs String Confusion Training Bias Origins"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

@@ -4,7 +4,6 @@
 - id: "framework/yaegi/core"
   category: "framework"
   subcategory: "yaegi"
-  priority: 62
   is_mandatory: false
   shard_types: ["/coder", "/tool_generator", "/nemesis"]
   frameworks: ["/yaegi"]

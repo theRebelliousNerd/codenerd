@@ -4,7 +4,6 @@
 - id: "campaign/phases/planning"
   category: "campaign"
   subcategory: "phases"
-  priority: 82
   is_mandatory: false
   campaign_phases: ["/planning"]
   content: |
@@ -39,7 +38,6 @@
 - id: "campaign/phases/decomposing"
   category: "campaign"
   subcategory: "phases"
-  priority: 81
   is_mandatory: false
   campaign_phases: ["/decomposing"]
   content: |
@@ -66,7 +64,6 @@
 - id: "campaign/phases/validating"
   category: "campaign"
   subcategory: "phases"
-  priority: 80
   is_mandatory: false
   campaign_phases: ["/validating"]
   content: |
@@ -88,7 +85,6 @@
 - id: "campaign/phases/active"
   category: "campaign"
   subcategory: "phases"
-  priority: 79
   is_mandatory: false
   campaign_phases: ["/active"]
   content: |
@@ -108,7 +104,6 @@
 - id: "campaign/phases/completed"
   category: "campaign"
   subcategory: "phases"
-  priority: 78
   is_mandatory: false
   campaign_phases: ["/completed"]
   content: |
@@ -125,7 +120,6 @@
 - id: "campaign/phases/paused"
   category: "campaign"
   subcategory: "phases"
-  priority: 77
   is_mandatory: false
   campaign_phases: ["/paused"]
   content: |
@@ -141,7 +135,6 @@
 - id: "campaign/phases/failed"
   category: "campaign"
   subcategory: "phases"
-  priority: 76
   is_mandatory: false
   campaign_phases: ["/failed"]
   content: |

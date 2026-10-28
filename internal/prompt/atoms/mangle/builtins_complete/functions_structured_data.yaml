@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Structured Data"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -78,7 +77,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Structured Data: Tuples"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -127,7 +125,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Structured Data: Maps"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -208,7 +205,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Structured Data: Structs"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -252,7 +248,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Structured Data: Struct Operations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -321,7 +316,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Structured Data: Complex Structured Data"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -383,7 +377,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Structured Data: Construction vs. Deconstruction"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -406,7 +399,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Structured Data: Accessor Functions vs. Pattern Matching"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -443,7 +435,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Structured Data: Type Declarations for Structured Data"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -502,7 +493,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Structured Data: Mangle Builtin Functions: Structured Data Common Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -534,7 +524,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Structured Data: Structured Data Functions Summary"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

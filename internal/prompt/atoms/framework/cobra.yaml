@@ -4,7 +4,6 @@
 - id: "framework/cobra/structure"
   category: "framework"
   subcategory: "cobra"
-  priority: 65
   is_mandatory: false
   shard_types: ["/coder"]
   languages: ["/go"]
@@ -56,7 +55,6 @@
 - id: "framework/cobra/subcommands"
   category: "framework"
   subcategory: "cobra"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   languages: ["/go"]
@@ -111,7 +109,6 @@
 - id: "framework/cobra/flags"
   category: "framework"
   subcategory: "cobra"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   languages: ["/go"]
@@ -160,7 +157,6 @@
 - id: "framework/cobra/best_practices"
   category: "framework"
   subcategory: "cobra"
-  priority: 55
   is_mandatory: false
   shard_types: ["/coder"]
   languages: ["/go"]

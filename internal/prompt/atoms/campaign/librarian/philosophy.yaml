@@ -1,7 +1,6 @@
 - id: "campaign/librarian/philosophy"
   category: "campaign"
   subcategory: "librarian"
-  priority: 98
   is_mandatory: true
   shard_types: ["librarian"]
   campaign_phases: ["taxonomy"]

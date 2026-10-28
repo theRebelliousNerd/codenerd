@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Repair Shard Identity"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   # languages alone does NOT contain a persona. /lang is a situational dimension,

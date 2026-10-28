@@ -4,7 +4,6 @@
 - id: "build_layer/transport/principles"
   category: "build_layer"
   subcategory: "transport"
-  priority: 95
   is_mandatory: true
   build_layers: ["/transport"]
   content: |
@@ -36,7 +35,6 @@
 - id: "build_layer/transport/http_handlers"
   category: "build_layer"
   subcategory: "transport"
-  priority: 90
   is_mandatory: false
   build_layers: ["/transport"]
   depends_on: ["build_layer/transport/principles"]
@@ -94,7 +92,6 @@
 - id: "build_layer/transport/routing"
   category: "build_layer"
   subcategory: "transport"
-  priority: 85
   is_mandatory: false
   build_layers: ["/transport"]
   content: |

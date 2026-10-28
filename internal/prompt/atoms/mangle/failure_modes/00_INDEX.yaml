@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -31,7 +30,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: Failure Mode Catalog"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -63,7 +61,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: 03. Type Declaration Syntax"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -99,7 +96,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: 15. Lowercase Variable Names"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -129,7 +125,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: 05. Stratification Violations \u26a0\ufe0f CRITICAL"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -165,7 +160,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: Category 3: Performance Anti-Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -197,7 +191,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: Category 5: Go Integration (API Gaps)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -219,7 +212,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: Category 6: Architectural Anti-Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -248,7 +240,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: Quick Reference by Symptom"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -279,7 +270,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: Quick Reference by Language Bias"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -306,7 +296,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: Validation Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -336,7 +325,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: Critical Patterns to Memorize"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -392,7 +380,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: Usage in codeNERD"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -72,7 +71,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern 2: File I/O"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -133,7 +131,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern 3: Database Operations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -193,7 +190,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern 4: Network Requests"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -254,7 +250,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern 5: Random Number Generation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -304,7 +299,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern 6: Current Time/Date"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -358,7 +352,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern 7: Modifying Global State"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -413,7 +406,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern 8: Sending Messages/Events"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -476,7 +468,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern 9: Throwing Exceptions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -533,7 +524,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern 10: Calling External APIs"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -598,7 +588,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern 11: Timing/Sleeping"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -653,7 +642,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern 12: Callbacks/Event Handlers"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -710,7 +698,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Pattern: Effect Systems in Mangle"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -763,7 +750,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Key Principle: Purity"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -792,7 +778,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: External Predicates: The Exception"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -842,7 +827,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern: Side Effects Migration Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -873,7 +857,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Pro Tip: Separate Concerns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

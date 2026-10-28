@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -62,7 +61,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 2: String Split"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -119,7 +117,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 3: Regular Expressions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -172,7 +169,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 4: Substring / Slicing"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -226,7 +222,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 5: String Formatting"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -268,7 +263,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 6: Case Conversion"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -316,7 +310,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 7: String Trimming"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -361,7 +354,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 8: String Replace"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -406,7 +398,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 9: String Contains / Index"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -456,7 +447,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 10: Multi-line Strings / Heredoc"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -516,7 +506,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 11: String Reversal"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -571,7 +560,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 12: String Length"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -616,7 +604,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 13: String Building in Loops"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -671,7 +658,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 14: Escape Sequences"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -724,7 +710,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Pattern: String Processing Workflow"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -770,7 +755,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Available String Functions (Check Your Mangle Version)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -798,7 +782,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Key Principle: Mangle is Not a String Processor"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -825,7 +808,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern: String Manipulation Migration Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -856,7 +838,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Pro Tip: Strings as Atoms"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

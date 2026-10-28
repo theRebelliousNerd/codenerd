@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -29,7 +28,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Failure Mode 10: Closed World Assumption Errors Wrong Code"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -75,7 +73,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Failure Mode 10: Closed World Assumption Errors Correct Code"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -125,7 +122,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Failure Mode 10: Closed World Assumption Errors Detection"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -146,7 +142,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Failure Mode 10: Closed World Assumption Errors Prevention"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -196,7 +191,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Correct Patterns Reference"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -251,7 +245,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Pattern 3: Three-State Logic"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -298,7 +291,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Pattern 5: Conditional Logic Without Case"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -332,7 +324,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Complex Example: User Status Management"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -394,7 +385,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Why CWA Matters"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -431,7 +421,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Failure Mode 10: Closed World Assumption Errors Training Bias Origins"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -461,7 +450,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Debugging Aid"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -491,7 +479,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Common Misconceptions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -554,7 +541,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Comparison Table: SQL vs Mangle"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

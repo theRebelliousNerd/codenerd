@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -29,7 +28,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint: Failure Mode 6: Infinite Recursion in Fixpoint Wrong Code"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -69,7 +67,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint: Failure Mode 6: Infinite Recursion in Fixpoint Correct Code"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -134,7 +131,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint: Failure Mode 6: Infinite Recursion in Fixpoint Detection"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -155,7 +151,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint: Failure Mode 6: Infinite Recursion in Fixpoint Prevention"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -214,7 +209,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint: Safe Recursion Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -263,7 +257,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint: Pattern 4: Stratified Dependencies"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -296,7 +289,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint: Dangerous Patterns (DO NOT USE)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -369,7 +361,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint: Complex Example: Safe Path Finding"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -412,7 +403,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint: Why This Matters"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -445,7 +435,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint: Failure Mode 6: Infinite Recursion in Fixpoint Training Bias Origins"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -476,7 +465,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint: Debugging Aid"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

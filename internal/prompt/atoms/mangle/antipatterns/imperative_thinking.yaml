@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -66,7 +65,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern 2: Loops / Iteration"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -129,7 +127,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern 3: Variable Assignment / Mutation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -179,7 +176,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern 4: Early Return / Break"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -231,7 +227,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern 5: If-Else Branching"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -287,7 +282,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern 6: Try-Catch Error Handling"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -343,7 +337,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern 7: State Machine with Transitions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -406,7 +399,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern 8: Counter / Accumulator"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -467,7 +459,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern 9: While Loop / Do-While"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -523,7 +514,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern 10: Function Calls with Side Effects"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -577,7 +567,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern 11: Recursion Without Base Case"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -630,7 +619,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern 12: Null/Undefined Assignment"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -685,7 +673,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Key Principles: Declarative vs Imperative"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -712,7 +699,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Mental Model Shift"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -753,7 +739,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern: Imperative Thinking Migration Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -782,7 +767,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Pro Tip: Think in Constraints"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

@@ -4,7 +4,6 @@
 - id: "language/typescript/ai_failures/any_vs_unknown"
   category: "language"
   subcategory: "typescript"
-  priority: 95
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -69,7 +68,6 @@
 - id: "language/typescript/ai_failures/type_assertions"
   category: "language"
   subcategory: "typescript"
-  priority: 94
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -109,7 +107,6 @@
   section_order: 1
   category: "language"
   subcategory: "typescript"
-  priority: 94
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -145,7 +142,6 @@
   section_order: 2
   category: "language"
   subcategory: "typescript"
-  priority: 94
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -171,7 +167,6 @@
 - id: "language/typescript/ai_failures/non_null_assertion"
   category: "language"
   subcategory: "typescript"
-  priority: 93
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -210,7 +205,6 @@
   section_order: 1
   category: "language"
   subcategory: "typescript"
-  priority: 93
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -254,7 +248,6 @@
   section_order: 2
   category: "language"
   subcategory: "typescript"
-  priority: 93
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -283,7 +276,6 @@
 - id: "language/typescript/ai_failures/array_types"
   category: "language"
   subcategory: "typescript"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -349,7 +341,6 @@
 - id: "language/typescript/ai_failures/structural_typing"
   category: "language"
   subcategory: "typescript"
-  priority: 87
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -415,7 +406,6 @@
 - id: "language/typescript/ai_failures/hallucinations"
   category: "language"
   subcategory: "typescript"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -467,7 +457,6 @@
   section_order: 1
   category: "language"
   subcategory: "typescript"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -509,7 +498,6 @@
   section_order: 2
   category: "language"
   subcategory: "typescript"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -531,7 +519,6 @@
 - id: "language/typescript/ai_failures/tsconfig"
   category: "language"
   subcategory: "typescript"
-  priority: 86
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]

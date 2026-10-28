@@ -28,10 +28,15 @@ func (m *mockKernel) Query(predicate string) ([]Fact, error) {
 	if m.queryErr != nil {
 		return nil, m.queryErr
 	}
-	// Cast stored interface{} facts to Fact
+	// Cast stored interface{} facts to Fact, answering only the queried
+	// predicate as a real kernel does.
+	name := predicate
+	if i := strings.IndexByte(name, '('); i >= 0 {
+		name = name[:i]
+	}
 	var result []Fact
 	for _, f := range m.facts {
-		if fact, ok := f.(Fact); ok {
+		if fact, ok := f.(Fact); ok && fact.Predicate == name {
 			result = append(result, fact)
 		}
 	}
@@ -70,8 +75,8 @@ func atomsToFacts(atoms []*PromptAtom) []any {
 	var facts []any
 	for _, a := range atoms {
 		facts = append(facts, Fact{
-			Predicate: "selected_atom",
-			Args:      []any{a.ID, "skeleton", 1.0},
+			Predicate: "selected_result",
+			Args:      []any{a.ID, "skeleton"},
 		})
 	}
 	return facts
@@ -229,16 +234,16 @@ func TestJITPromptCompiler_Compile(t *testing.T) {
 	t.Run("compiles from embedded corpus", func(t *testing.T) {
 		atoms := []*PromptAtom{
 			{
-				ID:       "identity/coder",
-				Category: CategoryIdentity,
-				Content:  "You are the Coder Shard, a specialized AI coding agent.",
-				Priority: 100,
+				ID:         "identity/coder",
+				Category:   CategoryIdentity,
+				Content:    "You are the Coder Shard, a specialized AI coding agent.",
+				Importance: 100,
 			},
 			{
 				ID:          "protocol/piggyback",
 				Category:    CategoryProtocol,
 				Content:     "Output your response in the Piggyback format.",
-				Priority:    90,
+				Importance:  90,
 				IsMandatory: true,
 			},
 		}
@@ -522,7 +527,7 @@ func TestCompileEndToEnd(t *testing.T) {
 			ID:          "identity/core",
 			Category:    CategoryIdentity,
 			Content:     "You are a specialized AI coding assistant for the codeNERD project.",
-			Priority:    100,
+			Importance:  100,
 			IsMandatory: true,
 			TokenCount:  20,
 		},
@@ -530,7 +535,7 @@ func TestCompileEndToEnd(t *testing.T) {
 			ID:          "safety/constitution",
 			Category:    CategorySafety,
 			Content:     "You must never generate harmful code or reveal sensitive information.",
-			Priority:    95,
+			Importance:  95,
 			IsMandatory: true,
 			TokenCount:  15,
 		},
@@ -538,21 +543,21 @@ func TestCompileEndToEnd(t *testing.T) {
 			ID:         "protocol/piggyback",
 			Category:   CategoryProtocol,
 			Content:    "Format your output as JSON with 'surface' and 'control' channels.",
-			Priority:   90,
+			Importance: 90,
 			TokenCount: 15,
 		},
 		{
 			ID:         "methodology/tdd",
 			Category:   CategoryMethodology,
 			Content:    "Use Test-Driven Development: write tests first, then implementation.",
-			Priority:   80,
+			Importance: 80,
 			TokenCount: 15,
 		},
 		{
 			ID:         "language/go",
 			Category:   CategoryLanguage,
 			Content:    "Follow Go best practices: error handling, context propagation, etc.",
-			Priority:   70,
+			Importance: 70,
 			Languages:  []string{"/go"},
 			TokenCount: 15,
 		},
@@ -560,7 +565,7 @@ func TestCompileEndToEnd(t *testing.T) {
 			ID:         "framework/bubbletea",
 			Category:   CategoryFramework,
 			Content:    "Use the Model-View-Update pattern with Bubbletea.",
-			Priority:   60,
+			Importance: 60,
 			Frameworks: []string{"/bubbletea"},
 			TokenCount: 12,
 		},
@@ -568,7 +573,7 @@ func TestCompileEndToEnd(t *testing.T) {
 			ID:          "exemplar/fix",
 			Category:    CategoryExemplar,
 			Content:     "Example: When fixing a bug, first reproduce it with a test.",
-			Priority:    40,
+			Importance:  40,
 			IntentVerbs: []string{"/fix"},
 			TokenCount:  15,
 		},
@@ -641,14 +646,14 @@ func TestCompileWithDependencies(t *testing.T) {
 			ID:         "base",
 			Category:   CategoryIdentity,
 			Content:    "Base identity",
-			Priority:   100,
+			Importance: 100,
 			TokenCount: 10,
 		},
 		{
 			ID:         "dependent",
 			Category:   CategoryMethodology,
 			Content:    "Dependent methodology",
-			Priority:   90,
+			Importance: 90,
 			DependsOn:  []string{"base"},
 			TokenCount: 10,
 		},
@@ -656,7 +661,7 @@ func TestCompileWithDependencies(t *testing.T) {
 			ID:         "orphan",
 			Category:   CategoryExemplar,
 			Content:    "Orphan with missing dep",
-			Priority:   80,
+			Importance: 80,
 			DependsOn:  []string{"nonexistent"},
 			TokenCount: 10,
 		},
@@ -693,7 +698,7 @@ func TestCompileWithConflicts(t *testing.T) {
 			ID:            "approach-a",
 			Category:      CategoryMethodology,
 			Content:       "Use approach A",
-			Priority:      90,
+			Importance:    90,
 			ConflictsWith: []string{"approach-b"},
 			TokenCount:    10,
 		},
@@ -701,7 +706,7 @@ func TestCompileWithConflicts(t *testing.T) {
 			ID:            "approach-b",
 			Category:      CategoryMethodology,
 			Content:       "Use approach B",
-			Priority:      80,
+			Importance:    80,
 			ConflictsWith: []string{"approach-a"},
 			TokenCount:    10,
 		},
@@ -741,7 +746,7 @@ func BenchmarkCompile_SmallCorpus(b *testing.B) {
 			ID:         string(rune('a' + i)),
 			Category:   categories[i%len(categories)],
 			Content:    "Content " + string(rune('a'+i)),
-			Priority:   i * 5,
+			Importance: ImportanceLevel(i%5 + 1),
 			TokenCount: 10,
 		}
 	}
@@ -771,7 +776,7 @@ func BenchmarkCompile_MediumCorpus(b *testing.B) {
 			ID:         string(rune(i)),
 			Category:   categories[i%len(categories)],
 			Content:    strings.Repeat("word ", 50),
-			Priority:   i,
+			Importance: ImportanceLevel(i%5 + 1),
 			TokenCount: 50,
 		}
 	}
@@ -803,7 +808,7 @@ func BenchmarkCompile_LargeCorpus(b *testing.B) {
 			ID:          string(rune(i)),
 			Category:    categories[i%len(categories)],
 			Content:     strings.Repeat("word ", 100),
-			Priority:    i % 100,
+			Importance:  ImportanceLevel(i%5 + 1),
 			TokenCount:  100,
 			IsMandatory: i < 10,
 		}
@@ -841,7 +846,7 @@ func BenchmarkCompile_WithVectorSearch(b *testing.B) {
 			ID:         id,
 			Category:   categories[i%len(categories)],
 			Content:    strings.Repeat("content ", 20),
-			Priority:   i,
+			Importance: ImportanceLevel(i%5 + 1),
 			TokenCount: 20,
 		}
 		vectorResults[id] = float64(i) / 50.0
@@ -881,7 +886,7 @@ func TestCompilePerformance(t *testing.T) {
 			ID:          string(rune(i)),
 			Category:    categories[i%len(categories)],
 			Content:     strings.Repeat("word ", 50),
-			Priority:    i % 100,
+			Importance:  ImportanceLevel(i%5 + 1),
 			TokenCount:  50,
 			IsMandatory: i < 5,
 		}
@@ -962,7 +967,7 @@ func (m *mockFallbackKernel) Query(predicate string) ([]Fact, error) {
 		if atom.IsMandatory {
 			results = append(results, Fact{
 				Predicate: "selected_result",
-				Args:      []any{atom.ID, atom.Priority, "skeleton"},
+				Args:      []any{atom.ID, "skeleton"},
 			})
 		}
 	}
@@ -1051,7 +1056,7 @@ func TestCompiler_FallbackOnKernelUnavailable(t *testing.T) {
 				ID:          "mandatory-identity",
 				Category:    CategoryIdentity,
 				Content:     "You are a coding assistant.",
-				Priority:    100,
+				Importance:  100,
 				IsMandatory: true,
 				TokenCount:  10,
 			},
@@ -1059,7 +1064,7 @@ func TestCompiler_FallbackOnKernelUnavailable(t *testing.T) {
 				ID:          "mandatory-safety",
 				Category:    CategorySafety,
 				Content:     "Never generate harmful code.",
-				Priority:    95,
+				Importance:  95,
 				IsMandatory: true,
 				TokenCount:  8,
 			},
@@ -1067,7 +1072,7 @@ func TestCompiler_FallbackOnKernelUnavailable(t *testing.T) {
 				ID:         "optional-exemplar",
 				Category:   CategoryExemplar,
 				Content:    "Example: Write tests first.",
-				Priority:   50,
+				Importance: 50,
 				TokenCount: 8,
 			},
 		}
@@ -1114,7 +1119,7 @@ func TestCompiler_FallbackOnKernelUnavailable(t *testing.T) {
 				ID:          "mandatory-1",
 				Category:    CategoryIdentity,
 				Content:     "Mandatory content 1",
-				Priority:    100,
+				Importance:  100,
 				IsMandatory: true,
 				TokenCount:  5,
 			},
@@ -1122,7 +1127,7 @@ func TestCompiler_FallbackOnKernelUnavailable(t *testing.T) {
 				ID:         "optional-1",
 				Category:   CategoryExemplar,
 				Content:    "Optional content",
-				Priority:   50,
+				Importance: 50,
 				TokenCount: 5,
 			},
 		}
@@ -1168,7 +1173,7 @@ func TestCompiler_FallbackOnVectorSearchFailure(t *testing.T) {
 				ID:          "skeleton-identity",
 				Category:    CategoryIdentity,
 				Content:     "Core identity content",
-				Priority:    100,
+				Importance:  100,
 				IsMandatory: true,
 				TokenCount:  10,
 			},
@@ -1176,7 +1181,7 @@ func TestCompiler_FallbackOnVectorSearchFailure(t *testing.T) {
 				ID:          "skeleton-safety",
 				Category:    CategorySafety,
 				Content:     "Safety constraints",
-				Priority:    95,
+				Importance:  95,
 				IsMandatory: true,
 				TokenCount:  8,
 			},
@@ -1184,7 +1189,7 @@ func TestCompiler_FallbackOnVectorSearchFailure(t *testing.T) {
 				ID:         "flesh-domain",
 				Category:   CategoryDomain,
 				Content:    "Domain-specific knowledge",
-				Priority:   60,
+				Importance: 60,
 				TokenCount: 15,
 			},
 		}
@@ -1238,7 +1243,7 @@ func TestCompiler_FallbackOnVectorSearchFailure(t *testing.T) {
 				ID:          "mandatory-atom",
 				Category:    CategoryIdentity,
 				Content:     "Mandatory content",
-				Priority:    100,
+				Importance:  100,
 				IsMandatory: true,
 				TokenCount:  5,
 			},
@@ -1276,7 +1281,7 @@ func TestCompiler_FallbackOnVectorSearchFailure(t *testing.T) {
 				ID:          "test-atom",
 				Category:    CategoryIdentity,
 				Content:     "Test content",
-				Priority:    100,
+				Importance:  100,
 				IsMandatory: true,
 				TokenCount:  5,
 			},
@@ -1313,7 +1318,7 @@ func TestCompiler_FallbackStatistics(t *testing.T) {
 				ID:          "skeleton-1",
 				Category:    CategoryIdentity,
 				Content:     "Skeleton 1",
-				Priority:    100,
+				Importance:  100,
 				IsMandatory: true,
 				TokenCount:  10,
 			},
@@ -1321,7 +1326,7 @@ func TestCompiler_FallbackStatistics(t *testing.T) {
 				ID:          "skeleton-2",
 				Category:    CategorySafety,
 				Content:     "Skeleton 2",
-				Priority:    95,
+				Importance:  95,
 				IsMandatory: true,
 				TokenCount:  10,
 			},
@@ -1329,7 +1334,7 @@ func TestCompiler_FallbackStatistics(t *testing.T) {
 				ID:         "flesh-1",
 				Category:   CategoryExemplar,
 				Content:    "Flesh 1",
-				Priority:   50,
+				Importance: 50,
 				TokenCount: 10,
 			},
 		}
@@ -1339,9 +1344,9 @@ func TestCompiler_FallbackStatistics(t *testing.T) {
 		// Kernel that selects all atoms with proper source tagging
 		kernel := &mockKernel{
 			facts: []any{
-				Fact{Predicate: "selected_atom", Args: []any{"skeleton-1", "skeleton", 1.0}},
-				Fact{Predicate: "selected_atom", Args: []any{"skeleton-2", "skeleton", 1.0}},
-				Fact{Predicate: "selected_atom", Args: []any{"flesh-1", "flesh", 0.8}},
+				Fact{Predicate: "selected_result", Args: []any{"skeleton-1", "skeleton"}},
+				Fact{Predicate: "selected_result", Args: []any{"skeleton-2", "skeleton"}},
+				Fact{Predicate: "selected_result", Args: []any{"flesh-1", "flesh"}},
 			},
 		}
 

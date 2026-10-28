@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Error Messages: Complete Catalog"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -60,7 +59,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Error Messages: Complete Catalog: Analysis Errors"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -124,7 +122,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Error Messages: Complete Catalog: Arity Errors"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -173,7 +170,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Error Messages: Complete Catalog: Declaration Errors"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -226,7 +222,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Error Messages: Complete Catalog: Stratification Errors"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -272,7 +267,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Error Messages: Complete Catalog: Type Errors"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -337,7 +331,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Error Messages: Complete Catalog: Evaluation Errors"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -406,7 +399,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Error Messages: Complete Catalog: Common Error Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -488,7 +480,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Error Messages: Complete Catalog: Debugging Strategies"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -548,7 +539,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Error Messages: Complete Catalog: Error Prevention Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

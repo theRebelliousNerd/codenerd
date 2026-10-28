@@ -18,7 +18,7 @@
 #     PromptAtom.ToSelectorFacts (internal/prompt/atoms.go:540), called from
 #     atoms_test.go and atom_pinning_test.go and nowhere else. The live
 #     selector emits a different vocabulary entirely — atom, prompt_atom,
-#     atom_category, atom_priority, atom_tag, is_mandatory, atom_requires,
+#     atom_category, atom_importance, atom_tag, is_mandatory, atom_requires,
 #     atom_conflicts, atom_requires_tool, available_tool, compile_shard — which
 #     is what promptEphemeralPredicates (internal/prompt/compiler.go:60-75)
 #     retracts per compile. atom_selector is not in that list.
@@ -42,12 +42,12 @@
 
 # Final atom score from Go-computed boost (virtual predicate)
 atom_matches_context(AtomID, FinalScore) :-
-    prompt_atom(AtomID, _, _, _, _),
+    prompt_atom(AtomID, _, _, _),
     atom_context_boost(AtomID, FinalScore).
 
 # Mandatory atoms always get max score (100)
 atom_matches_context(AtomID, 100) :-
-    prompt_atom(AtomID, _, _, _, /true).
+    prompt_atom(AtomID, _, _, /true).
 
 # -----------------------------------------------------------------------------
 # Dependency Resolution (Stratified)
@@ -60,15 +60,15 @@ atom_meets_threshold(AtomID) :-
 
 # Helper: atom is mandatory (always meets threshold)
 atom_meets_threshold(AtomID) :-
-    prompt_atom(AtomID, _, _, _, /true).
+    prompt_atom(AtomID, _, _, /true).
 
 # Helper: atom has at least one unsatisfiable hard dependency
 has_unsatisfied_hard_dep(AtomID) :-
     atom_dependency(AtomID, DepID, /hard),
-    prompt_atom(DepID, _, _, _, _),
+    prompt_atom(DepID, _, _, _),
     !atom_meets_threshold(DepID).
 
 # Atom dependencies are satisfied if no unsatisfiable hard deps exist
 atom_dependency_satisfied(AtomID) :-
-    prompt_atom(AtomID, _, _, _, _),
+    prompt_atom(AtomID, _, _, _),
     !has_unsatisfied_hard_dep(AtomID).

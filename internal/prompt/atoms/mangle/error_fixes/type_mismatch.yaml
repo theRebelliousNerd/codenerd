@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Fix: Type Mismatch Error"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -75,7 +74,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Fix: Type Mismatch Error: 4. Float vs Integer"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -130,7 +128,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Fix: Type Mismatch Error: Diagnosis"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

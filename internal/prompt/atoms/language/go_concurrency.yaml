@@ -4,7 +4,6 @@
 - id: "language/go/concurrency/fundamentals"
   category: "language"
   subcategory: "go"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -70,7 +69,6 @@
   section_order: 1
   category: "language"
   subcategory: "go"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -106,7 +104,6 @@
 - id: "language/go/concurrency/patterns"
   category: "language"
   subcategory: "go"
-  priority: 84
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -153,7 +150,6 @@
   section_order: 1
   category: "language"
   subcategory: "go"
-  priority: 84
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -213,7 +209,6 @@
   section_order: 2
   category: "language"
   subcategory: "go"
-  priority: 84
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -259,7 +254,6 @@
   section_order: 3
   category: "language"
   subcategory: "go"
-  priority: 84
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -320,7 +314,6 @@
 - id: "language/go/concurrency/sync_primitives"
   category: "language"
   subcategory: "go"
-  priority: 83
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -384,7 +377,6 @@
   section_order: 1
   category: "language"
   subcategory: "go"
-  priority: 83
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -438,7 +430,6 @@
   section_order: 2
   category: "language"
   subcategory: "go"
-  priority: 83
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -492,7 +483,6 @@
   section_order: 3
   category: "language"
   subcategory: "go"
-  priority: 83
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -519,7 +509,6 @@
 - id: "language/go/concurrency/errgroup"
   category: "language"
   subcategory: "go"
-  priority: 82
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -565,7 +554,6 @@
   section_order: 1
   category: "language"
   subcategory: "go"
-  priority: 82
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -607,7 +595,6 @@
   section_order: 2
   category: "language"
   subcategory: "go"
-  priority: 82
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -664,7 +651,6 @@
   section_order: 3
   category: "language"
   subcategory: "go"
-  priority: 82
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -694,7 +680,6 @@
 - id: "language/go/concurrency/context"
   category: "language"
   subcategory: "go"
-  priority: 86
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -784,7 +769,6 @@
   section_order: 1
   category: "language"
   subcategory: "go"
-  priority: 86
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -847,7 +831,6 @@
   section_order: 2
   category: "language"
   subcategory: "go"
-  priority: 86
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -880,7 +863,6 @@
 - id: "language/go/concurrency/race_conditions"
   category: "language"
   subcategory: "go"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -961,7 +943,6 @@
   section_order: 1
   category: "language"
   subcategory: "go"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -1017,7 +998,6 @@
   section_order: 2
   category: "language"
   subcategory: "go"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]

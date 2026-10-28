@@ -5,6 +5,7 @@ package system
 import (
 	"codenerd/internal/approval"
 	"codenerd/internal/articulation"
+	"codenerd/internal/atomjudge"
 	"codenerd/internal/autopoiesis"
 	promptevolution "codenerd/internal/autopoiesis/prompt_evolution"
 	"codenerd/internal/broker"
@@ -33,6 +34,7 @@ import (
 	"codenerd/internal/tools/research"
 	"codenerd/internal/tools/shell"
 	"codenerd/internal/types"
+	"codenerd/internal/typesafe"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -1851,6 +1853,16 @@ func initIntelligenceLayer(bctx *bootContext) error {
 	}
 	if bctx.learningStore != nil {
 		bctx.jitCompiler.SetLearningStore(bctx.learningStore)
+	}
+	// Per-turn Jev relevance of flesh atoms (typesafe.atom_relevance):
+	// vector search nominates, Jev judges, jit_compiler.mg admits.
+	if jev, err := typesafe.FromConfig(bctx.appCfg.TypeSafe); err != nil {
+		logging.Get(logging.CategoryBoot).Warn("Jev atom relevance off: %v", err)
+	} else if jev != nil {
+		if use := atomjudge.RelevanceFor(jev, bctx.appCfg.TypeSafe); use.Judge != nil {
+			bctx.jitCompiler.SetAtomRelevance(use)
+			logging.Get(logging.CategoryBoot).Info("Jev atom relevance on: pool %d, timeout %s, yes %d%% / no %d%%", use.Pool, use.Timeout, use.YesPercent, use.NoPercent)
+		}
 	}
 	if defaultVectorSearcher != nil {
 		defaultVectorSearcher.SetCompiler(bctx.jitCompiler)

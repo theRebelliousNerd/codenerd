@@ -4,7 +4,6 @@
 - id: "reviewer/methodology/ai_review_fundamentals"
   category: "methodology"
   subcategory: "ai_review"
-  priority: 94
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check", "/analyze"]
@@ -53,7 +52,6 @@
 - id: "reviewer/methodology/api_verification"
   category: "methodology"
   subcategory: "ai_review"
-  priority: 92
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -99,7 +97,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "ai_review"
-  priority: 92
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -143,7 +140,6 @@
 - id: "reviewer/methodology/ai_logic_verification"
   category: "methodology"
   subcategory: "ai_review"
-  priority: 90
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -208,7 +204,6 @@
 - id: "reviewer/methodology/ai_security_review"
   category: "methodology"
   subcategory: "ai_review"
-  priority: 94
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -281,7 +276,6 @@
 - id: "reviewer/methodology/ai_hallucination_detection"
   category: "methodology"
   subcategory: "ai_review"
-  priority: 88
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -351,7 +345,6 @@
 - id: "reviewer/methodology/ai_code_integration"
   category: "methodology"
   subcategory: "ai_review"
-  priority: 82
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -403,7 +396,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "ai_review"
-  priority: 82
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]

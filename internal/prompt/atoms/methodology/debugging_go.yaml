@@ -4,7 +4,6 @@
 - id: "methodology/debugging/go"
   category: "methodology"
   subcategory: "debugging"
-  priority: 95
   is_mandatory: false
   languages: ["/go", "/golang"]
   intent_verbs: ["/debug", "/fix", "/investigate"]

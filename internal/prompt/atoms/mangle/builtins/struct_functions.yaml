@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -26,7 +25,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: Struct Construction"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -83,7 +81,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: Struct Deconstruction"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -140,7 +137,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: fn:struct:get"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -186,7 +182,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: Map Construction"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -239,7 +234,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: Map Deconstruction"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -291,7 +285,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: fn:map:get"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -326,7 +319,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: Pair Construction and Deconstruction"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -403,7 +395,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: Tuples (N-ary)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -453,7 +444,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: Comparison: Struct vs Map vs Pair"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -476,7 +466,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: Mangle Struct and Map Functions Common Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -547,7 +536,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: Iteration Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -600,7 +588,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: Mangle Struct and Map Functions Performance Notes"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -643,7 +630,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: Complete Examples"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

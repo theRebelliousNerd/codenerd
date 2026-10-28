@@ -4,7 +4,6 @@
 - id: "language/java/modern/records"
   category: "language"
   subcategory: "java"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -58,7 +57,6 @@
   section_order: 1
   category: "language"
   subcategory: "java"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -112,7 +110,6 @@
 - id: "language/java/modern/sealed_classes"
   category: "language"
   subcategory: "java"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -177,7 +174,6 @@
 - id: "language/java/modern/pattern_matching"
   category: "language"
   subcategory: "java"
-  priority: 92
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -231,7 +227,6 @@
   section_order: 1
   category: "language"
   subcategory: "java"
-  priority: 92
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -260,7 +255,6 @@
   section_order: 2
   category: "language"
   subcategory: "java"
-  priority: 92
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -308,7 +302,6 @@
 - id: "language/java/modern/text_blocks"
   category: "language"
   subcategory: "java"
-  priority: 80
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -376,7 +369,6 @@
 - id: "language/java/modern/var_keyword"
   category: "language"
   subcategory: "java"
-  priority: 75
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -431,7 +423,6 @@
 - id: "language/java/modern/virtual_threads"
   category: "language"
   subcategory: "java"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -478,7 +469,6 @@
   section_order: 1
   category: "language"
   subcategory: "java"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -519,7 +509,6 @@
   section_order: 2
   category: "language"
   subcategory: "java"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]

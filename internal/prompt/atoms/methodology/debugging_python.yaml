@@ -4,7 +4,6 @@
 - id: "methodology/debugging/python"
   category: "methodology"
   subcategory: "debugging"
-  priority: 95
   is_mandatory: false
   languages: ["/python"]
   intent_verbs: ["/debug", "/fix", "/investigate"]

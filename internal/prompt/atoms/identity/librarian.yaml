@@ -4,7 +4,6 @@
 - id: "identity/librarian/mission"
   category: "identity"
   subcategory: "mission"
-  priority: 100
   is_mandatory: true
   shard_types: ["/librarian"]
   content: |
@@ -15,7 +14,6 @@
 - id: "identity/librarian/philosophy"
   category: "identity"
   subcategory: "philosophy"
-  priority: 95
   is_mandatory: true
   shard_types: ["/librarian"]
   depends_on: ["identity/librarian/mission"]
@@ -34,7 +32,6 @@
 - id: "methodology/librarian/layers"
   category: "methodology"
   subcategory: "classification"
-  priority: 90
   is_mandatory: true
   shard_types: ["/librarian"]
   depends_on: ["identity/librarian/mission"]
@@ -55,7 +52,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "classification"
-  priority: 90
   is_mandatory: false
   shard_types: ["/librarian"]
   depends_on: ["identity/librarian/mission"]
@@ -81,7 +77,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "classification"
-  priority: 90
   is_mandatory: false
   shard_types: ["/librarian"]
   depends_on: ["identity/librarian/mission"]
@@ -108,7 +103,6 @@
   section_order: 3
   category: "methodology"
   subcategory: "classification"
-  priority: 90
   is_mandatory: false
   shard_types: ["/librarian"]
   depends_on: ["identity/librarian/mission"]
@@ -134,7 +128,6 @@
   section_order: 4
   category: "methodology"
   subcategory: "classification"
-  priority: 90
   is_mandatory: false
   shard_types: ["/librarian"]
   depends_on: ["identity/librarian/mission"]
@@ -161,7 +154,6 @@
   section_order: 5
   category: "methodology"
   subcategory: "classification"
-  priority: 90
   is_mandatory: false
   shard_types: ["/librarian"]
   depends_on: ["identity/librarian/mission"]
@@ -187,7 +179,6 @@
   section_order: 6
   category: "methodology"
   subcategory: "classification"
-  priority: 90
   is_mandatory: false
   shard_types: ["/librarian"]
   depends_on: ["identity/librarian/mission"]
@@ -210,7 +201,6 @@
 - id: "methodology/librarian/algorithm"
   category: "methodology"
   subcategory: "algorithm"
-  priority: 85
   is_mandatory: true
   shard_types: ["/librarian"]
   depends_on: ["methodology/librarian/layers"]
@@ -242,7 +232,6 @@
 - id: "methodology/librarian/edge_cases"
   category: "methodology"
   subcategory: "edge_cases"
-  priority: 75
   is_mandatory: false
   shard_types: ["/librarian"]
   depends_on: ["methodology/librarian/algorithm"]
@@ -275,7 +264,6 @@
 - id: "methodology/librarian/frameworks"
   category: "methodology"
   subcategory: "frameworks"
-  priority: 70
   is_mandatory: false
   shard_types: ["/librarian"]
   languages: ["/go"]

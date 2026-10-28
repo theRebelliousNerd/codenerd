@@ -203,8 +203,10 @@ type PromptAtom struct {
 	// Composition Rules
 	// =========================================================================
 
-	// Priority determines ordering within a category (higher = earlier)
-	Priority int `json:"priority"`
+	// Importance is Jev's build-time judgment of the harm in ignoring this
+	// guidance (importance.go); ImportanceUnscored when no current score
+	// exists. It orders and arbitrates conflicts; it never admits an atom.
+	Importance ImportanceLevel `json:"importance"`
 
 	// IsMandatory means this atom MUST be included if it matches context
 	IsMandatory bool `json:"is_mandatory"`
@@ -602,27 +604,20 @@ func matchSelector(selector []string, value string) bool {
 }
 
 // ToFact converts this atom to a Mangle fact for kernel queries.
-// Format: prompt_atom(ID, Category, TokenCount, Priority, IsMandatory).
+// Format: prompt_atom(ID, Category, TokenCount, IsMandatory), the schema's
+// order (schemas_prompts.mg). Importance is its own fact, atom_importance,
+// present only for a scored atom.
 func (a *PromptAtom) ToFact() core.Fact {
 	mandatory := "/false"
 	if a.IsMandatory {
 		mandatory = "/true"
 	}
-
-	// Schema (schemas_prompts.mg:194):
-	//   Decl prompt_atom(AtomID, Category, Priority, TokenCount, IsMandatory).
-	// Priority is at index 2, TokenCount at index 3. This used to be
-	// swapped in code (TokenCount at 2, Priority at 3); the schema's
-	// bound list (/number, /number) hid the bug — but selector.go's
-	// parallel assertion path used the schema order, so the two paths
-	// emitted facts with inconsistent meanings for the same predicate.
 	return core.Fact{
 		Predicate: "prompt_atom",
 		Args: []any{
 			a.ID,
 			"/" + string(a.Category),
-			a.Priority,   // index 2 per schema
-			a.TokenCount, // index 3 per schema
+			a.TokenCount,
 			core.MangleAtom(mandatory),
 		},
 	}

@@ -4,7 +4,6 @@
 - id: "build_layer/data_layer/principles"
   category: "build_layer"
   subcategory: "data_layer"
-  priority: 95
   is_mandatory: true
   build_layers: ["/data_layer"]
   content: |
@@ -35,7 +34,6 @@
 - id: "build_layer/data_layer/repository"
   category: "build_layer"
   subcategory: "data_layer"
-  priority: 90
   is_mandatory: false
   build_layers: ["/data_layer"]
   depends_on: ["build_layer/data_layer/principles"]
@@ -95,7 +93,6 @@
 - id: "build_layer/data_layer/migrations"
   category: "build_layer"
   subcategory: "data_layer"
-  priority: 85
   is_mandatory: false
   build_layers: ["/data_layer"]
   content: |

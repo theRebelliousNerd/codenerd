@@ -4,7 +4,6 @@
 - id: "knowledge/extraction/protocol"
   category: "knowledge"
   subcategory: "extraction"
-  priority: 90
   is_mandatory: false
   shard_types: ["/researcher"]
   content: |
@@ -44,7 +43,6 @@
 - id: "knowledge/extraction/sources"
   category: "knowledge"
   subcategory: "extraction"
-  priority: 85
   is_mandatory: false
   shard_types: ["/researcher"]
   content: |
@@ -88,7 +86,6 @@
 - id: "knowledge/extraction/atoms"
   category: "knowledge"
   subcategory: "extraction"
-  priority: 80
   is_mandatory: false
   shard_types: ["/researcher"]
   content: |
@@ -101,7 +98,6 @@
     - id: "domain/{project}/{topic}"
       category: "domain"
       subcategory: "{topic}"
-      priority: 70
       is_mandatory: false
       content: |
         ## {TOPIC_TITLE}

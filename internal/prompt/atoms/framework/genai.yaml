@@ -4,7 +4,6 @@
 - id: "framework/genai/core"
   category: "framework"
   subcategory: "genai"
-  priority: 63
   is_mandatory: false
   shard_types: ["/coder", "/researcher"]
   frameworks: ["/genai"]

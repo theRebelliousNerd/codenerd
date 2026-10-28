@@ -4,7 +4,6 @@
 - id: "ouroboros/safety/critical_requirements"
   category: "ouroboros"
   subcategory: "safety"
-  priority: 100
   is_mandatory: true
   ouroboros_stages: ["/specification", "/refinement"]
   content: |
@@ -37,7 +36,6 @@
 - id: "ouroboros/safety/allowed_packages"
   category: "ouroboros"
   subcategory: "safety"
-  priority: 80
   is_mandatory: true
   ouroboros_stages: ["/specification", "/refinement"]
   depends_on: ["ouroboros/safety/critical_requirements"]
@@ -81,7 +79,6 @@
 - id: "ouroboros/safety/error_handling_mandates"
   category: "ouroboros"
   subcategory: "safety"
-  priority: 90
   is_mandatory: true
   ouroboros_stages: ["/specification", "/refinement"]
   depends_on: ["ouroboros/safety/critical_requirements"]
@@ -122,7 +119,6 @@
 - id: "ouroboros/safety/static_analysis_checks"
   category: "ouroboros"
   subcategory: "safety"
-  priority: 70
   is_mandatory: false
   ouroboros_stages: ["/safety_check"]
   content: |

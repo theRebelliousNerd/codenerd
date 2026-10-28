@@ -71,15 +71,16 @@ func AssembleEmbeddedBaselinePrompt(cc *CompilationContext) (string, error) {
 			Atom:            atom,
 			LogicScore:      1.0,
 			VectorScore:     0.0,
-			Combined:        float64(atom.Priority) / 100.0,
+			Combined:        float64(atom.Importance) / float64(ImportanceCritical),
 			SelectionReason: "baseline:mandatory_embedded",
 			Source:          "skeleton",
 		})
 	}
 
-	// Stable sort by priority for deterministic ordering before dependency resolve.
+	// Stable sort by build-time importance for deterministic ordering before
+	// dependency resolve; unscored atoms sort last.
 	sort.SliceStable(scored, func(i, j int) bool {
-		return scored[i].Atom.Priority > scored[j].Atom.Priority
+		return scored[i].Atom.Importance > scored[j].Atom.Importance
 	})
 
 	resolver := NewDependencyResolver()

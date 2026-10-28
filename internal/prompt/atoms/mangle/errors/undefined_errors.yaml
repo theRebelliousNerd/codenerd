@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Undefined Predicate/Function Errors Reference"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -21,7 +20,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Undefined Predicate/Function Errors Reference: 1.1 Predicate Not Declared in Schemas"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -93,7 +91,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Undefined Predicate/Function Errors Reference: 1.2 Predicate Not Declared (Query)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -154,7 +151,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Undefined Predicate/Function Errors Reference: 1.4 No Decl for Predicate (Evaluation)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -204,7 +200,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Undefined Predicate/Function Errors Reference: 2.1.1 String Functions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -237,7 +232,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Undefined Predicate/Function Errors Reference: 2.1.2 List Functions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -279,7 +273,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Undefined Predicate/Function Errors Reference: 2.1.4 Math Functions (Extended)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -330,7 +323,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Undefined Predicate/Function Errors Reference: 2.2 Function Not Found (Runtime)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -379,7 +371,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Undefined Predicate/Function Errors Reference: 3. Schema Validator Errors (codeNERD)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -428,7 +419,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Undefined Predicate/Function Errors Reference: 3.1 Rule Uses Undefined Predicates cont"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -472,7 +462,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Undefined Predicate/Function Errors Reference: 3.2 Validation Errors List"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -506,7 +495,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Undefined Predicate/Function Errors Reference: 4.1 Confirmed Available Functions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -555,7 +543,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Undefined Predicate/Function Errors Reference: 4.2 Function Availability Check"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -612,7 +599,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Undefined Predicate/Function Errors Reference: 6. External Predicate Issues"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -690,7 +676,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Undefined Predicate/Function Errors Reference: 7. Diagnostic Strategies"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -737,7 +722,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Undefined Predicate/Function Errors Reference: Mangle Undefined Predicate/Function Errors Reference 8. Common Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -795,7 +779,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Undefined Predicate/Function Errors Reference: Quick Diagnosis Table"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -26,7 +25,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Core Pattern: Basic Default"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -91,7 +89,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 1: Cascading Defaults (Coalesce)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -149,7 +146,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 1: Cascading Defaults (Coalesce) Example"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -185,7 +181,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 2: Numeric Defaults (Zero-Fill)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -242,7 +237,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 3: Inherited Defaults (Hierarchy)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -290,7 +284,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 3: Inherited Defaults (Hierarchy) Example"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -325,7 +318,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 4: Conditional Defaults"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -389,7 +381,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 5: Range Defaults (Fill Missing Numbers)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -447,7 +438,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 6: Interpolation (Forward Fill)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -519,7 +509,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 7: Aggregate-Based Defaults"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -585,7 +574,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 8: Multi-Attribute Defaults"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -634,7 +622,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Solution Example"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -673,7 +660,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 9: Computed Defaults"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -731,7 +717,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 10: Time-Based Defaults"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -793,7 +778,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Anti-Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -847,7 +831,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Default Values Patterns Performance Tips"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -888,7 +871,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Test Timeout Defaults"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

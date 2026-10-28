@@ -18,7 +18,6 @@
   # atoms by ID, and a persona-declaring atom with no regime gate would leak
   # into every shard prompt (see TestShardGating_PersonaAtomsInCorpusAreGated).
   northstar_phases: ["/alignment_check"]
-  priority: 95
   is_mandatory: true
   content: |
     You are the Northstar Alignment Guardian for a software project.
@@ -35,7 +34,6 @@
   # atoms by ID, and a persona-declaring atom with no regime gate would leak
   # into every shard prompt (see TestShardGating_PersonaAtomsInCorpusAreGated).
   northstar_phases: ["/alignment_check"]
-  priority: 90
   is_mandatory: false
   depends_on: ["northstar/guardian/role"]
   content: |
@@ -51,7 +49,6 @@
   # atoms by ID, and a persona-declaring atom with no regime gate would leak
   # into every shard prompt (see TestShardGating_PersonaAtomsInCorpusAreGated).
   northstar_phases: ["/alignment_check"]
-  priority: 88
   is_mandatory: true
   depends_on: ["northstar/guardian/role"]
   content: |
@@ -77,7 +74,6 @@
   # atoms by ID, and a persona-declaring atom with no regime gate would leak
   # into every shard prompt (see TestShardGating_PersonaAtomsInCorpusAreGated).
   northstar_phases: ["/alignment_check"]
-  priority: 86
   is_mandatory: true
   depends_on: ["northstar/guardian/task"]
   content: |
@@ -94,7 +90,6 @@
   # atoms by ID, and a persona-declaring atom with no regime gate would leak
   # into every shard prompt (see TestShardGating_PersonaAtomsInCorpusAreGated).
   northstar_phases: ["/alignment_check"]
-  priority: 84
   is_mandatory: true
   depends_on: ["northstar/guardian/output_contract"]
   content: |

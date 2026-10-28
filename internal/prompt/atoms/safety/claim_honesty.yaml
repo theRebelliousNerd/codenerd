@@ -30,7 +30,6 @@
 - id: "safety/honesty/no_unverified_claims"
   category: "safety"
   subcategory: "honesty"
-  priority: 99
   is_mandatory: true
   shard_types: ["/coder", "/tester", "/reviewer", "/researcher"]
   content: |

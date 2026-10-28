@@ -3,7 +3,6 @@
 
 - id: "system/requirements_interrogator/identity"
   category: "identity"
-  priority: 100
   is_mandatory: true
   shard_types: ["/requirements_interrogator", "/interrogator"]
   content: |
@@ -17,7 +16,6 @@
 
 - id: "system/requirements_interrogator/output_rules"
   category: "protocol"
-  priority: 95
   is_mandatory: true
   shard_types: ["/requirements_interrogator", "/interrogator"]
   depends_on: ["system/requirements_interrogator/identity"]
@@ -31,7 +29,6 @@
 
 - id: "system/requirements_interrogator/question_dimensions"
   category: "methodology"
-  priority: 90
   is_mandatory: true
   shard_types: ["/requirements_interrogator", "/interrogator"]
   depends_on: ["system/requirements_interrogator/output_rules"]
@@ -62,7 +59,6 @@
 
 - id: "system/requirements_interrogator/code_probes"
   category: "domain"
-  priority: 85
   is_mandatory: true
   shard_types: ["/requirements_interrogator", "/interrogator"]
   depends_on: ["system/requirements_interrogator/question_dimensions"]
@@ -77,7 +73,6 @@
 
 - id: "system/requirements_interrogator/autonomy_probes"
   category: "domain"
-  priority: 80
   is_mandatory: true
   shard_types: ["/requirements_interrogator", "/interrogator"]
   depends_on: ["system/requirements_interrogator/code_probes"]
@@ -92,7 +87,6 @@
 
 - id: "system/requirements_interrogator/codenerd_alignment"
   category: "context"
-  priority: 75
   is_mandatory: true
   shard_types: ["/requirements_interrogator", "/interrogator"]
   content: |
@@ -109,7 +103,6 @@
 
 - id: "system/requirements_interrogator/anti_patterns"
   category: "safety"
-  priority: 70
   is_mandatory: true
   shard_types: ["/requirements_interrogator", "/interrogator"]
   content: |

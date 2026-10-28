@@ -5,7 +5,6 @@
 - id: "northstar/derive/identity"
   category: "identity"
   subcategory: "derive"
-  priority: 100
   is_mandatory: true
   northstar_phases: ["/derive_classify", "/derive_vision", "/derive_requirements"]
   content: |

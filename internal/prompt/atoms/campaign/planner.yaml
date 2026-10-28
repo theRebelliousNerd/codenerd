@@ -4,7 +4,6 @@
 - id: "campaign/planner/identity"
   category: "identity"
   subcategory: "planner"
-  priority: 80
   is_mandatory: true
   campaign_phases: ["planning"]
   shard_types: ["/planner"]
@@ -21,7 +20,6 @@
 - id: "campaign/planner/campaign_philosophy"
   category: "knowledge"
   subcategory: "campaign_structure"
-  priority: 85
   is_mandatory: true
   campaign_phases: ["planning"]
   shard_types: ["/planner"]
@@ -48,7 +46,6 @@
 - id: "campaign/planner/task_atomization"
   category: "methodology"
   subcategory: "task_design"
-  priority: 75
   is_mandatory: true
   campaign_phases: ["planning"]
   shard_types: ["/planner"]
@@ -84,7 +81,6 @@
 - id: "campaign/planner/anti_patterns"
   category: "safety"
   subcategory: "hallucination_prevention"
-  priority: 70
   is_mandatory: true
   campaign_phases: ["planning"]
   shard_types: ["/planner"]
@@ -111,7 +107,6 @@
   section_order: 1
   category: "safety"
   subcategory: "hallucination_prevention"
-  priority: 70
   is_mandatory: false
   campaign_phases: ["planning"]
   shard_types: ["/planner"]
@@ -146,7 +141,6 @@
 - id: "campaign/planner/long_horizon_autonomy"
   category: "methodology"
   subcategory: "durability"
-  priority: 78
   is_mandatory: true
   campaign_phases: ["planning"]
   shard_types: ["/planner"]

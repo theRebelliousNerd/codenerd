@@ -15,7 +15,7 @@
 #    2026-08-11 and rejected: a /fix compile went from 67 atoms and 26279 tokens
 #    to 254 atoms and 65036 of 65536 tokens, 99.2 percent budget saturation,
 #    because each admitted atom recursively pulls its atom_requires dependencies
-#    into tentative. The Go selector still queries only selected_result/3 from
+#    into tentative. The Go selector still queries only selected_result/2 from
 #    jit_compiler.mg. The rule this establishes: a second opinion in a selector
 #    may veto, never admit.
 #
@@ -42,7 +42,7 @@ atom_candidate(AtomID) :-
 
 # Mandatory atoms are always candidates
 atom_candidate(AtomID) :-
-    prompt_atom(AtomID, _, _, _, /true).
+    prompt_atom(AtomID, _, _, /true).
 
 # Phase 2: Detect conflicts among candidates
 # An atom loses to a conflicting atom with higher score
@@ -83,7 +83,7 @@ is_excluded(AtomID) :-
 
 # Exclude if dependency not satisfied (computed early, no cycle)
 is_excluded(AtomID) :-
-    prompt_atom(AtomID, _, _, _, _),
+    prompt_atom(AtomID, _, _, _),
     !atom_dependency_satisfied(AtomID).
 
 # Phase 3: Final selection - candidates that are not excluded
@@ -107,12 +107,12 @@ final_atom(AtomID, Order) :-
 # Helper: at least one identity atom is selected
 has_identity_atom() :-
     atom_selected(AtomID),
-    prompt_atom(AtomID, /identity, _, _, _).
+    prompt_atom(AtomID, /identity, _, _).
 
 # Helper: at least one protocol atom is selected
 has_protocol_atom() :-
     atom_selected(AtomID),
-    prompt_atom(AtomID, /protocol, _, _, _).
+    prompt_atom(AtomID, /protocol, _, _).
 
 # Helper: at least one compilation error exists
 has_compilation_error() :-
@@ -126,7 +126,7 @@ compilation_valid() :-
 
 # Error: missing mandatory atom (mandatory atom not selected)
 compilation_error(/missing_mandatory, AtomID) :-
-    prompt_atom(AtomID, _, _, _, /true),
+    prompt_atom(AtomID, _, _, /true),
     !prohibited_atom(AtomID),
     !atom_selected(AtomID).
 
@@ -172,7 +172,7 @@ effective_prompt_atom(AtomID) :-
     atom_selected(AtomID),
     has_successful_shard().
 
-# Learning signal: promote effective atoms to higher priority
+# Learning signal: an atom that was selected when the shard succeeded
 learning_signal(/effective_prompt_atom, AtomID) :-
     effective_prompt_atom(AtomID).
 
@@ -194,7 +194,7 @@ skeleton_category(/methodology).
 # 3. It is not explicitly prohibited
 # Reordered: bind ShardType from atom_tag first, then join compile_shard on shared ShardType
 mandatory_atom(AtomID) :-
-    prompt_atom(AtomID, Category, _, _, _),
+    prompt_atom(AtomID, Category, _, _),
     skeleton_category(Category),
     atom_tag(AtomID, /shard, ShardType),
     compile_shard(_, ShardType),
@@ -202,7 +202,7 @@ mandatory_atom(AtomID) :-
 
 # Atoms explicitly marked as mandatory are always mandatory
 mandatory_atom(AtomID) :-
-    prompt_atom(AtomID, _, _, _, /true),
+    prompt_atom(AtomID, _, _, /true),
     !prohibited_atom(AtomID).
 
 # Atoms with is_mandatory flag
@@ -222,11 +222,11 @@ base_prohibited(AtomID) :-
 
 base_prohibited(AtomID) :-
     compile_context(/operational_mode, /dream),
-    prompt_atom(AtomID, /ouroboros, _, _, _).
+    prompt_atom(AtomID, /ouroboros, _, _).
 
 base_prohibited(AtomID) :-
     compile_context(/operational_mode, /init),
-    prompt_atom(AtomID, /campaign, _, _, _).
+    prompt_atom(AtomID, /campaign, _, _).
 
 # INERT: atom_tag with /tag never matches — PromptAtom has no Tags field and
 # selector.go (1340-1352) never emits dimension /tag, so this rule derives nothing.
@@ -253,11 +253,14 @@ candidate_atom(AtomID) :-
     Score > 30,
     !prohibited_atom(AtomID).
 
-# Also consider atoms matching context dimensions even without vector hit
+# Also consider, without a vector hit, this shard's atoms whose neglect Jev
+# judged to produce a wrong result or worse (atom_importance level 4
+# correctness or 5 critical; internal/prompt/importance.go). candidate_atom
+# only feeds the conflict_loser veto below; it admits nothing.
 # Reordered: negation checks early (after binding AtomID), bind ShardType from atom_tag before compile_shard
 candidate_atom(AtomID) :-
-    prompt_atom(AtomID, _, Priority, _, _),
-    Priority > 50,
+    atom_importance(AtomID, Level),
+    Level >= 4,
     !prohibited_atom(AtomID),
     !mandatory_atom(AtomID),
     atom_tag(AtomID, /shard, ShardType),
@@ -276,23 +279,24 @@ conflict_loser(AtomID) :-
     atom_conflicts(MandatoryID, AtomID),
     mandatory_atom(MandatoryID).
 
-# Helper: Two candidates conflict, lower priority loses
+# Helper: Two candidates conflict, the less important one loses. Both need a
+# build-time importance; an unscored atom loses no conflict on importance.
 # Use atom_conflicts to bind OtherID from AtomID (shared variable), avoiding cross-product
 conflict_loser(AtomID) :-
     candidate_atom(AtomID),
     atom_conflicts(AtomID, OtherID),
     candidate_atom(OtherID),
-    prompt_atom(AtomID, _, PriorityA, _, _),
-    prompt_atom(OtherID, _, PriorityB, _, _),
-    PriorityA < PriorityB.
+    atom_importance(AtomID, LevelA),
+    atom_importance(OtherID, LevelB),
+    LevelA < LevelB.
 
 conflict_loser(AtomID) :-
     candidate_atom(AtomID),
     atom_conflicts(OtherID, AtomID),
     candidate_atom(OtherID),
-    prompt_atom(AtomID, _, PriorityA, _, _),
-    prompt_atom(OtherID, _, PriorityB, _, _),
-    PriorityA < PriorityB.
+    atom_importance(AtomID, LevelA),
+    atom_importance(OtherID, LevelB),
+    LevelA < LevelB.
 
 # Final selection: mandatory atoms always selected
 selected_atom(AtomID) :- mandatory_atom(AtomID).
@@ -307,7 +311,7 @@ selected_atom(AtomID) :-
 
 has_skeleton_category(Category) :-
     selected_atom(AtomID),
-    prompt_atom(AtomID, Category, _, _, _),
+    prompt_atom(AtomID, Category, _, _),
     skeleton_category(Category).
 
 missing_skeleton_category(Category) :-

@@ -3,7 +3,6 @@
 - id: "capability/browser_specs"
   category: "capability"
   subcategory: "browser"
-  priority: 88
   is_mandatory: false
   depends_on: ["capability/browser_reasoning"]
   intent_verbs: ["/research", "/explore", "/verify", "/validate"]
@@ -23,7 +22,6 @@
 - id: "safety/browser_specs"
   category: "safety"
   subcategory: "browser"
-  priority: 95
   is_mandatory: false
   depends_on: ["capability/browser_specs"]
   intent_verbs: ["/research", "/explore", "/verify", "/validate"]

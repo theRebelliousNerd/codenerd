@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -26,7 +25,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Go Integration Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -79,7 +77,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Intent & Focus Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -148,7 +145,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: File System Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -232,7 +228,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Symbol Graph Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -297,7 +292,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Diagnostic Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -371,7 +365,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: TDD Loop Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -404,7 +397,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Shard Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -456,7 +448,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Research & Knowledge Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -500,7 +491,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Memory & Context Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -562,7 +552,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Campaign Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -613,7 +602,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Verb Taxonomy Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -668,7 +656,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Autopoiesis Predicates (Ouroboros)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -754,7 +741,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Generated Tool Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -800,7 +786,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Mangle Fact Creation Patterns for codeNERD Common Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -856,7 +841,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Type Conversion Helpers"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

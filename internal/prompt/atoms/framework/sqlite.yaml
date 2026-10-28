@@ -4,7 +4,6 @@
 - id: "framework/sqlite/core"
   category: "framework"
   subcategory: "sqlite"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder", "/researcher"]
   frameworks: ["/sqlite"]

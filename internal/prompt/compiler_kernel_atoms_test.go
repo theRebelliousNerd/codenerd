@@ -113,7 +113,7 @@ func TestCollectKernelInjectedAtoms(t *testing.T) {
 		func() *PromptAtom {
 			a := NewPromptAtom("identity/test/mission", CategoryIdentity, "test identity")
 			a.IsMandatory = true
-			a.Priority = 100
+			a.Importance = 100
 			return a
 		}(),
 	})

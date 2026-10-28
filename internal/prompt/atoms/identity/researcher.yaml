@@ -4,7 +4,6 @@
 - id: "identity/researcher/mission"
   category: "identity"
   subcategory: "mission"
-  priority: 100
   is_mandatory: true
   shard_types: ["/researcher"]
   intent_verbs: ["/research", "/learn", "/document", "/understand", "/explore", "/find"]
@@ -26,7 +25,6 @@
 - id: "identity/researcher/constraints"
   category: "identity"
   subcategory: "constraints"
-  priority: 95
   is_mandatory: true
   shard_types: ["/researcher"]
   intent_verbs: ["/research", "/learn", "/document", "/understand", "/explore", "/find"]
@@ -57,7 +55,6 @@
 - id: "identity/researcher/methodology"
   category: "identity"
   subcategory: "methodology"
-  priority: 80
   is_mandatory: false
   shard_types: ["/researcher"]
   intent_verbs: ["/research", "/learn", "/document", "/understand", "/explore", "/find"]
@@ -87,7 +84,6 @@
 - id: "identity/researcher/tool_usage"
   category: "identity"
   subcategory: "tools"
-  priority: 98
   is_mandatory: true
   shard_types: ["/researcher"]
   intent_verbs: ["/research", "/learn", "/document", "/understand", "/explore", "/find"]
@@ -113,7 +109,6 @@
   section_order: 1
   category: "identity"
   subcategory: "tools"
-  priority: 98
   is_mandatory: false
   shard_types: ["/researcher"]
   intent_verbs: ["/research", "/learn", "/document", "/understand", "/explore", "/find"]

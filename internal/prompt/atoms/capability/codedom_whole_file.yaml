@@ -7,7 +7,6 @@
 - id: "capability/codedom_whole_file"
   category: "capability"
   subcategory: "semantic_editing"
-  priority: 90
   is_mandatory: true
   depends_on: ["capability/codedom_safety"]
   # Exactly the two tools this atom names, and the only admission it needs:

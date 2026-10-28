@@ -48,9 +48,9 @@ func TestPinnedAtomBlockedOnDifferentProvider(t *testing.T) {
 	}
 
 	assertPinFixture(t, k,
-		`prompt_atom("pinned/anthropic", /methodology, 70, 10, /false)`,
+		`prompt_atom("pinned/anthropic", /methodology, 10, /false)`,
 		`atom_tag("pinned/anthropic", /provider, /anthropic)`,
-		`prompt_atom("unpinned/shared", /methodology, 70, 10, /false)`,
+		`prompt_atom("unpinned/shared", /methodology, 10, /false)`,
 		// The compile is served by a different vendor.
 		`current_context(/provider, /openai)`,
 	)
@@ -77,9 +77,9 @@ func TestPinnedAtomBlockedWhenProviderUnset(t *testing.T) {
 	}
 
 	assertPinFixture(t, k,
-		`prompt_atom("pinned/anthropic", /methodology, 70, 10, /false)`,
+		`prompt_atom("pinned/anthropic", /methodology, 10, /false)`,
 		`atom_tag("pinned/anthropic", /provider, /anthropic)`,
-		`prompt_atom("unpinned/shared", /methodology, 70, 10, /false)`,
+		`prompt_atom("unpinned/shared", /methodology, 10, /false)`,
 		// Deliberately no current_context(/provider, ...).
 		`current_context(/shard, /coder)`,
 	)
@@ -102,7 +102,7 @@ func TestPinnedAtomAdmittedOnMatchingProviderAndModel(t *testing.T) {
 	}
 
 	assertPinFixture(t, k,
-		`prompt_atom("pinned/anthropic", /methodology, 70, 10, /false)`,
+		`prompt_atom("pinned/anthropic", /methodology, 10, /false)`,
 		`atom_tag("pinned/anthropic", /provider, /anthropic)`,
 		`atom_tag("pinned/anthropic", /model, /claude_opus_4)`,
 		`current_context(/provider, /anthropic)`,
@@ -126,7 +126,7 @@ func TestPinnedAtomBlockedOnDifferentModelSameProvider(t *testing.T) {
 	}
 
 	assertPinFixture(t, k,
-		`prompt_atom("pinned/opus", /methodology, 70, 10, /false)`,
+		`prompt_atom("pinned/opus", /methodology, 10, /false)`,
 		`atom_tag("pinned/opus", /provider, /anthropic)`,
 		`atom_tag("pinned/opus", /model, /claude_opus_4)`,
 		`current_context(/provider, /anthropic)`,

@@ -1,8 +1,10 @@
 // Package main implements a validator for prompt atom YAML files used by the JIT prompt compiler.
 //
 // This tool is intentionally strict about schema:
-// - unknown YAML fields are treated as errors (to catch typos like init_phase vs init_phases)
-// - required fields are enforced (id, category, priority, is_mandatory, content/content_file)
+//   - unknown YAML fields are treated as errors (to catch typos like init_phase vs init_phases)
+//   - required fields are enforced (id, category, is_mandatory, content/content_file)
+//   - a hand-set priority is reported through its migration: importance is Jev's
+//     build-time score (internal/prompt/importance.go), never authored
 //
 // Usage:
 //
@@ -255,12 +257,6 @@ func validateAtomDef(path, relPath string, def atomDefinition, validCategories m
 		issues = append(issues, issue{Severity: severityError, File: path, AtomID: atomID, Message: "missing required field: category"})
 	} else if _, ok := validCategories[cat]; !ok {
 		issues = append(issues, issue{Severity: severityError, File: path, AtomID: atomID, Message: fmt.Sprintf("unknown category %q", cat)})
-	}
-
-	if def.Priority == nil {
-		issues = append(issues, issue{Severity: severityError, File: path, AtomID: atomID, Message: "missing required field: priority"})
-	} else if *def.Priority < 0 || *def.Priority > 100 {
-		issues = append(issues, issue{Severity: severityError, File: path, AtomID: atomID, Message: fmt.Sprintf("priority out of range (expected 0..100): %d", *def.Priority)})
 	}
 
 	if def.IsMandatory == nil {

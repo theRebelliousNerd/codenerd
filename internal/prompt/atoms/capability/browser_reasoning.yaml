@@ -3,7 +3,6 @@
 - id: "capability/browser_reasoning"
   category: "capability"
   subcategory: "browser"
-  priority: 89
   is_mandatory: false
   depends_on: ["capability/browser_progressive"]
   intent_verbs: ["/research", "/explore", "/verify", "/validate"]
@@ -32,7 +31,6 @@
 - id: "safety/browser_reasoning"
   category: "safety"
   subcategory: "browser"
-  priority: 93
   is_mandatory: false
   depends_on: ["capability/browser_reasoning"]
   intent_verbs: ["/research", "/explore", "/verify", "/validate"]

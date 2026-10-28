@@ -352,7 +352,7 @@ func (c *JITPromptCompiler) buildManifest(
 			ID:          oa.Atom.ID,
 			Category:    string(oa.Atom.Category),
 			Source:      source,
-			Priority:    oa.Atom.Priority,
+			Importance:  oa.Atom.Importance.String(),
 			LogicScore:  logic,
 			VectorScore: vector,
 			RenderMode:  oa.RenderMode,

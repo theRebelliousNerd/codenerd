@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipelines - Complete Guide"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -39,7 +38,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipelines - Complete Guide: Single-Stage Aggregation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -95,7 +93,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipelines - Complete Guide: Multi-Stage Pipelines"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -152,7 +149,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipelines - Complete Guide: Grouping Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -197,7 +193,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipelines - Complete Guide: Nested Aggregation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -248,7 +243,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipelines - Complete Guide: Conditional Aggregation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -309,7 +303,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipelines - Complete Guide: Window Functions (Simulated)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -364,7 +357,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipelines - Complete Guide: Advanced Transform Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -427,7 +419,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipelines - Complete Guide: Aggregation with Arithmetic"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -479,7 +470,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipelines - Complete Guide: Common Pipeline Errors"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -566,7 +556,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipelines - Complete Guide: Performance Optimization"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

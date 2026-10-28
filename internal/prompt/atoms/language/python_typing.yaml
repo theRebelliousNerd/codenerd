@@ -4,7 +4,6 @@
 - id: "language/python/typing/fundamentals"
   category: "language"
   subcategory: "python"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -55,7 +54,6 @@
   section_order: 1
   category: "language"
   subcategory: "python"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -95,7 +93,6 @@
 - id: "language/python/typing/generics"
   category: "language"
   subcategory: "python"
-  priority: 84
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -158,7 +155,6 @@
   section_order: 1
   category: "language"
   subcategory: "python"
-  priority: 84
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -208,7 +204,6 @@
 - id: "language/python/typing/protocol"
   category: "language"
   subcategory: "python"
-  priority: 86
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -268,7 +263,6 @@
   section_order: 1
   category: "language"
   subcategory: "python"
-  priority: 86
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -309,7 +303,6 @@
   section_order: 2
   category: "language"
   subcategory: "python"
-  priority: 86
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -341,7 +334,6 @@
 - id: "language/python/typing/paramspec"
   category: "language"
   subcategory: "python"
-  priority: 83
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -384,7 +376,6 @@
   section_order: 1
   category: "language"
   subcategory: "python"
-  priority: 83
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -422,7 +413,6 @@
   section_order: 2
   category: "language"
   subcategory: "python"
-  priority: 83
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -463,7 +453,6 @@
 - id: "language/python/typing/narrowing"
   category: "language"
   subcategory: "python"
-  priority: 82
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -514,7 +503,6 @@
   section_order: 1
   category: "language"
   subcategory: "python"
-  priority: 82
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -560,7 +548,6 @@
   section_order: 2
   category: "language"
   subcategory: "python"
-  priority: 82
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]

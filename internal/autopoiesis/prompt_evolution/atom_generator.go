@@ -226,7 +226,6 @@ func (ag *AtomGenerator) parseGeneratedAtoms(
 type atomDefinition struct {
 	ID          string   `yaml:"id"`
 	Category    string   `yaml:"category"`
-	Priority    int      `yaml:"priority"`
 	IsMandatory bool     `yaml:"is_mandatory"`
 	ShardTypes  []string `yaml:"shard_types"`
 	Languages   []string `yaml:"languages"`
@@ -249,12 +248,6 @@ func (ag *AtomGenerator) convertToPromptAtom(def atomDefinition, shardType strin
 	// Validate and map category
 	category := mapCategory(def.Category)
 
-	// Set defaults
-	priority := def.Priority
-	if priority == 0 {
-		priority = 70 // Medium-high priority for evolved atoms
-	}
-
 	// Ensure shard types includes the source shard
 	shardTypes := def.ShardTypes
 	if len(shardTypes) == 0 {
@@ -266,7 +259,7 @@ func (ag *AtomGenerator) convertToPromptAtom(def atomDefinition, shardType strin
 	atom := &prompt.PromptAtom{
 		ID:          id,
 		Category:    category,
-		Priority:    priority,
+		Importance:  prompt.ImportanceUnscored,
 		IsMandatory: def.IsMandatory,
 		Content:     def.Content,
 		ShardTypes:  shardTypes,

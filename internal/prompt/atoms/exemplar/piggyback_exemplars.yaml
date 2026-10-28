@@ -4,7 +4,6 @@
 - id: "exemplar/piggyback/basic"
   category: "exemplar"
   subcategory: "piggyback"
-  priority: 95
   is_mandatory: false
   shard_types: ["/coder", "/tester", "/reviewer"]
   content: |
@@ -50,7 +49,6 @@
 - id: "exemplar/piggyback/review"
   category: "exemplar"
   subcategory: "piggyback"
-  priority: 90
   is_mandatory: false
   shard_types: ["/reviewer"]
   content: |
@@ -83,7 +81,6 @@
 - id: "exemplar/piggyback/test"
   category: "exemplar"
   subcategory: "piggyback"
-  priority: 85
   is_mandatory: false
   shard_types: ["/tester"]
   content: |

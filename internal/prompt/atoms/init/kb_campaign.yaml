@@ -4,7 +4,6 @@
 - id: "init/kb_campaign/creation"
   category: "init"
   subcategory: "kb_campaign"
-  priority: 75
   is_mandatory: true
   shard_types: ["/researcher"]
   init_phases: ["/campaign_kb"]
@@ -25,7 +24,6 @@
   section_order: 1
   category: "init"
   subcategory: "kb_campaign"
-  priority: 75
   is_mandatory: false
   shard_types: ["/researcher"]
   init_phases: ["/campaign_kb"]
@@ -68,7 +66,6 @@
   section_order: 2
   category: "init"
   subcategory: "kb_campaign"
-  priority: 75
   is_mandatory: false
   shard_types: ["/researcher"]
   init_phases: ["/campaign_kb"]
@@ -96,7 +93,6 @@
 - id: "init/kb_campaign/project_awareness"
   category: "init"
   subcategory: "kb_campaign"
-  priority: 70
   is_mandatory: true
   shard_types: ["/researcher"]
   init_phases: ["/campaign_kb"]
@@ -135,7 +131,6 @@
   section_order: 1
   category: "init"
   subcategory: "kb_campaign"
-  priority: 70
   is_mandatory: false
   shard_types: ["/researcher"]
   init_phases: ["/campaign_kb"]

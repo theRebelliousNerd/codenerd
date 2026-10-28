@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Edge Cases"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -32,7 +31,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Edge Cases: Edge Case 1: Empty Groups"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -95,7 +93,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Edge Cases: Edge Case 2: Null Handling"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -140,7 +137,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Edge Cases: Edge Case 3: Multiple Aggregations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -180,7 +176,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Edge Cases: Edge Case 4: Aggregation with Filtering"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -225,7 +220,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Edge Cases: Edge Case 5: Nested Aggregations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -274,7 +268,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Edge Cases: Edge Case 6: Aggregation Over Empty Input"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -322,7 +315,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Edge Cases: Edge Case 7: GROUP BY without Aggregation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -360,7 +352,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Edge Cases: Edge Case 8: Count Distinct"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -400,7 +391,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Edge Cases: Edge Case 9: Aggregation with Inequality"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -437,7 +427,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Edge Cases: Edge Case 10: Aggregation Over Computed Values"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -475,7 +464,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Edge Cases: Edge Case 11: Multiple GROUP BY Keys"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -512,7 +500,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Edge Cases: Edge Case 12: Aggregation Safety"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -549,7 +536,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Edge Cases: Available Aggregate Functions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -573,7 +559,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Edge Cases: Mangle Aggregation Edge Cases Performance Tips"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -625,7 +610,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Edge Cases: Mangle Aggregation Edge Cases Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

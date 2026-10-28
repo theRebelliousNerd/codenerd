@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -80,7 +79,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Variation 1: Count Distinct"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -138,7 +136,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Variation 2: Conditional Count"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -191,7 +188,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Variation 3: Count with Zero (Include Empty Groups)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -248,7 +244,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Variation 4: Running Total / Cumulative Count"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -295,7 +290,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Variation 5: Percentage / Ratio"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -357,7 +351,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Variation 6: Threshold Filtering (HAVING)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -408,7 +401,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Variation 7: Multi-Level Count"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -463,7 +455,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Variation 8: Count Combinations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -509,7 +500,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Variation 9: Count with Join"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -584,7 +574,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Variation 10: Top N by Count"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -651,7 +640,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Anti-Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -696,7 +684,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Counting Patterns Performance Tips"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

@@ -5,7 +5,6 @@
 - id: "capability/codedom_tools"
   category: "capability"
   subcategory: "semantic_editing"
-  priority: 87
   is_mandatory: true
   depends_on: ["capability/codedom_core"]
   shard_types: []  # Applies to all personas
@@ -22,7 +21,6 @@
 - id: "capability/codedom_test_tools"
   category: "capability"
   subcategory: "semantic_editing"
-  priority: 85
   is_mandatory: false
   depends_on: ["capability/codedom_tools"]
   requires_tools: [get_impacted_tests, run_impacted_tests]
@@ -41,7 +39,6 @@
 - id: "capability/codedom_query_tools"
   category: "capability"
   subcategory: "semantic_editing"
-  priority: 84
   is_mandatory: false
   depends_on: ["capability/codedom_tools"]
   content: |

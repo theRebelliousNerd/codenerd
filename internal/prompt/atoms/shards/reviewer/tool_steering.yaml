@@ -5,7 +5,6 @@
 - id: "shards/reviewer/tool_steering"
   category: "methodology"
   subcategory: "tools"
-  priority: 78
   is_mandatory: true
   shard_types: ["/reviewer"]
   content: |
@@ -27,7 +26,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "tools"
-  priority: 78
   is_mandatory: false
   shard_types: ["/reviewer"]
   content: |

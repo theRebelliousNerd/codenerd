@@ -4,7 +4,6 @@
 - id: "framework/gin/fundamentals"
   category: "framework"
   subcategory: "gin"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   frameworks: ["/gin"]
@@ -49,7 +48,6 @@
 - id: "framework/gin/middleware"
   category: "framework"
   subcategory: "gin"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   frameworks: ["/gin"]
@@ -92,7 +90,6 @@
 - id: "framework/gin/routing"
   category: "framework"
   subcategory: "gin"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   frameworks: ["/gin"]
@@ -142,7 +139,6 @@
 - id: "framework/gin/error_handling"
   category: "framework"
   subcategory: "gin"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   frameworks: ["/gin"]

@@ -4,7 +4,6 @@
 - id: "identity/nemesis/mission"
   category: "identity"
   subcategory: "mission"
-  priority: 100
   is_mandatory: true
   shard_types: ["/nemesis"]
   content: |
@@ -27,7 +26,6 @@
 - id: "identity/nemesis/capabilities"
   category: "identity"
   subcategory: "capabilities"
-  priority: 90
   is_mandatory: true
   shard_types: ["/nemesis"]
   depends_on: ["identity/nemesis/mission"]
@@ -42,7 +40,6 @@
 - id: "identity/nemesis/attack_categories"
   category: "identity"
   subcategory: "attack_methodology"
-  priority: 85
   is_mandatory: false
   shard_types: ["/nemesis"]
   depends_on: ["identity/nemesis/mission"]
@@ -80,7 +77,6 @@
 - id: "identity/nemesis/protocol"
   category: "identity"
   subcategory: "protocol"
-  priority: 80
   is_mandatory: true
   shard_types: ["/nemesis"]
   depends_on: ["identity/nemesis/mission"]
@@ -121,7 +117,6 @@
 - id: "identity/nemesis/philosophy"
   category: "identity"
   subcategory: "philosophy"
-  priority: 70
   is_mandatory: false
   shard_types: ["/nemesis"]
   content: |

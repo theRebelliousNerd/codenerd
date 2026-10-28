@@ -18,7 +18,7 @@ func TestJITPageFilterByContent(t *testing.T) {
 		Content:     "This is unique_keyword content.",
 		IsMandatory: true,
 		TokenCount:  10,
-		Priority:    5,
+		Importance:    5,
 	}
 	atom2 := &prompt.PromptAtom{
 		ID:          "atom2",
@@ -26,7 +26,7 @@ func TestJITPageFilterByContent(t *testing.T) {
 		Content:     "Just normal stuff.",
 		IsMandatory: true,
 		TokenCount:  10,
-		Priority:    5,
+		Importance:    5,
 	}
 
 	// Create compilation result
@@ -72,7 +72,7 @@ func TestJITPageClipboardKeys(t *testing.T) {
 		Content:     "This is atom content.",
 		IsMandatory: true,
 		TokenCount:  10,
-		Priority:    5,
+		Importance:    5,
 	}
 
 	// Create compilation result

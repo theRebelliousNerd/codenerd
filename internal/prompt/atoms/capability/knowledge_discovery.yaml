@@ -5,7 +5,6 @@
 - id: "capability/knowledge_discovery"
   category: "knowledge"
   subcategory: "knowledge_discovery"
-  priority: 90
   is_mandatory: true
   shard_types: []  # Applies to main agent
   # Served where envelope knowledge_requests are consulted: the chat turn's
@@ -50,7 +49,6 @@
 - id: "capability/knowledge_protocol"
   category: "protocol"
   subcategory: "knowledge_discovery"
-  priority: 85
   is_mandatory: true
   depends_on: ["capability/knowledge_discovery"]
   world_states: ["envelope_knowledge_requests"]
@@ -98,7 +96,6 @@
 - id: "capability/specialist_fallback"
   category: "knowledge"
   subcategory: "knowledge_discovery"
-  priority: 80
   is_mandatory: false
   depends_on: ["capability/knowledge_discovery"]
   content: |

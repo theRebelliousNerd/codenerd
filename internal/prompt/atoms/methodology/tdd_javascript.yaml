@@ -4,7 +4,6 @@
 - id: "methodology/tdd/javascript_workflow"
   category: "methodology"
   subcategory: "tdd"
-  priority: 95
   is_mandatory: false
   languages: ["/javascript", "/typescript", "/js", "/ts"]
   intent_verbs: ["/test", "/fix", "/implement"]

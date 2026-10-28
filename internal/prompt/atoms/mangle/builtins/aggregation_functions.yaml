@@ -8,7 +8,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Functions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -38,7 +37,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Functions: The shape"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -68,7 +66,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Functions: Counting distinct values"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -95,7 +92,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Functions: Rules that keep aggregation correct"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -26,7 +25,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Core Pattern: Inner Join"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -80,7 +78,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Variation 1: Multi-Way Join (3+ Predicates)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -130,7 +127,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Variation 2: Left Join (Outer Join)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -185,7 +181,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Variation 3: Self-Join"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -231,7 +226,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Variation 4: Join with Aggregation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -280,7 +274,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Variation 5: Conditional Join"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -330,7 +323,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Variation 6: Star Join (Fact Table + Dimensions)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -379,7 +371,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Variation 7: Join with Inequality"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -425,7 +416,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Variation 8: Anti-Join (Exclude Matching)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -474,7 +464,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Variation 9: Semi-Join (Exists Check)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -520,7 +509,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Variation 10: Chain Join (A\u2192B\u2192C\u2192D)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -565,7 +553,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Anti-Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -632,7 +619,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Joining Patterns Performance Tips"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -684,7 +670,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Common Use Cases in codeNERD"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

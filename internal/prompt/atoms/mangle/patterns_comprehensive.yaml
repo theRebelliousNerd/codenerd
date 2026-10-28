@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -66,7 +65,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: Negation Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -132,7 +130,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: Recursive Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -197,7 +194,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: Path with Cost"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -263,7 +259,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: Aggregation Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -319,7 +314,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: Conditional Aggregation (HAVING)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -373,7 +367,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: Bill of Materials (Recursive Quantities)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -420,7 +413,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: Data Lineage"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -458,7 +450,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: Vulnerability Propagation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -514,7 +505,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: Temporal Validity"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -557,7 +547,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: Optimization Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -617,7 +606,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: SQL Equivalence Table"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -645,7 +633,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: Common Anti-Patterns to Avoid"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

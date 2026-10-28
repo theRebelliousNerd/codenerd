@@ -268,7 +268,6 @@ func (c *JITPromptCompiler) collectKernelInjectedAtomsFromConfig(kernel KernelQu
 		pa := NewPromptAtom(id, CategoryContext, content)
 		pa.IsMandatory = true
 		pa.KernelInjected = true
-		pa.Priority = 95
 		pa.ShardTypes = []string{cc.ShardID}
 		dynamic = append(dynamic, pa)
 	}
@@ -334,7 +333,6 @@ func (c *JITPromptCompiler) collectKernelInjectedAtomsFromConfig(kernel KernelQu
 			pa := NewPromptAtom(id, CategoryKnowledge, content)
 			pa.IsMandatory = true
 			pa.KernelInjected = true
-			pa.Priority = 90
 			pa.ShardTypes = []string{cc.ShardID}
 			dynamic = append(dynamic, pa)
 		}

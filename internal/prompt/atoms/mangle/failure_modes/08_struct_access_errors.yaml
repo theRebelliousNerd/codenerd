@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 8: Structured Data Access Errors"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -56,7 +55,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 8: Structured Data Access Errors: Failure Mode 8: Structured Data Access Errors Correct Code"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -113,7 +111,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 8: Structured Data Access Errors: Failure Mode 8: Structured Data Access Errors Detection"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -134,7 +131,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 8: Structured Data Access Errors: Failure Mode 8: Structured Data Access Errors Prevention"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -181,7 +177,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 8: Structured Data Access Errors: Correct Patterns Reference"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -231,7 +226,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 8: Structured Data Access Errors: Pattern 3: Nested Structures"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -280,7 +274,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 8: Structured Data Access Errors: Pattern 5: List Operations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -317,7 +310,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 8: Structured Data Access Errors: Complex Example: Configuration Processing"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -367,7 +359,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 8: Structured Data Access Errors: Why These Functions Exist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -412,7 +403,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 8: Structured Data Access Errors: Failure Mode 8: Structured Data Access Errors Quick Check"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -443,7 +433,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 8: Structured Data Access Errors: Debugging Aid"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

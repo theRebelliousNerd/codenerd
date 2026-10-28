@@ -197,7 +197,7 @@ func TestReconcilePreservation_CanonicalIDOverridesProjectOwnership(test *testin
 	}
 	canonical := NewPromptAtom("canonical/winner", CategoryIdentity, "canonical body")
 	canonical.Description = "same input"
-	canonical.Priority = 71
+	canonical.Importance = ImportanceCorrectness
 	canonical.OperationalModes = []string{"active"}
 	canonical.Languages = []string{"go"}
 	counts, err := ReconcilePromptCorpus(context.Background(), database, []*PromptAtom{canonical})
@@ -208,11 +208,11 @@ func TestReconcilePreservation_CanonicalIDOverridesProjectOwnership(test *testin
 		test.Fatalf("unexpected canonical counts: %+v", counts)
 	}
 	var content, contentHash, source, category string
-	var priority int
-	if err := database.QueryRow("SELECT content, content_hash, source_file, category, priority FROM prompt_atoms WHERE atom_id = ?", canonical.ID).Scan(&content, &contentHash, &source, &category, &priority); err != nil {
+	var importance int
+	if err := database.QueryRow("SELECT content, content_hash, source_file, category, importance FROM prompt_atoms WHERE atom_id = ?", canonical.ID).Scan(&content, &contentHash, &source, &category, &importance); err != nil {
 		test.Fatalf("read canonical winner: %v", err)
 	}
-	if content != canonical.Content || contentHash != canonical.ContentHash || source != "embedded" || category != string(CategoryIdentity) || priority != canonical.Priority {
+	if content != canonical.Content || contentHash != canonical.ContentHash || source != "embedded" || category != string(CategoryIdentity) || ImportanceLevel(importance) != canonical.Importance {
 		test.Fatal("project ownership displaced canonical fields")
 	}
 	if countRows(test, database, "SELECT COUNT(*) FROM atom_context_tags WHERE atom_id = ?", canonical.ID) != 2 {
@@ -229,7 +229,7 @@ func TestReconcilePreservation_CanonicalIDOverridesProjectOwnership(test *testin
 func snapshotReconcilePreservation(test *testing.T, database *sql.DB) map[string][]string {
 	test.Helper()
 	queries := map[string]string{
-		"atoms":   `SELECT quote(atom_id)||'|'||quote(version)||'|'||quote(content)||'|'||quote(token_count)||'|'||quote(content_hash)||'|'||quote(description)||'|'||quote(content_concise)||'|'||quote(content_min)||'|'||quote(category)||'|'||quote(subcategory)||'|'||quote(priority)||'|'||quote(is_mandatory)||'|'||quote(is_exclusive)||'|'||quote(source_file)||'|'||quote(embedding)||'|'||quote(embedding_task) FROM prompt_atoms ORDER BY atom_id`,
+		"atoms":   `SELECT quote(atom_id)||'|'||quote(version)||'|'||quote(content)||'|'||quote(token_count)||'|'||quote(content_hash)||'|'||quote(description)||'|'||quote(content_concise)||'|'||quote(content_min)||'|'||quote(category)||'|'||quote(subcategory)||'|'||quote(importance)||'|'||quote(is_mandatory)||'|'||quote(is_exclusive)||'|'||quote(source_file)||'|'||quote(embedding)||'|'||quote(embedding_task) FROM prompt_atoms ORDER BY atom_id`,
 		"tags":    `SELECT quote(atom_id)||'|'||quote(dimension)||'|'||quote(tag)||'|'||quote(is_exclusion) FROM atom_context_tags ORDER BY atom_id, dimension, tag`,
 		"vectors": `SELECT quote(atom_id)||'|'||quote(embedding) FROM vec_prompt_atoms ORDER BY atom_id`,
 	}

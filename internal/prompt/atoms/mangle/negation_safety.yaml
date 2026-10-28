@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Safe Negation in Mangle"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -41,7 +40,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Safe Negation in Mangle: Safe Negation in Mangle Common Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -90,7 +88,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Safe Negation in Mangle: Checklist Before Using `not`"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

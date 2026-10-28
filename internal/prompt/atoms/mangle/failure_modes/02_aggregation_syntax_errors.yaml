@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 2: Aggregation Syntax Errors"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -29,7 +28,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 2: Aggregation Syntax Errors: Failure Mode 2: Aggregation Syntax Errors Wrong Code"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -70,7 +68,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 2: Aggregation Syntax Errors: Failure Mode 2: Aggregation Syntax Errors Correct Code"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -117,7 +114,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 2: Aggregation Syntax Errors: Failure Mode 2: Aggregation Syntax Errors Detection"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -137,7 +133,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 2: Aggregation Syntax Errors: Failure Mode 2: Aggregation Syntax Errors Prevention"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -193,7 +188,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 2: Aggregation Syntax Errors: Failure Mode 2: Aggregation Syntax Errors Training Bias Origins"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

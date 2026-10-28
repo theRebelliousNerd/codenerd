@@ -3,7 +3,6 @@
 - id: "capability/browser_progressive"
   category: "capability"
   subcategory: "browser"
-  priority: 88
   is_mandatory: false
   intent_verbs: ["/research", "/explore", "/verify", "/validate"]
   shard_types: ["/researcher", "/tester"]
@@ -27,7 +26,6 @@
 - id: "safety/browser_progressive"
   category: "safety"
   subcategory: "browser"
-  priority: 92
   is_mandatory: false
   depends_on: ["capability/browser_progressive"]
   intent_verbs: ["/research", "/explore", "/verify", "/validate"]

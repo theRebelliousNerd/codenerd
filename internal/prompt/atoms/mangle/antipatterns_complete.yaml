@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -57,7 +56,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog: 3. Aggregation - Missing `do` Keyword"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -120,7 +118,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog: 6. Type Declaration - Missing Type<> Wrapper"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -182,7 +179,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog: 10. Stratification Violation - Game Theory Cycle"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -230,7 +226,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog: 12. Cartesian Product Explosion"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -294,7 +289,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog: 15. List Indexing - Array Style"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -363,7 +357,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog: 19. Hallucinated Functions - String Operations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -420,7 +413,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog: 22. Go Integration - String-Based API"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -484,7 +476,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog: 25. Unsafe Head Variables"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -557,7 +548,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog: 29. Duplicate Rule Heads (Thinking First Wins)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -600,7 +590,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog: Detection Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -630,7 +619,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog: Common Repair Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

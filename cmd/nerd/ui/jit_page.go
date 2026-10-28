@@ -45,7 +45,7 @@ type atomItem struct {
 
 func (i atomItem) Title() string { return i.atom.ID }
 func (i atomItem) Description() string {
-	return fmt.Sprintf("[%s] Prio:%d Tokens:%d", i.atom.Category, i.atom.Priority, i.atom.TokenCount)
+	return fmt.Sprintf("[%s] Importance:%s Tokens:%d", i.atom.Category, i.atom.Importance, i.atom.TokenCount)
 }
 func (i atomItem) FilterValue() string {
 	return i.atom.ID + " " + string(i.atom.Category) + " " + i.atom.Content
@@ -209,7 +209,7 @@ func (m JITPageModel) renderAtomContent(atom *prompt.PromptAtom) string {
 	mutedStyle := m.styles.Text.Muted
 
 	header := headerStyle.Render(atom.ID)
-	info := infoStyle.Render(fmt.Sprintf("Category: %s | Priority: %d | Tokens: %d", atom.Category, atom.Priority, atom.TokenCount))
+	info := infoStyle.Render(fmt.Sprintf("Category: %s | Importance: %s | Tokens: %d", atom.Category, atom.Importance, atom.TokenCount))
 
 	mandatoryStatus := ""
 	if atom.IsMandatory {
@@ -321,7 +321,7 @@ func (m *JITPageModel) UpdateContent(result *prompt.CompilationResult) {
 	}
 	// Sort by priority desc before storing
 	sort.Slice(result.IncludedAtoms, func(i, j int) bool {
-		return result.IncludedAtoms[i].Priority > result.IncludedAtoms[j].Priority
+		return result.IncludedAtoms[i].Importance > result.IncludedAtoms[j].Importance
 	})
 
 	m.lastResult = result

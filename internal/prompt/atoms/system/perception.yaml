@@ -3,7 +3,6 @@
 
 - id: "system/perception/identity"
   category: "identity"
-  priority: 100
   is_mandatory: true
   shard_types: ["/perception", "/perception_firewall"]
   content: |
@@ -12,7 +11,6 @@
 
 - id: "system/perception/output_format"
   category: "protocol"
-  priority: 95
   is_mandatory: true
   shard_types: ["/perception", "/perception_firewall"]
   depends_on: ["system/perception/identity"]
@@ -57,7 +55,6 @@
 
 - id: "system/perception/verb_categories"
   category: "domain"
-  priority: 90
   is_mandatory: true
   shard_types: ["/perception", "/perception_firewall"]
   depends_on: ["system/perception/output_format"]
@@ -70,7 +67,6 @@
 
 - id: "system/perception/precision"
   category: "methodology"
-  priority: 85
   is_mandatory: true
   shard_types: ["/perception", "/perception_firewall"]
   content: |
@@ -84,7 +80,6 @@
 
 - id: "system/perception/user_prompt"
   category: "context"
-  priority: 80
   is_mandatory: false
   shard_types: ["/perception", "/perception_firewall"]
   content: |

@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -67,7 +66,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern 2: Template Expansion"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -126,7 +124,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern 3: Compile-Time Computation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -187,7 +184,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern 4: Code as Data (Homoiconicity)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -244,7 +240,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern 5: Aspect-Oriented Programming"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -302,7 +297,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern 6: Self-Modifying Code"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -358,7 +352,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern 7: Decorators / Annotations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -419,7 +412,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern 8: Reflection on Types"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -473,7 +465,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern 9: Dynamic Schema Evolution"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -525,7 +516,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern 10: Quasiquotation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -579,7 +569,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern 11: Multiple Dispatch"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -639,7 +628,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern 12: Lazy Evaluation Control"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -693,7 +681,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Pattern: Code Generation Workflow"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -752,7 +739,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Key Principle: No Runtime Meta-Programming"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -781,7 +767,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern: Meta-Programming Migration Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -811,7 +796,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Pro Tip: Mangle + Go = Powerful Meta-Programming"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

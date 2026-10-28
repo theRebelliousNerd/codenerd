@@ -4,7 +4,6 @@
 - id: "language/java/streams/creation"
   category: "language"
   subcategory: "java"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -68,7 +67,6 @@
 - id: "language/java/streams/operations"
   category: "language"
   subcategory: "java"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -103,7 +101,6 @@
   section_order: 1
   category: "language"
   subcategory: "java"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -144,7 +141,6 @@
   section_order: 2
   category: "language"
   subcategory: "java"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -171,7 +167,6 @@
 - id: "language/java/streams/collectors"
   category: "language"
   subcategory: "java"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -222,7 +217,6 @@
   section_order: 1
   category: "language"
   subcategory: "java"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -263,7 +257,6 @@
   section_order: 2
   category: "language"
   subcategory: "java"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -313,7 +306,6 @@
 - id: "language/java/streams/parallel"
   category: "language"
   subcategory: "java"
-  priority: 80
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -376,7 +368,6 @@
   section_order: 1
   category: "language"
   subcategory: "java"
-  priority: 80
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]

@@ -72,6 +72,19 @@ func LoadEmbeddedCorpus() (*EmbeddedCorpus, error) {
 		return nil, fmt.Errorf("invalid embedded atom set: %w", err)
 	}
 
+	// Importance is Jev's build-time score, shipped beside the atoms
+	// (importance.go). An atom without a current score is loaded unscored and
+	// counted, never given a stand-in level.
+	ledger, err := EmbeddedImportanceLedger()
+	if err != nil {
+		return nil, fmt.Errorf("embedded importance ledger: %w", err)
+	}
+	if unscored := applyImportance(allAtoms, ledger); len(unscored) > 0 {
+		logging.Get(logging.CategoryStore).Warn(
+			"%d of %d embedded atoms have no current importance score (first: %s); run `go run ./cmd/tools/prompt_builder -score-importance`",
+			len(unscored), len(allAtoms), unscored[0])
+	}
+
 	logging.Get(logging.CategoryStore).Info("Loaded %d atoms from embedded corpus", len(allAtoms))
 
 	return NewEmbeddedCorpus(allAtoms), nil

@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -40,7 +39,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Basic Example"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -90,7 +88,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: 2. Register the External Predicate"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -124,7 +121,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Pattern: Input-Only Predicate"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -185,7 +181,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Pattern: Generator Predicate"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -244,7 +239,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Pattern: Generator Predicate cont"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -266,7 +260,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Pattern: Lookup Predicate"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -325,7 +318,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Pattern: Lookup Predicate cont"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -359,7 +351,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Pattern: Computation Predicate"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -420,7 +411,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Handling Variables"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -480,7 +470,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Mangle External Predicates: Implementing Custom Logic in Go Error Handling"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -527,7 +516,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Type Conversion Helpers"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -586,7 +574,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Mangle External Predicates: Implementing Custom Logic in Go Best Practices"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -646,7 +633,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Mangle External Predicates: Implementing Custom Logic in Go Complete Example"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -726,7 +712,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Advanced Topics"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -787,7 +772,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Integration with Virtual Store"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

@@ -4,7 +4,6 @@
 - id: "language/java/concurrency/executor_service"
   category: "language"
   subcategory: "java"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -53,7 +52,6 @@
   section_order: 1
   category: "language"
   subcategory: "java"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -97,7 +95,6 @@
   section_order: 2
   category: "language"
   subcategory: "java"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -123,7 +120,6 @@
 - id: "language/java/concurrency/completable_future"
   category: "language"
   subcategory: "java"
-  priority: 92
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -175,7 +171,6 @@
   section_order: 1
   category: "language"
   subcategory: "java"
-  priority: 92
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -217,7 +212,6 @@
   section_order: 2
   category: "language"
   subcategory: "java"
-  priority: 92
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -257,7 +251,6 @@
 - id: "language/java/concurrency/synchronization"
   category: "language"
   subcategory: "java"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -306,7 +299,6 @@
   section_order: 1
   category: "language"
   subcategory: "java"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -356,7 +348,6 @@
   section_order: 2
   category: "language"
   subcategory: "java"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -418,7 +409,6 @@
   section_order: 3
   category: "language"
   subcategory: "java"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -445,7 +435,6 @@
 - id: "language/java/concurrency/concurrent_collections"
   category: "language"
   subcategory: "java"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -486,7 +475,6 @@
   section_order: 1
   category: "language"
   subcategory: "java"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]
@@ -518,7 +506,6 @@
   section_order: 2
   category: "language"
   subcategory: "java"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/java"]

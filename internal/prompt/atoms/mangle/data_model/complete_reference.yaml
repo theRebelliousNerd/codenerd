@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -68,7 +67,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Floating-Point Numbers"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -137,7 +135,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Structured Data Types"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -191,7 +188,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Lists"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -237,7 +233,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Maps"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -279,7 +274,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Structs"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -329,7 +323,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Constructed Types"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -384,7 +377,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Union Types"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -452,7 +444,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Predicates and Facts"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -499,7 +490,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Atoms"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -564,7 +554,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Data Equality"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -615,7 +604,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Data Model Best Practices"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -636,7 +624,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Memory Representation (Internal)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

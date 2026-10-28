@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -32,7 +31,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Pipeline Operator: `|>`"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -72,7 +70,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Transform Keyword: `do`"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -102,7 +99,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Grouping Function: `fn:group_by`"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -158,7 +154,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Binding Keyword: `let`"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -208,7 +203,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Complete Examples"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -252,7 +246,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Complete Examples Example 3: Multiple Aggregations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -305,7 +298,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Complete Examples Example 6: Collecting to Map"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -336,7 +328,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Complete Examples Example 7: Nested Computations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -370,7 +361,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Variable Scoping Rules"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -427,7 +417,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Execution Model"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -488,7 +477,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Comparison with SQL"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -524,7 +512,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Limitations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -597,7 +584,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Mangle Transform Pipeline Reference Performance Considerations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -621,7 +607,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Mangle Transform Pipeline Reference Common Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -684,7 +669,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Error Messages"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

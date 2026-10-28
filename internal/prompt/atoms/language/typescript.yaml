@@ -4,7 +4,6 @@
 - id: "language/typescript/fundamentals"
   category: "language"
   subcategory: "typescript"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   languages: ["/typescript"]
@@ -35,7 +34,6 @@
 - id: "language/typescript/idioms"
   category: "language"
   subcategory: "typescript"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   languages: ["/typescript"]
@@ -69,7 +67,6 @@
 - id: "language/typescript/react_patterns"
   category: "language"
   subcategory: "typescript"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   languages: ["/typescript"]

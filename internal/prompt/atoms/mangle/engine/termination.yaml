@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Termination Conditions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -35,7 +34,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Termination Conditions: Lost Guarantees: Mangle Extensions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -70,7 +68,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Termination Conditions: Common Non-Termination Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -114,7 +111,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Termination Conditions: Safe Termination Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -161,7 +157,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Termination Conditions: Ensuring Termination"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -208,7 +203,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Termination Conditions: Stratification and Termination"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -244,7 +238,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Termination Conditions: Debugging Non-Termination"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

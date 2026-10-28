@@ -4,7 +4,6 @@
 - id: "reviewer/methodology/performance_fundamentals"
   category: "methodology"
   subcategory: "performance"
-  priority: 88
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check", "/analyze"]
@@ -59,7 +58,6 @@
 - id: "reviewer/methodology/algorithm_complexity"
   category: "methodology"
   subcategory: "performance"
-  priority: 86
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/analyze"]
@@ -133,7 +131,6 @@
 - id: "reviewer/methodology/database_performance"
   category: "methodology"
   subcategory: "performance"
-  priority: 90
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/analyze"]
@@ -171,7 +168,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "performance"
-  priority: 90
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/analyze"]
@@ -225,7 +221,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "performance"
-  priority: 90
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/analyze"]
@@ -243,7 +238,6 @@
 - id: "reviewer/methodology/memory_performance"
   category: "methodology"
   subcategory: "performance"
-  priority: 85
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/analyze"]
@@ -325,7 +319,6 @@
 - id: "reviewer/methodology/caching"
   category: "methodology"
   subcategory: "performance"
-  priority: 82
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/analyze"]
@@ -372,7 +365,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "performance"
-  priority: 82
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/analyze"]
@@ -420,7 +412,6 @@
 - id: "reviewer/methodology/async_performance"
   category: "methodology"
   subcategory: "performance"
-  priority: 80
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/analyze"]

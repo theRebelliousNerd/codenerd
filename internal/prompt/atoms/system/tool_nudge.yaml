@@ -9,7 +9,6 @@
 - id: "system/tool_nudge/no_tool_call_retry"
   category: "system"
   subcategory: "tool_call"
-  priority: 100
   is_mandatory: true
   world_states: ["no_tool_call_retry"]
   content: |

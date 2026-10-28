@@ -76,7 +76,7 @@ func TestProductionPolicyEnforcesCapabilityDependencies(t *testing.T) {
 			t.Cleanup(func() { _ = scope.Close() })
 			var facts []any
 			for _, id := range []string{"tool-leaf", "dependent", "agnostic"} {
-				facts = append(facts, fmt.Sprintf(`atom(%q)`, id), fmt.Sprintf(`is_mandatory(%q)`, id), fmt.Sprintf(`atom_priority(%q, 90)`, id))
+				facts = append(facts, fmt.Sprintf(`atom(%q)`, id), fmt.Sprintf(`is_mandatory(%q)`, id), fmt.Sprintf(`atom_importance(%q, 4)`, id))
 			}
 			facts = append(facts, `atom_requires_tool("tool-leaf", "read_file")`, `atom_requires("dependent", "tool-leaf")`)
 			if available {
@@ -85,7 +85,7 @@ func TestProductionPolicyEnforcesCapabilityDependencies(t *testing.T) {
 			if err := scope.AssertBatch(facts); err != nil {
 				t.Fatal(err)
 			}
-			selected, err := scope.Query("selected_result(Atom, Priority, Source)")
+			selected, err := scope.Query("selected_result(Atom, Source)")
 			if err != nil {
 				t.Fatal(err)
 			}

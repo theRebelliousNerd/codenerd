@@ -28,7 +28,7 @@ func (c *JITPromptCompiler) loadAtomsFromDB(ctx context.Context, db *sql.DB) ([]
 	query := `
 		SELECT a.atom_id, a.version, a.content, a.token_count, a.content_hash,
 		       a.description, a.content_concise, a.content_min,
-		       a.category, a.subcategory, a.priority, a.is_mandatory, a.is_exclusive, a.created_at,
+		       a.category, a.subcategory, a.importance, a.is_mandatory, a.is_exclusive, a.created_at,
 		       t.dimension, t.tag
 		FROM (SELECT * FROM prompt_atoms LIMIT 10000) a
 		LEFT JOIN atom_context_tags t ON a.atom_id = t.atom_id
@@ -45,7 +45,8 @@ func (c *JITPromptCompiler) loadAtomsFromDB(ctx context.Context, db *sql.DB) ([]
 
 	for rows.Next() {
 		var atomID, content, contentHash, category string
-		var tokenCount, priority, version int
+		var tokenCount, version int
+		var importance sql.NullInt64
 		var isMandatory bool
 		var createdAt time.Time
 		var desc, conc, min, sub, excl sql.NullString
@@ -54,7 +55,7 @@ func (c *JITPromptCompiler) loadAtomsFromDB(ctx context.Context, db *sql.DB) ([]
 		err := rows.Scan(
 			&atomID, &version, &content, &tokenCount, &contentHash,
 			&desc, &conc, &min,
-			&category, &sub, &priority, &isMandatory, &excl, &createdAt,
+			&category, &sub, &importance, &isMandatory, &excl, &createdAt,
 			&dim, &tag,
 		)
 		if err != nil {
@@ -75,7 +76,7 @@ func (c *JITPromptCompiler) loadAtomsFromDB(ctx context.Context, db *sql.DB) ([]
 				ContentMin:     min.String,
 				Category:       AtomCategory(category),
 				Subcategory:    sub.String,
-				Priority:       priority,
+				Importance:     importanceFromColumn(importance),
 				IsMandatory:    isMandatory,
 				IsExclusive:    excl.String,
 				CreatedAt:      createdAt,
@@ -450,7 +451,6 @@ func knowledgeAtomToPromptAtom(atom store.KnowledgeAtom, shardID, source string)
 	atomID := "knowledge/" + HashContent(content)[:8]
 	pa := NewPromptAtom(atomID, CategoryKnowledge, content)
 	pa.RetrievedContext = true
-	pa.Priority = 85
 	pa.IsMandatory = false
 	if shardID != "" {
 		pa.ShardTypes = []string{shardDBKey(shardID)}
@@ -543,7 +543,6 @@ func (c *JITPromptCompiler) collectLearningAtomsFrom(ctx context.Context, cc *Co
 		atomID := "learning/" + HashContent(content)[:8]
 		pa := NewPromptAtom(atomID, CategoryKnowledge, content)
 		pa.RetrievedContext = true
-		pa.Priority = 88 // slightly above regular knowledge
 		pa.IsMandatory = false
 		if cc.ShardID != "" {
 			pa.ShardTypes = []string{shardDBKey(cc.ShardID)}

@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Safety Checks"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -26,7 +25,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Safety Checks: CheckRule Function"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -87,7 +85,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Safety Checks: Mode Declarations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -129,7 +126,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Safety Checks: Unsafe Head Variables"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -160,7 +156,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Safety Checks: Unsafe Negation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -211,7 +206,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Safety Checks: Equality Safety"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -262,7 +256,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Safety Checks: Function Application Safety"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -314,7 +307,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Safety Checks: Mangle Analysis: Safety Checks Best Practices"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

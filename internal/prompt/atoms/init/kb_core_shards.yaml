@@ -4,7 +4,6 @@
 - id: "init/kb_core_shards/creation"
   category: "init"
   subcategory: "kb_core_shards"
-  priority: 75
   is_mandatory: true
   shard_types: ["/researcher"]
   init_phases: ["/core_shards_kb"]
@@ -39,7 +38,6 @@
   section_order: 1
   category: "init"
   subcategory: "kb_core_shards"
-  priority: 75
   is_mandatory: false
   shard_types: ["/researcher"]
   init_phases: ["/core_shards_kb"]
@@ -82,7 +80,6 @@
 - id: "init/kb_core_shards/quality"
   category: "init"
   subcategory: "kb_core_shards"
-  priority: 70
   is_mandatory: true
   shard_types: ["/researcher"]
   init_phases: ["/core_shards_kb"]

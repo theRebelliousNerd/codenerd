@@ -4,7 +4,6 @@
 - id: "shards/nemesis/gauntlet_protocol"
   category: "methodology"
   subcategory: "adversarial"
-  priority: 90
   is_mandatory: true
   shard_types: ["/nemesis"]
   content: |
@@ -43,7 +42,6 @@
 - id: "shards/nemesis/attack_generation"
   category: "methodology"
   subcategory: "attack"
-  priority: 85
   is_mandatory: true
   shard_types: ["/nemesis"]
   content: |

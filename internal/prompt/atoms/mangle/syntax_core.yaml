@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Syntax Core"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

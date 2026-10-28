@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Declarations - Complete Reference"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -61,7 +60,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Declarations - Complete Reference: Structured Types"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -131,7 +129,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Declarations - Complete Reference: Mode Declarations (Advanced)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -187,7 +184,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Declarations - Complete Reference: Common Declaration Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -227,7 +223,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Declarations - Complete Reference: Type Declaration Anti-Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -281,7 +276,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Declarations - Complete Reference: Type Code Reference"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -326,7 +320,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Declarations - Complete Reference: Type Inference"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -366,7 +359,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Declarations - Complete Reference: Virtual Predicate Type Mapping (Go Integration)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -406,7 +398,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Declarations - Complete Reference: Mangle Type Declarations - Complete Reference Best Practices"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

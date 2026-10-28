@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Arithmetic Functions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -52,7 +51,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Arithmetic Functions: fn:minus"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -98,7 +96,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Arithmetic Functions: fn:mult"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -139,7 +136,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Arithmetic Functions: fn:div"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -188,7 +184,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Arithmetic Functions: fn:mod"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -219,7 +214,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Arithmetic Functions: fn:float:plus"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -257,7 +251,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Arithmetic Functions: fn:float:mult"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -289,7 +282,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Arithmetic Functions: fn:float:div"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -329,7 +321,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Arithmetic Functions: fn:sqrt"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -381,7 +372,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Arithmetic Functions: Mangle Arithmetic Functions Performance Notes"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

@@ -21,7 +21,6 @@ func TestAtomLoader_ParseYAML_LoadsDescriptionAndVariants(t *testing.T) {
   description: "short description"
   content_concise: "concise content"
   content_min: "min content"
-  priority: 50
   is_mandatory: false
   content_file: "body.md"
 `
@@ -47,12 +46,10 @@ func TestAtomLoaderParseYAMLRejectsUnknownFieldWithoutPartialResult(t *testing.T
 	yamlPath := filepath.Join(dir, "atoms.yaml")
 	yamlContent := `- id: test/good
   category: knowledge
-  priority: 50
   is_mandatory: false
   content: good
 - id: test/bad
   category: knowledge
-  priority: 50
   is_mandatory: false
   typo_field: rejected
   content: bad

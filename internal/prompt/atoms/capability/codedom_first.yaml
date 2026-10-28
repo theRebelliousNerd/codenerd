@@ -2,7 +2,6 @@
 
 - id: "capability/codedom_first"
   category: "capability"
-  priority: 88
   is_mandatory: true
   shard_types: [coder, reviewer, tester]
   requires_tools: [find_symbol, package_outline, get_elements, get_element, edit_element, replace_element, insert_element, delete_element, create_file, repoint]
@@ -23,7 +22,6 @@
   section_of: "capability/codedom_first"
   section_order: 1
   category: "capability"
-  priority: 88
   is_mandatory: false
   shard_types: [coder, reviewer, tester]
   requires_tools: [find_symbol, package_outline, get_elements, get_element, edit_element, replace_element, insert_element, delete_element, create_file, repoint]
@@ -38,7 +36,6 @@
   section_of: "capability/codedom_first"
   section_order: 2
   category: "capability"
-  priority: 88
   is_mandatory: false
   shard_types: [coder, reviewer, tester]
   requires_tools: [find_symbol, package_outline, get_elements, get_element, edit_element, replace_element, insert_element, delete_element, create_file, repoint]

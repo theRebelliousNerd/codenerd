@@ -4,7 +4,6 @@
 - id: "identity/tool_generator/mission"
   category: "identity"
   subcategory: "mission"
-  priority: 100
   is_mandatory: true
   shard_types: ["/tool_generator"]
   content: |
@@ -24,7 +23,6 @@
 - id: "identity/tool_generator/constraints"
   category: "identity"
   subcategory: "constraints"
-  priority: 95
   is_mandatory: true
   shard_types: ["/tool_generator"]
   depends_on: ["identity/tool_generator/mission"]
@@ -55,7 +53,6 @@
 - id: "identity/tool_generator/output_format"
   category: "protocol"
   subcategory: "tool_output"
-  priority: 90
   is_mandatory: true
   shard_types: ["/tool_generator"]
   content: |

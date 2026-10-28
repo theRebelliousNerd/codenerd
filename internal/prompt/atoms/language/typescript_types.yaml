@@ -4,7 +4,6 @@
 - id: "language/typescript/types/fundamentals"
   category: "language"
   subcategory: "typescript"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -65,7 +64,6 @@
 - id: "language/typescript/types/narrowing"
   category: "language"
   subcategory: "typescript"
-  priority: 89
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -123,7 +121,6 @@
   section_order: 1
   category: "language"
   subcategory: "typescript"
-  priority: 89
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -156,7 +153,6 @@
 - id: "language/typescript/types/discriminated_unions"
   category: "language"
   subcategory: "typescript"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -209,7 +205,6 @@
   section_order: 1
   category: "language"
   subcategory: "typescript"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -259,7 +254,6 @@
   section_order: 2
   category: "language"
   subcategory: "typescript"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -290,7 +284,6 @@
 - id: "language/typescript/types/conditional"
   category: "language"
   subcategory: "typescript"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -342,7 +335,6 @@
   section_order: 1
   category: "language"
   subcategory: "typescript"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -374,7 +366,6 @@
 - id: "language/typescript/types/mapped"
   category: "language"
   subcategory: "typescript"
-  priority: 84
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -457,7 +448,6 @@
 - id: "language/typescript/types/satisfies_const"
   category: "language"
   subcategory: "typescript"
-  priority: 86
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -506,7 +496,6 @@
   section_order: 1
   category: "language"
   subcategory: "typescript"
-  priority: 86
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]

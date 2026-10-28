@@ -4,7 +4,6 @@
 - id: "methodology/operational_modes/active"
   category: "methodology"
   subcategory: "operational_modes"
-  priority: 88
   is_mandatory: false
   operational_modes: ["/active"]
   content: |
@@ -42,7 +41,6 @@
 - id: "methodology/operational_modes/creative"
   category: "methodology"
   subcategory: "operational_modes"
-  priority: 86
   is_mandatory: false
   operational_modes: ["/creative"]
   content: |
@@ -74,7 +72,6 @@
 - id: "methodology/operational_modes/scaffolding"
   category: "methodology"
   subcategory: "operational_modes"
-  priority: 85
   is_mandatory: false
   operational_modes: ["/scaffolding"]
   intent_verbs: ["/create", "/refactor"]
@@ -103,7 +100,6 @@
 - id: "methodology/operational_modes/shadow"
   category: "methodology"
   subcategory: "operational_modes"
-  priority: 84
   is_mandatory: false
   operational_modes: ["/shadow"]
   content: |

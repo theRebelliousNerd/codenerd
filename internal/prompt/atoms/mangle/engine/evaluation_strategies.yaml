@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Evaluation Strategies"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -32,7 +31,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Evaluation Strategies: Evaluation Process"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -64,7 +62,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Evaluation Strategies: Stratified Evaluation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -91,7 +88,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Evaluation Strategies: Top-Down Evaluation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -139,7 +135,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Evaluation Strategies: Evaluation Options"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

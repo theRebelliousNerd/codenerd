@@ -5,7 +5,6 @@
 - id: "identity/legislator/mission"
   category: "identity"
   subcategory: "mission"
-  priority: 100
   is_mandatory: true
   shard_types: ["/legislator", "/system"]
   intent_verbs: ["/legislate", "/policy", "/rule", "/constraint"]
@@ -28,7 +27,6 @@
 - id: "identity/legislator/mangle_syntax"
   category: "identity"
   subcategory: "syntax"
-  priority: 99
   is_mandatory: true
   shard_types: ["/legislator", "/system"]
   intent_verbs: ["/legislate", "/policy", "/rule", "/constraint"]
@@ -69,7 +67,6 @@
 - id: "identity/legislator/declared_predicates"
   category: "identity"
   subcategory: "predicates"
-  priority: 98
   is_mandatory: true
   shard_types: ["/legislator", "/system"]
   intent_verbs: ["/legislate", "/policy", "/rule", "/constraint"]
@@ -100,7 +97,6 @@
   section_order: 1
   category: "identity"
   subcategory: "predicates"
-  priority: 98
   is_mandatory: false
   shard_types: ["/legislator", "/system"]
   intent_verbs: ["/legislate", "/policy", "/rule", "/constraint"]
@@ -127,7 +123,6 @@
 - id: "identity/legislator/forbidden_predicates"
   category: "identity"
   subcategory: "predicates"
-  priority: 97
   is_mandatory: true
   shard_types: ["/legislator", "/system"]
   intent_verbs: ["/legislate", "/policy", "/rule", "/constraint"]
@@ -153,7 +148,6 @@
 - id: "identity/legislator/safety_rules"
   category: "identity"
   subcategory: "safety"
-  priority: 96
   is_mandatory: true
   shard_types: ["/legislator", "/system"]
   intent_verbs: ["/legislate", "/policy", "/rule", "/constraint"]
@@ -203,7 +197,6 @@
 - id: "identity/legislator/output_protocol"
   category: "identity"
   subcategory: "protocol"
-  priority: 95
   is_mandatory: true
   shard_types: ["/legislator", "/system"]
   intent_verbs: ["/legislate", "/policy", "/rule", "/constraint"]
@@ -236,7 +229,6 @@
 - id: "identity/legislator/conversion_examples"
   category: "identity"
   subcategory: "examples"
-  priority: 85
   is_mandatory: false
   shard_types: ["/legislator", "/system"]
   intent_verbs: ["/legislate", "/policy", "/rule", "/constraint"]

@@ -4,7 +4,6 @@
 
 - id: "autopoiesis/meta/atom_generator"
   category: "autopoiesis"
-  priority: 100
   is_mandatory: true
   shard_types: ["/prompt_evolver"]
   description: "Meta-prompt for generating prompt atoms from failure analysis"
@@ -15,7 +14,6 @@
     ```yaml
     - id: "category/subcategory/descriptive_name"
       category: "methodology|language|framework|domain|exemplar"
-      priority: 50-90
       is_mandatory: false
       shard_types: ["/coder", "/tester", "/reviewer"]
       languages: ["/go", "/python"]  # optional
@@ -38,7 +36,6 @@
 
 - id: "autopoiesis/meta/strategy_refiner"
   category: "autopoiesis"
-  priority: 95
   is_mandatory: false
   shard_types: ["/prompt_evolver"]
   description: "Meta-prompt for refining problem-solving strategies"
@@ -76,7 +73,6 @@
 
 - id: "autopoiesis/meta/failure_analyzer"
   category: "autopoiesis"
-  priority: 90
   is_mandatory: false
   shard_types: ["/prompt_evolver"]
   description: "Guidance for analyzing failure patterns across executions"

@@ -4,7 +4,6 @@
 - id: "domain/codenerd/architecture_overview"
   category: "domain"
   subcategory: "architecture"
-  priority: 92
   is_mandatory: false
   content: |
     ## codeNERD ARCHITECTURE OVERVIEW (Encyclopedic)
@@ -25,7 +24,6 @@
   section_order: 1
   category: "domain"
   subcategory: "architecture"
-  priority: 92
   is_mandatory: false
   content: |
     *Part of: codeNERD ARCHITECTURE OVERVIEW (Encyclopedic)*
@@ -48,7 +46,6 @@
   section_order: 2
   category: "domain"
   subcategory: "architecture"
-  priority: 92
   is_mandatory: false
   content: |
     *Part of: codeNERD ARCHITECTURE OVERVIEW (Encyclopedic)*
@@ -63,7 +60,6 @@
 - id: "domain/codenerd/invariants_and_contracts"
   category: "domain"
   subcategory: "invariants"
-  priority: 88
   is_mandatory: false
   content: |
     ## INVARIANTS & CONTRACTS (Encyclopedic)
@@ -90,7 +86,6 @@
 - id: "domain/codenerd/integration_wiring_checklist"
   category: "domain"
   subcategory: "integration"
-  priority: 84
   is_mandatory: false
   intent_verbs: ["/create", "/fix", "/refactor"]
   content: |

@@ -4,7 +4,6 @@
 - id: "shards/researcher/knowledge_atom_extraction"
   category: "methodology"
   subcategory: "extraction"
-  priority: 90
   is_mandatory: true
   shard_types: ["/researcher"]
   content: |
@@ -51,7 +50,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "extraction"
-  priority: 90
   is_mandatory: false
   shard_types: ["/researcher"]
   content: |
@@ -80,7 +78,6 @@
 - id: "shards/researcher/atom_quality_scoring"
   category: "methodology"
   subcategory: "quality"
-  priority: 85
   is_mandatory: false
   shard_types: ["/researcher"]
   content: |

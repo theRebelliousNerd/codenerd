@@ -3,7 +3,6 @@
 
 - id: "system/world_model/identity"
   category: "identity"
-  priority: 100
   is_mandatory: true
   shard_types: ["/world_model"]
   content: |
@@ -13,7 +12,6 @@
 
 - id: "system/world_model/ingestion_protocol"
   category: "protocol"
-  priority: 95
   is_mandatory: true
   shard_types: ["/world_model"]
   depends_on: ["system/world_model/identity"]
@@ -50,7 +48,6 @@
 
 - id: "system/world_model/incremental_update"
   category: "methodology"
-  priority: 90
   is_mandatory: true
   shard_types: ["/world_model"]
   depends_on: ["system/world_model/ingestion_protocol"]
@@ -78,7 +75,6 @@
 
 - id: "system/world_model/language_detection"
   category: "domain"
-  priority: 85
   is_mandatory: false
   shard_types: ["/world_model"]
   content: |

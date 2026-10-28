@@ -4,7 +4,6 @@
 - id: "northstar/requirements/mission"
   category: "northstar"
   subcategory: "requirements"
-  priority: 70
   is_mandatory: true
   northstar_phases: ["/requirements"]
   content: |
@@ -29,7 +28,6 @@
 - id: "northstar/requirements/generation_protocol"
   category: "northstar"
   subcategory: "requirements"
-  priority: 65
   is_mandatory: true
   northstar_phases: ["/requirements"]
   depends_on: ["northstar/requirements/mission"]
@@ -73,7 +71,6 @@
   section_order: 1
   category: "northstar"
   subcategory: "requirements"
-  priority: 65
   is_mandatory: false
   northstar_phases: ["/requirements"]
   depends_on: ["northstar/requirements/mission"]
@@ -101,7 +98,6 @@
 - id: "northstar/requirements/quality_standards"
   category: "northstar"
   subcategory: "requirements"
-  priority: 60
   is_mandatory: true
   northstar_phases: ["/requirements"]
   depends_on: ["northstar/requirements/generation_protocol"]
@@ -155,7 +151,6 @@
 - id: "northstar/requirements/output_structure"
   category: "northstar"
   subcategory: "requirements"
-  priority: 55
   is_mandatory: false
   northstar_phases: ["/requirements"]
   depends_on: ["northstar/requirements/mission"]
@@ -199,7 +194,6 @@
 - id: "northstar/requirements/traceability"
   category: "northstar"
   subcategory: "requirements"
-  priority: 50
   is_mandatory: false
   northstar_phases: ["/requirements"]
   depends_on: ["northstar/requirements/mission"]

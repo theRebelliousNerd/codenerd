@@ -3,7 +3,6 @@
 - id: "capability/browser_evidence"
   category: "capability"
   subcategory: "browser"
-  priority: 88
   is_mandatory: false
   depends_on: ["capability/browser_reasoning"]
   requires_tools: [browser_evidence]
@@ -24,7 +23,6 @@
 - id: "safety/browser_evidence"
   category: "safety"
   subcategory: "browser"
-  priority: 94
   is_mandatory: false
   depends_on: ["capability/browser_evidence"]
   intent_verbs: ["/research", "/explore", "/verify", "/validate", "/debug"]

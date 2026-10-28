@@ -4,7 +4,6 @@
 
 - id: "eval/judge/task_evaluator"
   category: "eval"
-  priority: 100
   is_mandatory: true
   shard_types: ["/prompt_judge"]
   # The reply is one JSON verdict and the judge has no tools: while live,
@@ -44,7 +43,6 @@
   section_of: "eval/judge/task_evaluator"
   section_order: 1
   category: "eval"
-  priority: 100
   is_mandatory: false
   shard_types: ["/prompt_judge"]
   # The reply is one JSON verdict and the judge has no tools: while live,
@@ -90,7 +88,6 @@
   section_of: "eval/judge/task_evaluator"
   section_order: 2
   category: "eval"
-  priority: 100
   is_mandatory: false
   shard_types: ["/prompt_judge"]
   # The reply is one JSON verdict and the judge has no tools: while live,
@@ -122,7 +119,6 @@
 
 - id: "eval/judge/batch_evaluator"
   category: "eval"
-  priority: 90
   is_mandatory: false
   shard_types: ["/prompt_judge"]
   description: "Guidance for evaluating multiple executions in a batch"
@@ -146,7 +142,6 @@
 
 - id: "eval/judge/confidence_calibration"
   category: "eval"
-  priority: 80
   is_mandatory: false
   shard_types: ["/prompt_judge"]
   description: "Guidelines for confidence scoring in verdicts"

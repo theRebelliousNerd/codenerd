@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 11: Mangle as HashMap Anti-Pattern"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -29,7 +28,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 11: Mangle as HashMap Anti-Pattern: Failure Mode 11: Mangle as HashMap Anti-Pattern Wrong Code"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -75,7 +73,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 11: Mangle as HashMap Anti-Pattern: Failure Mode 11: Mangle as HashMap Anti-Pattern Correct Code"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -115,7 +112,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 11: Mangle as HashMap Anti-Pattern: Correct Mangle Usage"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -172,7 +168,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 11: Mangle as HashMap Anti-Pattern: Go Pre-Processor Pattern (Split-Brain Loader)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -224,7 +219,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 11: Mangle as HashMap Anti-Pattern: Failure Mode 11: Mangle as HashMap Anti-Pattern Detection"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -255,7 +249,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 11: Mangle as HashMap Anti-Pattern: Invalid String Functions (DO NOT EXIST)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -286,7 +279,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 11: Mangle as HashMap Anti-Pattern: Valid Built-in Functions (Complete List)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -316,7 +308,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 11: Mangle as HashMap Anti-Pattern: Use Mangle For (What It Excels At)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -374,7 +365,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 11: Mangle as HashMap Anti-Pattern: Do NOT Use Mangle For"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -410,7 +400,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 11: Mangle as HashMap Anti-Pattern: Complex Example: Intent Recognition Architecture"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -439,7 +428,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 11: Mangle as HashMap Anti-Pattern: CORRECT Approach"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -479,7 +467,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 11: Mangle as HashMap Anti-Pattern: CORRECT Approach cont"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -519,7 +506,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 11: Mangle as HashMap Anti-Pattern: Why This Matters"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -567,7 +553,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 11: Mangle as HashMap Anti-Pattern: Failure Mode 11: Mangle as HashMap Anti-Pattern Quick Check"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -602,7 +587,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 11: Mangle as HashMap Anti-Pattern: Salvage Strategy: Migration Path"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -635,7 +619,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 11: Mangle as HashMap Anti-Pattern: Summary: Data vs Rules"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

@@ -4,7 +4,6 @@
 - id: "northstar/phases/architecture"
   category: "northstar"
   subcategory: "phases"
-  priority: 80
   is_mandatory: false
   northstar_phases: ["/architecture"]
   content: |
@@ -32,7 +31,6 @@
 - id: "northstar/phases/roadmap"
   category: "northstar"
   subcategory: "phases"
-  priority: 79
   is_mandatory: false
   northstar_phases: ["/roadmap"]
   content: |
@@ -52,7 +50,6 @@
 - id: "northstar/phases/validation"
   category: "northstar"
   subcategory: "phases"
-  priority: 78
   is_mandatory: false
   northstar_phases: ["/validation"]
   content: |

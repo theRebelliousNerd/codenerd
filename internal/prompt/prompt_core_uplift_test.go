@@ -33,10 +33,10 @@ func (k *orderKernel) Query(predicate string) ([]Fact, error) {
 
 func selectionFixture() ([]*PromptAtom, *CompilationContext) {
 	atoms := []*PromptAtom{
-		{ID: "identity/core", Category: CategoryIdentity, Content: "core", Priority: 100, IsMandatory: true},
-		{ID: "protocol/base", Category: CategoryProtocol, Content: "ev", Priority: 90, IsMandatory: true},
-		{ID: "context/a", Category: CategoryContext, Content: "a", Priority: 50},
-		{ID: "context/b", Category: CategoryContext, Content: "b", Priority: 50},
+		{ID: "identity/core", Category: CategoryIdentity, Content: "core", Importance: 100, IsMandatory: true},
+		{ID: "protocol/base", Category: CategoryProtocol, Content: "ev", Importance: 90, IsMandatory: true},
+		{ID: "context/a", Category: CategoryContext, Content: "a", Importance: 50},
+		{ID: "context/b", Category: CategoryContext, Content: "b", Importance: 50},
 	}
 	cc := NewCompilationContext()
 	cc.ShardType = "/coder"
@@ -49,9 +49,9 @@ func selectionFixture() ([]*PromptAtom, *CompilationContext) {
 func TestSelection_AssertsBeforeQueries(t *testing.T) {
 	atoms, cc := selectionFixture()
 	inner := &mockKernel{facts: []any{
-		Fact{Predicate: "selected_result", Args: []any{"identity/core", 100, "skeleton"}},
-		Fact{Predicate: "selected_result", Args: []any{"protocol/base", 90, "skeleton"}},
-		Fact{Predicate: "selected_result", Args: []any{"context/a", 50, "flesh"}},
+		Fact{Predicate: "selected_result", Args: []any{"identity/core", "skeleton"}},
+		Fact{Predicate: "selected_result", Args: []any{"protocol/base", "skeleton"}},
+		Fact{Predicate: "selected_result", Args: []any{"context/a", "flesh"}},
 	}}
 	k := &orderKernel{mockKernel: inner}
 	sel := NewAtomSelector()
@@ -80,10 +80,10 @@ func TestSelection_DeterministicAcrossInputOrders(t *testing.T) {
 	atoms, cc := selectionFixture()
 	run := func(order []*PromptAtom) string {
 		inner := &mockKernel{facts: []any{
-			Fact{Predicate: "selected_result", Args: []any{"identity/core", 100, "skeleton"}},
-			Fact{Predicate: "selected_result", Args: []any{"protocol/base", 90, "skeleton"}},
-			Fact{Predicate: "selected_result", Args: []any{"context/a", 50, "flesh"}},
-			Fact{Predicate: "selected_result", Args: []any{"context/b", 50, "flesh"}},
+			Fact{Predicate: "selected_result", Args: []any{"identity/core", "skeleton"}},
+			Fact{Predicate: "selected_result", Args: []any{"protocol/base", "skeleton"}},
+			Fact{Predicate: "selected_result", Args: []any{"context/a", "flesh"}},
+			Fact{Predicate: "selected_result", Args: []any{"context/b", "flesh"}},
 		}}
 		sel := NewAtomSelector()
 		sel.SetKernel(inner)
@@ -207,9 +207,9 @@ func TestSelection_VectorTimingMeasuresSearch(t *testing.T) {
 	atoms, cc := selectionFixture()
 	cc.SemanticQuery = "something"
 	inner := &mockKernel{facts: []any{
-		Fact{Predicate: "selected_result", Args: []any{"identity/core", 100, "skeleton"}},
-		Fact{Predicate: "selected_result", Args: []any{"protocol/base", 90, "skeleton"}},
-		Fact{Predicate: "selected_result", Args: []any{"context/a", 50, "flesh"}},
+		Fact{Predicate: "selected_result", Args: []any{"identity/core", "skeleton"}},
+		Fact{Predicate: "selected_result", Args: []any{"protocol/base", "skeleton"}},
+		Fact{Predicate: "selected_result", Args: []any{"context/a", "flesh"}},
 	}}
 	sel := NewAtomSelector()
 	sel.SetKernel(inner)
@@ -234,8 +234,8 @@ func TestSelection_FleshPanicDegrades(t *testing.T) {
 	atoms, cc := selectionFixture()
 	cc.SemanticQuery = "something"
 	inner := &mockKernel{facts: []any{
-		Fact{Predicate: "selected_result", Args: []any{"identity/core", 100, "skeleton"}},
-		Fact{Predicate: "selected_result", Args: []any{"protocol/base", 90, "skeleton"}},
+		Fact{Predicate: "selected_result", Args: []any{"identity/core", "skeleton"}},
+		Fact{Predicate: "selected_result", Args: []any{"protocol/base", "skeleton"}},
 	}}
 	sel := NewAtomSelector()
 	sel.SetKernel(inner)

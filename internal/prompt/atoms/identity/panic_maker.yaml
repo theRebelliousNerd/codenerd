@@ -4,7 +4,6 @@
 - id: "identity/panic_maker/mission"
   category: "identity"
   subcategory: "mission"
-  priority: 100
   is_mandatory: true
   operational_modes: ["/thunderdome"]
   content: |
@@ -21,7 +20,6 @@
 - id: "identity/panic_maker/capabilities"
   category: "identity"
   subcategory: "capabilities"
-  priority: 90
   is_mandatory: true
   operational_modes: ["/thunderdome"]
   depends_on: ["identity/panic_maker/mission"]
@@ -37,7 +35,6 @@
 - id: "identity/panic_maker/strategies"
   category: "identity"
   subcategory: "strategies"
-  priority: 85
   is_mandatory: true
   operational_modes: ["/thunderdome"]
   depends_on: ["identity/panic_maker/mission"]
@@ -77,7 +74,6 @@
 - id: "identity/panic_maker/constraints"
   category: "identity"
   subcategory: "constraints"
-  priority: 80
   is_mandatory: true
   operational_modes: ["/thunderdome"]
   content: |
@@ -92,7 +88,6 @@
 - id: "identity/panic_maker/output"
   category: "identity"
   subcategory: "output_format"
-  priority: 75
   is_mandatory: true
   operational_modes: ["/thunderdome"]
   content: |
@@ -122,7 +117,6 @@
 - id: "identity/panic_maker/philosophy"
   category: "identity"
   subcategory: "philosophy"
-  priority: 60
   is_mandatory: false
   # Gated like its siblings (mission, capabilities). Without a selector this
   # persona fragment was a candidate in EVERY compile for every shard, since an

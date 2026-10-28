@@ -4,7 +4,6 @@
 - id: "intent/research/core"
   category: "intent"
   subcategory: "research"
-  priority: 95
   is_mandatory: true
   intent_verbs: ["/research"]
   content: |
@@ -41,7 +40,6 @@
 - id: "intent/research/exploration"
   category: "intent"
   subcategory: "research"
-  priority: 90
   is_mandatory: false
   intent_verbs: ["/research"]
   depends_on: ["intent/research/core"]
@@ -83,7 +81,6 @@
 - id: "intent/research/documentation"
   category: "intent"
   subcategory: "research"
-  priority: 85
   is_mandatory: false
   intent_verbs: ["/research"]
   content: |

@@ -4,7 +4,6 @@
 - id: "language/rust/errors/result_option"
   category: "language"
   subcategory: "rust"
-  priority: 95
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -63,7 +62,6 @@
   section_order: 1
   category: "language"
   subcategory: "rust"
-  priority: 95
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -96,7 +94,6 @@
   section_order: 2
   category: "language"
   subcategory: "rust"
-  priority: 95
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -129,7 +126,6 @@
 - id: "language/rust/errors/thiserror"
   category: "language"
   subcategory: "rust"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -180,7 +176,6 @@
   section_order: 1
   category: "language"
   subcategory: "rust"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -238,7 +233,6 @@
 - id: "language/rust/errors/anyhow"
   category: "language"
   subcategory: "rust"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -290,7 +284,6 @@
   section_order: 1
   category: "language"
   subcategory: "rust"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -330,7 +323,6 @@
   section_order: 2
   category: "language"
   subcategory: "rust"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -364,7 +356,6 @@
 - id: "language/rust/errors/conversion"
   category: "language"
   subcategory: "rust"
-  priority: 80
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -417,7 +408,6 @@
   section_order: 1
   category: "language"
   subcategory: "rust"
-  priority: 80
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]

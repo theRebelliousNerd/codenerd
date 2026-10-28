@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -70,7 +69,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern 2: Nullable Fields in Schema"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -134,7 +132,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern 3: Null Coalescing / Default Values"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -188,7 +185,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern 4: Null Propagation / Safe Navigation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -236,7 +232,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern 5: Three-Valued Logic (True/False/Null)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -283,7 +278,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern 6: Null in Comparisons"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -326,7 +320,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern 7: Null Assignment / Clearing Values"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -374,7 +367,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern 8: Optional Return Types"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -434,7 +426,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern 9: Null Object Pattern (Revisited)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -485,7 +476,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern 10: Database NULL vs Empty String"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -544,7 +534,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern 11: Null in Aggregation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -598,7 +587,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern 12: Null as Sentinel Value"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -664,7 +652,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Closed World Assumption: Core Principle"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -695,7 +682,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern: Null Handling Migration Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -725,7 +711,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Pattern: Modeling Optional Data"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -787,7 +772,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Pro Tip: Think Existence, Not Nullability"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

@@ -4,7 +4,6 @@
 - id: "init/facts/generation"
   category: "init"
   subcategory: "facts"
-  priority: 75
   is_mandatory: false
   shard_types: ["/researcher"]
   init_phases: ["/facts"]

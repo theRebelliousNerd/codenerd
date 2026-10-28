@@ -4,7 +4,6 @@
 - id: "shards/tester/concurrency_testing"
   category: "methodology"
   subcategory: "concurrency"
-  priority: 85
   is_mandatory: false
   shard_types: ["/tester"]
   languages: ["/go"]
@@ -78,7 +77,6 @@
 - id: "shards/tester/error_testing"
   category: "methodology"
   subcategory: "errors"
-  priority: 85
   is_mandatory: true
   shard_types: ["/tester"]
   content: |

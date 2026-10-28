@@ -4,7 +4,6 @@
 - id: "language/go/testing/fundamentals"
   category: "language"
   subcategory: "go"
-  priority: 84
   is_mandatory: false
   shard_types: ["/coder", "/tester", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -42,7 +41,6 @@
   section_order: 1
   category: "language"
   subcategory: "go"
-  priority: 84
   is_mandatory: false
   shard_types: ["/coder", "/tester", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -97,7 +95,6 @@
   section_order: 2
   category: "language"
   subcategory: "go"
-  priority: 84
   is_mandatory: false
   shard_types: ["/coder", "/tester", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -121,7 +118,6 @@
 - id: "language/go/testing/table_driven"
   category: "language"
   subcategory: "go"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
@@ -181,7 +177,6 @@
   section_order: 1
   category: "language"
   subcategory: "go"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
@@ -224,7 +219,6 @@
   section_order: 2
   category: "language"
   subcategory: "go"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
@@ -283,7 +277,6 @@
 - id: "language/go/testing/testify"
   category: "language"
   subcategory: "go"
-  priority: 82
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
@@ -345,7 +338,6 @@
   section_order: 1
   category: "language"
   subcategory: "go"
-  priority: 82
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
@@ -374,7 +366,6 @@
   section_order: 2
   category: "language"
   subcategory: "go"
-  priority: 82
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
@@ -425,7 +416,6 @@
   section_order: 3
   category: "language"
   subcategory: "go"
-  priority: 82
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
@@ -470,7 +460,6 @@
 - id: "language/go/testing/httptest"
   category: "language"
   subcategory: "go"
-  priority: 81
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
@@ -533,7 +522,6 @@
   section_order: 1
   category: "language"
   subcategory: "go"
-  priority: 81
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
@@ -580,7 +568,6 @@
   section_order: 2
   category: "language"
   subcategory: "go"
-  priority: 81
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
@@ -628,7 +615,6 @@
 - id: "language/go/testing/benchmarks"
   category: "language"
   subcategory: "go"
-  priority: 80
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
@@ -705,7 +691,6 @@
   section_order: 1
   category: "language"
   subcategory: "go"
-  priority: 80
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
@@ -759,7 +744,6 @@
   section_order: 2
   category: "language"
   subcategory: "go"
-  priority: 80
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
@@ -781,7 +765,6 @@
 - id: "language/go/testing/mocking"
   category: "language"
   subcategory: "go"
-  priority: 83
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
@@ -855,7 +838,6 @@
   section_order: 1
   category: "language"
   subcategory: "go"
-  priority: 83
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
@@ -897,7 +879,6 @@
   section_order: 2
   category: "language"
   subcategory: "go"
-  priority: 83
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]

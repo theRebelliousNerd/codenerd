@@ -4,7 +4,6 @@
 - id: "exemplar/refactor/extract_method"
   category: "exemplar"
   subcategory: "refactor"
-  priority: 90
   is_mandatory: false
   intent_verbs: ["/refactor"]
   content: |
@@ -51,7 +50,6 @@
   section_order: 1
   category: "exemplar"
   subcategory: "refactor"
-  priority: 90
   is_mandatory: false
   intent_verbs: ["/refactor"]
   content: |
@@ -97,7 +95,6 @@
 - id: "exemplar/refactor/simplify_conditional"
   category: "exemplar"
   subcategory: "refactor"
-  priority: 85
   is_mandatory: false
   intent_verbs: ["/refactor"]
   content: |
@@ -176,7 +173,6 @@
 - id: "exemplar/refactor/replace_type_code"
   category: "exemplar"
   subcategory: "refactor"
-  priority: 80
   is_mandatory: false
   intent_verbs: ["/refactor"]
   content: |

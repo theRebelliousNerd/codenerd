@@ -4,7 +4,6 @@
 - id: "capability/impact_reporting"
   category: "capability"
   subcategory: "impact_analysis"
-  priority: 80
   is_mandatory: false
   shard_types: ["coder"]
   content: |

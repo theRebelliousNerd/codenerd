@@ -4,7 +4,6 @@
 - id: "language/python/typing"
   category: "language"
   subcategory: "python"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   languages: ["/python"]
@@ -38,7 +37,6 @@
 - id: "language/python/async"
   category: "language"
   subcategory: "python"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   languages: ["/python"]
@@ -82,7 +80,6 @@
 - id: "language/python/patterns"
   category: "language"
   subcategory: "python"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   languages: ["/python"]
@@ -133,7 +130,6 @@
 - id: "language/python/testing"
   category: "language"
   subcategory: "python"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/python"]

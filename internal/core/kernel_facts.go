@@ -91,13 +91,13 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 	jitCounts := make(map[string]int)
 	for _, f := range sanitizedFacts {
 		switch f.Predicate {
-		case "is_mandatory", "atom_tag", "atom_priority", "current_context", "atom":
+		case "is_mandatory", "atom_tag", "atom_importance", "current_context", "atom":
 			jitCounts[f.Predicate]++
 		}
 	}
 	if len(jitCounts) > 0 {
-		logging.Kernel("LoadFacts JIT: is_mandatory=%d atom_tag=%d atom_priority=%d current_context=%d atom=%d",
-			jitCounts["is_mandatory"], jitCounts["atom_tag"], jitCounts["atom_priority"],
+		logging.Kernel("LoadFacts JIT: is_mandatory=%d atom_tag=%d atom_importance=%d current_context=%d atom=%d",
+			jitCounts["is_mandatory"], jitCounts["atom_tag"], jitCounts["atom_importance"],
 			jitCounts["current_context"], jitCounts["atom"])
 	}
 
@@ -1194,7 +1194,7 @@ func hasFileExtension(v string) bool {
 // emissions go through types.go and never reach here.
 func sanitizeFactForNumericPredicates(f Fact) Fact {
 	switch f.Predicate {
-	case "agenda_item", "prompt_atom", "atom_priority":
+	case "agenda_item", "prompt_atom", "atom_importance":
 		// Rewrite a private copy: the caller owns f.Args, and the prompt
 		// selector shares one immutable Args slice across concurrent compiles.
 		f.Args = slices.Clone(f.Args)
@@ -1209,18 +1209,13 @@ func sanitizeFactForNumericPredicates(f Fact) Fact {
 			f.Args[2] = scrubPointerLeak(f.Predicate, 2, f.Args[2])
 		}
 	case "prompt_atom":
-		// prompt_atom(AtomID, Category, Priority, TokenCount, IsMandatory)
+		// prompt_atom(AtomID, Category, TokenCount, IsMandatory)
 		if len(f.Args) > 2 {
-			f.Args[2] = coercePriorityAtomToNumber(f.Args[2])
 			f.Args[2] = scrubPointerLeak(f.Predicate, 2, f.Args[2])
 		}
-		if len(f.Args) > 3 {
-			f.Args[3] = scrubPointerLeak(f.Predicate, 3, f.Args[3])
-		}
-	case "atom_priority":
-		// atom_priority(AtomID, Priority)
+	case "atom_importance":
+		// atom_importance(AtomID, Level)
 		if len(f.Args) > 1 {
-			f.Args[1] = coercePriorityAtomToNumber(f.Args[1])
 			f.Args[1] = scrubPointerLeak(f.Predicate, 1, f.Args[1])
 		}
 	}

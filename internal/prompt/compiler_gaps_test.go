@@ -21,7 +21,7 @@ func TestCompiler_EmptyPartialContextFields(t *testing.T) {
 			ID:          "identity",
 			Category:    CategoryIdentity,
 			Content:     "Identity content",
-			Priority:    100,
+			Importance:  100,
 			IsMandatory: true,
 			TokenCount:  10,
 		},
@@ -92,7 +92,7 @@ func TestCompiler_RegisterDB_BadPaths(t *testing.T) {
 	t.Run("embedded atom wins over stale project duplicate", func(t *testing.T) {
 		canonical := NewPromptAtom("identity/canonical", CategoryIdentity, "canonical embedded content")
 		canonical.IsMandatory = true
-		canonical.Priority = 100
+		canonical.Importance = 100
 
 		dupCompiler, err := NewJITPromptCompiler(
 			WithEmbeddedCorpus(NewEmbeddedCorpus([]*PromptAtom{canonical})),
@@ -119,7 +119,7 @@ func TestCompiler_RegisterDB_BadPaths(t *testing.T) {
 				content_min TEXT,
 				category TEXT NOT NULL,
 				subcategory TEXT,
-				priority INTEGER NOT NULL,
+				importance INTEGER,
 				is_mandatory BOOLEAN NOT NULL,
 				is_exclusive TEXT,
 				created_at DATETIME NOT NULL
@@ -135,11 +135,11 @@ func TestCompiler_RegisterDB_BadPaths(t *testing.T) {
 
 		insert := `INSERT INTO prompt_atoms
 			(atom_id, version, content, token_count, content_hash, description,
-			 content_concise, content_min, category, subcategory, priority,
+			 content_concise, content_min, category, subcategory, importance,
 			 is_mandatory, is_exclusive, created_at)
 		VALUES
-			('identity/canonical', 1, 'stale persisted content', 5, 'stale-hash', '', '', '', 'identity', '', 100, 1, '', CURRENT_TIMESTAMP),
-			('project/only', 1, 'project-only content', 5, 'project-hash', '', '', '', 'context', '', 10, 0, '', CURRENT_TIMESTAMP)`
+			('identity/canonical', 1, 'stale persisted content', 5, 'stale-hash', '', '', '', 'identity', '', 5, 1, '', CURRENT_TIMESTAMP),
+			('project/only', 1, 'project-only content', 5, 'project-hash', '', '', '', 'context', '', 3, 0, '', CURRENT_TIMESTAMP)`
 		if _, err := dupCompiler.projectDB.Exec(insert); err != nil {
 			t.Fatalf("insert prompt atoms: %v", err)
 		}
@@ -177,7 +177,7 @@ func TestCompiler_KernelNonStringFacts(t *testing.T) {
 			ID:          "identity",
 			Category:    CategoryIdentity,
 			Content:     "Identity",
-			Priority:    100,
+			Importance:  100,
 			IsMandatory: true,
 			TokenCount:  10,
 		},
@@ -187,11 +187,11 @@ func TestCompiler_KernelNonStringFacts(t *testing.T) {
 	// Return facts with non-string types
 	kernel := &mockKernel{
 		facts: []any{
-			Fact{Predicate: "selected_atom", Args: []any{42, "skeleton", 1.0}},           // int ID
-			Fact{Predicate: "selected_atom", Args: []any{nil, "skeleton", 1.0}},          // nil ID
-			Fact{Predicate: "selected_atom", Args: []any{true, "skeleton", 1.0}},         // bool ID
-			Fact{Predicate: "selected_atom", Args: []any{"identity", "skeleton", "bad"}}, // non-float score
-			Fact{Predicate: "selected_atom", Args: []any{"identity", 42, 1.0}},           // non-string source
+			Fact{Predicate: "selected_result", Args: []any{42, "skeleton"}},              // int ID
+			Fact{Predicate: "selected_result", Args: []any{nil, "skeleton"}},             // nil ID
+			Fact{Predicate: "selected_result", Args: []any{true, "skeleton"}},            // bool ID
+			Fact{Predicate: "selected_result", Args: []any{"identity", "skeleton", "x"}}, // wrong arity
+			Fact{Predicate: "selected_result", Args: []any{"identity", 42}},              // non-string source
 		},
 	}
 
@@ -222,7 +222,7 @@ func TestCompiler_ContextCancellation(t *testing.T) {
 			ID:         fmt.Sprintf("atom_%d", i),
 			Category:   CategoryContext,
 			Content:    strings.Repeat("content ", 50),
-			Priority:   i,
+			Importance: ImportanceLevel(i%5 + 1),
 			TokenCount: 50,
 		}
 	}
@@ -256,7 +256,7 @@ func TestCompiler_MassiveContentString(t *testing.T) {
 			ID:          "big",
 			Category:    CategoryIdentity,
 			Content:     bigContent,
-			Priority:    100,
+			Importance:  100,
 			IsMandatory: true,
 			TokenCount:  100000,
 		},
@@ -290,7 +290,7 @@ func TestCompiler_ConcurrentCompile(t *testing.T) {
 			ID:          "identity",
 			Category:    CategoryIdentity,
 			Content:     "Identity",
-			Priority:    100,
+			Importance:  100,
 			IsMandatory: true,
 			TokenCount:  10,
 		},
@@ -327,7 +327,7 @@ func TestCompiler_ConcurrentRegisterDB(t *testing.T) {
 			ID:          "identity",
 			Category:    CategoryIdentity,
 			Content:     "Identity",
-			Priority:    100,
+			Importance:  100,
 			IsMandatory: true,
 			TokenCount:  10,
 		},
@@ -399,21 +399,21 @@ func TestCompiler_MangleInjectionViaAtomID(t *testing.T) {
 			ID:         "normal-atom",
 			Category:   CategoryIdentity,
 			Content:    "Normal content",
-			Priority:   100,
+			Importance: 100,
 			TokenCount: 10,
 		},
 		{
 			ID:         "atom'with\"quotes",
 			Category:   CategoryContext,
 			Content:    "Dangerous ID",
-			Priority:   50,
+			Importance: 50,
 			TokenCount: 10,
 		},
 		{
 			ID:         "atom\nwith\nnewlines",
 			Category:   CategoryContext,
 			Content:    "Newline ID",
-			Priority:   50,
+			Importance: 50,
 			TokenCount: 10,
 		},
 	}
@@ -446,7 +446,7 @@ func TestCompiler_AtomSyntaxViolationsInContext(t *testing.T) {
 			ID:          "identity",
 			Category:    CategoryIdentity,
 			Content:     "Identity",
-			Priority:    100,
+			Importance:  100,
 			IsMandatory: true,
 			TokenCount:  10,
 		},

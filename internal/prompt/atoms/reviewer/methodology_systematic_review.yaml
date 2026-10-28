@@ -4,7 +4,6 @@
 - id: "reviewer/methodology/systematic_review_process"
   category: "methodology"
   subcategory: "code_review"
-  priority: 95
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check", "/analyze", "/inspect"]
@@ -53,7 +52,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "code_review"
-  priority: 95
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check", "/analyze", "/inspect"]
@@ -70,7 +68,6 @@
 - id: "reviewer/methodology/pr_size_guidance"
   category: "methodology"
   subcategory: "code_review"
-  priority: 85
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit"]
@@ -112,7 +109,6 @@
 - id: "reviewer/methodology/review_checklist_core"
   category: "methodology"
   subcategory: "code_review"
-  priority: 90
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -159,7 +155,6 @@
 - id: "reviewer/methodology/architecture_assessment"
   category: "methodology"
   subcategory: "code_review"
-  priority: 80
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/analyze"]

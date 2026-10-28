@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 15: Lowercase Variable Names"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -48,7 +47,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 15: Lowercase Variable Names: Failure Mode 15: Lowercase Variable Names Correct Code"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -90,7 +88,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 15: Lowercase Variable Names: What Happens"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -136,7 +133,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 15: Lowercase Variable Names: Correct Examples by Use Case"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -189,7 +185,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 15: Lowercase Variable Names: Complex Example: Pattern Matching Importance"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -226,7 +221,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 15: Lowercase Variable Names: Failure Mode 15: Lowercase Variable Names Quick Check"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

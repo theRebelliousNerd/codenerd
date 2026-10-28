@@ -4,7 +4,6 @@
 - id: "language/python/fundamentals"
   category: "language"
   subcategory: "python"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   languages: ["/python"]
@@ -38,7 +37,6 @@
 - id: "language/python/idioms"
   category: "language"
   subcategory: "python"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   languages: ["/python"]
@@ -73,7 +71,6 @@
 - id: "language/python/packaging"
   category: "language"
   subcategory: "python"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   languages: ["/python"]

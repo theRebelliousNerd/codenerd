@@ -57,7 +57,6 @@ type AtomDefinition struct {
 	ContentMin     string `yaml:"content_min,omitempty"`
 
 	// Composition
-	Priority      int      `yaml:"priority"`
 	IsMandatory   bool     `yaml:"is_mandatory"`
 	IsExclusive   string   `yaml:"is_exclusive,omitempty"`
 	DependsOn     []string `yaml:"depends_on,omitempty"`
@@ -97,6 +96,10 @@ func main() {
 	outputDB := flag.String("output", "internal/core/defaults/prompt_corpus.db", "Output SQLite database")
 	skipEmbeddings := flag.Bool("skip-embeddings", false, "Skip embedding generation (faster for testing)")
 	reconcileEmbedded := flag.Bool("reconcile-embedded", false, "Reconcile an existing corpus with compiled canonical atoms without generating embeddings")
+	scoreImportance := flag.Bool("score-importance", false, "Ask Jev the importance Score for every embedded atom the ledger does not cover, and write the ledger")
+	importanceLedger := flag.String("importance-ledger", "internal/prompt/atom_importance.json", "Importance ledger to update with -score-importance")
+	configPath := flag.String("config", ".nerd/config.json", "codeNERD config holding the typesafe section (-score-importance)")
+	rescoreAll := flag.Bool("rescore-all", false, "With -score-importance, score every atom, not only the uncovered ones")
 	flag.Parse()
 
 	fmt.Println("=================================================")
@@ -106,6 +109,14 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
+
+	if *scoreImportance {
+		if err := runScoreImportance(ctx, *configPath, *importanceLedger, *rescoreAll); err != nil {
+			fmt.Printf("ERROR: importance scoring: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if *reconcileEmbedded {
 		counts, err := reconcileEmbeddedSeed(ctx, *inputDir, *outputDB)
@@ -242,7 +253,7 @@ func reconcilePromptSeed(ctx context.Context, outputPath string, atoms []*prompt
 		return counts, fmt.Errorf("existing database is not a prompt corpus: required tables are missing")
 	}
 	for _, schemaQuery := range []string{
-		"SELECT atom_id, version, content, token_count, content_hash, category, subcategory, priority, is_mandatory, is_exclusive, source_file, embedding, embedding_task FROM prompt_atoms LIMIT 0",
+		"SELECT atom_id, version, content, token_count, content_hash, category, subcategory, is_mandatory, is_exclusive, source_file, embedding, embedding_task FROM prompt_atoms LIMIT 0",
 		"SELECT atom_id, dimension, tag, is_exclusion FROM atom_context_tags LIMIT 0",
 	} {
 		columns, err := database.QueryContext(ctx, schemaQuery)
@@ -459,7 +470,6 @@ func parseYAMLFile(path, baseDir string) ([]ProcessedAtom, error) {
 				ID:               atom.ID,
 				Category:         atom.Category,
 				Subcategory:      atom.Subcategory,
-				Priority:         atom.Priority,
 				IsMandatory:      atom.IsMandatory,
 				IsExclusive:      atom.IsExclusive,
 				DependsOn:        atom.DependsOn,
@@ -581,7 +591,7 @@ func createDatabase(outputPath string) (*sql.DB, error) {
 			subcategory TEXT,
 
 			-- Composition
-			priority INTEGER DEFAULT 50,
+			importance INTEGER, -- Jev level 1..5; NULL is unscored (internal/prompt/importance.go)
 			is_mandatory BOOLEAN DEFAULT FALSE,
 			is_exclusive TEXT,
 			depends_on TEXT,
@@ -621,7 +631,7 @@ func createDatabase(outputPath string) (*sql.DB, error) {
 			embedding float[%d],
 			atom_id TEXT,
 			category TEXT,
-			priority INTEGER
+			importance INTEGER
 		);
 	`, embeddingDimensions)
 
@@ -639,6 +649,10 @@ func createDatabase(outputPath string) (*sql.DB, error) {
 func generateAndStoreAtoms(ctx context.Context, engine embedding.EmbeddingEngine, db *sql.DB, atoms []ProcessedAtom, skipEmbeddings bool) error {
 	total := len(atoms)
 	processed := 0
+	ledger, err := prompt.EmbeddedImportanceLedger()
+	if err != nil {
+		return fmt.Errorf("importance ledger: %w", err)
+	}
 
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -651,7 +665,7 @@ func generateAndStoreAtoms(ctx context.Context, engine embedding.EmbeddingEngine
 			atom_id, version, content, token_count, content_hash,
 			description, content_concise, content_min,
 			category, subcategory,
-			priority, is_mandatory, is_exclusive,
+			importance, is_mandatory, is_exclusive,
 			embedding, embedding_task, source_file
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
@@ -669,7 +683,7 @@ func generateAndStoreAtoms(ctx context.Context, engine embedding.EmbeddingEngine
 
 	var vecStmt *sql.Stmt
 	if vecAvailable && !skipEmbeddings {
-		vecStmt, err = tx.Prepare(`INSERT INTO vec_prompt_atoms (embedding, atom_id, category, priority) VALUES (?, ?, ?, ?)`)
+		vecStmt, err = tx.Prepare(`INSERT INTO vec_prompt_atoms (embedding, atom_id, category, importance) VALUES (?, ?, ?, ?)`)
 		if err != nil {
 			fmt.Printf("  WARNING: Failed to prepare vec statement: %v\n", err)
 			vecAvailable = false
@@ -745,7 +759,7 @@ func generateAndStoreAtoms(ctx context.Context, engine embedding.EmbeddingEngine
 				nullableString(atom.ContentMin),
 				atom.Category,
 				nullableString(atom.Subcategory),
-				atom.Priority,
+				importanceOf(ledger, atom),
 				atom.IsMandatory,
 				nullableString(atom.IsExclusive),
 				embeddingBlob,
@@ -786,7 +800,7 @@ func generateAndStoreAtoms(ctx context.Context, engine embedding.EmbeddingEngine
 
 			// Also insert into vec_prompt_atoms if available
 			if vecAvailable && vecStmt != nil && embeddingBlob != nil {
-				if _, err := vecStmt.Exec(embeddingBlob, atom.ID, atom.Category, atom.Priority); err != nil {
+				if _, err := vecStmt.Exec(embeddingBlob, atom.ID, atom.Category, importanceOf(ledger, atom)); err != nil {
 					fmt.Printf("  WARNING: Failed to insert into vec_prompt_atoms: %v\n", err)
 				}
 			}

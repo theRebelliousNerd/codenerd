@@ -4,7 +4,6 @@
 - id: "methodology/debugging/scientific_method"
   category: "methodology"
   subcategory: "debugging"
-  priority: 100
   is_mandatory: true
   shard_types: ["/coder", "/tester"]
   intent_verbs: ["/fix", "/debug", "/investigate"]
@@ -52,7 +51,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "debugging"
-  priority: 100
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   intent_verbs: ["/fix", "/debug", "/investigate"]
@@ -85,7 +83,6 @@
 - id: "methodology/debugging/binary_search"
   category: "methodology"
   subcategory: "debugging"
-  priority: 95
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   intent_verbs: ["/fix", "/debug", "/investigate"]
@@ -148,7 +145,6 @@
 - id: "methodology/debugging/print_debugging"
   category: "methodology"
   subcategory: "debugging"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   intent_verbs: ["/fix", "/debug", "/investigate"]
@@ -225,7 +221,6 @@
 - id: "methodology/debugging/debugger_mastery"
   category: "methodology"
   subcategory: "debugging"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   intent_verbs: ["/fix", "/debug", "/investigate"]
@@ -288,7 +283,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "debugging"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   intent_verbs: ["/fix", "/debug", "/investigate"]
@@ -323,7 +317,6 @@
 - id: "methodology/debugging/concurrent_debugging"
   category: "methodology"
   subcategory: "debugging"
-  priority: 92
   is_mandatory: true
   shard_types: ["/coder", "/tester"]
   intent_verbs: ["/fix", "/debug", "/investigate"]
@@ -383,7 +376,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "debugging"
-  priority: 92
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   intent_verbs: ["/fix", "/debug", "/investigate"]
@@ -444,7 +436,6 @@
 - id: "methodology/debugging/performance_debugging"
   category: "methodology"
   subcategory: "debugging"
-  priority: 87
   is_mandatory: false
   shard_types: ["/coder", "/tester", "/reviewer"]
   intent_verbs: ["/fix", "/debug", "/investigate", "/optimize"]
@@ -509,7 +500,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "debugging"
-  priority: 87
   is_mandatory: false
   shard_types: ["/coder", "/tester", "/reviewer"]
   intent_verbs: ["/fix", "/debug", "/investigate", "/optimize"]
@@ -561,7 +551,6 @@
 - id: "methodology/debugging/error_messages"
   category: "methodology"
   subcategory: "debugging"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   intent_verbs: ["/fix", "/debug", "/investigate"]
@@ -596,7 +585,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "debugging"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   intent_verbs: ["/fix", "/debug", "/investigate"]
@@ -655,7 +643,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "debugging"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   intent_verbs: ["/fix", "/debug", "/investigate"]
@@ -675,7 +662,6 @@
 - id: "methodology/debugging/ai_code_debugging"
   category: "methodology"
   subcategory: "debugging"
-  priority: 93
   is_mandatory: true
   shard_types: ["/coder", "/tester", "/reviewer"]
   intent_verbs: ["/fix", "/debug", "/investigate", "/review"]
@@ -737,7 +723,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "debugging"
-  priority: 93
   is_mandatory: false
   shard_types: ["/coder", "/tester", "/reviewer"]
   intent_verbs: ["/fix", "/debug", "/investigate", "/review"]
@@ -778,7 +763,6 @@
 - id: "methodology/debugging/rubber_duck"
   category: "methodology"
   subcategory: "debugging"
-  priority: 82
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   intent_verbs: ["/fix", "/debug", "/investigate"]
@@ -835,7 +819,6 @@
 - id: "methodology/debugging/minimization"
   category: "methodology"
   subcategory: "debugging"
-  priority: 86
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   intent_verbs: ["/fix", "/debug", "/investigate"]
@@ -919,7 +902,6 @@
 - id: "methodology/debugging/production_debugging"
   category: "methodology"
   subcategory: "debugging"
-  priority: 84
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   intent_verbs: ["/fix", "/debug", "/investigate"]
@@ -1005,7 +987,6 @@
 - id: "methodology/debugging/toolbox"
   category: "methodology"
   subcategory: "debugging"
-  priority: 80
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   intent_verbs: ["/fix", "/debug", "/investigate"]
@@ -1052,7 +1033,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "debugging"
-  priority: 80
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   intent_verbs: ["/fix", "/debug", "/investigate"]

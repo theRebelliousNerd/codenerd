@@ -4,7 +4,6 @@
 - id: "world_state/new_files/core"
   category: "world_state"
   subcategory: "new_files"
-  priority: 90
   is_mandatory: true
   world_states: ["new_files"]
   content: |
@@ -30,7 +29,6 @@
 - id: "world_state/new_files/integration"
   category: "world_state"
   subcategory: "new_files"
-  priority: 85
   is_mandatory: false
   world_states: ["new_files"]
   depends_on: ["world_state/new_files/core"]
@@ -72,7 +70,6 @@
 - id: "world_state/new_files/gitignore"
   category: "world_state"
   subcategory: "new_files"
-  priority: 80
   is_mandatory: false
   world_states: ["new_files"]
   content: |

@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Parse Errors Reference"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -51,7 +50,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Parse Errors Reference: 2. Not an Atom"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -96,7 +94,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Parse Errors Reference: 3. Parse Error (Generic)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -178,7 +175,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Parse Errors Reference: 4. Token Recognition Error"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -243,7 +239,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Parse Errors Reference: 5. No Viable Alternative"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -312,7 +307,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Parse Errors Reference: 6. Mismatched Input"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -375,7 +369,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Parse Errors Reference: 7. Empty Rule/Clause"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -443,7 +436,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Parse Errors Reference: 9. Invalid Atom/Constant Name"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -507,7 +499,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Parse Errors Reference: Diagnostic Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -553,7 +544,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Parse Errors Reference: Quick Checklist for Parse Errors"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

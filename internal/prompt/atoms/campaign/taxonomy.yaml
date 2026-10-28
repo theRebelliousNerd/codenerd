@@ -4,7 +4,6 @@
 - id: "campaign/taxonomy/identity"
   category: "methodology"
   subcategory: "taxonomy"
-  priority: 70
   is_mandatory: false
   campaign_phases: ["taxonomy", "planning"]
   shard_types: ["/planner", "/librarian"]
@@ -21,7 +20,6 @@
 - id: "campaign/taxonomy/six_phases"
   category: "knowledge"
   subcategory: "build_phases"
-  priority: 75
   is_mandatory: true
   campaign_phases: ["taxonomy", "planning"]
   shard_types: ["/planner", "/librarian"]
@@ -51,7 +49,6 @@
   section_order: 1
   category: "knowledge"
   subcategory: "build_phases"
-  priority: 75
   is_mandatory: false
   campaign_phases: ["taxonomy", "planning"]
   shard_types: ["/planner", "/librarian"]
@@ -77,7 +74,6 @@
 - id: "campaign/taxonomy/dependency_rules"
   category: "methodology"
   subcategory: "dependency_management"
-  priority: 70
   is_mandatory: true
   campaign_phases: ["taxonomy", "planning"]
   shard_types: ["/planner"]
@@ -100,7 +96,6 @@
 - id: "campaign/taxonomy/anti_patterns"
   category: "safety"
   subcategory: "hallucination_prevention"
-  priority: 65
   is_mandatory: true
   campaign_phases: ["taxonomy", "planning"]
   shard_types: ["/planner"]

@@ -1,6 +1,5 @@
 - id: "mangle/synth/output_protocol"
   category: "protocol"
-  priority: 95
   is_mandatory: true
   shard_types: ["/legislator", "/mangle_repair"]
   languages: ["/mangle"]

@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Termination Analysis"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -25,7 +24,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Termination Analysis: 1. Well-Founded Ordering"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -69,7 +67,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Termination Analysis: 2. Structural Recursion on Lists"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -124,7 +121,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Termination Analysis: Non-Terminating Patterns (DANGER)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -207,7 +203,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Termination Analysis: Termination Analysis Techniques"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -244,7 +239,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Termination Analysis: 2. Size-Change Principle"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -284,7 +278,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Termination Analysis: 3. Ranking Functions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -349,7 +342,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Termination Analysis: 2. Depth Tracking"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -409,7 +401,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Termination Analysis: Termination Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -463,7 +454,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Termination Analysis: Recursive Patterns Summary"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -487,7 +477,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Termination Analysis: Advanced: Semi-Decidability"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

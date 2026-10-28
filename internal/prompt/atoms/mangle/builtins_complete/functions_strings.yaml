@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: String Operations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -48,7 +47,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: String Operations: fn:string_replace"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -95,7 +93,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: String Operations: Type Conversion to String"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -169,7 +166,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: String Operations: Name (Atom) Path Operations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -227,7 +223,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: String Operations: String Predicates (Pattern Matching)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -270,7 +265,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: String Operations: Working with Strings"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -315,7 +309,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: String Operations: String Constants"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -353,7 +346,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: String Operations: String Functions Summary"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -378,7 +370,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: String Operations: Mangle Builtin Functions: String Operations Common Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

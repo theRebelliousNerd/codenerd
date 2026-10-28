@@ -4,7 +4,6 @@
 - id: "methodology/tdd/python_workflow"
   category: "methodology"
   subcategory: "tdd"
-  priority: 95
   is_mandatory: false
   languages: ["/python"]
   intent_verbs: ["/test", "/fix", "/implement"]

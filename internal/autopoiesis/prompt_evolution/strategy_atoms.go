@@ -2,7 +2,6 @@ package prompt_evolution
 
 import (
 	"context"
-	"math"
 	"strings"
 
 	"codenerd/internal/logging"
@@ -116,35 +115,8 @@ func strategyAtom(s *Strategy) *prompt.PromptAtom {
 	atom.Subcategory = "learned_strategy"
 	atom.Version = s.Version
 	atom.ShardTypes = []string{s.ShardType}
-	atom.Priority = strategyPriority(s)
 	atom.NormalizeSelectors()
 	return atom
-}
-
-// strategyPriority ranks a strategy against the rest of the methodology
-// corpus, which is hand-written and sits in the 80s.
-//
-// A learned strategy stays below that band by construction: curated
-// methodology should outrank a machine-refined heuristic, and a strategy that
-// could climb past it would let one bad refinement cycle displace the
-// instructions that keep the agent coherent.
-//
-// Within the band, rank tracks the measured success rate — except for a
-// strategy nobody has used yet, which gets the neutral middle rather than the
-// floor. Zero uses is absence of evidence, and starting every seeded strategy
-// at "proven useless" would bury the default playbook under the first
-// mediocre strategy that happened to succeed once.
-func strategyPriority(s *Strategy) int {
-	const (
-		floor   = 55
-		ceiling = 75
-		neutral = 62
-	)
-	if s == nil || s.TotalUses() == 0 {
-		return neutral
-	}
-	rate := math.Max(0, math.Min(1, s.SuccessRate))
-	return floor + int(math.Round(rate*float64(ceiling-floor)))
 }
 
 // SourceGeneration implements prompt.SourceGenerationReporter: it moves on

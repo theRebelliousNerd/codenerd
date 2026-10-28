@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Calling Mangle from Go: Complete Integration Guide"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -62,7 +61,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Calling Mangle from Go: Complete Integration Guide: Step 2: Analyze the Program"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -109,7 +107,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Calling Mangle from Go: Complete Integration Guide: Step 4: Prepare Fact Store"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -162,7 +159,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Calling Mangle from Go: Complete Integration Guide: Step 6: Query Results"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -194,7 +190,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Calling Mangle from Go: Complete Integration Guide: Working with Facts"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -261,7 +256,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Calling Mangle from Go: Complete Integration Guide: Calling Mangle from Go: Complete Integration Guide Complete Example"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -335,7 +329,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Calling Mangle from Go: Complete Integration Guide: Evaluation Options"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -370,7 +363,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Calling Mangle from Go: Complete Integration Guide: Calling Mangle from Go: Complete Integration Guide Error Handling"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -426,7 +418,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Calling Mangle from Go: Complete Integration Guide: Querying Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -488,7 +479,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Calling Mangle from Go: Complete Integration Guide: Calling Mangle from Go: Complete Integration Guide Performance Tips"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -544,7 +534,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Calling Mangle from Go: Complete Integration Guide: Type Checking Integration"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

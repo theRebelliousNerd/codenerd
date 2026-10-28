@@ -4,7 +4,6 @@
 - id: "framework/glamour/core"
   category: "framework"
   subcategory: "glamour"
-  priority: 62
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   frameworks: ["/glamour"]

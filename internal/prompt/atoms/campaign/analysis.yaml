@@ -4,7 +4,6 @@
 - id: "campaign/analysis/identity"
   category: "methodology"
   subcategory: "analysis"
-  priority: 70
   is_mandatory: false
   campaign_phases: ["execution", "analysis"]
   shard_types: ["/analyzer"]
@@ -23,7 +22,6 @@
 - id: "campaign/analysis/shard_ecosystem"
   category: "knowledge"
   subcategory: "shard_types"
-  priority: 75
   is_mandatory: true
   campaign_phases: ["analysis"]
   shard_types: ["/analyzer"]
@@ -43,7 +41,6 @@
 - id: "campaign/analysis/protocol"
   category: "methodology"
   subcategory: "analysis_framework"
-  priority: 75
   is_mandatory: true
   campaign_phases: ["analysis"]
   shard_types: ["/analyzer"]
@@ -81,7 +78,6 @@
 - id: "campaign/analysis/tone_matrices"
   category: "methodology"
   subcategory: "communication_style"
-  priority: 65
   is_mandatory: true
   campaign_phases: ["analysis"]
   shard_types: ["/analyzer"]
@@ -96,7 +92,6 @@
 - id: "campaign/analysis/anti_patterns"
   category: "safety"
   subcategory: "hallucination_prevention"
-  priority: 65
   is_mandatory: true
   campaign_phases: ["analysis"]
   shard_types: ["/analyzer"]

@@ -4,7 +4,6 @@
 - id: "knowledge/memory_tiers/overview"
   category: "knowledge"
   subcategory: "memory"
-  priority: 90
   is_mandatory: false
   content: |
     ## MEMORY TIERS OVERVIEW (Encyclopedic)
@@ -40,7 +39,6 @@
 - id: "knowledge/hybrid_retrieval/patterns"
   category: "knowledge"
   subcategory: "retrieval"
-  priority: 84
   is_mandatory: false
   content: |
     ## HYBRID RETRIEVAL PATTERNS (Encyclopedic)

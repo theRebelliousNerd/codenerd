@@ -4,7 +4,6 @@
 - id: "intent/create/core"
   category: "intent"
   subcategory: "create"
-  priority: 95
   is_mandatory: true
   intent_verbs: ["/create"]
   content: |
@@ -32,7 +31,6 @@
 - id: "intent/create/scaffolding"
   category: "intent"
   subcategory: "create"
-  priority: 90
   is_mandatory: false
   intent_verbs: ["/create"]
   depends_on: ["intent/create/core"]
@@ -98,7 +96,6 @@
 - id: "intent/create/conventions"
   category: "intent"
   subcategory: "create"
-  priority: 85
   is_mandatory: false
   intent_verbs: ["/create"]
   content: |

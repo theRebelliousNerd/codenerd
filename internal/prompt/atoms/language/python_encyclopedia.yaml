@@ -3,7 +3,6 @@
 - id: "language/python/encyclopedia"
   category: "language"
   subcategory: "python"
-  priority: 65
   is_mandatory: false
   shard_types: ["/coder", "/researcher"]
   languages: ["/python"]

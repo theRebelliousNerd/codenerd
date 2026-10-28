@@ -4,7 +4,6 @@
 - id: "intent/refactor/core"
   category: "intent"
   subcategory: "refactor"
-  priority: 95
   is_mandatory: true
   intent_verbs: ["/refactor"]
   content: |
@@ -45,7 +44,6 @@
   section_order: 1
   category: "intent"
   subcategory: "refactor"
-  priority: 95
   is_mandatory: false
   intent_verbs: ["/refactor"]
   content: |
@@ -62,7 +60,6 @@
 - id: "intent/refactor/patterns"
   category: "intent"
   subcategory: "refactor"
-  priority: 90
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["intent/refactor/core"]
@@ -122,7 +119,6 @@
 - id: "intent/refactor/smells"
   category: "intent"
   subcategory: "refactor"
-  priority: 85
   is_mandatory: false
   intent_verbs: ["/refactor"]
   content: |

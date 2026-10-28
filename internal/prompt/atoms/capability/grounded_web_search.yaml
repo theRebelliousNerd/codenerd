@@ -2,7 +2,6 @@
 - id: "capability/grounded_web_search"
   category: "capability"
   subcategory: "grounded_search"
-  priority: 87
   is_mandatory: false
   intent_verbs: ["/research", "/explore", "/verify", "/validate"]
   shard_types: ["/researcher", "/tester"]

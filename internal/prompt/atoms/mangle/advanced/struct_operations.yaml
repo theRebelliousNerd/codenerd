@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct Operations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -36,7 +35,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct Operations: Accessing Struct Fields"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -102,7 +100,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct Operations: Struct Construction"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -145,7 +142,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct Operations: Struct Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -210,7 +206,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct Operations: Struct with Lists"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -254,7 +249,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct Operations: Struct with Nested Lists"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -297,7 +291,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct Operations: Map-Like Operations (Struct as Dictionary)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -352,7 +345,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct Operations: Struct Validation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -419,7 +411,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct Operations: Struct Update (Immutable)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -450,7 +441,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct Operations: Struct vs. Multiple Facts"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -506,7 +496,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct Operations: Advanced: Struct in Aggregation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -560,7 +549,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct Operations: Mangle Struct Operations Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

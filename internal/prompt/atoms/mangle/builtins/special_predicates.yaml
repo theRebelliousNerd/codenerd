@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -69,7 +68,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: List Membership Predicate"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -96,7 +94,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: :list:member"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -149,7 +146,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: :list:member cont"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -208,7 +204,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: Distance Predicate"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -237,7 +232,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: :within_distance cont"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -288,7 +282,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: :within_distance cont"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -315,7 +308,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: Pattern Matching Predicates (Summary)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -352,7 +344,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: Complete Examples"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -407,7 +398,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: Complete Examples Example 3: List Expansion and Filtering"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -459,7 +449,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: Mangle Special Predicates Common Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -534,7 +523,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: Mangle Special Predicates Performance Notes"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -578,7 +566,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: Error Conditions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -607,7 +594,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: Summary Table"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -637,7 +623,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: Mangle Special Predicates Best Practices"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

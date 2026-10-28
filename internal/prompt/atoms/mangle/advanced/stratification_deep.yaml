@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -38,7 +37,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory: Stratification Definition"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -62,7 +60,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory: Stratification Algorithm"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -123,7 +120,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory: Examples: Stratified Programs"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -205,7 +201,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory: Examples: Non-Stratified Programs (INVALID)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -263,7 +258,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory: Fixing Non-Stratified Programs"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -299,7 +293,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory: Strategy 2: Break Cycle with Explicit Stratum"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -358,7 +351,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory: Detecting Stratification Violations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -412,7 +404,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory: Stratification and Aggregation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -462,7 +453,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory: Stratification Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -488,7 +478,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory: Mangle Stratification: Complete Theory Example: Full Stratification Analysis"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -555,7 +544,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory: Mangle Stratification: Complete Theory Summary"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -57,7 +56,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates: fn:cons"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -104,7 +102,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates: fn:append"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -147,7 +144,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates: List Deconstruction Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -187,7 +183,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates: :match_cons"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -249,7 +244,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates: List Query Functions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -295,7 +289,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates: fn:list:get"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -347,7 +340,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates: fn:list:contains"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -392,7 +384,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates: List Membership Predicate"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -447,7 +438,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates: List Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -518,7 +508,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates: Comparison: Function vs Predicate"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -555,7 +544,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates: Type Safety"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

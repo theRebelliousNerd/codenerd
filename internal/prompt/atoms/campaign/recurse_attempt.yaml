@@ -10,7 +10,6 @@
 - id: "campaign/recurse/fix"
   category: "methodology"
   subcategory: "recurse_fix"
-  priority: 82
   is_mandatory: true
   campaign_phases: ["/recurse_fix"]
   shard_types: ["/coder"]
@@ -25,7 +24,6 @@
 - id: "campaign/recurse/improve"
   category: "methodology"
   subcategory: "recurse_improve"
-  priority: 82
   is_mandatory: true
   campaign_phases: ["/recurse_improve"]
   shard_types: ["/coder"]

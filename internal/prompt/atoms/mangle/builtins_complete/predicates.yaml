@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -47,7 +46,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference: Inequality: !="
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -96,7 +94,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference: Less Than: <"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -140,7 +137,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference: Less Than or Equal: <="
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -178,7 +174,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference: Pattern Matching Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -221,7 +216,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference: Match Cons: :match_cons"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -267,7 +261,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference: Match Nil: :match_nil"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -311,7 +304,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference: Match Entry: :match_entry"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -359,7 +351,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference: Match Field: :match_field"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -410,7 +401,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference: String Pattern Matching"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -479,7 +469,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference: Built-in Type Checks"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -513,7 +502,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference: Summary Table"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

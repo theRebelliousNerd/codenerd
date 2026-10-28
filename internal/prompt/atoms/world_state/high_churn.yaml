@@ -4,7 +4,6 @@
 - id: "world_state/high_churn/core"
   category: "world_state"
   subcategory: "high_churn"
-  priority: 90
   is_mandatory: true
   world_states: ["high_churn"]
   content: |
@@ -36,7 +35,6 @@
 - id: "world_state/high_churn/analysis"
   category: "world_state"
   subcategory: "high_churn"
-  priority: 85
   is_mandatory: false
   world_states: ["high_churn"]
   depends_on: ["world_state/high_churn/core"]
@@ -73,7 +71,6 @@
 - id: "world_state/high_churn/stabilization"
   category: "world_state"
   subcategory: "high_churn"
-  priority: 80
   is_mandatory: false
   world_states: ["high_churn"]
   content: |

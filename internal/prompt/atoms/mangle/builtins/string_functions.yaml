@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle String Functions and Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -60,7 +59,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle String Functions and Predicates: :string:ends_with"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -103,7 +101,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle String Functions and Predicates: :string:contains"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -152,7 +149,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle String Functions and Predicates: String Functions (Constructive)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -185,7 +181,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle String Functions and Predicates: fn:string_concat (or fn:string:concatenate) cont"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -230,7 +225,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle String Functions and Predicates: fn:string:replace"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -293,7 +287,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle String Functions and Predicates: Name Prefix Matching (Special Case)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -338,7 +331,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle String Functions and Predicates: String Type Conversion"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -397,7 +389,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle String Functions and Predicates: Comparison Table"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -420,7 +411,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle String Functions and Predicates: Type Safety"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -462,7 +452,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle String Functions and Predicates: Mangle String Functions and Predicates Performance Notes"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

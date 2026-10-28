@@ -1,7 +1,6 @@
 - id: "campaign/planner/decomposition"
   category: "campaign"
   subcategory: "planner"
-  priority: 90
   is_mandatory: true
   shard_types: ["planner"]
   campaign_phases: ["planning", "decomposition"]
@@ -42,7 +41,6 @@
   section_order: 1
   category: "campaign"
   subcategory: "planner"
-  priority: 90
   is_mandatory: false
   shard_types: ["planner"]
   campaign_phases: ["planning", "decomposition"]
@@ -63,7 +61,6 @@
   section_order: 2
   category: "campaign"
   subcategory: "planner"
-  priority: 90
   is_mandatory: false
   shard_types: ["planner"]
   campaign_phases: ["planning", "decomposition"]
@@ -90,7 +87,6 @@
   section_order: 3
   category: "campaign"
   subcategory: "planner"
-  priority: 90
   is_mandatory: false
   shard_types: ["planner"]
   campaign_phases: ["planning", "decomposition"]

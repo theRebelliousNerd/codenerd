@@ -4,7 +4,6 @@
 - id: "language/javascript/core"
   category: "language"
   subcategory: "javascript"
-  priority: 90
   is_mandatory: false
   languages: ["/javascript"]
   content: |
@@ -67,7 +66,6 @@
 - id: "language/javascript/async"
   category: "language"
   subcategory: "javascript"
-  priority: 85
   is_mandatory: false
   languages: ["/javascript"]
   content: |
@@ -142,7 +140,6 @@
 - id: "language/javascript/node"
   category: "language"
   subcategory: "javascript"
-  priority: 80
   is_mandatory: false
   languages: ["/javascript"]
   content: |

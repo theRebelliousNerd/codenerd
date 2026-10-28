@@ -5,7 +5,6 @@
 - id: "campaign/taxonomist/identity"
   category: "identity"
   subcategory: "taxonomist"
-  priority: 95
   is_mandatory: true
   shard_types: ["taxonomist", "planner"]
   campaign_phases: ["taxonomy", "planning"]
@@ -28,7 +27,6 @@
 - id: "campaign/taxonomist/six_phases"
   category: "methodology"
   subcategory: "build_phases"
-  priority: 95
   is_mandatory: true
   shard_types: ["taxonomist", "planner"]
   campaign_phases: ["taxonomy", "planning"]
@@ -60,7 +58,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "build_phases"
-  priority: 95
   is_mandatory: false
   shard_types: ["taxonomist", "planner"]
   campaign_phases: ["taxonomy", "planning"]
@@ -98,7 +95,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "build_phases"
-  priority: 95
   is_mandatory: false
   shard_types: ["taxonomist", "planner"]
   campaign_phases: ["taxonomy", "planning"]
@@ -118,7 +114,6 @@
 - id: "campaign/taxonomist/dependency_rules"
   category: "methodology"
   subcategory: "dependency_management"
-  priority: 90
   is_mandatory: true
   shard_types: ["taxonomist", "planner"]
   campaign_phases: ["taxonomy", "planning"]
@@ -155,7 +150,6 @@
 - id: "campaign/taxonomist/usage_in_planning"
   category: "methodology"
   subcategory: "classification"
-  priority: 85
   is_mandatory: true
   shard_types: ["taxonomist", "planner"]
   campaign_phases: ["taxonomy", "planning"]
@@ -190,7 +184,6 @@
 - id: "campaign/taxonomist/hallucinations"
   category: "safety"
   subcategory: "hallucination_prevention"
-  priority: 88
   is_mandatory: true
   shard_types: ["taxonomist", "planner"]
   campaign_phases: ["taxonomy", "planning"]
@@ -231,7 +224,6 @@
 - id: "campaign/taxonomist/execution_strategy"
   category: "methodology"
   subcategory: "execution"
-  priority: 75
   is_mandatory: true
   shard_types: ["taxonomist", "planner"]
   campaign_phases: ["taxonomy", "planning"]

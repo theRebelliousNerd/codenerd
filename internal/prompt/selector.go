@@ -442,8 +442,8 @@ func selectMangleMandatoryIDs(cc *CompilationContext, atoms []*PromptAtom) map[s
 
 	tokenCap, atomCap := mangleMandatoryLimits(cc)
 	sort.SliceStable(candidates, func(i, j int) bool {
-		if candidates[i].Priority != candidates[j].Priority {
-			return candidates[i].Priority > candidates[j].Priority
+		if candidates[i].Importance != candidates[j].Importance {
+			return candidates[i].Importance > candidates[j].Importance
 		}
 		tokensI := estimateAtomTokens(candidates[i])
 		tokensJ := estimateAtomTokens(candidates[j])
@@ -576,6 +576,11 @@ type AtomSelector struct {
 
 	// candidateFacts caches each atom's static selector facts.
 	candidateFacts candidateFactCache
+
+	// relevance is the per-turn Jev judgment of flesh atoms (relevance.go),
+	// guarded by vectorConfigMu; relevanceCache keeps one turn's answers.
+	relevance      AtomRelevance
+	relevanceCache relevanceCache
 }
 
 // NewAtomSelector creates a new atom selector with default settings.
@@ -753,6 +758,7 @@ func (s *AtomSelector) runSelection(
 	var skeletonAtoms, fleshAtoms []*PromptAtom
 	var skeletonFacts, fleshFacts []any
 	var vectorScores map[string]float64
+	var relevancePercent map[string]int64
 	var skeletonBuildErr, fleshBuildErr error
 	var vectorMs int64
 	var wg sync.WaitGroup
@@ -801,9 +807,29 @@ func (s *AtomSelector) runSelection(
 		} else {
 			rawScores = vectorSearch()
 		}
-		vectorScores = s.topKEligibleVectorScores(rawScores, fleshAtoms, cc, cc.SemanticTopK)
+		slots := s.topKEligibleVectorScores(rawScores, fleshAtoms, cc, cc.SemanticTopK)
+		vectorScores = slots
+		// Per-turn relevance (relevance.go): Jev judges a recall pool wider
+		// than the vector slots. Only a complete judgment widens vector_hit
+		// to the pool and asserts atom_relevance; anything else leaves the
+		// compile exactly the vector channel's.
+		var relFacts []any
+		if rel := s.relevanceSnapshot(); rel.Judge != nil && rel.Pool > 0 && cc.SemanticQuery != "" {
+			if pool := s.recallPool(rawScores, slots, fleshAtoms, cc, rel.Pool); len(pool) > 0 {
+				out := s.judgeRelevance(ctx, rel, cc, pool, fleshAtoms)
+				logRelevance(cc, rel, out, pool, slots)
+				if out.Err == nil {
+					vectorScores = pool
+					relevancePercent = out.Percent
+					relFacts = relevanceFacts(out, rel)
+				}
+			}
+		}
 		var err error
-		fleshFacts, err = s.buildFleshFacts(cc, fleshAtoms, forcedMandatory, vectorScores)
+		fleshFacts, err = s.buildFleshFacts(cc, fleshAtoms, forcedMandatory, vectorScores, slots)
+		if err == nil {
+			fleshFacts = append(fleshFacts, relFacts...)
+		}
 		if err != nil {
 			// Flesh fact failure degrades to no flesh facts; the query
 			// phase falls back to keyword matching below.
@@ -877,7 +903,7 @@ func (s *AtomSelector) runSelection(
 	go func() {
 		defer wg.Done()
 		defer recoverSelectionPanic("flesh query", &fleshErr)
-		flesh = s.queryFleshAtoms(kernel, fleshAtoms, fleshReady, forcedMandatory, vectorScores, cc)
+		flesh = s.queryFleshAtoms(kernel, fleshAtoms, fleshReady, forcedMandatory, vectorScores, relevancePercent, cc)
 	}()
 
 	wg.Wait()
@@ -1001,7 +1027,7 @@ func (s *AtomSelector) querySkeletonAtoms(
 	// - is_mandatory flag
 	// - Context matching (mode, phase, shard, etc.)
 	// - Category being skeleton category
-	results, err := kernel.Query("selected_result(Atom, Priority, Source)")
+	results, err := kernel.Query("selected_result(Atom, Source)")
 	if err != nil {
 		return nil, fmt.Errorf("CRITICAL: skeleton query failed: %w", err)
 	}
@@ -1014,12 +1040,12 @@ func (s *AtomSelector) querySkeletonAtoms(
 
 	var selected []*ScoredAtom
 	for _, fact := range results {
-		if len(fact.Args) != 3 {
+		if len(fact.Args) != 2 {
 			continue
 		}
 
 		atomID, err1 := extractStringArg(fact.Args[0])
-		source, err2 := extractStringArg(fact.Args[2])
+		source, err2 := extractStringArg(fact.Args[1])
 		if err1 != nil || err2 != nil {
 			logging.Get(logging.CategoryContext).Warn("querySkeletonAtoms: Skipping invalid fact args: %v, %v", err1, err2)
 			continue
@@ -1124,12 +1150,15 @@ func filterFleshAtoms(atoms []*PromptAtom, cc *CompilationContext) []*PromptAtom
 }
 
 // buildFleshFacts builds the context facts for the flesh atoms plus the
-// vector-hit and retrieved-context witness facts.
+// vector-hit, vector-slot and retrieved-context witness facts. vectorScores is
+// the recall pool (vector_hit); slots are the hits the vector channel alone
+// keeps (vector_slot), a subset of the pool.
 func (s *AtomSelector) buildFleshFacts(
 	cc *CompilationContext,
 	fleshAtoms []*PromptAtom,
 	forcedMandatory map[string]struct{},
 	vectorScores map[string]float64,
+	slots map[string]float64,
 ) ([]any, error) {
 	facts, err := s.buildContextFacts(cc, fleshAtoms, forcedMandatory)
 	if err != nil {
@@ -1159,6 +1188,9 @@ func (s *AtomSelector) buildFleshFacts(
 	for id, score := range vectorScores {
 		facts = append(facts, "vector_hit("+mangleQuoteString(id)+", "+strconv.FormatInt(vectorScoreToPercent(score), 10)+")")
 	}
+	for id := range slots {
+		facts = append(facts, "vector_slot("+mangleQuoteString(id)+")")
+	}
 	// Runtime retrieval has already matched these ephemeral records to the
 	// task. They cannot appear in the persistent prompt-vector index. Emit a
 	// distinct witness so Mangle still applies context, conflict and dependency
@@ -1181,6 +1213,7 @@ func (s *AtomSelector) queryFleshAtoms(
 	ready bool,
 	forcedMandatory map[string]struct{},
 	vectorScores map[string]float64,
+	relevancePercent map[string]int64,
 	cc *CompilationContext,
 ) []*ScoredAtom {
 	if !ready {
@@ -1190,7 +1223,7 @@ func (s *AtomSelector) queryFleshAtoms(
 		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc, forcedMandatory)
 	}
 
-	results, err := kernel.Query("selected_result(Atom, Priority, Source)")
+	results, err := kernel.Query("selected_result(Atom, Source)")
 	if err != nil {
 		logging.Get(logging.CategoryContext).Warn("Flesh query failed: %v", err)
 		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc, forcedMandatory)
@@ -1204,12 +1237,12 @@ func (s *AtomSelector) queryFleshAtoms(
 
 	var selected []*ScoredAtom
 	for _, fact := range results {
-		if len(fact.Args) != 3 {
+		if len(fact.Args) != 2 {
 			continue
 		}
 
 		atomID, err1 := extractStringArg(fact.Args[0])
-		source, err2 := extractStringArg(fact.Args[2])
+		source, err2 := extractStringArg(fact.Args[1])
 		if err1 != nil || err2 != nil {
 			logging.Get(logging.CategoryContext).Warn("queryFleshAtoms: Skipping invalid fact args: %v, %v", err1, err2)
 			continue
@@ -1222,9 +1255,15 @@ func (s *AtomSelector) queryFleshAtoms(
 		}
 		atom = applyMandatoryOverride(atom, forcedMandatory)
 
-		// Calculate combined score
+		// Calculate combined score. A Jev-judged atom's logic score is its
+		// relevance, so the budget sheds the least relevant flesh first; an
+		// unjudged atom keeps the full logic score the kernel's admission
+		// gives it.
 		vScore := vectorScores[atomID]
 		logicScore := 1.0
+		if pct, judged := relevancePercent[atomID]; judged {
+			logicScore = float64(pct) / 100
+		}
 		weight := s.vectorWeightFor(cc)
 		combined := (1.0-weight)*logicScore + weight*vScore
 

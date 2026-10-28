@@ -4,7 +4,6 @@
 - id: "shards/reviewer/creative_first_pass"
   category: "methodology"
   subcategory: "review"
-  priority: 90
   is_mandatory: true
   shard_types: ["/reviewer"]
   content: |
@@ -38,7 +37,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "review"
-  priority: 90
   is_mandatory: false
   shard_types: ["/reviewer"]
   content: |
@@ -53,7 +51,6 @@
 - id: "shards/reviewer/self_interrogation"
   category: "methodology"
   subcategory: "review"
-  priority: 85
   is_mandatory: false
   shard_types: ["/reviewer"]
   depends_on: ["shards/reviewer/creative_first_pass"]
@@ -91,7 +88,6 @@
 - id: "shards/reviewer/creative_second_pass"
   category: "methodology"
   subcategory: "review"
-  priority: 85
   is_mandatory: false
   shard_types: ["/reviewer"]
   depends_on: ["shards/reviewer/self_interrogation"]

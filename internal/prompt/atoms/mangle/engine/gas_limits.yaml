@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Gas Limits and Resource Control"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -60,7 +59,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Gas Limits and Resource Control: Resource Exhaustion Behavior"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -105,7 +103,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Gas Limits and Resource Control: Other Resource Considerations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -141,7 +138,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Gas Limits and Resource Control: Mangle Engine: Gas Limits and Resource Control Best Practices"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

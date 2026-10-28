@@ -4,7 +4,6 @@
 - id: "protocol/piggyback/envelope"
   category: "protocol"
   subcategory: "envelope"
-  priority: 100
   is_mandatory: true
   content: |
     ## OUTPUT PROTOCOL: PIGGYBACK ENVELOPE (MANDATORY)
@@ -51,7 +50,6 @@
 - id: "protocol/piggyback/thought_first"
   category: "protocol"
   subcategory: "ordering"
-  priority: 95
   is_mandatory: true
   depends_on: ["protocol/piggyback/envelope"]
   content: |
@@ -73,7 +71,6 @@
 - id: "protocol/piggyback/mangle_updates"
   category: "protocol"
   subcategory: "mangle"
-  priority: 99
   # Mandatory because the envelope is: a field delivered without its rules gets
   # filled by imitation. While this atom was optional it reached 0 of 150
   # recorded compiles, and every turn that filled mangle_updates did so blind
@@ -112,7 +109,6 @@
 - id: "protocol/piggyback/memory_ops"
   category: "protocol"
   subcategory: "memory"
-  priority: 80
   is_mandatory: false
   depends_on: ["protocol/piggyback/envelope"]
   content: |
@@ -150,7 +146,6 @@
 - id: "protocol/piggyback/self_correction"
   category: "protocol"
   subcategory: "correction"
-  priority: 75
   is_mandatory: false
   depends_on: ["protocol/piggyback/envelope"]
   content: |
@@ -188,7 +183,6 @@
 - id: "protocol/piggyback/context_feedback"
   category: "protocol"
   subcategory: "feedback"
-  priority: 70
   is_mandatory: false
   depends_on: ["protocol/piggyback/envelope"]
   content: |
@@ -221,7 +215,6 @@
   section_order: 1
   category: "protocol"
   subcategory: "feedback"
-  priority: 70
   is_mandatory: false
   depends_on: ["protocol/piggyback/envelope"]
   content: |
@@ -256,7 +249,6 @@
   section_order: 2
   category: "protocol"
   subcategory: "feedback"
-  priority: 70
   is_mandatory: false
   depends_on: ["protocol/piggyback/envelope"]
   content: |

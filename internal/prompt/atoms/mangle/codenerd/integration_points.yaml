@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle-Go Integration Points for codeNERD"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -19,7 +18,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle-Go Integration Points for codeNERD: Engine Lifecycle"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -93,7 +91,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle-Go Integration Points for codeNERD: Fact Management"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -163,7 +160,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle-Go Integration Points for codeNERD: Querying"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -241,7 +237,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle-Go Integration Points for codeNERD: Type Conversion"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -309,7 +304,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle-Go Integration Points for codeNERD: Statistics & Monitoring"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -345,7 +339,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle-Go Integration Points for codeNERD: Persistence Integration"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -390,7 +383,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle-Go Integration Points for codeNERD: Mangle-Go Integration Points for codeNERD Error Handling"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -446,7 +438,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle-Go Integration Points for codeNERD: Virtual Predicates (FFI)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -487,7 +478,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle-Go Integration Points for codeNERD: Integration with codeNERD Components"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -537,7 +527,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle-Go Integration Points for codeNERD: World Model Integration"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -579,7 +568,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle-Go Integration Points for codeNERD: Shard Integration"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -638,7 +626,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle-Go Integration Points for codeNERD: Test Fact Insertion"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -692,7 +679,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle-Go Integration Points for codeNERD: Performance Optimization"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -753,7 +739,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle-Go Integration Points for codeNERD: Debugging"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -802,7 +787,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle-Go Integration Points for codeNERD: Mangle-Go Integration Points for codeNERD Best Practices"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

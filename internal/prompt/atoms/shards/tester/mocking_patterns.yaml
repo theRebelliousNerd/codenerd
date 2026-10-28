@@ -4,7 +4,6 @@
 - id: "shards/tester/go_mocking"
   category: "methodology"
   subcategory: "mocking"
-  priority: 80
   is_mandatory: false
   shard_types: ["/tester"]
   languages: ["/go"]
@@ -68,7 +67,6 @@
 - id: "shards/tester/python_mocking"
   category: "methodology"
   subcategory: "mocking"
-  priority: 80
   is_mandatory: false
   shard_types: ["/tester"]
   languages: ["/python"]
@@ -105,7 +103,6 @@
 - id: "shards/tester/jest_mocking"
   category: "methodology"
   subcategory: "mocking"
-  priority: 80
   is_mandatory: false
   shard_types: ["/tester"]
   languages: ["/javascript", "/typescript"]

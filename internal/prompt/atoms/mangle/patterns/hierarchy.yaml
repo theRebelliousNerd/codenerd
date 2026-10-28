@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Hierarchy Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -61,7 +60,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Hierarchy Patterns: Variation 1: Depth/Level in Hierarchy"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -114,7 +112,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Hierarchy Patterns: Variation 2: Subtree Extraction"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -161,7 +158,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Hierarchy Patterns: Variation 3: Leaf Nodes"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -211,7 +207,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Hierarchy Patterns: Variation 4: Siblings"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -258,7 +253,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Hierarchy Patterns: Variation 5: Lowest Common Ancestor (LCA)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -327,7 +321,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Hierarchy Patterns: Variation 6: Path to Root"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -383,7 +376,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Hierarchy Patterns: Variation 7: N-ary Tree Children Count"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -442,7 +434,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Hierarchy Patterns: Anti-Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -483,7 +474,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Hierarchy Patterns: Hierarchy Patterns Performance Tips"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -502,7 +492,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Hierarchy Patterns: Common Use Cases in codeNERD"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

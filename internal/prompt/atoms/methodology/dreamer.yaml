@@ -4,7 +4,6 @@
 - id: "methodology/dreamer/core"
   category: "methodology"
   subcategory: "dreamer"
-  priority: 90
   is_mandatory: false
   operational_modes: ["/dream_mode"]
   content: |
@@ -35,7 +34,6 @@
 - id: "methodology/dreamer/simulation"
   category: "methodology"
   subcategory: "dreamer"
-  priority: 85
   is_mandatory: false
   operational_modes: ["/dream_mode"]
   depends_on: ["methodology/dreamer/core"]
@@ -76,7 +74,6 @@
 - id: "methodology/dreamer/blocking"
   category: "methodology"
   subcategory: "dreamer"
-  priority: 85
   is_mandatory: false
   operational_modes: ["/dream_mode"]
   depends_on: ["methodology/dreamer/simulation"]
@@ -108,7 +105,6 @@
 - id: "methodology/dreamer/precog"
   category: "methodology"
   subcategory: "dreamer"
-  priority: 80
   is_mandatory: false
   operational_modes: ["/dream_mode", "/precog"]
   content: |

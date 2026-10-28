@@ -118,9 +118,9 @@ func (s *configUpdateBarrierSearcher) EmbedQuery(context.Context, string) ([]flo
 
 func TestSetConfigDuringCompileKeepsOldGenerationOutOfNewCache(t *testing.T) {
 	atoms := []*PromptAtom{
-		{ID: "identity/coder", Category: CategoryIdentity, Content: "You are the Coder Shard.", Priority: 100, IsMandatory: true},
-		{ID: "safety/scope", Category: CategorySafety, Content: "Keep the change scoped.", Priority: 60, IsMandatory: true},
-		{ID: "context/slow", Category: CategoryContext, Content: "Slow semantic result.", Priority: 10},
+		{ID: "identity/coder", Category: CategoryIdentity, Content: "You are the Coder Shard.", Importance: 100, IsMandatory: true},
+		{ID: "safety/scope", Category: CategorySafety, Content: "Keep the change scoped.", Importance: 60, IsMandatory: true},
+		{ID: "context/slow", Category: CategoryContext, Content: "Slow semantic result.", Importance: 10},
 	}
 	for _, atom := range atoms {
 		atom.TokenCount = EstimateTokens(atom.Content)
@@ -208,9 +208,9 @@ func (s *vectorDeadlineSearcher) EmbedQuery(context.Context, string) ([]float32,
 
 func TestSetConfigDoesNotChangeSelectorSettingsOfInFlightCompile(t *testing.T) {
 	atoms := []*PromptAtom{
-		{ID: "identity/coder", Category: CategoryIdentity, Content: "You are the Coder Shard.", Priority: 100, IsMandatory: true},
-		{ID: "safety/scope", Category: CategorySafety, Content: "Keep the change scoped.", Priority: 60, IsMandatory: true},
-		{ID: "context/slow", Category: CategoryContext, Content: "Slow semantic result.", Priority: 10},
+		{ID: "identity/coder", Category: CategoryIdentity, Content: "You are the Coder Shard.", Importance: 100, IsMandatory: true},
+		{ID: "safety/scope", Category: CategorySafety, Content: "Keep the change scoped.", Importance: 60, IsMandatory: true},
+		{ID: "context/slow", Category: CategoryContext, Content: "Slow semantic result.", Importance: 10},
 	}
 	for _, atom := range atoms {
 		atom.TokenCount = EstimateTokens(atom.Content)
@@ -280,14 +280,14 @@ func cacheProbeCompiler(t *testing.T) *JITPromptCompiler {
 			ID:          "identity/coder",
 			Category:    CategoryIdentity,
 			Content:     "You are the Coder Shard.",
-			Priority:    100,
+			Importance:  100,
 			IsMandatory: true,
 		},
 		{
 			ID:          "safety/scope",
 			Category:    CategorySafety,
 			Content:     "Do not widen the change beyond what was asked.",
-			Priority:    60,
+			Importance:  60,
 			IsMandatory: true,
 		},
 	}

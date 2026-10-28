@@ -4,7 +4,6 @@
 - id: "reviewer/methodology/security_fundamentals"
   category: "methodology"
   subcategory: "security"
-  priority: 98
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check", "/analyze", "/inspect"]
@@ -72,7 +71,6 @@
 - id: "reviewer/methodology/injection_prevention"
   category: "methodology"
   subcategory: "security"
-  priority: 96
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -140,7 +138,6 @@
 - id: "reviewer/methodology/auth_security"
   category: "methodology"
   subcategory: "security"
-  priority: 95
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -180,7 +177,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "security"
-  priority: 95
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -216,7 +212,6 @@
 - id: "reviewer/methodology/data_protection"
   category: "methodology"
   subcategory: "security"
-  priority: 92
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -281,7 +276,6 @@
 - id: "reviewer/methodology/input_validation"
   category: "methodology"
   subcategory: "security"
-  priority: 94
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -346,7 +340,6 @@
 - id: "reviewer/methodology/dependency_security"
   category: "methodology"
   subcategory: "security"
-  priority: 88
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]

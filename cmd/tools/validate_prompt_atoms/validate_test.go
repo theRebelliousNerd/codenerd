@@ -56,13 +56,6 @@ func TestValidateAtomDef(t *testing.T) {
 		})
 	}
 
-	// Priority out of range is flagged.
-	bad := 999
-	d := valid
-	d.Priority = &bad
-	if !strings.Contains(errorMessages(validateAtomDef("p", "p", d, cats, opts)), "out of range") {
-		t.Error("priority out of range not flagged")
-	}
 }
 
 func TestValidateAtomDef_RequiresToolsUnknown(t *testing.T) {

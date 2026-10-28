@@ -4,7 +4,6 @@
 - id: "reviewer/methodology/maintainability_fundamentals"
   category: "methodology"
   subcategory: "maintainability"
-  priority: 82
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check", "/analyze"]
@@ -46,7 +45,6 @@
 - id: "reviewer/methodology/readability"
   category: "methodology"
   subcategory: "maintainability"
-  priority: 80
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -133,7 +131,6 @@
 - id: "reviewer/methodology/coupling_cohesion"
   category: "methodology"
   subcategory: "maintainability"
-  priority: 78
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/analyze"]
@@ -169,7 +166,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "maintainability"
-  priority: 78
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/analyze"]
@@ -203,7 +199,6 @@
 - id: "reviewer/methodology/code_smells"
   category: "methodology"
   subcategory: "maintainability"
-  priority: 76
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/analyze"]
@@ -264,7 +259,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "maintainability"
-  priority: 76
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/analyze"]
@@ -303,7 +297,6 @@
 - id: "reviewer/methodology/documentation"
   category: "methodology"
   subcategory: "maintainability"
-  priority: 72
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -363,7 +356,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "maintainability"
-  priority: 72
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]

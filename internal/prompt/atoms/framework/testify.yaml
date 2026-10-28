@@ -4,7 +4,6 @@
 - id: "framework/testify/assertions"
   category: "framework"
   subcategory: "testify"
-  priority: 65
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go"]
@@ -57,7 +56,6 @@
 - id: "framework/testify/suites"
   category: "framework"
   subcategory: "testify"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go"]
@@ -118,7 +116,6 @@
 - id: "framework/testify/mocks"
   category: "framework"
   subcategory: "testify"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go"]

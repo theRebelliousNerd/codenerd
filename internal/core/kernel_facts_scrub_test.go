@@ -46,12 +46,12 @@ func TestLooksLikePointerHex(t *testing.T) {
 func TestSanitizeFactScrubs(t *testing.T) {
 	in := Fact{
 		Predicate: "prompt_atom",
-		Args:      []any{"id", "/identity", 80, "0x7ff63be770e0", "/true"},
+		Args:      []any{"id", "/identity", "0x7ff63be770e0", "/true"},
 	}
 	out := sanitizeFactForNumericPredicates(in)
-	v, ok := out.Args[3].(int64)
+	v, ok := out.Args[2].(int64)
 	if !ok {
-		t.Fatalf("arg #3 should be coerced to int64, got %T (%v)", out.Args[3], out.Args[3])
+		t.Fatalf("arg #2 should be coerced to int64, got %T (%v)", out.Args[2], out.Args[2])
 	}
 	if v != 0 {
 		t.Fatalf("scrubbed value should be 0, got %d", v)
@@ -59,14 +59,14 @@ func TestSanitizeFactScrubs(t *testing.T) {
 }
 
 // TestSanitizeFactPreservesGoodNumbers proves the scrubber doesn't
-// touch valid TokenCount / Priority numbers.
+// touch a valid TokenCount.
 func TestSanitizeFactPreservesGoodNumbers(t *testing.T) {
 	in := Fact{
 		Predicate: "prompt_atom",
-		Args:      []any{"id", "/identity", 80, 1024, "/true"},
+		Args:      []any{"id", "/identity", 1024, "/true"},
 	}
 	out := sanitizeFactForNumericPredicates(in)
-	if out.Args[3] != 1024 {
-		t.Fatalf("good TokenCount mutated; got %v", out.Args[3])
+	if out.Args[2] != 1024 {
+		t.Fatalf("good TokenCount mutated; got %v", out.Args[2])
 	}
 }

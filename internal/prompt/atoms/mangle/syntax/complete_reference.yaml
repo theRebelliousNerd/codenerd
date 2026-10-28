@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -41,7 +40,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Declarations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -114,7 +112,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Constants"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -185,7 +182,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Variables"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -241,7 +237,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Rules"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -303,7 +298,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Equality and Inequality"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -353,7 +347,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Function Application"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -423,7 +416,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Aggregation and Transforms"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -482,7 +474,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Recursive Rules"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -523,7 +514,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Syntax Errors to Avoid"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -601,7 +591,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Structured Data Syntax"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -672,7 +661,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Whitespace Rules"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -708,7 +696,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Mangle Complete Syntax Reference Complete Example"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -764,7 +751,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Syntax Summary Table"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

@@ -6,7 +6,6 @@
 - id: "intent/design/core"
   category: "intent"
   subcategory: "design"
-  priority: 95
   is_mandatory: true
   intent_verbs: ["/design"]
   content: |
@@ -43,7 +42,6 @@
   section_order: 1
   category: "intent"
   subcategory: "design"
-  priority: 95
   is_mandatory: false
   intent_verbs: ["/design"]
   content: |
@@ -63,7 +61,6 @@
   section_order: 2
   category: "intent"
   subcategory: "design"
-  priority: 95
   is_mandatory: false
   intent_verbs: ["/design"]
   content: |
@@ -83,7 +80,6 @@
   section_order: 3
   category: "intent"
   subcategory: "design"
-  priority: 95
   is_mandatory: false
   intent_verbs: ["/design"]
   content: |
@@ -103,7 +99,6 @@
 - id: "intent/design/architecture"
   category: "intent"
   subcategory: "design"
-  priority: 90
   is_mandatory: false
   intent_verbs: ["/design"]
   depends_on: ["intent/design/core"]
@@ -127,7 +122,6 @@
   section_order: 1
   category: "intent"
   subcategory: "design"
-  priority: 90
   is_mandatory: false
   intent_verbs: ["/design"]
   depends_on: ["intent/design/core"]
@@ -156,7 +150,6 @@
   section_order: 2
   category: "intent"
   subcategory: "design"
-  priority: 90
   is_mandatory: false
   intent_verbs: ["/design"]
   depends_on: ["intent/design/core"]
@@ -180,7 +173,6 @@
 - id: "intent/design/constraints"
   category: "intent"
   subcategory: "design"
-  priority: 85
   is_mandatory: false
   intent_verbs: ["/design"]
   depends_on: ["intent/design/core"]
@@ -210,7 +202,6 @@
   section_order: 1
   category: "intent"
   subcategory: "design"
-  priority: 85
   is_mandatory: false
   intent_verbs: ["/design"]
   depends_on: ["intent/design/core"]

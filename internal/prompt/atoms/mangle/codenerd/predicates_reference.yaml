@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -31,7 +30,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: user_intent/5"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -74,7 +72,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: focus_resolution/4"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -124,7 +121,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: clarification_needed/1"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -159,7 +155,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: file_topology/5"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -204,7 +199,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: file_imports/3"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -251,7 +245,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: impacted/1"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -289,7 +282,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: Symbol Graph Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -342,7 +334,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: Diagnostic Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -404,7 +395,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: TDD Loop Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -444,7 +434,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: next_action/1"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -489,7 +478,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: permitted/3"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -534,7 +522,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: Strategy Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -583,7 +570,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: Shard Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -642,7 +628,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: Context Selection Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -702,7 +687,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: Verb Taxonomy Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -783,7 +767,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: Campaign Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -866,7 +849,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: Autopoiesis Predicates (Ouroboros Loop)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -927,7 +909,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: effective_stability/2"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -993,7 +974,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: Safety Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -1059,7 +1039,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: Usage Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

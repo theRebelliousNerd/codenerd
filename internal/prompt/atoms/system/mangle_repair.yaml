@@ -1,6 +1,5 @@
 - id: "system/mangle_repair/identity"
   category: "identity"
-  priority: 100
   is_mandatory: true
   shard_types: ["/mangle_repair"]
   content: |
@@ -10,7 +9,6 @@
 
 - id: "system/mangle_repair/output"
   category: "protocol"
-  priority: 95
   is_mandatory: true
   shard_types: ["/mangle_repair"]
   content: |
@@ -20,7 +18,6 @@
 
 - id: "system/mangle_repair/safety"
   category: "safety"
-  priority: 90
   is_mandatory: true
   shard_types: ["/mangle_repair"]
   content: |
@@ -32,7 +29,6 @@
 
 - id: "system/mangle_repair/methodology"
   category: "methodology"
-  priority: 85
   is_mandatory: true
   shard_types: ["/mangle_repair"]
   content: |

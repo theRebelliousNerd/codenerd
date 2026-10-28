@@ -4,7 +4,6 @@
 - id: "methodology/refactoring/go_workflow"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 95
   is_mandatory: false
   languages: ["/go", "/golang"]
   intent_verbs: ["/refactor", "/cleanup", "/optimize"]
@@ -43,7 +42,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "refactoring"
-  priority: 95
   is_mandatory: false
   languages: ["/go", "/golang"]
   intent_verbs: ["/refactor", "/cleanup", "/optimize"]
@@ -109,7 +107,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "refactoring"
-  priority: 95
   is_mandatory: false
   languages: ["/go", "/golang"]
   intent_verbs: ["/refactor", "/cleanup", "/optimize"]

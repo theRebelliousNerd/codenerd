@@ -4,7 +4,6 @@
 - id: "capability/codedom_selection"
   category: "capability"
   subcategory: "semantic_editing"
-  priority: 96  # Very high - guides tool selection before other CodeDOM atoms
   is_mandatory: true
   depends_on: []
   # edit_file and write_file are not required here. /review admits this atom
@@ -38,7 +37,6 @@
 - id: "capability/codedom_workflow"
   category: "capability"
   subcategory: "semantic_editing"
-  priority: 89
   is_mandatory: false
   depends_on: ["capability/codedom_selection"]
   requires_tools: [find_symbol, package_outline, get_element, callers_of, callees_of, edit_element, replace_element, insert_element]

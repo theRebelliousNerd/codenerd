@@ -4,7 +4,6 @@
 - id: "hallucination/librarian/layer_confusion"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 90
   is_mandatory: true
   shard_types: ["/librarian"]
   content: |
@@ -26,7 +25,6 @@
 - id: "hallucination/librarian/framework_blindness"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 85
   is_mandatory: true
   shard_types: ["/librarian"]
   content: |
@@ -49,7 +47,6 @@
 - id: "hallucination/librarian/utils_trap"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 85
   is_mandatory: true
   shard_types: ["/librarian"]
   content: |
@@ -75,7 +72,6 @@
 - id: "hallucination/librarian/test_mismatch"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 80
   is_mandatory: true
   shard_types: ["/librarian"]
   content: |

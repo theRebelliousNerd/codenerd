@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -52,7 +51,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage) Correct Code"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -88,7 +86,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Mangle Compiler Logic"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -134,7 +131,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Mangle Compiler Logic cont"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -186,7 +182,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Mangle Compiler Logic cont"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -213,7 +208,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Go Implementation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -268,7 +262,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Go Implementation cont"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -324,7 +317,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Why This Pattern Works"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -353,7 +345,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Benefits Over Static Prompts"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -388,7 +379,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Complete Example: Safety-Critical Compilation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -453,7 +443,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Comparison: Wrong vs Right"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -494,7 +483,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Prevention (Avoiding Misuse)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -526,7 +514,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Training Aid: Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -553,7 +540,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Quick Reference: Division of Labor"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -590,7 +576,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Summary: Correct Neuro-Symbolic Pattern"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

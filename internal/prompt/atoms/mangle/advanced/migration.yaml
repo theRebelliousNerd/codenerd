@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -78,7 +77,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: Atoms (Symbols)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -151,7 +149,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: Subsumption (Max/Min)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -220,7 +217,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: From Prolog"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -291,7 +287,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: Cut (!)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -357,7 +352,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: Findall"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -432,7 +426,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: JOIN"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -490,7 +483,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: Subqueries"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -551,7 +543,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: HAVING"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -612,7 +603,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: UPDATE/DELETE"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -655,7 +645,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: Key Differences Summary"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -680,7 +669,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: Migrating to Mangle from Other Logic Languages Migration Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -724,7 +712,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: Migrating to Mangle from Other Logic Languages Example: Full Migration (SQL \u2192 Mangle)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

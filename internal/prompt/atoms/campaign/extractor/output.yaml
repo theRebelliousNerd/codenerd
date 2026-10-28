@@ -1,7 +1,6 @@
 - id: "campaign/extractor/output"
   category: "campaign"
   subcategory: "extractor"
-  priority: 95
   is_mandatory: true
   # "researcher" removed: it is a conversational shard that needs the Piggyback
   # envelope to request tools, and this atom forbids the envelope. Handing both
@@ -49,7 +48,6 @@
   section_order: 1
   category: "campaign"
   subcategory: "extractor"
-  priority: 95
   is_mandatory: false
   shard_types: ["extractor"]
   campaign_phases: ["requirements", "northstar"]

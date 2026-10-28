@@ -4,7 +4,6 @@
 - id: "framework/lipgloss/basics"
   category: "framework"
   subcategory: "lipgloss"
-  priority: 90
   is_mandatory: false
   languages: ["/go"]
   frameworks: ["/lipgloss"]
@@ -70,7 +69,6 @@
 - id: "framework/lipgloss/layout"
   category: "framework"
   subcategory: "lipgloss"
-  priority: 85
   is_mandatory: false
   languages: ["/go"]
   frameworks: ["/lipgloss"]
@@ -127,7 +125,6 @@
 - id: "framework/lipgloss/components"
   category: "framework"
   subcategory: "lipgloss"
-  priority: 80
   is_mandatory: false
   languages: ["/go"]
   frameworks: ["/lipgloss"]
@@ -161,7 +158,6 @@
   section_order: 1
   category: "framework"
   subcategory: "lipgloss"
-  priority: 80
   is_mandatory: false
   languages: ["/go"]
   frameworks: ["/lipgloss"]
@@ -208,7 +204,6 @@
   section_order: 2
   category: "framework"
   subcategory: "lipgloss"
-  priority: 80
   is_mandatory: false
   languages: ["/go"]
   frameworks: ["/lipgloss"]

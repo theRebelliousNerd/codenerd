@@ -4,7 +4,6 @@
 - id: "reviewer/methodology/correctness_fundamentals"
   category: "methodology"
   subcategory: "correctness"
-  priority: 95
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check", "/analyze"]
@@ -43,7 +42,6 @@
 - id: "reviewer/methodology/logic_errors"
   category: "methodology"
   subcategory: "correctness"
-  priority: 92
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -93,7 +91,6 @@
 - id: "reviewer/methodology/off_by_one"
   category: "methodology"
   subcategory: "correctness"
-  priority: 90
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -148,7 +145,6 @@
 - id: "reviewer/methodology/null_handling"
   category: "methodology"
   subcategory: "correctness"
-  priority: 92
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -210,7 +206,6 @@
 - id: "reviewer/methodology/boundary_conditions"
   category: "methodology"
   subcategory: "correctness"
-  priority: 88
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -273,7 +268,6 @@
 - id: "reviewer/methodology/error_handling"
   category: "methodology"
   subcategory: "correctness"
-  priority: 90
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]

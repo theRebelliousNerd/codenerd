@@ -6,7 +6,7 @@ import "testing"
 // immutable Args slice per atom across concurrent compiles, and an in-place
 // coercion here was a data race between their private kernel scopes.
 func TestSanitizeFactForNumericPredicates_LeavesCallerArgsUntouched(t *testing.T) {
-	args := []any{"atom/x", MangleAtom("/identity"), MangleAtom("/high"), int64(10), MangleAtom("/true")}
+	args := []any{"atom/x", MangleAtom("/identity"), "0x7ff63be770e0", MangleAtom("/true")}
 	original := append([]any(nil), args...)
 	out := sanitizeFactForNumericPredicates(Fact{Predicate: "prompt_atom", Args: args})
 	for i := range original {
@@ -15,6 +15,6 @@ func TestSanitizeFactForNumericPredicates_LeavesCallerArgsUntouched(t *testing.T
 		}
 	}
 	if out.Args[2] == args[2] {
-		t.Fatalf("priority atom was not coerced on the private copy: %v", out.Args[2])
+		t.Fatalf("leaked token count was not scrubbed on the private copy: %v", out.Args[2])
 	}
 }

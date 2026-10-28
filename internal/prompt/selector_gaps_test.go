@@ -31,7 +31,7 @@ func TestSelector_SelectAtoms_NilInputs(t *testing.T) {
 
 	t.Run("nil context", func(t *testing.T) {
 		atoms := []*PromptAtom{
-			{ID: "a", Category: CategoryIdentity, Content: "A", Priority: 100, IsMandatory: true},
+			{ID: "a", Category: CategoryIdentity, Content: "A", Importance: 100, IsMandatory: true},
 		}
 		// nil context causes panic in CompilationContext.GenerateFacts (known bug)
 		defer func() {
@@ -50,12 +50,12 @@ func TestSelector_SelectAtoms_NilElements(t *testing.T) {
 	// GAP A5: Inject nil pointers into candidate slices.
 	selector := NewAtomSelector()
 	selector.SetKernel(&mockKernel{facts: []any{
-		Fact{Predicate: "selected_result", Args: []any{"a", 100, "skeleton"}},
+		Fact{Predicate: "selected_result", Args: []any{"a", "skeleton"}},
 	}})
 
 	atoms := []*PromptAtom{
 		nil,
-		{ID: "a", Category: CategoryIdentity, Content: "A", Priority: 100, IsMandatory: true},
+		{ID: "a", Category: CategoryIdentity, Content: "A", Importance: 100, IsMandatory: true},
 		nil,
 	}
 
@@ -184,19 +184,19 @@ func TestSelector_MassiveAtomCorpus(t *testing.T) {
 			ID:          strings.Repeat("atom-", 1) + string(rune(i%26+'a')),
 			Category:    CategoryContext,
 			Content:     strings.Repeat("content ", 10),
-			Priority:    i % 100,
+			Importance:  ImportanceLevel(i%5 + 1),
 			IsMandatory: i < 10,
 		}
 	}
 	// Add skeleton atoms
 	atoms = append(atoms, &PromptAtom{
 		ID: "identity-1", Category: CategoryIdentity, Content: "Identity",
-		Priority: 100, IsMandatory: true,
+		Importance: 100, IsMandatory: true,
 	})
 
 	selector := NewAtomSelector()
 	selector.SetKernel(&mockKernel{facts: []any{
-		Fact{Predicate: "selected_result", Args: []any{"identity-1", 100, "skeleton"}},
+		Fact{Predicate: "selected_result", Args: []any{"identity-1", "skeleton"}},
 	}})
 
 	result, err := selector.SelectAtoms(context.Background(), atoms, NewCompilationContext())
@@ -252,12 +252,12 @@ func TestSelector_MassiveContextDimensions(t *testing.T) {
 	cc = cc.WithLanguage("/go", frameworks...)
 
 	atoms := []*PromptAtom{
-		{ID: "a", Category: CategoryIdentity, Content: "A", Priority: 100, IsMandatory: true},
+		{ID: "a", Category: CategoryIdentity, Content: "A", Importance: 100, IsMandatory: true},
 	}
 
 	selector := NewAtomSelector()
 	selector.SetKernel(&mockKernel{facts: []any{
-		Fact{Predicate: "selected_result", Args: []any{"a", 100, "skeleton"}},
+		Fact{Predicate: "selected_result", Args: []any{"a", "skeleton"}},
 	}})
 
 	result, err := selector.SelectAtoms(context.Background(), atoms, cc)
@@ -303,12 +303,12 @@ func TestSelector_InventedContexts(t *testing.T) {
 		WithLanguage("/日本語", "/with spaces", "/with\"quotes", "/\x00null")
 
 	atoms := []*PromptAtom{
-		{ID: "a", Category: CategoryIdentity, Content: "A", Priority: 100, IsMandatory: true},
+		{ID: "a", Category: CategoryIdentity, Content: "A", Importance: 100, IsMandatory: true},
 	}
 
 	selector := NewAtomSelector()
 	selector.SetKernel(&mockKernel{facts: []any{
-		Fact{Predicate: "selected_result", Args: []any{"a", 100, "skeleton"}},
+		Fact{Predicate: "selected_result", Args: []any{"a", "skeleton"}},
 	}})
 
 	// Must not panic
@@ -324,9 +324,9 @@ func TestSelector_InventedContexts(t *testing.T) {
 func TestSelector_ExtremePriority(t *testing.T) {
 	// GAP C9: Assert atoms with extreme priority values.
 	atoms := []*PromptAtom{
-		{ID: "max", Category: CategoryIdentity, Content: "Max", Priority: math.MaxInt64, IsMandatory: true, TokenCount: 10},
-		{ID: "min", Category: CategoryIdentity, Content: "Min", Priority: math.MinInt64, IsMandatory: true, TokenCount: 10},
-		{ID: "zero", Category: CategoryIdentity, Content: "Zero", Priority: 0, IsMandatory: true, TokenCount: 10},
+		{ID: "max", Category: CategoryIdentity, Content: "Max", Importance: math.MaxInt64, IsMandatory: true, TokenCount: 10},
+		{ID: "min", Category: CategoryIdentity, Content: "Min", Importance: math.MinInt64, IsMandatory: true, TokenCount: 10},
+		{ID: "zero", Category: CategoryIdentity, Content: "Zero", Importance: 0, IsMandatory: true, TokenCount: 10},
 	}
 
 	selector := NewAtomSelector()
@@ -344,9 +344,9 @@ func TestSelector_ExtremePriority(t *testing.T) {
 func TestSelector_ExtremeTokenCounts(t *testing.T) {
 	// GAP: verify atoms with extreme token counts don't crash fallback selection.
 	atoms := []*PromptAtom{
-		{ID: "huge", Category: CategoryIdentity, Content: "Huge", Priority: 100, IsMandatory: true, TokenCount: math.MaxInt64},
-		{ID: "negative", Category: CategoryIdentity, Content: "Negative", Priority: 50, IsMandatory: true, TokenCount: -1},
-		{ID: "zero", Category: CategoryIdentity, Content: "Zero", Priority: 50, IsMandatory: true, TokenCount: 0},
+		{ID: "huge", Category: CategoryIdentity, Content: "Huge", Importance: 100, IsMandatory: true, TokenCount: math.MaxInt64},
+		{ID: "negative", Category: CategoryIdentity, Content: "Negative", Importance: 50, IsMandatory: true, TokenCount: -1},
+		{ID: "zero", Category: CategoryIdentity, Content: "Zero", Importance: 50, IsMandatory: true, TokenCount: 0},
 	}
 
 	selector := NewAtomSelector()
@@ -369,7 +369,7 @@ func TestSelector_ConcurrentSelectAtoms(t *testing.T) {
 	// Note: Each goroutine gets its own selector+kernel since mockKernel has
 	// unsynchronized state. In production, RealKernel uses sync.RWMutex.
 	atoms := []*PromptAtom{
-		{ID: "a", Category: CategoryIdentity, Content: "A", Priority: 100, IsMandatory: true, TokenCount: 10},
+		{ID: "a", Category: CategoryIdentity, Content: "A", Importance: 100, IsMandatory: true, TokenCount: 10},
 	}
 
 	var wg sync.WaitGroup
@@ -390,7 +390,7 @@ func TestSelector_ConcurrentSelectAtoms(t *testing.T) {
 func TestSelector_Idempotency(t *testing.T) {
 	// GAP D2: Ensure subsequent calls don't suffer from ghost facts.
 	atoms := []*PromptAtom{
-		{ID: "a", Category: CategoryIdentity, Content: "A", Priority: 100, IsMandatory: true, TokenCount: 10},
+		{ID: "a", Category: CategoryIdentity, Content: "A", Importance: 100, IsMandatory: true, TokenCount: 10},
 	}
 
 	selector := NewAtomSelector()
@@ -414,7 +414,7 @@ func TestSelector_Idempotency(t *testing.T) {
 func TestSelector_KernelPanicRecovery(t *testing.T) {
 	// GAP D4: Mock a panicking kernel; verify graceful recovery.
 	atoms := []*PromptAtom{
-		{ID: "a", Category: CategoryIdentity, Content: "A", Priority: 100, IsMandatory: true},
+		{ID: "a", Category: CategoryIdentity, Content: "A", Importance: 100, IsMandatory: true},
 	}
 
 	panicKernel := &mockKernel{
@@ -441,7 +441,7 @@ func TestSelector_KernelPanicRecovery(t *testing.T) {
 func TestSelector_ConcurrentContextMutation(t *testing.T) {
 	// GAP D6: Pass CompilationContext while mutating its slices.
 	atoms := []*PromptAtom{
-		{ID: "a", Category: CategoryIdentity, Content: "A", Priority: 100, IsMandatory: true, TokenCount: 10},
+		{ID: "a", Category: CategoryIdentity, Content: "A", Importance: 100, IsMandatory: true, TokenCount: 10},
 	}
 
 	selector := NewAtomSelector()
@@ -477,7 +477,7 @@ func TestSelector_KernelIsolation(t *testing.T) {
 	// Note: sharing a single kernel across goroutines causes a race in mockKernel.AssertBatch
 	// (shared facts slice). In production, the RealKernel uses sync.RWMutex.
 	atoms := []*PromptAtom{
-		{ID: "a", Category: CategoryIdentity, Content: "A", Priority: 100, IsMandatory: true, TokenCount: 10},
+		{ID: "a", Category: CategoryIdentity, Content: "A", Importance: 100, IsMandatory: true, TokenCount: 10},
 	}
 
 	var wg sync.WaitGroup

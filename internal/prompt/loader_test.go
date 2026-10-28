@@ -71,7 +71,6 @@ func TestLoadAgentPromptsUnifiedStorage(t *testing.T) {
 	// Create a test prompts.yaml
 	promptsYAML := `- id: test/atom
   category: identity
-  priority: 100
   is_mandatory: true
   content: "This is a test atom"
 `
@@ -167,7 +166,7 @@ func TestEnsureSchema_FreshDatabaseHasEveryColumn(t *testing.T) {
 	wantColumns := []string{
 		"atom_id", "version", "content", "token_count", "content_hash",
 		"description", "content_concise", "content_min",
-		"category", "subcategory", "priority",
+		"category", "subcategory", "importance",
 		"is_mandatory", "is_exclusive",
 		"depends_on", "conflicts_with",
 		"embedding", "embedding_task", "embedding_model",

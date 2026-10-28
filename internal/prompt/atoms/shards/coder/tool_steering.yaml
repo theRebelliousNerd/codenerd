@@ -4,7 +4,6 @@
 - id: "shards/coder/tool_steering"
   category: "methodology"
   subcategory: "tools"
-  priority: 75
   is_mandatory: true
   shard_types: ["/coder"]
   content: |
@@ -35,7 +34,6 @@
 - id: "shards/coder/constitutional_compliance"
   category: "safety"
   subcategory: "constitutional"
-  priority: 100
   is_mandatory: true
   shard_types: ["/coder"]
   content: |

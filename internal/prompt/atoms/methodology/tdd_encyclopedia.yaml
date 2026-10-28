@@ -4,7 +4,6 @@
 - id: "methodology/tdd/ai_era_fundamentals"
   category: "methodology"
   subcategory: "tdd"
-  priority: 100
   is_mandatory: true
   shard_types: ["/tester", "/coder"]
   intent_verbs: ["/test", "/fix", "/implement", "/refactor"]
@@ -42,7 +41,6 @@
 - id: "methodology/tdd/test_first_vs_after"
   category: "methodology"
   subcategory: "tdd"
-  priority: 95
   is_mandatory: false
   shard_types: ["/tester", "/coder"]
   intent_verbs: ["/test", "/implement"]
@@ -83,7 +81,6 @@
 - id: "methodology/tdd/test_pyramid"
   category: "methodology"
   subcategory: "tdd"
-  priority: 92
   is_mandatory: true
   shard_types: ["/tester"]
   intent_verbs: ["/test", "/cover", "/verify"]
@@ -135,7 +132,6 @@
 - id: "methodology/tdd/table_driven_testing"
   category: "methodology"
   subcategory: "tdd"
-  priority: 90
   is_mandatory: true
   shard_types: ["/tester"]
   intent_verbs: ["/test", "/cover"]
@@ -192,7 +188,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "tdd"
-  priority: 90
   is_mandatory: false
   shard_types: ["/tester"]
   intent_verbs: ["/test", "/cover"]
@@ -221,7 +216,6 @@
 - id: "methodology/tdd/edge_case_identification"
   category: "methodology"
   subcategory: "tdd"
-  priority: 88
   is_mandatory: true
   shard_types: ["/tester", "/coder"]
   intent_verbs: ["/test", "/cover", "/verify"]
@@ -277,7 +271,6 @@
 - id: "methodology/tdd/mocking_strategies"
   category: "methodology"
   subcategory: "tdd"
-  priority: 87
   is_mandatory: true
   shard_types: ["/tester"]
   intent_verbs: ["/test", "/mock"]
@@ -345,7 +338,6 @@
 - id: "methodology/tdd/mocking_antipatterns"
   category: "methodology"
   subcategory: "tdd"
-  priority: 85
   is_mandatory: true
   shard_types: ["/tester"]
   intent_verbs: ["/test", "/mock"]
@@ -395,7 +387,6 @@
 - id: "methodology/tdd/first_principles"
   category: "methodology"
   subcategory: "tdd"
-  priority: 90
   is_mandatory: true
   shard_types: ["/tester"]
   intent_verbs: ["/test", "/cover", "/verify"]
@@ -452,7 +443,6 @@
 - id: "methodology/tdd/coverage_strategies"
   category: "methodology"
   subcategory: "tdd"
-  priority: 86
   is_mandatory: true
   shard_types: ["/tester"]
   intent_verbs: ["/test", "/cover"]
@@ -510,7 +500,6 @@
 - id: "methodology/tdd/testing_async_concurrent"
   category: "methodology"
   subcategory: "tdd"
-  priority: 88
   is_mandatory: true
   shard_types: ["/tester"]
   intent_verbs: ["/test", "/verify"]
@@ -583,7 +572,6 @@
 - id: "methodology/tdd/test_isolation_flaky"
   category: "methodology"
   subcategory: "tdd"
-  priority: 89
   is_mandatory: true
   shard_types: ["/tester"]
   intent_verbs: ["/test"]
@@ -652,7 +640,6 @@
 - id: "methodology/tdd/error_path_testing"
   category: "methodology"
   subcategory: "tdd"
-  priority: 87
   is_mandatory: true
   shard_types: ["/tester"]
   intent_verbs: ["/test", "/cover"]
@@ -700,7 +687,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "tdd"
-  priority: 87
   is_mandatory: false
   shard_types: ["/tester"]
   intent_verbs: ["/test", "/cover"]

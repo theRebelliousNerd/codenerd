@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 14: Comment Syntax Errors"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -52,7 +51,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 14: Comment Syntax Errors: Failure Mode 14: Comment Syntax Errors Correct Code"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -96,7 +94,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 14: Comment Syntax Errors: Quick Reference"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

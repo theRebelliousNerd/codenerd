@@ -4,7 +4,6 @@
 - id: "protocol/shard_output_translation"
   category: "protocol"
   subcategory: "translation"
-  priority: 95
   is_mandatory: true
   intent_verbs: ["/translate"]
   shard_types: ["/analysis_translator"]

@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Arithmetic Operations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -56,7 +55,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Arithmetic Operations: fn:minus"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -127,7 +125,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Arithmetic Operations: fn:div"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -178,7 +175,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Arithmetic Operations: Floating-Point Arithmetic"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -228,7 +224,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Arithmetic Operations: fn:float_div"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -286,7 +281,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Arithmetic Operations: Type Conversion"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -314,7 +308,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Arithmetic Operations: Comparison with Aggregators"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -356,7 +349,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Arithmetic Operations: Arithmetic Safety"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -413,7 +405,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Arithmetic Operations: Complete Arithmetic Function List"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -438,7 +429,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Arithmetic Operations: Usage Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

@@ -4,7 +4,6 @@
 - id: "language/rust/ownership/rules"
   category: "language"
   subcategory: "rust"
-  priority: 95
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -53,7 +52,6 @@
 - id: "language/rust/ownership/borrowing"
   category: "language"
   subcategory: "rust"
-  priority: 96
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -109,7 +107,6 @@
 - id: "language/rust/ownership/lifetimes"
   category: "language"
   subcategory: "rust"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -186,7 +183,6 @@
 - id: "language/rust/ownership/smart_pointers"
   category: "language"
   subcategory: "rust"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -253,7 +249,6 @@
   section_order: 1
   category: "language"
   subcategory: "rust"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]

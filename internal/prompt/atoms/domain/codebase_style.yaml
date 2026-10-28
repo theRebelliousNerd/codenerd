@@ -4,7 +4,6 @@
 - id: "domain/style/detection"
   category: "domain"
   subcategory: "style"
-  priority: 90
   is_mandatory: false
   content: |
     ## STYLE DETECTION PROTOCOL
@@ -48,7 +47,6 @@
 - id: "domain/style/naming"
   category: "domain"
   subcategory: "style"
-  priority: 85
   is_mandatory: false
   content: |
     ## NAMING CONVENTIONS
@@ -88,7 +86,6 @@
 - id: "domain/style/formatting"
   category: "domain"
   subcategory: "style"
-  priority: 80
   is_mandatory: false
   content: |
     ## FORMATTING CONVENTIONS

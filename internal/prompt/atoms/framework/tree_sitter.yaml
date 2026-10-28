@@ -4,7 +4,6 @@
 - id: "framework/tree_sitter/core"
   category: "framework"
   subcategory: "tree_sitter"
-  priority: 62
   is_mandatory: false
   shard_types: ["/coder", "/world_model"]
   frameworks: ["/tree-sitter"]

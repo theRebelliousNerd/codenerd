@@ -4,7 +4,6 @@
 - id: "intent/explain/core"
   category: "intent"
   subcategory: "explain"
-  priority: 95
   is_mandatory: true
   intent_verbs: ["/explain"]
   content: |
@@ -37,7 +36,6 @@
   section_order: 1
   category: "intent"
   subcategory: "explain"
-  priority: 95
   is_mandatory: false
   intent_verbs: ["/explain"]
   content: |
@@ -66,7 +64,6 @@
 - id: "intent/explain/architecture"
   category: "intent"
   subcategory: "explain"
-  priority: 90
   is_mandatory: false
   intent_verbs: ["/explain"]
   depends_on: ["intent/explain/core"]
@@ -108,7 +105,6 @@
 - id: "intent/explain/code"
   category: "intent"
   subcategory: "explain"
-  priority: 85
   is_mandatory: false
   intent_verbs: ["/explain"]
   content: |

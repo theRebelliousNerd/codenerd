@@ -4,7 +4,6 @@
 - id: "shards/tester/output_protocol"
   category: "protocol"
   subcategory: "output"
-  priority: 90
   is_mandatory: true
   shard_types: ["/tester"]
   depends_on: ["protocol/piggyback/envelope"]
@@ -45,7 +44,6 @@
 - id: "shards/tester/table_driven_tests"
   category: "methodology"
   subcategory: "patterns"
-  priority: 95
   is_mandatory: true
   shard_types: ["/tester"]
   languages: ["/go"]

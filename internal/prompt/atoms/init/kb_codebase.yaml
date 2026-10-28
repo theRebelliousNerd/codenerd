@@ -4,7 +4,6 @@
 - id: "init/kb_codebase/creation"
   category: "init"
   subcategory: "kb_codebase"
-  priority: 75
   is_mandatory: false
   shard_types: ["/researcher"]
   init_phases: ["/codebase_kb"]
@@ -26,7 +25,6 @@
   section_order: 1
   category: "init"
   subcategory: "kb_codebase"
-  priority: 75
   is_mandatory: false
   shard_types: ["/researcher"]
   init_phases: ["/codebase_kb"]
@@ -73,7 +71,6 @@
   section_order: 2
   category: "init"
   subcategory: "kb_codebase"
-  priority: 75
   is_mandatory: false
   shard_types: ["/researcher"]
   init_phases: ["/codebase_kb"]

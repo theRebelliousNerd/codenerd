@@ -1,7 +1,6 @@
 - id: "capability/run_check"
   category: "capability"
   subcategory: "verification"
-  priority: 86
   is_mandatory: false
   requires_tools: [run_check]
   intent_verbs: [/fix, /implement, /refactor, /create, /modify, /add, /update, /test, /cover]

@@ -4,7 +4,6 @@
 - id: "methodology/autopoiesis/core"
   category: "methodology"
   subcategory: "autopoiesis"
-  priority: 85
   is_mandatory: false
   content: |
     ## AUTOPOIESIS: SELF-MODIFYING SYSTEMS
@@ -25,7 +24,6 @@
 - id: "methodology/autopoiesis/rejection_learning"
   category: "methodology"
   subcategory: "autopoiesis"
-  priority: 80
   is_mandatory: false
   depends_on: ["methodology/autopoiesis/core"]
   content: |
@@ -60,7 +58,6 @@
 - id: "methodology/autopoiesis/ouroboros"
   category: "methodology"
   subcategory: "autopoiesis"
-  priority: 85
   is_mandatory: false
   operational_modes: ["/ouroboros"]
   content: |
@@ -97,7 +94,6 @@
 - id: "methodology/autopoiesis/thunderdome"
   category: "methodology"
   subcategory: "autopoiesis"
-  priority: 80
   is_mandatory: false
   operational_modes: ["/thunderdome"]
   content: |

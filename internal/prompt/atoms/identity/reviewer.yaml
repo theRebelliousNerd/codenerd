@@ -4,7 +4,6 @@
 - id: "identity/reviewer/mission"
   category: "identity"
   subcategory: "mission"
-  priority: 100
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check", "/analyze", "/inspect"]
@@ -25,7 +24,6 @@
 - id: "identity/reviewer/constraints"
   category: "identity"
   subcategory: "constraints"
-  priority: 95
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check", "/analyze", "/inspect"]
@@ -66,7 +64,6 @@
 - id: "identity/reviewer/focus_areas"
   category: "identity"
   subcategory: "focus"
-  priority: 80
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check", "/analyze", "/inspect"]

@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Gas/Resource Limit Errors Reference"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -29,7 +28,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Gas/Resource Limit Errors Reference: 1.1 Fact Limit Exceeded"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -102,7 +100,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Gas/Resource Limit Errors Reference: 1.1 Fact Limit Exceeded cont"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -127,7 +124,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Gas/Resource Limit Errors Reference: 1.2 Fact Limit Warning (codeNERD)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -177,7 +173,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Gas/Resource Limit Errors Reference: 2. Derived Facts Limit (Gas Limit)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -237,7 +232,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Gas/Resource Limit Errors Reference: 2.1 Derived Facts Limit Exceeded cont"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -284,7 +278,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Gas/Resource Limit Errors Reference: 2.2 Fact Size Limit Reached (Mangle Engine)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -340,7 +333,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Gas/Resource Limit Errors Reference: 3. Query Timeouts"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -377,7 +369,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Gas/Resource Limit Errors Reference: 3.1 Query Execution Timeout"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -456,7 +447,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Gas/Resource Limit Errors Reference: 3.2 Per-Attempt Timeout (Feedback Loop)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -503,7 +493,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Gas/Resource Limit Errors Reference: 4. Session Budget Limits (Feedback Loop)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -571,7 +560,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Gas/Resource Limit Errors Reference: 5. Memory Limits (Implicit)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -632,7 +620,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Gas/Resource Limit Errors Reference: 6. Diagnostic Strategies"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -694,7 +681,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Gas/Resource Limit Errors Reference: 7. Configuration Best Practices"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -747,7 +733,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Gas/Resource Limit Errors Reference: 8. Error Recovery Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -809,7 +794,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Gas/Resource Limit Errors Reference: Quick Reference Table"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

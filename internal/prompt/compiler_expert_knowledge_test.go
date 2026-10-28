@@ -120,7 +120,7 @@ func TestExpertKnowledgeBridge_SelectedExpertRetrieved(t *testing.T) {
 
 	for _, atom := range matched {
 		require.Equal(t, CategoryKnowledge, atom.Category)
-		require.Equal(t, 85, atom.Priority)
+		require.Equal(t, ImportanceUnscored, atom.Importance, "retrieved knowledge is never in the build-time ledger")
 		require.False(t, atom.IsMandatory)
 		require.Equal(t, []string{"expertbridgealpha"}, atom.ShardTypes)
 	}

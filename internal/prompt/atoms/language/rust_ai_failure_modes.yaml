@@ -4,7 +4,6 @@
 - id: "language/rust/ai_failures/borrow_checker"
   category: "language"
   subcategory: "rust"
-  priority: 100
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -43,7 +42,6 @@
   section_order: 1
   category: "language"
   subcategory: "rust"
-  priority: 100
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -77,7 +75,6 @@
   section_order: 2
   category: "language"
   subcategory: "rust"
-  priority: 100
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -110,7 +107,6 @@
   section_order: 3
   category: "language"
   subcategory: "rust"
-  priority: 100
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -149,7 +145,6 @@
 - id: "language/rust/ai_failures/string_types"
   category: "language"
   subcategory: "rust"
-  priority: 95
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -191,7 +186,6 @@
   section_order: 1
   category: "language"
   subcategory: "rust"
-  priority: 95
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -237,7 +231,6 @@
   section_order: 2
   category: "language"
   subcategory: "rust"
-  priority: 95
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -264,7 +257,6 @@
 - id: "language/rust/ai_failures/smart_pointers"
   category: "language"
   subcategory: "rust"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -319,7 +311,6 @@
   section_order: 1
   category: "language"
   subcategory: "rust"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -366,7 +357,6 @@
   section_order: 2
   category: "language"
   subcategory: "rust"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -386,7 +376,6 @@
 - id: "language/rust/ai_failures/lifetimes"
   category: "language"
   subcategory: "rust"
-  priority: 95
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -437,7 +426,6 @@
   section_order: 1
   category: "language"
   subcategory: "rust"
-  priority: 95
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -486,7 +474,6 @@
   section_order: 2
   category: "language"
   subcategory: "rust"
-  priority: 95
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -513,7 +500,6 @@
 - id: "language/rust/ai_failures/move_copy"
   category: "language"
   subcategory: "rust"
-  priority: 92
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -568,7 +554,6 @@
   section_order: 1
   category: "language"
   subcategory: "rust"
-  priority: 92
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -601,7 +586,6 @@
   section_order: 2
   category: "language"
   subcategory: "rust"
-  priority: 92
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -636,7 +620,6 @@
 - id: "language/rust/ai_failures/pattern_matching"
   category: "language"
   subcategory: "rust"
-  priority: 80
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -680,7 +663,6 @@
   section_order: 1
   category: "language"
   subcategory: "rust"
-  priority: 80
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -742,7 +724,6 @@
   section_order: 2
   category: "language"
   subcategory: "rust"
-  priority: 80
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -771,7 +752,6 @@
 - id: "language/rust/ai_failures/traits"
   category: "language"
   subcategory: "rust"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -807,7 +787,6 @@
   section_order: 1
   category: "language"
   subcategory: "rust"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -846,7 +825,6 @@
   section_order: 2
   category: "language"
   subcategory: "rust"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -897,7 +875,6 @@
 - id: "language/rust/ai_failures/async"
   category: "language"
   subcategory: "rust"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -939,7 +916,6 @@
   section_order: 1
   category: "language"
   subcategory: "rust"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]
@@ -994,7 +970,6 @@
   section_order: 2
   category: "language"
   subcategory: "rust"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/rust"]

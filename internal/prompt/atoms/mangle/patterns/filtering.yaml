@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Filtering Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -67,7 +66,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Filtering Patterns: Variation 1: Range Filtering"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -113,7 +111,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Filtering Patterns: Variation 2: Multi-Attribute Filtering (AND)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -157,7 +154,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Filtering Patterns: Variation 3: Multi-Predicate Filtering (OR)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -203,7 +199,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Filtering Patterns: Variation 4: Exclusion Filtering (NOT)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -246,7 +241,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Filtering Patterns: Variation 5: Pattern Matching on Atoms"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -294,7 +288,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Filtering Patterns: Variation 6: Conditional Filtering (Based on Other Predicates)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -346,7 +339,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Filtering Patterns: Variation 7: Threshold Filtering with Aggregation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -397,7 +389,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Filtering Patterns: Variation 8: List/Set Membership"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -447,7 +438,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Filtering Patterns: Variation 9: Null/Missing Value Handling"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -499,7 +489,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Filtering Patterns: Variation 10: Complex Boolean Logic"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -548,7 +537,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Filtering Patterns: Variation 11: Filtering with String Operations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -588,7 +576,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Filtering Patterns: Anti-Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -642,7 +629,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Filtering Patterns: Filtering Patterns Performance Tips"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -662,7 +648,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Filtering Patterns: Common Use Cases in codeNERD"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

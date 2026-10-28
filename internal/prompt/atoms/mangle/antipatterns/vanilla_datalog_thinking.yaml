@@ -7,7 +7,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Vanilla Datalog habit: a wildcard inside a negation"
-  priority: 40
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -27,7 +26,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Vanilla Datalog habit: a variable that only a negation mentions"
-  priority: 40
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -44,7 +42,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Vanilla Datalog habit: testing whether a relation has any row"
-  priority: 38
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -62,7 +59,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Vanilla Datalog habit: disjunction inside a rule body"
-  priority: 36
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -77,7 +73,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Vanilla Datalog habit: filtering rows after an aggregation in the same rule"
-  priority: 38
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -97,7 +92,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Vanilla Datalog habit: a default value written against the predicate being defined"
-  priority: 36
   is_mandatory: false
   languages: ["/mangle"]
   content: |

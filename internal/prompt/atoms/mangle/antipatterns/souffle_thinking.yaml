@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Soufflé Thinking"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -50,7 +49,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Souffl\u00e9 Thinking: Anti-Pattern 2: Type Annotations (Souffl\u00e9 Style)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -89,7 +87,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Souffl\u00e9 Thinking: Anti-Pattern 3: .input and .output Directives"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -131,7 +128,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Souffl\u00e9 Thinking: Anti-Pattern 4: .plan Optimization Hints"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -193,7 +189,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Souffl\u00e9 Thinking: Anti-Pattern 6: Record Types"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -262,7 +257,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Souffl\u00e9 Thinking: Anti-Pattern 8: Subsumption"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -299,7 +293,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Souffl\u00e9 Thinking: Anti-Pattern 9: Stratified Negation with .strata"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -346,7 +339,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Souffl\u00e9 Thinking: Anti-Pattern 10: Choice Domain"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -411,7 +403,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Souffl\u00e9 Thinking: Anti-Pattern 12: Inline Constraints"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -481,7 +472,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Souffl\u00e9 Thinking: Anti-Pattern 14: .limitsize Directive"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -550,7 +540,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Souffl\u00e9 Thinking: Key Differences: Souffl\u00e9 vs Mangle"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -582,7 +571,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Souffl\u00e9 Thinking: Anti-Pattern: Souffl\u00e9 Thinking Migration Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -614,7 +602,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Souffl\u00e9 Thinking: Special Note: What IS Similar"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

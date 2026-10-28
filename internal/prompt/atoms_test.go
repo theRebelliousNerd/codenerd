@@ -429,30 +429,27 @@ func TestPromptAtom_ToFact(t *testing.T) {
 		atom := &PromptAtom{
 			ID:          "test/atom",
 			Category:    CategoryIdentity,
-			Priority:    80,
+			Importance:  ImportanceCorrectness,
 			TokenCount:  100,
 			IsMandatory: true,
 		}
 
 		fact := atom.ToFact()
 
-		// Schema order: prompt_atom(AtomID, Category, Priority, TokenCount, IsMandatory).
-		// Pre-2026-05-28 the code emitted TokenCount at index 2 and Priority
-		// at index 3 in disagreement with the schema (which the selector.go
-		// path was already respecting). See atoms.go ToFact() comment.
+		// Schema order: prompt_atom(AtomID, Category, TokenCount, IsMandatory).
+		// Importance is its own fact (atom_importance), not a slot here.
 		assert.Equal(t, "prompt_atom", fact.Predicate)
-		require.Len(t, fact.Args, 5)
+		require.Len(t, fact.Args, 4)
 		assert.Equal(t, "test/atom", fact.Args[0])
 		assert.Equal(t, "/identity", fact.Args[1])
-		assert.Equal(t, 80, fact.Args[2])  // Priority
-		assert.Equal(t, 100, fact.Args[3]) // TokenCount
+		assert.Equal(t, 100, fact.Args[2]) // TokenCount
 	})
 
 	t.Run("non-mandatory atom", func(t *testing.T) {
 		atom := &PromptAtom{
 			ID:          "optional/atom",
 			Category:    CategoryProtocol,
-			Priority:    50,
+			Importance:  50,
 			TokenCount:  200,
 			IsMandatory: false,
 		}
@@ -1393,7 +1390,7 @@ func TestPromptAtom_MalformedMangleFacts(t *testing.T) {
 	atom := &PromptAtom{
 		ID:          "bad/category",
 		Category:    AtomCategory(""),
-		Priority:    10,
+		Importance:  10,
 		TokenCount:  10,
 		IsMandatory: false,
 	}
@@ -1500,7 +1497,7 @@ func TestPromptAtom_DatalogFactTranslation(t *testing.T) {
 	fact := atom.ToFact()
 	// Specifically test that the Mangle Engine expects "/true" instead of true or "true"
 	// The Atom/String Dissonance is a primary AI failure mode in Mangle.
-	if len(fact.Args) < 5 || fact.Args[4] != core.MangleAtom("/true") {
-		t.Fatalf("Mangle Atom translation failed. Expected '/true', got %v", fact.Args[4])
+	if len(fact.Args) < 4 || fact.Args[3] != core.MangleAtom("/true") {
+		t.Fatalf("Mangle Atom translation failed. Expected '/true', got %v", fact.Args)
 	}
 }

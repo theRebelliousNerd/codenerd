@@ -4,7 +4,6 @@
 - id: "hallucination/nemesis/phantom_vulnerability"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 95
   is_mandatory: true
   shard_types: ["/nemesis"]
   content: |
@@ -31,7 +30,6 @@
 - id: "hallucination/nemesis/impossible_attack"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 90
   is_mandatory: true
   shard_types: ["/nemesis"]
   content: |
@@ -58,7 +56,6 @@
 - id: "hallucination/nemesis/overclaim_severity"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 85
   is_mandatory: true
   shard_types: ["/nemesis"]
   content: |
@@ -86,7 +83,6 @@
 - id: "hallucination/nemesis/lazy_pattern_false_positive"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 85
   is_mandatory: true
   shard_types: ["/nemesis"]
   content: |

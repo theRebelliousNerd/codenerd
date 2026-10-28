@@ -4,7 +4,6 @@
 - id: "shards/tester/test_classification"
   category: "methodology"
   subcategory: "classification"
-  priority: 85
   is_mandatory: true
   shard_types: ["/tester"]
   content: |
@@ -47,7 +46,6 @@
 - id: "shards/tester/naming_conventions"
   category: "methodology"
   subcategory: "naming"
-  priority: 80
   is_mandatory: true
   shard_types: ["/tester"]
   content: |

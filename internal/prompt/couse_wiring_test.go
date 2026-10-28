@@ -24,17 +24,17 @@ func coUseTestCompiler(t *testing.T) *JITPromptCompiler {
 
 	corpus := NewEmbeddedCorpus([]*PromptAtom{
 		{ID: "identity/core", Category: CategoryIdentity, Content: "You are codenerd.",
-			Priority: 100, IsMandatory: true, TokenCount: 8},
+			Importance: 100, IsMandatory: true, TokenCount: 8},
 		{ID: "knowledge/go", Category: CategoryKnowledge, Content: "Go error handling.",
-			Priority: 80, IsMandatory: true, TokenCount: 8},
+			Importance: 80, IsMandatory: true, TokenCount: 8},
 	})
 
 	// The compiler requires a kernel for skeleton selection; the mock returns
 	// the selected_atom facts the real Mangle rules would derive.
 	kernel := &mockKernel{
 		facts: []any{
-			Fact{Predicate: "selected_atom", Args: []any{"identity/core", "skeleton", 1.0}},
-			Fact{Predicate: "selected_atom", Args: []any{"knowledge/go", "skeleton", 0.9}},
+			Fact{Predicate: "selected_result", Args: []any{"identity/core", "skeleton"}},
+			Fact{Predicate: "selected_result", Args: []any{"knowledge/go", "skeleton"}},
 		},
 	}
 

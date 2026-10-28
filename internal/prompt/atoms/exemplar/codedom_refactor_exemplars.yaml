@@ -10,7 +10,6 @@
   # planner/librarian/extractor compiles, whose replies are parsed directly as
   # JSON and must not contain an envelope.
   shard_types: ["coder", "reviewer", "tester"]
-  priority: 80
   is_mandatory: false
   depends_on: ["capability/codedom_impact"]
   requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
@@ -57,7 +56,6 @@
   # planner/librarian/extractor compiles, whose replies are parsed directly as
   # JSON and must not contain an envelope.
   shard_types: ["coder", "reviewer", "tester"]
-  priority: 80
   is_mandatory: false
   depends_on: ["capability/codedom_impact"]
   requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
@@ -82,7 +80,6 @@
   # planner/librarian/extractor compiles, whose replies are parsed directly as
   # JSON and must not contain an envelope.
   shard_types: ["coder", "reviewer", "tester"]
-  priority: 80
   is_mandatory: false
   depends_on: ["capability/codedom_impact"]
   requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
@@ -142,7 +139,6 @@
   # planner/librarian/extractor compiles, whose replies are parsed directly as
   # JSON and must not contain an envelope.
   shard_types: ["coder", "reviewer", "tester"]
-  priority: 80
   is_mandatory: false
   depends_on: ["capability/codedom_impact"]
   requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
@@ -180,7 +176,6 @@
   # planner/librarian/extractor compiles, whose replies are parsed directly as
   # JSON and must not contain an envelope.
   shard_types: ["coder", "reviewer", "tester"]
-  priority: 78
   is_mandatory: false
   depends_on: ["capability/codedom_safety"]
   requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
@@ -240,7 +235,6 @@
   # planner/librarian/extractor compiles, whose replies are parsed directly as
   # JSON and must not contain an envelope.
   shard_types: ["coder", "reviewer", "tester"]
-  priority: 78
   is_mandatory: false
   depends_on: ["capability/codedom_safety"]
   requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
@@ -279,7 +273,6 @@
   # planner/librarian/extractor compiles, whose replies are parsed directly as
   # JSON and must not contain an envelope.
   shard_types: ["coder", "reviewer", "tester"]
-  priority: 76
   is_mandatory: false
   depends_on: ["capability/codedom_polyglot"]
   requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
@@ -338,7 +331,6 @@
   # planner/librarian/extractor compiles, whose replies are parsed directly as
   # JSON and must not contain an envelope.
   shard_types: ["coder", "reviewer", "tester"]
-  priority: 76
   is_mandatory: false
   depends_on: ["capability/codedom_polyglot"]
   requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
@@ -367,7 +359,6 @@
   # planner/librarian/extractor compiles, whose replies are parsed directly as
   # JSON and must not contain an envelope.
   shard_types: ["coder", "reviewer", "tester"]
-  priority: 76
   is_mandatory: false
   depends_on: ["capability/codedom_polyglot"]
   requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
@@ -399,7 +390,6 @@
   # planner/librarian/extractor compiles, whose replies are parsed directly as
   # JSON and must not contain an envelope.
   shard_types: ["coder", "reviewer", "tester"]
-  priority: 74
   is_mandatory: false
   depends_on: ["capability/codedom_test_tools"]
   requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]
@@ -465,7 +455,6 @@
   # planner/librarian/extractor compiles, whose replies are parsed directly as
   # JSON and must not contain an envelope.
   shard_types: ["coder", "reviewer", "tester"]
-  priority: 74
   is_mandatory: false
   depends_on: ["capability/codedom_test_tools"]
   requires_tools: [get_elements, get_element, edit_lines, insert_lines, delete_lines]

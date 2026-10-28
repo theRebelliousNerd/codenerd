@@ -161,7 +161,7 @@ func ReconcilePromptCorpus(ctx context.Context, db *sql.DB, atoms []*PromptAtom)
 				INSERT INTO prompt_atoms (
 					atom_id, version, content, token_count, content_hash,
 					description, content_concise, content_min,
-					category, subcategory, priority, is_mandatory, is_exclusive,
+					category, subcategory, importance, is_mandatory, is_exclusive,
 					source_file, embedding, embedding_task
 				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'embedded', ?, ?)
 				ON CONFLICT(atom_id) DO UPDATE SET
@@ -174,7 +174,7 @@ func ReconcilePromptCorpus(ctx context.Context, db *sql.DB, atoms []*PromptAtom)
 					content_min = excluded.content_min,
 					category = excluded.category,
 					subcategory = excluded.subcategory,
-					priority = excluded.priority,
+					importance = excluded.importance,
 					is_mandatory = excluded.is_mandatory,
 					is_exclusive = excluded.is_exclusive,
 					source_file = excluded.source_file,
@@ -183,7 +183,7 @@ func ReconcilePromptCorpus(ctx context.Context, db *sql.DB, atoms []*PromptAtom)
 			`, atom.ID, atom.Version, atom.Content, atom.TokenCount, atom.ContentHash,
 			nullableString(atom.Description), nullableString(atom.ContentConcise), nullableString(atom.ContentMin),
 			string(atom.Category), nullableString(atom.Subcategory),
-			atom.Priority, atom.IsMandatory, nullableString(atom.IsExclusive),
+			importanceColumn(atom.Importance), atom.IsMandatory, nullableString(atom.IsExclusive),
 			nullableBytes(embeddingBlob), embeddingTask,
 		)
 		if err != nil {

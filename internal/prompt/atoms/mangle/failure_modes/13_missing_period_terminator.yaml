@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 13: Missing Period Terminator"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -54,7 +53,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 13: Missing Period Terminator: Failure Mode 13: Missing Period Terminator Correct Code"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -106,7 +104,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 13: Missing Period Terminator: Failure Mode 13: Missing Period Terminator Prevention"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -141,7 +138,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 13: Missing Period Terminator: Mnemonic"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

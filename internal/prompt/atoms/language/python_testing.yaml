@@ -4,7 +4,6 @@
 - id: "language/python/testing/fundamentals"
   category: "language"
   subcategory: "python"
-  priority: 80
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/python"]
@@ -48,7 +47,6 @@
   section_order: 1
   category: "language"
   subcategory: "python"
-  priority: 80
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/python"]
@@ -105,7 +103,6 @@
   section_order: 2
   category: "language"
   subcategory: "python"
-  priority: 80
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/python"]
@@ -131,7 +128,6 @@
 - id: "language/python/testing/fixtures"
   category: "language"
   subcategory: "python"
-  priority: 81
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/python"]
@@ -190,7 +186,6 @@
   section_order: 1
   category: "language"
   subcategory: "python"
-  priority: 81
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/python"]
@@ -244,7 +239,6 @@
   section_order: 2
   category: "language"
   subcategory: "python"
-  priority: 81
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/python"]
@@ -294,7 +288,6 @@
 - id: "language/python/testing/parametrize"
   category: "language"
   subcategory: "python"
-  priority: 79
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/python"]
@@ -362,7 +355,6 @@
   section_order: 1
   category: "language"
   subcategory: "python"
-  priority: 79
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/python"]
@@ -413,7 +405,6 @@
 - id: "language/python/testing/mocking"
   category: "language"
   subcategory: "python"
-  priority: 78
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/python"]
@@ -454,7 +445,6 @@
   section_order: 1
   category: "language"
   subcategory: "python"
-  priority: 78
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/python"]
@@ -496,7 +486,6 @@
   section_order: 2
   category: "language"
   subcategory: "python"
-  priority: 78
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/python"]
@@ -525,7 +514,6 @@
   section_order: 3
   category: "language"
   subcategory: "python"
-  priority: 78
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/python"]
@@ -565,7 +553,6 @@
   section_order: 4
   category: "language"
   subcategory: "python"
-  priority: 78
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/python"]
@@ -597,7 +584,6 @@
 - id: "language/python/testing/hypothesis"
   category: "language"
   subcategory: "python"
-  priority: 77
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/python"]
@@ -638,7 +624,6 @@
   section_order: 1
   category: "language"
   subcategory: "python"
-  priority: 77
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/python"]
@@ -693,7 +678,6 @@
   section_order: 2
   category: "language"
   subcategory: "python"
-  priority: 77
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/python"]
@@ -739,7 +723,6 @@
 - id: "language/python/testing/async"
   category: "language"
   subcategory: "python"
-  priority: 76
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/python"]
@@ -804,7 +787,6 @@
   section_order: 1
   category: "language"
   subcategory: "python"
-  priority: 76
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/python"]
@@ -857,7 +839,6 @@
   section_order: 2
   category: "language"
   subcategory: "python"
-  priority: 76
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/python"]

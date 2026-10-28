@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Static Analysis Rules"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -52,7 +51,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Static Analysis Rules: Declaration Analysis"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -105,7 +103,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Static Analysis Rules: Rule Safety Analysis"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -156,7 +153,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Static Analysis Rules: Dependency Analysis"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -210,7 +206,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Static Analysis Rules: Type Checking"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -263,7 +258,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Static Analysis Rules: Mode Checking"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -325,7 +319,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Static Analysis Rules: Deferred Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -367,7 +360,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Static Analysis Rules: Analysis Errors"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -412,7 +404,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Static Analysis Rules: Optimization Opportunities"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -443,7 +434,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Static Analysis Rules: Analysis in the Build Pipeline"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

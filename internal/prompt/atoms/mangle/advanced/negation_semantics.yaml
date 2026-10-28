@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -55,7 +54,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics: CWA vs. OWA"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -98,7 +96,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics: Safety Rules for Negation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -154,7 +151,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics: Negation Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -212,7 +208,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics: 3. Universal Quantification (All)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -249,7 +244,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics: 4. Exclusion Constraints"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -286,7 +280,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics: 5. Integrity Constraints (Violations)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -334,7 +327,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics: Negation and the Anonymous Variable"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -381,7 +373,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics: Negation and Inequality"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -435,7 +426,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics: Negation Performance"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -484,7 +474,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics: Common Pitfalls"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -553,7 +542,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics: Summary Table"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

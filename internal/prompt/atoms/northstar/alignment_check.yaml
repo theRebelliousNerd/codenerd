@@ -4,7 +4,6 @@
 - id: "northstar/alignment/campaign_awareness"
   category: "northstar"
   subcategory: "alignment"
-  priority: 85
   is_mandatory: true
   campaign_phases: ["/planning", "/implementation", "/testing", "/review"]
   shard_types: ["/coder", "/tester", "/reviewer", "/researcher"]
@@ -30,7 +29,6 @@
 - id: "northstar/alignment/drift_detection"
   category: "northstar"
   subcategory: "alignment"
-  priority: 80
   is_mandatory: false
   campaign_phases: ["/implementation", "/testing"]
   shard_types: ["/coder", "/reviewer"]
@@ -66,7 +64,6 @@
 - id: "northstar/alignment/task_context"
   category: "northstar"
   subcategory: "alignment"
-  priority: 75
   is_mandatory: true
   campaign_phases: ["/implementation", "/testing", "/review"]
   shard_types: ["/coder", "/tester", "/reviewer"]
@@ -88,7 +85,6 @@
 - id: "northstar/alignment/periodic_reflection"
   category: "northstar"
   subcategory: "alignment"
-  priority: 60
   is_mandatory: false
   campaign_phases: ["/implementation"]
   shard_types: ["/coder"]
@@ -108,7 +104,6 @@
 - id: "northstar/alignment/high_impact_gate"
   category: "northstar"
   subcategory: "alignment"
-  priority: 90
   is_mandatory: true
   shard_types: ["/coder"]
   content: |

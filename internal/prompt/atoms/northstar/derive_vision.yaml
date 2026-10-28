@@ -4,7 +4,6 @@
 - id: "northstar/derive/vision"
   category: "northstar"
   subcategory: "derive"
-  priority: 80
   is_mandatory: true
   northstar_phases: ["/derive_vision"]
   content: |
@@ -23,7 +22,6 @@
   section_order: 1
   category: "northstar"
   subcategory: "derive"
-  priority: 80
   is_mandatory: false
   northstar_phases: ["/derive_vision"]
   content: |
@@ -39,7 +37,6 @@
   section_order: 2
   category: "northstar"
   subcategory: "derive"
-  priority: 80
   is_mandatory: false
   northstar_phases: ["/derive_vision"]
   content: |

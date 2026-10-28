@@ -294,32 +294,26 @@ func (i *Initializer) createJITCompiler() (*prompt.JITPromptCompiler, error) {
 	atoms[0].Subcategory = "init"
 	atoms[0].InitPhases = []string{"/analysis"}
 	atoms[0].ShardTypes = []string{"/researcher"}
-	atoms[0].Priority = 80
 
 	atoms[1].Subcategory = "init"
 	atoms[1].InitPhases = []string{"/profile"}
 	atoms[1].ShardTypes = []string{"/researcher"}
-	atoms[1].Priority = 80
 
 	atoms[2].Subcategory = "init"
 	atoms[2].InitPhases = []string{"/facts"}
 	atoms[2].ShardTypes = []string{"/researcher"}
-	atoms[2].Priority = 90
 	atoms[2].IsMandatory = true
 
 	atoms[3].Subcategory = "init"
 	atoms[3].InitPhases = []string{"/kb_agent"}
 	atoms[3].ShardTypes = []string{"/researcher"}
-	atoms[3].Priority = 85
 
 	atoms[4].Subcategory = "init"
 	atoms[4].InitPhases = []string{"/agents"}
 	atoms[4].ShardTypes = []string{"/researcher"}
-	atoms[4].Priority = 75
 
 	atoms[5].Subcategory = "mission"
 	atoms[5].ShardTypes = []string{"/researcher"}
-	atoms[5].Priority = 100
 	atoms[5].IsMandatory = true
 
 	// Create embedded corpus

@@ -6,7 +6,6 @@
 - id: "methodology/editing_discipline"
   category: "methodology"
   subcategory: "editing"
-  priority: 85
   is_mandatory: true
   intent_verbs: [/fix, /implement, /refactor, /create, /modify, /add, /update]
   content: |

@@ -4,7 +4,6 @@
 - id: "shards/coder/self_correction_protocol"
   category: "methodology"
   subcategory: "self_correction"
-  priority: 90
   is_mandatory: true
   shard_types: ["/coder"]
   world_states: ["authoring_code"]
@@ -48,7 +47,6 @@
 - id: "shards/coder/compile_check"
   category: "methodology"
   subcategory: "self_correction"
-  priority: 85
   is_mandatory: true
   shard_types: ["/coder"]
   world_states: ["authoring_code"]

@@ -2,7 +2,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle"
-  priority: 80
   is_mandatory: false
   shard_types: ["/legislator", "/mangle_repair"]
   languages: ["/mangle"]
@@ -30,7 +29,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: VALID CODE (baseline - no errors expected)"
-  priority: 80
   is_mandatory: false
   shard_types: ["/legislator", "/mangle_repair"]
   languages: ["/mangle"]
@@ -78,7 +76,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: PARSE ERRORS (Syntax)"
-  priority: 80
   is_mandatory: false
   shard_types: ["/legislator", "/mangle_repair"]
   languages: ["/mangle"]
@@ -116,7 +113,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E002 - Variable in head not bound in body (range restriction)"
-  priority: 80
   is_mandatory: false
   shard_types: ["/legislator", "/mangle_repair"]
   languages: ["/mangle"]
@@ -158,7 +154,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E004 - Variable in comparison must be bound before comparison"
-  priority: 80
   is_mandatory: false
   shard_types: ["/legislator", "/mangle_repair"]
   languages: ["/mangle"]
@@ -200,7 +195,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E006 - Built-in predicate arity mismatch"
-  priority: 80
   is_mandatory: false
   shard_types: ["/legislator", "/mangle_repair"]
   languages: ["/mangle"]
@@ -239,7 +233,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E008 - Unknown built-in function"
-  priority: 80
   is_mandatory: false
   shard_types: ["/legislator", "/mangle_repair"]
   languages: ["/mangle"]
@@ -291,7 +284,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E011 - Transform must start with do fn:group_by"
-  priority: 80
   is_mandatory: false
   shard_types: ["/legislator", "/mangle_repair"]
   languages: ["/mangle"]
@@ -337,7 +329,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E014 - Variable in equality must be bound"
-  priority: 80
   is_mandatory: false
   shard_types: ["/legislator", "/mangle_repair"]
   languages: ["/mangle"]
@@ -384,7 +375,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E017 - Warning: Recursive may be unbounded"
-  priority: 80
   is_mandatory: false
   shard_types: ["/legislator", "/mangle_repair"]
   languages: ["/mangle"]
@@ -433,7 +423,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E020 - Function doesn't exist (hallucinated)"
-  priority: 80
   is_mandatory: false
   shard_types: ["/legislator", "/mangle_repair"]
   languages: ["/mangle"]
@@ -472,7 +461,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E022 - Warning: Late negation"
-  priority: 80
   is_mandatory: false
   shard_types: ["/legislator", "/mangle_repair"]
   languages: ["/mangle"]
@@ -515,7 +503,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E025 - Declaration bounds count mismatch"
-  priority: 80
   is_mandatory: false
   shard_types: ["/legislator", "/mangle_repair"]
   languages: ["/mangle"]
@@ -561,7 +548,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E031 - Package names must be lowercase"
-  priority: 80
   is_mandatory: false
   shard_types: ["/legislator", "/mangle_repair"]
   languages: ["/mangle"]
@@ -607,7 +593,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E034 - Field selector arg 2 must be constant"
-  priority: 80
   is_mandatory: false
   shard_types: ["/legislator", "/mangle_repair"]
   languages: ["/mangle"]
@@ -653,7 +638,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E037 - Duplicate variable in fn:group_by"
-  priority: 80
   is_mandatory: false
   shard_types: ["/legislator", "/mangle_repair"]
   languages: ["/mangle"]
@@ -692,7 +676,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E039 - Warning: Wildcard in head"
-  priority: 80
   is_mandatory: false
   shard_types: ["/legislator", "/mangle_repair"]
   languages: ["/mangle"]
@@ -740,7 +723,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: Complex Combined Errors"
-  priority: 80
   is_mandatory: false
   shard_types: ["/legislator", "/mangle_repair"]
   languages: ["/mangle"]
@@ -774,7 +756,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: Edge Cases"
-  priority: 80
   is_mandatory: false
   shard_types: ["/legislator", "/mangle_repair"]
   languages: ["/mangle"]
@@ -824,7 +805,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: Valid functions (for reference)"
-  priority: 80
   is_mandatory: false
   shard_types: ["/legislator", "/mangle_repair"]
   languages: ["/mangle"]

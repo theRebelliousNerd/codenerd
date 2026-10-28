@@ -23,7 +23,6 @@ func TestVerifyPE1ModelsProviders(t *testing.T) {
 	dataValid := []byte(`
 id: test/models
 category: methodology
-priority: 50
 is_mandatory: false
 content: body
 models: [/muse_spark_1_2_contributor]
@@ -44,7 +43,6 @@ providers: [/meta]
 	dataNeither := []byte(`
 id: test/neither
 category: methodology
-priority: 50
 is_mandatory: false
 content: body
 `)
@@ -60,7 +58,6 @@ content: body
 	dataInvalidDot := []byte(`
 id: test/invalid-dot
 category: methodology
-priority: 50
 is_mandatory: false
 content: body
 models: [/muse-spark-1.2-contributor]
@@ -79,7 +76,6 @@ models: [/muse-spark-1.2-contributor]
 	dataMissingSlash := []byte(`
 id: test/missing-slash
 category: methodology
-priority: 50
 is_mandatory: false
 content: body
 models: [muse_spark_1_2_contributor]
@@ -95,7 +91,6 @@ models: [muse_spark_1_2_contributor]
 	dataProvMissing := []byte(`
 id: test/prov-missing
 category: methodology
-priority: 50
 is_mandatory: false
 content: body
 providers: [meta]

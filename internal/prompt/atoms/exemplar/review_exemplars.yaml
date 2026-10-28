@@ -4,7 +4,6 @@
 - id: "exemplar/review/comments"
   category: "exemplar"
   subcategory: "review"
-  priority: 90
   is_mandatory: false
   intent_verbs: ["/review"]
   content: |
@@ -72,7 +71,6 @@
 - id: "exemplar/review/positive"
   category: "exemplar"
   subcategory: "review"
-  priority: 85
   is_mandatory: false
   intent_verbs: ["/review"]
   content: |
@@ -113,7 +111,6 @@
 - id: "exemplar/review/constructive"
   category: "exemplar"
   subcategory: "review"
-  priority: 80
   is_mandatory: false
   intent_verbs: ["/review"]
   content: |

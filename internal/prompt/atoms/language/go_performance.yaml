@@ -4,7 +4,6 @@
 - id: "language/go/performance/fundamentals"
   category: "language"
   subcategory: "go"
-  priority: 78
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -64,7 +63,6 @@
 - id: "language/go/performance/allocation"
   category: "language"
   subcategory: "go"
-  priority: 79
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -136,7 +134,6 @@
   section_order: 1
   category: "language"
   subcategory: "go"
-  priority: 79
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -197,7 +194,6 @@
 - id: "language/go/performance/data_structures"
   category: "language"
   subcategory: "go"
-  priority: 77
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -277,7 +273,6 @@
 - id: "language/go/performance/concurrency"
   category: "language"
   subcategory: "go"
-  priority: 76
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -333,7 +328,6 @@
   section_order: 1
   category: "language"
   subcategory: "go"
-  priority: 76
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -399,7 +393,6 @@
 - id: "language/go/performance/io"
   category: "language"
   subcategory: "go"
-  priority: 75
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -470,7 +463,6 @@
   section_order: 1
   category: "language"
   subcategory: "go"
-  priority: 75
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -521,7 +513,6 @@
 - id: "language/go/performance/benchmarking"
   category: "language"
   subcategory: "go"
-  priority: 74
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
@@ -594,7 +585,6 @@
   section_order: 1
   category: "language"
   subcategory: "go"
-  priority: 74
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]
@@ -652,7 +642,6 @@
   section_order: 2
   category: "language"
   subcategory: "go"
-  priority: 74
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/go", "/golang"]

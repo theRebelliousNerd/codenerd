@@ -32,7 +32,7 @@ func selectedAtoms(t *testing.T, k *RealKernel) map[string]bool {
 	}
 	out := map[string]bool{}
 	for _, f := range rows {
-		if len(f.Args) < 3 {
+		if len(f.Args) < 2 {
 			continue
 		}
 		if id, ok := f.Args[0].(string); ok {
@@ -48,12 +48,10 @@ func overlayPair() []string {
 	return []string{
 		`atom("methodology/tdd")`,
 		`is_mandatory("methodology/tdd")`,
-		`atom_priority("methodology/tdd", 70)`,
 		`atom_tag("methodology/tdd", /shard, /coder)`,
 
 		`atom("methodology/tdd@claude_opus_4")`,
 		`is_mandatory("methodology/tdd@claude_opus_4")`,
-		`atom_priority("methodology/tdd@claude_opus_4", 80)`,
 		`atom_tag("methodology/tdd@claude_opus_4", /shard, /coder)`,
 		`atom_tag("methodology/tdd@claude_opus_4", /provider, /anthropic)`,
 		`atom_tag("methodology/tdd@claude_opus_4", /model, /claude_opus_4)`,
@@ -119,8 +117,8 @@ func TestSupersession_MutualConflictCancelsBoth(t *testing.T) {
 	}
 
 	supersessionFixture(t, k,
-		`atom("a")`, `is_mandatory("a")`, `atom_priority("a", 70)`,
-		`atom("b")`, `is_mandatory("b")`, `atom_priority("b", 70)`,
+		`atom("a")`, `is_mandatory("a")`,
+		`atom("b")`, `is_mandatory("b")`,
 		`atom_conflicts("a", "b")`,
 		`atom_conflicts("b", "a")`,
 		`current_context(/shard, /coder)`,
@@ -144,7 +142,6 @@ func TestSupersession_InertWithoutConflicts(t *testing.T) {
 	supersessionFixture(t, k,
 		`atom("methodology/tdd")`,
 		`is_mandatory("methodology/tdd")`,
-		`atom_priority("methodology/tdd", 70)`,
 		`atom_tag("methodology/tdd", /shard, /coder)`,
 		`current_context(/shard, /coder)`,
 	)

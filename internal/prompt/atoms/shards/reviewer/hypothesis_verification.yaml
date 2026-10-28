@@ -4,7 +4,6 @@
 - id: "shards/reviewer/hypothesis_protocol"
   category: "methodology"
   subcategory: "verification"
-  priority: 90
   is_mandatory: true
   shard_types: ["/reviewer"]
   content: |
@@ -41,7 +40,6 @@
 - id: "shards/reviewer/evidence_requirements"
   category: "methodology"
   subcategory: "verification"
-  priority: 85
   is_mandatory: true
   shard_types: ["/reviewer"]
   depends_on: ["shards/reviewer/hypothesis_protocol"]
@@ -89,7 +87,6 @@
 - id: "shards/reviewer/priority_triage"
   category: "methodology"
   subcategory: "verification"
-  priority: 80
   is_mandatory: false
   shard_types: ["/reviewer"]
   content: |

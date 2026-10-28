@@ -267,7 +267,7 @@ with clear objectives, focus patterns, and success criteria. Execute precisely.`
 
 	var atoms []agentPromptAtom
 	atoms = append(atoms, atomizeContent(
-		agentNameLower+"/identity", "identity", agentNameLower, 100, true, nil,
+		agentNameLower+"/identity", "identity", agentNameLower, true, nil,
 		"Identity and mission for "+displayName,
 		fmt.Sprintf("You are %s, a specialist agent in the codeNERD ecosystem.\nRole: %s\nTopics: %s", displayName, description, topicsStr),
 		fmt.Sprintf("You are %s (%s). Operate under the codeNERD kernel.", displayName, description),
@@ -276,14 +276,14 @@ with clear objectives, focus patterns, and success criteria. Execute precisely.`
 	// flag): the identity was one mandatory atom before the cap existed,
 	// and splitting it must not make pieces of who the agent is optional.
 	atoms = append(atoms, atomizeContent(
-		agentNameLower+"/methodology", "methodology", agentNameLower, 80, false,
+		agentNameLower+"/methodology", "methodology", agentNameLower, false,
 		[]string{agentNameLower + "/identity"},
 		"Methodology and quality bar for "+displayName,
 		"- Understand context before acting\n- Consider edge cases and failure modes\n- Write clear, maintainable code\n- Verify with tests when feasible",
 		"Be precise, verify assumptions, and preserve correctness.",
 		methodologyContent, atomCap)...)
 	atoms = append(atoms, atomizeContent(
-		agentNameLower+"/domain", "domain", agentNameLower, 70, false,
+		agentNameLower+"/domain", "domain", agentNameLower, false,
 		[]string{agentNameLower + "/identity", agentNameLower + "/methodology"},
 		"Domain knowledge, pitfalls, and references for "+displayName,
 		fmt.Sprintf("Domain focus: %s\nTopics: %s", description, topicsStr),

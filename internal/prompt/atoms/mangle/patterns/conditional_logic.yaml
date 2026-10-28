@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -68,7 +67,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 1: Multiple Conditions (If-Elif-Else)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -139,7 +137,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 2: Guard Clauses (Early Exit)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -189,7 +186,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 3: Nested Conditions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -251,7 +247,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 4: Case/Switch Statement"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -310,7 +305,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 5: Boolean Expressions (AND, OR, NOT)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -367,7 +361,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 6: Range Conditions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -437,7 +430,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 7: Ternary Operator (Inline If)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -489,7 +481,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 8: State Machine"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -507,7 +498,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 8: State Machine Solution"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -567,7 +557,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 8: State Machine Example"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -636,7 +625,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 10: Complex Predicate Conditions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -701,7 +689,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 11: Short-Circuit Evaluation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -736,7 +723,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Anti-Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -786,7 +772,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Conditional Logic Patterns Performance Tips"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -819,7 +804,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: File Type Classification"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -851,7 +835,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Test Priority Assignment"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

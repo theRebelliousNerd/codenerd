@@ -4,7 +4,6 @@
 - id: "domain/project/discovery"
   category: "domain"
   subcategory: "project"
-  priority: 90
   is_mandatory: false
   content: |
     ## PROJECT CONTEXT DISCOVERY
@@ -40,7 +39,6 @@
 - id: "domain/project/conventions"
   category: "domain"
   subcategory: "project"
-  priority: 85
   is_mandatory: false
   content: |
     ## PROJECT CONVENTIONS
@@ -84,7 +82,6 @@
 - id: "domain/project/integration"
   category: "domain"
   subcategory: "project"
-  priority: 80
   is_mandatory: false
   content: |
     ## PROJECT INTEGRATION

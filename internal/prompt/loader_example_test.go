@@ -76,7 +76,6 @@ func ExampleCreateAgentPrompts() {
 	// Create prompts.yaml
 	yamlContent := `- id: "my-agent/identity"
   category: "identity"
-  priority: 100
   is_mandatory: true
   shard_types: ["/custom"]
   content: |
@@ -86,7 +85,6 @@ func ExampleCreateAgentPrompts() {
 
 - id: "my-agent/constraints"
   category: "safety"
-  priority: 95
   is_mandatory: true
   shard_types: ["/custom"]
   depends_on: ["my-agent/identity"]

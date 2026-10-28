@@ -4,7 +4,6 @@
 - id: "framework/bubbles/core"
   category: "framework"
   subcategory: "bubbles"
-  priority: 61
   is_mandatory: false
   shard_types: ["/coder"]
   frameworks: ["/bubbles", "/bubbletea"]

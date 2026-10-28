@@ -4,7 +4,6 @@
 - id: "methodology/debugging/typescript"
   category: "methodology"
   subcategory: "debugging"
-  priority: 95
   is_mandatory: false
   languages: ["/typescript", "/javascript", "/node"]
   intent_verbs: ["/debug", "/fix", "/investigate"]

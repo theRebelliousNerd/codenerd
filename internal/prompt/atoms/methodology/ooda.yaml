@@ -4,7 +4,6 @@
 - id: "methodology/ooda/core"
   category: "methodology"
   subcategory: "ooda"
-  priority: 90
   is_mandatory: true
   content: |
     ## OODA LOOP: THE DECISION CYCLE
@@ -41,7 +40,6 @@
 - id: "methodology/ooda/observation"
   category: "methodology"
   subcategory: "ooda"
-  priority: 85
   is_mandatory: false
   depends_on: ["methodology/ooda/core"]
   content: |
@@ -74,7 +72,6 @@
 - id: "methodology/ooda/orientation"
   category: "methodology"
   subcategory: "ooda"
-  priority: 85
   is_mandatory: false
   depends_on: ["methodology/ooda/core"]
   content: |
@@ -106,7 +103,6 @@
 - id: "methodology/ooda/decision"
   category: "methodology"
   subcategory: "ooda"
-  priority: 85
   is_mandatory: false
   depends_on: ["methodology/ooda/core"]
   content: |
@@ -138,7 +134,6 @@
 - id: "methodology/ooda/action"
   category: "methodology"
   subcategory: "ooda"
-  priority: 85
   is_mandatory: false
   depends_on: ["methodology/ooda/core"]
   content: |

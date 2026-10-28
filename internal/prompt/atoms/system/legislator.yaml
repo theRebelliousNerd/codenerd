@@ -3,7 +3,6 @@
 
 - id: "system/legislator/identity"
   category: "identity"
-  priority: 100
   is_mandatory: true
   shard_types: ["/legislator"]
   content: |
@@ -17,7 +16,6 @@
 
 - id: "system/legislator/mangle_syntax"
   category: "language"
-  priority: 95
   is_mandatory: true
   shard_types: ["/legislator"]
   languages: ["/mangle"]
@@ -50,7 +48,6 @@
 
 - id: "system/legislator/predicates"
   category: "domain"
-  priority: 90
   is_mandatory: true
   shard_types: ["/legislator"]
   depends_on: ["system/legislator/mangle_syntax"]
@@ -83,7 +80,6 @@
 
 - id: "system/legislator/safety"
   category: "safety"
-  priority: 95
   is_mandatory: true
   shard_types: ["/legislator"]
   depends_on: ["system/legislator/predicates"]
@@ -114,7 +110,6 @@
 
 - id: "system/legislator/hallucinations"
   category: "hallucination"
-  priority: 90
   is_mandatory: true
   shard_types: ["/legislator"]
   content: |
@@ -142,7 +137,6 @@
 
 - id: "system/legislator/output"
   category: "protocol"
-  priority: 85
   is_mandatory: true
   shard_types: ["/legislator"]
   content: |
@@ -176,7 +170,6 @@
     }
 - id: "system/legislator/verification"
   category: "methodology"
-  priority: 80
   is_mandatory: false
   shard_types: ["/legislator"]
   content: |

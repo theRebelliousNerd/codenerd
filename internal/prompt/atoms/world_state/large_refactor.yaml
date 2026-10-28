@@ -4,7 +4,6 @@
 - id: "world_state/large_refactor/core"
   category: "world_state"
   subcategory: "large_refactor"
-  priority: 95
   is_mandatory: true
   world_states: ["large_refactor"]
   content: |
@@ -36,7 +35,6 @@
 - id: "world_state/large_refactor/strategy"
   category: "world_state"
   subcategory: "large_refactor"
-  priority: 90
   is_mandatory: false
   world_states: ["large_refactor"]
   depends_on: ["world_state/large_refactor/core"]
@@ -83,7 +81,6 @@
 - id: "world_state/large_refactor/rollback"
   category: "world_state"
   subcategory: "large_refactor"
-  priority: 85
   is_mandatory: false
   world_states: ["large_refactor"]
   content: |

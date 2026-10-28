@@ -10,7 +10,6 @@
 - id: "methodology/refactoring/foundation"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 100
   is_mandatory: true
   intent_verbs: ["/refactor"]
   content: |
@@ -46,7 +45,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "refactoring"
-  priority: 100
   is_mandatory: false
   intent_verbs: ["/refactor"]
   content: |
@@ -70,7 +68,6 @@
 - id: "methodology/refactoring/behavior_preservation"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 98
   is_mandatory: true
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -116,7 +113,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "refactoring"
-  priority: 98
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -148,7 +144,6 @@
 - id: "methodology/refactoring/catalog_composition"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 95
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -182,7 +177,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "refactoring"
-  priority: 95
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -225,7 +219,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "refactoring"
-  priority: 95
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -270,7 +263,6 @@
 - id: "methodology/refactoring/catalog_movement"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 94
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -307,7 +299,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "refactoring"
-  priority: 94
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -340,7 +331,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "refactoring"
-  priority: 94
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -367,7 +357,6 @@
   section_order: 3
   category: "methodology"
   subcategory: "refactoring"
-  priority: 94
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -402,7 +391,6 @@
 - id: "methodology/refactoring/catalog_data"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 93
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -445,7 +433,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "refactoring"
-  priority: 93
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -487,7 +474,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "refactoring"
-  priority: 93
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -535,7 +521,6 @@
   section_order: 3
   category: "methodology"
   subcategory: "refactoring"
-  priority: 93
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -556,7 +541,6 @@
 - id: "methodology/refactoring/catalog_conditionals"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 92
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -595,7 +579,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "refactoring"
-  priority: 92
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -628,7 +611,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "refactoring"
-  priority: 92
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -674,7 +656,6 @@
   section_order: 3
   category: "methodology"
   subcategory: "refactoring"
-  priority: 92
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -697,7 +678,6 @@
   section_order: 4
   category: "methodology"
   subcategory: "refactoring"
-  priority: 92
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -734,7 +714,6 @@
 - id: "methodology/refactoring/catalog_api"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 91
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -764,7 +743,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "refactoring"
-  priority: 91
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -804,7 +782,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "refactoring"
-  priority: 91
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -845,7 +822,6 @@
   section_order: 3
   category: "methodology"
   subcategory: "refactoring"
-  priority: 91
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -895,7 +871,6 @@
 - id: "methodology/refactoring/smells_bloaters"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 90
   is_mandatory: false
   intent_verbs: ["/refactor", "/review"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -928,7 +903,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "refactoring"
-  priority: 90
   is_mandatory: false
   intent_verbs: ["/refactor", "/review"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -976,7 +950,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "refactoring"
-  priority: 90
   is_mandatory: false
   intent_verbs: ["/refactor", "/review"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1008,7 +981,6 @@
   section_order: 3
   category: "methodology"
   subcategory: "refactoring"
-  priority: 90
   is_mandatory: false
   intent_verbs: ["/refactor", "/review"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1042,7 +1014,6 @@
 - id: "methodology/refactoring/smells_oo_abusers"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 89
   is_mandatory: false
   intent_verbs: ["/refactor", "/review"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1086,7 +1057,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "refactoring"
-  priority: 89
   is_mandatory: false
   intent_verbs: ["/refactor", "/review"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1125,7 +1095,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "refactoring"
-  priority: 89
   is_mandatory: false
   intent_verbs: ["/refactor", "/review"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1151,7 +1120,6 @@
 - id: "methodology/refactoring/smells_change_preventers"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 88
   is_mandatory: false
   intent_verbs: ["/refactor", "/review"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1197,7 +1165,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "refactoring"
-  priority: 88
   is_mandatory: false
   intent_verbs: ["/refactor", "/review"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1224,7 +1191,6 @@
 - id: "methodology/refactoring/smells_dispensables"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 87
   is_mandatory: false
   intent_verbs: ["/refactor", "/review"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1258,7 +1224,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "refactoring"
-  priority: 87
   is_mandatory: false
   intent_verbs: ["/refactor", "/review"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1299,7 +1264,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "refactoring"
-  priority: 87
   is_mandatory: false
   intent_verbs: ["/refactor", "/review"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1343,7 +1307,6 @@
 - id: "methodology/refactoring/smells_couplers"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 86
   is_mandatory: false
   intent_verbs: ["/refactor", "/review"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1373,7 +1336,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "refactoring"
-  priority: 86
   is_mandatory: false
   intent_verbs: ["/refactor", "/review"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1422,7 +1384,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "refactoring"
-  priority: 86
   is_mandatory: false
   intent_verbs: ["/refactor", "/review"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1462,7 +1423,6 @@
 - id: "methodology/refactoring/legacy_strategies"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 85
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1496,7 +1456,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "refactoring"
-  priority: 85
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1541,7 +1500,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "refactoring"
-  priority: 85
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1584,7 +1542,6 @@
   section_order: 3
   category: "methodology"
   subcategory: "refactoring"
-  priority: 85
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1604,7 +1561,6 @@
 - id: "methodology/refactoring/testability"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 84
   is_mandatory: false
   intent_verbs: ["/refactor", "/test"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1624,7 +1580,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "refactoring"
-  priority: 84
   is_mandatory: false
   intent_verbs: ["/refactor", "/test"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1701,7 +1656,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "refactoring"
-  priority: 84
   is_mandatory: false
   intent_verbs: ["/refactor", "/test"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1745,7 +1699,6 @@
 - id: "methodology/refactoring/performance"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 83
   is_mandatory: false
   intent_verbs: ["/refactor", "/optimize"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1785,7 +1738,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "refactoring"
-  priority: 83
   is_mandatory: false
   intent_verbs: ["/refactor", "/optimize"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1824,7 +1776,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "refactoring"
-  priority: 83
   is_mandatory: false
   intent_verbs: ["/refactor", "/optimize"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1878,7 +1829,6 @@
 - id: "methodology/refactoring/ai_safety"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 82
   is_mandatory: true
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1894,7 +1844,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "refactoring"
-  priority: 82
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1931,7 +1880,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "refactoring"
-  priority: 82
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -1980,7 +1928,6 @@
   section_order: 3
   category: "methodology"
   subcategory: "refactoring"
-  priority: 82
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -2017,7 +1964,6 @@
   section_order: 4
   category: "methodology"
   subcategory: "refactoring"
-  priority: 82
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -2058,7 +2004,6 @@
 - id: "methodology/refactoring/ai_workflow"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 81
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/ai_safety"]
@@ -2105,7 +2050,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "refactoring"
-  priority: 81
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/ai_safety"]
@@ -2158,7 +2102,6 @@
 - id: "methodology/refactoring/goals_readability"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 80
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -2207,7 +2150,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "refactoring"
-  priority: 80
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -2241,7 +2183,6 @@
 - id: "methodology/refactoring/goals_coupling"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 79
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -2282,7 +2223,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "refactoring"
-  priority: 79
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -2336,7 +2276,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "refactoring"
-  priority: 79
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -2363,7 +2302,6 @@
 - id: "methodology/refactoring/goals_testability"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 78
   is_mandatory: false
   intent_verbs: ["/refactor", "/test"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -2405,7 +2343,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "refactoring"
-  priority: 78
   is_mandatory: false
   intent_verbs: ["/refactor", "/test"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -2459,7 +2396,6 @@
 - id: "methodology/refactoring/goals_features"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 77
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -2509,7 +2445,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "refactoring"
-  priority: 77
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]
@@ -2559,7 +2494,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "refactoring"
-  priority: 77
   is_mandatory: false
   intent_verbs: ["/refactor"]
   depends_on: ["methodology/refactoring/foundation"]

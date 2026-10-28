@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Fix: Parse Error"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -80,7 +79,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Fix: Parse Error: 5. Missing `do` in Aggregation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

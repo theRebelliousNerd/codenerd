@@ -23,7 +23,7 @@ type AtomManifestEntry struct {
 	ID          string  `json:"id"`
 	Category    string  `json:"category"`
 	Source      string  `json:"source"`
-	Priority    int     `json:"priority"`
+	Importance  string  `json:"importance"`
 	LogicScore  float64 `json:"logic_score"`
 	VectorScore float64 `json:"vector_score"`
 	RenderMode  string  `json:"render_mode"` // "standard", "concise", "min"

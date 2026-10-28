@@ -4,7 +4,6 @@
 - id: "context/session/continuity"
   category: "context"
   subcategory: "session"
-  priority: 90
   is_mandatory: false
   content: |
     ## SESSION CONTINUITY PROTOCOL
@@ -38,7 +37,6 @@
 - id: "context/session/decisions"
   category: "context"
   subcategory: "session"
-  priority: 85
   is_mandatory: false
   content: |
     ## DECISION TRACKING
@@ -71,7 +69,6 @@
 - id: "context/session/progress"
   category: "context"
   subcategory: "session"
-  priority: 80
   is_mandatory: false
   content: |
     ## PROGRESS TRACKING

@@ -3,7 +3,6 @@
 - id: "language/mangle/encyclopedia"
   category: "language"
   subcategory: "mangle"
-  priority: 70
   is_mandatory: false
   shard_types: ["/coder", "/reviewer", "/executive"]
   languages: ["/mangle"]

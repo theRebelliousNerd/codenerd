@@ -4,7 +4,6 @@
 - id: "intent/review/core"
   category: "intent"
   subcategory: "review"
-  priority: 95
   is_mandatory: true
   intent_verbs: ["/review"]
   content: |
@@ -40,7 +39,6 @@
 - id: "intent/review/checklist"
   category: "intent"
   subcategory: "review"
-  priority: 90
   is_mandatory: false
   intent_verbs: ["/review"]
   depends_on: ["intent/review/core"]
@@ -78,7 +76,6 @@
 - id: "intent/review/severity"
   category: "intent"
   subcategory: "review"
-  priority: 85
   is_mandatory: false
   intent_verbs: ["/review"]
   content: |

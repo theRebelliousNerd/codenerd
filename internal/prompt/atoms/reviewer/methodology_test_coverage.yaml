@@ -4,7 +4,6 @@
 - id: "reviewer/methodology/test_coverage_fundamentals"
   category: "methodology"
   subcategory: "testing"
-  priority: 85
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check", "/analyze"]
@@ -59,7 +58,6 @@
 - id: "reviewer/methodology/mutation_testing"
   category: "methodology"
   subcategory: "testing"
-  priority: 80
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/analyze"]
@@ -130,7 +128,6 @@
 - id: "reviewer/methodology/test_quality"
   category: "methodology"
   subcategory: "testing"
-  priority: 84
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -205,7 +202,6 @@
 - id: "reviewer/methodology/test_edge_cases"
   category: "methodology"
   subcategory: "testing"
-  priority: 82
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -279,7 +275,6 @@
 - id: "reviewer/methodology/test_anti_patterns"
   category: "methodology"
   subcategory: "testing"
-  priority: 78
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/analyze"]
@@ -343,7 +338,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "testing"
-  priority: 78
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/analyze"]
@@ -388,7 +382,6 @@
 - id: "reviewer/methodology/test_coverage_gaps"
   category: "methodology"
   subcategory: "testing"
-  priority: 80
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]

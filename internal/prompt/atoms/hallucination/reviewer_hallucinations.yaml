@@ -4,7 +4,6 @@
 - id: "hallucination/reviewer/false_positive"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 95
   is_mandatory: true
   shard_types: ["/reviewer"]
   content: |
@@ -31,7 +30,6 @@
 - id: "hallucination/reviewer/outdated_pattern"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 90
   is_mandatory: true
   shard_types: ["/reviewer"]
   content: |
@@ -58,7 +56,6 @@
 - id: "hallucination/reviewer/style_as_bug"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 85
   is_mandatory: true
   shard_types: ["/reviewer"]
   content: |
@@ -85,7 +82,6 @@
 - id: "hallucination/reviewer/invented_vulnerability"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 95
   is_mandatory: true
   shard_types: ["/reviewer"]
   content: |
@@ -112,7 +108,6 @@
 - id: "hallucination/reviewer/missing_context"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 90
   is_mandatory: true
   shard_types: ["/reviewer"]
   content: |

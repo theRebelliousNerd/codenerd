@@ -183,7 +183,7 @@ func baseAtom() *prompt.PromptAtom {
 		Category:    prompt.CategoryMethodology,
 		Content:     "Write the failing test first.",
 		ShardTypes:  []string{"coder"},
-		Priority:    70,
+		Importance:    70,
 		IsMandatory: true,
 	}
 	a.ContentHash = prompt.HashContent(a.Content)

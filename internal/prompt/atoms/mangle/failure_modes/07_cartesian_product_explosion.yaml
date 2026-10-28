@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -29,7 +28,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion: Failure Mode 7: Cartesian Product Explosion Wrong Code"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -75,7 +73,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion: Failure Mode 7: Cartesian Product Explosion Correct Code"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -131,7 +128,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion: Correct Code Detection"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -160,7 +156,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion: Failure Mode 7: Cartesian Product Explosion Prevention"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -210,7 +205,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion: Optimization Patterns Reference"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -275,7 +269,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion: Pattern 4: Existence Checks Last"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -305,7 +298,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion: Complex Example: Dependency Analysis"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -352,7 +344,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion: Cardinality Estimation Table"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -380,7 +371,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion: Why Ordering Matters"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -435,7 +425,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion: Failure Mode 7: Cartesian Product Explosion Training Bias Origins"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -464,7 +453,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion: Debugging Aid"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

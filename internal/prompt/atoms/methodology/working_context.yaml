@@ -1,6 +1,5 @@
 - id: methodology/working_context
   category: methodology
-  priority: 95
   is_mandatory: false
   requires_tools: [recall_context]
   content: |

@@ -6,7 +6,6 @@
 - id: "northstar/derive/classify"
   category: "northstar"
   subcategory: "derive"
-  priority: 80
   is_mandatory: true
   northstar_phases: ["/derive_classify"]
   content: |
@@ -32,7 +31,6 @@
   section_order: 1
   category: "northstar"
   subcategory: "derive"
-  priority: 80
   is_mandatory: false
   northstar_phases: ["/derive_classify"]
   content: |
@@ -51,7 +49,6 @@
   section_order: 2
   category: "northstar"
   subcategory: "derive"
-  priority: 80
   is_mandatory: false
   northstar_phases: ["/derive_classify"]
   content: |

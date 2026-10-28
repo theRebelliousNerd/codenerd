@@ -4,7 +4,6 @@
 - id: "language/python/ai_failures/mutable_defaults"
   category: "language"
   subcategory: "python"
-  priority: 95
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -84,7 +83,6 @@
 - id: "language/python/ai_failures/late_binding"
   category: "language"
   subcategory: "python"
-  priority: 94
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -150,7 +148,6 @@
 - id: "language/python/ai_failures/class_attributes"
   category: "language"
   subcategory: "python"
-  priority: 93
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -233,7 +230,6 @@
 - id: "language/python/ai_failures/generator_exhaustion"
   category: "language"
   subcategory: "python"
-  priority: 90
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -315,7 +311,6 @@
 - id: "language/python/ai_failures/circular_imports"
   category: "language"
   subcategory: "python"
-  priority: 89
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -401,7 +396,6 @@
 - id: "language/python/ai_failures/init_vs_new"
   category: "language"
   subcategory: "python"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -461,7 +455,6 @@
   section_order: 1
   category: "language"
   subcategory: "python"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -510,7 +503,6 @@
 - id: "language/python/ai_failures/asyncio_mistakes"
   category: "language"
   subcategory: "python"
-  priority: 91
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -572,7 +564,6 @@
   section_order: 1
   category: "language"
   subcategory: "python"
-  priority: 91
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -614,7 +605,6 @@
 - id: "language/python/ai_failures/hallucinations"
   category: "language"
   subcategory: "python"
-  priority: 92
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -671,7 +661,6 @@
   section_order: 1
   category: "language"
   subcategory: "python"
-  priority: 92
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -723,7 +712,6 @@
 - id: "language/python/ai_failures/exception_handling"
   category: "language"
   subcategory: "python"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -783,7 +771,6 @@
   section_order: 1
   category: "language"
   subcategory: "python"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -836,7 +823,6 @@
   section_order: 2
   category: "language"
   subcategory: "python"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]

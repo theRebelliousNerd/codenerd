@@ -16,6 +16,11 @@ Decl mandatory_selection(Atom).
 Decl mandatory_superseded(Atom).
 Decl prohibited(Atom).
 Decl candidate_selection(Atom, Score).
+Decl flesh_recall(Atom, Score).
+Decl atom_relevance_band(Atom, Band) bound [/string, /name].
+Decl relevance_judged(Atom) bound [/string].
+Decl flesh_admitted(Atom, Row) bound [/string, /name].
+Decl flesh_refused(Atom, Row) bound [/string, /name].
 
 # Conflict resolution
 Decl beats(A, B).
@@ -28,7 +33,7 @@ Decl invalid(Atom).
 
 # Final output
 Decl final_valid(Atom).
-Decl selected_result(Atom, Priority, Source).
+Decl selected_result(Atom, Source).
 
 # =============================================================================
 
@@ -228,21 +233,69 @@ prohibited(B) :-
     atom_conflicts(A, B),
     mandatory_selection(A).
     
-# --- 3. FLESH (Probabilistic Selection) ---
+# --- 3. FLESH (Recall, then relevance) ---
 
-# Candidates from Vector Search
-# Must match context, not be prohibited, and score high enough.
-candidate_selection(Atom, Score) :-
+# Recall: the vector channel's hits. Go asserts vector_hit for the recall
+# pool, and vector_slot for the hits the vector channel alone keeps (its
+# relative floor and top-K). Without Jev the pool IS those slots.
+flesh_recall(Atom, Score) :-
     vector_hit(Atom, Score),
     !blocked_by_context(Atom),
     !prohibited(Atom).
 
+# Jev's per-turn reading of "Does this guidance apply to this request?"
+# (internal/atomjudge), asserted as atom_relevance(Atom, Percent) only for an
+# atom Jev answered about this turn, read against the turn's thresholds
+# (typesafe judgment_yes_percent / judgment_no_percent).
+atom_relevance_band(Atom, /applies) :-
+    atom_relevance(Atom, P),
+    atom_relevance_threshold(/yes, Yes),
+    P >= Yes.
+atom_relevance_band(Atom, /does_not_apply) :-
+    atom_relevance(Atom, P),
+    atom_relevance_threshold(/no, No),
+    P <= No.
+atom_relevance_band(Atom, /unsettled) :-
+    atom_relevance(Atom, P),
+    atom_relevance_threshold(/yes, Yes),
+    atom_relevance_threshold(/no, No),
+    P < Yes,
+    P > No.
+relevance_judged(Atom) :- atom_relevance(Atom, _).
+
+# The admission table, one row per band. A missing judgment (Jev off, failed,
+# late, or the atom not asked) is never a "no": it is the vector channel's
+# decision, exactly as without Jev.
+#   applies          -> admitted from anywhere in the recall pool
+#   unsettled        -> admitted only from a vector slot
+#   not judged       -> admitted only from a vector slot
+#   does not apply   -> refused, even from a vector slot
+flesh_admitted(Atom, /judged_applies) :-
+    flesh_recall(Atom, _),
+    atom_relevance_band(Atom, /applies).
+flesh_admitted(Atom, /unsettled_vector_slot) :-
+    flesh_recall(Atom, _),
+    atom_relevance_band(Atom, /unsettled),
+    vector_slot(Atom).
+flesh_admitted(Atom, /unjudged_vector_slot) :-
+    flesh_recall(Atom, _),
+    vector_slot(Atom),
+    !relevance_judged(Atom).
+flesh_refused(Atom, /judged_does_not_apply) :-
+    flesh_recall(Atom, _),
+    atom_relevance_band(Atom, /does_not_apply).
+
+candidate_selection(Atom, Score) :-
+    flesh_admitted(Atom, _),
+    flesh_recall(Atom, Score).
+
 # Runtime knowledge and learnings do not live in the prompt-vector index.
 # Their retrieval witness admits a candidate, while the same executive
-# context, conflict, dependency, and final budget checks still apply.
-candidate_selection(Atom, Priority) :-
+# context, conflict, dependency, and final budget checks still apply. The
+# retrieval already matched them to this task, so they enter at full score;
+# their IDs are content hashes, so no authored conflict names them.
+candidate_selection(Atom, 100) :-
     retrieved_context(Atom),
-    atom_priority(Atom, Priority),
     !blocked_by_context(Atom),
     !prohibited(Atom).
 
@@ -320,13 +373,11 @@ final_valid(Atom) :-
     !invalid(Atom).
 
 # Report selected atoms for Go Assembly
-# selected_result(Atom, Priority, Source)
-selected_result(Atom, Prio, /skeleton) :-
+# selected_result(Atom, Source)
+selected_result(Atom, /skeleton) :-
     final_valid(Atom),
-    atom_priority(Atom, Prio),
     mandatory_selection(Atom).
 
-selected_result(Atom, Prio, /flesh) :-
+selected_result(Atom, /flesh) :-
     final_valid(Atom),
-    atom_priority(Atom, Prio),
     !mandatory_selection(Atom).

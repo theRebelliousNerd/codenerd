@@ -116,7 +116,7 @@ func TestJITPageModelUpdateAndRender(t *testing.T) {
 		{
 			ID:          "atom-high",
 			Category:    prompt.CategoryIdentity,
-			Priority:    10,
+			Importance:    10,
 			TokenCount:  20,
 			IsMandatory: true,
 			Content:     "high content",
@@ -124,7 +124,7 @@ func TestJITPageModelUpdateAndRender(t *testing.T) {
 		{
 			ID:          "atom-low",
 			Category:    prompt.CategoryProtocol,
-			Priority:    1,
+			Importance:    1,
 			TokenCount:  5,
 			IsMandatory: false,
 			Content:     "low content",
@@ -158,7 +158,7 @@ func TestJITPageModelUpdateAndRender(t *testing.T) {
 		largeAtoms[i] = &prompt.PromptAtom{
 			ID:          fmt.Sprintf("atom-%d", i),
 			Category:    prompt.CategoryContext,
-			Priority:    1,
+			Importance:    1,
 			TokenCount:  10,
 			IsMandatory: false,
 			Content:     fmt.Sprintf("content %d", i),

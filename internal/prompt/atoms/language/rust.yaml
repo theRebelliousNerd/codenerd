@@ -4,7 +4,6 @@
 - id: "language/rust/fundamentals"
   category: "language"
   subcategory: "rust"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   languages: ["/rust"]
@@ -32,7 +31,6 @@
 - id: "language/rust/idioms"
   category: "language"
   subcategory: "rust"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   languages: ["/rust"]
@@ -66,7 +64,6 @@
 - id: "language/rust/concurrency"
   category: "language"
   subcategory: "rust"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   languages: ["/rust"]
@@ -99,7 +96,6 @@
 - id: "language/rust/testing"
   category: "language"
   subcategory: "rust"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   languages: ["/rust"]

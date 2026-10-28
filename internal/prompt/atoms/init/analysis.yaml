@@ -4,7 +4,6 @@
 - id: "init/analysis/mission"
   category: "init"
   subcategory: "analysis"
-  priority: 75
   is_mandatory: true
   shard_types: ["/researcher"]
   init_phases: ["/analysis"]
@@ -40,7 +39,6 @@
 - id: "init/analysis/constraints"
   category: "init"
   subcategory: "analysis"
-  priority: 70
   is_mandatory: true
   shard_types: ["/researcher"]
   init_phases: ["/analysis"]

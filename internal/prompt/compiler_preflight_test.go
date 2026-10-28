@@ -74,7 +74,7 @@ func identityCompiler(t *testing.T, kernel *identityKernel) *JITPromptCompiler {
 	compiler, err := NewJITPromptCompiler(
 		WithEmbeddedCorpus(NewEmbeddedCorpus([]*PromptAtom{{
 			ID: "identity/coder", Category: CategoryIdentity, Content: "You are the Coder Shard.",
-			Priority: 100, IsMandatory: true, TokenCount: 8,
+			Importance: 100, IsMandatory: true, TokenCount: 8,
 		}})),
 		WithKernel(kernel),
 	)

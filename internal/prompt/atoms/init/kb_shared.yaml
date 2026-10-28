@@ -4,7 +4,6 @@
 - id: "init/kb_shared/creation"
   category: "init"
   subcategory: "kb_shared"
-  priority: 75
   is_mandatory: true
   shard_types: ["/researcher"]
   init_phases: ["/shared_kb"]
@@ -67,7 +66,6 @@
   section_order: 1
   category: "init"
   subcategory: "kb_shared"
-  priority: 75
   is_mandatory: false
   shard_types: ["/researcher"]
   init_phases: ["/shared_kb"]

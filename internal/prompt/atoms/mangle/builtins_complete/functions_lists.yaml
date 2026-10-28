@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: List Operations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -41,7 +40,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: List Operations: fn:cons"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -102,7 +100,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: List Operations: List Access"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -167,7 +164,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: List Operations: List Operations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -231,7 +227,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: List Operations: List Processing Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -306,7 +301,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: List Operations: List Aggregation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -360,7 +354,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: List Operations: List Comparison"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -434,7 +427,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: List Operations: List Functions Summary"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

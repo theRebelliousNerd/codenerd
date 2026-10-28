@@ -4,7 +4,6 @@
 - id: "hallucination/coder/scratch_artifacts"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 95
   is_mandatory: true
   shard_types: ["/coder"]
   world_states: ["authoring_code"]

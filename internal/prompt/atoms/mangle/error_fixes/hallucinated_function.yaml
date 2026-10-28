@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Fix: Hallucinated Function"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -29,7 +28,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Fix: Hallucinated Function: Common Hallucinations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -73,7 +71,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Fix: Hallucinated Function: Available Built-in Functions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -124,7 +121,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Fix: Hallucinated Function: Fix Strategy"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

@@ -4,7 +4,6 @@
 - id: "framework/sqlc/basics"
   category: "framework"
   subcategory: "sqlc"
-  priority: 65
   is_mandatory: false
   shard_types: ["/coder"]
   languages: ["/go"]
@@ -64,7 +63,6 @@
 - id: "framework/sqlc/advanced"
   category: "framework"
   subcategory: "sqlc"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   languages: ["/go"]
@@ -134,7 +132,6 @@
 - id: "framework/sqlc/patterns"
   category: "framework"
   subcategory: "sqlc"
-  priority: 55
   is_mandatory: false
   shard_types: ["/coder"]
   languages: ["/go"]

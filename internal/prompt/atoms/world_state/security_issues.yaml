@@ -4,7 +4,6 @@
 - id: "world_state/security/core"
   category: "world_state"
   subcategory: "security"
-  priority: 100
   is_mandatory: true
   world_states: ["security_issues"]
   content: |
@@ -29,7 +28,6 @@
 - id: "world_state/security/vulnerabilities"
   category: "world_state"
   subcategory: "security"
-  priority: 95
   is_mandatory: false
   world_states: ["security_issues"]
   depends_on: ["world_state/security/core"]
@@ -65,7 +63,6 @@
 - id: "world_state/security/fixes"
   category: "world_state"
   subcategory: "security"
-  priority: 90
   is_mandatory: false
   world_states: ["security_issues"]
   content: |

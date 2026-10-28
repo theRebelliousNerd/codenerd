@@ -8,7 +8,7 @@ import (
 )
 
 // Candidate facts are the selector's description of every candidate atom:
-// atom/1, atom_category/2, atom_priority/2, prompt_atom/5, atom_tag/3,
+// atom/1, atom_category/2, atom_importance/2, prompt_atom/4, atom_tag/3,
 // atom_requires/2, atom_conflicts/2, atom_requires_tool/2 and is_mandatory/1.
 // A compile emits them for the whole candidate set -- tens of thousands of
 // rows for the shipped corpus -- and they used to be rendered as Mangle text
@@ -70,9 +70,9 @@ func (s *AtomSelector) appendCandidateFacts(facts []any, atoms []*PromptAtom, fo
 			facts = append(facts, Fact{Predicate: "is_mandatory", Args: []any{atom.ID}})
 		}
 		// Schema (schemas_prompts.mg):
-		//   Decl prompt_atom(AtomID, Category, Priority, TokenCount, IsMandatory)
-		//                    /string  /name    /number   /number    /name
-		// Position 3 is the TokenCount, never the content hash: a hex string
+		//   Decl prompt_atom(AtomID, Category, TokenCount, IsMandatory)
+		//                    /string  /name    /number     /name
+		// Position 2 is the TokenCount, never the content hash: a hex string
 		// there broke every fn:plus / fn:max over the slot.
 		if category := candidateCategoryName(atom); category != "" {
 			mandatory := types.MangleAtom("/false")
@@ -80,7 +80,7 @@ func (s *AtomSelector) appendCandidateFacts(facts []any, atoms []*PromptAtom, fo
 				mandatory = types.MangleAtom("/true")
 			}
 			facts = append(facts, Fact{Predicate: "prompt_atom", Args: []any{
-				atom.ID, category, int64(atom.Priority), int64(atom.TokenCount), mandatory,
+				atom.ID, category, int64(atom.TokenCount), mandatory,
 			}})
 		}
 
@@ -111,7 +111,11 @@ func staticCandidateFacts(atom *PromptAtom) []any {
 	facts := []any{
 		Fact{Predicate: "atom", Args: []any{id}},
 		Fact{Predicate: "atom_category", Args: []any{id, candidateCategoryName(atom)}},
-		Fact{Predicate: "atom_priority", Args: []any{id, int64(atom.Priority)}},
+	}
+	// An unscored atom has no importance fact: no importance rule decides
+	// anything about it (importance.go).
+	if atom.Importance.Scored() {
+		facts = append(facts, Fact{Predicate: "atom_importance", Args: []any{id, int64(atom.Importance)}})
 	}
 
 	// Tags use name constants for dimension and value: current_context

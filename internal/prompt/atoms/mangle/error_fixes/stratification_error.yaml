@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Fix: Stratification Error"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -57,7 +56,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Fix: Stratification Error: Fix Strategy"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -129,7 +127,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Fix: Stratification Error: Fix: Stratification Error Prevention"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

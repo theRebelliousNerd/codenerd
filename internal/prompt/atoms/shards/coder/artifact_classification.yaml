@@ -4,7 +4,6 @@
 - id: "shards/coder/artifact_classification"
   category: "methodology"
   subcategory: "classification"
-  priority: 80
   is_mandatory: true
   shard_types: ["/coder"]
   content: |

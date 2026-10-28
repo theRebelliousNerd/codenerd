@@ -4,7 +4,6 @@
 - id: "exemplar/go/error_handling"
   category: "exemplar"
   subcategory: "go"
-  priority: 90
   is_mandatory: false
   languages: ["/go"]
   content: |
@@ -63,7 +62,6 @@
 - id: "exemplar/go/concurrency"
   category: "exemplar"
   subcategory: "go"
-  priority: 85
   is_mandatory: false
   languages: ["/go"]
   content: |
@@ -119,7 +117,6 @@
   section_order: 1
   category: "exemplar"
   subcategory: "go"
-  priority: 85
   is_mandatory: false
   languages: ["/go"]
   content: |
@@ -158,7 +155,6 @@
 - id: "exemplar/go/interfaces"
   category: "exemplar"
   subcategory: "go"
-  priority: 80
   is_mandatory: false
   languages: ["/go"]
   content: |

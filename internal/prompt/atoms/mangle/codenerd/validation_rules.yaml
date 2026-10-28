@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -31,7 +30,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 1. Atom vs. String Confusion"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -91,7 +89,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 4. Inline Aggregation (SQL Style)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -142,7 +139,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 6. Missing Periods"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -208,7 +204,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: II. Semantic Safety & Logic (The \"Datalog\" Gap)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -256,7 +251,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 11. Stratification Cycles"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -307,7 +301,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 13. Cartesian Product Explosion"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -368,7 +361,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 16. Anonymous Variable Misuse"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -419,7 +411,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 18. List Indexing"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -479,7 +470,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 21. Hallucinated Functions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -531,7 +521,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 23. Struct Syntax"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -591,7 +580,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 26. Ignoring Imports"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -639,7 +627,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 28. Parsing vs. Execution"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -683,7 +670,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 30. Package Hallucination (Slopsquatting)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -737,7 +723,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: Validation Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -767,7 +752,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: Quick Reference Card"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

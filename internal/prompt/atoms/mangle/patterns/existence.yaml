@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Existence Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -71,7 +70,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Existence Patterns: Variation 1: Conditional Existence (IF-THEN)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -115,7 +113,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Existence Patterns: Variation 2: Find First Match"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -167,7 +164,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Existence Patterns: Variation 3: All Items Have Property"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -225,7 +221,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Existence Patterns: Variation 4: At Least N Items Exist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -277,7 +272,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Existence Patterns: Variation 5: Unique Existence (Exactly One)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -331,7 +325,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Existence Patterns: Variation 6: Missing Relationship Detection"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -377,7 +370,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Existence Patterns: Variation 7: Exists in Both Sets (Intersection Test)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -429,7 +421,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Existence Patterns: Variation 8: Any vs. All (Existential vs. Universal)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -483,7 +474,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Existence Patterns: Variation 9: Existence with Path (Reachability)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -533,7 +523,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Existence Patterns: Variation 10: Find First Non-Null"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -586,7 +575,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Existence Patterns: Variation 11: Exists with Join"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -637,7 +625,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Existence Patterns: Anti-Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -687,7 +674,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Existence Patterns: Existence Patterns Performance Tips"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -721,7 +707,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Existence Patterns: Verify All Functions Are Documented"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

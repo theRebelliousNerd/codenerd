@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -25,7 +24,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 1: Creating Predicates at Runtime"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -86,7 +84,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 2: Computed Predicate Names"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -144,7 +141,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 3: Predicates as First-Class Values"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -199,7 +195,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 4: Reflection / Introspection"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -253,7 +248,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 5: Dynamic Arity"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -316,7 +310,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 6: Predicate Aliasing"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -362,7 +355,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 7: Conditional Predicate Definition"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -425,7 +417,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 8: Predicate Overloading"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -483,7 +474,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 9: Storing Predicates in Data Structures"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -541,7 +531,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 10: Meta-Circular Evaluation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -601,7 +590,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 11: Higher-Order Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -661,7 +649,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 12: Dynamic Composition"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -728,7 +715,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Pattern: Simulating Dynamic Behavior"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -800,7 +786,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Key Principle: Static Predicates, Dynamic Data"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -829,7 +814,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern: Dynamic Predicates Migration Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -859,7 +843,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Pro Tip: Atoms Are Your Friends"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

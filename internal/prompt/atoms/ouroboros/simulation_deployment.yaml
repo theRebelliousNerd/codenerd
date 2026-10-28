@@ -4,7 +4,6 @@
 - id: "ouroboros/stages/simulation"
   category: "ouroboros"
   subcategory: "stages"
-  priority: 78
   is_mandatory: false
   ouroboros_stages: ["/simulation"]
   content: |
@@ -33,7 +32,6 @@
 - id: "ouroboros/stages/deployment"
   category: "ouroboros"
   subcategory: "stages"
-  priority: 77
   is_mandatory: false
   ouroboros_stages: ["/deployment"]
   content: |

@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Mutation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -46,7 +45,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Mutation: Anti-Pattern 1: In-Place Update Correct Mangle Way"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -94,7 +92,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Mutation: Anti-Pattern 2: Incrementing Counters"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -161,7 +158,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Mutation: Anti-Pattern 3: Array/List Mutation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -231,7 +227,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Mutation: Anti-Pattern 4: Field Assignment"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -302,7 +297,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Mutation: Anti-Pattern 5: Deleting Items"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -369,7 +363,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Mutation: Anti-Pattern 6: Accumulator Pattern"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -431,7 +424,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Mutation: Anti-Pattern 7: Clearing Collections"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -499,7 +491,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Mutation: Anti-Pattern 8: Swapping Values"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -567,7 +558,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Mutation: Anti-Pattern 9: Resetting State"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -636,7 +626,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Mutation: Anti-Pattern 10: Toggling Boolean"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -710,7 +699,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Mutation: Pattern: Modeling Mutable State in Immutable Logic"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -758,7 +746,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Mutation: 3. Soft Deletes / Tombstones"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -804,7 +791,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Mutation: Key Principle: Immutability"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -831,7 +817,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Mutation: Anti-Pattern: Mutation Migration Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -860,7 +845,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Mutation: Pro Tip: Embrace Immutability"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

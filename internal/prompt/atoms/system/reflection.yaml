@@ -2,7 +2,6 @@
 - id: "system/reflection/meta_cognition"
   category: "context"
   subcategory: "reflection"
-  priority: 84
   is_mandatory: false
   world_states: ["reflection_hits"]
   content: |

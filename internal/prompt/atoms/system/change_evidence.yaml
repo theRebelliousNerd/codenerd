@@ -1,6 +1,5 @@
 - id: "system/change_evidence"
   category: "protocol"
-  priority: 98
   is_mandatory: true
   intent_verbs: ["/fix", "/create", "/refactor", "/implement"]
   content: |

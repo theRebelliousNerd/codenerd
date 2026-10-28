@@ -4,7 +4,6 @@
 - id: "knowledge/persistence/tiers"
   category: "knowledge"
   subcategory: "persistence"
-  priority: 90
   is_mandatory: false
   content: |
     ## 4-TIER MEMORY ARCHITECTURE
@@ -38,7 +37,6 @@
 - id: "knowledge/persistence/storage"
   category: "knowledge"
   subcategory: "persistence"
-  priority: 85
   is_mandatory: false
   content: |
     ## STORAGE PATTERNS
@@ -96,7 +94,6 @@
 - id: "knowledge/persistence/lifecycle"
   category: "knowledge"
   subcategory: "persistence"
-  priority: 80
   is_mandatory: false
   content: |
     ## KNOWLEDGE LIFECYCLE

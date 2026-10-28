@@ -4,7 +4,6 @@
 - id: "identity/tester/mission"
   category: "identity"
   subcategory: "mission"
-  priority: 100
   is_mandatory: true
   shard_types: ["/tester"]
   intent_verbs: ["/test", "/cover", "/verify", "/validate", "/check"]
@@ -26,7 +25,6 @@
 - id: "identity/tester/constraints"
   category: "identity"
   subcategory: "constraints"
-  priority: 95
   is_mandatory: true
   shard_types: ["/tester"]
   intent_verbs: ["/test", "/cover", "/verify", "/validate", "/check"]
@@ -57,7 +55,6 @@
 - id: "identity/tester/methodology"
   category: "identity"
   subcategory: "methodology"
-  priority: 80
   is_mandatory: false
   shard_types: ["/tester"]
   intent_verbs: ["/test", "/cover", "/verify", "/validate", "/check"]
@@ -100,7 +97,6 @@
 - id: "identity/tester/tool_usage"
   category: "identity"
   subcategory: "tools"
-  priority: 98
   is_mandatory: true
   shard_types: ["/tester"]
   intent_verbs: ["/test", "/cover", "/verify", "/validate", "/check"]

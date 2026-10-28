@@ -4,7 +4,6 @@
 - id: "northstar/goal/definition"
   category: "northstar"
   subcategory: "goals"
-  priority: 85
   is_mandatory: false
   northstar_phases: ["/doc_ingestion", "/problem", "/vision"]
   content: |
@@ -38,7 +37,6 @@
 - id: "northstar/goal/progress"
   category: "northstar"
   subcategory: "goals"
-  priority: 80
   is_mandatory: false
   northstar_phases: ["/requirements", "/roadmap", "/validation"]
   content: |
@@ -74,7 +72,6 @@
 - id: "northstar/goal/alignment"
   category: "northstar"
   subcategory: "alignment"
-  priority: 85
   is_mandatory: false
   northstar_phases: ["/doc_ingestion", "/problem", "/vision", "/requirements", "/architecture", "/roadmap", "/validation"]
   content: |

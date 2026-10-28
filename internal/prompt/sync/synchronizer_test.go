@@ -32,7 +32,6 @@ func TestAgentSynchronizerSyncAll(t *testing.T) {
 
 	yaml := `- id: agent-one-atom
   category: identity
-  priority: 100
   is_mandatory: true
   content: "You are agent one."
 `
@@ -88,12 +87,10 @@ func TestAgentSynchronizerSyncAll_PrunesRemovedAtoms(t *testing.T) {
 	promptsPath := filepath.Join(agentDir, "prompts.yaml")
 	initialYAML := `- id: agent-one-atom
   category: identity
-  priority: 100
   is_mandatory: true
   content: "You are agent one."
 - id: stale-atom
   category: methodology
-  priority: 50
   is_mandatory: false
   content: "This atom should be pruned."
 `
@@ -109,7 +106,6 @@ func TestAgentSynchronizerSyncAll_PrunesRemovedAtoms(t *testing.T) {
 
 	updatedYAML := `- id: agent-one-atom
   category: identity
-  priority: 100
   is_mandatory: true
   content: "You are agent one, updated."
 `
@@ -161,12 +157,10 @@ func TestAgentSynchronizerSyncAll_FailsClosedOnInvalidAgentYAML(t *testing.T) {
 	}
 	invalid := `- id: valid-prefix
   category: identity
-  priority: 100
   is_mandatory: true
   content: valid
 - id: invalid-tail
   category: identity
-  priority: 100
   is_mandatory: true
   unknown_field: rejected
   content: invalid

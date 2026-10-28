@@ -4,7 +4,6 @@
 - id: "ouroboros/refinement/feedback_analysis"
   category: "ouroboros"
   subcategory: "refinement"
-  priority: 70
   is_mandatory: true
   ouroboros_stages: ["/refinement"]
   content: |
@@ -32,7 +31,6 @@
 - id: "ouroboros/refinement/pattern_detection"
   category: "ouroboros"
   subcategory: "refinement"
-  priority: 80
   is_mandatory: true
   ouroboros_stages: ["/refinement"]
   depends_on: ["ouroboros/refinement/feedback_analysis"]
@@ -62,7 +60,6 @@
 - id: "ouroboros/refinement/improvement_strategies"
   category: "ouroboros"
   subcategory: "refinement"
-  priority: 70
   is_mandatory: false
   ouroboros_stages: ["/refinement"]
   depends_on: ["ouroboros/refinement/pattern_detection"]
@@ -131,7 +128,6 @@
 - id: "ouroboros/refinement/safety_violation_fixes"
   category: "ouroboros"
   subcategory: "refinement"
-  priority: 95
   is_mandatory: true
   ouroboros_stages: ["/refinement"]
   content: |
@@ -198,7 +194,6 @@
 - id: "ouroboros/refinement/output_format"
   category: "ouroboros"
   subcategory: "refinement"
-  priority: 60
   is_mandatory: false
   ouroboros_stages: ["/refinement"]
   content: |

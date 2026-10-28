@@ -4,7 +4,6 @@
 - id: "build_layer/domain_core/principles"
   category: "build_layer"
   subcategory: "domain_core"
-  priority: 95
   is_mandatory: true
   build_layers: ["/domain_core"]
   content: |
@@ -34,7 +33,6 @@
 - id: "build_layer/domain_core/entities"
   category: "build_layer"
   subcategory: "domain_core"
-  priority: 90
   is_mandatory: false
   build_layers: ["/domain_core"]
   depends_on: ["build_layer/domain_core/principles"]
@@ -91,7 +89,6 @@
 - id: "build_layer/domain_core/value_objects"
   category: "build_layer"
   subcategory: "domain_core"
-  priority: 85
   is_mandatory: false
   build_layers: ["/domain_core"]
   content: |

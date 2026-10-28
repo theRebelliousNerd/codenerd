@@ -5,7 +5,6 @@
 - id: "methodology/refactoring/quickref"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 75
   is_mandatory: false
   intent_verbs: ["/refactor"]
   content: |
@@ -94,7 +93,6 @@
 - id: "methodology/refactoring/smell_quickref"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 74
   is_mandatory: false
   intent_verbs: ["/refactor", "/review"]
   content: |
@@ -144,7 +142,6 @@
 - id: "methodology/refactoring/extract_method_quickref"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 73
   is_mandatory: false
   intent_verbs: ["/refactor"]
   content: |
@@ -187,7 +184,6 @@
 - id: "methodology/refactoring/legacy_quickref"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 72
   is_mandatory: false
   intent_verbs: ["/refactor"]
   content: |
@@ -239,7 +235,6 @@
 - id: "methodology/refactoring/ai_checklist"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 71
   is_mandatory: false
   intent_verbs: ["/refactor"]
   content: |
@@ -298,7 +293,6 @@
 - id: "methodology/refactoring/naming_quickref"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 70
   is_mandatory: false
   intent_verbs: ["/refactor"]
   content: |
@@ -345,7 +339,6 @@
 - id: "methodology/refactoring/coupling_quickref"
   category: "methodology"
   subcategory: "refactoring"
-  priority: 69
   is_mandatory: false
   intent_verbs: ["/refactor"]
   content: |

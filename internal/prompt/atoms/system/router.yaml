@@ -3,7 +3,6 @@
 
 - id: "system/router/identity"
   category: "identity"
-  priority: 100
   is_mandatory: true
   shard_types: ["/router"]
   content: |
@@ -13,7 +12,6 @@
 
 - id: "system/router/routing_protocol"
   category: "protocol"
-  priority: 95
   is_mandatory: true
   shard_types: ["/router"]
   depends_on: ["system/router/identity"]
@@ -41,7 +39,6 @@
 
 - id: "system/router/peripheral_registry"
   category: "domain"
-  priority: 90
   is_mandatory: true
   shard_types: ["/router"]
   depends_on: ["system/router/routing_protocol"]
@@ -75,7 +72,6 @@
 
 - id: "system/router/error_handling"
   category: "safety"
-  priority: 85
   is_mandatory: true
   shard_types: ["/router"]
   content: |

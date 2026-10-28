@@ -38,7 +38,6 @@
 - id: "methodology/tdd/coverage_mandate"
   category: "methodology"
   subcategory: "tdd"
-  priority: 96
   is_mandatory: true
   shard_types: ["/coder", "/tester"]
   world_states: ["authoring_code"]
@@ -65,7 +64,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "tdd"
-  priority: 96
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   world_states: ["authoring_code"]
@@ -89,7 +87,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "tdd"
-  priority: 96
   is_mandatory: false
   shard_types: ["/coder", "/tester"]
   world_states: ["authoring_code"]

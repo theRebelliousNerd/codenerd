@@ -4,7 +4,6 @@
 - id: "shards/coder/session_context"
   category: "methodology"
   subcategory: "context"
-  priority: 85
   is_mandatory: true
   shard_types: ["/coder"]
   content: |
@@ -38,7 +37,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "context"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder"]
   content: |
@@ -80,7 +78,6 @@
   section_order: 2
   category: "methodology"
   subcategory: "context"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder"]
   content: |

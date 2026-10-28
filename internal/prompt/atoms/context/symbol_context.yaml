@@ -4,7 +4,6 @@
 - id: "context/symbol/resolution"
   category: "context"
   subcategory: "symbol"
-  priority: 90
   is_mandatory: false
   content: |
     ## SYMBOL RESOLUTION PROTOCOL
@@ -37,7 +36,6 @@
 - id: "context/symbol/dependencies"
   category: "context"
   subcategory: "symbol"
-  priority: 85
   is_mandatory: false
   content: |
     ## DEPENDENCY CONTEXT
@@ -75,7 +73,6 @@
 - id: "context/symbol/call_graph"
   category: "context"
   subcategory: "symbol"
-  priority: 80
   is_mandatory: false
   content: |
     ## CALL GRAPH ANALYSIS

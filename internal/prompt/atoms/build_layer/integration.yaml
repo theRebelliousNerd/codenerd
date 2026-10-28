@@ -4,7 +4,6 @@
 - id: "build_layer/integration/principles"
   category: "build_layer"
   subcategory: "integration"
-  priority: 95
   is_mandatory: true
   build_layers: ["/integration"]
   content: |
@@ -37,7 +36,6 @@
 - id: "build_layer/integration/adapter"
   category: "build_layer"
   subcategory: "integration"
-  priority: 90
   is_mandatory: false
   build_layers: ["/integration"]
   depends_on: ["build_layer/integration/principles"]
@@ -75,7 +73,6 @@
   section_order: 1
   category: "build_layer"
   subcategory: "integration"
-  priority: 90
   is_mandatory: false
   build_layers: ["/integration"]
   depends_on: ["build_layer/integration/principles"]
@@ -128,7 +125,6 @@
 - id: "build_layer/integration/resilience"
   category: "build_layer"
   subcategory: "integration"
-  priority: 85
   is_mandatory: false
   build_layers: ["/integration"]
   content: |

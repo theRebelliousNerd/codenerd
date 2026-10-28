@@ -4,7 +4,6 @@
 - id: "language/typescript/generics/fundamentals"
   category: "language"
   subcategory: "typescript"
-  priority: 83
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -83,7 +82,6 @@
 - id: "language/typescript/generics/constraints"
   category: "language"
   subcategory: "typescript"
-  priority: 84
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -161,7 +159,6 @@
 - id: "language/typescript/generics/utility_types"
   category: "language"
   subcategory: "typescript"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -213,7 +210,6 @@
   section_order: 1
   category: "language"
   subcategory: "typescript"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -256,7 +252,6 @@
   section_order: 2
   category: "language"
   subcategory: "typescript"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]

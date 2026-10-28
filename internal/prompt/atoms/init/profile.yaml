@@ -4,7 +4,6 @@
 - id: "init/profile/generation"
   category: "init"
   subcategory: "profile"
-  priority: 75
   is_mandatory: false
   shard_types: ["/researcher"]
   init_phases: ["/profile"]

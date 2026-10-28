@@ -4,7 +4,6 @@
 - id: "reviewer/methodology/feedback_fundamentals"
   category: "methodology"
   subcategory: "feedback"
-  priority: 85
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -45,7 +44,6 @@
 - id: "reviewer/methodology/severity_classification"
   category: "methodology"
   subcategory: "feedback"
-  priority: 88
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -113,7 +111,6 @@
 - id: "reviewer/methodology/feedback_formats"
   category: "methodology"
   subcategory: "feedback"
-  priority: 82
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -168,7 +165,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "feedback"
-  priority: 82
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -202,7 +198,6 @@
 - id: "reviewer/methodology/feedback_phrasing"
   category: "methodology"
   subcategory: "feedback"
-  priority: 80
   is_mandatory: true
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -242,7 +237,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "feedback"
-  priority: 80
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -292,7 +286,6 @@
 - id: "reviewer/methodology/feedback_structure"
   category: "methodology"
   subcategory: "feedback"
-  priority: 78
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -348,7 +341,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "feedback"
-  priority: 78
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -384,7 +376,6 @@
 - id: "reviewer/methodology/feedback_examples"
   category: "methodology"
   subcategory: "feedback"
-  priority: 75
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]
@@ -440,7 +431,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "feedback"
-  priority: 75
   is_mandatory: false
   shard_types: ["/reviewer"]
   intent_verbs: ["/review", "/audit", "/check"]

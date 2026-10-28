@@ -4,7 +4,6 @@
 - id: "methodology/tdd/core"
   category: "methodology"
   subcategory: "tdd"
-  priority: 90
   is_mandatory: false
   operational_modes: ["/tdd_repair"]
   world_states: ["failing_tests"]
@@ -36,7 +35,6 @@
 - id: "methodology/tdd/repair"
   category: "methodology"
   subcategory: "tdd"
-  priority: 85
   is_mandatory: false
   operational_modes: ["/tdd_repair"]
   world_states: ["failing_tests"]
@@ -79,7 +77,6 @@
 - id: "methodology/tdd/retry_limits"
   category: "methodology"
   subcategory: "tdd"
-  priority: 80
   is_mandatory: false
   operational_modes: ["/tdd_repair"]
   world_states: ["failing_tests"]

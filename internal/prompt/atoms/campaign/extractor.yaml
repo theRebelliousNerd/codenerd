@@ -4,7 +4,6 @@
 - id: "campaign/extractor/identity"
   category: "identity"
   subcategory: "extractor"
-  priority: 80
   is_mandatory: true
   campaign_phases: ["extraction", "planning"]
   shard_types: ["/extractor"]
@@ -21,7 +20,6 @@
 - id: "campaign/extractor/requirement_types"
   category: "knowledge"
   subcategory: "requirements"
-  priority: 85
   is_mandatory: true
   campaign_phases: ["extraction", "planning"]
   shard_types: ["/extractor"]
@@ -52,7 +50,6 @@
 - id: "campaign/extractor/extraction_protocol"
   category: "methodology"
   subcategory: "extraction"
-  priority: 75
   is_mandatory: true
   campaign_phases: ["extraction"]
   shard_types: ["/extractor"]
@@ -100,7 +97,6 @@
 - id: "campaign/extractor/anti_patterns"
   category: "safety"
   subcategory: "hallucination_prevention"
-  priority: 70
   is_mandatory: true
   campaign_phases: ["extraction"]
   shard_types: ["/extractor"]

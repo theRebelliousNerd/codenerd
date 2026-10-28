@@ -4,7 +4,6 @@
 - id: "northstar/derive/requirements"
   category: "northstar"
   subcategory: "derive"
-  priority: 80
   is_mandatory: true
   northstar_phases: ["/derive_requirements"]
   content: |

@@ -3,7 +3,6 @@
 - id: "capability/code_families"
   category: "capability"
   subcategory: "code_families"
-  priority: 60
   is_mandatory: false
   depends_on: []
   requires_tools: [family_no_change, get_element]

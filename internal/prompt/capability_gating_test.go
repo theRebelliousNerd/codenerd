@@ -217,7 +217,6 @@ func TestCapabilityGatingRequiresToolsRoundTrip(t *testing.T) {
 	data := []byte(`
 id: test/capability-gated
 category: capability
-priority: 88
 is_mandatory: true
 requires_tools: [get_elements, edit_lines]
 content: body
@@ -248,7 +247,7 @@ content: body
 	}
 	for _, tc := range invalid {
 		t.Run(tc.name, func(t *testing.T) {
-			doc := []byte("id: test/bad\ncategory: capability\npriority: 50\nis_mandatory: false\ncontent: body\n" + tc.yaml + "\n")
+			doc := []byte("id: test/bad\ncategory: capability\nis_mandatory: false\ncontent: body\n" + tc.yaml + "\n")
 			if _, _, err := ParsePromptAtomYAML(doc, "test.yaml", nil); err == nil {
 				t.Fatalf("invalid requires_tools accepted: %s", tc.yaml)
 			}

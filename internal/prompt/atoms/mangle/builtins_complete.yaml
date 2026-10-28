@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Built-in Functions - Complete Reference"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -86,7 +85,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Built-in Functions - Complete Reference: Arithmetic Functions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -142,7 +140,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Built-in Functions - Complete Reference: List Functions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -189,7 +186,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Built-in Functions - Complete Reference: String Functions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -245,7 +241,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Built-in Functions - Complete Reference: Pair and Tuple Functions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -293,7 +288,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Built-in Functions - Complete Reference: Function Casing Rules"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -346,7 +340,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Built-in Functions - Complete Reference: Virtual Predicates (Go Integration)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -370,7 +363,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Built-in Functions - Complete Reference: Usage Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

@@ -5,7 +5,6 @@
 - id: "capability/codedom_impact"
   category: "capability"
   subcategory: "semantic_editing"
-  priority: 92
   is_mandatory: true
   depends_on: ["capability/codedom_core"]
   requires_tools: [callers_of, get_element, edit_element, importers_of, find_text, repoint, delete_element]
@@ -26,7 +25,6 @@
 - id: "capability/codedom_safety"
   category: "capability"
   subcategory: "semantic_editing"
-  priority: 91
   is_mandatory: true
   # Ungated on purpose. deny_edit still applies to edit_lines and edit_element
   # on catalogs that have neither edit_file nor write_file. Naming those two
@@ -49,7 +47,6 @@
 - id: "capability/codedom_transaction"
   category: "capability"
   subcategory: "semantic_editing"
-  priority: 89
   is_mandatory: false
   depends_on: ["capability/codedom_safety"]
   # edit_element and apply_edits are named below. Safety no longer carries a

@@ -14,12 +14,10 @@ func TestParseAtomYAMLFile_ListAndUnknownField(t *testing.T) {
 	listData := strings.Join([]string{
 		"- id: /alpha",
 		"  category: protocol",
-		"  priority: 10",
 		"  is_mandatory: true",
 		"  content: \"hello\"",
 		"- id: /beta",
 		"  category: protocol",
-		"  priority: 20",
 		"  is_mandatory: false",
 		"  content: \"world\"",
 		"",
@@ -40,7 +38,6 @@ func TestParseAtomYAMLFile_ListAndUnknownField(t *testing.T) {
 	unknownData := strings.Join([]string{
 		"id: /gamma",
 		"category: protocol",
-		"priority: 5",
 		"is_mandatory: true",
 		"content: \"oops\"",
 		"unknown_field: true",
@@ -86,12 +83,10 @@ func TestValidateAtomDef_ContentFileAndRecommendedSelectors(t *testing.T) {
 		t.Fatalf("write content file: %v", err)
 	}
 
-	priority := 10
 	isMandatory := true
 	def := atomDefinition{
 		ID:          "/campaign_atom",
 		Category:    "protocol",
-		Priority:    &priority,
 		IsMandatory: &isMandatory,
 		ContentFile: "content.txt",
 	}

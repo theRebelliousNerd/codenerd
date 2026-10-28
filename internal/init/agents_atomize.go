@@ -19,7 +19,6 @@ type agentPromptAtom struct {
 	ID          string
 	Category    string
 	Subcategory string
-	Priority    int
 	Mandatory   bool
 	DependsOn   []string
 	Description string
@@ -239,7 +238,7 @@ func sectionTitle(s mdSection) string {
 // The first piece keeps baseID (and the concise/min variants, which describe
 // the whole), so existing depends_on references to baseID keep resolving;
 // later pieces get baseID/<slug> ids.
-func atomizeContent(baseID, category, subcategory string, priority int, mandatory bool, dependsOn []string, description, concise, min, content string, atomCap int) []agentPromptAtom {
+func atomizeContent(baseID, category, subcategory string, mandatory bool, dependsOn []string, description, concise, min, content string, atomCap int) []agentPromptAtom {
 	pieces := splitMarkdownSections(content, atomCap)
 	if len(pieces) == 0 {
 		pieces = []mdSection{{Body: strings.TrimSpace(content)}}
@@ -250,7 +249,6 @@ func atomizeContent(baseID, category, subcategory string, priority int, mandator
 		atom := agentPromptAtom{
 			Category:    category,
 			Subcategory: subcategory,
-			Priority:    priority,
 			Mandatory:   mandatory,
 			DependsOn:   dependsOn,
 			Description: description,
@@ -279,7 +277,6 @@ func renderAgentPromptAtom(atom agentPromptAtom) string {
 	fmt.Fprintf(&b, "- id: %s\n", strconv.Quote(atom.ID))
 	fmt.Fprintf(&b, "  category: %s\n", strconv.Quote(atom.Category))
 	fmt.Fprintf(&b, "  subcategory: %s\n", strconv.Quote(atom.Subcategory))
-	fmt.Fprintf(&b, "  priority: %d\n", atom.Priority)
 	fmt.Fprintf(&b, "  is_mandatory: %t\n", atom.Mandatory)
 	if len(atom.DependsOn) > 0 {
 		quoted := make([]string, len(atom.DependsOn))

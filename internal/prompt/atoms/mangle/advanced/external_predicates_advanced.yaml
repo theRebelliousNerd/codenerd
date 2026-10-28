@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Advanced Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -36,7 +35,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Advanced Patterns: Basic Example"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -112,7 +110,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Advanced Patterns: Pattern 1: Caching External Results"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -179,7 +176,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Advanced Patterns: Pattern 2: Lazy Evaluation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -226,7 +222,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Advanced Patterns: Pattern 3: Error Handling"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -290,7 +285,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Advanced Patterns: Pattern 4: Side Effects (Dangerous!)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -346,7 +340,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Advanced Patterns: Pattern 5: Streaming Large Results"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -400,7 +393,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Advanced Patterns: Pattern 6: Time-Sensitive Data"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -454,7 +446,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Advanced Patterns: Pattern 7: Argument Type Checking"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -500,7 +491,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Advanced Patterns: Pattern 8: Context-Aware Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -539,7 +529,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Advanced Patterns: Pattern 9: Composite Results (Structs)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -590,7 +579,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Advanced Patterns: Pattern 10: Virtual Aggregation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -647,7 +635,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Advanced Patterns: 2. Document Performance Characteristics"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -704,7 +691,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Advanced Patterns: 5. Limit Result Set Size"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -737,7 +723,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Advanced Patterns: Testing External Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -778,7 +763,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Advanced Patterns: Mangle External Predicates: Advanced Patterns Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Performance Optimization"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -49,7 +48,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Performance Optimization: 2. Constant Binding Early"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -84,7 +82,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Performance Optimization: 3. Join Ordering"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -121,7 +118,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Performance Optimization: 4. Negation Optimization"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -159,7 +155,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Performance Optimization: 5. Recursion Optimization"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -214,7 +209,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Performance Optimization: 6. Aggregation Performance"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -270,7 +264,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Performance Optimization: 7. Avoiding Redundant Computation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -312,7 +305,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Performance Optimization: 8. Index-Friendly Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -374,7 +366,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Performance Optimization: 10. Benchmark-Driven Optimization"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -410,7 +401,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Performance Optimization: Performance Anti-Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -464,7 +454,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Performance Optimization: Performance Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -491,7 +480,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Performance Optimization: Mangle Performance Optimization Example: Full Optimization"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -527,7 +515,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Performance Optimization: Advanced: Gas Limits"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

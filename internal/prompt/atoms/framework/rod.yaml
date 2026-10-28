@@ -4,7 +4,6 @@
 - id: "framework/rod/fundamentals"
   category: "framework"
   subcategory: "rod"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   frameworks: ["/rod"]
@@ -46,7 +45,6 @@
 - id: "framework/rod/async_patterns"
   category: "framework"
   subcategory: "rod"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   frameworks: ["/rod"]
@@ -98,7 +96,6 @@
 - id: "framework/rod/javascript"
   category: "framework"
   subcategory: "rod"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   frameworks: ["/rod"]
@@ -145,7 +142,6 @@
 - id: "framework/rod/advanced"
   category: "framework"
   subcategory: "rod"
-  priority: 60
   is_mandatory: false
   shard_types: ["/coder"]
   frameworks: ["/rod"]

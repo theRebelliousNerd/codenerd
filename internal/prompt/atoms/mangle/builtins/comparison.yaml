@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Comparison Predicates"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -23,7 +22,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Comparison Predicates: :lt (Less Than)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -74,7 +72,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Comparison Predicates: :le (Less Than or Equal)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -116,7 +113,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Comparison Predicates: :gt (Greater Than)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -155,7 +151,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Comparison Predicates: :ge (Greater Than or Equal)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -208,7 +203,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Comparison Predicates: Sorting Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -269,7 +263,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Comparison Predicates: Safety Rules"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -338,7 +331,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Comparison Predicates: Error Conditions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -384,7 +376,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Comparison Predicates: Mangle Comparison Predicates Performance Notes"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

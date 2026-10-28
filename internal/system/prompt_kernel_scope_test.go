@@ -43,13 +43,13 @@ func newPromptScopeTestKernel(t *testing.T) (*core.CortexKernel, *KernelAdapter)
 
 func promptScopeTestCorpus() *prompt.EmbeddedCorpus {
 	atoms := []*prompt.PromptAtom{
-		{ID: "identity", Category: prompt.CategoryIdentity, Content: "SCOPE IDENTITY", IsMandatory: true, Priority: 100, TokenCount: 4},
-		{ID: "protocol", Category: prompt.CategoryProtocol, Content: "SCOPE PROTOCOL", IsMandatory: true, Priority: 100, TokenCount: 4},
-		{ID: "safety", Category: prompt.CategorySafety, Content: "SCOPE SAFETY", IsMandatory: true, Priority: 100, TokenCount: 4},
-		{ID: "methodology", Category: prompt.CategoryMethodology, Content: "SCOPE METHOD", IsMandatory: true, Priority: 100, TokenCount: 4},
-		{ID: "go-only", Category: prompt.CategoryLanguage, Content: "ONLY_GO_CONTEXT", IsMandatory: true, Priority: 90, TokenCount: 4, Languages: []string{"go"}},
-		{ID: "python-only", Category: prompt.CategoryLanguage, Content: "ONLY_PYTHON_CONTEXT", IsMandatory: true, Priority: 90, TokenCount: 4, Languages: []string{"python"}},
-		{ID: "retry", Category: prompt.CategoryProtocol, Content: "RETRY_TOOLS\n{{available_tools}}", IsMandatory: true, Priority: 95, TokenCount: 6, WorldStates: []string{"no_tool_call_retry"}},
+		{ID: "identity", Category: prompt.CategoryIdentity, Content: "SCOPE IDENTITY", IsMandatory: true, Importance: 100, TokenCount: 4},
+		{ID: "protocol", Category: prompt.CategoryProtocol, Content: "SCOPE PROTOCOL", IsMandatory: true, Importance: 100, TokenCount: 4},
+		{ID: "safety", Category: prompt.CategorySafety, Content: "SCOPE SAFETY", IsMandatory: true, Importance: 100, TokenCount: 4},
+		{ID: "methodology", Category: prompt.CategoryMethodology, Content: "SCOPE METHOD", IsMandatory: true, Importance: 100, TokenCount: 4},
+		{ID: "go-only", Category: prompt.CategoryLanguage, Content: "ONLY_GO_CONTEXT", IsMandatory: true, Importance: 90, TokenCount: 4, Languages: []string{"go"}},
+		{ID: "python-only", Category: prompt.CategoryLanguage, Content: "ONLY_PYTHON_CONTEXT", IsMandatory: true, Importance: 90, TokenCount: 4, Languages: []string{"python"}},
+		{ID: "retry", Category: prompt.CategoryProtocol, Content: "RETRY_TOOLS\n{{available_tools}}", IsMandatory: true, Importance: 95, TokenCount: 6, WorldStates: []string{"no_tool_call_retry"}},
 	}
 	return prompt.NewEmbeddedCorpus(atoms)
 }
@@ -58,8 +58,9 @@ func assertNoLivePromptFacts(t *testing.T, kernel core.Kernel) {
 	t.Helper()
 	for _, predicate := range []string{
 		"compile_context", "current_context", "atom", "prompt_atom",
-		"atom_category", "atom_priority", "atom_tag", "is_mandatory",
-		"vector_hit", "atom_requires", "atom_conflicts",
+		"atom_category", "atom_importance", "atom_tag", "is_mandatory",
+		"vector_hit", "vector_slot", "atom_relevance", "atom_relevance_threshold",
+		"atom_requires", "atom_conflicts",
 	} {
 		facts, err := kernel.Query(predicate)
 		if err != nil {

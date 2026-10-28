@@ -4,7 +4,6 @@
 - id: "framework/sqlite_vec/core"
   category: "framework"
   subcategory: "sqlite_vec"
-  priority: 64
   is_mandatory: false
   shard_types: ["/coder", "/researcher"]
   frameworks: ["/sqlite-vec", "/sqlite"]

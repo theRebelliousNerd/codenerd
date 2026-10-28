@@ -4,7 +4,6 @@
 - id: "language/go/modern_features"
   category: "language"
   subcategory: "go"
-  priority: 50
   is_mandatory: false
   shard_types: ["/coder"]
   languages: ["/go"]

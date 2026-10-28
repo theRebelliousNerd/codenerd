@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -27,7 +26,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Core Pattern: Safe Negation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -75,7 +73,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Variation 1: Set Difference (A - B)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -152,7 +149,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Variation 3: Orphaned Records"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -197,7 +193,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Variation 4: Never-Occurred Events"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -243,7 +238,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Variation 5: Exclusive Or (XOR)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -289,7 +283,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Variation 6: Negation with Multiple Conditions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -335,7 +328,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Variation 7: Complement with Constraints"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -383,7 +375,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Variation 8: Stratified Negation (Negation on Derived Predicate)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -437,7 +428,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Variation 9: Negation with Aggregation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -496,7 +486,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Variation 10: Double Negation (Positive Logic)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -549,7 +538,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Anti-Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -612,7 +600,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Safety Rules (Checklist)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -637,7 +624,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Common Use Cases in codeNERD"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

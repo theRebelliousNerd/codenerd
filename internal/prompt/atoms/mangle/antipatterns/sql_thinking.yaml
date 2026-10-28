@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: SQL Thinking"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -49,7 +48,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: SQL Thinking: Anti-Pattern 2: Inline Aggregation (SQL SUM/COUNT)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -94,7 +92,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: SQL Thinking: Anti-Pattern 3: Implicit GROUP BY"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -160,7 +157,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: SQL Thinking: Anti-Pattern 5: NULL Checking"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -207,7 +203,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: SQL Thinking: Anti-Pattern 6: String Concatenation (SQL ||)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -272,7 +267,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: SQL Thinking: Anti-Pattern 8: UPDATE/INSERT Thinking"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -311,7 +305,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: SQL Thinking: Anti-Pattern 9: CASE/WHEN"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -381,7 +374,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: SQL Thinking: Key Takeaways"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

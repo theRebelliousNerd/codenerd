@@ -95,7 +95,7 @@ func (l *AtomLoader) EnsureSchema(ctx context.Context, db *sql.DB) error {
 			subcategory TEXT,
 
 			-- Composition
-			priority INTEGER DEFAULT 50,
+			importance INTEGER, -- Jev level 1..5; NULL is unscored (importance.go)
 			is_mandatory BOOLEAN DEFAULT FALSE,
 			is_exclusive TEXT,
 			depends_on TEXT,
@@ -164,6 +164,10 @@ func (l *AtomLoader) EnsureSchema(ctx context.Context, db *sql.DB) error {
 				logging.Get(logging.CategoryStore).Info("Added missing column %s to prompt_atoms", col)
 			}
 		}
+	}
+
+	if err := migrateImportanceColumn(ctx, db); err != nil {
+		return err
 	}
 
 	// Step 3: Create indexes AFTER migrations (columns now exist)
@@ -297,7 +301,7 @@ func (l *AtomLoader) ReplaceAtoms(ctx context.Context, db *sql.DB, atoms []*Prom
 		chunkEmbeds := embeddings[i:end]
 
 		// Build the query
-		query := "INSERT INTO prompt_atoms (atom_id, version, content, token_count, content_hash, description, content_concise, content_min, category, subcategory, priority, is_mandatory, is_exclusive, embedding, embedding_task) VALUES "
+		query := "INSERT INTO prompt_atoms (atom_id, version, content, token_count, content_hash, description, content_concise, content_min, category, subcategory, importance, is_mandatory, is_exclusive, embedding, embedding_task) VALUES "
 		var vals []any
 		var placeholders []string
 
@@ -318,7 +322,7 @@ func (l *AtomLoader) ReplaceAtoms(ctx context.Context, db *sql.DB, atoms []*Prom
 				atom.ID, atom.Version, atom.Content, atom.TokenCount, atom.ContentHash,
 				nullableString(atom.Description), nullableString(atom.ContentConcise), nullableString(atom.ContentMin),
 				string(atom.Category), nullableString(atom.Subcategory),
-				atom.Priority, atom.IsMandatory, nullableString(atom.IsExclusive),
+				importanceColumn(atom.Importance), atom.IsMandatory, nullableString(atom.IsExclusive),
 				embeddingBlob, etask,
 			)
 		}
@@ -414,7 +418,7 @@ func (l *AtomLoader) storeAtomTx(ctx context.Context, tx *sql.Tx, atom *PromptAt
 			atom_id, version, content, token_count, content_hash,
 			description, content_concise, content_min,
 			category, subcategory,
-			priority, is_mandatory, is_exclusive,
+			importance, is_mandatory, is_exclusive,
 			embedding, embedding_task
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(atom_id) DO UPDATE SET
@@ -427,7 +431,7 @@ func (l *AtomLoader) storeAtomTx(ctx context.Context, tx *sql.Tx, atom *PromptAt
 			content_min = excluded.content_min,
 			category = excluded.category,
 			subcategory = excluded.subcategory,
-			priority = excluded.priority,
+			importance = excluded.importance,
 			is_mandatory = excluded.is_mandatory,
 			is_exclusive = excluded.is_exclusive,
 			embedding = excluded.embedding,
@@ -435,7 +439,7 @@ func (l *AtomLoader) storeAtomTx(ctx context.Context, tx *sql.Tx, atom *PromptAt
 		atom.ID, atom.Version, atom.Content, atom.TokenCount, atom.ContentHash,
 		nullableString(atom.Description), nullableString(atom.ContentConcise), nullableString(atom.ContentMin),
 		string(atom.Category), nullableString(atom.Subcategory),
-		atom.Priority, atom.IsMandatory, nullableString(atom.IsExclusive),
+		importanceColumn(atom.Importance), atom.IsMandatory, nullableString(atom.IsExclusive),
 		embeddingBlob, nullableString(embeddingTask),
 	)
 	if err != nil {

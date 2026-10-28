@@ -4,7 +4,6 @@
 - id: "context/error/analysis"
   category: "context"
   subcategory: "error"
-  priority: 95
   is_mandatory: false
   content: |
     ## ERROR ANALYSIS PROTOCOL
@@ -38,7 +37,6 @@
 - id: "context/error/stack_trace"
   category: "context"
   subcategory: "error"
-  priority: 90
   is_mandatory: false
   content: |
     ## STACK TRACE ANALYSIS
@@ -79,7 +77,6 @@
 - id: "context/error/resolution"
   category: "context"
   subcategory: "error"
-  priority: 85
   is_mandatory: false
   content: |
     ## ERROR RESOLUTION PROTOCOL

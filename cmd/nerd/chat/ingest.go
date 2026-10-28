@@ -141,7 +141,6 @@ func (m Model) ingestAgentDocs(agentName, docPath string) tea.Cmd {
 
 				content := fmt.Sprintf("SOURCE: %s (chunk %d/%d)\n\n%s", rel, idx+1, len(chunks), chunk)
 				atom := prompt.NewPromptAtom(atomID, prompt.CategoryDomain, content)
-				atom.Priority = 60
 				atom.IsMandatory = false
 
 				if err := atomLoader.StoreAtom(ctx, db, atom); err == nil {

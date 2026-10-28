@@ -4,7 +4,6 @@
 - id: "language/mangle/core"
   category: "language"
   subcategory: "mangle"
-  priority: 95
   is_mandatory: true
   languages: ["/mangle"]
   # Served with language/mangle/engine_truths_pinned when the kernel derives
@@ -35,7 +34,6 @@
   section_order: 1
   category: "language"
   subcategory: "mangle"
-  priority: 95
   is_mandatory: false
   languages: ["/mangle"]
   # Served with language/mangle/engine_truths_pinned when the kernel derives
@@ -54,7 +52,6 @@
 - id: "language/mangle/rules"
   category: "language"
   subcategory: "mangle"
-  priority: 90
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -109,7 +106,6 @@
 - id: "language/mangle/aggregation"
   category: "language"
   subcategory: "mangle"
-  priority: 85
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -160,7 +156,6 @@
 - id: "language/mangle/codenerd"
   category: "language"
   subcategory: "mangle"
-  priority: 80
   is_mandatory: false
   languages: ["/mangle"]
   content: |

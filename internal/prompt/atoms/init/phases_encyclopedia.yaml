@@ -4,7 +4,6 @@
 - id: "init/phases/migration"
   category: "init"
   subcategory: "phases"
-  priority: 78
   is_mandatory: false
   shard_types: ["/researcher"]
   init_phases: ["/migration"]
@@ -36,7 +35,6 @@
 - id: "init/phases/setup"
   category: "init"
   subcategory: "phases"
-  priority: 77
   is_mandatory: false
   shard_types: ["/researcher"]
   init_phases: ["/setup"]
@@ -60,7 +58,6 @@
 - id: "init/phases/scanning"
   category: "init"
   subcategory: "phases"
-  priority: 76
   is_mandatory: false
   shard_types: ["/researcher"]
   init_phases: ["/scanning"]
@@ -83,7 +80,6 @@
 - id: "init/phases/kb_complete"
   category: "init"
   subcategory: "phases"
-  priority: 75
   is_mandatory: false
   shard_types: ["/researcher"]
   init_phases: ["/kb_complete"]

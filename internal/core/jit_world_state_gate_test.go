@@ -25,9 +25,9 @@ func TestWorldStateGatedAtomIsBlockedWhenTheStateDoesNotHold(t *testing.T) {
 				t.Fatalf("NewRealKernel() error = %v", err)
 			}
 			facts := []string{
-				`prompt_atom("gated/mangle", /language, 70, 10, /true)`,
+				`prompt_atom("gated/mangle", /language, 10, /true)`,
 				`atom_tag("gated/mangle", /state, /authoring_mangle)`,
-				`prompt_atom("ungated/core", /methodology, 70, 10, /true)`,
+				`prompt_atom("ungated/core", /methodology, 10, /true)`,
 			}
 			assertPinFixture(t, k, append(facts, tc.context...)...)
 			blocked := blockedAtoms(t, k)

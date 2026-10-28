@@ -4,7 +4,6 @@
 - id: "language/python/async/fundamentals"
   category: "language"
   subcategory: "python"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -46,7 +45,6 @@
   section_order: 1
   category: "language"
   subcategory: "python"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -75,7 +73,6 @@
   section_order: 2
   category: "language"
   subcategory: "python"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -118,7 +115,6 @@
   section_order: 3
   category: "language"
   subcategory: "python"
-  priority: 88
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -143,7 +139,6 @@
 - id: "language/python/async/gather_taskgroup"
   category: "language"
   subcategory: "python"
-  priority: 87
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -179,7 +174,6 @@
   section_order: 1
   category: "language"
   subcategory: "python"
-  priority: 87
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -218,7 +212,6 @@
   section_order: 2
   category: "language"
   subcategory: "python"
-  priority: 87
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -247,7 +240,6 @@
 - id: "language/python/async/cancellation"
   category: "language"
   subcategory: "python"
-  priority: 86
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -281,7 +273,6 @@
   section_order: 1
   category: "language"
   subcategory: "python"
-  priority: 86
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -315,7 +306,6 @@
   section_order: 2
   category: "language"
   subcategory: "python"
-  priority: 86
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -356,7 +346,6 @@
   section_order: 3
   category: "language"
   subcategory: "python"
-  priority: 86
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -386,7 +375,6 @@
 - id: "language/python/async/pitfalls"
   category: "language"
   subcategory: "python"
-  priority: 89
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -436,7 +424,6 @@
   section_order: 1
   category: "language"
   subcategory: "python"
-  priority: 89
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]
@@ -480,7 +467,6 @@
   section_order: 2
   category: "language"
   subcategory: "python"
-  priority: 89
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/python"]

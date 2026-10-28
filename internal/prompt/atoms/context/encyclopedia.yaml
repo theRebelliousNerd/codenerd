@@ -4,7 +4,6 @@
 - id: "context/selection/spreading_activation"
   category: "context"
   subcategory: "selection"
-  priority: 88
   is_mandatory: false
   content: |
     ## SPREADING ACTIVATION CONTEXT SELECTION (Encyclopedic)
@@ -36,7 +35,6 @@
 - id: "context/budget/token_pressure"
   category: "context"
   subcategory: "budgeting"
-  priority: 82
   is_mandatory: false
   content: |
     ## TOKEN BUDGET & PRESSURE MANAGEMENT (Encyclopedic)

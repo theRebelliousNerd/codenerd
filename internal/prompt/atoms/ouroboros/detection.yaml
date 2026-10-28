@@ -4,7 +4,6 @@
 - id: "ouroboros/detection/capability_gap_analysis"
   category: "ouroboros"
   subcategory: "detection"
-  priority: 70
   is_mandatory: false
   ouroboros_stages: ["/detection"]
   content: |
@@ -35,7 +34,6 @@
 - id: "ouroboros/detection/confidence_calibration"
   category: "ouroboros"
   subcategory: "detection"
-  priority: 60
   is_mandatory: false
   ouroboros_stages: ["/detection"]
   depends_on: ["ouroboros/detection/capability_gap_analysis"]

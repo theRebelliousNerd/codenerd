@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type System"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -44,7 +43,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type System: Atoms vs Strings (Critical)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -80,7 +78,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type System: Type Errors"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -138,7 +135,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type System: Common Type Fixes"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

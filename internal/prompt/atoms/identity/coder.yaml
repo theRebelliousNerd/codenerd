@@ -4,7 +4,6 @@
 - id: "identity/coder/mission"
   category: "identity"
   subcategory: "mission"
-  priority: 100
   is_mandatory: true
   shard_types: ["/coder"]
   intent_verbs: ["/fix", "/implement", "/refactor", "/create", "/modify", "/add", "/update"]
@@ -25,7 +24,6 @@
 - id: "identity/coder/investigate_first"
   category: "identity"
   subcategory: "protocol"
-  priority: 99
   is_mandatory: true
   shard_types: ["/coder"]
   intent_verbs: ["/fix", "/implement", "/refactor", "/create", "/modify", "/add", "/update"]
@@ -55,7 +53,6 @@
 - id: "identity/coder/constraints"
   category: "identity"
   subcategory: "constraints"
-  priority: 95
   is_mandatory: true
   shard_types: ["/coder"]
   intent_verbs: ["/fix", "/implement", "/refactor", "/create", "/modify", "/add", "/update"]
@@ -86,7 +83,6 @@
 - id: "identity/coder/quality_principles"
   category: "identity"
   subcategory: "quality"
-  priority: 80
   is_mandatory: false
   shard_types: ["/coder"]
   intent_verbs: ["/fix", "/implement", "/refactor", "/create", "/modify", "/add", "/update"]
@@ -117,7 +113,6 @@
 - id: "identity/coder/codedom_premier"
   category: "identity"
   subcategory: "tools"
-  priority: 99
   is_mandatory: true
   shard_types: ["/coder"]
   intent_verbs: ["/fix", "/implement", "/refactor", "/create", "/modify", "/add", "/update"]
@@ -146,7 +141,6 @@
 - id: "identity/coder/tool_usage"
   category: "identity"
   subcategory: "tools"
-  priority: 98
   is_mandatory: true
   shard_types: ["/coder"]
   intent_verbs: ["/fix", "/implement", "/refactor", "/create", "/modify", "/add", "/update"]

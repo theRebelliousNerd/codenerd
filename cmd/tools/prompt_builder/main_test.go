@@ -122,7 +122,7 @@ func TestGenerateAndStoreAtoms_PersistsPinAndToolTags(t *testing.T) {
 	defer db.Close()
 
 	atoms := []ProcessedAtom{{AtomDefinition: AtomDefinition{
-		ID: "pin/test", Category: "protocol", Priority: 50, Content: "x",
+		ID: "pin/test", Category: "protocol", Content: "x",
 		ShardTypes: []string{"/coder"}, Models: []string{"/claude_opus_4"},
 		Providers: []string{"/anthropic"}, RequiresTools: []string{"read_file"},
 	}, TokenCount: 1, ContentHash: "h", SourceFile: "f.yaml"}}

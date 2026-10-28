@@ -186,16 +186,17 @@ Decl context_injection_effective(ShardID, Atom) bound [/string, /string].
 # 45.1 Prompt Atom Registry (EDB - loaded from SQLite databases)
 # -----------------------------------------------------------------------------
 
-# prompt_atom(AtomID, Category, Priority, TokenCount, IsMandatory)
+# prompt_atom(AtomID, Category, TokenCount, IsMandatory)
 # Core atom metadata for selection
 # AtomID: Unique identifier for the atom (string)
 # Category: /identity, /safety, /hallucination, /methodology, /language,
 #           /framework, /domain, /campaign, /init, /northstar, /ouroboros,
 #           /context, /exemplar, /protocol
-# Priority: Base priority score (0-100)
 # TokenCount: Estimated token count for budget management
 # IsMandatory: /true if atom must be included, /false otherwise
-Decl prompt_atom(AtomID, Category, Priority, TokenCount, IsMandatory) bound [/string, /name, /number, /number, /name].
+# Importance is atom_importance, below; it has no slot here because an
+# unscored atom has no importance at all.
+Decl prompt_atom(AtomID, Category, TokenCount, IsMandatory) bound [/string, /name, /number, /name].
 
 # atom_selector(AtomID, Dimension, Value)
 # Multi-value selectors for dimensional filtering
@@ -386,7 +387,7 @@ Decl atom_tag(AtomID, Dimension, Tag) bound [/string, /name, /name].
 # vector_hit(AtomID, Score)
 # Vector search results injected by Go runtime before compilation
 # AtomID: Matched atom identifier
-# Score: Cosine similarity score (0.0-1.0)
+# Score: Cosine similarity as an integer percent (0-100)
 Decl vector_hit(AtomID, Score) bound [/string, /number].
 
 # Ephemeral knowledge matched by a bounded runtime lookup, not a vector score.
@@ -409,9 +410,31 @@ Decl atom_requires(AtomID, DependencyID) bound [/string, /string].
 # Mutual exclusion: AtomA and AtomB cannot both be selected
 Decl atom_conflicts(AtomA, AtomB) bound [/string, /string].
 
-# atom_priority(AtomID, Priority)
-# Base priority score for atom ordering
-Decl atom_priority(AtomID, Priority) bound [/string, /number].
+# atom_importance(AtomID, Level)
+# Jev's build-time importance of the atom's guidance, a Score level
+# (internal/prompt/importance.go): 1 style, 2 convention, 3 efficiency,
+# 4 correctness, 5 critical (build, data, safety or permissions). Asserted
+# only for an atom with a current score; it orders and arbitrates conflicts
+# and never admits an atom.
+Decl atom_importance(AtomID, Level) bound [/string, /number].
+
+# atom_relevance(AtomID, Percent)
+# Jev's answer this turn to "Does this guidance apply to this request?"
+# (internal/atomjudge), as a percent. Asserted only when Jev answered: a
+# missing judgment is never a no. Ephemeral per compile.
+Decl atom_relevance(AtomID, Percent) bound [/string, /number].
+
+# atom_relevance_threshold(Band, Percent)
+# The turn's reading of atom_relevance: /yes at or above, /no at or below
+# (typesafe judgment_yes_percent / judgment_no_percent). Asserted with the
+# judgments, so an unjudged compile has no thresholds and no bands.
+Decl atom_relevance_threshold(Band, Percent) bound [/name, /number].
+
+# vector_slot(AtomID)
+# The vector channel alone would keep this hit (relative floor and top-K).
+# vector_hit covers the wider recall pool Jev judges; without Jev the two are
+# the same set.
+Decl vector_slot(AtomID) bound [/string].
 
 # -----------------------------------------------------------------------------
 # 45.8 Section 46 Selection Rule Schemas (IDB - computed by policy.mg Section 46)

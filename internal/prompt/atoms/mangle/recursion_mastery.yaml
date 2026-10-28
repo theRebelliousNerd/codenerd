@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -44,7 +43,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery: Path Construction Techniques"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -112,7 +110,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery: Cycle Detection and Prevention"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -163,7 +160,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery: Distance and Optimization"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -220,7 +216,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery: Mutual Recursion"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -273,7 +268,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery: Transitive Closure Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -318,7 +312,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery: Tree Operations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -381,7 +374,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery: Termination Analysis"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -440,7 +432,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery: Advanced Recursive Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -512,7 +503,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery: Recursion with Memoization (Via Rules)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -543,7 +533,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery: Common Recursion Mistakes"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -589,7 +578,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery: Mangle Recursion Mastery Performance Considerations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

@@ -4,7 +4,6 @@
 - id: "framework/react/components"
   category: "framework"
   subcategory: "react"
-  priority: 90
   is_mandatory: false
   languages: ["/javascript", "/typescript"]
   frameworks: ["/react"]
@@ -75,7 +74,6 @@
 - id: "framework/react/hooks"
   category: "framework"
   subcategory: "react"
-  priority: 85
   is_mandatory: false
   languages: ["/javascript", "/typescript"]
   frameworks: ["/react"]
@@ -143,7 +141,6 @@
 - id: "framework/react/state"
   category: "framework"
   subcategory: "react"
-  priority: 80
   is_mandatory: false
   languages: ["/javascript", "/typescript"]
   frameworks: ["/react"]

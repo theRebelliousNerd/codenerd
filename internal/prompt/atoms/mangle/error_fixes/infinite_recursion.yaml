@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Fix: Infinite Recursion"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -79,7 +78,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Fix: Infinite Recursion: 4. Cartesian Product Explosion"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -119,7 +117,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Fix: Infinite Recursion: Prevention Strategies"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -175,7 +172,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Fix: Infinite Recursion: Detection Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

@@ -17,7 +17,6 @@
 - id: "eval/delegation_judge/implementation"
   category: "eval"
   subcategory: "delegation_judge"
-  priority: 100
   is_mandatory: true
   shard_types: ["/judge_implementation"]
   conflicts_with:
@@ -49,7 +48,6 @@
 - id: "eval/delegation_judge/review"
   category: "eval"
   subcategory: "delegation_judge"
-  priority: 100
   is_mandatory: true
   shard_types: ["/judge_review"]
   conflicts_with:
@@ -83,7 +81,6 @@
 - id: "eval/delegation_judge/contract"
   category: "eval"
   subcategory: "delegation_judge"
-  priority: 90
   is_mandatory: true
   shard_types: ["/judge_implementation", "/judge_review"]
   conflicts_with:

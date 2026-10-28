@@ -51,14 +51,16 @@ func TestPersistEcosystemAtoms_ProfileHotPersistsWALAndPreservesRows(t *testing.
 
 			var got store.PromptAtom
 			var task, source sql.NullString
+			var importance sql.NullInt64
 			require.NoError(t, db.QueryRow(`
 				SELECT atom_id, version, content, token_count, content_hash,
-				       category, subcategory, priority, is_mandatory,
+				       category, subcategory, importance, is_mandatory,
 				       embedding, embedding_task, source_file
 				FROM prompt_atoms WHERE atom_id = ?`, atom.AtomID).Scan(
 				&got.AtomID, &got.Version, &got.Content, &got.TokenCount, &got.ContentHash,
-				&got.Category, &got.Subcategory, &got.Priority, &got.IsMandatory,
+				&got.Category, &got.Subcategory, &importance, &got.IsMandatory,
 				&got.Embedding, &task, &source))
+			require.False(t, importance.Valid, "an ecosystem atom is outside the build-time importance ledger: unscored")
 			want := *atom
 			want.Languages = nil
 			want.Frameworks = nil
@@ -194,11 +196,11 @@ func ecosystemProfileFixture(t *testing.T) (string, string, []any, []string) {
 	_, err := db.Exec(`
 		INSERT INTO prompt_atoms (
 			atom_id, version, content, token_count, content_hash, description,
-			content_concise, content_min, category, subcategory, priority,
+			content_concise, content_min, category, subcategory, importance,
 			is_mandatory, is_exclusive, depends_on, conflicts_with, embedding,
 			embedding_task, embedding_model, source_file, created_at
 		) VALUES (?, 7, 'curated content', 23, 'curated hash', 'curated description',
-			'concise', 'minimum', 'domain', 'curated', 83, 1, 'exclusive group',
+			'concise', 'minimum', 'domain', 'curated', 4, 1, 'exclusive group',
 			'["other/required"]', '["other/conflict"]', ?, 'RETRIEVAL_QUERY',
 			'curated-model', 'curated/source.yaml', '2024-01-02 03:04:05')`,
 		"existing/curated", []byte{0, 255, 1, 128, 0, 42, 7, 9})
@@ -281,7 +283,6 @@ func ecosystemProfileAtom() *store.PromptAtom {
 		Subcategory: "repository",
 		Languages:   []string{"/go"},
 		Frameworks:  []string{"/gin"},
-		Priority:    60,
 		IsMandatory: true,
 	}
 }

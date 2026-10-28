@@ -42,7 +42,6 @@ type AtomDefinition struct {
 	ContentConcise string `yaml:"content_concise,omitempty"`
 	ContentMin     string `yaml:"content_min,omitempty"`
 
-	Priority      *int     `yaml:"priority"`
 	IsMandatory   *bool    `yaml:"is_mandatory"`
 	IsExclusive   string   `yaml:"is_exclusive,omitempty"`
 	DependsOn     []string `yaml:"depends_on,omitempty"`
@@ -74,6 +73,11 @@ type AtomDefinition struct {
 	Name       string              `yaml:"name,omitempty"`
 	Metadata   *legacyAtomMetadata `yaml:"metadata,omitempty"`
 	Selectors  legacyAtomSelectors `yaml:"selectors,omitempty"`
+	// Priority was the hand-set 0..100 importance weight. Jev's build-time
+	// importance score replaced it (importance.go); a non-built-in atom that
+	// still carries it parses through the legacy-priority-ignored migration
+	// and the value reaches nothing. Built-in atoms may not carry it.
+	Priority *int `yaml:"priority,omitempty"`
 }
 
 // AtomVersion accepts the canonical positive integer atom version and the v0
@@ -432,12 +436,11 @@ func migrateAtomDefinition(definition *AtomDefinition) ([]AtomSchemaMigration, e
 		addMigration("legacy-selectors", "flattened legacy selectors into canonical selector fields")
 	}
 
+	if definition.Priority != nil {
+		definition.Priority = nil
+		addMigration("legacy-priority-ignored", "ignored the hand-set priority; importance is Jev's build-time score")
+	}
 	if legacy {
-		if definition.Priority == nil {
-			zero := 0
-			definition.Priority = &zero
-			addMigration("legacy-priority-default", "preserved legacy missing priority as zero")
-		}
 		if definition.IsMandatory == nil {
 			mandatory := false
 			definition.IsMandatory = &mandatory
@@ -518,12 +521,6 @@ func (definition AtomDefinition) toPromptAtom(sourcePath string, readContent Ato
 		category = string(CategoryDomain)
 	}
 
-	if definition.Priority == nil {
-		return nil, fmt.Errorf("atom %s missing required field: priority", definition.ID)
-	}
-	if *definition.Priority < 0 || *definition.Priority > 100 {
-		return nil, fmt.Errorf("atom %s priority out of range 0..100: %d", definition.ID, *definition.Priority)
-	}
 	if definition.IsMandatory == nil {
 		return nil, fmt.Errorf("atom %s missing required field: is_mandatory", definition.ID)
 	}
@@ -569,7 +566,7 @@ func (definition AtomDefinition) toPromptAtom(sourcePath string, readContent Ato
 		Description:      definition.Description,
 		ContentConcise:   definition.ContentConcise,
 		ContentMin:       definition.ContentMin,
-		Priority:         *definition.Priority,
+		Importance:       ImportanceUnscored,
 		IsMandatory:      *definition.IsMandatory,
 		IsExclusive:      definition.IsExclusive,
 		DependsOn:        sectionDependsOn(definition),

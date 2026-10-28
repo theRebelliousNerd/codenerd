@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -33,7 +32,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): SECTION 1: Intent Classification & Routing"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -68,7 +66,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): Polymorphic Verb Dispatch"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -105,7 +102,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): Verb Selection (Semantic Classification)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -162,7 +158,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): SECTION 2: Strategy Selection"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -209,7 +204,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): Exploration Strategies"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -267,7 +261,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): SECTION 3: TDD Repair Loop State Machine"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -328,7 +321,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): SECTION 4: Impact Analysis & Dependency Tracking"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -379,7 +371,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): SECTION 5: Constitutional Safety (Permission Gate)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -435,7 +426,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): Dangerous Action Classification"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -491,7 +481,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): Network Policy"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -537,7 +526,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): SECTION 6: Context Selection (Spreading Activation)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -591,7 +579,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): Context Pruning"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -627,7 +614,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): SECTION 7: Shard Delegation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -677,7 +663,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): SECTION 8: Memory Operations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -730,7 +715,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): SECTION 9: Campaign Orchestration"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -773,7 +757,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): SECTION 10: Autopoiesis (Ouroboros Loop)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -834,7 +817,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): Effective Stability"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -873,7 +855,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): Termination Conditions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -924,7 +905,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): Halting Oracle"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -971,7 +951,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): SECTION 11: Abductive Reasoning"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -1007,7 +986,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): SECTION 12: Browser Automation (Semantic Web)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -1052,7 +1030,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): Rule Composition Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -1110,7 +1087,6 @@
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Policy Rules (IDB): Usage Guidelines"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

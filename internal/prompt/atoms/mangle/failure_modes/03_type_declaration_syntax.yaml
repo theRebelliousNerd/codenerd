@@ -7,7 +7,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 3: Type Declaration Syntax"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -56,7 +55,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 3: Type Declaration Syntax: Failure Mode 3: Type Declaration Syntax Correct Code"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -94,7 +92,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 3: Type Declaration Syntax: Failure Mode 3: Type Declaration Syntax Checklist"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

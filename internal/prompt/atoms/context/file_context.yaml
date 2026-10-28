@@ -4,7 +4,6 @@
 - id: "context/file/reading"
   category: "context"
   subcategory: "file"
-  priority: 90
   is_mandatory: false
   content: |
     ## FILE CONTEXT PROTOCOL
@@ -28,7 +27,6 @@
 - id: "context/file/diff"
   category: "context"
   subcategory: "file"
-  priority: 85
   is_mandatory: false
   content: |
     ## DIFF ANALYSIS PROTOCOL
@@ -60,7 +58,6 @@
 - id: "context/file/modification"
   category: "context"
   subcategory: "file"
-  priority: 80
   is_mandatory: false
   content: |
     ## MODIFICATION TRACKING

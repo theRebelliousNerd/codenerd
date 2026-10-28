@@ -657,7 +657,7 @@ func projectAtomToPromptAtom(atom *store.PromptAtom) *prompt.PromptAtom {
 		Subcategory: atom.Subcategory,
 		Languages:   atom.Languages,
 		Frameworks:  atom.Frameworks,
-		Priority:    atom.Priority,
+		Importance:  prompt.ImportanceUnscored,
 		IsMandatory: atom.IsMandatory,
 	}
 }

@@ -24,7 +24,7 @@ const generationTestSchema = `
 		content_min TEXT,
 		category TEXT NOT NULL,
 		subcategory TEXT,
-		priority INTEGER NOT NULL,
+		importance INTEGER,
 		is_mandatory BOOLEAN NOT NULL,
 		is_exclusive TEXT,
 		created_at DATETIME NOT NULL
@@ -39,9 +39,9 @@ func insertProjectAtom(t *testing.T, db *sql.DB, id string) {
 	t.Helper()
 	_, err := db.Exec(`INSERT INTO prompt_atoms
 		(atom_id, version, content, token_count, content_hash, description,
-		 content_concise, content_min, category, subcategory, priority,
+		 content_concise, content_min, category, subcategory, importance,
 		 is_mandatory, is_exclusive, created_at)
-		VALUES (?, 1, ?, 5, ?, '', '', '', 'context', '', 10, 0, '', CURRENT_TIMESTAMP)`,
+		VALUES (?, 1, ?, 5, ?, '', '', '', 'context', '', 3, 0, '', CURRENT_TIMESTAMP)`,
 		id, "project content "+id, "hash-"+id)
 	require.NoError(t, err)
 }

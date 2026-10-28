@@ -4,7 +4,6 @@
 - id: "safety/constitutional/core"
   category: "safety"
   subcategory: "constitutional"
-  priority: 100
   is_mandatory: true
   content: |
     ## CONSTITUTIONAL SAFETY CONSTRAINTS
@@ -37,7 +36,6 @@
 - id: "safety/constitutional/permissions"
   category: "safety"
   subcategory: "permissions"
-  priority: 95
   is_mandatory: true
   depends_on: ["safety/constitutional/core"]
   content: |
@@ -73,7 +71,6 @@
 - id: "safety/constitutional/audit"
   category: "safety"
   subcategory: "audit"
-  priority: 85
   is_mandatory: false
   depends_on: ["safety/constitutional/core"]
   content: |

@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -28,7 +27,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: Number to String Conversion"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -88,7 +86,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: Float to String Conversion"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -150,7 +147,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: Name to String Conversion"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -209,7 +205,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: Name Manipulation Functions"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -259,7 +254,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: fn:name:tip"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -307,7 +301,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: fn:name:list"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -362,7 +355,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: Boolean Type"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -403,7 +395,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: Option Type"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -441,7 +432,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: Type Checking Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -484,7 +474,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: Type Conversion Table"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -515,7 +504,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: Mangle Type Conversion Functions Common Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -561,7 +549,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: Limitations"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -609,7 +596,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: Complete Example: Building a Report"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

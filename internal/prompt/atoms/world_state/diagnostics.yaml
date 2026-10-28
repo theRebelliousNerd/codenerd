@@ -4,7 +4,6 @@
 - id: "world_state/diagnostics/core"
   category: "world_state"
   subcategory: "diagnostics"
-  priority: 95
   is_mandatory: true
   world_states: ["diagnostics"]
   content: |
@@ -29,7 +28,6 @@
 - id: "world_state/diagnostics/errors"
   category: "world_state"
   subcategory: "diagnostics"
-  priority: 90
   is_mandatory: false
   world_states: ["diagnostics"]
   depends_on: ["world_state/diagnostics/core"]
@@ -60,7 +58,6 @@
 - id: "world_state/diagnostics/warnings"
   category: "world_state"
   subcategory: "diagnostics"
-  priority: 85
   is_mandatory: false
   world_states: ["diagnostics"]
   content: |

@@ -4,7 +4,6 @@
 - id: "exemplar/test/table_driven"
   category: "exemplar"
   subcategory: "test"
-  priority: 90
   is_mandatory: false
   content: |
     ## TABLE-DRIVEN TEST EXEMPLAR
@@ -66,7 +65,6 @@
 - id: "exemplar/test/mocking"
   category: "exemplar"
   subcategory: "test"
-  priority: 85
   is_mandatory: false
   content: |
     ## MOCK TEST EXEMPLAR
@@ -137,7 +135,6 @@
 - id: "exemplar/test/testify"
   category: "exemplar"
   subcategory: "test"
-  priority: 80
   is_mandatory: false
   content: |
     ## TESTIFY EXEMPLAR

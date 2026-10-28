@@ -135,8 +135,8 @@ func (r *DependencyResolver) Resolve(atoms []*ScoredAtom) ([]*OrderedAtom, error
 }
 
 // scoredPeerLess orders ready peers for Kahn's algorithm in four tiers: a
-// NaN score never outranks a real one; then score; then declared priority;
-// then atom ID. Two NaNs are never ==, so they fall through rather than be
+// NaN score never outranks a real one; then score; then build-time importance
+// (unscored last); then atom ID. Two NaNs are never ==, so they fall through rather than be
 // compared. One function serves both queue sorts: the re-sort after each pop
 // used to drop the priority tier and the NaN guards, so peers could reorder
 // mid-run relative to the initial queue.
@@ -147,7 +147,7 @@ func scoredPeerLess(a, b *ScoredAtom) bool {
 	as, bs := a.Combined, b.Combined
 	aNaN, bNaN := math.IsNaN(as), math.IsNaN(bs)
 	switch {
-	case aNaN && bNaN: // tie: fall through to priority, then ID
+	case aNaN && bNaN: // tie: fall through to importance, then ID
 	case aNaN:
 		return false
 	case bNaN:
@@ -155,8 +155,8 @@ func scoredPeerLess(a, b *ScoredAtom) bool {
 	case as != bs:
 		return as > bs
 	}
-	if a.Atom.Priority != b.Atom.Priority {
-		return a.Atom.Priority > b.Atom.Priority
+	if a.Atom.Importance != b.Atom.Importance {
+		return a.Atom.Importance > b.Atom.Importance
 	}
 	return a.Atom.ID < b.Atom.ID
 }

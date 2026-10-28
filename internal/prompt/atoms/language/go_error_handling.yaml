@@ -4,7 +4,6 @@
 - id: "language/go/errors/fundamentals"
   category: "language"
   subcategory: "go"
-  priority: 87
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -51,7 +50,6 @@
   section_order: 1
   category: "language"
   subcategory: "go"
-  priority: 87
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -88,7 +86,6 @@
   section_order: 2
   category: "language"
   subcategory: "go"
-  priority: 87
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -140,7 +137,6 @@
 - id: "language/go/errors/custom_types"
   category: "language"
   subcategory: "go"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -196,7 +192,6 @@
   section_order: 1
   category: "language"
   subcategory: "go"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -261,7 +256,6 @@
   section_order: 2
   category: "language"
   subcategory: "go"
-  priority: 85
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -306,7 +300,6 @@
 - id: "language/go/errors/patterns"
   category: "language"
   subcategory: "go"
-  priority: 84
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -366,7 +359,6 @@
   section_order: 1
   category: "language"
   subcategory: "go"
-  priority: 84
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -410,7 +402,6 @@
   section_order: 2
   category: "language"
   subcategory: "go"
-  priority: 84
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -439,7 +430,6 @@
   section_order: 3
   category: "language"
   subcategory: "go"
-  priority: 84
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -480,7 +470,6 @@
   section_order: 4
   category: "language"
   subcategory: "go"
-  priority: 84
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -513,7 +502,6 @@
 - id: "language/go/errors/anti_patterns"
   category: "language"
   subcategory: "go"
-  priority: 86
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -574,7 +562,6 @@
   section_order: 1
   category: "language"
   subcategory: "go"
-  priority: 86
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]
@@ -626,7 +613,6 @@
   section_order: 2
   category: "language"
   subcategory: "go"
-  priority: 86
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/go", "/golang"]

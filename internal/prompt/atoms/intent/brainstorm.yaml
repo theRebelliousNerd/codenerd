@@ -6,7 +6,6 @@
 - id: "intent/brainstorm/core"
   category: "intent"
   subcategory: "brainstorm"
-  priority: 95
   is_mandatory: true
   intent_verbs: ["/brainstorm"]
   content: |
@@ -41,7 +40,6 @@
   section_order: 1
   category: "intent"
   subcategory: "brainstorm"
-  priority: 95
   is_mandatory: false
   intent_verbs: ["/brainstorm"]
   content: |
@@ -63,7 +61,6 @@
   section_order: 2
   category: "intent"
   subcategory: "brainstorm"
-  priority: 95
   is_mandatory: false
   intent_verbs: ["/brainstorm"]
   content: |
@@ -90,7 +87,6 @@
   section_order: 3
   category: "intent"
   subcategory: "brainstorm"
-  priority: 95
   is_mandatory: false
   intent_verbs: ["/brainstorm"]
   content: |
@@ -109,7 +105,6 @@
 - id: "intent/brainstorm/grounding"
   category: "intent"
   subcategory: "brainstorm"
-  priority: 90
   is_mandatory: false
   intent_verbs: ["/brainstorm"]
   depends_on: ["intent/brainstorm/core"]
@@ -141,7 +136,6 @@
   section_order: 1
   category: "intent"
   subcategory: "brainstorm"
-  priority: 90
   is_mandatory: false
   intent_verbs: ["/brainstorm"]
   depends_on: ["intent/brainstorm/core"]
@@ -173,7 +167,6 @@
 - id: "intent/brainstorm/output"
   category: "intent"
   subcategory: "brainstorm"
-  priority: 85
   is_mandatory: false
   intent_verbs: ["/brainstorm"]
   depends_on: ["intent/brainstorm/core"]

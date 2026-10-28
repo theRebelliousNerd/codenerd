@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -65,7 +64,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 1.1 Program Cannot Be Stratified cont"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -105,7 +103,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 2. Unsafe Variable Errors"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -172,7 +169,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 2.2 Variable Will Not Have Value Yet"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -216,7 +212,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 2.3 Variable Not Bound in Apply Expression"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -257,7 +252,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 2.4 Variable in Negation Not Bound"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -315,7 +309,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 3. Variable Binding in Transforms"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -354,7 +347,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 3.2 Variable Used in Transform Not in Clause"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -391,7 +383,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 3.3 Do-Transforms Cannot Have Variable"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -427,7 +418,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 3.4 Variable Must Be Part of Group By or Aggregated"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -493,7 +483,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 3.5 Group By Arguments Must Be Distinct Variables"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -532,7 +521,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 3.6 Head Variable Neither Grouped Nor Aggregated"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -593,7 +581,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 4. Declaration and Arity Errors"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -640,7 +627,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 4.2 Arity Mismatch"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -694,7 +680,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 4.3 Predicate Defined Previously"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -754,7 +739,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 5.2 Composing Multiple Transforms Not Implemented"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -797,7 +781,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 5.3 Cannot Have Transform Without Body"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -833,7 +816,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 6. Type Context Errors"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -890,7 +872,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: Quick Diagnosis Guide"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -915,7 +896,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: Safety Rules Summary"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

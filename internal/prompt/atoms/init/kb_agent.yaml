@@ -4,7 +4,6 @@
 - id: "init/kb_agent/research"
   category: "init"
   subcategory: "kb_agent"
-  priority: 75
   is_mandatory: true
   shard_types: ["/researcher"]
   init_phases: ["/kb_creation", "/kb_agent"]
@@ -32,7 +31,6 @@
 - id: "init/kb_agent/quality"
   category: "init"
   subcategory: "kb_agent"
-  priority: 70
   is_mandatory: true
   shard_types: ["/researcher"]
   init_phases: ["/kb_creation", "/kb_agent"]
@@ -78,7 +76,6 @@
 - id: "init/kb_agent/storage"
   category: "init"
   subcategory: "kb_agent"
-  priority: 65
   is_mandatory: false
   shard_types: ["/researcher"]
   init_phases: ["/kb_creation", "/kb_agent"]

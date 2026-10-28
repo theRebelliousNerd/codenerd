@@ -4,7 +4,6 @@
 - id: "identity/custom_shard/core"
   category: "identity"
   subcategory: "custom_shard"
-  priority: 95
   is_mandatory: false
   shard_types: ["/custom"]
   content: |

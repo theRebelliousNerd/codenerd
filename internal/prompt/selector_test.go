@@ -181,10 +181,10 @@ func TestAtomSelector_SelectAtoms_Bifurcation(t *testing.T) {
 		// Mock kernel returns all atoms as selected
 		kernel := &mockKernel{
 			facts: []any{
-				Fact{Predicate: "selected_result", Args: []any{"identity-1", 100, "mandatory"}},
-				Fact{Predicate: "selected_result", Args: []any{"safety-1", 90, "mandatory"}},
-				Fact{Predicate: "selected_result", Args: []any{"domain-1", 80, "context_match"}},
-				Fact{Predicate: "selected_result", Args: []any{"exemplar-1", 70, "vector_match"}},
+				Fact{Predicate: "selected_result", Args: []any{"identity-1", "mandatory"}},
+				Fact{Predicate: "selected_result", Args: []any{"safety-1", "mandatory"}},
+				Fact{Predicate: "selected_result", Args: []any{"domain-1", "context_match"}},
+				Fact{Predicate: "selected_result", Args: []any{"exemplar-1", "vector_match"}},
 			},
 		}
 		selector.SetKernel(kernel)
@@ -229,7 +229,7 @@ func TestAtomSelector_SelectAtoms_Bifurcation(t *testing.T) {
 		// Create a kernel that returns skeleton atoms but has no flesh results
 		kernel := &mockKernel{
 			facts: []any{
-				Fact{Predicate: "selected_result", Args: []any{"identity-1", 100, "mandatory"}},
+				Fact{Predicate: "selected_result", Args: []any{"identity-1", "mandatory"}},
 				// No flesh atoms returned
 			},
 		}
@@ -280,8 +280,8 @@ func TestAtomSelector_SelectAtoms_FactsAreMangleParseable(t *testing.T) {
 
 	kernel := &validatingKernel{
 		results: []Fact{
-			{Predicate: "selected_result", Args: []any{identityID, 100, "mandatory"}},
-			{Predicate: "selected_result", Args: []any{evilID, 80, "vector_match"}},
+			{Predicate: "selected_result", Args: []any{identityID, "mandatory"}},
+			{Predicate: "selected_result", Args: []any{evilID, "vector_match"}},
 		},
 	}
 	selector.SetKernel(kernel)
@@ -483,7 +483,7 @@ func TestAtomSelector_SkeletonTier(t *testing.T) {
 
 		kernel := &mockKernel{
 			facts: []any{
-				Fact{Predicate: "selected_result", Args: []any{"identity-1", 100, "mandatory"}},
+				Fact{Predicate: "selected_result", Args: []any{"identity-1", "mandatory"}},
 			},
 		}
 		selector.SetKernel(kernel)
@@ -534,7 +534,7 @@ func TestAtomSelector_SkeletonTier(t *testing.T) {
 
 		selector.SetKernel(&mockKernel{
 			facts: []any{
-				Fact{Predicate: "selected_result", Args: []any{"identity-1", 100, "mandatory"}},
+				Fact{Predicate: "selected_result", Args: []any{"identity-1", "mandatory"}},
 			},
 		})
 
@@ -560,7 +560,7 @@ func TestAtomSelector_FleshTier(t *testing.T) {
 
 		selector.SetKernel(&mockKernel{
 			facts: []any{
-				Fact{Predicate: "selected_result", Args: []any{"domain-1", 80, "context_match"}},
+				Fact{Predicate: "selected_result", Args: []any{"domain-1", "context_match"}},
 			},
 		})
 
@@ -618,7 +618,7 @@ func TestAtomSelector_FleshTier(t *testing.T) {
 
 		selector.SetKernel(&mockKernel{
 			facts: []any{
-				Fact{Predicate: "selected_result", Args: []any{"domain-1", 80, "vector_match"}},
+				Fact{Predicate: "selected_result", Args: []any{"domain-1", "vector_match"}},
 			},
 		})
 		selector.SetVectorSearcher(&mockVectorSearcher{
@@ -644,7 +644,7 @@ func TestAtomSelector_FleshTier(t *testing.T) {
 
 		selector.SetKernel(&mockKernel{
 			facts: []any{
-				Fact{Predicate: "selected_result", Args: []any{"domain-1", 80, "context_match"}},
+				Fact{Predicate: "selected_result", Args: []any{"domain-1", "context_match"}},
 			},
 		})
 
@@ -674,10 +674,10 @@ func BenchmarkSelectAtoms(b *testing.B) {
 
 	for i := range 100 {
 		atoms[i] = &PromptAtom{
-			ID:       string(rune('a' + i%26)),
-			Priority: i,
-			Content:  "content",
-			Category: categories[i%len(categories)],
+			ID:         string(rune('a' + i%26)),
+			Importance: ImportanceLevel(i%5 + 1),
+			Content:    "content",
+			Category:   categories[i%len(categories)],
 		}
 	}
 
@@ -686,7 +686,7 @@ func BenchmarkSelectAtoms(b *testing.B) {
 	for _, a := range atoms {
 		kernel.facts = append(kernel.facts, Fact{
 			Predicate: "selected_result",
-			Args:      []any{a.ID, a.Priority, "benchmark"},
+			Args:      []any{a.ID, "benchmark"},
 		})
 	}
 

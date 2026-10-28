@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Stratification"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -42,7 +41,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Stratification: Stratify Function"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -76,7 +74,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Stratification: Valid Stratification Examples"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -132,7 +129,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Stratification: Invalid Stratification Examples"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -180,7 +176,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Stratification: Stratification Rules"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -227,7 +222,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Stratification: Stratified Evaluation Process"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -271,7 +265,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Stratification: Semipositive Datalog"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -314,7 +307,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Stratification: Checking Stratification in Go"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -345,7 +337,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Stratification: Debugging Stratification Failures"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -395,7 +386,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Stratification: Stratification and Termination"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

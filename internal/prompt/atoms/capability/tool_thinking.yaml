@@ -5,7 +5,6 @@
 - id: "capability/tool_thinking"
   category: "capability"
   subcategory: "tool_generation"
-  priority: 85
   is_mandatory: true
   shard_types: []  # Applies to all personas
   content: |
@@ -51,7 +50,6 @@
 - id: "capability/tool_request_protocol"
   category: "protocol"
   subcategory: "tool_generation"
-  priority: 80
   is_mandatory: true
   depends_on: ["capability/tool_thinking"]
   # Served where envelope tool_requests are run: the executor's text channel
@@ -89,7 +87,6 @@
 - id: "capability/ouroboros_awareness"
   category: "capability"
   subcategory: "tool_generation"
-  priority: 75
   is_mandatory: false
   depends_on: ["capability/tool_thinking"]
   content: |

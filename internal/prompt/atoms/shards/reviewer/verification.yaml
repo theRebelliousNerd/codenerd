@@ -4,7 +4,6 @@
 - id: "shards/reviewer/hypothesis_verification"
   category: "methodology"
   subcategory: "verification"
-  priority: 95
   is_mandatory: true
   shard_types: ["/reviewer"]
   content: |
@@ -49,7 +48,6 @@
 - id: "shards/reviewer/verification_examples"
   category: "methodology"
   subcategory: "examples"
-  priority: 80
   is_mandatory: false
   shard_types: ["/reviewer"]
   depends_on: ["shards/reviewer/hypothesis_verification"]

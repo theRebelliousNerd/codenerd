@@ -1,7 +1,6 @@
 - id: "campaign/extractor/methodology"
   category: "campaign"
   subcategory: "extractor"
-  priority: 90
   is_mandatory: true
   shard_types: ["extractor", "researcher"]
   campaign_phases: ["requirements", "northstar"]

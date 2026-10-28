@@ -7,7 +7,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Behaviours of the pinned Mangle engine that were verified by running them, and the forms it rejects"
-  priority: 96
   is_mandatory: true
   languages: ["/mangle"]
   # Served when the kernel derives the need (policy/jit_needs.mg:
@@ -42,7 +41,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Behaviours of the pinned Mangle engine that were verified by running them, and the forms it rejects: Reducers and their real arity"
-  priority: 96
   is_mandatory: false
   languages: ["/mangle"]
   # Served when the kernel derives the need (policy/jit_needs.mg:
@@ -76,7 +74,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Behaviours of the pinned Mangle engine that were verified by running them, and the forms it rejects: External (virtual) predicates join on constants only"
-  priority: 96
   is_mandatory: false
   languages: ["/mangle"]
   # Served when the kernel derives the need (policy/jit_needs.mg:
@@ -98,7 +95,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Behaviours of the pinned Mangle engine that were verified by running them, and the forms it rejects: Registering a Go handler does nothing without an external() Decl"
-  priority: 96
   is_mandatory: false
   languages: ["/mangle"]
   # Served when the kernel derives the need (policy/jit_needs.mg:
@@ -130,7 +126,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Behaviours of the pinned Mangle engine that were verified by running them, and the forms it rejects: Things that fail quietly"
-  priority: 96
   is_mandatory: false
   languages: ["/mangle"]
   # Served when the kernel derives the need (policy/jit_needs.mg:
@@ -159,7 +154,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Behaviours of the pinned Mangle engine that were verified by running them, and the forms it rejects: Cost"
-  priority: 96
   is_mandatory: false
   languages: ["/mangle"]
   # Served when the kernel derives the need (policy/jit_needs.mg:

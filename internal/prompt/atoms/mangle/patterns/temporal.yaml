@@ -5,7 +5,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -25,7 +24,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Core Pattern: Event Ordering"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -86,7 +84,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Variation 1: Time Range Filtering"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -131,7 +128,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Variation 2: Duration Calculation"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -178,7 +174,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Variation 3: Event Sequences (Happens-Before Chain)"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -230,7 +225,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Variation 4: Time Windows / Bucketing"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -276,7 +270,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Variation 5: Overlapping Intervals"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -323,7 +316,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Variation 6: Sliding Window"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -373,7 +365,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Variation 7: Time-to-Event"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -420,7 +411,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Variation 8: Most Recent Event"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -464,7 +454,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Variation 9: Gap Detection"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -519,7 +508,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Variation 10: Rate Limiting / Frequency"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -566,7 +554,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Anti-Patterns"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |
@@ -604,7 +591,6 @@
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Temporal Patterns Performance Tips"
-  priority: 30
   is_mandatory: false
   languages: ["/mangle"]
   content: |

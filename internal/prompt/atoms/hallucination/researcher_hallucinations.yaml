@@ -4,7 +4,6 @@
 - id: "hallucination/researcher/false_citation"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 95
   is_mandatory: true
   shard_types: ["/researcher"]
   content: |
@@ -31,7 +30,6 @@
 - id: "hallucination/researcher/outdated_info"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 90
   is_mandatory: true
   shard_types: ["/researcher"]
   content: |
@@ -58,7 +56,6 @@
 - id: "hallucination/researcher/confidence_inflation"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 90
   is_mandatory: true
   shard_types: ["/researcher"]
   content: |
@@ -85,7 +82,6 @@
 - id: "hallucination/researcher/synthesis_error"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 85
   is_mandatory: true
   shard_types: ["/researcher"]
   content: |
@@ -112,7 +108,6 @@
 - id: "hallucination/researcher/example_invention"
   category: "hallucination"
   subcategory: "prevention"
-  priority: 90
   is_mandatory: true
   shard_types: ["/researcher"]
   content: |

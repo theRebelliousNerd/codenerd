@@ -4,7 +4,6 @@
 - id: "language/typescript/async/promises"
   category: "language"
   subcategory: "typescript"
-  priority: 80
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -58,7 +57,6 @@
   section_order: 1
   category: "language"
   subcategory: "typescript"
-  priority: 80
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -106,7 +104,6 @@
 - id: "language/typescript/async/abort"
   category: "language"
   subcategory: "typescript"
-  priority: 79
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -155,7 +152,6 @@
   section_order: 1
   category: "language"
   subcategory: "typescript"
-  priority: 79
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -192,7 +188,6 @@
   section_order: 2
   category: "language"
   subcategory: "typescript"
-  priority: 79
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -249,7 +244,6 @@
 - id: "language/typescript/async/error_handling"
   category: "language"
   subcategory: "typescript"
-  priority: 81
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -304,7 +298,6 @@
   section_order: 1
   category: "language"
   subcategory: "typescript"
-  priority: 81
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -342,7 +335,6 @@
   section_order: 2
   category: "language"
   subcategory: "typescript"
-  priority: 81
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]
@@ -395,7 +387,6 @@
   section_order: 3
   category: "language"
   subcategory: "typescript"
-  priority: 81
   is_mandatory: false
   shard_types: ["/coder", "/reviewer"]
   languages: ["/typescript"]

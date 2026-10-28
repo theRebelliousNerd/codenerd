@@ -28,7 +28,7 @@ func openReconcileTestDB(t *testing.T) *sql.DB {
 		content_min TEXT,
 		category TEXT NOT NULL,
 		subcategory TEXT,
-		priority INTEGER DEFAULT 50,
+		importance INTEGER,
 		is_mandatory BOOLEAN DEFAULT FALSE,
 		is_exclusive TEXT,
 		depends_on TEXT,

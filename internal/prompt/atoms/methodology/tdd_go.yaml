@@ -4,7 +4,6 @@
 - id: "methodology/tdd/go_workflow"
   category: "methodology"
   subcategory: "tdd"
-  priority: 95
   is_mandatory: false
   languages: ["/go", "/golang"]
   intent_verbs: ["/test", "/fix", "/implement"]

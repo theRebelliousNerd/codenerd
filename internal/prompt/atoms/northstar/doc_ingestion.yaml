@@ -4,7 +4,6 @@
 - id: "northstar/doc_ingestion/mission"
   category: "northstar"
   subcategory: "doc_ingestion"
-  priority: 70
   is_mandatory: true
   northstar_phases: ["/doc_ingestion"]
   content: |
@@ -28,7 +27,6 @@
 - id: "northstar/doc_ingestion/extraction_protocol"
   category: "northstar"
   subcategory: "doc_ingestion"
-  priority: 65
   is_mandatory: true
   northstar_phases: ["/doc_ingestion"]
   depends_on: ["northstar/doc_ingestion/mission"]
@@ -83,7 +81,6 @@
 - id: "northstar/doc_ingestion/output_format"
   category: "northstar"
   subcategory: "doc_ingestion"
-  priority: 60
   is_mandatory: true
   northstar_phases: ["/doc_ingestion"]
   depends_on: ["northstar/doc_ingestion/extraction_protocol"]
@@ -124,7 +121,6 @@
 - id: "northstar/doc_ingestion/confidence_calibration"
   category: "northstar"
   subcategory: "doc_ingestion"
-  priority: 55
   is_mandatory: false
   northstar_phases: ["/doc_ingestion"]
   depends_on: ["northstar/doc_ingestion/mission"]

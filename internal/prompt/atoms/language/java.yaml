@@ -4,7 +4,6 @@
 - id: "language/java/core"
   category: "language"
   subcategory: "java"
-  priority: 90
   is_mandatory: false
   languages: ["/java"]
   content: |
@@ -65,7 +64,6 @@
 - id: "language/java/spring"
   category: "language"
   subcategory: "java"
-  priority: 85
   is_mandatory: false
   languages: ["/java"]
   frameworks: ["/spring"]
@@ -125,7 +123,6 @@
 - id: "language/java/build"
   category: "language"
   subcategory: "java"
-  priority: 80
   is_mandatory: false
   languages: ["/java"]
   content: |

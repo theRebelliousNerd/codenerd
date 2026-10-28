@@ -21,48 +21,14 @@ func TestStrategyIDFromAtomID(t *testing.T) {
 	}
 }
 
-// TestStrategyPriority_StaysBelowCuratedMethodology pins the rank ceiling. The
-// hand-written methodology corpus sits in the 80s; a machine-refined heuristic
-// that could climb past it would let one bad refinement cycle displace the
-// instructions that keep the agent coherent.
-func TestStrategyPriority_StaysBelowCuratedMethodology(t *testing.T) {
-	perfect := &Strategy{SuccessCount: 100, SuccessRate: 1.0}
-	if got := strategyPriority(perfect); got >= 80 {
-		t.Errorf("a perfect strategy scored %d; it must stay under the curated methodology band (80+)", got)
-	}
-}
-
-// TestStrategyPriority_UnusedIsNeutralNotWorst is the cold-start rule. Zero
-// uses is absence of evidence, not evidence of failure — ranking every seeded
-// strategy at the floor would bury the default playbook under the first
-// mediocre strategy that happened to succeed once.
-func TestStrategyPriority_UnusedIsNeutralNotWorst(t *testing.T) {
-	unused := &Strategy{}
-	failing := &Strategy{FailureCount: 10, SuccessRate: 0.0}
-
-	if strategyPriority(unused) <= strategyPriority(failing) {
-		t.Fatalf("an unused strategy (%d) must outrank a proven-bad one (%d)",
-			strategyPriority(unused), strategyPriority(failing))
-	}
-	if strategyPriority(nil) != strategyPriority(unused) {
-		t.Error("a nil strategy must score the same neutral value, not panic or hit the floor")
-	}
-}
-
-func TestStrategyPriority_TracksSuccessRate(t *testing.T) {
-	low := &Strategy{SuccessCount: 1, FailureCount: 9, SuccessRate: 0.1}
-	high := &Strategy{SuccessCount: 9, FailureCount: 1, SuccessRate: 0.9}
-	if strategyPriority(low) >= strategyPriority(high) {
-		t.Errorf("priority does not track success rate: low=%d high=%d",
-			strategyPriority(low), strategyPriority(high))
-	}
-}
-
-func TestStrategyPriority_ClampsOutOfRangeRates(t *testing.T) {
-	// A corrupt row must not produce a priority that outranks everything.
-	insane := &Strategy{SuccessCount: 1, SuccessRate: 42.0}
-	if got := strategyPriority(insane); got > 75 {
-		t.Errorf("unclamped success rate produced priority %d", got)
+// TestStrategyAtom_IsUnscored: a learned strategy is never in the build-time
+// importance ledger, so it carries no importance and no importance rule
+// decides anything about it (prompt/importance.go). Its rank among strategies
+// is SelectStrategies' measured success rate, not a hand weight.
+func TestStrategyAtom_IsUnscored(t *testing.T) {
+	atom := strategyAtom(&Strategy{ID: "s", ShardType: "/coder", Content: "reproduce first", SuccessRate: 1, SuccessCount: 100})
+	if atom.Importance != prompt.ImportanceUnscored {
+		t.Fatalf("strategy atom importance = %v, want unscored", atom.Importance)
 	}
 }
 

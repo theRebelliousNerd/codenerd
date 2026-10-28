@@ -749,21 +749,23 @@ func TestSanitizeFactForNumericPredicates_AgendaItem(t *testing.T) {
 	}
 }
 
-func TestSanitizeFactForNumericPredicates_AtomPriority(t *testing.T) {
-	fact := Fact{Predicate: "atom_priority", Args: []any{"atom1", "/high"}}
+func TestSanitizeFactForNumericPredicates_AtomImportance(t *testing.T) {
+	// A pointer-shaped string in the level slot is scrubbed to 0, which no
+	// importance rule reads as a level (levels are 1..5).
+	fact := Fact{Predicate: "atom_importance", Args: []any{"atom1", "0x7ff63be770e0"}}
 	result := sanitizeFactForNumericPredicates(fact)
-
-	if result.Args[1] != int64(80) {
-		t.Errorf("atom_priority priority: got %v, want %d", result.Args[1], 80)
+	if result.Args[1] != int64(0) {
+		t.Errorf("atom_importance level: got %v, want 0", result.Args[1])
 	}
 }
 
 func TestSanitizeFactForNumericPredicates_PromptAtom(t *testing.T) {
-	fact := Fact{Predicate: "prompt_atom", Args: []any{"id1", "/category", "/critical", 500, true}}
+	// prompt_atom(AtomID, Category, TokenCount, IsMandatory): the token count
+	// slot is scrubbed of a pointer leak.
+	fact := Fact{Predicate: "prompt_atom", Args: []any{"id1", "/category", "0x7ff63be770e0", "/true"}}
 	result := sanitizeFactForNumericPredicates(fact)
-
-	if result.Args[2] != int64(100) {
-		t.Errorf("prompt_atom priority: got %v, want %d", result.Args[2], 100)
+	if result.Args[2] != int64(0) {
+		t.Errorf("prompt_atom token count: got %v, want 0", result.Args[2])
 	}
 }
 

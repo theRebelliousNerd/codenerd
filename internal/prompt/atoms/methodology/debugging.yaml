@@ -4,7 +4,6 @@
 - id: "methodology/debugging/core"
   category: "methodology"
   subcategory: "debugging"
-  priority: 90
   is_mandatory: false
   operational_modes: ["/debugging"]
   intent_verbs: ["/debug", "/fix"]
@@ -41,7 +40,6 @@
 - id: "methodology/debugging/root_cause"
   category: "methodology"
   subcategory: "debugging"
-  priority: 85
   is_mandatory: false
   operational_modes: ["/debugging"]
   intent_verbs: ["/debug", "/fix"]
@@ -77,7 +75,6 @@
 - id: "methodology/debugging/error_context"
   category: "methodology"
   subcategory: "debugging"
-  priority: 80
   is_mandatory: false
   operational_modes: ["/debugging"]
   intent_verbs: ["/debug", "/fix"]

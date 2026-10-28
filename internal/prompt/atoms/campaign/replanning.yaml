@@ -4,7 +4,6 @@
 - id: "campaign/replanning/identity"
   category: "methodology"
   subcategory: "replanning"
-  priority: 70
   is_mandatory: false
   campaign_phases: ["execution", "replanning"]
   shard_types: ["/planner"]
@@ -21,7 +20,6 @@
 - id: "campaign/replanning/reality_check"
   category: "methodology"
   subcategory: "state_reconciliation"
-  priority: 75
   is_mandatory: true
   campaign_phases: ["replanning"]
   shard_types: ["/planner"]
@@ -41,7 +39,6 @@
   section_order: 1
   category: "methodology"
   subcategory: "state_reconciliation"
-  priority: 75
   is_mandatory: false
   campaign_phases: ["replanning"]
   shard_types: ["/planner"]
@@ -62,7 +59,6 @@
 - id: "campaign/replanning/rolling_wave"
   category: "methodology"
   subcategory: "progressive_refinement"
-  priority: 70
   is_mandatory: true
   campaign_phases: ["replanning"]
   shard_types: ["/planner"]
@@ -86,7 +82,6 @@
 - id: "campaign/replanning/adversarial_failures"
   category: "methodology"
   subcategory: "adversarial_repair"
-  priority: 68
   is_mandatory: true
   campaign_phases: ["replanning"]
   shard_types: ["/planner"]
@@ -104,7 +99,6 @@
 - id: "campaign/replanning/anti_patterns"
   category: "safety"
   subcategory: "hallucination_prevention"
-  priority: 65
   is_mandatory: true
   campaign_phases: ["replanning"]
   shard_types: ["/planner"]
