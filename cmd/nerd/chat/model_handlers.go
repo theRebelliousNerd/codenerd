@@ -103,7 +103,13 @@ func (m Model) addMessages(msgs ...Message) Model {
 
 // handleSubmit processes user input submission
 func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
-	input := strings.TrimSpace(m.textarea.Value())
+	raw := m.textarea.Value()
+	// Patch mode carries file syntax: a leading space is a context marker
+	// and an empty submission is a blank line, so nothing is trimmed.
+	if m.inputMode == InputModePatch {
+		return m.ingestPatchSubmission(raw)
+	}
+	input := strings.TrimSpace(raw)
 	if input == "" {
 		// Empty Enter: Check for continuation confirmation
 		if len(m.pendingSubtasks) > 0 {
@@ -113,33 +119,13 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Patch ingestion mode
-	if m.inputMode == InputModePatch {
-		// Accumulate lines until user types --END--
-		if input == "--END--" {
-			patch := strings.Join(m.pendingPatchLines, "\n")
-			m.setInputMode(InputModeNormal)
-			m.textarea.Placeholder = "Ask me anything... (Enter to send, Shift+Enter for newline, Ctrl+C to exit)"
-			m = m.addMessage(Message{
-				Role:    "assistant",
-				Content: applyPatchResult(m.workspace, patch),
-				Time:    time.Now(),
-			})
-			m.textarea.Reset()
-			m.viewport.SetContent(m.renderHistory())
-			m.viewport.GotoBottom()
-			return m, nil
-		}
-		m.pendingPatchLines = append(m.pendingPatchLines, input)
-		m.textarea.Reset()
-		return m, nil
-	}
-
 	m.recordUXMetric("commands_executed")
 
 	// Check for special commands
 	if strings.HasPrefix(input, "/") {
-		return m.handleCommand(input)
+		// The untrimmed tail reaches handleCommand: /write and /append
+		// carry its bytes as file content.
+		return m.handleCommand(strings.TrimLeft(raw, " \t\r\n"))
 	}
 
 	// If we are collecting clarification answers for a future campaign launch,

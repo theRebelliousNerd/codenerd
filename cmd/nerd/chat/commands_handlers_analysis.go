@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -346,31 +347,24 @@ func (m Model) handleCmdMkdir(input string, parts []string) (tea.Model, tea.Cmd)
 	return m, nil
 }
 
-// handleCmdWrite handles the corresponding chat slash-command.
-func (m Model) handleCmdWrite(input string, parts []string) (tea.Model, tea.Cmd) {
-	if len(parts) < 3 {
-		m = m.addMessage(Message{
-			Role:    "assistant",
-			Content: "Usage: `/write <path> <content>`",
-			Time:    time.Now(),
-		})
-	} else {
-		path := parts[1]
-		content := strings.Join(parts[2:], " ")
-		if err := writeFileContent(m.workspace, path, content); err != nil {
-			m = m.addMessage(Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("Failed to write file: %v", err),
-				Time:    time.Now(),
-			})
+// handleCmdWrite writes the payload after the path exactly as submitted
+// (splitPayloadCommand), or refuses before touching the file.
+func (m Model) handleCmdWrite(raw string) (tea.Model, tea.Cmd) {
+	var reply string
+	path, content, err := splitPayloadCommand(raw)
+	switch {
+	case errors.Is(err, errPayloadMissing):
+		reply = "Usage: `/write <path> <content>` - the content after the path (or after a newline following it) is written byte for byte."
+	case err != nil:
+		reply = fmt.Sprintf("Refused to write %s: %v", path, err)
+	default:
+		if werr := writeFileContent(m.workspace, path, content); werr != nil {
+			reply = fmt.Sprintf("Failed to write file: %v", werr)
 		} else {
-			m = m.addMessage(Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("Wrote to file: %s", path),
-				Time:    time.Now(),
-			})
+			reply = fmt.Sprintf("Wrote %d bytes to %s", len(content), path)
 		}
 	}
+	m = m.addMessage(Message{Role: "assistant", Content: reply, Time: time.Now()})
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
 	m.textarea.Reset()
@@ -464,7 +458,7 @@ func (m Model) handleCmdEdit(input string, parts []string) (tea.Model, tea.Cmd) 
 		} else {
 			m = m.addMessage(Message{
 				Role:    "assistant",
-				Content: fmt.Sprintf("**Editing %s:**\n\n```\n%s\n```\n\nUse `/write %s <new content>` to save changes.", path, obs.Body, path),
+				Content: fmt.Sprintf("**Editing %s:**\n\n```\n%s\n```\n\nTo save, send `/write %s` followed by Shift+Enter and the full new content; it is written byte for byte.", path, obs.Body, path),
 				Time:    time.Now(),
 			})
 		}
@@ -475,31 +469,27 @@ func (m Model) handleCmdEdit(input string, parts []string) (tea.Model, tea.Cmd) 
 	return m, nil
 }
 
-// handleCmdAppend handles the corresponding chat slash-command.
-func (m Model) handleCmdAppend(input string, parts []string) (tea.Model, tea.Cmd) {
-	if len(parts) < 3 {
-		m = m.addMessage(Message{
-			Role:    "assistant",
-			Content: "Usage: `/append <path> <content>`",
-			Time:    time.Now(),
-		})
-	} else {
-		path := parts[1]
-		content := strings.Join(parts[2:], " ")
-		if err := appendFileContent(m.workspace, path, content+"\n"); err != nil {
-			m = m.addMessage(Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("Failed to append to file: %v", err),
-				Time:    time.Now(),
-			})
+// handleCmdAppend appends the payload after the path as one line: its bytes
+// exactly, then a newline unless the payload already ends with one.
+func (m Model) handleCmdAppend(raw string) (tea.Model, tea.Cmd) {
+	var reply string
+	path, content, err := splitPayloadCommand(raw)
+	switch {
+	case errors.Is(err, errPayloadMissing):
+		reply = "Usage: `/append <path> <content>` - the content is appended byte for byte, followed by a newline unless it ends with one."
+	case err != nil:
+		reply = fmt.Sprintf("Refused to append to %s: %v", path, err)
+	default:
+		if !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+		if aerr := appendFileContent(m.workspace, path, content); aerr != nil {
+			reply = fmt.Sprintf("Failed to append to file: %v", aerr)
 		} else {
-			m = m.addMessage(Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("Appended to file: %s", path),
-				Time:    time.Now(),
-			})
+			reply = fmt.Sprintf("Appended %d bytes to %s", len(content), path)
 		}
 	}
+	m = m.addMessage(Message{Role: "assistant", Content: reply, Time: time.Now()})
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
 	m.textarea.Reset()

@@ -144,7 +144,7 @@ var CommandRegistry = []CommandInfo{
 	},
 	{
 		Name:        "/write",
-		Description: "Write a file",
+		Description: "Write a file with the content after the path, byte for byte",
 		Usage:       "/write <path> <content>",
 		Category:    CategoryBasic,
 		ShowInHelp:  true,
@@ -158,7 +158,7 @@ var CommandRegistry = []CommandInfo{
 	},
 	{
 		Name:        "/append",
-		Description: "Append to a file",
+		Description: "Append the content after the path as a line, byte for byte",
 		Usage:       "/append <path> <content>",
 		Category:    CategoryBasic,
 		ShowInHelp:  true,

@@ -450,6 +450,10 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	// Typing goes on while a turn runs: Enter then makes a side turn or a
 	// queued message (side_turn.go).
 	var tiCmd tea.Cmd
+	before := m.textarea.Length()
 	m.textarea, tiCmd = m.textarea.Update(msg)
+	if note := droppedInputNotice(msg, before, m.textarea.Length(), m.textarea.CharLimit); note != "" {
+		m = m.pushAssistantMsg(note)
+	}
 	return m, tiCmd, false
 }

@@ -59,25 +59,35 @@ func applyPatchResult(workspace, patch string) string {
 			logging.Routing("[helpers] failed to write patch file: %v", err)
 		}
 	}
-	if err := runApplyPatch(fullPatch); err != nil {
+	if err := runApplyPatch(workspace, fullPatch); err != nil {
 		return fmt.Sprintf("Patch failed: %v", err)
 	}
 	return "Patch applied."
 }
 
-func runApplyPatch(patch string) error {
+// runApplyPatch applies the patch with the workspace as the working
+// directory: the patch's paths are workspace-relative, not relative to
+// wherever the process was started.
+func runApplyPatch(workspace, patch string) error {
 	// Try git apply first, fallback to 'patch' if available
 	cmd := exec.Command("git", "apply", "--whitespace=nowarn")
+	cmd.Dir = workspace
 	cmd.Stdin = strings.NewReader(patch)
-	if err := cmd.Run(); err == nil {
+	gitOut, gitErr := cmd.CombinedOutput()
+	if gitErr == nil {
 		return nil
 	}
-	if _, err := exec.LookPath("patch"); err == nil {
-		cmd = exec.Command("patch", "-p0")
-		cmd.Stdin = strings.NewReader(patch)
-		return cmd.Run()
+	gitFailure := fmt.Errorf("git apply: %v: %s", gitErr, strings.TrimSpace(string(gitOut)))
+	if _, err := exec.LookPath("patch"); err != nil {
+		return gitFailure
 	}
-	return fmt.Errorf("git apply and patch both unavailable")
+	cmd = exec.Command("patch", "-p0")
+	cmd.Dir = workspace
+	cmd.Stdin = strings.NewReader(patch)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%w; patch -p0: %v: %s", gitFailure, err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 func resolvePath(workspace, path string) string {

@@ -42,9 +42,11 @@ import (
 // handleCommand processes all /command inputs from the user.
 // Commands are organized by category: session, config, shard, query, campaign.
 
-func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
-	// Sanitize: strip null bytes and ANSI escapes before processing
-	input = sanitizeCommandInput(input)
+func (m Model) handleCommand(raw string) (tea.Model, tea.Cmd) {
+	// Sanitize: strip null bytes and ANSI escapes before processing. This
+	// view recognizes commands; /write and /append take their content from
+	// raw, which is never normalized.
+	input := strings.TrimSpace(sanitizeCommandInput(raw))
 	parts := strings.Fields(input)
 	if len(parts) == 0 {
 		return m, nil
@@ -141,7 +143,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 		return m.handleCmdMkdir(input, parts)
 
 	case "/write":
-		return m.handleCmdWrite(input, parts)
+		return m.handleCmdWrite(raw)
 
 	case "/search":
 		return m.handleCmdSearch(input, parts)
@@ -153,7 +155,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 		return m.handleCmdEdit(input, parts)
 
 	case "/append":
-		return m.handleCmdAppend(input, parts)
+		return m.handleCmdAppend(raw)
 
 	case "/pick":
 		return m.handleCmdPick(input, parts)

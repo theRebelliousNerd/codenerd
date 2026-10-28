@@ -1,7 +1,7 @@
 ---
 doc-class: deep-dive
 subsystem: cli
-implementation-status: planned
+implementation-status: implemented except tab transport through the input widget (see As-built status)
 last-verified: 2026-10-28
 verified-against: c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c
 verification-method: static-source-inspection
@@ -171,3 +171,41 @@ Proposed checkable exits for the owning CLI spec:
 [sanitizer-test]: https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/cmd/nerd/chat/model_helpers_test.go#L236-L241
 [gnu-unified]: https://www.gnu.org/software/diffutils/manual/html_node/Detailed-Unified.html
 [git-apply]: https://git-scm.com/docs/git-apply
+
+## As-built status
+
+Verified and built 2026-10-28 on `main` after `c28a1212`. Every finding was still present on main; the conversation-brief merge did not touch this route.
+
+### Claim ledger
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| P1: `handleSubmit` trims the submission before dispatch | Real, fixed | Was `model_handlers.go:106`; now the raw value reaches `handleCommand` with only leading whitespace dropped (`model_handlers.go:106`, `:128`) |
+| P1: `handleCommand` runs `strings.Fields` over the whole command; `/write` and `/append` rebuild content with `strings.Join(parts[2:], " ")` | Real, fixed | `handleCommand` keeps `raw` for the two payload commands (`commands.go:45`, `:146`, `:158`); `splitPayloadCommand` parses only verb, path and one separator (`command_payload.go:31`) |
+| P1: success is reported without disclosing the rewrite | Real, fixed | Replies now state the bytes written (`commands_handlers_analysis.go:352`, `:474`) |
+| P1: quoted JSON spans are also collapsed | Real, fixed | `TestSlashWrite_SubmissionReachesTheFileByteForByte/json_string_spacing` |
+| `/edit` refuses a partial read (feature-branch fix) | Confirmed present on main, kept | `commands_handlers_analysis.go` `handleCmdEdit` (`coverageSpan` branch) |
+| `/edit` whole-file branch sends the person to `/write` | Real; now a lossless route except tabs (below), and the hint says how to send multiline content | `commands_handlers_analysis.go:461` |
+| P2: patch mode trims each submission, drops empty submissions, joins trimmed strings | Real, fixed | `handleSubmit` hands patch mode the raw value before any trim or empty check (`model_handlers.go:108-110`); `patchChunk` drops exactly one trailing line ending (`command_payload.go:74`) |
+| P2: the context marker of ` unchanged` and of a blank context line is lost | Real, fixed | `TestPatchMode_LineByLineKeepsContextMarkersAndApplies` |
+| Backend: `git apply --whitespace=nowarn`, fallback `patch -p0` | Confirmed. Not in the audit: the backend ran in the process working directory, not the workspace, and a failed `git apply` was reported as "git apply and patch both unavailable" with its output discarded | `runApplyPatch(workspace, ...)` sets `cmd.Dir` and returns git's and patch's own output (`helpers_files.go:71`) |
+| Sanitizer keeps `\n`, `\r`, `\t` | Confirmed; it still guards command recognition only | `model_helpers.go:25` |
+| Not in the audit: the input widget rewrites content before `handleSubmit` | Real, partly addressed. The bubbles v1.0.0 textarea expands tabs to four spaces, turns each CR into a newline and drops controls on every insert (`runeutil.Sanitizer`, not configurable: `rsan` is unexported), and cuts a paste at `CharLimit` (100,000, `session.go:69`) or 10,000 lines without notice | A cut paste now produces a notice and nothing is sent silently (`droppedInputNotice`, `command_payload.go`; `model_key_handler.go`). Tab expansion is not fixable in bubbles v1; see left open |
+
+### What was built
+
+- Rulings: (1) the envelope is `<verb> <path><sep><payload>` with `<path>` one whitespace-free token and `<sep>` exactly one space, tab, `\n` or `\r\n`; no path quoting. (2) An empty payload is a usage error, so a stray trailing space cannot truncate a file. (3) Control characters other than tab/CR/LF (and DEL) are refused before the file is opened, not stripped. (4) `/append` is a line append: payload bytes, then `\n` unless already present. (5) Patch mode ends only on a whole submission of exactly `--END--`; a multi-line chunk is always data, so a removal line `--END--` can be pasted. (6) The `*** Begin Patch` wrapper is kept: git apply and patch both skip it as preamble.
+- `cmd/nerd/chat/command_payload.go`: `splitPayloadCommand`, `checkTextPayload`, `patchChunk`, `ingestPatchSubmission`, `droppedInputNotice`.
+- Registry descriptions for `/write` and `/append` state the byte-for-byte contract (`command_categories.go`).
+- Spec: `Docs/architecture/cli/03-GAP-ANALYSIS.md` `GAP-CLI-SLASH-PAYLOAD`.
+
+### Tests
+
+`cmd/nerd/chat/command_payload_test.go`: repeated spaces, JSON spacing, trailing whitespace and multiline content reach the file exactly through `handleSubmit`; tabs and CRLF exact at the dispatcher; a control byte, an empty and a missing payload leave an existing file unchanged and are not reported as writes; append newline rule; a line-by-line patch with context markers, a blank context line and trailing spaces applies to the workspace while the test's working directory is elsewhere; chunked and line-by-line ingestion admit the same patch; a terminator with no lines applies nothing; a paste beyond the limit is reported. The existing patch-mode e2e and command tests pass; `go test ./cmd/nerd/chat/` passes.
+
+### Left open
+
+- Tab transport through the input box: bubbles v1.0.0 offers no sanitizer option; keeping tabs needs the bubbles v2 / bubbletea v2 migration (a repository-wide TUI change, not this lane) or a raw paste shadow buffer. Dispatcher and writer are exact, so the fix is confined to the widget.
+- Section 6 rows not built: concurrent source change after a `git apply --check` preflight (no preflight was added; the backend's own atomic check-then-apply is relied on) and an oversized-body bound (the widget's limit is the bound and is now disclosed).
+- `patch -p0` fallback does not match git's `a/`/`b/` prefixes; it only runs after git apply fails, and both failures are now reported.
+- Path containment for `/write` and `/append` is unchanged: these are the person's own commands and absolute paths are accepted, as before.

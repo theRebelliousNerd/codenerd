@@ -42,6 +42,14 @@ Embedding reembed must derive its full operation from commandContext(cmd), refus
 | GAP-CLI-REEMBED-CONTEXT | Reembedding command context | `runEmbeddingReembedWithOps` derives `commandContext` before initialization, passes it to engine creation and `ReembedAllDBsForce`, and joins close failures (`cmd/nerd/embedding_cmd.go:139-190`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Canceled Cobra parent exits before initialization; positive command timeout reaches store operation and prevents later database work. |
 
 
+## Required contract: Slash command payload integrity
+
+`/write`, `/append` and `/patch` carry file content. Only the envelope (verb, one whitespace-free path token, one separator: space, tab, `\n` or `\r\n`) is parsed; the payload reaches the writer byte for byte. Content the text transport cannot carry (control characters other than tab, CR, LF) and an empty payload are refused before the file is opened. `/append` appends a line: the payload, then `\n` unless it already ends with one. Patch mode keeps every submission untrimmed (one trailing line ending dropped per submission), ends only on a whole submission of exactly `--END--`, and applies with the workspace as working directory. Replies state the bytes written or the backend's own failure output.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-CLI-SLASH-PAYLOAD | Slash command payload integrity | `splitPayloadCommand`, `checkTextPayload`, `patchChunk`, `ingestPatchSubmission` (`cmd/nerd/chat/command_payload.go:31-105`); `handleSubmit` passes the untrimmed submission (`model_handlers.go:106-128`); `handleCommand` keeps raw for `/write`/`/append` (`commands.go:45`, `:146`, `:158`); `runApplyPatch` runs in the workspace and reports git/patch output (`helpers_files.go:71`). The bubbles v1 textarea still expands a typed or pasted tab to four spaces before submission (no public sanitizer option). | Required contract above | P1 | Implemented except tab transport through the textarea widget | bubbles textarea input layer | `cmd/nerd/chat/command_payload_test.go`: repeated spaces, JSON, trailing whitespace and multiline reach the file exactly through `handleSubmit`; tabs/CRLF exact at the dispatcher; control byte, empty and missing payload leave the file unchanged; append newline rule; line-by-line patch with context markers, blank context and trailing spaces applies in the workspace from another cwd; chunked and line-by-line ingestion agree. |
+
 ## Required contract: Chat information read containment
 
 The legacy /fs_read information-gathering action must enforce the same canonical workspace containment as typed read_file, rejecting traversal, outside absolute paths and symlink escapes before reading or asserting file_content. In-root reads remain supported.
