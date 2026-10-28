@@ -26,8 +26,8 @@ func (m Model) campaignPlanningClient() perception.LLMClient {
 }
 
 // campaignPromptProvider compiles the campaign roles' prompts from the JIT
-// corpus with this session's JIT budgets. Nil without a compiler, which
-// leaves each role on its static fallback.
+// corpus with this session's JIT budgets. Nil without a compiler: there is no
+// static fallback, so a campaign role then reports ErrRolePromptUnavailable.
 func (m Model) campaignPromptProvider() campaign.PromptProvider {
 	if m.jitCompiler == nil {
 		return nil

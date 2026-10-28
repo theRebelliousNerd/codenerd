@@ -139,6 +139,9 @@ func TestNewCampaignOrchestrator_PlansOnThePlanningTier(t *testing.T) {
 			worker := &chatTierWorker{}
 			m := NewTestModel(WithRealKernel(t, t.TempDir()), WithLLMClient(main))
 			m.cortex = &nerdsystem.Cortex{LLMClient: main}
+			// A booted session carries the JIT compiler; campaign roles
+			// compile their prompts from the shipped corpus through it.
+			m.jitCompiler, _ = newChatTestCompiler(t)
 			wantPlanning := main
 			if tt.withPlanner {
 				m.cortex.PlannerLLMClient = planner
@@ -150,7 +153,7 @@ func TestNewCampaignOrchestrator_PlansOnThePlanningTier(t *testing.T) {
 			m.scanner = world.NewScanner()
 			m.shardMgr = coreshards.NewShardManager()
 
-			orch, err := m.newCampaignOrchestrator(nil, nil, nil)
+			orch, err := m.newCampaignOrchestrator(nil, nil, m.campaignPromptProvider())
 			if err != nil {
 				t.Fatalf("newCampaignOrchestrator: %v", err)
 			}
@@ -209,12 +212,13 @@ func TestCampaignAddCommand_PlansTheRequirementOnThePlanningTier(t *testing.T) {
 		workspace := t.TempDir()
 		m := NewTestModel(WithRealKernel(t, workspace), WithLLMClient(main))
 		m.cortex = &nerdsystem.Cortex{LLMClient: main, PlannerLLMClient: plannerComplete}
+		m.jitCompiler, _ = newChatTestCompiler(t)
 		m.taskExecutor = &chatTierWorker{}
 		m.executor = tactile.NewDirectExecutor()
 		m.virtualStore = &core.VirtualStore{}
 		m.scanner = world.NewScanner()
 		m.shardMgr = coreshards.NewShardManager()
-		orch, err := m.newCampaignOrchestrator(nil, nil, nil)
+		orch, err := m.newCampaignOrchestrator(nil, nil, m.campaignPromptProvider())
 		if err != nil {
 			t.Fatalf("newCampaignOrchestrator: %v", err)
 		}
@@ -266,6 +270,13 @@ type chatCompleteLLM struct {
 }
 
 func (c *chatCompleteLLM) Complete(context.Context, string) (string, error) {
+	c.calls.Add(1)
+	return c.reply, nil
+}
+
+// CompleteWithSystem answers the replanner, which sends its role prompt
+// compiled from the campaign atoms as the system message.
+func (c *chatCompleteLLM) CompleteWithSystem(context.Context, string, string) (string, error) {
 	c.calls.Add(1)
 	return c.reply, nil
 }
