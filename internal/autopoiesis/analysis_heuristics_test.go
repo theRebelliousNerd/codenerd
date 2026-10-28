@@ -34,29 +34,3 @@ func TestPersistenceAnalyzeHeuristics(t *testing.T) {
 		t.Errorf("learning task should need a persistent agent: %+v", learn)
 	}
 }
-
-func TestShouldTriggerCampaign(t *testing.T) {
-	o := &Orchestrator{complexity: NewComplexityAnalyzer(nil)}
-	ctx := context.Background()
-
-	ok, reason := o.ShouldTriggerCampaign(ctx, "implement a complete feature for billing", "")
-	if !ok || reason == "" {
-		t.Errorf("epic task should trigger a campaign with a reason, got (%v,%q)", ok, reason)
-	}
-	if ok, reason := o.ShouldTriggerCampaign(ctx, "fix a typo", ""); ok || reason != "" {
-		t.Errorf("simple task should not trigger a campaign, got (%v,%q)", ok, reason)
-	}
-}
-
-func TestShouldCreatePersistentAgent(t *testing.T) {
-	o := &Orchestrator{persistence: NewPersistenceAnalyzer(nil)}
-	ctx := context.Background()
-
-	ok, need := o.ShouldCreatePersistentAgent(ctx, "remember my preference for tabs over spaces")
-	if !ok || need == nil {
-		t.Errorf("learning task should create a persistent agent, got (%v,%v)", ok, need)
-	}
-	if ok, need := o.ShouldCreatePersistentAgent(ctx, "fix a typo"); ok || need != nil {
-		t.Errorf("simple task should not create a persistent agent, got (%v,%v)", ok, need)
-	}
-}

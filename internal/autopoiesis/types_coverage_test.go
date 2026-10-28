@@ -69,18 +69,6 @@ func TestConfig_ZeroValue_ShouldHaveSensibleDefaults(t *testing.T) {
 	}
 }
 
-// --- QuickResult ---
-
-func TestQuickResult_ZeroValue_ShouldBeInert(t *testing.T) {
-	qr := QuickResult{}
-	if qr.NeedsCampaign || qr.NeedsPersistent || qr.NeedsTool {
-		t.Error("zero QuickResult should not need anything")
-	}
-	if qr.TopAction != nil {
-		t.Error("zero QuickResult.TopAction should be nil")
-	}
-}
-
 // --- CampaignPayload ---
 
 func TestCampaignPayload_ShouldStoreFields(t *testing.T) {

@@ -1,0 +1,69 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "assistant": "codeNERD, a coding agent working in the user's repository",
+  "request": "run the linter on every commit"
+ },
+ "questions": {
+  "continues_after_request": {
+   "type": "noul",
+   "instructions": "Does `request` ask for work that keeps going after this request has been answered?",
+   "criteria": {
+    "true": "Watching for changes, monitoring, alerting, a check on every commit or pull request, a daily or nightly job, work left running in the background.",
+    "false": "A task that is done once it is answered, however large it is."
+   }
+  },
+  "many_files": {
+   "type": "noul",
+   "instructions": "Will carrying out `request` take changes to many files?",
+   "criteria": {
+    "true": "A new feature or subsystem, a migration, a rewrite, or a change made throughout the codebase.",
+    "false": "A change to one file, one function or a few related lines; or no change at all, such as a question, an explanation or a review."
+   }
+  },
+  "ordered_stages": {
+   "type": "noul",
+   "instructions": "Does part of the work in `request` have to be finished before another part of it can start?",
+   "criteria": {
+    "true": "One step depends on another: design the schema, then migrate the data, then switch the readers over.",
+    "false": "The work is one step, or its parts can be done in any order."
+   }
+  },
+  "several_deliverables": {
+   "type": "noul",
+   "instructions": "Does `request` ask for several separate pieces of work, each with its own result?",
+   "criteria": {
+    "true": "The request names distinct things to deliver, such as a new endpoint, its tests and its documentation, or a schema migration and the code that uses it.",
+    "false": "The request asks for one change, one fix, one answer or one explanation, even when that one change touches several files."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "continues_after_request": {
+   "type": "noul",
+   "noul": 0.96
+  },
+  "many_files": {
+   "type": "noul",
+   "noul": 0.33
+  },
+  "ordered_stages": {
+   "type": "noul",
+   "noul": 0.51
+  },
+  "several_deliverables": {
+   "type": "noul",
+   "noul": 0.07
+  }
+ },
+ "usage": {
+  "input_tokens": 644,
+  "output_tokens": 79
+ }
+}
+}

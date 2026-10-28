@@ -93,7 +93,13 @@ type QualityEvaluator struct {
 	heuristicRules    []HeuristicRule
 	completenessHints map[string]CompletenessHint
 	profileStore      *ProfileStore // Tool-specific quality profiles
+	// outputJudge reads what a tool's output reports (Jev); nil when the
+	// autopoiesis checks are off, and the pattern rules decide.
+	outputJudge OutputJudge
 }
+
+// OutputJudge reads an execution's output (quality_jev.go).
+type OutputJudge func(ctx context.Context, f *ExecutionFeedback) (OutputJudgments, error)
 
 // HeuristicRule is a rule for detecting quality issues
 type HeuristicRule struct {
@@ -121,6 +127,12 @@ func NewQualityEvaluator(client LLMClient, profileStore *ProfileStore) *QualityE
 		completenessHints: defaultCompletenessHints(),
 		profileStore:      profileStore,
 	}
+}
+
+// SetOutputJudge sets Jev's reading of tool output; nil leaves the pattern
+// rules in charge.
+func (qe *QualityEvaluator) SetOutputJudge(j OutputJudge) {
+	qe.outputJudge = j
 }
 
 // SetProfileStore sets the profile store (for delayed initialization)
@@ -218,18 +230,7 @@ func (qe *QualityEvaluator) Evaluate(ctx context.Context, feedback *ExecutionFee
 		return assessment
 	}
 
-	// Apply heuristic rules
-	for _, rule := range qe.heuristicRules {
-		if rule.Pattern.MatchString(feedback.Output) {
-			assessment.Issues = append(assessment.Issues, QualityIssue{
-				Type:        rule.IssueType,
-				Severity:    rule.Severity,
-				Description: rule.Description,
-				Evidence:    extractMatch(feedback.Output, rule.Pattern),
-				Fixable:     true,
-			})
-		}
-	}
+	assessment.Issues = append(assessment.Issues, qe.outputIssues(ctx, feedback)...)
 
 	// Check completeness based on tool type hints
 	completenessScore := qe.evaluateCompleteness(feedback)
@@ -287,18 +288,7 @@ func (qe *QualityEvaluator) EvaluateWithProfile(ctx context.Context, feedback *E
 	outputIssues := qe.validateOutputWithProfile(feedback, profile)
 	assessment.Issues = append(assessment.Issues, outputIssues...)
 
-	// Apply standard heuristic rules
-	for _, rule := range qe.heuristicRules {
-		if rule.Pattern.MatchString(feedback.Output) {
-			assessment.Issues = append(assessment.Issues, QualityIssue{
-				Type:        rule.IssueType,
-				Severity:    rule.Severity,
-				Description: rule.Description,
-				Evidence:    extractMatch(feedback.Output, rule.Pattern),
-				Fixable:     true,
-			})
-		}
-	}
+	assessment.Issues = append(assessment.Issues, qe.outputIssues(ctx, feedback)...)
 
 	// Evaluate custom dimensions
 	customScore := qe.evaluateCustomDimensions(feedback, profile)

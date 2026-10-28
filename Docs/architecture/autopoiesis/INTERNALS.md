@@ -41,6 +41,50 @@ As built 2026-10-28 (switch `typesafe.tool_checks`;
 - **No answer.** A missing, failed or switched-off Jev is no answer: the loop
   generates and accepts as before, and logs why.
 
+## Jev autopoiesis checks (autopoiesis_jev.go, quality_jev.go)
+
+As built 2026-10-28 (switch `typesafe.autopoiesis_checks`;
+`Docs/architecture/jev-turn-judgments.md`, "Autopoiesis checks"). They
+replace the keyword quick checks `QuickAnalyze`, `ShouldTriggerCampaign` and
+`ShouldCreatePersistentAgent`, which are deleted.
+
+- **Campaign and persistent agent.** The chat's section 1.8
+  (`cmd/nerd/chat/process.go:749`) calls `SuggestForRequest`
+  (`autopoiesis_jev.go:118`) on every turn that is not a direct answer.
+  - Jev reads the request (`learnjudge.JudgeRequestScope`): several
+    deliverables, staged work, many files, work that continues after the
+    request. They land as `autopoiesis_judgment(Name, Percent)`.
+  - The keyword heuristics (`ComplexityAnalyzer.Analyze`,
+    `PersistenceAnalyzer.Analyze`) still run; a match lands as
+    `autopoiesis_heuristic(/campaign | /persistent)`.
+  - The kernel decides (`policy/jev_autopoiesis.mg`):
+    `autopoiesis_campaign_suggested(Source)` and
+    `persistent_agent_suggested(Kind, Source)`. A Jev judgment, whatever it
+    says, outranks the heuristic; the heuristic decides only a request Jev
+    did not judge.
+  - A derived campaign runs the clarifier in place of the turn, as the
+    keyword match did before; a persistent agent is a warning naming
+    `/define-agent`. Both name their evidence (`jev` or `heuristic`).
+  - The previous request's evidence is retracted before each request.
+- **Tool output quality.** `QualityEvaluator.outputIssues`
+  (`quality_jev.go:38`) replaces the pattern loop in `Evaluate` and
+  `EvaluateWithProfile`. Jev reads the output (`learnjudge.JudgeToolOutput`):
+  an error instead of a result, partial results, more pages, a rate limit.
+  - A judgment at or above `judgment_yes_percent` is the issue; below it, no
+    issue, even where the old pattern would match ("found 3 lines: ERROR ..."
+    is a result, not a failure).
+  - `empty_or_minimal` is an exact test of the output and always runs.
+- **Plumbing.** `NewOrchestrator` builds the client from
+  `Config.UserConfig.TypeSafe` (`jevUseFrom`, `autopoiesis_jev.go:36`);
+  `SetJev` (`:53`) replaces it.
+- **No answer.** Jev unconfigured, switched off, failed or timed out (bounded
+  by `turn_judgment_timeout`) is no evidence: the heuristics decide, and the
+  log says so (`jev: autopoiesis checks unanswered ..., the keyword heuristic
+  decides`).
+- **Tests.** `autopoiesis_jev_test.go`: the kernel truth table row by row,
+  the three no-answer fallbacks, evidence that does not outlive its request,
+  and the output truth table.
+
 ## Detection (tool_detection.go)
 
 `DetectToolNeed` (`:94`) builds a `ToolNeed` (`:54`); I/O types are coerced

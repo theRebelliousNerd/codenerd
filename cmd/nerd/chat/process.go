@@ -21,7 +21,6 @@ package chat
 
 import (
 	"codenerd/internal/articulation"
-	"codenerd/internal/autopoiesis"
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
@@ -747,41 +746,36 @@ func (m Model) processInput(input string) tea.Cmd {
 			return responseMsg(m.appendSystemSummary(statsResp, m.collectSystemSummary(ctx, resultBase)))
 		}
 
-		// 1.8 AUTOPOIESIS CHECK: Analyze for complexity, persistence, and tool needs
-		// This implements §8.3: Self-modification capabilities.
+		// 1.8 AUTOPOIESIS CHECK: whether this request warrants a campaign or a
+		// persistent agent is the kernel's (policy/jev_autopoiesis.mg): Jev
+		// reads the request, and the keyword heuristic decides only a request
+		// Jev did not judge (autopoiesis.Orchestrator.SuggestForRequest).
 		// Skipped for direct-answer turns: a question never warrants campaign
 		// suggestions or clarifier shard spawns.
 		if m.autopoiesis != nil && !answerDirectly {
-			autoResult := m.autopoiesis.QuickAnalyze(ctx, input, intent.Target)
+			suggestion := m.autopoiesis.SuggestForRequest(m.jevContext(ctx), input, intent.Target)
 
-			// Auto-trigger campaign for complex tasks
-			if autoResult.NeedsCampaign && autoResult.ComplexityLevel >= autopoiesis.ComplexityComplex {
-				needsCampaign, reason := m.autopoiesis.ShouldTriggerCampaign(ctx, input, intent.Target)
-				if needsCampaign && m.activeCampaign == nil {
-					warnings = append(warnings, fmt.Sprintf("Complex task detected: %s", reason))
-					warnings = append(warnings, "Consider using `/campaign start` for multi-phase execution")
-					warnings = append(warnings, "Use `/clarify <goal>` to gather requirements before starting the campaign")
+			// A campaign the kernel derives runs the Requirements Interrogator
+			// once, in place of the turn, unless a campaign is already active.
+			if suggestion.Campaign && m.activeCampaign == nil {
+				warnings = append(warnings, fmt.Sprintf("Complex task detected (%s): %s", suggestion.CampaignSource, suggestion.CampaignReason))
+				warnings = append(warnings, "Consider using `/campaign start` for multi-phase execution")
+				warnings = append(warnings, "Use `/clarify <goal>` to gather requirements before starting the campaign")
 
-					// Automatically run the Requirements Interrogator once to elicit details
-					if clarifierMsg, err := m.runClarifierShard(ctx, input); err == nil && clarifierMsg != "" {
-						// Return immediately with clarifying questions; user can answer then start campaign
-						return responseMsg(m.appendSystemSummary(
-							clarifierMsg+"\n\nReply with answers, then run `/campaign start <goal>` to kick off the plan.",
-							m.collectSystemSummary(ctx, resultBase),
-						))
-					} else if err != nil {
-						warnings = append(warnings, fmt.Sprintf("Clarifier shard unavailable: %v", err))
-					}
+				if clarifierMsg, err := m.runClarifierShard(ctx, input); err == nil && clarifierMsg != "" {
+					// Return immediately with clarifying questions; user can answer then start campaign
+					return responseMsg(m.appendSystemSummary(
+						clarifierMsg+"\n\nReply with answers, then run `/campaign start <goal>` to kick off the plan.",
+						m.collectSystemSummary(ctx, resultBase),
+					))
+				} else if err != nil {
+					warnings = append(warnings, fmt.Sprintf("Clarifier shard unavailable: %v", err))
 				}
 			}
 
-			// Check for persistent agent needs
-			if autoResult.NeedsPersistent {
-				needsPersist, persistNeed := m.autopoiesis.ShouldCreatePersistentAgent(ctx, input)
-				if needsPersist && persistNeed != nil {
-					warnings = append(warnings, fmt.Sprintf("Persistent agent recommended: %s (%s)", persistNeed.AgentType, persistNeed.Purpose))
-					warnings = append(warnings, "Use `/define-agent` to create a persistent specialist")
-				}
+			if need := suggestion.Persistent; need != nil {
+				warnings = append(warnings, fmt.Sprintf("Persistent agent recommended (%s): %s (%s)", suggestion.PersistentSource, need.AgentType, need.Purpose))
+				warnings = append(warnings, "Use `/define-agent` to create a persistent specialist")
 			}
 		}
 

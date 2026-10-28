@@ -1,0 +1,69 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "output": "error: dial tcp 127.0.0.1:443: connect: connection refused",
+  "tool": "http_fetch"
+ },
+ "questions": {
+  "reports_error": {
+   "type": "noul",
+   "instructions": "Does `output` report that the tool's work failed with an error?",
+   "criteria": {
+    "true": "The output is an error message, an exception, a timeout or a refused connection instead of the result.",
+    "false": "The output is the result. Data that merely mentions errors, such as a list of log lines or a search hit for the word, is still a result."
+   }
+  },
+  "reports_more_pages": {
+   "type": "noul",
+   "instructions": "Does `output` say that more pages of results exist beyond the ones it shows?",
+   "criteria": {
+    "true": "A page marker such as page 1 of 5, a next-page token or link, or a has_more flag that is true.",
+    "false": "The output is all there is, or it states it is the last page."
+   }
+  },
+  "reports_partial_results": {
+   "type": "noul",
+   "instructions": "Does `output` say that it holds only part of the results the tool was asked for?",
+   "criteria": {
+    "true": "The output says it was cut off, limited, capped at a maximum, or that some items could not be fetched.",
+    "false": "The output gives its results with no sign that any are missing."
+   }
+  },
+  "reports_rate_limit": {
+   "type": "noul",
+   "instructions": "Does `output` say that a rate limit stopped or slowed the tool?",
+   "criteria": {
+    "true": "An HTTP 429, a too-many-requests message, or a note that requests were throttled.",
+    "false": "No limit on the number of requests is mentioned."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "reports_error": {
+   "type": "noul",
+   "noul": 0.99
+  },
+  "reports_more_pages": {
+   "type": "noul",
+   "noul": 0.01
+  },
+  "reports_partial_results": {
+   "type": "noul",
+   "noul": 0.16
+  },
+  "reports_rate_limit": {
+   "type": "noul",
+   "noul": 0.02
+  }
+ },
+ "usage": {
+  "input_tokens": 623,
+  "output_tokens": 75
+ }
+}
+}

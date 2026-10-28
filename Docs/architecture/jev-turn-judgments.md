@@ -240,7 +240,60 @@ of 8 tools, because this workspace has generated none.
 
 ### Autopoiesis checks: switch `autopoiesis_checks`
 
-Being built (2026-10-28).
+As built 2026-10-28. Questions: `internal/learnjudge/autopoiesis.go`. Operation
+`jev_autopoiesis_checks`. They replace the keyword quick checks
+(`QuickAnalyze`, `ShouldTriggerCampaign`, `ShouldCreatePersistentAgent`,
+now deleted) and the language-reading pattern rules of the tool quality
+evaluator.
+
+**A chat request** (`autopoiesis.Orchestrator.SuggestForRequest`, called from
+section 1.8 of `cmd/nerd/chat/process.go` on every turn that is not a direct
+answer). One request, state `request` and `target`, four Nouls:
+
+| Judgment | Question |
+|---|---|
+| `several_deliverables` | Does `request` ask for several separate pieces of work, each with its own result? |
+| `ordered_stages` | Does part of the work in `request` have to be finished before another part of it can start? |
+| `many_files` | Will carrying out `request` take changes to many files? |
+| `continues_after_request` | Does `request` ask for work that keeps going after this request has been answered? |
+
+- Facts: `autopoiesis_judgment(Name, Percent)`; the keyword heuristic's match
+  as `autopoiesis_heuristic(/campaign | /persistent)`.
+- Rules (`policy/jev_autopoiesis.mg`): a campaign is suggested when two of
+  several deliverables, staged work and many files read yes;
+  `persistent_agent_suggested(/recurring, /jev)` when the work continues after
+  the request. A Jev judgment, whatever it says, outranks the heuristic.
+- What the user sees: a derived campaign runs the requirements clarifier in
+  place of the turn (as the keyword match did before); a persistent agent is a
+  warning naming `/define-agent`. Each names its evidence, `jev` or
+  `heuristic`.
+- No answer (unconfigured, switched off, failed, or past
+  `turn_judgment_timeout`): the keyword heuristic decides through the same
+  rules, and the log says so.
+
+**A generated tool's output** (`QualityEvaluator.outputIssues`). Four Nouls
+over the tool, its input and its output (bounded to 24,000 bytes, the
+omission stated): `reports_error`, `reports_partial_results`,
+`reports_more_pages`, `reports_rate_limit`. At or above yes is the issue;
+below it is none, even where the old pattern matched. The exact
+empty-output rule always runs. No answer: the patterns decide.
+
+Live probe, 2026-10-28, `jev-latest`
+(`go test -tags jevlive ./internal/learnjudge/ -run LiveAutopoiesis`; payloads in
+`Docs/architecture/jev-probes/2026-10-28-learning/autopoiesis_checks/`):
+
+- Requests: 30 of 31 labeled judgments right, 0 wrong, 1 unsettled ("explain
+  how the JIT compiler selects atoms and how the kernel ranks them":
+  several deliverables 0.34).
+- Tool output: 16 of 16 right. "found 3 lines: 12: ERROR failed to connect"
+  reads as a result (no error), where the old pattern flagged a failure.
+- Read off the probe, not tuned to it: "implement a complete feature for
+  billing" is one deliverable (0.21) built in stages (0.88) across many files
+  (0.89). That is why staged work across many files is a campaign without
+  several deliverables. "Rename Executor to Runner across the whole codebase"
+  is many files (0.84) but not staged (0.36), so it is one task.
+- "From now on, always use tabs in Go files" reads as continuing (0.86), so it
+  suggests a persistent agent, as the keyword heuristic did.
 
 ### Atom checks: switch `atom_checks`
 
@@ -262,7 +315,8 @@ Being built (2026-10-28).
   - provider `typesafe`;
   - the model that answered;
   - operation `jev_turn_judgments`, `jev_retrieval_relevance`,
-    `jev_review_checks` or `jev_diagnosis_triage`.
+    `jev_review_checks`, `jev_diagnosis_triage`, or a learning use's own
+    (`learnjudge.Op*`, such as `jev_autopoiesis_checks`).
 - `jevContext` carries the tracker to calls made off the turn (side turns,
   background reviews).
 - Jev models are not in the price table, so their tokens count as

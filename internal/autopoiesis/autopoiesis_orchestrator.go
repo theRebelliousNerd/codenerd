@@ -57,6 +57,9 @@ type Orchestrator struct {
 	toolsGenerated int
 	lastToolGen    time.Time
 
+	// Jev's autopoiesis checks (autopoiesis_jev.go): off when unset.
+	jev jevUse
+
 	// Handoff to the shard runtime for persistent agents. Installed by boot;
 	// see writeAgentPromptsYAML for why this is a seam and not an import.
 	agentDefWriter AgentDefinitionWriter
@@ -319,6 +322,11 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 		logging.AutopoiesisDebug("Ouroboros callback: tool %s registered, asserting to kernel", tool.Name)
 		orch.assertToolRegistered(tool)
 	})
+
+	// Jev reads requests and tool output when the typesafe section switches
+	// the autopoiesis checks on (autopoiesis_jev.go).
+	orch.jev = jevUseFrom(config.UserConfig)
+	orch.evaluator.SetOutputJudge(orch.toolOutputJudge())
 
 	// Prime the tool generators with any learnings restored from disk so the
 	// first generation pass in a new session benefits immediately.

@@ -295,15 +295,6 @@ type CampaignPayload struct {
 	Reasons        []string
 }
 
-// QuickResult is a lightweight analysis result for real-time decisions
-type QuickResult struct {
-	NeedsCampaign   bool
-	NeedsPersistent bool
-	NeedsTool       bool
-	ComplexityLevel ComplexityLevel
-	TopAction       *AutopoiesisAction
-}
-
 // =============================================================================
 // AGENT TYPES
 // =============================================================================
