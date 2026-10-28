@@ -170,7 +170,7 @@ func TestRepairWriteGuard_AllowsWhatTheTurnWroteAfterTheSnapshot(t *testing.T) {
 		}
 	}
 	live := []string{"a.go"}
-	guard := repairWriteGuard(ws, []string{"a.go"}, func() []string { return live }, nil)
+	guard := repairWriteGuard(ws, []string{"a.go"}, func() []string { return live }, false, nil)
 	if err := guard(context.Background(), []string{later}); err == nil {
 		t.Fatal("a file outside the frozen set and the live set was allowed")
 	}
@@ -363,4 +363,45 @@ func TestGuardWrite_RefusesAddedBuildExclusion(t *testing.T) {
 			t.Fatalf("the refused insert landed: %q", data)
 		}
 	})
+}
+
+// A round whose obligation is a test may extend an existing _test.go file
+// beside the turn's Go files; a failure-repair round may not, and neither
+// may touch a test in another directory or a production file outside the
+// set. Problems log 2026-10-28: a coverage round told to "put them in the
+// package's _test.go files" was refused northstar_nil_guards_test.go.
+func TestRepairWriteGuard_TestRoundsMayExtendThePackagesTests(t *testing.T) {
+	ws := t.TempDir()
+	pkg := filepath.Join(ws, "pkg")
+	other := filepath.Join(ws, "other")
+	for _, dir := range []string{pkg, other} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	besideTest := filepath.Join(pkg, "nil_guards_test.go")
+	besideCode := filepath.Join(pkg, "helper.go")
+	elsewhereTest := filepath.Join(other, "x_test.go")
+	for _, p := range []string{besideTest, besideCode, elsewhereTest} {
+		if err := os.WriteFile(p, []byte("package x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	set := []string{"pkg/wizard.go"}
+
+	testRound := repairWriteGuard(ws, set, nil, true, nil)
+	if err := testRound(context.Background(), []string{besideTest}); err != nil {
+		t.Fatalf("a test round was refused the package's existing test file: %v", err)
+	}
+	for _, p := range []string{besideCode, elsewhereTest} {
+		err := testRound(context.Background(), []string{p})
+		if err == nil || !strings.Contains(err.Error(), "_test.go files beside") {
+			t.Fatalf("a test round writing %s: err = %v, want a refusal naming the widened set", p, err)
+		}
+	}
+
+	failureRound := repairWriteGuard(ws, set, nil, false, nil)
+	if err := failureRound(context.Background(), []string{besideTest}); err == nil {
+		t.Fatal("a failure-repair round was allowed to edit an existing test outside the set")
+	}
 }

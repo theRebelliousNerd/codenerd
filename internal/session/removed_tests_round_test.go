@@ -205,3 +205,70 @@ func TestRemovedTestListing(t *testing.T) {
 		}
 	}
 }
+
+// A package that already had a failing test before the turn: the restored
+// tests are judged by the derived /test gate, which does not charge a
+// failure that predates the turn. Problems log 2026-10-28: the round read the
+// raw exit, told the model three times that 16 pre-existing failures were
+// its edit, and gave up at the attempt cap after ~1M tokens on a suite whose
+// deleted test it had restored on the first attempt.
+func TestRemovedTestsRound_APreExistingFailureDoesNotKeepTheRoundOpen(t *testing.T) {
+	const code = "package main\n\nfunc Double(x int) int {\n\treturn x * 2\n}\n\nfunc main() {}\n"
+	const before = "package main\n\nimport \"testing\"\n\nfunc TestDouble(t *testing.T) {\n\tif Double(2) != 4 {\n\t\tt.Fatal(\"Double(2) != 4\")\n\t}\n}\n\nfunc TestZero(t *testing.T) {\n\tif Double(0) != 0 {\n\t\tt.Fatal(\"Double(0) != 0\")\n\t}\n}\n"
+	const rewritten = "package main\n\nimport \"testing\"\n\nfunc TestDouble(t *testing.T) {\n\tif Double(2) != 4 {\n\t\tt.Fatal(\"Double(2) != 4\")\n\t}\n}\n\nfunc TestNegative(t *testing.T) {\n\tif Double(-1) != -2 {\n\t\tt.Fatal(\"Double(-1) != -2\")\n\t}\n}\n"
+	const restored = rewritten + "\nfunc TestZero(t *testing.T) {\n\tif Double(0) != 0 {\n\t\tt.Fatal(\"Double(0) != 0\")\n\t}\n}\n"
+	const preBroken = "package main\n\nimport \"testing\"\n\nfunc TestPreBroken(t *testing.T) {\n\tt.Fatal(\"broken before this turn\")\n}\n"
+
+	h := newRepairHarness(t, nil)
+	for name, content := range map[string]string{"main.go": code, "main_test.go": before, "old_test.go": preBroken} {
+		if err := os.WriteFile(filepath.Join(h.ws, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	testPath := filepath.Join(h.ws, "main_test.go")
+	initial := func() *types.LLMToolResponse {
+		return &types.LLMToolResponse{Text: "adding a negative case", ToolCalls: []types.ToolCall{
+			h.writeCall("c1", "write_file", testPath, rewritten),
+		}}
+	}
+	restoreAsks, brokeAsks := 0, 0
+	h.executor.llmClient = &MockToolResultsLLM{
+		MockLLMClient: &MockLLMClient{
+			CompleteWithToolsFunc: func(context.Context, string, string, []types.ToolDefinition) (*types.LLMToolResponse, error) {
+				return initial(), nil
+			},
+		},
+		CompleteWithToolResultsFunc: func(_ context.Context, _ string, history []types.Message, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {
+			last := history[len(history)-1]
+			switch {
+			case strings.Contains(last.Text, "deleted tests that existed before it"):
+				restoreAsks++
+				return &types.LLMToolResponse{Text: "restoring TestZero", ToolCalls: []types.ToolCall{
+					h.writeCall(fmt.Sprintf("r%d", len(history)), "write_file", testPath, restored),
+				}}, nil
+			case strings.Contains(last.Text, "The tests fail after your last edit"):
+				brokeAsks++
+				return &types.LLMToolResponse{Text: "nothing of mine is failing"}, nil
+			}
+			for _, m := range history {
+				if len(m.ToolResults) > 0 {
+					return &types.LLMToolResponse{Text: "done"}, nil
+				}
+			}
+			return initial(), nil
+		},
+	}
+	result, err := h.drive(t, "fix add a negative case to the Double tests")
+	if restoreAsks != 1 {
+		t.Fatalf("the model was asked to restore the deleted test %d time(s), want once", restoreAsks)
+	}
+	if brokeAsks != 0 {
+		t.Fatalf("the round told the model %d time(s) that a failure predating the turn was its edit", brokeAsks)
+	}
+	if err != nil && strings.Contains(err.Error(), "deleted tests that existed before it") {
+		t.Fatalf("the restored round must close on the derived gate, got %v", err)
+	}
+	if removed := removedTestFunctions(h.ws, result.WrittenPaths, result.PreWriteContents); len(removed) != 0 {
+		t.Fatalf("tests still removed after the round: %v", removed)
+	}
+}

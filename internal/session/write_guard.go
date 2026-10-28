@@ -97,8 +97,20 @@ func turnOwnedPaths(ctx context.Context, result *ExecutionResult) []string {
 // result.WrittenPaths before the next edit, and a guard built once from the
 // frozen set would refuse that edit (the file exists, and it was not in the
 // pre-gate set). The refusal still names the frozen set.
-func repairWriteGuard(workspace string, writeSet []string, live func() []string, parent WriteGuard) WriteGuard {
+//
+// testsOfSet widens the set for a round whose obligation is a test (coverage,
+// pinning, removed_tests): every existing _test.go file in the directory of a
+// Go file the turn wrote is writable too. Those rounds are told to put their
+// tests in the package's _test.go files, and a guard that refused an
+// existing one sent a coverage round into a refusal its own gate caused
+// (problems log 2026-10-28: northstar_nil_guards_test.go). A round that
+// repairs a failure (build, tests, vet) keeps the narrow set: editing another
+// test to turn the suite green is what that boundary is for.
+func repairWriteGuard(workspace string, writeSet []string, live func() []string, testsOfSet bool, parent WriteGuard) WriteGuard {
 	allowed, set := indexWriteSet(workspace, writeSet)
+	if testsOfSet {
+		set += " and the _test.go files beside their Go files"
+	}
 	return func(ctx context.Context, paths []string) error {
 		if parent != nil {
 			if err := parent(ctx, paths); err != nil {
@@ -123,6 +135,9 @@ func repairWriteGuard(workspace string, writeSet []string, live func() []string,
 			if current[filepath.Clean(path)] {
 				continue
 			}
+			if testsOfSet && testBesideWrittenGo(current, path) {
+				continue
+			}
 			if _, err := os.Stat(path); os.IsNotExist(err) {
 				continue
 			}
@@ -138,12 +153,28 @@ func repairWriteGuard(workspace string, writeSet []string, live func() []string,
 // written since stay writable. Installed per attempt, in repairRound, so
 // the parent it chains is the campaign guard already on the context and not
 // a previous attempt's own guard.
-func withRepairWriteGuard(ctx context.Context, workspace string, result *ExecutionResult) context.Context {
+func withRepairWriteGuard(ctx context.Context, workspace string, result *ExecutionResult, testsOfSet bool) context.Context {
 	if result == nil {
 		return ctx
 	}
 	live := func() []string { return result.WrittenPaths }
-	return WithWriteGuard(ctx, repairWriteGuard(workspace, namedWriteSet(ctx, result), live, parentWriteGuard(ctx)))
+	return WithWriteGuard(ctx, repairWriteGuard(workspace, namedWriteSet(ctx, result), live, testsOfSet, parentWriteGuard(ctx)))
+}
+
+// testBesideWrittenGo reports whether path is a _test.go file in the
+// directory of a Go file in allowed (absolute, cleaned paths).
+func testBesideWrittenGo(allowed map[string]bool, path string) bool {
+	path = filepath.Clean(path)
+	if !strings.HasSuffix(path, "_test.go") {
+		return false
+	}
+	dir := filepath.Dir(path)
+	for p := range allowed {
+		if strings.HasSuffix(p, ".go") && filepath.Dir(p) == dir {
+			return true
+		}
+	}
+	return false
 }
 
 func indexWriteSet(workspace string, writeSet []string) (map[string]bool, string) {

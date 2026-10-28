@@ -180,6 +180,18 @@ The subprocess runs under an independent budget rooted at `Background`, supervis
 
 ---
 
+## 6a. Repair rounds: write boundary and suite recheck (as built 2026-10-28)
+
+Every repair attempt runs under `withRepairWriteGuard` (`internal/session/write_guard.go`), installed per attempt in `repairRound` (`build_verify.go`). The guard admits the turn's pre-gate write set, every file the turn has written since, and any path that does not exist yet; an existing file outside that set is refused with the set named.
+
+The rounds whose obligation is a test -- `coverage`, `pinning` and `removed_tests` (`repairSpec.writesTests`) -- also admit every existing `_test.go` file in the directory of a Go file the turn wrote (`testBesideWrittenGo`). Their prompts send the model to "the package's _test.go files"; before this the guard refused those files and the coverage round could not write the test its own gate demanded. The failure-repair rounds (`build`, `tests`, `vet`, `test_run`) keep the narrow set: editing another test to turn the suite green is what the boundary exists to stop.
+
+The same three rounds ask one question after an attempt: `recheckOwnTests` (`change_gates.go`) runs the turn's own packages again and reads the derived `/test` gate (`testGatePassed`), not the process exit. A failure that also fails before the turn's edits is not charged to the turn by the test gate, so it is not charged by these rounds either. Before this the `removed_tests` round read the raw exit: with the deleted test restored on the first attempt, it told the model three times that 16 pre-existing failures were its edit and gave up at the attempt cap after ~1M input tokens (problems log 2026-10-28). Pinned by `TestRemovedTestsRound_APreExistingFailureDoesNotKeepTheRoundOpen` and `TestRepairWriteGuard_TestRoundsMayExtendThePackagesTests`.
+
+The Dreamer's refusal to delete a file under a `nerd.md` `critical:` prefix (`critical_path_missing`) agrees with these rounds: deleting a test file that existed before the turn is what `removed_tests` would then ask the model to undo.
+
+---
+
 ## 7. Configuration and result fields the gates use
 
 ### 7.1 `ExecutorConfig` — `internal/session/executor.go`

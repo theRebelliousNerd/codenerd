@@ -34,5 +34,5 @@ func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) (b
 // overwrite outside the set is exactly run 5. parent, when non-nil, is asked
 // first and its refusal wins.
 func RepairWriteGuard(workspace string, writeSet []string, parent WriteGuard) WriteGuard {
-	return repairWriteGuard(workspace, writeSet, nil, parent)
+	return repairWriteGuard(workspace, writeSet, nil, false, parent)
 }

@@ -144,6 +144,10 @@ type repairSpec struct {
 	recheck func(ctx context.Context) (passed bool, failure repairFailure, verdict VerifyOutcome)
 	// followups builds actionable next commands for the give-up record.
 	followups func() []string
+	// writesTests marks a round whose obligation is a test (coverage,
+	// pinning, removed_tests): its write guard also admits the existing
+	// _test.go files beside the turn's Go files (repairWriteGuard).
+	writesTests bool
 }
 
 // prompt is the only way a round's prompt is written, so that the choice is
@@ -261,7 +265,7 @@ func (e *Executor) repairLoop(
 		logging.Get(logging.CategorySession).Warn(
 			"Repair attempt %d (%s)%s", attempt, spec.kind, regimeNote)
 
-		repaired, llmCalls, allCalls, repairErrs, toolResults, wrote, err := e.repairRound(epCtx, trp, systemPrompt, history, toolDefs, cfg, result, prompt, useCommitRegime)
+		repaired, llmCalls, allCalls, repairErrs, toolResults, wrote, err := e.repairRound(epCtx, trp, systemPrompt, history, toolDefs, cfg, result, prompt, useCommitRegime, spec.writesTests)
 		allErrs = append(allErrs, repairErrs...)
 		if err != nil {
 			att.Verdict = VerifyIndeterminate

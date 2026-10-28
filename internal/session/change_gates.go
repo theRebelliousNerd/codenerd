@@ -393,21 +393,16 @@ func (e *Executor) verifyAndRepairCoverage(
 		kind:         "coverage",
 		brokenPhrase: "code this turn changed is executed by no test",
 		promptFor:    coverageRepairPrompt,
+		writesTests:  true,
 		recheck: func(epCtx context.Context) (bool, repairFailure, VerifyOutcome) {
-			v, uncovered := gateOwnTests(epCtx, workspace, result, true)
-			if v.Verdict() == VerifyPassed || v.Verdict() == VerifyFailed {
-				// The test gate's own repair record stays with it; this
-				// round's record is its own.
-				v.Repair = result.TestCheck.Repair
-				result.TestCheck = v
-			}
-			if v.Verdict() != VerifyPassed {
+			uncovered, held, failure, verdict := e.recheckOwnTests(epCtx, workspace, result, true)
+			if !held {
 				// The new tests broke something: the failure is what the next
 				// round works from, and it is the suite, not this round's
 				// subject -- a coverage prompt over it tells the model the
 				// tests pass above a FAIL trace. A round that ends here is
 				// undone below.
-				return false, repairFailure{Output: v.Output, TestsBroke: v.Verdict() == VerifyFailed}, v.Verdict()
+				return false, failure, verdict
 			}
 			result.UncoveredBlocks = narrowToChangedLines(workspace, result, uncovered)
 			snap, green, greenBlocks = snapshotTurnFiles(workspace, result), result.TestCheck, result.UncoveredBlocks
@@ -483,21 +478,17 @@ func (e *Executor) verifyAndRepairRemovedTests(
 		kind:         "removed_tests",
 		brokenPhrase: "the turn deleted tests that existed before it",
 		promptFor:    removedTestsRepairPrompt,
+		writesTests:  true,
 		recheck: func(epCtx context.Context) (bool, repairFailure, VerifyOutcome) {
 			removed = removedTestFunctions(workspace, result.WrittenPaths, result.PreWriteContents)
 			if e.removedTestsGateRed(result.turnAtom(), removed) {
 				return false, repairFailure{Output: missing()}, VerifyFailed
 			}
-			v, _ := gateOwnTests(epCtx, workspace, result, false)
-			if v.Verdict() == VerifyPassed || v.Verdict() == VerifyFailed {
-				// The test gate's own repair record stays with it.
-				v.Repair = result.TestCheck.Repair
-				result.TestCheck = v
-			}
-			if v.Verdict() != VerifyPassed {
-				// The tests are back and red: the round's own subject is
-				// discharged, so it stops asking for them back.
-				return false, repairFailure{Output: v.Output, TestsBroke: v.Verdict() == VerifyFailed}, v.Verdict()
+			if _, held, failure, verdict := e.recheckOwnTests(epCtx, workspace, result, false); !held {
+				// The tests are back and red with a failure charged to the
+				// turn: the round's own subject is discharged, so it stops
+				// asking for them back.
+				return false, failure, verdict
 			}
 			return true, repairFailure{}, VerifyPassed
 		},
@@ -514,6 +505,32 @@ func (e *Executor) verifyAndRepairRemovedTests(
 		return nil, repairErrs, removedTestsError(removed)
 	}
 	return repaired, repairErrs, err
+}
+
+// recheckOwnTests is the suite question the test-writing rounds (coverage,
+// pinning, removed_tests) ask after an attempt: the turn's own packages run
+// again, and the derived /test gate -- the verdict the test gate itself
+// repairs on -- says whether the suite holds. A failure that also failed
+// before the turn is not charged to it there, so it is not charged here: the
+// removed_tests round once read the raw exit, told the model three times that
+// pre-existing failures were its edit, and spent ~1M tokens on a suite it had
+// already restored (problems log 2026-10-28). green is the gate's pass; the
+// failure seeds the next attempt; uncovered is measured only withCoverage.
+func (e *Executor) recheckOwnTests(ctx context.Context, workspace string, result *ExecutionResult, withCoverage bool) (uncovered []UncoveredBlock, green bool, failure repairFailure, verdict VerifyOutcome) {
+	v, uncovered := gateOwnTests(ctx, workspace, result, withCoverage)
+	switch v.Verdict() {
+	case VerifyPassed, VerifyFailed:
+		// The test gate's own repair record stays with it; the round's
+		// record is its own.
+		v.Repair = result.TestCheck.Repair
+		result.TestCheck = v
+	default:
+		return nil, false, repairFailure{Output: v.Output}, v.Verdict()
+	}
+	if v.Verdict() == VerifyPassed || e.testGatePassed(result.turnAtom(), result) {
+		return uncovered, true, repairFailure{}, VerifyPassed
+	}
+	return nil, false, repairFailure{Output: v.Output, TestsBroke: true}, VerifyFailed
 }
 
 // removedTestsError fails a turn that deleted tests and did not put them back.

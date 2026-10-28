@@ -732,13 +732,15 @@ func (e *Executor) repairRound(
 	result *ExecutionResult,
 	prompt string,
 	commit bool,
+	writesTests bool,
 ) (*types.LLMToolResponse, int, [][]types.ToolCall, []string, []types.ToolResult, bool, error) {
-	// Every repair attempt, coverage and pinning included (they share this
-	// round), may write only the turn's files. The refusal names the
-	// pre-gate set; a file the turn has written since, and a path that does
-	// not exist yet, stay writable. A create cannot destroy another agent's
-	// bytes, and those rounds write their tests inside the episode.
-	ctx = withRepairWriteGuard(ctx, e.workspaceForVerification(), result)
+	// Every repair attempt may write only the turn's files. The refusal
+	// names the pre-gate set; a file the turn has written since, and a path
+	// that does not exist yet, stay writable. A create cannot destroy another
+	// agent's bytes, and the test-writing rounds write their tests inside the
+	// episode. Those rounds (writesTests) may also extend the existing
+	// _test.go files beside the turn's Go files: their prompt sends them there.
+	ctx = withRepairWriteGuard(ctx, e.workspaceForVerification(), result, writesTests)
 	ctx = broker.WithPhase(ctx, broker.PhaseRepair)
 	loop := activeWorkingLoop(ctx)
 	if loop == nil {

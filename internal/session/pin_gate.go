@@ -801,14 +801,10 @@ func (e *Executor) verifyAndRepairPinning(
 			return pinningRepairPrompt(seed) + advisorySection(result.PinAdvisory)
 		},
 		brokeTestsPrompt: pinningBrokeTestsPrompt,
+		writesTests:      true,
 		recheck: func(epCtx context.Context) (bool, repairFailure, VerifyOutcome) {
-			v, _ := gateOwnTests(epCtx, workspace, result, false)
-			if v.Verdict() == VerifyPassed || v.Verdict() == VerifyFailed {
-				v.Repair = result.TestCheck.Repair
-				result.TestCheck = v
-			}
-			if v.Verdict() != VerifyPassed {
-				return false, repairFailure{Output: v.Output, TestsBroke: v.Verdict() == VerifyFailed}, v.Verdict()
+			if _, held, failure, verdict := e.recheckOwnTests(epCtx, workspace, result, false); !held {
+				return false, failure, verdict
 			}
 			p := verifyPinning(epCtx, workspace, result, true)
 			result.PinCheck = p
