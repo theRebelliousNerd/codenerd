@@ -41,7 +41,8 @@ Decl should_delegate(ShardType) bound [/name].
 
 # route_decision(Route, ShardType) - derived: the single routing outcome for
 # the current turn. Route: /perception_answer, /dream, /assault,
-# /respond_directly, /clarify, /multi_step, /delegate.
+# /respond_directly, /clarify, /multi_step, /delegate, /hold,
+# /approve_pending.
 # ShardType carries the target shard for /delegate and is /none otherwise.
 Decl route_decision(Route, ShardType) bound [/name, /name].
 
@@ -185,6 +186,18 @@ Decl early_lane() bound [].
 # (uncertain, untargeted, or a question the kernel already has); clarify_lane
 # applies the precedence and the loop guard, and the delegate lane yields to it.
 Decl clarify_lane() bound [].
+
+# Work admission (routing_arbitration.mg). work_mode(Mode) is the chat's
+# autonomy switch (/yolo, /propose, /explicit; config work_mode);
+# work_proposal_pending() is asserted by chat while held work awaits a go;
+# intent_signal(/user_go_ahead) marks the turn that carries the go-ahead.
+Decl work_mode(Mode) bound [/name].
+Decl work_proposal_pending() bound [].
+Decl work_hold_requested() bound [].
+Decl work_admitted() bound [].
+Decl delegate_lane_ready(ShardType) bound [/name].
+Decl work_awaiting_go() bound [].
+Decl approve_lane() bound [].
 Decl needs_clarification() bound [].
 Decl acts_on_target(Verb) bound [/name].
 Decl target_names_nothing(Target) bound [/string].

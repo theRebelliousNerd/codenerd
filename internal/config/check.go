@@ -118,6 +118,9 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 	if err := c.CheckAPIKeyPools(); err != nil {
 		add(SeverityError, "api_key_pools", err.Error(), "")
 	}
+	if c.Logging != nil && c.Logging.SelfProblemWarnRepeats < 0 {
+		add(SeverityError, "logging.self_problem_warn_repeats", fmt.Sprintf("%d is negative", c.Logging.SelfProblemWarnRepeats), "a count of 1 or more, or remove the key for the default")
+	}
 	if err := checkWorkMode(c.WorkMode); err != nil {
 		add(SeverityError, "work_mode", err.Error(), "set work_mode to yolo, propose or explicit")
 	}

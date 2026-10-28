@@ -271,6 +271,10 @@ type Intent struct {
 	// search, ...). A non-empty list is perception stating the turn needs
 	// workspace evidence; routing treats it the same as a file scope.
 	ToolsNeeded []string
+
+	// Brief is the running brief perception returned with this turn
+	// (brief.go); nil keeps the brief the kernel holds.
+	Brief *Brief
 }
 
 // ConversationTurn represents a single turn in conversation history.

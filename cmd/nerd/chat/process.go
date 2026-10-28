@@ -88,7 +88,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		hasKernel := m.kernel != nil
 		hasCampaign := m.activeCampaign != nil
 		logging.Routing("[processInput] OODA START input=%q len=%d | transducer=%s client=%s historyLen=%d hasKernel=%v hasCampaign=%v turnCount=%d",
-			truncateSummary(trimmed, 80), len(trimmed), transducerType, clientType, historyLen, hasKernel, hasCampaign, m.turnCount)
+			oneLine(trimmed), len(trimmed), transducerType, clientType, historyLen, hasKernel, hasCampaign, m.turnCount)
 
 		// Clarifier answers are accumulated on the Update thread; see model_handlers.go.
 
@@ -163,30 +163,43 @@ func (m Model) processInput(input string) tea.Cmd {
 		var intent perception.Intent
 		var err error
 
+		// An approved proposal runs with the intent perception read when it was
+		// proposed: the "go" that approved it is not the request. user_intent
+		// is asserted from it below, as for any intent no shard asserted.
+		reusedIntent := m.goAheadWork != nil
+		if reusedIntent {
+			intent = m.goAheadWork.Intent
+		}
+
 		// Prefer the always-on PerceptionFirewall system shard when available.
 		// This ensures Perception emits canonical facts (user_intent, processed_intent,
 		// focus_resolution, ambiguity_flag) into the shared kernel and uses JIT prompts.
-		if m.shardMgr != nil {
+		if !reusedIntent && m.shardMgr != nil {
 			if shard, ok := m.shardMgr.GetRunningShardByConfigName("perception_firewall"); ok {
 				type perceiver interface {
 					Perceive(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error)
 				}
 				if pf, ok := shard.(perceiver); ok {
-					intent, err = pf.Perceive(ctx, input, historyForPerception)
+					intent, err = pf.Perceive(m.briefContext(ctx), input, historyForPerception)
 					intentHandledBySystem = err == nil
 				}
 			}
 		}
 
 		// Fallback: direct transducer parsing (legacy / when system shards are disabled).
-		if !intentHandledBySystem {
-			intent, err = m.transducer.ParseIntentWithContext(ctx, input, historyForPerception)
+		if !reusedIntent && !intentHandledBySystem {
+			intent, err = m.transducer.ParseIntentWithContext(m.briefContext(ctx), input, historyForPerception)
 		}
 		if err != nil {
 			return errorMsg(fmt.Errorf("perception error: %w", err))
 		}
 		if strings.TrimSpace(intent.Response) == "" {
 			warnings = append(warnings, "Perception response was empty; falling back to articulation")
+		}
+		// The brief perception returned replaces the kernel's before routing
+		// reads it (brief.mg); a go-ahead run keeps the brief it was held under.
+		if !reusedIntent {
+			m.recordBrief(intent.Brief)
 		}
 		m.ReportStatus(fmt.Sprintf("Orient: %s", intent.Verb))
 		// Log rich perception result with routing-actionable data.
@@ -197,14 +210,14 @@ func (m Model) processInput(input string) tea.Cmd {
 		shardType := resolveShardTypeForIntent(intent)
 		logging.Routing("[processInput] PERCEPTION complete: %dms | verb=%s category=%s target=%q confidence=%.2f | candidate shard=%s system_shard=%v | response_len=%d ambiguity=%v",
 			time.Since(perceptionStart).Milliseconds(), intent.Verb, intent.Category,
-			truncateSummary(intent.Target, 60), intent.Confidence,
+			oneLine(intent.Target), intent.Confidence,
 			shardType, intentHandledBySystem,
 			len(intent.Response), intent.Ambiguity)
 
 		// Glass Box: Emit perception event (immediate → chat stream)
 		if m.glassBoxEventBus != nil && m.glassBoxEnabled {
 			summary := fmt.Sprintf("Intent: %s%s → %s (%.0f%%)",
-				intent.Category, intent.Verb, truncateSummary(intent.Target, 40), intent.Confidence*100)
+				intent.Category, intent.Verb, oneLine(intent.Target), intent.Confidence*100)
 			details := fmt.Sprintf("Category: %s\nVerb: %s\nTarget: %s\nConstraint: %s",
 				intent.Category, intent.Verb, intent.Target, intent.Constraint)
 			m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
@@ -246,7 +259,7 @@ func (m Model) processInput(input string) tea.Cmd {
 					m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
 						Timestamp: time.Now(),
 						Category:  transparency.CategoryKernel,
-						Summary:   fmt.Sprintf("Asserted: user_intent(%s, %s, %s)", intent.Category, intent.Verb, truncateSummary(intent.Target, 30)),
+						Summary:   fmt.Sprintf("Asserted: user_intent(%s, %s, %s)", intent.Category, intent.Verb, oneLine(intent.Target)),
 						TurnID:    m.turnCount,
 					})
 				}
@@ -286,6 +299,17 @@ func (m Model) processInput(input string) tea.Cmd {
 				Details:   "Kernel routing arbitration (route_decision/2, policy/routing_arbitration.mg)",
 				TurnID:    m.turnCount,
 			})
+		}
+
+		// Work the work mode holds (route_decision(/hold)): state it and keep
+		// the conversation open until the user says go.
+		if route.Kind == RouteHold {
+			work := &pendingWork{Input: input, Intent: intent, Route: route, At: time.Now()}
+			return holdMsg{Work: work, Surface: holdSurface(intent, route, m.workMode(), m.currentBrief())}
+		}
+		// The user's go-ahead on the held proposal.
+		if route.Kind == RouteApprovePending {
+			return approveWorkMsg{}
 		}
 
 		// The perception pass already answered: its reply is the answer.
@@ -533,7 +557,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
 					Timestamp: time.Now(),
 					Category:  transparency.CategoryShard,
-					Summary:   fmt.Sprintf("Spawning: %s (task: %s)", shardType, truncateSummary(task, 40)),
+					Summary:   fmt.Sprintf("Spawning: %s (task: %s)", shardType, oneLine(task)),
 					Source:    shardType,
 					TurnID:    m.turnCount,
 				})

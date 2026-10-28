@@ -450,6 +450,7 @@ type SessionContext struct {
 	ActiveFiles       []string          // Files currently in focus
 	ExtraContext      map[string]string // Additional context key-values
 	Ambient           *AmbientContext   // Current ambient IDE context (cursor, selection, etc.)
+	Brief             string            // The running brief, rendered (perception.Brief.Render); perception returns it updated
 
 	// ==========================================================================
 	// DREAM MODE (Simulation/Learning)

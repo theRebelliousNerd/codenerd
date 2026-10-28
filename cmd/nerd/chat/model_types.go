@@ -292,10 +292,16 @@ type Model struct {
 	turnIntentVerb string
 
 	// Clarification Loop State (Pause/Resume Protocol)
-	clarificationState    *ClarificationState
-	selectedOption        int // For option picker
-	pendingPatchLines     []string
-	lastClarifyInput      string // Track last input for clarification dedup
+	clarificationState *ClarificationState
+	selectedOption     int // For option picker
+	pendingPatchLines  []string
+	lastClarifyInput   string // Track last input for clarification dedup
+	// pendingWork is work the kernel held until the user says go
+	// (route_decision(/hold), work_hold.go); newer held work replaces it.
+	pendingWork *pendingWork
+	// goAheadWork is set only on the command that runs an approved proposal:
+	// processInput reuses its intent and the turn carries /user_go_ahead.
+	goAheadWork           *pendingWork
 	lastDreamHypothetical string // Track last dream state hypothetical for learning follow-up
 
 	// Session State

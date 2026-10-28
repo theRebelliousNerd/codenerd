@@ -58,6 +58,13 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 	case "/continue", "/resume":
 		return m.handleCmdContinue(input, parts)
 
+	case "/brief":
+		return m.pushYoloNote("**Brief**\n\n" + m.currentBrief().Render()), nil
+
+	case "/go":
+		// The explicit go-ahead on the held proposal.
+		return m.approvePendingWork()
+
 	case "/usage":
 		return m.handleCmdUsage(input, parts)
 

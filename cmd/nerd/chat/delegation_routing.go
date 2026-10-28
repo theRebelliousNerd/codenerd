@@ -45,6 +45,13 @@ const (
 	RouteMultiStep
 	// RouteDelegate hands the task to a single shard.
 	RouteDelegate
+	// RouteHold holds work the work mode does not admit yet
+	// (routing_arbitration.mg): the main agent says what is held and keeps
+	// talking until the user says go.
+	RouteHold
+	// RouteApprovePending is the user's go-ahead on the pending proposal:
+	// that proposal's work runs now, with its own saved intent.
+	RouteApprovePending
 )
 
 // String renders the lane for logs and Glass Box events.
@@ -64,6 +71,10 @@ func (k RouteKind) String() string {
 		return "multi_step"
 	case RouteDelegate:
 		return "delegate"
+	case RouteHold:
+		return "hold"
+	case RouteApprovePending:
+		return "approve_pending"
 	default:
 		return "none"
 	}
@@ -121,6 +132,13 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 	_ = m.kernel.Retract("multi_step_signal")
 	_ = m.kernel.Retract("multi_step_plan_step")
 	_ = m.kernel.Retract("intent_signal")
+	_ = m.kernel.Retract("work_proposal_pending")
+	if m.pendingWork != nil {
+		if err := m.kernel.Assert(core.Fact{Predicate: "work_proposal_pending"}); err != nil {
+			logging.RoutingError("[decideRoute] assert work_proposal_pending failed: %v", err)
+			return none
+		}
+	}
 
 	if err := m.kernel.Assert(core.Fact{
 		Predicate: "delegation_candidate",
@@ -176,6 +194,10 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 	}
 	if strings.TrimSpace(intent.Response) != "" {
 		signals = append(signals, "/has_surface_response")
+	}
+	// This turn is the approved proposal itself: the user said go.
+	if m.goAheadWork != nil {
+		signals = append(signals, "/user_go_ahead")
 	}
 	for _, sig := range signals {
 		if err := m.kernel.Assert(core.Fact{
@@ -237,6 +259,18 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 		decision = RouteDecision{Kind: RouteDelegate, Shard: shard, Verify: len(verifies) > 0}
 	case "/clarify":
 		decision = RouteDecision{Kind: RouteClarify}
+	case "/approve_pending":
+		decision = RouteDecision{Kind: RouteApprovePending}
+	case "/hold":
+		// What the held work would be: the shard a delegation would go to,
+		// or the plan a decomposition would run.
+		decision = RouteDecision{Kind: RouteHold}
+		if ready, err := m.kernel.Query("delegate_lane_ready"); err == nil && len(ready) == 1 && len(ready[0].Args) == 1 {
+			decision.Shard = strings.TrimPrefix(types.ExtractString(ready[0].Args[0]), "/")
+		}
+		if lane, err := m.kernel.Query("multi_step_lane"); err == nil && len(lane) > 0 {
+			decision.Steps = steps
+		}
 	default:
 		logging.RoutingError("[decideRoute] the policy derived an unknown lane %s", route)
 		return none

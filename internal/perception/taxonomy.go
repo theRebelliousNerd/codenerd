@@ -790,6 +790,14 @@ var DefaultTaxonomyData = []TaxonomyDef{
 		Patterns: []string{"(?i)^thanks\\b", "(?i)\\bthank you\\b", "(?i)\\bbye\\b"},
 	},
 	{
+		// Emitted by UnderstandingTransducer for action_type=approve: the
+		// user's go-ahead on work the assistant proposed. /none: it starts the
+		// proposal's own work, it is never a task of its own.
+		Verb: "/approve", Category: "/query", ShardType: "/none", Priority: 55,
+		Synonyms: []string{"go ahead", "go for it", "do it", "proceed", "approved", "start it", "sounds good"},
+		Patterns: []string{"(?i)^go\\b", "(?i)\\bgo ahead\\b", "(?i)^(yes|yep|ok|okay),? (do it|go|start|proceed)", "(?i)\\bproceed\\b"},
+	},
+	{
 		// Emitted by UnderstandingTransducer for action_type=deploy.
 		// /coder: releases execute through the coder's command/file tools.
 		Verb: "/deploy", Category: "/mutation", ShardType: "/coder", Priority: 72,

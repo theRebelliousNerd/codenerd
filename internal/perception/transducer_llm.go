@@ -345,6 +345,13 @@ func (t *LLMTransducer) BuildPrompt(input string, history []ConversationTurn, se
 		sb.WriteString("---\n\n")
 	}
 
+	// The running brief, so the model updates it rather than restarting it.
+	if sessionCtx != nil && sessionCtx.Brief != "" {
+		sb.WriteString("## Current Brief\n\n")
+		sb.WriteString(sessionCtx.Brief)
+		sb.WriteString("\n---\n\n")
+	}
+
 	sb.WriteString("## Current Request\n\n")
 	sb.WriteString(input)
 
@@ -452,6 +459,9 @@ func (t *LLMTransducer) parseResponse(response string) (*Understanding, error) {
 		if perr := json.Unmarshal([]byte(jsonStr), &probe); perr == nil && isJSONObject(probe.Understanding) {
 			// Valid envelope with an understanding object
 			envelope.Understanding.SurfaceResponse = envelope.SurfaceResponse
+			if envelope.Brief != nil {
+				envelope.Understanding.Brief = envelope.Brief
+			}
 			normalizeLLMFields(&envelope.Understanding)
 			return &envelope.Understanding, nil
 		}

@@ -524,6 +524,15 @@ func SharedPredicates() []string {
 		"gauntlet_result",
 		"mutation_approved",
 		"yolo_mode",
+		// The work mode and the brief (brief.mg) gate every lane that starts
+		// work (routing_arbitration.mg), and the lanes derive in every shard.
+		"work_mode",
+		"work_proposal_pending",
+		"brief_goal",
+		"brief_constraint",
+		"brief_decision",
+		"brief_open_question",
+		"brief_marked_ready",
 		"action_verified",
 		"shard_context_refreshed",
 		"shadow_state",

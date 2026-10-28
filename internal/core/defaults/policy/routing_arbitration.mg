@@ -53,6 +53,9 @@
 
 # Verbs whose outcome is always prose — never shard work.
 conversational_verb(/greet).
+# "go" with nothing proposed is conversation; with a proposal pending it is
+# the approve_pending lane, which is early and so wins.
+conversational_verb(/approve).
 conversational_verb(/converse).
 conversational_verb(/help).
 conversational_verb(/knowledge).
@@ -171,12 +174,23 @@ assault_lane() :-
     user_intent(/current_intent, _, /assault, _, _),
     !perception_answer_lane().
 
+# Approving a pending proposal comes before every other lane: the reply is
+# about the proposal, not a new request.
+approve_lane() :-
+    work_proposal_pending(),
+    user_intent(/current_intent, _, /approve, _, _).
+
+early_lane() :- approve_lane().
 early_lane() :- perception_answer_lane().
 early_lane() :- dream_lane().
 early_lane() :- assault_lane().
 
+route_decision(/approve_pending, /none) :-
+    approve_lane().
+
 route_decision(/perception_answer, /none) :-
-    perception_answer_lane().
+    perception_answer_lane(),
+    !approve_lane().
 
 route_decision(/dream, /none) :-
     dream_lane().
@@ -214,18 +228,46 @@ multi_step_plan_ready() :-
     I < J,
     !multi_step_plan_unrouted().
 
+# Work admission: the work mode (config work_mode, asserted by the chat as
+# work_mode/1) decides whether a lane that starts work runs now or holds.
+#   yolo     runs, unless the brief (brief.mg) has a goal and is not ready:
+#            the main agent judges readiness, the kernel admits on it.
+#   propose  holds the work as a proposal until the user says go.
+#   explicit holds it quietly until the user says go.
+# The user's go-ahead admits held work in every mode. Read-only work
+# (research, review, analysis: a /query intent) is never held, so it grounds
+# the conversation instead of waiting on it. No work_mode fact (a caller
+# outside the chat) holds nothing.
+work_hold_requested() :- work_mode(/propose).
+work_hold_requested() :- work_mode(/explicit).
+work_hold_requested() :- work_mode(/yolo), brief_present(), !brief_ready().
+work_admitted() :- !work_hold_requested().
+work_admitted() :- intent_signal(/user_go_ahead).
+work_admitted() :- user_intent(/current_intent, /query, _, _, _).
+
 route_decision(/multi_step, /none) :-
-    multi_step_lane().
+    multi_step_lane(),
+    work_admitted().
 
 # Delegate when the confidence gate passes (should_delegate, delegation.mg),
 # unless the turn decomposes (the decomposition runs the steps) or must ask
 # first.
-route_decision(/delegate, Shard) :-
+delegate_lane_ready(Shard) :-
     should_delegate(Shard),
     !wants_direct_answer(),
     !multi_step_lane(),
     !clarify_lane(),
     !early_lane().
+
+route_decision(/delegate, Shard) :-
+    delegate_lane_ready(Shard),
+    work_admitted().
+
+work_awaiting_go() :- delegate_lane_ready(Shard), !work_admitted().
+work_awaiting_go() :- multi_step_lane(), !work_admitted().
+
+route_decision(/hold, /none) :-
+    work_awaiting_go().
 
 # A delegated mutation runs the verification loop: the persona's attempts,
 # each judged (delegation_move, delegation.mg). Read-only work -- a review, an

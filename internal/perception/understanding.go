@@ -57,6 +57,10 @@ type Understanding struct {
 	// --- Raw Surface Response (from LLM) ---
 	// The natural language response to show the user.
 	SurfaceResponse string `json:"surface_response"`
+
+	// Brief is the conversation's running brief, returned whole and updated
+	// (brief.go). Nil when the model returned none: the kept brief stands.
+	Brief *Brief `json:"brief,omitzero"`
 }
 
 // Scope represents the breadth of the user's request.
@@ -156,6 +160,9 @@ type UnderstandingEnvelope struct {
 
 	// SurfaceResponse is the natural language response for the user.
 	SurfaceResponse string `json:"surface_response"`
+
+	// Brief is the updated running brief (brief.go).
+	Brief *Brief `json:"brief,omitzero"`
 }
 
 // Validate checks that the Understanding contains valid values.

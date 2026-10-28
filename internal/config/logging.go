@@ -15,6 +15,25 @@ type LoggingConfig struct {
 	PerformanceSampling float64 `yaml:"performance_sampling" json:"performance_sampling,omitempty"`
 	// PerformanceThresholdsMs sets per-system slow thresholds in milliseconds.
 	PerformanceThresholdsMs map[string]int64 `yaml:"performance_thresholds_ms" json:"performance_thresholds_ms,omitempty"`
+	// SelfProblemWarnRepeats is how often one warning must recur in the
+	// problems log before debug-self calls it hot and names it to the model
+	// (self_problem_hot, policy/self_problems.mg). Errors are always hot.
+	// Default DefaultSelfProblemWarnRepeats.
+	SelfProblemWarnRepeats int `yaml:"self_problem_warn_repeats" json:"self_problem_warn_repeats,omitempty"`
+}
+
+// DefaultSelfProblemWarnRepeats is the warning recurrence at which debug-self
+// treats a warning as a problem worth the model's attention.
+const DefaultSelfProblemWarnRepeats = 3
+
+// Params are the logging knobs the kernel's rules read, as config_param rows
+// (config_param_required(/logging, Key), policy/self_problems.mg). Nil-safe.
+func (c *LoggingConfig) Params() []Param {
+	repeats := DefaultSelfProblemWarnRepeats
+	if c != nil && c.SelfProblemWarnRepeats > 0 {
+		repeats = c.SelfProblemWarnRepeats
+	}
+	return []Param{{Key: "/logging_self_problem_warn_repeats", Value: int64(repeats)}}
 }
 
 // EffectiveDebugMode reports whether logging is effectively on. DebugSelf

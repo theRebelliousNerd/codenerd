@@ -191,7 +191,14 @@ func mentionsUnderstandingObject(object string) bool {
 }
 
 func isUnderstandingEnvelopeShape(shape map[string]any) bool {
-	if len(shape) != 2 {
+	// understanding and surface_response, and optionally the running brief.
+	switch len(shape) {
+	case 2:
+	case 3:
+		if _, ok := shape["brief"].(map[string]any); !ok {
+			return false
+		}
+	default:
 		return false
 	}
 	if _, ok := shape["surface_response"].(string); !ok {
@@ -516,6 +523,7 @@ func (t *UnderstandingTransducer) understandingToIntent(u *Understanding) Intent
 		ScopeLevel:  u.Scope.Level,
 		ScopeFile:   u.Scope.File,
 		ToolsNeeded: u.SuggestedApproach.ToolsNeeded,
+		Brief:       u.Brief,
 
 		// Preserve Understanding in Ambiguity for debugging
 		Ambiguity: ambiguityInfo,
@@ -607,6 +615,11 @@ func (t *UnderstandingTransducer) mapActionToVerb(actionType, domain string) str
 		return "/forget"
 	case "chat":
 		return "/converse"
+	case "approve":
+		// The go-ahead on a proposal the assistant made. Whether a proposal
+		// is pending is the kernel's question (approve_lane,
+		// routing_arbitration.mg), not this mapping's.
+		return "/approve"
 	case "deploy":
 		return "/deploy"
 	case "migrate":
@@ -779,6 +792,7 @@ You are the perception layer of a coding agent. Your job is to deeply understand
 | remember | Store preference for future | No (memory only) |
 | forget | Remove stored preference | No (memory only) |
 | chat | Social interaction, greeting | No |
+| approve | Go-ahead on work you just proposed or held ("go", "do it", "yes, start") | No (starts the held work) |
 | migrate | Move code between frameworks/versions | Yes |
 | optimize | Improve performance, reduce resource usage | Yes |
 | document | Write docs, comments, READMEs | Yes |
@@ -846,6 +860,24 @@ What is the user assuming that they didn't say?
 - "Following our patterns" (implies existing conventions)
 - "Like the other endpoints" (implies reference implementation)
 
+### 8. The Brief
+
+The brief is what this conversation has settled about the work. You receive the
+current brief under "Current Brief" and return it whole, updated, in "brief":
+
+- "goal": the work the user wants, in one sentence. Keep it while the user is
+  still discussing it; replace it only when they move to different work.
+- "constraints": what the user requires or rules out.
+- "decisions": what has been decided between you, including answers to
+  earlier open questions.
+- "open_questions": what you still need from the user before the work can
+  start well. Remove a question once it is answered.
+- "ready": true when the brief is enough to start the work and nothing open
+  blocks it. You judge this; work may start on it without asking again.
+
+Small talk and questions about the code leave the brief as it is: return it
+unchanged. An empty brief stays empty until the user describes work.
+
 ## Output Format
 
 You MUST output valid JSON in this exact structure:
@@ -881,7 +913,14 @@ You MUST output valid JSON in this exact structure:
       "context_needed": ["<what context would help>"]
     }
   },
-  "surface_response": "<natural language response to user>"
+  "surface_response": "<natural language response to user>",
+  "brief": {
+    "goal": "<the work, one sentence; empty if none>",
+    "constraints": ["<what the user requires or rules out>"],
+    "decisions": ["<what has been decided>"],
+    "open_questions": ["<what you still need to know>"],
+    "ready": <true|false>
+  }
 }
 
 ## Important Rules

@@ -83,7 +83,7 @@ If you need to search documentation or the web, do so to provide accurate inform
 			// Log the consultation
 			logging.Get(logging.CategoryContext).Info(
 				"Consulting specialist '%s' for: %s",
-				shardType, truncateSummary(r.Query, 100),
+				shardType, oneLine(r.Query),
 			)
 
 			// Spawn the specialist with high priority (knowledge is blocking)
@@ -251,7 +251,7 @@ func (m *Model) persistKnowledgeResults(results []KnowledgeResult) {
 
 		// Create a concept identifier based on session and specialist
 		concept := fmt.Sprintf("session/%s/%s/%d",
-			truncateSummary(kr.Query, 50),
+			oneLine(kr.Query),
 			kr.Specialist,
 			kr.Timestamp.Unix(),
 		)

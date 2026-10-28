@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -12,7 +11,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"codenerd/internal/config"
+	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/problemlog"
 	"codenerd/internal/types"
 )
 
@@ -32,6 +33,12 @@ import (
 // path + byte-offset reference. Full raw lines never enter the main
 // context; they stay in PendingProblems/the file range for stage 2.
 // Signatures already reported in earlier turns collapse to one tally line.
+//
+// Evidence in the kernel: separately from that digest, the whole problems log
+// is projected into the kernel as self_problem facts (internal/problemlog,
+// policy/self_problems.mg) and debug_self_active() is asserted while debug-self
+// is on, so the main agent and shards can query their own failures and hot
+// problems reach their context as injectable_context lines.
 
 // selfDebugMarker prefixes every user-visible debug-self note. The watcher
 // drops problem lines carrying it, so renderSystemWarnings logging our own
@@ -216,6 +223,12 @@ type selfDebugWatcher struct {
 	// reported holds signatures delivered in earlier turns (level|cat|sig
 	// -> lines delivered), so recurrences collapse to a tally in Render.
 	reported map[string]int
+	// projectedPath/projectedOffset mark the log position the kernel's
+	// self_problem facts were last built from; projected is false until the
+	// first projection after prime.
+	projected       bool
+	projectedPath   string
+	projectedOffset int64
 }
 
 func newSelfDebugWatcher() *selfDebugWatcher {
@@ -237,6 +250,7 @@ func (w *selfDebugWatcher) prime(path string) {
 	w.dropped = 0
 	w.moreInFile = false
 	w.reported = make(map[string]int)
+	w.projected = false
 	if path != "" {
 		if fi, err := os.Stat(path); err == nil {
 			w.offset = fi.Size()
@@ -256,7 +270,7 @@ func (w *selfDebugWatcher) consume() {
 		w.reported = make(map[string]int)
 	}
 	for _, p := range w.pending {
-		w.reported[selfKindKey(p.Level, p.Category, normalizeSelfSignature(p.Message))]++
+		w.reported[selfKindKey(p.Level, p.Category, problemlog.Signature(p.Message))]++
 	}
 	w.pending = nil
 	w.dropped = 0
@@ -325,17 +339,18 @@ func (w *selfDebugWatcher) collect(path string) PendingProblems {
 	w.offset += int64(consumed)
 	w.batchEnd = w.offset
 	w.moreInFile = capped && w.offset < size
-	for _, line := range strings.Split(string(buf[:consumed]), "\n") {
-		p, ok := parseSelfProblemLine(line)
-		if !ok {
-			continue
-		}
+	// A chunk read from the middle of a multi-line message starts with
+	// continuation lines; Scan ignores them.
+	_ = problemlog.Scan(strings.NewReader(string(buf[:consumed])), isSelfNote, func(e problemlog.Entry) {
 		if len(w.pending) >= maxSelfPendingRaw {
 			w.dropped++
-			continue
+			return
 		}
-		w.pending = append(w.pending, p)
-	}
+		w.pending = append(w.pending, SelfProblem{
+			Level: e.Level, Category: e.Category, Message: e.Message,
+			SeenAt: e.Time.Format(selfSeenLayout),
+		})
+	})
 	return w.buildLocked()
 }
 
@@ -347,7 +362,7 @@ func (w *selfDebugWatcher) buildLocked() PendingProblems {
 	errIndex := make(map[string]int)
 	warnIndex := make(map[string]int)
 	addKind := func(kinds *[]SelfProblemKind, index map[string]int, p SelfProblem) {
-		sig := normalizeSelfSignature(p.Message)
+		sig := problemlog.Signature(p.Message)
 		key := selfKindKey(p.Level, p.Category, sig)
 		if i, seen := index[key]; seen {
 			(*kinds)[i].Count++
@@ -375,46 +390,41 @@ func (w *selfDebugWatcher) buildLocked() PendingProblems {
 	return out
 }
 
-var (
-	selfProblemLineRe = regexp.MustCompile(`\[(ERROR|WARN)\] \[([^\]]+)\] (.*)$`)
-	selfTimestampRe   = regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})`)
-)
-
-func parseSelfProblemLine(line string) (SelfProblem, bool) {
-	m := selfProblemLineRe.FindStringSubmatch(line)
-	if m == nil {
-		return SelfProblem{}, false
+// project reads the whole problems log when it has moved since the kernel's
+// facts were last built from it. It returns a nil report when it has not, or
+// when there is no log yet. The caller replaces the facts wholesale, so the
+// report is the entire log, not the pending delta.
+func (w *selfDebugWatcher) project() (*problemlog.Report, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.path == "" {
+		return nil, nil
 	}
-	msg := strings.TrimSpace(m[3])
-	// Exclude lines the reporting itself generates (our visible note is
-	// re-logged at WARN by renderSystemWarnings).
-	if strings.Contains(msg, selfDebugMarker) {
-		return SelfProblem{}, false
+	if w.projected && w.projectedPath == w.path && w.projectedOffset == w.offset {
+		return nil, nil
 	}
-	seen := ""
-	if tm := selfTimestampRe.FindStringSubmatch(line); tm != nil {
-		seen = tm[1]
+	rep, err := problemlog.ReadFile(w.path, problemlog.Options{Skip: isSelfNote})
+	if err != nil {
+		return nil, err
 	}
-	return SelfProblem{Level: m[1], Category: m[2], Message: msg, SeenAt: seen}, true
+	w.projected, w.projectedPath, w.projectedOffset = true, w.path, w.offset
+	return rep, nil
 }
 
-var (
-	selfUUIDRe  = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
-	selfPathRe  = regexp.MustCompile(`(?:/[A-Za-z0-9._\-]+)+`)
-	selfHexRe   = regexp.MustCompile(`\b[0-9a-fA-F]{8,}\b`)
-	selfNumRe   = regexp.MustCompile(`\d+(?:\.\d+)?`)
-	selfSpaceRe = regexp.MustCompile(`\s+`)
-)
+// forgetProjection makes the next project re-read the log.
+func (w *selfDebugWatcher) forgetProjection() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.projected = false
+}
 
-// normalizeSelfSignature strips volatile values so repeated warnings dedupe.
-func normalizeSelfSignature(msg string) string {
-	s := selfUUIDRe.ReplaceAllString(msg, "<uuid>")
-	s = selfPathRe.ReplaceAllString(s, "<path>")
-	s = selfHexRe.ReplaceAllString(s, "<hex>")
-	s = selfNumRe.ReplaceAllString(s, "#")
-	s = strings.TrimSpace(selfSpaceRe.ReplaceAllString(s, " "))
-	// A dedupe key, bounded; the cut is rune-safe.
-	return types.Ellipsize(s, 200)
+// selfSeenLayout is the log-line timestamp prefix SelfProblem.SeenAt keeps.
+const selfSeenLayout = "2006/01/02 15:04:05"
+
+// isSelfNote drops the lines the reporting itself generates (our visible note
+// is re-logged at WARN by renderSystemWarnings).
+func isSelfNote(e problemlog.Entry) bool {
+	return strings.Contains(e.Message, selfDebugMarker)
 }
 
 // =============================================================================
@@ -434,7 +444,62 @@ func pendingSelfProblemsForTurn(m Model) PendingProblems {
 		return PendingProblems{}
 	}
 	path, _, _ := logging.ProblemsSnapshot()
-	return m.selfDebug.collect(path)
+	pending := m.selfDebug.collect(path)
+	m.syncSelfProblemFacts()
+	return pending
+}
+
+// syncSelfProblemFacts mirrors /debug-self into the kernel. While on, it keeps
+// debug_self_active() asserted (the gate on injecting hot problems) and
+// replaces the self_problem facts with the whole problems log whenever the
+// log has moved since the last projection; off, it retracts both. Reads and
+// failures are logged under selfDebugMarker so the watcher does not report
+// its own note as a new problem. A nil kernel (pre-boot toggle) is fine: the
+// next turn's collect syncs once the kernel exists.
+func (m Model) syncSelfProblemFacts() {
+	if m.kernel == nil {
+		return
+	}
+	log := logging.Get(logging.CategoryKernel)
+	if !m.debugSelfEnabled() {
+		if err := m.kernel.Retract(problemlog.DebugSelfActivePredicate); err != nil {
+			log.Warn("%s retract %s: %v", selfDebugMarker, problemlog.DebugSelfActivePredicate, err)
+		}
+		if err := problemlog.Replace(m.kernel, nil); err != nil {
+			log.Warn("%s retract self problems: %v", selfDebugMarker, err)
+		}
+		if m.selfDebug != nil {
+			m.selfDebug.forgetProjection()
+		}
+		return
+	}
+	if m.selfDebug == nil {
+		return
+	}
+	if err := config.EnsureParams(m.kernel, m.Config.Logging.Params()); err != nil {
+		log.Warn("%s assert logging params: %v", selfDebugMarker, err)
+	}
+	if rows, err := m.kernel.Query(problemlog.DebugSelfActivePredicate); err != nil || len(rows) == 0 {
+		if err := m.kernel.Assert(core.Fact{Predicate: problemlog.DebugSelfActivePredicate}); err != nil {
+			log.Warn("%s assert %s: %v", selfDebugMarker, problemlog.DebugSelfActivePredicate, err)
+		}
+	}
+	rep, err := m.selfDebug.project()
+	if err != nil {
+		log.Warn("%s read problems log: %v", selfDebugMarker, err)
+		return
+	}
+	if rep == nil {
+		return
+	}
+	if err := problemlog.Replace(m.kernel, rep); err != nil {
+		log.Warn("%s assert self problems: %v", selfDebugMarker, err)
+		m.selfDebug.forgetProjection()
+		return
+	}
+	if rep.Omitted() {
+		log.Info("%s self problems: %s", selfDebugMarker, rep.Summary())
+	}
 }
 
 func (m Model) consumeSelfProblems() {
@@ -496,7 +561,8 @@ func (m Model) setDebugSelf(on bool) (Model, string) {
 		}
 		m.debugSelfOwnsYolo = false
 		m.yoloViaDebugSelf = false
-		m.syncYoloFact()
+		m.syncWorkModeFacts()
+		m.syncSelfProblemFacts()
 		m.consumeSelfProblems()
 		m.applyLoggingIfBound()
 		return m, "Session yolo from debug_self ended (persisted yolo, if any, is untouched); debug logging now follows logging.debug_mode."
@@ -511,7 +577,8 @@ func (m Model) setDebugSelf(on bool) (Model, string) {
 		m.debugSelfOwnsYolo = true
 	}
 	m.yoloFlag = true
-	m.syncYoloFact()
+	m.syncWorkModeFacts()
+	m.syncSelfProblemFacts()
 	return m, m.activateSelfDebugCapture()
 }
 

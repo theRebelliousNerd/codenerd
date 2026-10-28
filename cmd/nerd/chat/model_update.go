@@ -150,6 +150,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.pushAssistantMsgWithThought(msg.Surface, msg.ThoughtSummary)
 		persistCmd = m.saveSessionStateCmd()
 
+	case holdMsg:
+		// Work held for the user's go-ahead: the conversation stays open.
+		m.isLoading = false
+		m.turnCount++
+		m.pendingWork = msg.Work
+		m = m.pushAssistantMsg(msg.Surface)
+		persistCmd = m.saveSessionStateCmd()
+
+	case approveWorkMsg:
+		// The kernel read the reply as the go-ahead on the held proposal.
+		m.isLoading = false
+		var cmd tea.Cmd
+		m, cmd = m.approvePendingWork()
+		return m, cmd
+
 	case responseMsg:
 		m.isLoading = false
 		m.turnCount++
@@ -795,7 +810,7 @@ func (m Model) handleBootCompleteMsg(msg bootCompleteMsg) (tea.Model, tea.Cmd) {
 
 		// Mirror persisted yolo autonomy into the kernel: the fact is session
 		// state and does not survive restarts, but the config does.
-		m.syncYoloFact()
+		m.syncWorkModeFacts()
 	}
 
 	// If boot failed, allow input immediately. If boot succeeded, wait until scan completes.

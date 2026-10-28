@@ -29,7 +29,7 @@ func TestInitChat_YoloFlagIsSessionAutonomy(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.kernel = k
-	m.syncYoloFact()
+	m.syncWorkModeFacts()
 	if rows, _ := k.Query("yolo_mode"); len(rows) != 1 {
 		t.Fatalf("the kernel holds %d yolo_mode facts under --yolo, want 1: the clarification rules still ask", len(rows))
 	}

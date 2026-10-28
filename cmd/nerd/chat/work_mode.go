@@ -29,7 +29,7 @@ func (m Model) setWorkMode(mode config.WorkMode) Model {
 		return m
 	}
 	m.Config.WorkMode = mode
-	m.syncYoloFact()
+	m.syncWorkModeFacts()
 	if err := m.Config.Save(m.userConfigPath()); err != nil {
 		m = m.addMessage(Message{
 			Role:    "assistant",

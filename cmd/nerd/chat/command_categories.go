@@ -297,8 +297,22 @@ var CommandRegistry = []CommandInfo{
 		ShowInHelp:  true,
 	},
 	{
+		Name:        "/brief",
+		Description: "Show the running brief: goal, constraints, decisions, open questions, readiness",
+		Usage:       "/brief",
+		Category:    CategoryBasic,
+		ShowInHelp:  true,
+	},
+	{
+		Name:        "/go",
+		Description: "Start the held work, or the brief's goal when nothing is held",
+		Usage:       "/go",
+		Category:    CategoryBasic,
+		ShowInHelp:  true,
+	},
+	{
 		Name:        "/yolo",
-		Description: "Toggle autonomous mode: decide without asking (safety denials still apply)",
+		Description: "Toggle the yolo work mode: decide and start without asking (safety denials still apply; Shift+Tab cycles yolo, propose, explicit)",
 		Usage:       "/yolo [on|off|status]",
 		Category:    CategoryBasic,
 		ShowInHelp:  true,
