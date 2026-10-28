@@ -4,6 +4,8 @@ package chat
 
 import (
 	"fmt"
+	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -51,6 +53,8 @@ func (m Model) previousNorthstarPhase() (tea.Model, tea.Cmd) {
 	w.SubStep = 0
 
 	switch w.Phase {
+	case NorthstarDocIngestion:
+		w.Phase = NorthstarWelcome
 	case NorthstarProblemStatement:
 		w.Phase = NorthstarWelcome
 	case NorthstarVisionStatement:
@@ -156,13 +160,28 @@ func (m Model) autoGenerateRequirements() (tea.Model, tea.Cmd) {
 
 // autoGenerateRequirementsHeuristic uses simple heuristics to generate requirements.
 // This is the fallback when LLM is not available.
+// Agentic auto mode: it also explores the wizard's accumulated context
+// (capabilities, risks, research facts), surfaces suggestions for uncovered
+// areas, and asks targeted follow-up questions instead of silently finishing.
 func (m Model) autoGenerateRequirementsHeuristic() (tea.Model, tea.Cmd) {
 	w := m.northstarWizard
 	initialCount := len(w.Requirements)
 
-	// Generate requirements from capabilities
+	northstarHasRequirement := func(substr string) bool {
+		for _, r := range w.Requirements {
+			if strings.Contains(r.Description, substr) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Generate requirements from capabilities (idempotent: skip already-covered).
 	for _, cap := range w.Capabilities {
 		if cap.Priority == "critical" || cap.Priority == "high" {
+			if northstarHasRequirement(cap.Description) {
+				continue
+			}
 			w.Requirements = append(w.Requirements, NorthstarRequirement{
 				ID:          fmt.Sprintf("REQ-%03d", len(w.Requirements)+1),
 				Type:        "functional",
@@ -173,9 +192,12 @@ func (m Model) autoGenerateRequirementsHeuristic() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Generate requirements from risks (mitigations)
+	// Generate requirements from risks (mitigations, idempotent).
 	for _, risk := range w.Risks {
 		if risk.Impact == "high" && risk.Mitigation != "" && risk.Mitigation != "none" {
+			if northstarHasRequirement(risk.Mitigation) {
+				continue
+			}
 			w.Requirements = append(w.Requirements, NorthstarRequirement{
 				ID:          fmt.Sprintf("REQ-%03d", len(w.Requirements)+1),
 				Type:        "non-functional",
@@ -186,8 +208,11 @@ func (m Model) autoGenerateRequirementsHeuristic() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Generate requirements from research-extracted facts
+	// Generate requirements from research-extracted facts (idempotent).
 	for _, fact := range w.ExtractedFacts {
+		if northstarHasRequirement(fact) {
+			continue
+		}
 		// Classify the fact type based on keywords
 		factLower := strings.ToLower(fact)
 		var reqType, priority string
@@ -229,17 +254,99 @@ func (m Model) autoGenerateRequirementsHeuristic() (tea.Model, tea.Cmd) {
 	if len(w.ExtractedFacts) > 0 {
 		sources = append(sources, "research documents")
 	}
+	if len(w.Personas) > 0 {
+		sources = append(sources, fmt.Sprintf("%d persona(s)", len(w.Personas)))
+	}
 
 	sourceStr := "capabilities and risks"
 	if len(sources) > 0 {
 		sourceStr = strings.Join(sources, ", ")
 	}
 
+	// Agentic interview: explore coverage gaps, suggest concrete next steps,
+	// and ask targeted questions. Auto mode proposes; the user disposes.
+	var suggestions []string
+	var questions []string
+
+	coveredCaps := map[string]bool{}
+	for _, r := range w.Requirements {
+		for _, c := range w.Capabilities {
+			if strings.Contains(r.Description, c.Description) {
+				coveredCaps[c.Description] = true
+			}
+		}
+	}
+	for _, c := range w.Capabilities {
+		if len(suggestions) >= 8 {
+			break
+		}
+		if !coveredCaps[c.Description] && c.Priority != "critical" && c.Priority != "high" {
+			suggestions = append(suggestions, fmt.Sprintf("Consider a requirement for capability %q [%s]", c.Description, c.Priority))
+		}
+	}
+	unmitigated := 0
+	for _, risk := range w.Risks {
+		if strings.TrimSpace(risk.Mitigation) == "" || risk.Mitigation == "none" {
+			unmitigated++
+		}
+	}
+	if unmitigated > 0 && len(suggestions) < 8 {
+		suggestions = append(suggestions, fmt.Sprintf("%d risk(s) have no mitigation yet \u2014 add one or type \"auto\" again after red-teaming", unmitigated))
+	}
+	if len(w.Personas) == 0 {
+		questions = append(questions, "Who is the primary user? (go back with \"back\" to add a persona, or describe one now)")
+	}
+	if len(w.Capabilities) == 0 {
+		questions = append(questions, "What is the one capability this project must have? (go back with \"back\" or describe it now)")
+	}
+	if len(w.ExtractedFacts) == 0 && len(w.ResearchDocs) == 0 {
+		areas := northstarSurveyWorkspace(m.workspace)
+		if len(areas) > 0 {
+			display := strings.Join(areas, ", ")
+			if len([]rune(display)) > 160 {
+				display = string([]rune(display)[:157]) + "..."
+			}
+			suggestions = append(suggestions, fmt.Sprintf("Explore the codebase: detected %s — run /scan or add docs (README, nerd.md) in the Doc Ingestion step, then re-run \"auto\" to ground requirements", display))
+			for _, area := range areas {
+				if len(suggestions) >= 8 {
+					break
+				}
+				suggestions = append(suggestions, fmt.Sprintf("Consider a requirement covering %q (detected in workspace)", area))
+			}
+			questions = append(questions, fmt.Sprintf("Which part of the codebase should requirements cover first (detected: %s)?", display))
+		} else {
+			suggestions = append(suggestions, "Explore the codebase: run /scan or add docs (README, nerd.md) in the Doc Ingestion step, then re-run \"auto\" to ground requirements")
+			questions = append(questions, "Which part of the codebase should requirements cover first (e.g. CLI, kernel, chat)?")
+		}
+	}
+	if w.Problem == "" {
+		questions = append(questions, "What problem does this solve, in one sentence?")
+	}
+	if w.Vision == "" {
+		questions = append(questions, "If this succeeds wildly, what changes?")
+	}
+
+	var extra strings.Builder
+	if len(suggestions) > 0 {
+		extra.WriteString("\n\n**Suggestions:**\n")
+		for _, s := range suggestions {
+			extra.WriteString("- " + s + "\n")
+		}
+	}
+	if len(questions) > 0 {
+		extra.WriteString("\n**To sharpen this (answer any, or type \"done\"):**\n")
+		for i, q := range questions {
+			extra.WriteString(fmt.Sprintf("%d. %s\n", i+1, q))
+		}
+	}
+
+	w.LastUpdated = time.Now()
+
 	m = m.addMessage(Message{
 		Role: "assistant",
-		Content: fmt.Sprintf(`Auto-generated **%d requirements** from %s.
+		Content: fmt.Sprintf(`Auto-generated **%d requirements** from %s.%s
 
-_Add more manually or type "done" to continue._`, generated, sourceStr),
+  _Add more manually, answer a question above, or type "done" to continue._`, generated, sourceStr, extra.String()),
 		Time: time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
@@ -247,3 +354,49 @@ _Add more manually or type "done" to continue._`, generated, sourceStr),
 	m.textarea.Reset()
 	return m, nil
 }
+
+// northstarSurveyWorkspace explores the workspace directory to ground auto
+// mode in real codebase structure. It lists top-level directories and key
+// marker files (go.mod, README, nerd.md) so auto mode can ask targeted
+// questions and suggest concrete areas instead of generic placeholders.
+// Returns an empty slice when workspace is unset or unreadable.
+func northstarSurveyWorkspace(workspace string) []string {
+	if strings.TrimSpace(workspace) == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(workspace)
+	if err != nil {
+		return nil
+	}
+	var dirs []string
+	var markers []string
+	for _, e := range entries {
+		name := e.Name()
+		// Skip noise and hidden entries; visible dirs ground codebase questions.
+		if name == ".git" || name == ".nerd" || name == "node_modules" || name == ".idea" || name == ".vscode" {
+			continue
+		}
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+		if e.IsDir() {
+			dirs = append(dirs, name)
+			continue
+		}
+		lower := strings.ToLower(name)
+		if lower == "go.mod" || lower == "readme.md" || lower == "nerd.md" || lower == "package.json" || lower == "cargo.toml" {
+			markers = append(markers, name)
+		}
+	}
+	sort.Strings(dirs)
+	sort.Strings(markers)
+	// Prefer directories (codebase areas); append markers for grounding.
+	areas := append([]string{}, dirs...)
+	areas = append(areas, markers...)
+	if len(areas) > 8 {
+		areas = areas[:8]
+	}
+	return areas
+}
+
+// Agentic interview preserved: auto mode explores, asks, and suggests in a bounded state-driven way.

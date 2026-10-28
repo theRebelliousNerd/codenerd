@@ -364,7 +364,20 @@ _We'll add multiple personas. Type "done" when finished._`, input),
 
 func (m Model) handleNorthstarUsers(input string) (tea.Model, tea.Cmd) {
 	w := m.northstarWizard
-	lower := strings.ToLower(input)
+	trimmed := strings.TrimSpace(input)
+	lower := strings.ToLower(trimmed)
+
+	if trimmed == "" {
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: "Please describe a user persona, or type \"done\" when finished.",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+	}
 
 	if lower == "done" {
 		if len(w.Personas) == 0 {
@@ -452,7 +465,20 @@ _Add another persona or type "done" to continue._`, w.Personas[len(w.Personas)-1
 
 func (m Model) handleNorthstarCapabilities(input string) (tea.Model, tea.Cmd) {
 	w := m.northstarWizard
-	lower := strings.ToLower(input)
+	trimmed := strings.TrimSpace(input)
+	lower := strings.ToLower(trimmed)
+
+	if trimmed == "" {
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: "Please describe a capability, or type \"done\" when finished.",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+	}
 
 	if lower == "done" {
 		w.Phase = NorthstarRedTeaming
@@ -539,7 +565,20 @@ _Add another or type "done"._`, truncateWithEllipsis(cap.Description, 60), cap.T
 
 func (m Model) handleNorthstarRedTeam(input string) (tea.Model, tea.Cmd) {
 	w := m.northstarWizard
-	lower := strings.ToLower(input)
+	trimmed := strings.TrimSpace(input)
+	lower := strings.ToLower(trimmed)
+
+	if trimmed == "" {
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: "Please describe a risk, or type \"done\" when finished.",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+	}
 
 	if lower == "done" {
 		w.Phase = NorthstarRequirements
@@ -616,7 +655,20 @@ _Add another risk or type "done"._`, truncateWithEllipsis(risk.Description, 50),
 
 func (m Model) handleNorthstarRequirements(input string) (tea.Model, tea.Cmd) {
 	w := m.northstarWizard
-	lower := strings.ToLower(input)
+	trimmed := strings.TrimSpace(input)
+	lower := strings.ToLower(trimmed)
+
+	if trimmed == "" {
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: "Please describe a requirement, type \"auto\" to suggest some, or type \"done\" when finished.",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+	}
 
 	if lower == "done" {
 		w.Phase = NorthstarConstraints
