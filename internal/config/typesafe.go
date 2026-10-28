@@ -48,6 +48,17 @@ type TypeSafeConfig struct {
 	RetrievalRelevance *bool `json:"retrieval_relevance,omitempty"`
 	ReviewChecks       *bool `json:"review_checks,omitempty"`
 	DiagnosisTriage    *bool `json:"diagnosis_triage,omitempty"`
+	// The learning and self-modification loops (Docs/architecture/
+	// jev-turn-judgments.md, "Learning and autopoiesis"): whether the user is
+	// correcting codeNERD's last turn, the prompt-evolution task verdict and
+	// problem type, ouroboros duplicate and code checks, the autopoiesis
+	// campaign and persistent-agent checks, and evolved-atom promotion checks.
+	CorrectionJudgments *bool `json:"correction_judgments,omitempty"`
+	TaskVerdicts        *bool `json:"task_verdicts,omitempty"`
+	ProblemTypes        *bool `json:"problem_types,omitempty"`
+	ToolChecks          *bool `json:"tool_checks,omitempty"`
+	AutopoiesisChecks   *bool `json:"autopoiesis_checks,omitempty"`
+	AtomChecks          *bool `json:"atom_checks,omitempty"`
 
 	// Tuning; zero means the default (TypeSafeUses).
 	RecentTurns         int `json:"recent_turns,omitempty"`
@@ -62,6 +73,8 @@ type TypeSafeConfig struct {
 // request, docs.typesafe.ai/models).
 type TypeSafeUses struct {
 	TurnJudgments, RetrievalRelevance, ReviewChecks, DiagnosisTriage bool
+	// The learning and autopoiesis uses (TypeSafeConfig).
+	CorrectionJudgments, TaskVerdicts, ProblemTypes, ToolChecks, AutopoiesisChecks, AtomChecks bool
 	// TurnJudgmentTimeout bounds one turn's judgments (turn_judgment_timeout).
 	TurnJudgmentTimeout time.Duration
 	// RecentTurns bounds the prior turns a turn judgment sees.
@@ -82,6 +95,7 @@ type TypeSafeUses struct {
 func DefaultTypeSafeUses() TypeSafeUses {
 	return TypeSafeUses{
 		TurnJudgments: true, RetrievalRelevance: true, ReviewChecks: true, DiagnosisTriage: true,
+		CorrectionJudgments: true, TaskVerdicts: true, ProblemTypes: true, ToolChecks: true, AutopoiesisChecks: true, AtomChecks: true,
 		TurnJudgmentTimeout: defaultTurnJudgmentTimeout,
 		RecentTurns:         12, BatchSize: 20, RelevancePoolFactor: 6, RelevanceHeadBytes: 3000, FindingContextLines: 12,
 	}
@@ -104,6 +118,12 @@ func (c *TypeSafeConfig) Uses() TypeSafeUses {
 	u.RetrievalRelevance = on(c.RetrievalRelevance, u.RetrievalRelevance)
 	u.ReviewChecks = on(c.ReviewChecks, u.ReviewChecks)
 	u.DiagnosisTriage = on(c.DiagnosisTriage, u.DiagnosisTriage)
+	u.CorrectionJudgments = on(c.CorrectionJudgments, u.CorrectionJudgments)
+	u.TaskVerdicts = on(c.TaskVerdicts, u.TaskVerdicts)
+	u.ProblemTypes = on(c.ProblemTypes, u.ProblemTypes)
+	u.ToolChecks = on(c.ToolChecks, u.ToolChecks)
+	u.AutopoiesisChecks = on(c.AutopoiesisChecks, u.AutopoiesisChecks)
+	u.AtomChecks = on(c.AtomChecks, u.AtomChecks)
 	set := func(v int, dst *int) {
 		if v > 0 {
 			*dst = v

@@ -90,6 +90,11 @@ const (
 	ViolationParseError
 	ViolationPolicy
 	ViolationPanicMakerKill // NEW: Tool killed by PanicMaker adversarial testing
+	// ViolationRequestMismatch: Jev read the generated code as not doing what
+	// its request asked, or as also doing something the request did not ask
+	// for (tool_jev.go). It is fed back into regeneration like a safety
+	// violation.
+	ViolationRequestMismatch
 )
 
 func (v ViolationType) String() string {
@@ -116,6 +121,8 @@ func (v ViolationType) String() string {
 		return "policy_violation"
 	case ViolationPanicMakerKill:
 		return "panic_maker_kill"
+	case ViolationRequestMismatch:
+		return "request_mismatch"
 	default:
 		return "unknown"
 	}

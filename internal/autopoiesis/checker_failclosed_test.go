@@ -172,6 +172,8 @@ func main() {
 			"covered by TestSafetyChecker_WhenPolicyFailsToLoad_ShouldDenyEverything"},
 		ViolationPanicMakerKill: {notProducedByChecker: "produced by the Thunderdome in OuroborosLoop.ExecuteWithConfig, not by the static checker; " +
 			"covered by the Thunderdome tests"},
+		ViolationRequestMismatch: {notProducedByChecker: "produced by Jev's code check in OuroborosLoop.ExecuteWithConfig (tool_jev.go), not by the static checker; " +
+			"covered by TestOuroborosJev_MismatchRegeneratesWithJevFeedback"},
 	}
 }
 

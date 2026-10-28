@@ -1,0 +1,100 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "context": "codeNERD is a coding agent that writes small Go command-line tools for itself.",
+  "existing_tools": [
+   {
+    "does": "Reads a JSON file and reports whether it is well-formed, with the line and column of the first syntax error.",
+    "name": "json_validator"
+   },
+   {
+    "does": "Converts a YAML document read from a file or stdin into JSON on stdout.",
+    "name": "yaml_to_json"
+   },
+   {
+    "does": "Counts the lines in every file matching a glob pattern and prints a total.",
+    "name": "line_counter"
+   },
+   {
+    "does": "Lists every TODO and FIXME comment in the Go files under a directory, with file and line.",
+    "name": "todo_finder"
+   },
+   {
+    "does": "Fetches every http(s) link in a Markdown file and reports the ones that do not return 200.",
+    "name": "markdown_link_checker"
+   },
+   {
+    "does": "Prints the environment variables of the current process, sorted by name.",
+    "name": "env_var_lister"
+   },
+   {
+    "does": "Lists the packages each Go file under a directory imports.",
+    "name": "go_import_lister"
+   },
+   {
+    "does": "Sums a named numeric column of a CSV file.",
+    "name": "csv_column_sum"
+   }
+  ],
+  "request": {
+   "input": "a directory",
+   "output": "file:line list",
+   "purpose": "Find the TODO and FIXME comments in our Go code and print where each one is."
+  }
+ },
+ "questions": {
+  "any_tool_does_this": {
+   "type": "noul",
+   "instructions": "Does one of `existing_tools` already do what `request` needs?",
+   "criteria": {
+    "true": "Running one of the existing tools, as it is, would give the user what the request asks for.",
+    "false": "Each existing tool does a different job, or only part of the job, or works on a different kind of input or output than the request needs."
+   }
+  },
+  "which_tool_does_this": {
+   "type": "choice",
+   "instructions": "Which of these existing tools comes closest to doing what `request` needs?",
+   "criteria": {
+    "csv_column_sum": "Sums a named numeric column of a CSV file.",
+    "env_var_lister": "Prints the environment variables of the current process, sorted by name.",
+    "go_import_lister": "Lists the packages each Go file under a directory imports.",
+    "json_validator": "Reads a JSON file and reports whether it is well-formed, with the line and column of the first syntax error.",
+    "line_counter": "Counts the lines in every file matching a glob pattern and prints a total.",
+    "markdown_link_checker": "Fetches every http(s) link in a Markdown file and reports the ones that do not return 200.",
+    "todo_finder": "Lists every TODO and FIXME comment in the Go files under a directory, with file and line.",
+    "yaml_to_json": "Converts a YAML document read from a file or stdin into JSON on stdout."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "any_tool_does_this": {
+   "type": "noul",
+   "noul": 0.97
+  },
+  "which_tool_does_this": {
+   "type": "choice",
+   "choice": "todo_finder",
+   "confidence": 1.0,
+   "probabilities": {
+    "csv_column_sum": 0.0,
+    "env_var_lister": 0.0,
+    "go_import_lister": 0.0,
+    "json_validator": 0.0,
+    "line_counter": 0.0,
+    "markdown_link_checker": 0.0,
+    "todo_finder": 1.0,
+    "yaml_to_json": 0.0
+   }
+  }
+ },
+ "usage": {
+  "input_tokens": 990,
+  "output_tokens": 115
+ }
+}
+}

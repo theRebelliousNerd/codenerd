@@ -115,6 +115,9 @@ type OuroborosLoop struct {
 
 	// Callback for notifying parent when a tool is registered
 	onToolRegistered ToolRegisteredCallback
+
+	// jev answers the duplicate and code checks (tool_jev.go); zero is off.
+	jev toolJev
 }
 
 // OuroborosConfig configures the Ouroboros Loop
@@ -282,6 +285,8 @@ func NewOuroborosLoop(client LLMClient, config OuroborosConfig) *OuroborosLoop {
 		config:        config,
 	}
 
+	loop.initJev()
+
 	// One import policy, two executors: the interpreter inherits the allowlist
 	// the SafetyChecker just built from this config.
 	loop.interpreter = NewYaegiExecutorForPolicy(loop.safetyChecker.allowedPkgs)
@@ -387,6 +392,19 @@ func (o *OuroborosLoop) ExecuteWithConfig(ctx context.Context, need *ToolNeed, c
 	result = &LoopResult{
 		ToolName: need.Name,
 		Stage:    StageDetection,
+	}
+
+	// A registered tool Jev reads as already doing what the need asks is
+	// reused, and nothing is generated (tool_jev.go).
+	if existing := o.existingToolFor(ctx, need); existing != nil {
+		result.Success = true
+		result.ToolName = existing.Name
+		result.ToolHandle = existing
+		result.ReusedTool = existing.Name
+		result.Duration = time.Since(start)
+		logging.Autopoiesis("Tool %s not generated: the registered tool %s already does what it asks", need.Name, existing.Name)
+		timer.Stop()
+		return result
 	}
 
 	// Format stepID as Mangle name constant
@@ -512,6 +530,31 @@ func (o *OuroborosLoop) ExecuteWithConfig(ctx context.Context, need *ToolNeed, c
 		}
 
 		logging.Autopoiesis("Safety check PASSED for tool=%s", need.Name)
+
+		// Code Jev reads as not doing what the need asks, or as doing
+		// something it did not ask for, is regenerated with that reason as
+		// feedback, under the same retry budget as a safety violation
+		// (tool_jev.go).
+		if mismatch := o.codeMismatch(ctx, need, tool.Code); mismatch != "" {
+			retryCount++
+			lastViolations = []SafetyViolation{{
+				Type:        ViolationRequestMismatch,
+				Description: mismatch,
+				Severity:    SeverityCritical,
+			}}
+			if retryCount >= cfg.Retry.MaxRetries {
+				o.mu.Lock()
+				o.stats.ToolsRejected++
+				o.mu.Unlock()
+				result.Error = fmt.Sprintf("generated code did not match its request after %d attempts: %s", retryCount, mismatch)
+				logging.Get(logging.CategoryAutopoiesis).Error("Tool %s rejected: %s", need.Name, result.Error)
+				return result
+			}
+			logging.Get(logging.CategoryAutopoiesis).Warn("Tool %s does not match its request (attempt %d/%d): %s", need.Name, retryCount, cfg.Retry.MaxRetries, mismatch)
+			time.Sleep(cfg.Retry.RetryDelay)
+			continue
+		}
+
 		// Reset retry state on successful audit
 		retryCount = 0
 		lastViolations = nil
@@ -1301,6 +1344,25 @@ func (o *OuroborosLoop) GenerateToolFromCode(ctx context.Context, name, purpose,
 		Code:        code,
 		FilePath:    filepath.Join(o.config.ToolsDir, name+".go"),
 		Validated:   false, // Will be validated by SafetyChecker
+	}
+
+	// PHASE 0: JEV. A tool that already exists is not built again, and code
+	// that does not do what its purpose says is refused with Jev's reason, so
+	// the caller can rewrite it (tool_jev.go). Without a purpose there is
+	// nothing to compare against.
+	if strings.TrimSpace(purpose) != "" {
+		need := &ToolNeed{Name: name, Purpose: purpose}
+		if existing := o.existingToolFor(ctx, need); existing != nil {
+			errMsg = fmt.Sprintf("the registered tool %s already does what %s is for (%s); call it instead of generating a new one", existing.Name, name, existing.Description)
+			return false, toolName, "", errMsg
+		}
+		if mismatch := o.codeMismatch(ctx, need, code); mismatch != "" {
+			errMsg = fmt.Sprintf("the code for %s does not match its purpose: %s", name, mismatch)
+			o.mu.Lock()
+			o.stats.ToolsRejected++
+			o.mu.Unlock()
+			return false, toolName, "", errMsg
+		}
 	}
 
 	// PHASE 1: SAFETY CHECK

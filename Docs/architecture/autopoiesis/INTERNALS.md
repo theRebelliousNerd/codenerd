@@ -16,6 +16,31 @@ containment is `handlePanic` (`:923`). `GenerateToolFromCode` (`:1228`) is
 the entry for code that already exists, and `sanitizeToolName` (`:1209`)
 normalizes names before registration.
 
+## Jev tool checks (tool_jev.go)
+
+As built 2026-10-28 (switch `typesafe.tool_checks`;
+`Docs/architecture/jev-turn-judgments.md`, "Tool checks").
+
+- **Before generating.** `ExecuteWithConfig` asks `existingToolFor`
+  (`ouroboros.go:399`). It asks Jev whether a registered tool already does
+  what the need asks (`learnjudge.CheckDuplicate`).
+  - On a yes, the loop returns that tool as `LoopResult.ReusedTool`
+    (`autopoiesis_types.go`) and generates nothing.
+  - `recordGenerationLearning` skips a reuse.
+- **After the safety check.** `codeMismatch` (`ouroboros.go:538`) asks whether
+  the code does what was asked and whether it does something unrequested
+  (`learnjudge.CheckCode`).
+  - A mismatch becomes a `ViolationRequestMismatch` (`checker.go`). It goes
+    back through `RegenerateWithFeedback` under the safety retry budget.
+- **`GenerateToolFromCode`.** Both checks run before its safety check
+  (`ouroboros.go:1355`). It refuses a duplicate or a mismatch with Jev's
+  reason.
+- **The decisions.** They are the truth tables `decideDuplicate` and
+  `decideCode` (`tool_jev.go:125`, `:174`), read against the typesafe yes and
+  no thresholds.
+- **No answer.** A missing, failed or switched-off Jev is no answer: the loop
+  generates and accepts as before, and logs why.
+
 ## Detection (tool_detection.go)
 
 `DetectToolNeed` (`:94`) builds a `ToolNeed` (`:54`); I/O types are coerced

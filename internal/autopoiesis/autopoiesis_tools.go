@@ -146,6 +146,10 @@ func (o *Orchestrator) recordGenerationLearning(ctx context.Context, need *ToolN
 	if o == nil || need == nil || result == nil {
 		return
 	}
+	// A reused tool was not generated: there is no generation to learn from.
+	if result.ReusedTool != "" {
+		return
+	}
 
 	// Create execution feedback from generation result
 	feedback := &ExecutionFeedback{

@@ -114,6 +114,11 @@ type LoopResult struct {
 	ThunderdomeSurvived bool
 	// ThunderdomeAttacks is the number of attack vectors fired.
 	ThunderdomeAttacks int
+
+	// ReusedTool names the registered tool Jev read as already doing what the
+	// need asks (tool_jev.go); the loop then generated nothing, and ToolHandle
+	// is that tool. Empty when a tool was generated.
+	ReusedTool string
 }
 
 // CompileResult contains compilation output

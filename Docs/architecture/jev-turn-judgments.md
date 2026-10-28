@@ -162,6 +162,90 @@ problem.
 - Unsettled or failed: every problem is a defect, in the log's order. The last
   chain's judgments are retracted before Jev is asked again.
 
+## Learning and autopoiesis
+
+The questions are in `internal/learnjudge`, one file per use. The rules are in
+`policy/jev_learning.mg` (kernel decisions) or a truth table in the consuming
+package. Each use has its own switch; a failed, timed-out or switched-off call
+is never a "no": each use below names its fallback, and the fallback is logged.
+
+### Correction judgment: switch `correction_judgments`
+
+Being built (2026-10-28).
+
+### Task verdicts: switch `task_verdicts`
+
+Being built (2026-10-28).
+
+### Problem types: switch `problem_types`
+
+Being built (2026-10-28).
+
+### Tool checks: switch `tool_checks`
+
+Ruling: the decision is a Go truth table in `internal/autopoiesis/tool_jev.go`,
+not kernel rules. The Ouroboros loop runs on its own transient engine, and its
+outcome is the `LoopResult` its callers already read.
+
+The questions are in `internal/learnjudge/toolcheck.go`. The loop builds its Jev
+from the operator's typesafe section (`OuroborosLoop.initJev`); tests install
+one with `SetJev`.
+
+- **Duplicate check, before generating.** It is one request
+  (`CheckDuplicate`):
+  - a Choice over the registered tools: "Which of these existing tools comes
+    closest to doing what `request` needs?" Each option is a tool name, and its
+    criteria are the tool's description;
+  - the companion Noul: "Does one of `existing_tools` already do what `request`
+    needs?"
+  - The request is the purpose, input and output. The proposed name is left
+    out, so that a name shared with an existing tool does not pull the choice.
+  - A tool being regenerated under its own name is not a candidate.
+  - Over 255 tools, only the newest 255 are compared, and the log says how many
+    were left out.
+- **Code check, after the code passes the safety check.** It is one request
+  (`CheckCode`):
+  - "Does `code` do what `request` asks the tool to do?"
+  - "Does `code` also do something that `request` does not ask for?"
+  - The code goes whole up to 60 KB. Past that, the head and tail go, with
+    `code_omitted_bytes`.
+
+| Check | Answer | Outcome |
+|---|---|---|
+| duplicate | companion at or above yes | the chosen tool is reused, nothing is generated. `LoopResult.ReusedTool` names it, `ToolHandle` is it, and no generation learning is recorded. `GenerateToolFromCode` (the `generate_tool` action) refuses, naming the tool to call instead. |
+| duplicate | at or below no, or between | generate |
+| code | does-asked at or below no, or does-unrequested at or above yes | regenerate, with Jev's reason as a `request_mismatch` violation fed to `RegenerateWithFeedback`. This shares the safety retry budget. Past the budget, the tool is rejected. `GenerateToolFromCode` refuses, with the reason. |
+| code | otherwise (yes, or unsettled) | the code goes on to the Thunderdome |
+| either | Jev unconfigured, switched off, failed or timed out | as before: generate and accept. The log names why (`jev: no duplicate check ...`, `jev: ... failed, generating as before`). |
+
+**Probe, 2026-10-28, `jev-1.14.0`.** The payloads are in
+`jev-probes/2026-10-28-learning/tool_checks/`, and the summaries are in
+`tool_checks-duplicate.txt` and `tool_checks-code.txt`. The probe used a catalog
+of 8 tools, because this workspace has generated none.
+
+- **Duplicate check: 9 of 9 right.**
+  - The 4 duplicates scored 0.80–0.97, and the top choice was correct at 1.00.
+  - The 5 non-duplicates scored 0.02–0.07. These included hard near-misses:
+    - JSON→YAML against `yaml_to_json`;
+    - relative-link checking against an http link checker;
+    - per-package line counts against a glob line counter.
+- **The companion is needed.** On the reverse-direction case, the Choice alone
+  picked `yaml_to_json` at 0.98, while the companion said 0.05.
+- **Code check: 5 of 5 right where it decides.**
+  - A correct TODO scanner scored asked 0.81 and extra 0.16.
+  - A scanner that rewrites the files scored extra 0.97, and one that posts
+    results scored extra 0.98.
+  - A stub scored asked 0.01, and the wrong conversion direction scored 0.03.
+  - The stub's extra score was 0.34, which is unsettled and acts on nothing.
+
+### Autopoiesis checks: switch `autopoiesis_checks`
+
+Being built (2026-10-28).
+
+### Atom checks: switch `atom_checks`
+
+Being built (2026-10-28).
+
 ## Latency and cost
 
 - The turn judgments run beside perception. Routing waits for them, so they are
@@ -203,6 +287,7 @@ leaves Jev off. No model or endpoint is defaulted.
 | `turn_judgment_timeout` | 5s | turn and side-turn judgments |
 | `judgment_yes_percent` / `judgment_no_percent` | 70 / 30 | every rule above; the retrieval drop |
 | `turn_judgments`, `retrieval_relevance`, `review_checks`, `diagnosis_triage` | on | the use of that name |
+| `correction_judgments`, `task_verdicts`, `problem_types`, `tool_checks`, `autopoiesis_checks`, `atom_checks` | on | the learning and autopoiesis use of that name |
 | `recent_turns` | 12 | turn judgments |
 | `batch_size` | 20 | retrieval relevance, review checks, triage |
 | `relevance_pool_factor` | 6 | retrieval relevance |

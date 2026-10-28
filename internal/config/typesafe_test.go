@@ -155,6 +155,13 @@ func TestTypeSafeUses_DefaultsSwitchesAndTuning(t *testing.T) {
 	if u.BatchSize != 7 || u.RecentTurns != DefaultTypeSafeUses().RecentTurns {
 		t.Fatalf("tuning = %+v, want batch 7 and the default window", u)
 	}
+	if !u.CorrectionJudgments || !u.TaskVerdicts || !u.ProblemTypes || !u.ToolChecks || !u.AutopoiesisChecks || !u.AtomChecks {
+		t.Fatalf("learning uses = %+v, want each on when its key is absent", u)
+	}
+	learnOff := &TypeSafeConfig{CorrectionJudgments: &off, TaskVerdicts: &off, ProblemTypes: &off, ToolChecks: &off, AutopoiesisChecks: &off, AtomChecks: &off}
+	if lu := learnOff.Uses(); lu.CorrectionJudgments || lu.TaskVerdicts || lu.ProblemTypes || lu.ToolChecks || lu.AutopoiesisChecks || lu.AtomChecks || !lu.TurnJudgments {
+		t.Fatalf("learning switches off = %+v, want those off and the turn judgments on", lu)
+	}
 	bad := &TypeSafeConfig{Model: "m", BaseURL: "https://x", APIKey: "k", RecentTurns: -1}
 	found := false
 	for _, p := range bad.Check("typesafe") {
