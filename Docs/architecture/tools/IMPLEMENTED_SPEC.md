@@ -460,6 +460,127 @@ Build with sqlite-vec flags from root `Agents.md` only if linking the full binar
 
 ---
 
+## 15a. Tool value: does each tool earn its place (as built 2026-10-28)
+
+A tool earns its place by doing one or more of three things: it does something
+the harness cannot do any other way (capability), it consumes far more material
+than it returns (condensation), or the tokens it costs are far fewer than the
+work it does or saves (leverage). Capability is declared; condensation and
+leverage are measured. Tools that earn nothing derive retirement proposals.
+Nothing is retired automatically.
+
+**Measurement (every channel).** `session.Executor` reports to a
+`types.ToolMeter` (`internal/types/tool_value.go`, `session/tool_meter.go`):
+
+- Per compile, `noteToolOffers` charges each offered tool its catalog entry
+  (the `types.ToolDefinition` JSON) and its share of every included atom that
+  names it in `requires_tools`; an atom naming several offered tools is split
+  evenly, so the shares of one atom never exceed its `TokenCount`.
+- Per call, `executeAndRecordToolCall` (the one accounting path native and
+  Piggyback batches share) reports the call tokens, the result tokens and bytes
+  (output plus error text, before the working context pages it), duration,
+  success, session, origin, and channel (`native`, `piggyback`, `generated`,
+  `mcp`). Tokens use the broker's calibrated text ruler
+  (`broker.Default().TextCounter`), fitted to provider usage as the session runs.
+- Consumption is reported by the tool family through `tools.WithConsumptionLog` /
+  `tools.ReportConsumed` (`tools/consumption.go`). Reporting today: `grep` and
+  `search_code` (bytes read through a counting reader, files opened), `read_file`
+  (file bytes), `list_files` and recursive `glob` (entries visited and their
+  path bytes), and the whole-index structure queries (`find_symbol` without a
+  path, `callers_of`, `callees_of`, `importers_of`, `find_text` without a path,
+  `predicate_outline`) through `pageRequest.render` (the index's files and
+  `StructureStats.SourceBytes`). A tool that reports nothing, and a path- or
+  ref-scoped structure query, record the call's consumption as **unknown**:
+  `ToolLedger.UnknownCalls`, no `tool_condensation` fact, `null` in the report.
+- Verification: a `run_build`, `run_tests`, `run_check`, `run_impacted_tests` or
+  any call that started a test or acceptance run, after a successful write in
+  the same turn, is charged to that write as `VerifyTokens`
+  (`ExecutionResult.lastWriteTool`).
+
+**Ledger.** `autopoiesis.ToolLedger` is a section (`ToolQualityProfile.Value`)
+of the profile store's one file, `.nerd/tools/.profiles/quality_profiles.json`
+(`ProfilesDir`). There is no second store. A ledger-only entry (`ToolType`
+empty) is not a profile: `GetProfile` returns nil for it, and `SetProfile`
+keeps an existing ledger. Every write reloads the file first and persists
+atomically, so concurrent processes fold their counts instead of overwriting.
+A measurement that cannot persist is logged and dropped; it never fails a call.
+`OfferSessions` / `CallSessions` count a session once per tool; a measurement
+with no session id is never a session.
+
+**Declared capability.** `tools.BuiltinCapability(name)` is the reviewed manifest
+(like `BuiltinEffect`): `unique` (no other registered tool reaches this end) or
+`overlapping` (another tool or `run_command` does). `Tool.Capability` carries a
+dynamic tool's own declaration; none declared reads as not unique.
+`TestBuiltinCapabilityCoversCatalog` fails when a registered built-in is missing
+from the manifest.
+
+**Kernel.** `autopoiesis.ToolLedgerFacts` replays the ledger as
+`tool_origin`, `tool_capability_declared`, `tool_use_count`,
+`tool_offer_count`, `tool_cost(Prompt, Call, Result, Verify)`,
+`tool_condensation(KnownCalls, ConsumedBytes, ReturnedBytes, CallTokens)` and
+`tool_channel_use`. `policy/tool_value.mg` derives `tool_value_class`
+(`/earning`, `/marginal`, `/dead`, `/unknown`), `tool_dead_reason`
+(`/never_called`, `/cost_exceeds_value`, `/redundant`, `/misses_results`) and
+`tool_retirement_proposal(Tool, /retire | /flag, Reason)`. A retired tool has no
+facts. Thresholds are `config_param(/tool_value_*)` rows from the `tool_value`
+section of `.nerd/config.json` (`config.ToolValueConfig`: `min_sessions` 10,
+`min_calls` 20, `min_condensation_percent` 1000, `min_leverage_percent` 1000,
+`dead_leverage_percent` 100); `AssertToolLedger` refuses to run while a required
+bar is missing.
+
+Truth table (dead outranks everything; a tool whose judged calls all missed does
+not earn):
+
+| capability | evidence | class |
+|---|---|---|
+| any | offered in >= `min_sessions` sessions, zero calls | dead (`never_called`) |
+| not unique | >= `min_calls` measured calls, leverage < `dead_leverage_percent` | dead (`cost_exceeds_value`) |
+| any | Jev: `/duplicate` or `/harness_covers` | dead (`redundant`) |
+| not unique | Jev: `/misses_mark` | dead (`misses_results`) |
+| unique | at least one call | earning |
+| any | >= `min_calls` measured calls, condensation and leverage over both bars | earning |
+| any | measured or judged, neither earning nor dead | marginal |
+| any | otherwise | unknown |
+
+Leverage is the tokens of material consumed (bytes over `config.BytesPerToken`)
+as a percent of the tokens spent: the whole prompt share plus the call and
+result tokens of the measured calls.
+
+**Jev seams (already produced by the learnjudge lane).** The policy reads
+`tool_value_evidence(Tool, Kind)` (`jev_learning.mg`, producer
+`autopoiesis/tool_value.go`): `/duplicate` and `/harness_covers` make a tool
+dead as `redundant`; `/misses_mark` blocks `earning` and makes a non-unique tool
+dead as `misses_results`; `/hits_mark` is shown in the report and is not yet
+consumed by a class rule.
+
+**Retirement.** `tool_retirement_proposal(Tool, /retire, Reason)` is derived for
+a generated tool and `(Tool, /flag, Reason)` for a built-in; a tool of unknown
+origin gets neither. A built-in is only ever flagged: no code path withdraws one.
+`Orchestrator.RetireGeneratedTool(ctx, broker, name, registry)` withdraws a
+generated tool only when the kernel still derives a `/retire` proposal for that
+name and the approval broker grants that exact request (`Backend autopoiesis`,
+`Action /retire_generated_tool`): a person in propose and explicit modes, the
+standing instruction in yolo, a refusal with no host attached. It revokes the
+compiled binary and identity record (`RuntimeRegistry.Revoke`, containment
+checked), unregisters the tool from the session registry, and marks the ledger
+retired; its source stays so it can be regenerated. A tool offered again after
+retirement starts a new ledger.
+
+**Report.** `nerd tools value [--json]` replays the ledger into a fresh kernel
+and prints each tool's class, origin, capability, calls, offers, total cost,
+condensation and leverage (`unknown` or `null` when no scan was reported), dead
+reasons, Jev evidence, and the proposals. `Orchestrator.ToolValueReport()` does
+the same against the live kernel.
+
+**Tests.** `autopoiesis/tool_ledger_test.go` (store, facts, classification
+through the real kernel, thresholds from config, built-in flagged / generated
+proposed, Jev evidence), `autopoiesis/tool_retirement_test.go` (approval,
+no-proposal refusal, no-host refusal, revoke containment),
+`session/tool_meter_test.go` (call, unreported scan, failure, channels,
+verification attribution, offer split), `tools/consumption_test.go` and
+`tools/core` / `tools/codedom` consumption tests, `tools/capability_test.go`,
+`cmd/nerd/cmd_tools_value_test.go`, `config/tool_value_test.go`.
+
 ## 16. Document map
 
 | Doc | Role |

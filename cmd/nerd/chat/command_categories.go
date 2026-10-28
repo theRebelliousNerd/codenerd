@@ -478,7 +478,7 @@ var CommandRegistry = []CommandInfo{
 	{
 		Name:        "/tool",
 		Description: "Manage generated tools",
-		Usage:       "/tool <list|run|info|generate> [args]",
+		Usage:       "/tool <list|run|info|generate|value|retire> [args]",
 		Category:    CategoryExpert,
 		ShowInHelp:  true,
 	},

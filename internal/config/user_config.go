@@ -248,6 +248,11 @@ type UserConfig struct {
 	// config_param(/orient_<key>, N) rows.
 	Orient *OrientConfig `json:"orient,omitempty"`
 
+	// ToolValue holds the thresholds that classify each tool as earning,
+	// marginal, dead or unknown (tool_value.go), reaching the policy as
+	// config_param(/tool_value_<key>, N) rows.
+	ToolValue *ToolValueConfig `json:"tool_value,omitempty"`
+
 	// Observation is the bounds of the file-read projection the model is
 	// shown (observation.go). It is not part of execution: those ceilings
 	// refuse reads, these shape the view of a read that succeeds.

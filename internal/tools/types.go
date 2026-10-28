@@ -88,6 +88,11 @@ type Tool struct {
 	// Effect is mandatory for dynamic tools; built-ins use the reviewed manifest.
 	Effect Effect
 
+	// Capability declares what the tool offers that no other does. Built-ins
+	// take it from the reviewed BuiltinCapability manifest and set no field;
+	// a dynamic tool may set it, or declare none (capability.go).
+	Capability Capability
+
 	// Description explains what the tool does.
 	// Used for LLM tool calling and documentation.
 	Description string

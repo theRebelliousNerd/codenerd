@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -152,6 +153,7 @@ func executeGlob(ctx context.Context, args map[string]any) (string, error) {
 			searchPath = resolved
 		}
 
+		var visited, visitedBytes int64
 		err = filepath.Walk(searchPath, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return nil // Skip errors
@@ -160,6 +162,8 @@ func executeGlob(ctx context.Context, args map[string]any) (string, error) {
 			if len(matches) >= maxResults {
 				return filepath.SkipAll
 			}
+			visited++
+			visitedBytes += int64(len(path))
 
 			if skipUncontained(info) {
 				if info.IsDir() {
@@ -195,6 +199,10 @@ func executeGlob(ctx context.Context, args map[string]any) (string, error) {
 
 			return nil
 		})
+		// The directory entries the walk visited are the material a recursive
+		// glob consumed. A simple glob is matched inside the standard library
+		// and reports nothing: its scan is unknown, not zero.
+		tools.ReportConsumed(ctx, visitedBytes, visited)
 		if err != nil {
 			return "", fmt.Errorf("failed to walk directory: %w", err)
 		}
@@ -389,7 +397,7 @@ func parseContentSearch(ctx context.Context, args map[string]any, defaultMaxResu
 }
 
 // run walks the contained root and returns the matches, capped.
-func (s contentSearch) run() ([]GrepMatch, error) {
+func (s contentSearch) run(ctx context.Context) ([]GrepMatch, error) {
 	memRoot := s.root
 	if strings.TrimSpace(memRoot) == "" {
 		memRoot = s.path
@@ -462,18 +470,27 @@ func (s contentSearch) run() ([]GrepMatch, error) {
 	}
 
 	var matches []GrepMatch
+	var scannedBytes, scannedFiles int64
 	for _, file := range files {
 		if len(matches) >= s.maxResults {
 			break
 		}
 
-		fileMatches, err := searchFile(file, s.re, s.contextLines, s.maxResults-len(matches))
+		fileMatches, read, err := searchFile(file, s.re, s.contextLines, s.maxResults-len(matches))
+		// What was read counts whether or not the file then failed: the
+		// bytes were scanned.
+		scannedBytes += read
+		scannedFiles++
 		if err != nil {
 			continue // Skip files with errors
 		}
 
 		matches = append(matches, fileMatches...)
 	}
+	// The material this search consumed: bytes actually read from the files it
+	// opened. A search that stops at its cap stops reading, and reports only
+	// what it read.
+	tools.ReportConsumed(ctx, scannedBytes, scannedFiles)
 	return matches, nil
 }
 
@@ -504,7 +521,7 @@ func executeGrep(ctx context.Context, args map[string]any) (string, error) {
 		return fmt.Sprintf("No matches found for pattern: %s (path does not exist: %s)", search.pattern, search.path), nil
 	}
 
-	matches, err := search.run()
+	matches, err := search.run(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -536,17 +553,33 @@ func executeGrep(ctx context.Context, args map[string]any) (string, error) {
 	return sb.String(), nil
 }
 
-func searchFile(path string, re *regexp.Regexp, contextLines, maxMatches int) ([]GrepMatch, error) {
+// countingReader counts the bytes read through it, which is the material a
+// scan consumed (the scanner may read ahead of the last line it returned).
+type countingReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
+}
+
+// searchFile returns the matches in one file and the bytes it read to find
+// them.
+func searchFile(path string, re *regexp.Regexp, contextLines, maxMatches int) ([]GrepMatch, int64, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer file.Close()
 
 	var matches []GrepMatch
 	var lines []string
 
-	scanner := bufio.NewScanner(file)
+	counted := &countingReader{r: file}
+	scanner := bufio.NewScanner(counted)
 	// A minified single-line file trips the 64KB default buffer, aborts the
 	// scan, and gets silently skipped as a read error. 1MB covers real lines.
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
@@ -585,7 +618,7 @@ func searchFile(path string, re *regexp.Regexp, contextLines, maxMatches int) ([
 		}
 	}
 
-	return matches, scanner.Err()
+	return matches, counted.n, scanner.Err()
 }
 
 // SearchCodeTool returns the structural code-search verb.
@@ -636,7 +669,7 @@ func executeSearchCode(ctx context.Context, args map[string]any) (string, error)
 		return fmt.Sprintf("No matches found for pattern: %s (path does not exist: %s)", search.pattern, search.path), nil
 	}
 
-	matches, err := search.run()
+	matches, err := search.run(ctx)
 	if err != nil {
 		return "", err
 	}

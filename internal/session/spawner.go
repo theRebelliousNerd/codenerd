@@ -91,6 +91,10 @@ type Spawner struct {
 	// read spend instead of zeros. Nil means subagents run untracked.
 	usageTracker *usage.Tracker
 
+	// toolMeter is the tool ledger forwarded to every spawned subagent's
+	// executor (Executor.SetToolMeter), so subagent tool calls are measured.
+	toolMeter types.ToolMeter
+
 	// ouroborosRegistry is the generated-tool registry forwarded to every
 	// spawned subagent's executor via Executor.SetOuroborosRegistry. Nil
 	// means subagents run without generated tools.
@@ -477,6 +481,7 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	if tr := s.currentUsageTracker(); tr != nil {
 		agent.executor.SetUsageTracker(tr)
 	}
+	agent.executor.SetToolMeter(s.currentToolMeter())
 	if apply := s.currentShardProfileContext(); apply != nil {
 		agent.executor.SetShardProfileContext(apply)
 	}

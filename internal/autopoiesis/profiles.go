@@ -39,6 +39,11 @@ type ToolQualityProfile struct {
 
 	// Custom Dimensions (tool-specific metrics)
 	CustomDimensions []CustomDimension `json:"custom_dimensions,omitempty"`
+
+	// Value is the tool's measured ledger (tool_ledger.go): what it cost and
+	// returned over every session. An entry with a Value and no ToolType is a
+	// ledger-only record of a tool that has no expectations.
+	Value *ToolLedger `json:"value,omitempty"`
 }
 
 // ToolType classifies the tool for appropriate evaluation
@@ -136,6 +141,8 @@ type ProfileStore struct {
 	mu        sync.RWMutex
 	profiles  map[string]*ToolQualityProfile // ToolName -> Profile
 	storePath string
+	// sessionSeen counts a session once per tool and kind in the ledger.
+	sessionSeen map[string]struct{}
 }
 
 // NewProfileStore creates a new profile store
@@ -148,17 +155,28 @@ func NewProfileStore(storePath string) *ProfileStore {
 	return store
 }
 
-// GetProfile retrieves a tool's quality profile
+// GetProfile retrieves a tool's quality profile. A ledger-only entry (a tool
+// with measurements and no expectations) is not a profile and returns nil.
 func (ps *ProfileStore) GetProfile(toolName string) *ToolQualityProfile {
 	ps.mu.RLock()
 	defer ps.mu.RUnlock()
-	return ps.profiles[toolName]
+	p := ps.profiles[toolName]
+	if p == nil || p.ToolType == "" {
+		return nil
+	}
+	return p
 }
 
-// SetProfile stores a tool's quality profile
+// SetProfile stores a tool's quality profile. The tool's ledger, if it has
+// one, is kept: replacing the expectations never erases what the tool cost.
 func (ps *ProfileStore) SetProfile(profile *ToolQualityProfile) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
+	if profile.Value == nil {
+		if prev := ps.profiles[profile.ToolName]; prev != nil {
+			profile.Value = prev.Value
+		}
+	}
 	ps.profiles[profile.ToolName] = profile
 	ps.save()
 }
@@ -344,7 +362,7 @@ func GetDefaultProfile(toolName string, toolType ToolType) *ToolQualityProfile {
 
 // persistence
 func (ps *ProfileStore) load() {
-	path := filepath.Join(ps.storePath, "quality_profiles.json")
+	path := filepath.Join(ps.storePath, profilesFile)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return
@@ -359,14 +377,14 @@ func (ps *ProfileStore) save() {
 		logging.AutopoiesisError("ProfileStore.save: mkdir %s: %v", ps.storePath, err)
 		return
 	}
-	path := filepath.Join(ps.storePath, "quality_profiles.json")
+	path := filepath.Join(ps.storePath, profilesFile)
 	data, err := json.MarshalIndent(ps.profiles, "", "  ")
 	if err != nil {
 		logging.AutopoiesisError("ProfileStore.save: marshal: %v", err)
 		return
 	}
 	// Surface persistence failures instead of silently dropping the profiles.
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := writeProfilesAtomically(path, data); err != nil {
 		logging.AutopoiesisError("ProfileStore.save: write %s: %v", path, err)
 	}
 }

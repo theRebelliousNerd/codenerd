@@ -318,7 +318,7 @@ func TestSearchFile_Success(t *testing.T) {
 	os.WriteFile(tmpFile, []byte(content), 0644)
 
 	re := mustCompilePattern("match")
-	matches, err := searchFile(tmpFile, re, 0, 100)
+	matches, _, err := searchFile(tmpFile, re, 0, 100)
 	if err != nil {
 		t.Fatalf("searchFile error: %v", err)
 	}
@@ -337,7 +337,7 @@ func TestSearchFile_MaxMatches(t *testing.T) {
 	os.WriteFile(tmpFile, []byte(content), 0644)
 
 	re := mustCompilePattern("match")
-	matches, err := searchFile(tmpFile, re, 0, 2)
+	matches, _, err := searchFile(tmpFile, re, 0, 2)
 	if err != nil {
 		t.Fatalf("searchFile error: %v", err)
 	}

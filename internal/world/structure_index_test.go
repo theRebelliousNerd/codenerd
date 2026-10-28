@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"codenerd/internal/tools/codedom"
 )
 
 func writeStructFile(t *testing.T, root, rel, content string) string {
@@ -478,5 +480,43 @@ func TestStructureIndexRepositoryScale(t *testing.T) {
 	found, _, err := idx.FindSymbol(ctx, SymbolFilter{Names: []string{"StructureIndex.FindSymbol"}})
 	if err != nil || len(found) != 1 || found[0].File != "internal/world/structure_index.go" {
 		t.Fatalf("the index cannot find its own method: %+v err=%v", found, err)
+	}
+}
+
+// A whole-index query is answered over the index's sources and says how many
+// bytes that is; a path- or ref-scoped query consumed less than the index and
+// reports no scan, so the tool ledger records it unknown instead of inflating
+// its condensation with the whole workspace.
+func TestStructureProviderObservationScan(t *testing.T) {
+	root, idx := newStructFixture(t)
+	var want int64
+	for _, rel := range []string{"lib/lib.go", "app/app.go"} {
+		if data, err := os.ReadFile(filepath.Join(root, rel)); err == nil {
+			want += int64(len(data))
+		}
+	}
+	provider := idx.Provider()
+	ctx := context.Background()
+
+	_, whole, err := provider.FindSymbol(ctx, codedom.SymbolQuery{Names: []string{"Start"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if whole.ScannedBytes < want || whole.ScannedFiles < 2 {
+		t.Errorf("whole-index answer scanned %d bytes over %d files, want at least the fixture's %d bytes over 2", whole.ScannedBytes, whole.ScannedFiles, want)
+	}
+	_, scoped, err := provider.FindSymbol(ctx, codedom.SymbolQuery{Names: []string{"Start"}, Path: "app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scoped.ScannedBytes != 0 || scoped.ScannedFiles != 0 {
+		t.Errorf("a path-scoped answer reported a scan: %+v", scoped)
+	}
+	_, outline, err := provider.Outline(ctx, "app/app.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outline.ScannedBytes != 0 {
+		t.Errorf("an outline reported the index as its scan: %+v", outline)
 	}
 }

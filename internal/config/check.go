@@ -392,6 +392,13 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		out = append(out, c.Orient.Check("orient")...)
 	}
 
+	// --- tool_value ---
+	// A nil block is the defaults; a threshold below 1, or a dead bar that
+	// is not under the earning bar, refuses the file.
+	if c.ToolValue != nil {
+		out = append(out, c.ToolValue.Check("tool_value")...)
+	}
+
 	// --- usage ---
 	if c.Usage != nil {
 		out = append(out, c.Usage.Check("usage")...)

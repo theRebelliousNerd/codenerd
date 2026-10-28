@@ -58,7 +58,7 @@ func executeImportersOf(ctx context.Context, args map[string]any) (string, error
 		rows = append(rows, fmt.Sprintf("%s:%d  imports %q as %s", imp.File, imp.Line, path, imp.Name))
 	}
 	logging.Tools("importers_of: %q (%s) -> %d files", pkg, path, len(importers))
-	return page.render(rows, fmt.Sprintf("files importing %s:", path), obs,
+	return page.render(ctx, rows, fmt.Sprintf("files importing %s:", path), obs,
 		"none: no parsed file in the workspace imports it.")
 }
 
@@ -121,7 +121,7 @@ func executeFindText(ctx context.Context, args map[string]any) (string, error) {
 	if strings.TrimSpace(path) != "" {
 		where = path
 	}
-	return page.render(rows, fmt.Sprintf("%q in %s:", text, where), obs,
+	return page.render(ctx, rows, fmt.Sprintf("%q in %s:", text, where), obs,
 		"none. The search is case-sensitive and covers string literals and comments unless in says otherwise; find_symbol finds declarations by name.")
 }
 
@@ -168,6 +168,6 @@ func executePredicateOutline(ctx context.Context, args map[string]any) (string, 
 		out = append(out, r.Role+"  "+symbolRow(r.Symbol))
 	}
 	logging.Tools("predicate_outline: %q -> %d statements", pred, len(rows))
-	return page.render(out, fmt.Sprintf("Mangle statements concerning %s:", pred), obs,
+	return page.render(ctx, out, fmt.Sprintf("Mangle statements concerning %s:", pred), obs,
 		"none: no Mangle file declares, derives or reads a predicate of that name.")
 }

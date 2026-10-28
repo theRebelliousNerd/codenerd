@@ -803,7 +803,7 @@ func (m Model) handleToolCommand(input string, parts []string) (tea.Model, tea.C
 	if len(parts) < 2 {
 		m = m.addMessage(Message{
 			Role:    "assistant",
-			Content: "Usage: `/tool <list|run|info|generate> [args]`\n\n- `/tool list` - List all generated tools\n- `/tool run <name> <input>` - Execute a tool\n- `/tool info <name>` - Show tool details\n- `/tool generate <description>` - Generate a new tool",
+			Content: "Usage: `/tool <list|run|info|generate|value|retire> [args]`\n\n- `/tool list` - List all generated tools\n- `/tool run <name> <input>` - Execute a tool\n- `/tool info <name>` - Show tool details\n- `/tool generate <description>` - Generate a new tool\n- `/tool value` - Show whether each tool earns its place\n- `/tool retire <name>` - Withdraw a generated tool the policy proposes to retire, after approval",
 			Time:    time.Now(),
 		})
 	} else {
@@ -856,6 +856,27 @@ func (m Model) handleToolCommand(input string, parts []string) (tea.Model, tea.C
 					Time:    time.Now(),
 				})
 			}
+		case "value":
+			m = m.addMessage(Message{Role: "assistant", Content: m.renderToolValue(), Time: time.Now()})
+		case "retire":
+			if len(parts) < 3 {
+				m = m.addMessage(Message{
+					Role:    "assistant",
+					Content: "Usage: `/tool retire <name>`\n\nWithdraws a generated tool the policy proposes to retire (see `/tool value`), after approval.",
+					Time:    time.Now(),
+				})
+			} else {
+				m = m.addMessage(Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("Asking for approval to withdraw generated tool `%s`...", parts[2]),
+					Time:    time.Now(),
+				})
+				m.viewport.SetContent(m.renderHistory())
+				m.viewport.GotoBottom()
+				m.textarea.Reset()
+				m.isLoading = true
+				return m, tea.Batch(m.spinner.Tick, m.retireTool(parts[2]))
+			}
 		case "generate":
 			if len(parts) < 3 {
 				m = m.addMessage(Message{
@@ -879,7 +900,7 @@ func (m Model) handleToolCommand(input string, parts []string) (tea.Model, tea.C
 		default:
 			m = m.addMessage(Message{
 				Role:    "assistant",
-				Content: fmt.Sprintf("Unknown tool subcommand: %s. Use list, run, info, or generate.", subCmd),
+				Content: fmt.Sprintf("Unknown tool subcommand: %s. Use list, run, info, generate, value, or retire.", subCmd),
 				Time:    time.Now(),
 			})
 		}

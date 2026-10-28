@@ -2579,6 +2579,9 @@ func initFinalExecutors(bctx *bootContext) error {
 	// context and snapshotTurnUsage reads spend instead of zeros. Nil-safe:
 	// when metering failed to boot, turns keep the previous behaviour.
 	bctx.sessionExecutor.SetUsageTracker(bctx.tracker)
+	// Every tool offer and call, on every channel, goes to the tool ledger the
+	// autopoiesis profile store keeps (policy/tool_value.mg classifies from it).
+	bctx.sessionExecutor.SetToolMeter(bctx.poiesis.ToolMeter())
 	// Wire the VirtualStore's generated-tool registry into the session
 	// executor so non-TUI paths see the same Ouroboros tools the TUI wires in
 	// session_shared_boot/session_boot. SetOuroborosRegistry is nil-safe: a
@@ -2648,6 +2651,7 @@ func initFinalExecutors(bctx *bootContext) error {
 	bctx.sessionSpawner.SetExecutorConfig(&execCfg)
 	bctx.sessionSpawner.SetSessionID(bctx.sessionID)
 	bctx.sessionSpawner.SetApprovalBroker(bctx.approvals)
+	bctx.sessionSpawner.SetToolMeter(bctx.poiesis.ToolMeter())
 	// Same meter for spawned subagents: their executors are fresh builds, not
 	// clones, so without this their turn_cost deltas read zero. Nil-safe.
 	bctx.sessionSpawner.SetUsageTracker(bctx.tracker)

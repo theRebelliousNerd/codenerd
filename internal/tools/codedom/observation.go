@@ -1,6 +1,7 @@
 package codedom
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -32,6 +33,10 @@ type Observation struct {
 	// Deficits are the paths inside the answer's domain the provider could
 	// not observe. Rows from them are as last observed.
 	Deficits []ObservationDeficit
+	// ScannedFiles and ScannedBytes are the material the answer was computed
+	// over, when the provider answered over its whole index. A query scoped to
+	// a path or a ref leaves them zero: its scan is unknown, not the index's.
+	ScannedFiles, ScannedBytes int64
 }
 
 // ObservationDeficit is one path an observation could not see.
@@ -144,7 +149,12 @@ func queryDigest(tool string, args map[string]any) string {
 // render writes one page of an answer. A continuation printed from another
 // generation is refused rather than served: rows inserted or removed ahead of
 // its offset would be silently skipped or repeated across the pages.
-func (p pageRequest) render(rows []string, header string, obs Observation, emptyHint string) (string, error) {
+func (p pageRequest) render(ctx context.Context, rows []string, header string, obs Observation, emptyHint string) (string, error) {
+	// A query answered over the whole index consumed the index; one the
+	// provider scoped to a path or a ref reports no scan (unknown).
+	if obs.ScannedFiles > 0 || obs.ScannedBytes > 0 {
+		tools.ReportConsumed(ctx, obs.ScannedBytes, obs.ScannedFiles)
+	}
 	if p.offset > 0 && p.gen != obs.Generation {
 		return "", fmt.Errorf("stale cursor: the workspace changed since that page was printed (index generation %d, now %d), so its rows may have moved. Call %s again without cursor to restart; do not combine earlier pages with the new answer",
 			p.gen, obs.Generation, p.tool)

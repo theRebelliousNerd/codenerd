@@ -226,6 +226,8 @@ func executeReadFile(ctx context.Context, args map[string]any) (string, error) {
 		MaxRegionBytes: obsLimits.MaxRegionBytes,
 	}).Text()
 
+	// The file is the material a read consumed; the projection is what it returns.
+	tools.ReportConsumed(ctx, int64(len(content)), 1)
 	logging.Audit().FileOp(logging.AuditFileRead, path, int64(len(content)), true, "")
 	logging.Tools("read_file completed: %s (%d bytes read, %d bytes returned)", path, len(content), len(result))
 	return result, nil
@@ -682,11 +684,14 @@ func executeListFiles(ctx context.Context, args map[string]any) (string, error) 
 
 	var files []string
 
+	var visited, visitedBytes int64
 	if recursive {
 		err := filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
 			if err != nil {
 				return nil // Skip errors
 			}
+			visited++
+			visitedBytes += int64(len(p))
 
 			member, admErr := mem.Admit(p, info.IsDir())
 			if admErr != nil {
@@ -740,6 +745,8 @@ func executeListFiles(ctx context.Context, args map[string]any) (string, error) 
 		for _, entry := range entries {
 			name := entry.Name()
 			full := filepath.Join(path, name)
+			visited++
+			visitedBytes += int64(len(full))
 			ok, admErr := mem.Admit(full, entry.IsDir())
 			if admErr != nil || !ok {
 				continue
@@ -756,6 +763,8 @@ func executeListFiles(ctx context.Context, args map[string]any) (string, error) 
 		}
 	}
 
+	// The directory entries visited are the material a listing consumed.
+	tools.ReportConsumed(ctx, visitedBytes, visited)
 	logging.Tools("list_files completed: %s (%d entries)", path, len(files))
 	return strings.Join(files, "\n"), nil
 }

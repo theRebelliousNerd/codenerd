@@ -172,6 +172,10 @@ type Executor struct {
 	// meteredContext; without it every turn_cost delta reads zero.
 	usageTracker *usage.Tracker
 
+	// toolMeter receives every tool offer and call (tool_meter.go). Nil
+	// records nothing.
+	toolMeter types.ToolMeter
+
 	// Configuration
 	config ExecutorConfig
 
@@ -591,6 +595,7 @@ func (e *Executor) CloneForTask() *Executor {
 	clone.ouroborosRegistry = e.ouroborosRegistry
 	clone.sessionID = e.sessionID
 	clone.usageTracker = e.usageTracker
+	clone.toolMeter = e.toolMeter
 	clone.plannerClient = e.plannerClient
 	clone.projectDoc = e.projectDoc
 	clone.fileContext = e.fileContext
@@ -759,6 +764,10 @@ func (e *Executor) meteredContext(ctx context.Context) context.Context {
 type ExecutionResult struct {
 	// Acceptance is populated only by caller-authorized, revision-bound checks.
 	Acceptance *evidence.Report
+	// lastWriteTool is the write tool whose edit the turn has not yet had
+	// verified: a build or test call is charged to it as the verification it
+	// made necessary (tool_meter.go).
+	lastWriteTool string
 	BuildCheck BuildVerification
 	// BuildForeignPackages are the packages a failing build named whose
 	// failure this turn cannot have caused (turn_build_failure_foreign).
@@ -1338,6 +1347,10 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 			e.restrictionWithheldTools(result.turnAtom(), restriction, EffectiveAgentRuntimeConfig.AllowedTools))
 		logging.Session("Config compiled: %d tools allowed", len(EffectiveAgentRuntimeConfig.AllowedTools))
 	}
+
+	// The compile's tool offer, for the tool ledger: each tool's catalog and
+	// teaching-atom tokens, paid whether or not the model calls it.
+	e.noteToolOffers(compileResult, EffectiveAgentRuntimeConfig)
 
 	// 4b. Project instructions from nerd.md.
 	//

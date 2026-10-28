@@ -48,7 +48,10 @@ type StructDeficit struct {
 
 // StructureStats describes the index after a refresh.
 type StructureStats struct {
-	Files        int           `json:"files"`
+	Files int `json:"files"`
+	// SourceBytes is the byte length of the sources the index holds: the
+	// material a whole-index query is answered over.
+	SourceBytes  int64         `json:"source_bytes"`
 	Symbols      int           `json:"symbols"`
 	Calls        int           `json:"calls"`
 	Reparsed     int           `json:"reparsed"`
@@ -357,6 +360,7 @@ func (s *StructureIndex) refreshLocked(ctx context.Context) (StructureStats, err
 					fp = ""
 				}
 				parsed[i] = parseStructSource(data, c.modelPath, c.canonical, fp)
+				parsed[i].size = len(data)
 			})
 		}
 		wg.Wait()
@@ -402,6 +406,7 @@ func (s *StructureIndex) refreshLocked(ctx context.Context) (StructureStats, err
 	for _, f := range s.files {
 		stats.Symbols += len(f.symbols)
 		stats.Calls += len(f.calls)
+		stats.SourceBytes += int64(f.size)
 		if !f.parsed {
 			stats.Broken++
 		}

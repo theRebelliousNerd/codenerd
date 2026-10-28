@@ -21,8 +21,20 @@ func (s *StructureIndex) Provider() codedom.StructureProvider {
 
 var _ codedom.StructureProvider = (*structureProvider)(nil)
 
-// observation is a refresh's stats as the envelope the tools render.
+// observation is a refresh's stats as the envelope the tools render, for a
+// query answered over the whole index: the index's files and source bytes are
+// the material the answer consumed.
 func observation(stats StructureStats) codedom.Observation {
+	obs := scopedObservation(stats)
+	obs.ScannedFiles = int64(stats.Files)
+	obs.ScannedBytes = stats.SourceBytes
+	return obs
+}
+
+// scopedObservation is the envelope for a query answered over a path or a
+// single ref. The stats describe the whole index, which such a query did not
+// consume, so it reports no scan: unknown, not the index's size.
+func scopedObservation(stats StructureStats) codedom.Observation {
 	obs := codedom.Observation{Generation: stats.Generation, Index: stats.Line()}
 	for _, d := range stats.Deficits {
 		obs.Deficits = append(obs.Deficits, codedom.ObservationDeficit{Path: d.Path, Reason: d.Reason})
@@ -48,12 +60,15 @@ func toSymbols(in []StructSymbol) []codedom.StructureSymbol {
 
 func (p *structureProvider) FindSymbol(ctx context.Context, q codedom.SymbolQuery) ([]codedom.StructureSymbol, codedom.Observation, error) {
 	symbols, stats, err := p.index.FindSymbol(ctx, SymbolFilter{Names: q.Names, Pattern: q.Pattern, Kind: q.Kind, Path: q.Path})
+	if q.Path != "" {
+		return toSymbols(symbols), scopedObservation(stats), err
+	}
 	return toSymbols(symbols), observation(stats), err
 }
 
 func (p *structureProvider) Outline(ctx context.Context, path string) ([]codedom.StructureSymbol, codedom.Observation, error) {
 	symbols, stats, err := p.index.Outline(ctx, path)
-	return toSymbols(symbols), observation(stats), err
+	return toSymbols(symbols), scopedObservation(stats), err
 }
 
 func (p *structureProvider) Callers(ctx context.Context, query string) ([]codedom.StructureSymbol, []codedom.StructureCaller, codedom.Observation, error) {
@@ -76,12 +91,12 @@ func (p *structureProvider) Callees(ctx context.Context, query string) ([]codedo
 
 func (p *structureProvider) Unreferenced(ctx context.Context, path string) ([]codedom.StructureSymbol, codedom.Observation, error) {
 	symbols, stats, err := p.index.Unreferenced(ctx, path)
-	return toSymbols(symbols), observation(stats), err
+	return toSymbols(symbols), scopedObservation(stats), err
 }
 
 func (p *structureProvider) Resolve(ctx context.Context, ref string) ([]codedom.StructureSymbol, codedom.Observation, error) {
 	symbols, stats, err := p.index.Resolve(ctx, ref)
-	return toSymbols(symbols), observation(stats), err
+	return toSymbols(symbols), scopedObservation(stats), err
 }
 
 func (p *structureProvider) Importers(ctx context.Context, pkg string) (string, []codedom.StructureImporter, codedom.Observation, error) {
@@ -98,6 +113,9 @@ func (p *structureProvider) FindText(ctx context.Context, text, in, path string)
 	out := make([]codedom.StructureTextHit, 0, len(hits))
 	for _, h := range hits {
 		out = append(out, codedom.StructureTextHit{File: h.File, Line: h.Line, In: h.In, Text: h.Text, Ref: h.Ref})
+	}
+	if path != "" {
+		return out, scopedObservation(stats), err
 	}
 	return out, observation(stats), err
 }

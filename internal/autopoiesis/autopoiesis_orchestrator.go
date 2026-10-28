@@ -273,7 +273,7 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 
 	learningsDir := filepath.Join(config.ToolsDir, ".learnings")
 	tracesDir := filepath.Join(config.ToolsDir, ".traces")
-	profilesDir := filepath.Join(config.ToolsDir, ".profiles")
+	profilesDir := ProfilesDir(config.ToolsDir)
 
 	logging.AutopoiesisDebug("Creating ProfileStore: %s", profilesDir)
 	profileStore := NewProfileStore(profilesDir)

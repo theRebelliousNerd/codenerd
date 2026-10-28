@@ -266,7 +266,7 @@ func executeFindSymbol(ctx context.Context, args map[string]any) (string, error)
 	if q.Path != "" {
 		header = strings.TrimSuffix(header, ":") + " under " + q.Path + ":"
 	}
-	return page.render(symbolRows(symbols), header, obs,
+	return page.render(ctx, symbolRows(symbols), header, obs,
 		"none. A name is case-sensitive and must be the identifier as declared; pattern takes a regular expression; package_outline lists what a directory declares.")
 }
 
@@ -308,7 +308,7 @@ func executePackageOutline(ctx context.Context, args map[string]any) (string, er
 		return "", err
 	}
 	logging.Tools("package_outline: %s -> %d declarations", path, len(symbols))
-	return page.render(symbolRows(symbols), fmt.Sprintf("declarations in %s:", path), obs,
+	return page.render(ctx, symbolRows(symbols), fmt.Sprintf("declarations in %s:", path), obs,
 		"none. The path holds no Go, Mangle, Python, TypeScript or JavaScript file the index parsed; it is workspace-relative and a directory is not searched recursively.")
 }
 
@@ -350,7 +350,7 @@ func executeCallersOf(ctx context.Context, args map[string]any) (string, error) 
 		return "", err
 	}
 	if len(targets) == 0 {
-		return page.render(nil, fmt.Sprintf("callers of %q:", symbol), obs,
+		return page.render(ctx, nil, fmt.Sprintf("callers of %q:", symbol), obs,
 			"no function or method has that name, so there is nothing to find callers of. find_symbol shows what is declared.")
 	}
 	var header strings.Builder
@@ -363,7 +363,7 @@ func executeCallersOf(ctx context.Context, args map[string]any) (string, error) 
 		rows = append(rows, fmt.Sprintf("%s:%d  %s  in %s", c.File, c.Line, c.Match, c.Caller))
 	}
 	logging.Tools("callers_of: %q -> %d targets, %d call sites", symbol, len(targets), len(callers))
-	return page.render(rows, header.String(), obs,
+	return page.render(ctx, rows, header.String(), obs,
 		"no call site anywhere in the workspace. A function passed as a value or reached by reflection is not a call site; unreferenced_symbols checks for any use of the name.")
 }
 
@@ -405,7 +405,7 @@ func executeCalleesOf(ctx context.Context, args map[string]any) (string, error) 
 		return "", err
 	}
 	if len(targets) == 0 {
-		return page.render(nil, fmt.Sprintf("calls made by %q:", symbol), obs,
+		return page.render(ctx, nil, fmt.Sprintf("calls made by %q:", symbol), obs,
 			"no function or method has that name. find_symbol shows what is declared.")
 	}
 	var header strings.Builder
@@ -422,7 +422,7 @@ func executeCalleesOf(ctx context.Context, args map[string]any) (string, error) 
 		rows = append(rows, row)
 	}
 	logging.Tools("callees_of: %q -> %d targets, %d calls", symbol, len(targets), len(callees))
-	return page.render(rows, header.String(), obs, "it makes no calls.")
+	return page.render(ctx, rows, header.String(), obs, "it makes no calls.")
 }
 
 // UnreferencedSymbolsTool lists declarations nothing names.
@@ -463,6 +463,6 @@ func executeUnreferencedSymbols(ctx context.Context, args map[string]any) (strin
 		return "", err
 	}
 	logging.Tools("unreferenced_symbols: %s -> %d declarations", path, len(symbols))
-	return page.render(symbolRows(symbols), fmt.Sprintf("declarations under %s that nothing else names:", path), obs,
+	return page.render(ctx, symbolRows(symbols), fmt.Sprintf("declarations under %s that nothing else names:", path), obs,
 		"none: every declaration under that path is named somewhere else in the workspace.")
 }

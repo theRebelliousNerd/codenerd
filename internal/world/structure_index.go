@@ -99,6 +99,10 @@ type StructCallerMatch struct {
 }
 
 type structFile struct {
+	// size is the byte length of the source this entry was parsed from: the
+	// material the index holds for the file, summed into StructureStats so a
+	// query can report how much it was answered over.
+	size        int
 	fingerprint string
 	sourcePath  string // resolved filesystem identity; canonical remains the workspace-facing alias
 	lang        string

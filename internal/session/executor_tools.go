@@ -1007,6 +1007,8 @@ func (e *Executor) executeAndRecordToolCall(
 	toolCtx, checkRuns := tools.WithAcceptanceRunLog(toolCtx)
 	toolCtx, familyDecisions := tools.WithFamilyDecisionLog(toolCtx)
 	toolCtx, validationOf := withToolValidationLog(toolCtx)
+	toolCtx, consumedOf := tools.WithConsumptionLog(toolCtx)
+	started := time.Now()
 	// A test call that names no packages tests what this turn wrote, the same
 	// packages verifyTests runs after the turn, and not the whole module.
 	toolCtx = tools.WithTestScope(toolCtx, func() []string { return packagesForPaths(result.WrittenPaths) })
@@ -1048,6 +1050,16 @@ func (e *Executor) executeAndRecordToolCall(
 	// post-action error is returned: a failed postcondition is not proof of
 	// no mutation (tool_effects.go).
 	out = e.settleToolEffects(ctx, call, effectTargets, out, err, validationOf, result)
+	// What the call cost and returned, for the tool ledger. The content is
+	// what the model is handed back: the output, with the error text on a
+	// failure.
+	content := out
+	if err != nil {
+		content = err.Error() + "\n\n" + out
+	}
+	consumed, reported := consumedOf()
+	e.noteToolCall(call, content, err, consumed, reported, started,
+		len(testRuns()) > 0 || len(checkRuns()) > 0, result)
 	memoryErr := e.recordWorkingResult(ctx, call, out, err)
 	if err != nil {
 		return out, errors.Join(err, memoryErr)
