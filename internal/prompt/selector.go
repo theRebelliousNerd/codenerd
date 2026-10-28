@@ -1042,18 +1042,25 @@ func (s *AtomSelector) querySkeletonAtoms(
 		})
 	}
 
-	// Validate we have at least one atom from each skeleton category
-	categoryFound := make(map[AtomCategory]bool)
-	for _, sa := range selected {
-		categoryFound[sa.Atom.Category] = true
-	}
-
-	for cat := range skeletonCategories {
-		if !categoryFound[cat] {
-			logging.Get(logging.CategoryContext).Warn(
-				"Skeleton category %s has no selected atoms", cat,
-			)
+	// Validate we have at least one atom from each skeleton category. A
+	// category the kernel emptied on purpose -- a selected atom declared
+	// conflicts_with over its atoms (mandatory_superseded), as the delegation
+	// judge does over the Piggyback protocol and OODA methodology -- is that
+	// compile's shape, not a selection defect, and is not reported as one.
+	superseded := make(map[string]bool)
+	if rows, err := kernel.Query("mandatory_superseded(Atom)"); err == nil {
+		for _, row := range rows {
+			if len(row.Args) == 1 {
+				if id, err := extractStringArg(row.Args[0]); err == nil {
+					superseded[id] = true
+				}
+			}
 		}
+	}
+	for _, cat := range unexplainedSkeletonGaps(selected, skeletonAtoms, superseded) {
+		logging.Get(logging.CategoryContext).Warn(
+			"Skeleton category %s has no selected atoms", cat,
+		)
 	}
 
 	logging.Get(logging.CategoryContext).Debug(
@@ -1061,6 +1068,33 @@ func (s *AtomSelector) querySkeletonAtoms(
 	)
 
 	return selected, nil
+}
+
+// unexplainedSkeletonGaps returns, in a stable order, the skeleton categories
+// with no selected atom and no candidate the kernel derived
+// mandatory_superseded. An empty category whose atoms were superseded by a
+// selected atom's conflicts_with is the compile asking for that shape.
+func unexplainedSkeletonGaps(selected []*ScoredAtom, candidates []*PromptAtom, superseded map[string]bool) []AtomCategory {
+	found := make(map[AtomCategory]bool)
+	for _, sa := range selected {
+		if sa != nil && sa.Atom != nil {
+			found[sa.Atom.Category] = true
+		}
+	}
+	explained := make(map[AtomCategory]bool)
+	for _, a := range candidates {
+		if a != nil && superseded[a.ID] {
+			explained[a.Category] = true
+		}
+	}
+	var gaps []AtomCategory
+	for cat := range skeletonCategories {
+		if !found[cat] && !explained[cat] {
+			gaps = append(gaps, cat)
+		}
+	}
+	sort.Slice(gaps, func(i, j int) bool { return gaps[i] < gaps[j] })
+	return gaps
 }
 
 // filterFleshAtoms keeps the atoms whose world state matches and whose

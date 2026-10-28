@@ -359,7 +359,17 @@ skeletonCategories = identity | protocol | safety | methodology
 - Build/assert facts; query `selected_result(Atom, Priority, Source)`.  
 - Debug queries: `blocked_by_context`, `mandatory_selection`.  
 - All selected get LogicScore/Combined = 1.0, Source=`skeleton`.  
-- Missing category → warn (does not always hard-fail if any skeleton returned).
+- Missing category → warn (does not always hard-fail if any skeleton returned),
+  unless the kernel emptied it on purpose (as built 2026-10-28): the selector
+  reads `mandatory_superseded(Atom)` and `unexplainedSkeletonGaps`
+  (`internal/prompt/selector.go:1077`) reports only a category with no selected
+  atom and no superseded candidate. The delegation judge compile
+  (`/judge_implementation`, `/judge_review`) supersedes the Piggyback protocol
+  and OODA methodology atoms by `conflicts_with`, so its empty protocol and
+  methodology categories are its shape, not a defect
+  (`TestSkeletonGaps_JudgeCompileSupersessionIsNotADefect`).
+- `atom_category(AtomID, Category)` carries the category as a name constant
+  (`/identity`), as its Decl declares (`selector_facts.go`, `candidateCategoryName`).
 
 ### 6.3 Flesh load
 

@@ -194,8 +194,11 @@ blocked_by_context(Atom) :- base_prohibited(Atom).
 # replaces the shipped atom on the model it was written for, and on every other
 # model the shipped atom is still there, untouched.
 #
-# Inert on the shipped corpus: no atom under internal/prompt/atoms declares
-# conflicts_with, so this derives nothing until a producer opts in.
+# Live on the shipped corpus: the delegation judge's atoms
+# (internal/prompt/atoms/eval/delegation_judge.yaml) supersede the Piggyback
+# protocol and OODA methodology atoms, so a judge compile has no protocol or
+# methodology atom by design; the selector reads this predicate to tell that
+# shape from a skeleton selection defect (unexplainedSkeletonGaps).
 mandatory_superseded(B) :-
     atom_conflicts(A, B),
     is_mandatory(A),
