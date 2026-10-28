@@ -170,6 +170,10 @@ All predicates are constants at `internal/projectdoc/facts.go:12-40` so Go, Mang
 
 * `internal/projectdoc/nerdmd.go:281-292` — `ForbidsPath` at `internal/projectdoc/nerdmd.go:281` is the non-kernel mirror (for tests/local checks). It uses the identical normalization as the gate (`strings.ToLower(filepath.ToSlash(...))` at `internal/projectdoc/nerdmd.go:285` and `internal/projectdoc/nerdmd.go:287`) and the same `strings.Contains` match.
 
+### 8.4 Shell-effect classification never erases a stage it cannot prove a reader (2026-10-28)
+
+`ClassifyShellEffect` (`internal/projectdoc/tool_gate.go`) is the one shell-effect decision the session gate (`checkShellEffect`) and the registry write guard (`virtual_store_write_guard.go`) share. Before classifying, `stripBenignOutputTail` (`internal/projectdoc/shell_pipe_readers.go`) drops trailing `2>&1` and pipeline stages, for classification only; the command that runs is unchanged. A stage is dropped only when it is a known reader (`head`, `tail`, `wc`, `cat`, `grep`, `rg`, `sort`, `uniq`) AND every word is inside that reader's positive grammar (exact short and long options, bounded operands). Unlisted options (`sort -o`, `--out`, `-T`, `--compress-program`, `rg --pre`/`-z`, `tail -f`), uniq's second operand, unquoted expansion (`$`, backticks, globs, `~`, `\`), redirections and `||` keep the stage, and the pipe left behind classifies as `UnknownMutating`. The split is at the last unquoted pipe, so `grep "a|b"` is one stage. Tests: `shell_pipe_readers_test.go`.
+
 ---
 
 ## 9. Verification Matrix

@@ -111,3 +111,37 @@ A merits-first decision can favor A if B/C do not produce a meaningful verified 
 ## Completion status
 
 The static seam, shared-gate composition, main/feature-branch equivalence, important default-catalog limitation, and accounting consequence are established from inspected source. Production exploitation, exact installed binary behavior, platform-wide reachability, test coverage, runtime failure rates, and any claimed efficiency benefit remain **unmeasured**. No change is proposed to permission authority without a separately authorized spec-first implementation and validation effort.
+
+## As-built status
+
+Verified and built 2026-10-28 on `main` (after `f74bacb2`). `tool_gate.go`'s tail helper was unchanged from the audited blob.
+
+### Claim ledger
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| `stripBenignOutputTail` drops a trailing stage on its first word alone (`sort` included), without checking options or operands | Real, fixed | Before: `tool_gate.go:398-433` (`safePipeReaders`). Now `shell_pipe_readers.go:83` drops a stage only when `isOutputReaderStage` (`:122`) proves every word inside the reader's positive grammar |
+| Mutation and `-o`/`--output` checks run on the stripped string | Real; the same checks still run on what remains, which now keeps any unproven stage | `tool_gate.go:453` `ClassifyShellEffect` |
+| `echo` is read-only, so the stripped witness classified read-only | Real; the witness now classifies `UnknownMutating` and `ValidateShellToolInvocation` refuses it | `shell_pipe_readers_test.go` |
+| Both the session gate and the registry write guard use the same classifier | Confirmed; one fix covers both, plus the VirtualStore action path | `executor_tools.go:2087`, `virtual_store_write_guard.go:33`, `virtual_store_actions.go:611` |
+| The runtime executes the original command, not the stripped one | Confirmed; not changed (stripping is classification-only) | `internal/tools/shell/execute.go` |
+| Shell tools are absent from the default catalog; capability, read-only restrictions and Dreamer still gate first | Confirmed; not changed | `intent_routing_rules.mg`, `virtual_store_interactive_gate.go` |
+| A raw `LastIndex("|")` split mis-splits quoted pipes | Real, fixed | `splitLastUnquotedPipe` (`shell_pipe_readers.go:102`) splits at the last unquoted pipe; `||` is not a pipe |
+| Shell writes are not attributed by `settleToolEffects` | Confirmed; left open (below) | `tool_effects.go:227` (`isWriteMutationTool`) |
+
+### What was built
+
+- Ruling (alternative B, the tiny reader grammar): keep pipeline convenience for verification output, but only for stages proven to be readers. Each of `head`, `tail`, `wc`, `cat`, `grep`, `rg`, `sort`, `uniq` has a positive grammar: exact short flags (bundling allowed), short options that take a value, exact long options (no abbreviations), a numeric form where historical, and an operand bound (uniq: one, since its second operand is an output). Not listed and therefore refused: `sort -o/--output/-T/--compress-program`, `rg --pre/-z`, `tail -f/-F`. Unquoted `$`, backticks, globs, `~`, `\`, redirections and `;&` refuse the stage; `$`/backtick inside double quotes refuse it; single-quoted text is literal. A refused stage is kept, and its pipe classifies `UnknownMutating` (fail closed).
+- The helper moved from `tool_gate.go` into `internal/projectdoc/shell_pipe_readers.go`.
+- Spec: `Docs/architecture/projectdoc/09-SAFETY-AND-INVARIANTS.md` §8.4.
+
+### Tests
+
+`internal/projectdoc/shell_pipe_readers_test.go`: 20 write/helper/unprovable tails (long, abbreviated, bundled and attached `-o`, behind and before other readers, uniq output operand, `rg --pre`, `rg -z`, `tail -f`, variable and glob expansion, absolute reader path, unbalanced quote, `||`) never classify read-only or verification (17 of them did under the name-only rule; confirmed by swapping the old rule back in); 13 legitimate reader tails still elide to verification/read-only, including a quoted pipe in a grep pattern; the shared `ValidateShellToolInvocation` refuses the witness. The existing `tool_gate_test.go` pipe cases pass unchanged.
+
+### Left open
+
+- Alternative C (a full typed shell plan whose effects Mangle admits): not built; arbitrary shell remains outside the default catalog, so B's refusal is the right cost/correctness point now.
+- PowerShell's `sort` alias (`Sort-Object`) and Windows hosts were not modeled; a Windows shell stage is refused unless it matches the POSIX grammar.
+- Receipt attribution for an admitted mutating shell command (`settleToolEffects` skips shell tools): needs a measured write set, which the shell runner cannot provide; left to the scoped-shell-write work.
+- The held-out command corpus, false-refusal rate and gate latency in "Costs and decision criteria" were not measured.

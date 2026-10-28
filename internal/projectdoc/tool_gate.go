@@ -395,45 +395,6 @@ var knownMutations = []string{
 	"export-csv", "set-item", "set-acl",
 }
 
-var safePipeReaders = map[string]struct{}{
-	"head": {}, "tail": {}, "cat": {}, "wc": {}, "grep": {}, "rg": {}, "sort": {}, "uniq": {},
-}
-
-func stripBenignOutputTail(command string) string {
-	s := strings.TrimSpace(command)
-	for {
-		trimmed := strings.TrimSpace(s)
-		if strings.HasSuffix(trimmed, "2>&1") {
-			s = strings.TrimSpace(strings.TrimSuffix(trimmed, "2>&1"))
-			continue
-		}
-		idx := strings.LastIndex(trimmed, "|")
-		if idx == -1 {
-			break
-		}
-		tail := strings.TrimSpace(trimmed[idx+1:])
-		if tail == "" {
-			break
-		}
-		if strings.ContainsAny(tail, "\r\n;`") || strings.Contains(tail, "$(") {
-			break
-		}
-		if strings.ContainsAny(tail, "&><") {
-			break
-		}
-		fields := strings.Fields(tail)
-		if len(fields) == 0 {
-			break
-		}
-		first := strings.ToLower(fields[0])
-		if _, ok := safePipeReaders[first]; !ok {
-			break
-		}
-		s = strings.TrimSpace(trimmed[:idx])
-	}
-	return s
-}
-
 // maskQuotedSegments replaces every character inside a balanced pair of
 // single quotes or double quotes with '_' (keeping the quotes themselves)
 // so quoted metacharacters (e.g. '|' in a -run regex) do not trip the
