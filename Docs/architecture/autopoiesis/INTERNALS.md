@@ -87,11 +87,29 @@ replace the keyword quick checks `QuickAnalyze`, `ShouldTriggerCampaign` and
 
 ## Detection (tool_detection.go)
 
-`DetectToolNeed` (`:94`) builds a `ToolNeed` (`:54`); I/O types are coerced
-by `coerceToolNeedTypes` (`:45`) and `coerceToolIOType` (`:30`), and the
-need can be refined with the LLM (`refineToolNeedWithLLM`, `:172`).
+`DetectToolNeed` (`:94`) asks the kernel whether the request is a capability
+gap (`decideToolGap`, `tool_need.go:77`). The Orchestrator installs that decider
+when it attaches its kernel. Jev's `asks_for_tool`,
+`needs_missing_operation` and `failed_for_missing_tool` judgments and the
+`missingCapabilityPatterns` match become `tool_need_judgment` and
+`tool_need_pattern` facts. `policy/jev_learning.mg` derives
+`tool_gap_observed`, and the regex counts only when Jev gave no judgment. A
+failed attempt alone is never a gap. Until 2026-10-28 any non-empty failed
+attempt made one. Without a kernel, the pattern alone decides, and the log says
+so.
+
+Only after a gap does the LLM write the spec (`refineToolNeedWithLLM`, `:161`).
+It no longer returns `needs_new_tool`. I/O types are coerced by
+`coerceToolNeedTypes` (`:45`) and `coerceToolIOType` (`:30`), and
 `enforceToolNeedContract` (`tool_generation.go:55`) pins the handoff into
 generation.
+
+Tool value (`tool_value.go`): per call, `tool_call_hit` comes from the
+output-judgment request. Per tool, `JudgeToolValue` (`:72`, shown by
+`nerd autopoiesis tools`) asserts `tool_duplicate_judgment` and
+`tool_harness_judgment`. The kernel derives `tool_value_evidence` for the value
+rules. See Docs/architecture/jev-turn-judgments.md, "Tool-need trigger" and
+"Tool value".
 
 ## Generation (tool_generation.go)
 
@@ -203,6 +221,26 @@ The judge receives task requests, actions, execution results, source references,
 and usage counts. Provider thought summaries are excluded from the execution
 record and judge prompt. New feedback rows leave the legacy `thought_summary`
 column empty; historical values are excluded on read.
+
+Jev in the cycle (`prompt_evolution/jev*.go`, switches `task_verdicts`,
+`problem_types` and `atom_checks`; Docs/architecture/jev-turn-judgments.md):
+
+- Step 1, judging, is a cascade (`evaluateBatch`, `jev_verdict.go:166`). Jev
+  answers did-what-was-asked, stopped-early, one file-needed question per
+  changed file, and a failure-kind Choice with its companion.
+  `verdictFromJudgments` (`:73`) is the truth table. The LLM judge
+  (`judge.go`) judges only records Jev leaves unsettled or did not answer. A
+  failure Jev reads as no mistake of the agent's is `NO_AGENT_MISTAKE`.
+- The problem type is Jev's Choice with a companion (none fits gives `other`).
+  It is cached per task (`classifyWithJev`, `classifier.go:57`), and the regex
+  classifier is the logged fallback.
+- Step 3, buying a generation: `agentMistakes` drops `NO_AGENT_MISTAKE`
+  failures. `groupWarrantsEvolution` buys a generation only when Jev reads one
+  shared, preventable cause. Otherwise the group counts in
+  `GroupsWithoutSharedCause` and its evidence stays unconsumed.
+- Step 4, auto-promotion: `promotionHolds` (`jev_promotion.go:39`) holds an atom
+  that describes one past task or goes against a promoted atom. While the check
+  is on, promotion at record time waits for the cycle.
 
 `PromptEvolver` (`:144`) runs `RunEvolutionCycle` (`:284`), records
 outcomes (`RecordExecution`, `:253`), gates cycles on `ShouldRunEvolution`
