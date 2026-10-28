@@ -216,6 +216,43 @@ frameworks, agent}`; each atom is its own question.
   (`logRelevanceAdmission`).
 - Billed as `jev_atom_relevance`.
 
+### Atom relevance: dogfood A/B, 2026-10-28
+
+The runs were `nerd chat` turns against codeNERD's own source, comparing
+`atom_relevance` on and off. Costs come from the session usage tracker on the
+built-in price table: uncached input, cache writes, cache reads and output. Jev
+adds about $0.0013 per judged compile (30k tokens at $0.042/Mtok).
+
+| Task (agent, provider) | Runs on / off | Prompt tokens on / off | $ per session on / off | Cache-read share on / off | Outcome |
+|---|---|---|---|---|---|
+| explain JIT flesh selection (explain, Muse) | 2 / 2 | 9.7k, 9.8k / 7.5k, 7.5k | 0.0066, 0.0060 / 0.0045, 0.0082 | 25%, 59% / 52%, 80% | answered in all runs, same substance |
+| explain blocked_by_missing_tool (explain, Muse) | 2 / 2 | ?, 8.3k / 8.0k, 30.0k | 0.0066, 0.0052 / 0.0050, 0.0058 | 48%, 32% / 69%, 73% | answered in all runs |
+| review broker.go for races (reviewer, Opus) | 1 / 1 | 30.5k / 28.3k | 2.08 / 1.18 | 10% / 0% | both died on a provider 400 |
+| TUI footer wrap (reviewer, Opus) | 2 / 2 | 19.7k / 17.5k | 0.699, 0.695 / 0.643, 0.644 | 0% / 10% | all died on a provider 400 |
+| 3-turn broker task, run ABBA (explain, researcher, reviewer) | 2 / 2 | per turn 7.4-9.2k, 19.2-20.6k / 8.1k, 8.9k, 17.9k | 0.712, 1.267 / 1.112, 0.620 | 44%, 39% / 50%, 49% | turns 1-2 answered in all runs; turn 3 died on a provider 400 in all runs |
+
+What the runs show:
+
+- **Selection.** Jev admitted the atoms the work needed from beyond the vector
+  slots: Go concurrency exemplars, errgroup, the resource-leak checklist and the
+  review exemplars for a race review; lipgloss layout for the TUI turn. It
+  refused off-topic slots: another repository's broker docs, build-system notes
+  and an unrelated wiring auditor.
+- **Size.** On the Mangle explain, one off run admitted 128 flesh atoms (30.0k
+  tokens), because an admitted head pulls in all of its sections; Jev refused
+  those heads (8.3k tokens). Elsewhere Jev's prompts were 0.7k to 2.7k tokens
+  larger.
+- **Cost.** No dollars-per-verified-task win is shown. On the Opus reviewer,
+  Jev-on sessions cost 8% more ($0.05) for the larger prompt. The other
+  differences are inside run-to-run variance from tool-loop length.
+- **Order effect.** The run order moves the cache share: a run started within
+  the provider's cache window of a similar run reads that run's prefix.
+- **Carry-over did not engage.** Each turn of the three-turn task went to a
+  different agent, and different agents share no persona prefix.
+- **The 400.** Every Opus reviewer turn died on the tool-result follow-up, on
+  and off alike. `perception.pooledCallError` drops the provider's error body,
+  so the cause is not in the logs.
+
 ## Learning and autopoiesis
 
 The questions are in `internal/learnjudge`, one file per use. The rules are in
