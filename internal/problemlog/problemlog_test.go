@@ -11,7 +11,7 @@ import (
 	"codenerd/internal/types"
 )
 
-const fixture = "testdata/problems.log"
+const fixture = "testdata/problems_fixture.txt"
 
 func skipNotes(e Entry) bool { return strings.Contains(e.Message, "debug-self:") }
 

@@ -14,7 +14,7 @@ func selfProblemsKernel(t *testing.T, maxProblems int) (*RealKernel, *problemlog
 	if err != nil {
 		t.Fatal(err)
 	}
-	rep, err := problemlog.ReadFile("../problemlog/testdata/problems.log", problemlog.Options{
+	rep, err := problemlog.ReadFile("../problemlog/testdata/problems_fixture.txt", problemlog.Options{
 		MaxProblems: maxProblems,
 		Skip:        func(e problemlog.Entry) bool { return strings.Contains(e.Message, "debug-self:") },
 	})
@@ -166,7 +166,7 @@ func TestSelfProblems_ReplaceSupersedesAndReportsOmission(t *testing.T) {
 		t.Fatalf("omitted problems = %v, want %d", om[0].Args[0], rep.OmittedProblems)
 	}
 
-	full, err := problemlog.ReadFile("../problemlog/testdata/problems.log", problemlog.Options{
+	full, err := problemlog.ReadFile("../problemlog/testdata/problems_fixture.txt", problemlog.Options{
 		Skip: func(e problemlog.Entry) bool { return strings.Contains(e.Message, "debug-self:") },
 	})
 	if err != nil {
