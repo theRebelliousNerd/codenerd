@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/problemlog"
+	"codenerd/internal/turnjudge"
 )
 
 // "Debug yourself" is a chain the kernel lays out, not one verb
@@ -52,7 +54,7 @@ func (m Model) latestProblemsLog() string {
 // into the kernel, then one task naming every problem the kernel calls hot,
 // each with its whole first message. ok is false, with the reason, when there
 // is nothing to diagnose.
-func (m Model) selfDiagnosisJob(shard string) (job backgroundJob, ok bool, reason string) {
+func (m Model) selfDiagnosisJob(ctx context.Context, shard string) (job backgroundJob, ok bool, reason string) {
 	if m.kernel == nil {
 		return job, false, "no kernel to hold the evidence"
 	}
@@ -78,12 +80,24 @@ func (m Model) selfDiagnosisJob(shard string) (job backgroundJob, ok bool, reaso
 		return job, false, fmt.Sprintf("%s holds nothing hot (%s): no errors, and no warning repeated often enough (logging.self_problem_warn_repeats)", path, rep.Summary())
 	}
 
+	// Jev triages, when on: defects in codeNERD's own code first, failures of
+	// its surroundings (network, providers, config, machine) listed apart.
+	defects, around := hot, []problemlog.Problem(nil)
+	if m.jev != nil {
+		if probs, err := turnjudge.TriageProblems(ctx, m.jev, hot); err != nil {
+			logging.Get(logging.CategoryKernel).Warn("%s jev triage failed, the log's order stands: %v", selfDebugMarker, err)
+		} else {
+			defects, around = turnjudge.SplitDefects(hot, probs, m.relevanceDrop())
+		}
+	}
+
 	var b strings.Builder
 	fmt.Fprintf(&b, "Diagnose codeNERD itself from its own problems log (%s; %s). Read-only: change nothing.\n", path, rep.Summary())
 	b.WriteString("For each problem below: find where codeNERD's source raises it, trace the root cause, and give file:line, the evidence, and the fix you would make. Say when two problems share a cause.\n")
-	for i, p := range hot {
-		fmt.Fprintf(&b, "\n%d. %s [%s] x%d, %s to %s\n%s\n", i+1, strings.ToUpper(p.Level), p.Category, p.Count,
-			p.First.Format(time.TimeOnly), p.Last.Format(time.TimeOnly), p.Sample)
+	n := writeDiagnosisProblems(&b, defects, 0)
+	if len(around) > 0 {
+		b.WriteString("\nThese look like failures around codeNERD (network, providers, configuration, the machine) rather than defects in it. Confirm that briefly; fix codeNERD only where it handles them wrongly:\n")
+		writeDiagnosisProblems(&b, around, n)
 	}
 	return backgroundJob{
 		ID:       fmt.Sprintf("self-diagnosis-%d", time.Now().UnixNano()),
@@ -92,4 +106,13 @@ func (m Model) selfDiagnosisJob(shard string) (job backgroundJob, ok bool, reaso
 		Started:  time.Now(),
 		FollowUp: selfDiagnosisFollowUp,
 	}, true, ""
+}
+
+// writeProblems numbers problems from after, each with its whole first message.
+func writeDiagnosisProblems(b *strings.Builder, problems []problemlog.Problem, after int) int {
+	for i, p := range problems {
+		fmt.Fprintf(b, "\n%d. %s [%s] x%d, %s to %s\n%s\n", after+i+1, strings.ToUpper(p.Level), p.Category, p.Count,
+			p.First.Format(time.TimeOnly), p.Last.Format(time.TimeOnly), p.Sample)
+	}
+	return after + len(problems)
 }

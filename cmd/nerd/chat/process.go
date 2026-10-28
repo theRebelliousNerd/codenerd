@@ -490,7 +490,7 @@ func (m Model) processInput(input string) tea.Cmd {
 					Started: time.Now(),
 				}
 				if route.SelfDiagnosis {
-					diag, ok, reason := m.selfDiagnosisJob(shardType)
+					diag, ok, reason := m.selfDiagnosisJob(ctx, shardType)
 					if !ok {
 						return responseMsg("Nothing to diagnose: " + reason)
 					}

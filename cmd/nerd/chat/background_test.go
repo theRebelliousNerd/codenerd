@@ -96,7 +96,7 @@ func TestSelfDiagnosis_TaskNamesEveryHotProblemWhole(t *testing.T) {
 	m := admissionModel(t, config.WorkModePropose, nil)
 	m.workspace = ws
 
-	job, ok, reason := m.selfDiagnosisJob("reviewer")
+	job, ok, reason := m.selfDiagnosisJob(m.shutdownCtx, "reviewer")
 	if !ok {
 		t.Fatalf("no diagnosis job: %s", reason)
 	}
@@ -118,7 +118,7 @@ func TestSelfDiagnosis_TaskNamesEveryHotProblemWhole(t *testing.T) {
 func TestSelfDiagnosis_NoLogSaysHowToGetOne(t *testing.T) {
 	m := admissionModel(t, config.WorkModePropose, nil)
 	m.workspace = t.TempDir()
-	if _, ok, reason := m.selfDiagnosisJob("reviewer"); ok || !strings.Contains(reason, "/debug-self") {
+	if _, ok, reason := m.selfDiagnosisJob(m.shutdownCtx, "reviewer"); ok || !strings.Contains(reason, "/debug-self") {
 		t.Fatalf("ok=%v reason=%q", ok, reason)
 	}
 }
