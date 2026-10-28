@@ -14,46 +14,49 @@
 # A line marked (dead file) declares the field in a file that also has
 # entries in the dead-code budget. Those fields are usually dark BECAUSE
 # nothing calls the functions that would fill them — triage them last.
-AmbientContext.CursorLine	internal/types/types.go:426	(dead file)
-AmbientContext.SelectedText	internal/types/types.go:427	(dead file)
-BindMount.ReadOnly	internal/tactile/platform_unix.go:39
-BootConfig.KernelOverride	internal/system/factory.go:81
-CompilationStats.FallbackUsed	internal/prompt/compiler.go:182
-CompilerConfig.VectorSearchTimeout	internal/prompt/compiler.go:445
-DecomposeRequest.UserHints	internal/campaign/decomposer.go:215
+AmbientContext.CursorLine	internal/types/types.go:426
+AmbientContext.SelectedText	internal/types/types.go:427
+BootConfig.KernelOverride	internal/system/factory.go:84
+CompilationStats.FallbackUsed	internal/prompt/compiler_stats.go:104
+CompilerConfig.VectorSearchTimeout	internal/prompt/compiler.go:248
+DecomposeRequest.UserHints	internal/campaign/decomposer.go:122
 DependencyError.ConflictID	internal/prompt/resolver.go:340
 DependencyError.CycleIDs	internal/prompt/resolver.go:341
 FileEdit.EditType	internal/core/transaction_manager.go:88
-GeminiConfig.URLContextURLs	internal/perception/client_types.go:147
-InitConfig.InteractiveIO	internal/init/initializer.go:112
-InitConfig.PreferenceHints	internal/init/initializer.go:99
+GeminiConfig.URLContextURLs	internal/perception/client_types.go:153
+InitConfig.InteractiveIO	internal/init/initializer.go:123
+InitConfig.PreferenceHints	internal/init/initializer.go:106
 IntegrationPath.InputArity	internal/core/integration_path.go:10
 IntegrationPath.OutputArity	internal/core/integration_path.go:12
 IntegrationPath.Witness	internal/core/integration_path.go:13
-InteractiveConfig.PromptTimeout	internal/init/interactive.go:71	(dead file)
+InteractiveConfig.PromptTimeout	internal/init/interactive.go:70
 KernelShardConfig.ManglePath	internal/core/kernel_shard.go:55
-LogicPane.ScrollOffset	cmd/nerd/ui/splitpane.go:84	(dead file)
+LogicPane.ScrollOffset	cmd/nerd/ui/splitpane.go:84
 MangleUpdatePolicy.AllowedPrefixes	internal/core/mangle_updates.go:15
-MeterConfig.HTTPClient	internal/broker/default.go:58	(dead file)
 MeterConfig.PrimaryModel	internal/broker/default.go:63	(dead file)
 MeterConfig.ReceiptBuffer	internal/broker/default.go:54	(dead file)
 MeterConfig.SeedRatio	internal/broker/default.go:56	(dead file)
-OpenRouterConfig.SiteURL	internal/perception/client_types.go:165
-Options.ContextLines	internal/diff/diff.go:166	(dead file)
-Options.DisableCache	internal/diff/diff.go:170	(dead file)
-Options.MaxCacheBytes	internal/diff/diff.go:177	(dead file)
-Options.MaxCacheEntries	internal/diff/diff.go:173	(dead file)
+OpenRouterConfig.SiteURL	internal/perception/client_types.go:171
+Options.ContextLines	internal/diff/diff.go:163	(dead file)
+Options.MaxCacheBytes	internal/diff/diff.go:174	(dead file)
+Options.MaxCacheEntries	internal/diff/diff.go:170	(dead file)
 Options.NoSidecar	internal/persist/factsnap/factsnap.go:84
-Options.VerifyCacheContent	internal/diff/diff.go:190	(dead file)
-OrchestratorConfig.CampaignRiskOverride	internal/campaign/orchestrator_types.go:170
-OrchestratorConfig.CampaignTimeout	internal/campaign/orchestrator_types.go:151
-OrchestratorConfig.TaskRiskOverrides	internal/campaign/orchestrator_types.go:171
-OrchestratorConfig.TaskTimeout	internal/campaign/orchestrator_types.go:152
-OuroborosConfig.AllowCompilationFallback	internal/autopoiesis/ouroboros.go:147	(dead file)
-PendingMutation.Diff	cmd/nerd/ui/diffview.go:115	(dead file)
-RouterConfig.CustomRoutes	internal/shards/system/router.go:43	(dead file)
-SessionContext.Ambient	internal/types/types.go:452	(dead file)
-ToolTemplate.Template	internal/autopoiesis/tool_templates.go:17	(dead file)
-Turn.ExtractedAtoms	internal/context/types.go:338	(dead file)
-ZAIConfig.DisableSemaphore	internal/perception/client_types.go:105
-initResearchResult.FallbackUsed	internal/init/agents.go:45	(dead file)
+Options.Now	internal/approval/broker.go:23
+Options.VerifyCacheContent	internal/diff/diff.go:187	(dead file)
+OrchestratorConfig.CampaignRiskOverride	internal/campaign/orchestrator_types.go:184
+OrchestratorConfig.CampaignTimeout	internal/campaign/orchestrator_types.go:165
+OrchestratorConfig.TaskRiskOverrides	internal/campaign/orchestrator_types.go:185
+OrchestratorConfig.TaskTimeout	internal/campaign/orchestrator_types.go:166
+OuroborosConfig.AllowCompilationFallback	internal/autopoiesis/ouroboros.go:151
+RouterConfig.CustomRoutes	internal/shards/system/router.go:43
+SessionContext.Ambient	internal/types/types.go:452
+ToolTemplate.Template	internal/autopoiesis/tool_templates.go:17
+Turn.ExtractedAtoms	internal/context/types.go:323
+ZAIConfig.DisableSemaphore	internal/perception/client_types.go:106
+fileIDExtdDirInfo.ChangeTime	internal/world/cartographer_rev_windows.go:35
+fileIDExtdDirInfo.EndOfFile	internal/world/cartographer_rev_windows.go:36
+fileIDExtdDirInfo.FileAttributes	internal/world/cartographer_rev_windows.go:38
+fileIDExtdDirInfo.FileNameLength	internal/world/cartographer_rev_windows.go:39
+fileIDExtdDirInfo.LastWriteTime	internal/world/cartographer_rev_windows.go:34
+fileIDExtdDirInfo.NextEntryOffset	internal/world/cartographer_rev_windows.go:30
+initResearchResult.FallbackUsed	internal/init/agents.go:47
