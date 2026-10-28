@@ -17,6 +17,10 @@ func TestSessionOperationContext_CarriesUsageTrackerAndSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewTracker: %v", err)
 	}
+	// Close before t.TempDir is removed: the auto-save timer otherwise
+	// fires into a deleted directory and logs a warning into whatever test
+	// runs next (it broke TestDebugSelf_ProjectsProblemsLogIntoKernel).
+	t.Cleanup(func() { _ = tracker.Close() })
 	m := NewTestModel()
 	m.usageTracker = tracker
 	m.sessionID = "session-op-test"

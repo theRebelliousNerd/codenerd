@@ -18,6 +18,10 @@ func TestExecutorMeteredContext_UsesOwnedTracker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Close before t.TempDir is removed: the auto-save timer otherwise
+	// fires into a deleted directory and logs a warning into whatever test
+	// runs next (it broke TestDebugSelf_ProjectsProblemsLogIntoKernel).
+	t.Cleanup(func() { _ = tr.Close() })
 	e := &Executor{kernel: &MockKernel{}, config: DefaultExecutorConfig()}
 	e.SetSessionID("s1")
 	e.SetUsageTracker(tr)
@@ -34,6 +38,7 @@ func TestExecutorMeteredContext_UsesOwnedTracker(t *testing.T) {
 func TestExecutorMeteredContext_KeepsExistingTracker(t *testing.T) {
 	owned, _ := usage.NewTracker(t.TempDir())
 	other, _ := usage.NewTracker(t.TempDir())
+	t.Cleanup(func() { _ = owned.Close(); _ = other.Close() })
 	e := &Executor{kernel: &MockKernel{}, config: DefaultExecutorConfig()}
 	e.SetUsageTracker(owned)
 
@@ -53,6 +58,7 @@ func TestExecutorMeteredContext_NilTrackerLeavesContext(t *testing.T) {
 
 func TestExecutorCloneForTask_CopiesUsageTracker(t *testing.T) {
 	tr, _ := usage.NewTracker(t.TempDir())
+	t.Cleanup(func() { _ = tr.Close() })
 	e := &Executor{kernel: &MockKernel{}, config: DefaultExecutorConfig()}
 	e.SetUsageTracker(tr)
 	if e.CloneForTask().usageTracker != tr {

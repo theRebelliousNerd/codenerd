@@ -465,6 +465,10 @@ func TestClaudeCodeCLIClient_parseResponse_TracksActualModelFromModelUsage(t *te
 	if err != nil {
 		t.Fatalf("NewTracker: %v", err)
 	}
+	// Close before t.TempDir is removed: the auto-save timer otherwise
+	// fires into a deleted directory and logs a warning into whatever test
+	// runs next (it broke TestDebugSelf_ProjectsProblemsLogIntoKernel).
+	t.Cleanup(func() { _ = tracker.Close() })
 	client := NewClaudeCodeCLIClient(&config.ClaudeCLIConfig{Model: "opus"})
 	ctx := usage.NewContext(context.Background(), tracker)
 	payload := []byte(`{

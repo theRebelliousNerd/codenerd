@@ -214,6 +214,10 @@ func TestUsagePageModelContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create tracker: %v", err)
 	}
+	// Close before t.TempDir is removed: the auto-save timer otherwise
+	// fires into a deleted directory and logs a warning into whatever test
+	// runs next (it broke TestDebugSelf_ProjectsProblemsLogIntoKernel).
+	t.Cleanup(func() { _ = tracker.Close() })
 	tracker.Record(context.Background(), usage.Report{Model: "model-a", Provider: "provider-a", Operation: "complete", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
 
 	model = NewUsagePageModel(tracker, DefaultStyles())
