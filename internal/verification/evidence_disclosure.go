@@ -2,6 +2,7 @@ package verification
 
 import (
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -55,7 +56,7 @@ func (it *EvidenceItem) remainMarker(left int) string {
 // frameReserve is the most a range's framing can cost: its heading at the
 // widest offsets, its fence and its remaining-bytes marker.
 func (it *EvidenceItem) frameReserve() int {
-	const wide = 1 << 62
+	wide := math.MaxInt
 	return len(it.rangeHead(wide, wide)) + len(rangeTail) + len(it.remainMarker(wide))
 }
 

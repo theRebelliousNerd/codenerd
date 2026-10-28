@@ -1,11 +1,16 @@
 package chat
 
 import (
+	"codenerd/internal/config"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// defaultSurveyLimit is ui.northstar_list_limit's default, for tests that call
+// the survey directly.
+var defaultSurveyLimit = config.DefaultUIConfig().NorthstarListLimit
 
 func newHeuristicTestModel(w *NorthstarWizardState) Model {
 	m := InitChat(Config{})
@@ -154,10 +159,10 @@ func TestAutoHeuristic_CoveredCapabilityNoSuggestion(t *testing.T) {
 }
 
 func TestNorthstarSurveyWorkspace_EmptyAndMissing(t *testing.T) {
-	if got := northstarSurveyWorkspace(""); len(got) != 0 {
+	if got := northstarSurveyWorkspace("", defaultSurveyLimit); len(got) != 0 {
 		t.Fatalf("expected empty survey for empty workspace, got %v", got)
 	}
-	if got := northstarSurveyWorkspace(filepath.Join(t.TempDir(), "does-not-exist")); len(got) != 0 {
+	if got := northstarSurveyWorkspace(filepath.Join(t.TempDir(), "does-not-exist"), defaultSurveyLimit); len(got) != 0 {
 		t.Fatalf("expected empty survey for missing dir, got %v", got)
 	}
 }
@@ -172,7 +177,7 @@ func TestNorthstarSurveyWorkspace_DetectsDirs(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got := northstarSurveyWorkspace(root)
+	got := northstarSurveyWorkspace(root, defaultSurveyLimit)
 	joined := strings.Join(got, ",")
 	for _, want := range []string{"cmd", "internal", "go.mod"} {
 		if !strings.Contains(joined, want) {
@@ -202,11 +207,13 @@ func TestAutoHeuristic_WorkspaceGrounding(t *testing.T) {
 	}
 }
 
-func TestAutoHeuristic_DisplayTruncation(t *testing.T) {
+func TestAutoHeuristic_DetectedAreasAreListedWhole(t *testing.T) {
 	root := t.TempDir()
-	// Create many long directory names so joined display exceeds 160 chars.
-	for i := 0; i < 10; i++ {
+	// Long directory names: the joined display is long, and nothing in it is cut.
+	var names []string
+	for i := 0; i < 8; i++ {
 		name := strings.Repeat(string(rune('a'+i)), 4) + "-very-long-directory-name-00"
+		names = append(names, name)
 		if err := os.Mkdir(filepath.Join(root, name), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -216,14 +223,61 @@ func TestAutoHeuristic_DisplayTruncation(t *testing.T) {
 	m.workspace = root
 	got, _ := m.autoGenerateRequirementsHeuristic()
 	content := lastAssistantMessage(got.(Model))
-	if !strings.Contains(content, "Explore the codebase: detected") {
-		t.Fatalf("expected detected codebase suggestion, got %q", content)
+	if !strings.Contains(content, "Explore the codebase: detected "+strings.Join(names, ", ")) {
+		t.Fatalf("expected every detected area, whole, in the suggestion, got %q", content)
 	}
-	if !strings.Contains(content, "...") {
-		t.Fatalf("expected truncated display with ellipsis, got %q", content)
+	if strings.Contains(content, "...") {
+		t.Fatalf("a detected-area list is not cut with an ellipsis, got %q", content)
 	}
-	if !strings.Contains(content, "Which part of the codebase should requirements cover first (detected:") {
+	if !strings.Contains(content, "Which part of the codebase should requirements cover first (detected: "+strings.Join(names, ", ")) {
 		t.Fatalf("expected detected question, got %q", content)
+	}
+}
+
+func TestAutoHeuristic_ListLimitIsTheUISectionsKnob(t *testing.T) {
+	root := t.TempDir()
+	for i := 0; i < 6; i++ {
+		if err := os.Mkdir(filepath.Join(root, string(rune('a'+i))+"-dir"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w := NewNorthstarWizard()
+	m := newHeuristicTestModel(w)
+	m.workspace = root
+	m.Config = config.DefaultUserConfig()
+	m.Config.UI.NorthstarListLimit = 3
+	got, _ := m.autoGenerateRequirementsHeuristic()
+	content := lastAssistantMessage(got.(Model))
+	if !strings.Contains(content, "a-dir, b-dir, c-dir") {
+		t.Fatalf("expected the three-area list, got %q", content)
+	}
+	if strings.Contains(content, "d-dir") {
+		t.Fatalf("ui.northstar_list_limit=3 must stop the list at three areas, got %q", content)
+	}
+	if n := strings.Count(content, "Consider a requirement covering"); n != 2 {
+		// The aggregate suggestion takes one slot of the limit; per-area
+		// suggestions fill the rest.
+		t.Fatalf("expected 2 per-area suggestions under a limit of 3, got %d in %q", n, content)
+	}
+}
+
+func TestAutoHeuristic_CoverageIsTheTypedEdgeNotTheWords(t *testing.T) {
+	w := NewNorthstarWizard()
+	w.Problem, w.Vision = "prob", "vision"
+	w.Personas = []UserPersona{{Name: "Ada"}}
+	w.ResearchDocs = []string{"doc"}
+	w.Capabilities = []Capability{{Description: "fast search", Priority: "critical"}}
+	// A requirement that only mentions the words does not cover the capability.
+	w.Requirements = []NorthstarRequirement{{ID: "REQ-001", Type: "functional", Description: "Document fast search", Priority: "should-have", Source: "user"}}
+	m := newHeuristicTestModel(w)
+	got, _ := m.autoGenerateRequirementsHeuristic()
+	if len(w.Requirements) != 2 {
+		t.Fatalf("a requirement that merely names the capability must not suppress its own, got %+v", w.Requirements)
+	}
+	// A reworded requirement that carries the Supports edge does.
+	w.Requirements[1].Description = "Searching is fast"
+	if _, _ = got.(Model).autoGenerateRequirementsHeuristic(); len(w.Requirements) != 2 {
+		t.Fatalf("a requirement supporting the capability covers it however it is worded, got %+v", w.Requirements)
 	}
 }
 
@@ -256,7 +310,7 @@ func TestAutoHeuristic_AgenticInterviewExploresAsksAndSuggests(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	areas := northstarSurveyWorkspace(root)
+	areas := northstarSurveyWorkspace(root, defaultSurveyLimit)
 	joined := strings.Join(areas, ",")
 	for _, want := range []string{"cmd", "internal", "go.mod"} {
 		if !strings.Contains(joined, want) {
@@ -507,7 +561,7 @@ func TestAutoHeuristic_PinSurveySortingViaCaller(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	areas := northstarSurveyWorkspace(root)
+	areas := northstarSurveyWorkspace(root, defaultSurveyLimit)
 	if len(areas) != 3 {
 		t.Fatalf("expected 3 areas, got %v", areas)
 	}
@@ -532,7 +586,7 @@ func TestAutoHeuristic_PinSurveyLimitViaCaller(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	areas := northstarSurveyWorkspace(root)
+	areas := northstarSurveyWorkspace(root, defaultSurveyLimit)
 	if len(areas) != 8 {
 		t.Fatalf("expected survey to cap at 8 areas, got %v", areas)
 	}
@@ -570,7 +624,7 @@ func TestNorthstarSurveyWorkspace_PinSkipsHiddenFilesAndRegularFiles(t *testing.
 	if err := os.Mkdir(filepath.Join(root, ".hidden-dir"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	got := northstarSurveyWorkspace(root)
+	got := northstarSurveyWorkspace(root, defaultSurveyLimit)
 	joined := strings.Join(got, ",")
 	if strings.Contains(joined, ".hidden") || strings.Contains(joined, "notes.txt") {
 		t.Fatalf("expected hidden and regular files skipped, got %v", got)

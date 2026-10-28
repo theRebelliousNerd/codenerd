@@ -5,6 +5,7 @@ package chat
 import (
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -168,19 +169,12 @@ func (m Model) autoGenerateRequirementsHeuristic() (tea.Model, tea.Cmd) {
 	w.ensureIDs()
 	initialCount := len(w.Requirements)
 
-	northstarHasRequirement := func(substr string) bool {
-		for _, r := range w.Requirements {
-			if strings.Contains(r.Description, substr) {
-				return true
-			}
-		}
-		return false
-	}
+	limit := m.Config.GetUIConfig().NorthstarListLimit
 
 	// Generate requirements from capabilities (idempotent: skip already-covered).
 	for _, cap := range w.Capabilities {
 		if cap.Priority == "critical" || cap.Priority == "high" {
-			if northstarHasRequirement(cap.Description) {
+			if w.requirementRealizes(cap.ID) {
 				continue
 			}
 			w.Requirements = append(w.Requirements, NorthstarRequirement{
@@ -197,7 +191,7 @@ func (m Model) autoGenerateRequirementsHeuristic() (tea.Model, tea.Cmd) {
 	// Generate requirements from risks (mitigations, idempotent).
 	for _, risk := range w.Risks {
 		if risk.Impact == "high" && risk.Mitigation != "" && risk.Mitigation != "none" {
-			if northstarHasRequirement(risk.Mitigation) {
+			if w.requirementAddresses(risk.ID) {
 				continue
 			}
 			w.Requirements = append(w.Requirements, NorthstarRequirement{
@@ -213,7 +207,7 @@ func (m Model) autoGenerateRequirementsHeuristic() (tea.Model, tea.Cmd) {
 
 	// Generate requirements from research-extracted facts (idempotent).
 	for _, fact := range w.ExtractedFacts {
-		if northstarHasRequirement(fact) {
+		if w.requirementStates(fact) {
 			continue
 		}
 		// Classify the fact type based on keywords
@@ -271,19 +265,11 @@ func (m Model) autoGenerateRequirementsHeuristic() (tea.Model, tea.Cmd) {
 	var suggestions []string
 	var questions []string
 
-	coveredCaps := map[string]bool{}
-	for _, r := range w.Requirements {
-		for _, c := range w.Capabilities {
-			if strings.Contains(r.Description, c.Description) {
-				coveredCaps[c.Description] = true
-			}
-		}
-	}
 	for _, c := range w.Capabilities {
-		if len(suggestions) >= 8 {
+		if len(suggestions) >= limit {
 			break
 		}
-		if !coveredCaps[c.Description] && c.Priority != "critical" && c.Priority != "high" {
+		if !w.requirementRealizes(c.ID) && c.Priority != "critical" && c.Priority != "high" {
 			suggestions = append(suggestions, fmt.Sprintf("Consider a requirement for capability %q [%s]", c.Description, c.Priority))
 		}
 	}
@@ -293,7 +279,7 @@ func (m Model) autoGenerateRequirementsHeuristic() (tea.Model, tea.Cmd) {
 			unmitigated++
 		}
 	}
-	if unmitigated > 0 && len(suggestions) < 8 {
+	if unmitigated > 0 && len(suggestions) < limit {
 		suggestions = append(suggestions, fmt.Sprintf("%d risk(s) have no mitigation yet \u2014 add one or type \"auto\" again after red-teaming", unmitigated))
 	}
 	if len(w.Personas) == 0 {
@@ -303,15 +289,12 @@ func (m Model) autoGenerateRequirementsHeuristic() (tea.Model, tea.Cmd) {
 		questions = append(questions, "What is the one capability this project must have? (go back with \"back\" or describe it now)")
 	}
 	if len(w.ExtractedFacts) == 0 && len(w.ResearchDocs) == 0 {
-		areas := northstarSurveyWorkspace(m.workspace)
+		areas := northstarSurveyWorkspace(m.workspace, limit)
 		if len(areas) > 0 {
 			display := strings.Join(areas, ", ")
-			if len([]rune(display)) > 160 {
-				display = string([]rune(display)[:157]) + "..."
-			}
 			suggestions = append(suggestions, fmt.Sprintf("Explore the codebase: detected %s — run /scan or add docs (README, nerd.md) in the Doc Ingestion step, then re-run \"auto\" to ground requirements", display))
 			for _, area := range areas {
-				if len(suggestions) >= 8 {
+				if len(suggestions) >= limit {
 					break
 				}
 				suggestions = append(suggestions, fmt.Sprintf("Consider a requirement covering %q (detected in workspace)", area))
@@ -363,7 +346,7 @@ func (m Model) autoGenerateRequirementsHeuristic() (tea.Model, tea.Cmd) {
 // marker files (go.mod, README, nerd.md) so auto mode can ask targeted
 // questions and suggest concrete areas instead of generic placeholders.
 // Returns an empty slice when workspace is unset or unreadable.
-func northstarSurveyWorkspace(workspace string) []string {
+func northstarSurveyWorkspace(workspace string, limit int) []string {
 	if strings.TrimSpace(workspace) == "" {
 		return nil
 	}
@@ -396,10 +379,51 @@ func northstarSurveyWorkspace(workspace string) []string {
 	// Prefer directories (codebase areas); append markers for grounding.
 	areas := append([]string{}, dirs...)
 	areas = append(areas, markers...)
-	if len(areas) > 8 {
-		areas = areas[:8]
+	if len(areas) > limit {
+		areas = areas[:limit]
 	}
 	return areas
 }
 
 // Agentic interview preserved: auto mode explores, asks, and suggests in a bounded state-driven way.
+
+// requirementRealizes reports whether some requirement already realizes the
+// capability. Coverage is the typed Supports edge the generator writes, not a
+// substring of free text: a requirement the user reworded still covers it, and
+// one that merely mentions the words does not.
+func (w *NorthstarWizardState) requirementRealizes(capabilityID string) bool {
+	if capabilityID == "" {
+		return false
+	}
+	for _, r := range w.Requirements {
+		if slices.Contains(r.Supports, capabilityID) {
+			return true
+		}
+	}
+	return false
+}
+
+// requirementAddresses reports whether some requirement already mitigates the
+// risk (the typed Addresses edge).
+func (w *NorthstarWizardState) requirementAddresses(riskID string) bool {
+	if riskID == "" {
+		return false
+	}
+	for _, r := range w.Requirements {
+		if slices.Contains(r.Addresses, riskID) {
+			return true
+		}
+	}
+	return false
+}
+
+// requirementStates reports whether a requirement already carries the
+// research fact verbatim as its description.
+func (w *NorthstarWizardState) requirementStates(fact string) bool {
+	for _, r := range w.Requirements {
+		if r.Source == "research" && r.Description == fact {
+			return true
+		}
+	}
+	return false
+}

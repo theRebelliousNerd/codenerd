@@ -2958,11 +2958,9 @@ func (e *Executor) consumeTurnDoneSignal(turn types.MangleAtom, verb string) tur
 	} else {
 		seenGate := map[string]bool{}
 		for _, f := range owedFacts {
-			if len(f.Args) >= 2 {
-				if gate := types.ExtractString(f.Args[1]); gate != "" && !seenGate[gate] {
-					seenGate[gate] = true
-					v.Owed = append(v.Owed, gate)
-				}
+			if gate := types.ArgString(f, 1); gate != "" && !seenGate[gate] {
+				seenGate[gate] = true
+				v.Owed = append(v.Owed, gate)
 			}
 		}
 		sort.Strings(v.Owed)

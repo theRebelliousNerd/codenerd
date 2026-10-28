@@ -81,17 +81,14 @@ func unroutedActions(routing, exec []core.Fact) []string {
 	}
 	var notes []string
 	for _, f := range routing {
-		if len(f.Args) < 3 {
-			continue
-		}
-		if types.ExtractString(f.Args[1]) != "/failure" {
+		if types.ArgString(f, 1) != "/failure" {
 			continue
 		}
 		id := types.ExtractString(f.Args[0])
 		if _, ran := executed[id]; ran {
 			continue
 		}
-		notes = append(notes, fmt.Sprintf("System action %s was not dispatched (%v); no result was produced for it.", id, types.ExtractString(f.Args[2])))
+		notes = append(notes, fmt.Sprintf("System action %s was not dispatched (%v); no result was produced for it.", id, types.ArgString(f, 2)))
 	}
 	return notes
 }

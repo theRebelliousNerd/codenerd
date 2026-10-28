@@ -16,11 +16,17 @@ type UIConfig struct {
 	// is open (0 < ratio < 1; the view clamps it to 0.2-0.9). Default 0.67:
 	// two thirds chat, one third logic.
 	SplitPaneRatio float64 `json:"split_pane_ratio,omitempty"`
+	// NorthstarListLimit bounds the lists the north star wizard's auto
+	// interview prints: the workspace areas it names and the suggestions it
+	// offers. The interview is a prompt for the user to answer, not a report;
+	// a repository with dozens of top-level directories would otherwise
+	// bury the questions. Default 8.
+	NorthstarListLimit int `json:"northstar_list_limit,omitempty"`
 }
 
 // DefaultUIConfig is the ui section with every field written down.
 func DefaultUIConfig() UIConfig {
-	return UIConfig{SplitPaneRatio: 0.67}
+	return UIConfig{SplitPaneRatio: 0.67, NorthstarListLimit: 8}
 }
 
 // GetUIConfig returns the ui section with every absent field defaulted. A nil
@@ -37,6 +43,9 @@ func (c UIConfig) WithDefaults() UIConfig {
 	if c.SplitPaneRatio == 0 {
 		c.SplitPaneRatio = DefaultUIConfig().SplitPaneRatio
 	}
+	if c.NorthstarListLimit == 0 {
+		c.NorthstarListLimit = DefaultUIConfig().NorthstarListLimit
+	}
 	return c
 }
 
@@ -51,6 +60,14 @@ func (c UIConfig) Check(prefix string) []Problem {
 			Path:     prefix + ".split_pane_ratio",
 			Message:  fmt.Sprintf("%g is not a share of the width between 0 and 1", v),
 			Fix:      "a ratio such as 0.67, or remove the key for the default",
+		})
+	}
+	if v := c.NorthstarListLimit; v < 1 {
+		out = append(out, Problem{
+			Severity: SeverityError,
+			Path:     prefix + ".northstar_list_limit",
+			Message:  fmt.Sprintf("%d lists nothing", v),
+			Fix:      "a count of 1 or more, or remove the key for the default",
 		})
 	}
 	return out
