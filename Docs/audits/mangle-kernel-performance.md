@@ -162,39 +162,75 @@ A staged future rollout should first compare selected pure/replayable workloads 
 
 These are research work items, not adopted repository gap IDs. The practical order is measurement plus the smallest index-preserving clone experiment, then preparation and retraction access paths. Keep the executive in Mangle. Make it do less irrelevant work, not less required reasoning.
 
-## As built (2026-10-27)
+## Follow-up: failed evaluation is not a readable snapshot
 
-Already on main before this pass: `9dc23e1e` (clean-parent clones copy the evaluated store; dream checks use `EvaluatePending`) and `da587e91` (incremental dedupe-index removal on retract).
+**Research status: source-supported failure mode; not implemented or reproduced here.** This follow-up inspected `main` at `356f65e0e6bb639adaa90ab36212daa714114871` and `feat/conversation-brief` at `c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c` on 2026-10-28. The latter was 27 commits ahead with the former as its merge base. `kernel_facts.go`, `kernel_eval.go`, `kernel_eval_cone.go`, and `kernel_query.go` have the same contents on those pins. No code, tests, inference, profiling or benchmarks were run.
 
-**Implemented**
+### What is new, and what is already built
 
-- **KERNEL-PERF-04, compiled retractions.** `internal/core/kernel_retract_plan.go`: `compileRetractions` turns a transaction's whole-predicate, predicate-set, first-argument and exact retractions into one `retractionPlan`; `KernelTransaction.Commit` (`kernel_transactions.go`) compacts the EDB once with `plan.keeps`, and skips the pass when no named predicate has rows. Hash keys (`valueKey`, allocation-free) only select candidates; every match is confirmed with `argsEqual`/`argsSliceEqual`, so the cross-type semantics are unchanged (unkeyable values go to a linear list; `-0` keys with `0`). Transaction contract unchanged: retractions before assertions, partial assertion rejection, publish after unlock.
-- **KERNEL-PERF-03, cone preparation.** `kernel_edb_index.go`: the dedupe index is now `edbIndex`, bucketed by predicate (canonical key → stored `Fact`) with a monotone per-name arity history, maintained by every admit, retract, heartbeat replace, boot inject, clear and clone. `kernel_cone_plan.go`: `coneIndex` (built after stratification, shared through the compiled-program cache) carries `rulesByHead`, `strataByPred` and per-name program symbols, and a bounded (256) cache of immutable `conePlan`s keyed by the written-predicate set. `evaluateConeLocked` removes old rows by symbol (program symbols ∪ EDB arity history) instead of `ListPredicates`, restores only touched EDB buckets, and hands the engine the plan's rules and strata in original program order.
-- **KERNEL-PERF-02, clone representation.** `Clone` shares the immutable stored facts (the per-fact deep copy is gone) and clones the index structure; `copyFactStore(src, dst)` copies into a simple store.
-- **KERNEL-PERF-01, attribution.** `EvaluationStats` (`kernel_types.go`) records mode, store kind, prepare vs engine time, touched/removed/restored counts, rules, strata, and why a named write fell back to the full path (`coneIneligibilityLocked`). `Dreamer.evaluateProjection` logs clone time plus these per check.
-- Found along the way: `rebuildProgram` cleared `policyDirty` and installed the new `programInfo` before stratifying, so a non-stratifiable program left new rules beside old strata. It now installs nothing until stratification succeeds.
+The existing performance audit's **As built** section already records compiled retractions, predicate-bucketed EDB access, cached cone plans, evaluation attribution and the measured decision to retain simple clone stores. Its earlier recommendations must not be presented as still wholly unimplemented. This follow-up concerns a different invariant: **a public query must not report an incomplete evaluation as a successful fact snapshot**. It does not propose reviving retained-IDB incremental evaluation or replacing the measured clone-store choice. [Existing audit](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/Docs/audits/mangle-kernel-performance.md)
 
-**Measured** (`internal/core/kernel_perf_bench_test.go`, `-benchtime=30x`, median of 3, shared workstation; before = this branch's base, after = this commit):
+### The failure boundary in the current source
 
-| Benchmark | Before | After |
-|---|---|---|
-| `TransactionMixedRetractions` 60k EDB, 1,000 exact + 20 first-arg + 1 predicate | 538 ms | 6.9 ms |
-| same, 50 exact | 34.1 ms | 6.1 ms |
-| `ConeSmallWrite` one-rule cone, 60k EDB | 754 µs | 126 µs |
-| `ConeSmallWrite`, 1.5k EDB | 80 µs | 73 µs |
-| `DreamCloneConeEvaluation` clone + stage + cone + read, 60k EDB | 75.4 ms, 141k allocs | 67.5 ms, 81k allocs |
-| same, 1.5k EDB | 1.03 ms, 3.9k allocs | 0.93 ms, 2.4k allocs |
+The cone path deliberately edits the current `k.store` in place: it removes touched predicates, restores their EDB, and runs the selected rules in that same store. Its comment explicitly acknowledges that an error leaves the store half rebuilt and relies on full evaluation to repair it. The full fallback builds a fresh store, but installs that store only after successful evaluation. If **both** attempts fail, the old `k.store` reference still names the partially changed cone store. Neither failure branch clears `initialized` or installs an independently checked readable-state marker. [Cone mutation and failure, lines 285–347](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_eval_cone.go#L285-L347); [fallback and full publication, lines 257–375](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_eval.go#L257-L375)
 
-Equivalence, not just speed: `kernel_perf_test.go` checks cone results against a fresh full fixpoint after asserts, a negated premise turning true and retractions, on both store kinds and on clones (`TestCloneStoreKindAndConeEquivalence`), the retracted-undeclared-arity case (`TestConeRemovesRetractedUndeclaredArity`), plan selection against a whole-program scan on the production corpus (`TestConePlanMatchesProgramScanOnProductionCorpus`), compiled retractions against sequential passes over a cross-type value zoo with index parity (`TestCompiledRetractionsMatchSequentialPasses`), and transaction fixpoint equivalence.
+This is not a claim that the normal fallback is broken: **successful full fallback repairs the store**. Nor is every failed cone necessarily partially mutated; an eligibility refusal or error before removal has different consequences. The concerning case is a failure after in-place mutation, followed by a failed full fallback. A derivation-limit failure is one candidate for an authorized future fixture; both paths use the configured created-fact limit. No particular production workload is asserted to have hit it.
 
-**Ruled differently**
+### Stronger sequential case: staged writes
 
-- Clone stores stay simple. `BenchmarkCloneStoreKind` (copy + cone + read, timed together) measured an indexed copy at 1.6 vs 0.8 ms (synthetic 1.5k EDB), 96 vs 63 ms (synthetic 60k EDB, a bound join that the index does help), and 26.8 vs 13.3 ms (production corpus, dream projection). Building argument indexes per clone costs more than the joins it saves.
-- Plans cache the physical selection only (rules, strata, touched names). They don't cache results or permission answers. Program identity is implicit: the cache lives on that program's `coneIndex`. The bound is an internal constant like `compiledProgramCacheMax`, not a user setting.
-- `RetractExactFactsBatch` keeps its canonical-key identity; the transaction keeps `argsEqual` identity. Each public API's semantics are unchanged.
+The smallest source-supported sequence does not require a race:
 
-**Deferred**
+1. Start with an initialized, successfully evaluated kernel whose `factsDirty` is false and whose store supports cone removal.
+2. Admit a **new**, valid fact with `AssertWithoutEval`. It updates EDB and `dirtyPreds`, deliberately leaving `factsDirty` false. A duplicate does not meet this condition.
+3. Call `EvaluatePending`. The pending predicate prevents its no-work return, so it evaluates. Cause the cone to fail after mutation and the full fallback to fail too.
+4. The call returns an error, but does not set `factsDirty` or invalidate `initialized`. A subsequent ordinary `Query`, `QueryCallback` or `QueryAll` can take `ensureEvaluated`'s false-dirty fast path and return the incomplete store as success.
 
-- KERNEL-PERF-06 overlays: the 60k-EDB profile now shows store copy plus GC dominating a dream check (the cone itself is small), which is the evidence §3 asked for. The masking, tombstone and lifetime design is still unbuilt.
-- KERNEL-PERF-05 smallest-bound-bucket lookup: this is an upstream `factstore` change. Also upstream, `EvalStratifiedProgramWithStats` copies every Decl and rebuilds per-stratum EDB sets on each call, a cost proportional to the program rather than to the cone.
-- Lock wait/hold, peak memory and external-call timing in `EvaluationStats`. Per-stratum engine durations are summed, not exposed.
+This is a state-lifecycle defect at the kernel API boundary, not simply a caller failing to inspect the returned evaluation error. A later reader may be a different consumer. [Staging and `EvaluatePending`, lines 720–767](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_facts.go#L720-L767); [`ensureEvaluated`, lines 421–448](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_eval.go#L421-L448); [query entry, lines 40–62](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_query.go#L40-L62)
+
+### Separate concurrent-read case
+
+Normal `Assert` and transaction writes mark the kernel dirty, so readers that enter **after** those writes normally retry evaluation and receive its error. Nevertheless, there is a narrower interleaving:
+
+1. Reader R finishes `ensureEvaluated` against a clean kernel but has not yet acquired `k.mu.RLock`.
+2. A writer admits a normal dirtying mutation; another evaluator obtains the write lock, partially mutates the cone store, fails the full fallback, and releases the lock.
+3. R acquires its read lock. It checks `initialized`, not `factsDirty` or a successful materialization epoch, then reads the partial store with no evaluation error.
+
+**Important counterexample:** the mere gap between `ensureEvaluated` and the read lock is not by itself proof of a stale-read bug. If evaluation succeeds, a concurrent query may legitimately linearize before or after the write. The failure above is different: the result can come from a store that was never a completed fixpoint. QueryCallback and QueryAll have the same read handshake. [`QueryCallback`, lines 194–214](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_query.go#L194-L214); [`QueryAll`, lines 332–360](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_query.go#L332-L360)
+
+### Production reachability, and gates that must be credited
+
+`Dreamer.evaluateProjection` uses the exact clone → stage → `EvaluatePending` sequence, but it **checks the error, returns unsafe and does not query the failed clone**. That is a successful caller-side defense, not evidence of a Dreamer permission bypass. The feature branch retains that defense while extending its result shape. [Main lines 288–316](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/dreamer.go#L288-L316); [feature lines 295–323](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/core/dreamer.go#L295-L323)
+
+`Dreamer.assertCriticalPathFactsLocked` also stages facts and calls `EvaluatePending`, this time on the attached kernel rather than a throwaway projection. It leaves `criticalPathsReady` false on staging/evaluation failure, so that Dreamer's simulations remain refused. That flag does **not** mark the general kernel unreadable for other consumers. Constructor/setup timing and whether any new prefix is admitted determine whether the sequential failure condition is reachable in a particular run. [Main lines 132–161](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/dreamer.go#L132-L161); [feature lines 138–168](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/core/dreamer.go#L138-L168)
+
+The concrete shared path is `VirtualStore.getDreamer` → `realKernelForDreamer` → `NewDreamer(realKernel, critical...)` → `assertCriticalPathFacts`. `getDreamer` obtains the production Cortex's catch-all `RealKernel` and passes that same pointer to the constructor; the constructor does not clone it. Its initialization mutex serializes Dreamer creation, not all general kernel readers. The pointer identity is rechecked before publishing the constructed Dreamer, which correctly prevents binding to a replaced kernel but does not repair a failed materialization. [Shared-kernel construction, lines 535–594](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/virtual_store.go#L535-L594); [constructor, lines 37–48](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/dreamer.go#L37-L48)
+
+The outer sharding layer is not a general serialization barrier: `KernelShard.Assert` releases its own mutex before delegating to `RealKernel.Assert`, and `KernelShard.Query` similarly releases it before `RealKernel.Query`. `CortexKernel.EvaluateAll` invokes each shard's `EvaluatePending` and **propagates** an evaluation error. That is another existing defense; the issue is the failed kernel's subsequent readable state, not an assertion that Cortex swallows its error. [Shard delegation](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_shard.go#L151-L168); [shard query](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_shard.go#L244-L267); [Cortex evaluation and error propagation](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/cortex_kernel.go#L1049-L1089)
+
+The outputs matter beyond diagnostics: chat reads `permitted`, `forbidden` and `safety_warning` for session context; VirtualStore's exact authorization check queries `permitted` and denies on query error. An incorrectly successful partial read removes that error signal. This inspection establishes a relevant consumer and failure contract, **not an observed unauthorized action**: exact action/target/payload matching, Dreamer and other route checks still apply. [Chat context reads](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/cmd/nerd/chat/model_session_context.go#L1049-L1105); [exact authorization check](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/virtual_store.go#L1167-L1237)
+
+### Proposed contract, not an implementation prescription
+
+Track the validity of a materialized snapshot independently from whether automatic evaluation was requested. A failed in-place evaluation must leave the kernel explicitly unreadable until successful repair, or retain a separately published immutable successful snapshot with an explicit stale/error contract. General executive reads must not silently treat an old snapshot as current authorization after a failed new evaluation.
+
+Acquire the read lock and validate the materialization state under that lock before invoking callbacks or exposing rows. A pre-lock fast check can remain an optimization, not the proof of readability. Define staging separately: intentionally suppressing automatic evaluation while collecting a private batch must not suppress invalidation after a failed attempt. Ensure error state and successful publication are consistent across lazy evaluation, `Evaluate`, `EvaluatePending`, clones, reset and policy changes.
+
+Do not solve this by unconditionally copying the entire fact store for every cone. The existing audit measured copying/GC as a dominant large-clone cost and deferred overlays. First compare a bounded validity/error-state plus checked read handshake against staged cone publication; the latter has broader ownership and allocation consequences. Preserve the current full fallback and do not cache authorization verdicts.
+
+### Future verification and full costs
+
+These are proposed checks, none executed here:
+
+| Case | Required evidence |
+|---|---|
+| Clean kernel → new `AssertWithoutEval` → failed cone and full fallback | Subsequent Query/QueryCallback/QueryAll return an error or explicitly unavailable state; zero callback rows are exposed from the failed evaluation. |
+| Controlled reader/evaluator interleaving | Pause after the clean fast check and before RLock using deterministic synchronization; run failed evaluation; resumed reader must not return partial rows. Do not rely on sleeps. |
+| Cone failure, successful full fallback | Complete results equal a fresh full fixpoint, with no lingering invalid state. |
+| Failure before any mutation; normal successful concurrent writes | No accidental regression in ordinary reads or unnecessary permanent poisoning. |
+| Recovery after the failing cause is removed | Readability returns only after a successful complete materialization; the original cause stays attributable. |
+| Both store kinds and clean-parent clones | Same semantics; parent isolation remains intact. |
+| Actual Dreamer route | Existing unsafe-on-evaluation-error defense remains; attached-kernel setup failure cannot leak a readable partial snapshot to a different consumer. |
+
+The inspected concurrency test checks completion without panic/deadlock and ignores query results/errors; it does not establish this invariant. Existing cone tests establish successful cone/full equivalence, not failed publication. [Concurrency test lines 143–195](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_query_gaps_test.go#L143-L195); [cone tests](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_eval_cone_test.go)
+
+Measure total dirty-read latency, lock wait/hold, reader retries, fallback time, EDB/IDB peak memory, and repeated deterministic-failure behavior—not just successful engine duration. An error latch must not create an unbounded busy retry loop; a copy-on-write design must include its allocation and reclamation cost. End-to-end evaluation should report correctness/error visibility and model retries per correctly completed task, not claim token savings merely because failed reasoning returned fewer facts.

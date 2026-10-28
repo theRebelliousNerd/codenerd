@@ -194,44 +194,219 @@ For capability, pair tasks requiring different languages, tool envelopes, phase-
 
 These are established mechanisms applied to concrete CodeNERD seams. No novelty, measured speedup, token reduction or superiority claim is established. The goal is to make the same trustworthy JIT decision with less repeated work, and to improve the decision only through a separately measured quality contract.
 
-## As built (2026-10-27)
+## Post-implementation refinement: preserve literal evidence through template rendering
 
-Verified against current source first: §§2–5 still held. The cache key had no source generation, `clearPromptCache` cleared without fencing in-flight publishes, every hit cloned and walked the kernel, project/expert atoms were re-joined on every miss, selector metadata was rendered to Mangle text and re-parsed per compile, and placeholders were expanded per atom, again over the whole prompt, and again on every shed pass. `compiler.go` (1,971 lines) is now split into `compiler{,_cache,_generation,_kernel,_pipeline,_preflight,_render,_result,_sources,_stats}.go`.
+### Decision and scope
 
-**Implemented**
+Keep the implemented generation-aware compiler and render-session work. Add an explicit distinction between **authored template instructions** and **runtime evidence** before rendering.
 
-| Item | Where | What |
-|---|---|---|
-| JIT-REUSE-01 source vector | `internal/store/source_generation.go#ReadSourceGeneration`; `internal/prompt/compiler_generation.go#captureSourceVector`; `compiler_pipeline.go#compileMiss` | Owned, trigger-maintained version rows that commit with the write, from any connection or process. Each token includes the schema version, and the read self-repairs missing triggers. The vector covers: a registration epoch, the project DB, the selected expert DB (its prompt atoms plus knowledge), LocalStore knowledge and vectors, every LearningStore shard, the evolved-set generation, and `StrategyProvider.SourceGeneration`. The key carries the vector captured before collection; the result is published only if a re-capture matches, every source is tracked, and nothing degraded. |
-| Degraded/untracked contract | `compiler_generation.go#degradation`; `compiler_db.go#collectKnowledgeAtomsFrom`, `#collectLearningAtomsFrom`; `compiler_sources.go` | Lookup errors and timeouts (not empty results) mark the compile degraded. A degraded result is returned but not cached, so every identical call re-probes. An unreadable generation means no lookup and no publish. |
-| JIT-REUSE-02 metrics | `compiler_stats.go#compilerCounters`, `CompilerStats`, `CompilationStats.{PreflightMs,PreflightReused,DegradedSources,Uncacheable}`; `cmd/nerd/cmd_advanced.go` (`nerd jit`) | Hits, joiners, preflights (count and mean), memo reuses, catalog reuses, uncacheable/degraded/churn counts, all separate from the compile average. |
-| JIT-REUSE-03 catalog + typed metadata | `compiler_generation.go#atomCatalog`; `selector_facts.go#appendCandidateFacts` | Project and expert atoms are reused per handle and generation, installed only after revalidation. Candidate facts are typed `Fact`s whose name constants are `types.MangleAtom`; static facts are cached per immutable atom, and only `is_mandatory`/`prompt_atom` are built per compile. `KernelAdapter.AssertBatch` takes them without parsing. Mangle still selects. |
-| JIT-REUSE-04 shared preflight | `internal/core/kernel_generation.go#SnapshotIdentity`, `#CloneWithIdentity`; `internal/system/factory_adapters.go#SnapshotIdentity`; `internal/prompt/compiler_preflight.go` | The kernel generation advances in `markDirtyLocked`, alongside a per-kernel instance id. The identity is read under the same lock as the clone. It is `Reusable` only when no rule reads an external predicate and the program is analysed. The dynamic snapshot is memoized by identity, context facts, shard and config revision, so a hit over an unchanged kernel clones nothing. A miss acquires its scope and re-snapshots if the scope's identity differs. |
-| JIT-REUSE-05 render once | `assembler.go#RenderSession`, `#expandTemplate`; `budget.go#TokenCounter`; `compiler_render.go#fitAndAssemble` | One session per compile renders each (atom, mode) fragment once. Fit and ShedToFit charge `max(declared, rendered)`, and reassembly reuses fragments. The final whole-prompt check is kept. |
+A single-pass template engine answers *how often* to interpret template syntax. It does not establish *which bytes are authorized to contain that syntax*. Current JIT rendering has solved the former problem but still conflates the latter.
 
-**Ruled differently**
+This is an adjacent refinement of the template/data semantics already discussed in this audit, not a new cache-generation, dependency-budgeting or section-admission project. It concerns deterministic preservation of admitted evidence and user constraints. It does not claim arbitrary code execution, an authorization bypass, malicious exploitation, or a measured reduction in task failures.
 
-- **No snapshot handle or ownership lease.** This follows the doc's own "first implementation": a generation number memoizes the fingerprint, and selection still runs on private scopes.
-- **Source generations come from trigger-maintained rows, not `PRAGMA data_version`.** This is the doc's preference, and it covers writes from other processes.
-- **Latest-at-return semantics.** A result whose sources moved during the compile is returned to its caller, marked uncacheable. There is no retry, so a source that changes constantly cannot cause an endless recompile loop.
-- **The embedded corpus and vector searcher are not in the vector.** They are construction-time constants of a compiler instance.
-- **Template placeholders expand in one pass.** It is deterministic and runs left to right over source text. Inserted values are never re-scanned, which closes the map-order-dependent re-expansion of placeholders inside data such as the specialist roster. The assembler's second whole-prompt pass is removed.
-- **No new knob.** Memo, catalog and fact-cache bounds are memory ceilings, not tunables, and an evicted entry is recomputed rather than served wrong.
-- **Found along the way:** `core.sanitizeFactForNumericPredicates` coerced numeric arguments in the caller's `Args` slice. Once typed fact slices were shared across concurrent compiles, that became a data race. It now coerces a private copy (`internal/core/kernel_facts_ownership_test.go`).
+**Source freeze:** rechecked at approximately 16:13 UTC on 2026-10-28. `main` was `356f65e0e6bb639adaa90ab36212daa714114871`; `feat/conversation-brief` was `c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c`; the research branch was `890cfb7b7d0fe77073bb09fe18aefecb62bc27d3`. The relevant assembler, knowledge/learning conversion, kernel-atom construction, selection, and compiler pipeline files are byte-identical between main and feature. The feature's Northstar wizard changed to Guardian-owned updates, but `Vision.ToFacts` still preserves constraint strings unchanged.
 
-**Tests**
+**Verification method:** static source inspection and primary-source research only. No runtime execution, tests, model inference, profiling or implementation was performed. The counterexamples and validation plan below are source-derived and unrun.
 
-- `internal/store/source_generation_test.go`
-- `internal/core/kernel_generation_test.go`
-- `internal/prompt/compiler_generation_test.go`: in-place write, catalog, degraded→recovery, mid-compile churn, untracked, registration epoch.
-- `internal/prompt/compiler_preflight_test.go`: no clone on hit, kernel write, non-reusable, memo→miss.
-- `internal/prompt/compiler_render_test.go`: no re-expansion, render once, rendered charge, typed facts equal their parsed text over the whole shipped corpus.
-- `internal/system/prompt_preflight_reuse_test.go`: production adapter and real kernel, end to end.
+### Existing implementation to preserve
 
-**Deferred**
+The present compiler has real improvements:
 
-- **JIT-REUSE-06 eligibility-aware vector retrieval.** The doc requires threshold-population and recall evidence first, and gathering it needs live embedding backends.
-- **Analyzed dependency projection** (§2.4). Whole-kernel generation stays the conservative identity.
-- **Provider-tokenizer counting at the request owner** (§5.5). It is outside this package.
-- **The §7 capability and latency sweeps.** They need live models and workloads.
-- **Cross-process staleness in `StrategyStore`'s 5-minute in-memory cache.** It predates this change: the source vector moves, but the store may answer from its cache until the TTL expires.
+- Source vectors and kernel snapshots bind cache reuse to the inspected state.
+- One `RenderSession` renders fragments once and shares those fragments across fitting and reassembly.
+- Fit charges the greater of declared and rendered size; a final assembled-prompt check remains.
+- Inserted template values are not scanned recursively.
+- Mangle still governs context, capability, conflict and dependency admission.
+
+The [current generation audit's as-built section][literal-as-built] records these improvements. The [production fit-and-assemble path][literal-fit] actually uses them. None closes the following source/data distinction.
+
+### Producer-to-renderer evidence
+
+| Boundary | Current behavior |
+|---|---|
+| Project and selected-expert knowledge | `knowledgeAtomToPromptAtom` wraps the retrieved record's concept, confidence and **raw `Content`** in a new atom, then sets `RetrievedContext=true`. [Conversion][literal-knowledge] |
+| Recalled learning | The compiler hydrates stored learning content, places the returned body into atom `Content`, and sets `RetrievedContext=true`. [Learning conversion][literal-learning] |
+| Kernel-injected context | The compiler reads matching `injectable_context` rows, constructs the bounded context block, and creates an atom marked `IsMandatory=true` and `KernelInjected=true`. [Kernel conversion][literal-kernel] |
+| Selection | Runtime knowledge/learning gets a separate retrieval witness; Mangle still applies context and prohibition rules. This is not an unconditional inclusion path. [Witness producer][literal-witness], [Mangle admission][literal-admission] |
+| Compiler integration | Dynamic, knowledge and learning atoms enter the normal candidate collection before selection and rendering. [Pipeline][literal-pipeline] |
+| Rendering | `RenderSession.Fragment` obtains the selected content variant and, whenever the compilation context is nonnil, calls `expandTemplate` on that content. It does **not** distinguish source-bearing evidence spans from authored-template spans. [Fragment renderer][literal-fragment] |
+
+The existing origin flags are explicitly host-populated and non-authorable through YAML. Their documented roles concern selection and assembly placement; neither currently denotes literal rendering. In particular, `KernelInjected` describes the transport/origin, not proof that every character is data: a kernel-derived block can mix authored guidance and source-derived text. These flags are useful inventory leads, not a complete replacement for explicit producer semantics. [Origin fields][literal-flags]
+
+#### A concrete user-constraint producer
+
+This does not require a hypothetical custom template function.
+
+`Vision.ToFacts` passes each Northstar constraint string into `northstar_constraint` without templating it. The production policy derives `injectable_context("*", Desc)` from those constraints when Northstar is defined. The compiler then wraps the derived string into the normal kernel-context atom. [Vision projection][literal-vision], [Northstar policy][literal-northstar]
+
+The feature's Guardian-owned projection also calls `vision.ToFacts`; therefore its improved strategic-edit authority does not remove this later rendering seam. [Feature Guardian projection][literal-guardian]
+
+### Conditional counterexample
+
+Use a valid saved constraint whose complete text is:
+
+```text
+Preserve the exact literal token `{{language}}` in the configuration template.
+```
+
+Conditions:
+
+1. Northstar is defined and this constraint is projected into the kernel.
+2. The row survives the existing injection bounds; one short constraint suffices.
+3. The ordinary compile admits its kernel-context atom.
+4. The compilation context has `Language="go"` or `Language="/go"`.
+5. The budget is ample.
+
+The inspected path constructs the correct literal constraint, then sends it through `expandTemplate`. The registered `language` function returns `go`. The resulting fragment therefore contains:
+
+```text
+Preserve the exact literal token `go` in the configuration template.
+```
+
+The backticks do not protect the token: the renderer recognizes brace syntax without interpreting Markdown quoting. This changes the object of the user's constraint before a model sees it. The `language` function and parser establish this transformation directly. [Default substitutions][literal-defaults], [Template scanner][literal-scanner]
+
+An equivalent knowledge fixture is a retrieved example containing:
+
+```text
+The documented template expression is `{{language}}`.
+```
+
+Its body reaches the same renderer after retrieval and policy admission. An equivalent recalled-learning fixture uses that string in hydrated learning content.
+
+These are **source-derived counterexamples, not executed reproductions**. They establish a deterministic transformation under the stated conditions, not evidence that any observed model subsequently edited the wrong file.
+
+#### Why the new one-pass protection does not cover this
+
+The existing test passes a string such as `agent says {{secret}}` **as the return value of a template lookup** and correctly verifies that it is not scanned again. [Existing test][literal-render-test]
+
+In the counterexample, the evidence string has already become the atom's initial `Content`. The renderer therefore treats it as source text on the **first** pass. There is no recursive expansion, map-order race, stale cache or second whole-prompt pass.
+
+The normal `Compile` entry requires a nonnil context, so the renderer's nil-context bypass is not a mitigation on this path. Unknown placeholders and whitespace-altered names are useful negative controls: names not matching a registered key remain unchanged. This is specifically a collision between literal evidence and the renderer's exact recognized vocabulary, not a claim that every brace expression is evaluated.
+
+### Capability and efficiency consequences
+
+The primary loss is fidelity: a correctly retrieved and admitted source can be altered during rendering.
+
+There is also a conditional budget consequence. Literal evidence mentioning `{{available_specialists}}` or `{{available_tools}}` expands into the current roster or catalog. This can enlarge a small evidence record enough to change fitting or omission decisions. The current rendered-size charging and final enforcement remain protective; this is **not** evidence of a budget bypass.
+
+Accidental expansion can thus:
+
+- Replace a literal source token with an unrelated contextual value.
+- Change the displayed meaning of a stored constraint or technical example.
+- Increase prompt bytes and displace otherwise useful material.
+- Make an unchanged literal source vary with language, catalog or roster state.
+
+No net token saving or task-quality improvement has been measured. Preserving a literal token can also make a fragment longer when the old substitution replaced it with a short string. Quality, not a presumed universal size reduction, is the acceptance criterion.
+
+### Proposed contract
+
+Names below are design notation, not current APIs.
+
+```text
+AuthoredTemplate:
+  validated instruction source
+  explicit supported placeholder semantics
+
+LiteralEvidence:
+  source-bearing content
+  never interpreted as template syntax
+
+RenderedFragment:
+  bytes + origin/render policy + applicable truncation disposition
+```
+
+#### Producer inventory before suppression
+
+Inventory each producer that contributes runtime content, recording which spans are authored guidance, which are source-bearing data, whether substitution is intentional, and which fields that substitution may read. `KernelInjected` can mix authored and data spans, so a blanket "skip all kernel-injected atoms" patch is not established as correct. Likewise, the authored atom `capability/knowledge_discovery` legitimately uses `{{available_specialists}}`; globally disabling substitutions or disabling them for an entire category would break intended behavior. [Authored positive control][literal-authored]
+
+Use explicit types or segments to preserve this distinction through composition. An immutable literal segment must not become a template merely because a wrapper was concatenated around it. A host-owned flag-based implementation may be a useful narrow candidate **after** the inventory establishes that a producer's entire output has one rendering policy; compare it against the typed-segment contract rather than assuming the existing origin flags already provide that guarantee.
+
+#### Narrow implementation direction
+
+1. **Give source-bearing runtime bodies literal semantics.** Knowledge bodies, hydrated learning bodies and user-derived constraint spans must not be interpreted as template source solely because they become `PromptAtom.Content`.
+2. **Do not infer template authority from category or transport.** Some authored knowledge-category atoms legitimately are templates; kernel-origin blocks may mix different content roles.
+3. **Do not let data grant itself template authority.** A host-owned origin/render policy is preferable to recognizing an opt-in marker inside a retrieved document.
+4. **Retain intentional authored substitutions.** Existing built-in/project prompt templates must continue to expand their declared placeholders once.
+5. **Use structured composition for mixed content.** A trusted wrapper may contain an explicit substitution node whose value is evidence; that value remains literal. A producer whose whole output is verified literal can use a simpler literal-fragment representation. A general-purpose template AST is not necessarily required for the initial fix.
+6. **Make intentional runtime templating explicit.** If the producer inventory finds a real requirement, specify its authoring/admission contract rather than silently grandfathering every runtime string.
+7. **Keep selection separate.** Literal treatment does not make evidence mandatory, trusted, current or authorized. Mangle context/tool/conflict rules, source generations, whole-record fitting and existing truncation disclosures remain unchanged.
+
+Do not fix this by deleting all braces, escaping source bytes into different source code, excluding all evidence that resembles a template, or adding model instructions to ignore an already altered constraint.
+
+A useful local invariant is:
+
+> For an admitted, untruncated literal evidence segment, changing unrelated template context cannot alter its evidence bytes.
+
+For bounded/truncated evidence, apply that invariant to the explicitly retained source spans; do not falsely promise preservation of bytes already omitted under an independently declared bound. Boundaries between literal and template segments also need to be structural: joining two segments must not manufacture a newly executable placeholder across their boundary.
+
+### Proposed validation — unrun
+
+Exercise the production private-kernel compiler route, not only `expandTemplate`.
+
+| Fixture | Required observation |
+|---|---|
+| Saved Northstar constraint containing recognized `{{language}}` | Literal token survives full compile with `Language=go`; source fact and emitted evidence agree. |
+| Selected project knowledge containing the same token | Retrieval and Mangle admission occur; emitted body remains literal. |
+| Selected expert knowledge | Same preservation, with sibling-expert isolation unchanged. |
+| Hydrated recalled learning | Stored body, not search descriptor, is preserved. |
+| Kernel `specialist_knowledge` body and heading | Source-bearing spans survive their declared bounded projection literally. |
+| Kernel block mixing authored instructions and source data | Explicitly authored substitutions work; data spans do not become templates. |
+| Evidence inside backticks, code fences, quotes and plain prose | Quoting style does not change its literal policy. |
+| Every recognized placeholder plus unknown, whitespace-altered and malformed forms | All remain literal in evidence; authored-template semantics remain as documented. |
+| Intentional authored template using `{{language}}` or `{{available_specialists}}` | Still expands once; `knowledge_discovery` remains functional. |
+| Placeholder returned inside an authored template's data value | Existing nonrecursive protection remains. |
+| Placeholder delimiters split across segment boundaries | Composition cannot promote joined data into a new substitution. |
+| Literal roster/catalog token with small and large current catalogs | No accidental expansion or budget-driven loss caused by interpreting that token. |
+| Tight budget, whole-record omission and mandatory overflow | Existing fitting/refusal obligations remain unchanged. |
+| Cold compile, cache hit, source update and language change | Content origin and rendering policy remain consistent; no stale-generation regression. |
+| Ordinary no-placeholder evidence | No unintended byte or selection changes. |
+
+Keep assertions on selected IDs, provenance, emitted fragment bytes, omission/refusal disposition and final budget—not merely successful compilation.
+
+For later model trials, pair template-heavy repository tasks with ordinary-code controls. Keep model/provider, allowed tools, corpus, task budgets and verification criteria fixed. Compare current behavior with origin-aware literal rendering and retain the already-correct one-pass renderer in both arms. Compare any inventory-qualified flag-based candidate with typed mixed-segment handling rather than conflating both with global substitution removal.
+
+Measure:
+
+- Literal-evidence corruption and constraint preservation.
+- False omission, compile refusal and source coverage.
+- Verified completion, false completion and human repair.
+- Total input/output and cached-token accounting, retries, rehydrations and verification.
+- Compiler CPU, allocations, rendered bytes and retained memory.
+
+A smaller prompt that omits useful evidence is not an improvement. A byte-preserving renderer also does not prove that a model follows the preserved evidence. Include producer-inventory and migration complexity in the adoption cost; a broad type redesign should earn its cost against a correctly scoped smaller implementation.
+
+### Primary foundations and limits
+
+[Su and Wassermann, POPL 2006][literal-su-wassermann] motivates retaining input-origin information when strings enter an interpreter rather than deciding syntactic authority from the final concatenated bytes. The applicable lesson here is provenance-aware interpretation. Their SQL injection definition, proof and measured results are **not** a proof of exploitation or performance in CodeNERD.
+
+The [Go `text/template` documentation][literal-go-template] explicitly separates template source from supplied data and describes a trust assumption for template authors. CodeNERD uses its own smaller renderer, not that package; the reference supports the source/data distinction, **not** an arbitrary-code-execution claim or a recommendation to replace the renderer.
+
+### Overlap and completion criterion
+
+- **Generation audit:** reuse and render-once implementation are credited. This appendix refines the initial template-source provenance boundary adjacent to the already discussed template/data semantics.
+- **Dependency/section audit:** no new selection, closure or section-admission claim is made.
+- **Retrieval audit:** no claim that retrieval chose the wrong source; the witness begins with a correctly admitted source.
+- **Northstar editing audit:** no loss during saving or updating is required. The loss occurs downstream while rendering a successfully preserved constraint.
+- **Prompt-evolution audit:** admission of generated instructions remains a separate question; do not blanket-classify all learned/evolved authored instructions as literal evidence without inventory.
+
+**Completion criterion:** an admitted literal evidence segment can contain every recognized placeholder name without being rewritten by compilation context, while intentionally authored templates retain their documented substitutions and all existing policy/budget gates remain intact.
+
+[literal-as-built]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/Docs/audits/jit-generation-aware-optimization.md#as-built-2026-10-27
+[literal-fit]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_render.go#L10-L63
+[literal-knowledge]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_db.go#L441-L458
+[literal-learning]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_db.go#L532-L550
+[literal-kernel]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_kernel.go#L245-L273
+[literal-witness]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/selector.go#L1128-L1137
+[literal-admission]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/defaults/jit_compiler.mg#L237-L244
+[literal-pipeline]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_pipeline.go#L282-L284
+[literal-fragment]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/assembler.go#L227-L255
+[literal-flags]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/atoms.go#L252-L261
+[literal-vision]: https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/northstar/types.go#L144-L148
+[literal-northstar]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/defaults/policy/prompt_northstar.mg#L211-L214
+[literal-guardian]: https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/northstar/guardian.go#L223-L275
+[literal-defaults]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/assembler.go#L424-L526
+[literal-scanner]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/assembler.go#L561-L606
+[literal-render-test]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_render_test.go#L13-L30
+[literal-authored]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/atoms/capability/knowledge_discovery.yaml#L5-L22
+[literal-su-wassermann]: https://people.inf.ethz.ch/suz/publications/popl06.pdf
+[literal-go-template]: https://pkg.go.dev/text/template#hdr-Overview
