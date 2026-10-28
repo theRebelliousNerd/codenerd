@@ -236,8 +236,9 @@ func (s *EmbeddingSemanticSearcher) forget(paths []string) {
 }
 
 // corpus lists the source files eligible for embedding, deterministically
-// ordered so the bounded sample is stable between calls, and how many were
-// eligible before the corpus limit cut the list.
+// ordered so the bounded sample is stable between calls (spread across
+// directories, see boundedCorpus), and how many were eligible before the
+// corpus limit cut the list.
 func (s *EmbeddingSemanticSearcher) corpus(ctx context.Context) ([]string, int, error) {
 	mem, err := membershipFor(s.workDir)
 	if err != nil {
@@ -270,9 +271,7 @@ func (s *EmbeddingSemanticSearcher) corpus(ctx context.Context) ([]string, int, 
 
 	sort.Strings(paths)
 	eligible := len(paths)
-	if len(paths) > s.corpusLimit {
-		paths = paths[:s.corpusLimit]
-	}
+	paths = boundedCorpus(paths, s.corpusLimit)
 	return paths, eligible, ctx.Err()
 }
 

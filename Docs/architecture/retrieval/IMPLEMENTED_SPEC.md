@@ -385,6 +385,12 @@ See [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md).
 
 ---
 
+## 11b. Semantic corpus selection
+
+`semantic_corpus.go:boundedCorpus` bounds the Tier 4 corpus (`semanticCorpusLimit`, 256 heads) round-robin across directories: the first file of each sorted directory, then the second, and so on, returned sorted. The earlier rule (first 256 paths in lexicographic order) shut out every file past the cutoff regardless of task. The sample is deterministic, so the content-keyed vector cache stays warm; `Eligible` vs `Covered` still reports the bound. Test: `semantic_corpus_test.go`. Task-conditioned selection and an explicit test corpus remain unbuilt (they need the paired task study).
+
+---
+
 ## 12. Change discipline
 
 When changing this package:

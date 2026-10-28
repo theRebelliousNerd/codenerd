@@ -209,3 +209,6 @@ Built on 6ef257cb (one native walk for every uncached keyword, reader pool of `m
 * Queue item 4 (coverage-aware corpus selection: stratified vs task-conditioned, exploration allocation, explicit test corpus): coverage is now exposed, but choosing the rule needs the paired task study; the corpus is still the lexicographic first 256 heads.
 * Out-of-band edits with no kernel event (an editor outside codeNERD) are still bounded only by the 5-minute TTL; no watcher-gap measurement exists to mark freshness unknown.
 * §6/§7 task-suite and cost-vector evaluation, fixture 9/10 (covered by existing working-set and issue-scoping tests) need live models.
+
+> **Closing note (2026-10-28).** Earlier work (6ef257cb, c9432be6, 7b3844ec) built R1-R3; re-verified on main, none reopened. New this pass: the semantic corpus is now spread round-robin over directories instead of the first 256 sorted paths (`semantic_corpus.go`, `semantic_corpus_test.go`; queue item 4 in part).
+> Ruled out: keeping the lexicographic prefix (task-independent blind spot). Left: task-conditioned selection and an explicit test corpus (need the paired task study); out-of-band edits are still bounded only by the cache TTL (no watcher-gap signal exists); the §6/§7 live evaluation.
