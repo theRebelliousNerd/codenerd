@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,20 +14,19 @@ import (
 
 	nerdconfig "codenerd/internal/config"
 	"codenerd/internal/logging"
-	"codenerd/internal/prompt"
-
-	"gopkg.in/yaml.v3"
 )
 
 // EvolverConfig configures the prompt evolution system.
 type EvolverConfig struct {
-	// MinFailuresForEvolution is the minimum failures needed to trigger evolution
+	// MinFailuresForEvolution is the minimum unconsumed failures a group
+	// needs before generation may be bought for it.
 	MinFailuresForEvolution int `json:"min_failures_for_evolution"`
 
 	// EvolutionInterval is the minimum time between evolution cycles
 	EvolutionInterval time.Duration `json:"evolution_interval"`
 
-	// MaxAtomsPerEvolution is the maximum atoms to generate per cycle
+	// MaxAtomsPerEvolution is the maximum atoms stored from one failure
+	// group. MaxCycleAtoms bounds the whole cycle.
 	MaxAtomsPerEvolution int `json:"max_atoms_per_evolution"`
 
 	// ConfidenceThreshold is the threshold for auto-promoting atoms
@@ -37,12 +37,13 @@ type EvolverConfig struct {
 	// Default false: a promoted atom is spliced into the system prompt of
 	// every subsequent shard invocation, so promotion is an edit to the
 	// agent's own instructions made by the agent, on the evidence of a
-	// ConfidenceThreshold that a handful of samples can satisfy. The pending
-	// queue plus PromoteAtom/RejectAtom is the review surface, and the sibling
-	// learning-candidate pipeline already defaults to
-	// LearningCandidateAutoPromote=false for the same reason
+	// ConfidenceThreshold that a handful of samples can satisfy. The
+	// quarantine plus PromoteAtom/RejectAtom/ApproveTrial is the review
+	// surface, and the sibling learning-candidate pipeline already defaults
+	// to LearningCandidateAutoPromote=false for the same reason
 	// (internal/shards/system/perception.go). Operators who want the closed
-	// loop opt in.
+	// loop opt in; even then a quarantined candidate only accumulates
+	// evidence through an approved trial.
 	AutoPromote bool `json:"auto_promote"`
 
 	// EnableStrategies enables the SPL strategy database
@@ -62,11 +63,24 @@ type EvolverConfig struct {
 	// Default PinScopeModelFamily. Set PinScopeNone to restore the pre-pinning
 	// behavior where every evolved atom is served to every model.
 	AtomPinScope PinScope `json:"atom_pin_scope"`
+
+	// The bounds below come from the prompt_evolution section of
+	// .nerd/config.json (nerdconfig.PromptEvolutionConfig); see there for
+	// their meaning. EvolverConfigFrom maps the section onto this struct.
+	RecordQueueCapacity     int           `json:"record_queue_capacity"`
+	RecordDrainTimeout      time.Duration `json:"record_drain_timeout"`
+	MaxCycleJudgeCalls      int           `json:"max_cycle_judge_calls"`
+	MaxCycleGenerationCalls int           `json:"max_cycle_generation_calls"`
+	MaxCycleAtoms           int           `json:"max_cycle_atoms"`
+	ClaimLease              time.Duration `json:"claim_lease"`
+	TrialMaxExposures       int           `json:"trial_max_exposures"`
+	TrialTTL                time.Duration `json:"trial_ttl"`
 }
 
-// DefaultEvolverConfig returns the default configuration.
+// DefaultEvolverConfig returns the default configuration, with the
+// prompt_evolution bounds at their config defaults.
 func DefaultEvolverConfig() *EvolverConfig {
-	return &EvolverConfig{
+	cfg := &EvolverConfig{
 		MinFailuresForEvolution: 3,
 		EvolutionInterval:       10 * time.Minute,
 		MaxAtomsPerEvolution:    3,
@@ -79,6 +93,27 @@ func DefaultEvolverConfig() *EvolverConfig {
 		// of the client that judged", read from the client at construction.
 		AtomPinScope: PinScopeModelFamily,
 	}
+	cfg.applyBounds(nerdconfig.DefaultPromptEvolutionConfig())
+	return cfg
+}
+
+// EvolverConfigFrom is the default configuration with the operator's
+// prompt_evolution section applied.
+func EvolverConfigFrom(section nerdconfig.PromptEvolutionConfig) *EvolverConfig {
+	cfg := DefaultEvolverConfig()
+	cfg.applyBounds(section.WithDefaults())
+	return cfg
+}
+
+func (c *EvolverConfig) applyBounds(s nerdconfig.PromptEvolutionConfig) {
+	c.RecordQueueCapacity = s.RecordQueueCapacity
+	c.RecordDrainTimeout = time.Duration(s.RecordDrainTimeoutSeconds) * time.Second
+	c.MaxCycleJudgeCalls = s.MaxCycleJudgeCalls
+	c.MaxCycleGenerationCalls = s.MaxCycleGenerationCalls
+	c.MaxCycleAtoms = s.MaxCycleAtoms
+	c.ClaimLease = time.Duration(s.ClaimLeaseSeconds) * time.Second
+	c.TrialMaxExposures = s.TrialMaxExposures
+	c.TrialTTL = time.Duration(s.TrialTTLHours) * time.Hour
 }
 
 func validateEvolverConfig(config *EvolverConfig) (*EvolverConfig, error) {
@@ -103,6 +138,25 @@ func validateEvolverConfig(config *EvolverConfig) (*EvolverConfig, error) {
 	}
 	if normalized.StrategyRefineThreshold < 1 {
 		errs = append(errs, "strategy_refine_threshold must be >= 1")
+	}
+	positive := func(name string, v int) {
+		if v < 1 {
+			errs = append(errs, name+" must be >= 1")
+		}
+	}
+	positive("record_queue_capacity", normalized.RecordQueueCapacity)
+	positive("max_cycle_judge_calls", normalized.MaxCycleJudgeCalls)
+	positive("max_cycle_generation_calls", normalized.MaxCycleGenerationCalls)
+	positive("max_cycle_atoms", normalized.MaxCycleAtoms)
+	positive("trial_max_exposures", normalized.TrialMaxExposures)
+	if normalized.RecordDrainTimeout <= 0 {
+		errs = append(errs, "record_drain_timeout must be > 0")
+	}
+	if normalized.ClaimLease <= 0 {
+		errs = append(errs, "claim_lease must be > 0")
+	}
+	if normalized.TrialTTL <= 0 {
+		errs = append(errs, "trial_ttl must be > 0")
 	}
 
 	// An omitted scope means "unset", not "none": a config written before
@@ -129,6 +183,12 @@ func validateEvolverConfig(config *EvolverConfig) (*EvolverConfig, error) {
 // mirroring ToolRegisteredCallback in internal/autopoiesis/ouroboros.go.
 type AtomPromotedCallback func(atomID string, promotedAt time.Time)
 
+// TrialFactSink receives the complete set of live trial envelopes whenever it
+// may have changed. Production materializes it as kernel facts
+// (prompt_trial_envelope / prompt_trial_exposures); the kernel decides
+// admission.
+type TrialFactSink func(live []TrialEnvelope)
+
 // promotionEvent holds information needed to invoke the promotion callback
 // outside the evolver lock.
 type promotionEvent struct {
@@ -137,11 +197,20 @@ type promotionEvent struct {
 	cb         AtomPromotedCallback
 }
 
+// ErrEvolverClosed is returned by operations attempted after Close began.
+var ErrEvolverClosed = errors.New("prompt evolver is closed")
+
 // PromptEvolver orchestrates the prompt evolution system.
 // It ties together the judge, feedback collector, strategy store,
 // and atom generator into a cohesive learning loop.
+//
+// Locking: mu guards the in-memory candidate set, callbacks and cycle
+// counters, and is never held across a model call or the recording queue.
+// cycleMu serializes cycles within the process; generation claims fence
+// cycles across processes.
 type PromptEvolver struct {
-	mu sync.RWMutex
+	mu      sync.RWMutex
+	cycleMu sync.Mutex
 
 	// Configuration
 	config  *EvolverConfig
@@ -152,12 +221,17 @@ type PromptEvolver struct {
 	strategyStore     *StrategyStore
 	atomGenerator     *AtomGenerator
 	feedbackCollector *FeedbackCollector
+	ledger            *EvidenceLedger
 	classifier        *ProblemClassifier
 
 	// State
 	lastEvolution  time.Time
 	evolutionCount int
 	evolvedAtoms   map[string]*GeneratedAtom // id -> atom
+	rejectedCount  int
+
+	successfulCycles   int
+	totalCycleDuration time.Duration
 
 	// Storage paths
 	evolvedDir  string
@@ -167,6 +241,18 @@ type PromptEvolver struct {
 
 	// Callback for notifying parent when an atom is promoted
 	onAtomPromoted AtomPromotedCallback
+	// trialSink receives live trial envelopes (see TrialFactSink).
+	trialSink TrialFactSink
+
+	// Lifecycle: recording queue, cycle cancellation, ordered close.
+	recorder  *recordQueue
+	lifeCtx   context.Context
+	lifeStop  context.CancelFunc
+	cycles    sync.WaitGroup
+	lifeMu    sync.Mutex
+	closing   bool
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // NewPromptEvolver creates a new prompt evolver.
@@ -203,6 +289,7 @@ func NewPromptEvolver(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create feedback collector: %w", err)
 	}
+	ledger := feedbackCollector.ledger
 
 	var strategyStore *StrategyStore
 	if config.EnableStrategies {
@@ -224,8 +311,13 @@ func NewPromptEvolver(
 			judgeModel = strings.TrimSpace(named.GetModel())
 		}
 	}
-	judge := NewTaskJudge(llmClient, judgeModel, judgeCompiler, jit)
-	atomGenerator := NewAtomGeneratorWithPinScope(llmClient, strategyStore, config.AtomPinScope)
+	// Every adaptation model call is metered into the spend ledger, by
+	// category, so the cost of learning is visible apart from task cost.
+	judge := NewTaskJudge(&meteredLLM{inner: llmClient, ledger: ledger, category: SpendJudge},
+		judgeModel, judgeCompiler, jit)
+	atomGenerator := NewAtomGeneratorWithPinScope(
+		&meteredLLM{inner: llmClient, ledger: ledger, category: SpendGenerate},
+		strategyStore, config.AtomPinScope)
 	classifier := NewProblemClassifier()
 
 	pe := &PromptEvolver{
@@ -235,6 +327,7 @@ func NewPromptEvolver(
 		strategyStore:     strategyStore,
 		atomGenerator:     atomGenerator,
 		feedbackCollector: feedbackCollector,
+		ledger:            ledger,
 		classifier:        classifier,
 		evolvedAtoms:      make(map[string]*GeneratedAtom),
 		evolvedDir:        evolvedDir,
@@ -242,9 +335,18 @@ func NewPromptEvolver(
 		promotedDir:       promotedDir,
 		rejectedDir:       rejectedDir,
 	}
+	pe.lifeCtx, pe.lifeStop = context.WithCancel(context.Background())
 
-	// Load existing evolved atoms
+	// Load existing evolved atoms, then reproduce their counts from the
+	// ledger: the counts in the files are a display cache, not evidence.
 	pe.loadEvolvedAtoms()
+	pe.mu.Lock()
+	for _, ga := range pe.evolvedAtoms {
+		pe.refreshCountsLocked(ga)
+	}
+	pe.mu.Unlock()
+
+	pe.recorder = newRecordQueue(pe, config.RecordQueueCapacity)
 
 	logging.Autopoiesis("PromptEvolver initialized: dir=%s, config=%+v", nerdDir, config)
 	return pe, nil
@@ -256,584 +358,6 @@ func (pe *PromptEvolver) SetOnAtomPromoted(cb AtomPromotedCallback) {
 	pe.mu.Lock()
 	defer pe.mu.Unlock()
 	pe.onAtomPromoted = cb
-}
-
-// RecordExecution records a task execution for later analysis.
-func (pe *PromptEvolver) RecordExecution(exec *ExecutionRecord) error {
-	pe.mu.Lock()
-
-	// Classify the problem type if not set
-	if exec.ProblemType == "" {
-		problemType, _ := pe.classifier.ClassifyWithContext(
-			context.Background(),
-			exec.TaskRequest,
-			exec.ShardType,
-		)
-		exec.ProblemType = string(problemType)
-	}
-
-	pending := pe.applyExecutionOutcomeLocked(exec)
-	err := pe.feedbackCollector.Record(exec)
-	pe.mu.Unlock()
-	// Invoke promotion callbacks without holding lock to avoid deadlock.
-	for _, ev := range pending {
-		if ev.cb != nil {
-			ev.cb(ev.atomID, ev.promotedAt)
-		}
-	}
-	return err
-}
-
-// TriggerEvolution manually triggers an evolution cycle.
-func (pe *PromptEvolver) TriggerEvolution(ctx context.Context) (*EvolutionResult, error) {
-	return pe.RunEvolutionCycle(ctx)
-}
-
-// RunEvolutionCycle executes a full evolution cycle.
-func (pe *PromptEvolver) RunEvolutionCycle(ctx context.Context) (*EvolutionResult, error) {
-	pe.mu.Lock()
-
-	timer := logging.StartTimer(logging.CategoryAutopoiesis, "PromptEvolver.RunEvolutionCycle")
-	defer timer.Stop()
-
-	start := time.Now()
-	result := &EvolutionResult{
-		Timestamp: start,
-	}
-
-	logging.Autopoiesis("Starting evolution cycle")
-
-	var pendingPromotions []promotionEvent
-
-	// 1. Get recent failures that need evaluation
-	unevaluated, err := pe.feedbackCollector.GetUnevaluated(20)
-	if err != nil {
-		result.Errors = append(result.Errors, err.Error())
-		logging.Get(logging.CategoryAutopoiesis).Error("Failed to get unevaluated: %v", err)
-	}
-
-	// 2. Evaluate unevaluated executions
-	if len(unevaluated) > 0 {
-		verdicts, err := pe.judge.EvaluateBatch(ctx, unevaluated)
-		if err != nil {
-			result.Errors = append(result.Errors, err.Error())
-		}
-		for i, v := range verdicts {
-			if v != nil && i < len(unevaluated) {
-				pe.feedbackCollector.UpdateVerdict(unevaluated[i].TaskID, v)
-				unevaluated[i].Verdict = v
-				if evs := pe.applyExecutionOutcomeLocked(unevaluated[i]); len(evs) > 0 {
-					pendingPromotions = append(pendingPromotions, evs...)
-				}
-			}
-		}
-	}
-
-	// 3. Get failures grouped by problem type, shard, and serving LLM
-	grouped, err := pe.feedbackCollector.GetFailuresByProblemType(
-		pe.config.MinFailuresForEvolution, pe.config.AtomPinScope)
-	if err != nil {
-		result.Errors = append(result.Errors, err.Error())
-		pe.mu.Unlock()
-		// Invoke any pending promotions without holding lock.
-		for _, ev := range pendingPromotions {
-			if ev.cb != nil {
-				ev.cb(ev.atomID, ev.promotedAt)
-			}
-		}
-		return result, err
-	}
-
-	result.FailuresAnalyzed = 0
-	result.GroupsProcessed = len(grouped)
-
-	// 4. Process each group
-	for groupKey, failures := range grouped {
-		problemType, shardType := groupKey.ProblemType, groupKey.ShardType
-
-		// Extract verdicts from failures
-		verdicts := make([]*JudgeVerdict, 0, len(failures))
-		for _, f := range failures {
-			if f.Verdict != nil {
-				verdicts = append(verdicts, f.Verdict)
-				result.FailuresAnalyzed++
-			}
-		}
-
-		if len(verdicts) < pe.config.MinFailuresForEvolution {
-			continue
-		}
-
-		// The serving pin comes from a representative record. Every record in
-		// the group shares a pin at this scope by construction (GroupKeyFor),
-		// so any of them yields the same selectors.
-		pin := servingPinFor(failures)
-
-		// 5. Generate new atoms from failures
-		atoms, err := pe.atomGenerator.GenerateFromFailures(ctx, verdicts, shardType, problemType, pin)
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("atom generation failed for %s: %v", groupKey, err))
-			continue
-		}
-
-		// Limit atoms per evolution
-		if len(atoms) > pe.config.MaxAtomsPerEvolution {
-			atoms = atoms[:pe.config.MaxAtomsPerEvolution]
-		}
-
-		// 6. Store evolved atoms
-		for _, atom := range atoms {
-			if err := pe.storeEvolvedAtom(atom); err != nil {
-				result.Errors = append(result.Errors, err.Error())
-				continue
-			}
-			result.AtomsGenerated++
-			result.AtomIDs = append(result.AtomIDs, atom.Atom.ID)
-		}
-
-		// 7. Update strategies if enabled
-		if pe.config.EnableStrategies && pe.strategyStore != nil {
-			pe.updateStrategies(ctx, ProblemType(problemType), shardType, verdicts)
-		}
-	}
-
-	// 8. Auto-promote eligible atoms
-	if pe.config.AutoPromote {
-		autoPending, promoted := pe.autoPromoteAtoms()
-		pendingPromotions = append(pendingPromotions, autoPending...)
-		result.AtomsPromoted = promoted
-	}
-
-	// Update state
-	pe.lastEvolution = time.Now()
-	pe.evolutionCount++
-	result.Duration = time.Since(start)
-
-	logging.Autopoiesis("Evolution cycle complete: failures=%d, atoms=%d, promoted=%d, duration=%v",
-		result.FailuresAnalyzed, result.AtomsGenerated, result.AtomsPromoted, result.Duration)
-
-	pe.mu.Unlock()
-	// Invoke promotion callbacks without holding lock to avoid deadlock
-	// if the callback re-enters the evolver (e.g., GetPromotedAtoms).
-	for _, ev := range pendingPromotions {
-		if ev.cb != nil {
-			ev.cb(ev.atomID, ev.promotedAt)
-		}
-	}
-
-	return result, nil
-}
-
-// servingPinFor returns the provider/model a failure group was observed on,
-// taking the first record that actually carries provenance. Records predating
-// the provenance columns have neither, so a group made entirely of them yields
-// the zero pin and its atoms are generated unpinned.
-func servingPinFor(failures []*ExecutionRecord) ServingPin {
-	for _, f := range failures {
-		if f == nil {
-			continue
-		}
-		if strings.TrimSpace(f.Provider) != "" || strings.TrimSpace(f.Model) != "" {
-			return ServingPin{Provider: f.Provider, Model: f.Model}
-		}
-	}
-	return ServingPin{}
-}
-
-// storeEvolvedAtom saves an evolved atom to the pending directory.
-func (pe *PromptEvolver) storeEvolvedAtom(ga *GeneratedAtom) error {
-	path := pe.atomStoragePathLocked(ga.Atom.ID, !ga.PromotedAt.IsZero())
-	data, err := pe.marshalGeneratedAtom(ga)
-	if err != nil {
-		return err
-	}
-
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		return fmt.Errorf("failed to write atom file: %w", err)
-	}
-
-	// Only add to memory after durable write succeeds.
-	pe.evolvedAtoms[ga.Atom.ID] = ga
-
-	logging.Autopoiesis("Evolved atom stored: id=%s, path=%s", ga.Atom.ID, path)
-	return nil
-}
-
-func (pe *PromptEvolver) atomStoragePathLocked(atomID string, promoted bool) string {
-	filename := strings.ReplaceAll(atomID, "/", "_") + ".yaml"
-	if promoted {
-		return filepath.Join(pe.promotedDir, filename)
-	}
-	return filepath.Join(pe.pendingDir, filename)
-}
-
-func (pe *PromptEvolver) marshalGeneratedAtom(ga *GeneratedAtom) ([]byte, error) {
-	wrapper := struct {
-		Atom         *prompt.PromptAtom `yaml:"atom"`
-		Source       string             `yaml:"source"`
-		SourceIDs    []string           `yaml:"source_ids"`
-		ShardType    string             `yaml:"shard_type"`
-		ProblemType  string             `yaml:"problem_type"`
-		Provider     string             `yaml:"provider,omitempty"`
-		Model        string             `yaml:"model,omitempty"`
-		PinScope     PinScope           `yaml:"pin_scope,omitempty"`
-		Confidence   float64            `yaml:"confidence"`
-		UsageCount   int                `yaml:"usage_count"`
-		SuccessCount int                `yaml:"success_count"`
-		CreatedAt    time.Time          `yaml:"created_at"`
-		PromotedAt   time.Time          `yaml:"promoted_at,omitempty"`
-	}{
-		Atom:         ga.Atom,
-		Source:       ga.Source,
-		SourceIDs:    ga.SourceIDs,
-		ShardType:    ga.ShardType,
-		ProblemType:  ga.ProblemType,
-		Provider:     ga.Provider,
-		Model:        ga.Model,
-		PinScope:     ga.PinScope,
-		Confidence:   ga.Confidence,
-		UsageCount:   ga.UsageCount,
-		SuccessCount: ga.SuccessCount,
-		CreatedAt:    ga.CreatedAt,
-		PromotedAt:   ga.PromotedAt,
-	}
-
-	data, err := yaml.Marshal(wrapper)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal atom: %w", err)
-	}
-	return data, nil
-}
-
-// updateStrategies updates or creates strategies based on outcomes.
-func (pe *PromptEvolver) updateStrategies(
-	ctx context.Context,
-	problemType ProblemType,
-	shardType string,
-	verdicts []*JudgeVerdict,
-) {
-	// Check if any strategies need refinement
-	strategies, _ := pe.strategyStore.GetStrategiesNeedingRefinement(
-		pe.config.StrategyRefineThreshold,
-		3,
-	)
-
-	for _, strategy := range strategies {
-		if strategy.ProblemType != problemType || strategy.ShardType != shardType {
-			continue
-		}
-
-		refined, err := pe.atomGenerator.RefineStrategy(ctx, strategy, verdicts)
-		if err != nil {
-			logging.Get(logging.CategoryAutopoiesis).Warn("Failed to refine strategy %s: %v", strategy.ID, err)
-			continue
-		}
-
-		if err := pe.strategyStore.RefineStrategy(strategy.ID, refined.Content); err != nil {
-			logging.Get(logging.CategoryAutopoiesis).Warn("Failed to save refined strategy: %v", err)
-		}
-	}
-}
-
-// autoPromoteAtoms promotes atoms that meet the confidence threshold.
-func (pe *PromptEvolver) autoPromoteAtoms() ([]promotionEvent, int) {
-	promoted := 0
-	var pending []promotionEvent
-
-	for id, ga := range pe.evolvedAtoms {
-		if ga.ShouldPromote(pe.config.ConfidenceThreshold) && ga.PromotedAt.IsZero() {
-			cb, promotedAt, err := pe.promoteAtomLocked(id)
-			if err == nil {
-				promoted++
-				if cb != nil {
-					pending = append(pending, promotionEvent{atomID: id, promotedAt: promotedAt, cb: cb})
-				}
-			}
-		}
-	}
-
-	return pending, promoted
-}
-
-// PromoteAtom moves an atom from pending to promoted.
-func (pe *PromptEvolver) PromoteAtom(atomID string) error {
-	pe.mu.Lock()
-	cb, promotedAt, err := pe.promoteAtomLocked(atomID)
-	pe.mu.Unlock()
-	if err == nil && cb != nil {
-		// Callback invoked without pe.mu held to avoid deadlock
-		// if the callback re-enters the evolver.
-		cb(atomID, promotedAt)
-	}
-	return err
-}
-
-// promoteAtomLocked moves an atom from pending to promoted (must hold lock).
-func (pe *PromptEvolver) promoteAtomLocked(atomID string) (AtomPromotedCallback, time.Time, error) {
-	ga, exists := pe.evolvedAtoms[atomID]
-	if !exists {
-		return nil, time.Time{}, fmt.Errorf("atom not found: %s", atomID)
-	}
-
-	filename := strings.ReplaceAll(atomID, "/", "_") + ".yaml"
-	srcPath := filepath.Join(pe.pendingDir, filename)
-	dstPath := filepath.Join(pe.promotedDir, filename)
-
-	// Move file
-	if err := os.Rename(srcPath, dstPath); err != nil {
-		// Try copy if rename fails (cross-device)
-		data, err := os.ReadFile(srcPath)
-		if err != nil {
-			return nil, time.Time{}, err
-		}
-		if err := os.WriteFile(dstPath, data, 0644); err != nil {
-			return nil, time.Time{}, err
-		}
-		os.Remove(srcPath)
-	}
-
-	ga.PromotedAt = time.Now()
-	if err := pe.storeEvolvedAtom(ga); err != nil {
-		return nil, time.Time{}, err
-	}
-	logging.Autopoiesis("Atom promoted: id=%s", atomID)
-	// Snapshot callback while holding lock so caller can invoke it
-	// outside the lock. Invoking outside avoids deadlock if the
-	// callback re-enters the evolver (e.g., calls GetPromotedAtoms
-	// which takes RLock) while the exclusive lock is held.
-	cb := pe.onAtomPromoted
-	promotedAt := ga.PromotedAt
-	return cb, promotedAt, nil
-}
-
-// RejectAtom marks an atom as rejected.
-func (pe *PromptEvolver) RejectAtom(atomID string) error {
-	pe.mu.Lock()
-	defer pe.mu.Unlock()
-
-	filename := strings.ReplaceAll(atomID, "/", "_") + ".yaml"
-	srcPath := filepath.Join(pe.pendingDir, filename)
-	dstPath := filepath.Join(pe.rejectedDir, filename)
-
-	if err := os.Rename(srcPath, dstPath); err != nil {
-		return err
-	}
-
-	delete(pe.evolvedAtoms, atomID)
-	logging.Autopoiesis("Atom rejected: id=%s", atomID)
-	return nil
-}
-
-// RecordAtomUsage records that an atom was used and whether it led to success.
-func (pe *PromptEvolver) RecordAtomUsage(atomID string, success bool) {
-	pe.mu.Lock()
-	pending := pe.recordAtomUsageLocked(atomID, success)
-	pe.mu.Unlock()
-	// Invoke callbacks without holding lock to avoid deadlock.
-	for _, ev := range pending {
-		if ev.cb != nil {
-			ev.cb(ev.atomID, ev.promotedAt)
-		}
-	}
-}
-
-func (pe *PromptEvolver) recordAtomUsageLocked(atomID string, success bool) []promotionEvent {
-	ga, exists := pe.evolvedAtoms[atomID]
-	if !exists {
-		return nil
-	}
-
-	ga.UsageCount++
-	if success {
-		ga.SuccessCount++
-	}
-
-	// Update confidence based on new data
-	ga.Confidence = ga.SuccessRate()
-	if err := pe.storeEvolvedAtom(ga); err != nil {
-		logging.Get(logging.CategoryAutopoiesis).Warn("Failed to persist atom usage for %s: %v", atomID, err)
-	}
-	if pe.config.AutoPromote && ga.ShouldPromote(pe.config.ConfidenceThreshold) && ga.PromotedAt.IsZero() {
-		cb, promotedAt, err := pe.promoteAtomLocked(atomID)
-		if err != nil {
-			logging.Get(logging.CategoryAutopoiesis).Warn("Failed to auto-promote atom %s: %v", atomID, err)
-			return nil
-		}
-		if cb != nil {
-			return []promotionEvent{{atomID: atomID, promotedAt: promotedAt, cb: cb}}
-		}
-	}
-	return nil
-}
-
-// GetEvolvedAtoms returns all evolved atoms.
-func (pe *PromptEvolver) GetEvolvedAtoms() []*GeneratedAtom {
-	pe.mu.RLock()
-	defer pe.mu.RUnlock()
-
-	result := make([]*GeneratedAtom, 0, len(pe.evolvedAtoms))
-	for _, ga := range pe.evolvedAtoms {
-		result = append(result, ga)
-	}
-	return result
-}
-
-// GetPendingAtoms returns atoms awaiting promotion.
-func (pe *PromptEvolver) GetPendingAtoms() []*GeneratedAtom {
-	pe.mu.RLock()
-	defer pe.mu.RUnlock()
-
-	var result []*GeneratedAtom
-	for _, ga := range pe.evolvedAtoms {
-		if ga.PromotedAt.IsZero() {
-			result = append(result, ga)
-		}
-	}
-	return result
-}
-
-// GetPromotedAtoms returns promoted atoms.
-func (pe *PromptEvolver) GetPromotedAtoms() []*GeneratedAtom {
-	pe.mu.RLock()
-	defer pe.mu.RUnlock()
-
-	var result []*GeneratedAtom
-	for _, ga := range pe.evolvedAtoms {
-		if !ga.PromotedAt.IsZero() {
-			result = append(result, ga)
-		}
-	}
-	return result
-}
-
-// GetStats returns evolution statistics.
-func (pe *PromptEvolver) GetStats() *EvolutionStats {
-	pe.mu.RLock()
-	defer pe.mu.RUnlock()
-
-	stats := &EvolutionStats{
-		TotalCycles:         pe.evolutionCount,
-		TotalAtomsGenerated: len(pe.evolvedAtoms),
-		LastEvolutionAt:     pe.lastEvolution,
-	}
-
-	// Count pending vs promoted
-	for _, ga := range pe.evolvedAtoms {
-		if ga.PromotedAt.IsZero() {
-			stats.AtomsPending++
-		} else {
-			stats.AtomsPromoted++
-		}
-	}
-
-	// Get feedback stats
-	if pe.feedbackCollector != nil {
-		stats.TotalExecutionsRecorded, stats.TotalFailuresAnalyzed = pe.feedbackCollector.GetStats()
-		stats.OverallSuccessRate = pe.feedbackCollector.GetSuccessRate()
-	}
-
-	// Get strategy stats
-	if pe.strategyStore != nil {
-		stats.TotalStrategies, stats.AvgStrategySuccessRate, _ = pe.strategyStore.GetStats()
-	}
-
-	return stats
-}
-
-// loadEvolvedAtoms loads existing evolved atoms from disk.
-func (pe *PromptEvolver) loadEvolvedAtoms() {
-	// Load from pending directory
-	pe.loadAtomsFromDir(pe.pendingDir, false)
-
-	// Load from promoted directory
-	pe.loadAtomsFromDir(pe.promotedDir, true)
-
-	logging.Autopoiesis("Loaded %d evolved atoms from disk", len(pe.evolvedAtoms))
-}
-
-func (pe *PromptEvolver) loadAtomsFromDir(dir string, promoted bool) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
-			continue
-		}
-
-		path := filepath.Join(dir, entry.Name())
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-
-		var wrapper struct {
-			Atom         *prompt.PromptAtom `yaml:"atom"`
-			Source       string             `yaml:"source"`
-			SourceIDs    []string           `yaml:"source_ids"`
-			ShardType    string             `yaml:"shard_type"`
-			ProblemType  string             `yaml:"problem_type"`
-			Provider     string             `yaml:"provider,omitempty"`
-			Model        string             `yaml:"model,omitempty"`
-			PinScope     PinScope           `yaml:"pin_scope,omitempty"`
-			Confidence   float64            `yaml:"confidence"`
-			UsageCount   int                `yaml:"usage_count"`
-			SuccessCount int                `yaml:"success_count"`
-			CreatedAt    time.Time          `yaml:"created_at"`
-			PromotedAt   time.Time          `yaml:"promoted_at,omitempty"`
-		}
-
-		if err := yaml.Unmarshal(data, &wrapper); err != nil {
-			continue
-		}
-
-		if wrapper.Atom == nil {
-			continue
-		}
-
-		ga := &GeneratedAtom{
-			Atom:         wrapper.Atom,
-			Source:       wrapper.Source,
-			SourceIDs:    wrapper.SourceIDs,
-			ShardType:    wrapper.ShardType,
-			ProblemType:  wrapper.ProblemType,
-			Provider:     wrapper.Provider,
-			Model:        wrapper.Model,
-			PinScope:     wrapper.PinScope,
-			Confidence:   wrapper.Confidence,
-			UsageCount:   wrapper.UsageCount,
-			SuccessCount: wrapper.SuccessCount,
-			CreatedAt:    wrapper.CreatedAt,
-			PromotedAt:   wrapper.PromotedAt,
-		}
-
-		if promoted && ga.PromotedAt.IsZero() {
-			info, _ := entry.Info()
-			if info != nil {
-				ga.PromotedAt = info.ModTime()
-			} else {
-				ga.PromotedAt = time.Now()
-			}
-		}
-
-		pe.evolvedAtoms[wrapper.Atom.ID] = ga
-	}
-}
-
-func (pe *PromptEvolver) applyExecutionOutcomeLocked(exec *ExecutionRecord) []promotionEvent {
-	if exec == nil || exec.Verdict == nil || len(exec.AtomIDs) == 0 {
-		return nil
-	}
-
-	success := exec.Verdict.IsPass()
-	var pending []promotionEvent
-	for _, atomID := range exec.AtomIDs {
-		if evs := pe.recordAtomUsageLocked(atomID, success); len(evs) > 0 {
-			pending = append(pending, evs...)
-		}
-	}
-	return pending
 }
 
 // ShouldRunEvolution checks if enough time has passed for a new cycle.
@@ -848,29 +372,135 @@ func (pe *PromptEvolver) ShouldRunEvolution() bool {
 	return time.Since(pe.lastEvolution) >= pe.config.EvolutionInterval
 }
 
-// Close cleans up resources.
-func (pe *PromptEvolver) Close() error {
-	pe.mu.Lock()
-	defer pe.mu.Unlock()
-
-	var errs []error
+// GetStats returns evolution statistics.
+func (pe *PromptEvolver) GetStats() *EvolutionStats {
+	pe.mu.RLock()
+	stats := &EvolutionStats{
+		TotalCycles:         pe.evolutionCount,
+		TotalAtomsGenerated: len(pe.evolvedAtoms),
+		AtomsRejected:       pe.rejectedCount,
+		SuccessfulCycles:    pe.successfulCycles,
+		LastEvolutionAt:     pe.lastEvolution,
+	}
+	if pe.evolutionCount > 0 {
+		stats.AvgCycleDuration = pe.totalCycleDuration / time.Duration(pe.evolutionCount)
+	}
+	for _, ga := range pe.evolvedAtoms {
+		if ga.PromotedAt.IsZero() {
+			stats.AtomsPending++
+		} else {
+			stats.AtomsPromoted++
+		}
+	}
+	pe.mu.RUnlock()
 
 	if pe.feedbackCollector != nil {
-		if err := pe.feedbackCollector.Close(); err != nil {
-			errs = append(errs, err)
+		stats.TotalExecutionsRecorded, stats.TotalFailuresAnalyzed = pe.feedbackCollector.GetStats()
+		stats.OverallSuccessRate = pe.feedbackCollector.GetSuccessRate()
+	}
+	if pe.recorder != nil {
+		stats.Recording = pe.recorder.stats()
+	}
+	if pe.ledger != nil {
+		if trials, err := pe.ledger.Trials(); err == nil {
+			now := time.Now()
+			for _, trial := range trials {
+				if trial.Live(now) {
+					stats.ActiveTrials++
+				}
+			}
+		}
+		if claims, err := pe.ledger.ClaimCounts(); err == nil {
+			stats.GenerationClaimsCompleted = claims[claimStatusCompleted]
+			stats.GenerationClaimsOpen = claims[claimStatusClaimed]
+			stats.GenerationClaimsFailed = claims[claimStatusPublishFailed]
+		}
+		if spend, err := pe.ledger.SpendSummaries(); err == nil {
+			stats.Spend = spend
 		}
 	}
-
 	if pe.strategyStore != nil {
-		if err := pe.strategyStore.Close(); err != nil {
-			errs = append(errs, err)
-		}
+		stats.TotalStrategies, stats.AvgStrategySuccessRate, _ = pe.strategyStore.GetStats()
 	}
+	return stats
+}
 
-	if len(errs) > 0 {
-		return fmt.Errorf("close errors: %v", errs)
+// Close stops admission, cancels any running cycle, drains accepted records,
+// and only then closes the stores those records and cycles write.
+//
+// Draining is bounded by RecordDrainTimeout. Records still queued at the
+// deadline are abandoned and counted, and Close returns an error naming
+// them: a timeout is an incomplete shutdown, never reported as a clean one.
+// The stores are closed only after the recording worker and every cycle have
+// returned, so a slow drain can delay Close but cannot race it.
+func (pe *PromptEvolver) Close() error {
+	pe.closeOnce.Do(func() {
+		pe.lifeMu.Lock()
+		pe.closing = true
+		pe.lifeMu.Unlock()
+		pe.lifeStop()
+
+		var errs []error
+		if pe.recorder != nil {
+			if err := pe.recorder.close(pe.config.RecordDrainTimeout); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		pe.cycles.Wait()
+
+		pe.mu.Lock()
+		defer pe.mu.Unlock()
+		if pe.feedbackCollector != nil {
+			if err := pe.feedbackCollector.Close(); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		if pe.strategyStore != nil {
+			if err := pe.strategyStore.Close(); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		if len(errs) > 0 {
+			pe.closeErr = fmt.Errorf("close errors: %w", errors.Join(errs...))
+		}
+	})
+	return pe.closeErr
+}
+
+// DrainTimeout is the bound Close places on draining accepted records.
+func (pe *PromptEvolver) DrainTimeout() time.Duration {
+	if pe == nil || pe.config == nil {
+		return 0
 	}
-	return nil
+	return pe.config.RecordDrainTimeout
+}
+
+// enter registers synchronous work (a cycle, a direct RecordExecution) with
+// the lifecycle, or refuses once Close has begun. Close waits for every
+// registered unit before closing the stores.
+func (pe *PromptEvolver) enter() (func(), error) {
+	pe.lifeMu.Lock()
+	defer pe.lifeMu.Unlock()
+	if pe.closing {
+		return nil, ErrEvolverClosed
+	}
+	pe.cycles.Add(1)
+	return pe.cycles.Done, nil
+}
+
+// beginCycle registers a cycle and derives a context that Close cancels.
+func (pe *PromptEvolver) beginCycle(ctx context.Context) (context.Context, func(), error) {
+	release, err := pe.enter()
+	if err != nil {
+		return nil, nil, err
+	}
+	cycleCtx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(pe.lifeCtx, cancel)
+	return cycleCtx, func() {
+		stop()
+		cancel()
+		release()
+	}, nil
 }
 
 // ExportStats exports statistics as JSON.

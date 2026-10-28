@@ -149,6 +149,11 @@ type ExecutionRecord struct {
 
 	// Verdict (filled after evaluation)
 	Verdict *JudgeVerdict `json:"verdict,omitzero"`
+
+	// VerdictVersion is the stored verdict's version (sha256 of its JSON),
+	// set by FeedbackCollector.Record/UpdateVerdict and on read. Attribution
+	// and evidence consumption are keyed by it.
+	VerdictVersion string `json:"verdict_version,omitzero"`
 }
 
 // =============================================================================
@@ -343,6 +348,14 @@ type EvolutionResult struct {
 	StrategiesRefined int      `json:"strategies_refined"`
 	AtomsPromoted     int      `json:"atoms_promoted"`
 
+	// Budget and evidence accounting for this cycle.
+	JudgeCalls       int `json:"judge_calls"`
+	GenerationCalls  int `json:"generation_calls"`
+	GroupsSkipped    int `json:"groups_skipped"`    // already claimed or consumed elsewhere
+	GroupsDeferred   int `json:"groups_deferred"`   // left for a later cycle by the budget
+	AtomsDiscarded   int `json:"atoms_discarded"`   // generated, dropped by a cap
+	EvidenceConsumed int `json:"evidence_consumed"` // failure versions converted this cycle
+
 	// Errors
 	Errors []string `json:"errors,omitzero"`
 }
@@ -375,4 +388,15 @@ type EvolutionStats struct {
 	// Timing
 	LastEvolutionAt  time.Time     `json:"last_evolution_at"`
 	AvgCycleDuration time.Duration `json:"avg_cycle_duration"`
+
+	// Lifecycle and evidence accounting.
+	ActiveTrials              int            `json:"active_trials"`
+	GenerationClaimsCompleted int            `json:"generation_claims_completed"`
+	GenerationClaimsOpen      int            `json:"generation_claims_open"`
+	GenerationClaimsFailed    int            `json:"generation_claims_failed"`
+	Recording                 RecordingStats `json:"recording"`
+	// Spend is the disjoint adaptation cost ledger, per category. Token
+	// counts are not in it: the evolver's model interface does not report
+	// them, so they are unknown rather than estimated.
+	Spend []SpendSummary `json:"spend,omitzero"`
 }

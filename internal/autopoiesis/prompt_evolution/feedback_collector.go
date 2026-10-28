@@ -3,6 +3,7 @@ package prompt_evolution
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,7 +22,7 @@ import (
 const executionRecordColumns = `task_id, session_id, shard_id, shard_type, task_request, problem_type,
 		       actions_json, result_json, duration_ms, prompt_manifest_json, atom_ids_json,
 		       thought_summary, thinking_tokens, grounding_sources_json, verdict_json,
-		       provider, model, created_at`
+		       provider, model, created_at, verdict_version`
 
 // FeedbackCollector records and manages execution feedback.
 // It buffers executions and persists them to SQLite for analysis.
@@ -39,6 +40,11 @@ type FeedbackCollector struct {
 	// Statistics
 	totalRecorded int
 	totalFailures int
+
+	closed bool
+
+	// ledger is the evidence account kept in the same database.
+	ledger *EvidenceLedger
 }
 
 // NewFeedbackCollector creates a new feedback collector.
@@ -67,6 +73,12 @@ func NewFeedbackCollector(nerdDir string) (*FeedbackCollector, error) {
 		db.Close()
 		return nil, fmt.Errorf("failed to ensure schema: %w", err)
 	}
+	ledger, err := newEvidenceLedger(db)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	fc.ledger = ledger
 
 	// Load stats
 	fc.loadStats()
@@ -129,6 +141,36 @@ func (fc *FeedbackCollector) ensureSchema() error {
 	if _, err := fc.db.Exec(`CREATE INDEX IF NOT EXISTS idx_records_serving ON execution_records(provider, model)`); err != nil {
 		return err
 	}
+	return fc.backfillVerdictVersions()
+}
+
+// backfillVerdictVersions versions verdicts stored before verdict_version
+// existed, so they can be credited and consumed like any other.
+func (fc *FeedbackCollector) backfillVerdictVersions() error {
+	rows, err := fc.db.Query(`SELECT task_id, verdict_json FROM execution_records
+		WHERE verdict_json IS NOT NULL AND verdict_json <> '' AND (verdict_version IS NULL OR verdict_version = '')`)
+	if err != nil {
+		return err
+	}
+	type pending struct{ taskID, version string }
+	var updates []pending
+	for rows.Next() {
+		var taskID, verdictJSON string
+		if err := rows.Scan(&taskID, &verdictJSON); err != nil {
+			rows.Close()
+			return err
+		}
+		updates = append(updates, pending{taskID, versionOf([]byte(verdictJSON))})
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, u := range updates {
+		if _, err := fc.db.Exec(`UPDATE execution_records SET verdict_version = ? WHERE task_id = ?`, u.version, u.taskID); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -148,6 +190,13 @@ func (fc *FeedbackCollector) ensureExecutionRecordColumns() error {
 		// atoms -- the pre-pinning behavior, applied only to pre-pinning data.
 		{name: "provider", definition: "TEXT"},
 		{name: "model", definition: "TEXT"},
+		// Event identity: the hash of a record's immutable payload, so a
+		// replay is recognized and a conflicting payload under the same task
+		// id is refused instead of silently replacing the row.
+		{name: "payload_hash", definition: "TEXT"},
+		// The version of the stored verdict (sha256 of verdict_json): the
+		// unit attribution is keyed by and evidence is consumed at.
+		{name: "verdict_version", definition: "TEXT"},
 	}
 
 	existing := make(map[string]struct{})
@@ -213,16 +262,100 @@ func (fc *FeedbackCollector) loadStats() {
 	fc.totalFailures = failures
 }
 
-// Record stores an execution record.
-func (fc *FeedbackCollector) Record(exec *ExecutionRecord) error {
+// RecordOutcome says what Record did with an event.
+type RecordOutcome string
+
+const (
+	// RecordInserted is a new event.
+	RecordInserted RecordOutcome = "inserted"
+	// RecordDuplicate is a replay of an event already stored with the same
+	// payload. Nothing changes except, when the replay carries a different
+	// verdict, the verdict (UpdateVerdict semantics).
+	RecordDuplicate RecordOutcome = "duplicate"
+)
+
+// ErrConflictingEvent is returned when an event identity (task id) is
+// replayed with a different payload. That is a reconciliation error, not an
+// update: two different turns must never share an identity.
+var ErrConflictingEvent = errors.New("conflicting payload for an existing execution event")
+
+// eventPayloadHash hashes the immutable part of a record: everything except
+// the verdict (versioned separately) and the derived problem type.
+func eventPayloadHash(exec *ExecutionRecord) (string, error) {
+	payload, err := json.Marshal(struct {
+		TaskID, SessionID, ShardID, ShardType, TaskRequest, Provider, Model string
+		Timestamp                                                           int64
+		Actions                                                             []AgentAction
+		Result                                                              ExecutionResult
+		Duration                                                            int64
+		AtomIDs                                                             []string
+	}{
+		exec.TaskID, exec.SessionID, exec.ShardID, exec.ShardType, exec.TaskRequest, exec.Provider, exec.Model,
+		exec.Timestamp.UnixNano(), exec.AgentActions, exec.ExecutionResult, int64(exec.Duration), exec.AtomIDs,
+	})
+	if err != nil {
+		return "", err
+	}
+	return versionOf(payload), nil
+}
+
+// Record stores an execution event idempotently.
+//
+// The event identity is the task id; its payload hash decides what a second
+// arrival is. Same payload: a duplicate, which changes nothing (a different
+// verdict on it is applied as a verdict revision). Different payload: the
+// call is refused with ErrConflictingEvent. The counters move only on a real
+// insert or a real verdict change, so they cannot drift from the rows.
+//
+// It used to be INSERT OR REPLACE plus an unconditional totalRecorded++, so a
+// replay replaced the row and counted it again, and a different turn reusing
+// an id overwrote the first silently.
+//
+// On success exec.VerdictVersion holds the stored verdict's version.
+func (fc *FeedbackCollector) Record(exec *ExecutionRecord) (RecordOutcome, error) {
+	if exec == nil {
+		return "", fmt.Errorf("execution record is nil")
+	}
+	payloadHash, err := eventPayloadHash(exec)
+	if err != nil {
+		return "", fmt.Errorf("hash execution %s: %w", exec.TaskID, err)
+	}
+
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
-	if exec == nil {
-		return fmt.Errorf("execution record is nil")
+	if fc.closed {
+		return "", ErrEvolverClosed
 	}
 
 	logging.AutopoiesisDebug("Recording execution: task=%s, shard=%s, success=%v",
 		exec.TaskID, exec.ShardType, exec.ExecutionResult.Success)
+
+	var storedHash sql.NullString
+	err = fc.db.QueryRow(`SELECT payload_hash FROM execution_records WHERE task_id = ?`, exec.TaskID).Scan(&storedHash)
+	switch {
+	case err == nil:
+		if storedHash.Valid && storedHash.String != "" && storedHash.String != payloadHash {
+			return "", fmt.Errorf("%w: task %s", ErrConflictingEvent, exec.TaskID)
+		}
+		if !storedHash.Valid || storedHash.String == "" {
+			// A row written before event identity existed adopts this hash.
+			if _, err := fc.db.Exec(`UPDATE execution_records SET payload_hash = ? WHERE task_id = ?`, payloadHash, exec.TaskID); err != nil {
+				return "", err
+			}
+		}
+		if exec.Verdict != nil {
+			version, _, err := fc.updateVerdictLocked(exec.TaskID, exec.Verdict)
+			if err != nil {
+				return "", err
+			}
+			exec.VerdictVersion = version
+		} else {
+			exec.VerdictVersion = fc.storedVerdictVersionLocked(exec.TaskID)
+		}
+		return RecordDuplicate, nil
+	case !errors.Is(err, sql.ErrNoRows):
+		return "", fmt.Errorf("look up execution %s: %w", exec.TaskID, err)
+	}
 
 	// Serialize JSON fields
 	actionsJSON, _ := json.Marshal(exec.AgentActions)
@@ -231,31 +364,35 @@ func (fc *FeedbackCollector) Record(exec *ExecutionRecord) error {
 	atomIDsJSON, _ := json.Marshal(exec.AtomIDs)
 	groundingJSON, _ := json.Marshal(exec.GroundingSources)
 
-	var verdictJSON []byte
+	var verdictJSON, verdictVersion sql.NullString
 	if exec.Verdict != nil {
-		verdictJSON, _ = json.Marshal(exec.Verdict)
+		encoded, err := json.Marshal(exec.Verdict)
+		if err != nil {
+			return "", err
+		}
+		verdictJSON = sql.NullString{String: string(encoded), Valid: true}
+		verdictVersion = sql.NullString{String: versionOf(encoded), Valid: true}
 	}
 
-	// Insert into database
-	_, err := fc.db.Exec(`
-		INSERT OR REPLACE INTO execution_records
+	_, err = fc.db.Exec(`
+		INSERT INTO execution_records
 		(task_id, session_id, shard_id, shard_type, task_request, problem_type,
 		 actions_json, result_json, duration_ms, prompt_manifest_json, atom_ids_json,
 		 thought_summary, thinking_tokens, grounding_sources_json, verdict_json,
-		 provider, model, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 provider, model, created_at, payload_hash, verdict_version)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		exec.TaskID, exec.SessionID, exec.ShardID, exec.ShardType,
 		exec.TaskRequest, exec.ProblemType,
 		string(actionsJSON), string(resultJSON), exec.Duration.Milliseconds(),
 		string(manifestJSON), string(atomIDsJSON),
 		exec.ThoughtSummary, exec.ThinkingTokens, string(groundingJSON),
-		string(verdictJSON), exec.Provider, exec.Model, exec.Timestamp,
+		verdictJSON, exec.Provider, exec.Model, exec.Timestamp, payloadHash, verdictVersion,
 	)
-
 	if err != nil {
 		logging.Get(logging.CategoryAutopoiesis).Error("Failed to record execution: %v", err)
-		return err
+		return "", err
 	}
+	exec.VerdictVersion = verdictVersion.String
 
 	fc.totalRecorded++
 	if exec.Verdict != nil && exec.Verdict.IsFail() {
@@ -269,7 +406,13 @@ func (fc *FeedbackCollector) Record(exec *ExecutionRecord) error {
 	}
 
 	logging.Autopoiesis("Execution recorded: task=%s, total=%d", exec.TaskID, fc.totalRecorded)
-	return nil
+	return RecordInserted, nil
+}
+
+func (fc *FeedbackCollector) storedVerdictVersionLocked(taskID string) string {
+	var version sql.NullString
+	_ = fc.db.QueryRow(`SELECT verdict_version FROM execution_records WHERE task_id = ?`, taskID).Scan(&version)
+	return version.String
 }
 
 // GetRecentFailures returns the most recent failed executions.
@@ -378,6 +521,12 @@ func (k FailureGroupKey) String() string {
 //
 // Records predating the provenance columns carry no provider/model and collect
 // under the empty pin, producing unpinned atoms as before.
+//
+// Only UNCONSUMED failures are returned: a failure at a verdict version that
+// has already bought a generation (consumed_evidence) is not evidence for the
+// next one. Without this every cycle re-read every FAIL ever recorded and
+// re-purchased generation for groups whose evidence had not changed. A
+// revised verdict is a new version and is unconsumed again.
 func (fc *FeedbackCollector) GetFailuresByProblemType(minCount int, scope PinScope) (map[FailureGroupKey][]*ExecutionRecord, error) {
 	fc.mu.RLock()
 	defer fc.mu.RUnlock()
@@ -388,8 +537,10 @@ func (fc *FeedbackCollector) GetFailuresByProblemType(minCount int, scope PinSco
 
 	rows, err := fc.db.Query(`
 		SELECT ` + executionRecordColumns + `
-		FROM execution_records
+		FROM execution_records r
 		WHERE verdict_json LIKE '%"verdict":"FAIL"%'
+		  AND NOT EXISTS (SELECT 1 FROM consumed_evidence c
+		                  WHERE c.task_id = r.task_id AND c.verdict_version = r.verdict_version)
 		ORDER BY problem_type, shard_type, provider, model, created_at DESC`)
 
 	if err != nil {
@@ -445,38 +596,70 @@ func GroupKeyFor(rec *ExecutionRecord, scope PinScope) FailureGroupKey {
 	return key
 }
 
-// UpdateVerdict updates the verdict for an execution record.
-func (fc *FeedbackCollector) UpdateVerdict(taskID string, verdict *JudgeVerdict) error {
+// UpdateVerdict stores a verdict for an execution record and returns its
+// version and whether it changed anything. Writing the verdict a record
+// already holds is a no-op; a different verdict replaces it and moves the
+// failure counter by the difference -- it used to add one for every FAIL
+// written, so re-judging a failure counted it twice.
+func (fc *FeedbackCollector) UpdateVerdict(taskID string, verdict *JudgeVerdict) (string, bool, error) {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
+	if fc.closed {
+		return "", false, ErrEvolverClosed
+	}
+	return fc.updateVerdictLocked(taskID, verdict)
+}
 
-	verdictJSON, err := json.Marshal(verdict)
+func (fc *FeedbackCollector) updateVerdictLocked(taskID string, verdict *JudgeVerdict) (string, bool, error) {
+	if verdict == nil {
+		return "", false, fmt.Errorf("verdict is nil")
+	}
+	encoded, err := json.Marshal(verdict)
 	if err != nil {
-		return err
+		return "", false, err
+	}
+	version := versionOf(encoded)
+
+	var oldJSON, oldVersion sql.NullString
+	err = fc.db.QueryRow(`SELECT verdict_json, verdict_version FROM execution_records WHERE task_id = ?`, taskID).
+		Scan(&oldJSON, &oldVersion)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, fmt.Errorf("no execution record %s", taskID)
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if oldVersion.String == version {
+		return version, false, nil
 	}
 
-	_, err = fc.db.Exec(`
-		UPDATE execution_records
-		SET verdict_json = ?
-		WHERE task_id = ?`, string(verdictJSON), taskID)
-
-	if err != nil {
-		return err
+	if _, err := fc.db.Exec(`UPDATE execution_records SET verdict_json = ?, verdict_version = ? WHERE task_id = ?`,
+		string(encoded), version, taskID); err != nil {
+		return "", false, err
 	}
 
-	if verdict.IsFail() {
+	wasFail := false
+	if oldJSON.Valid && oldJSON.String != "" {
+		var old JudgeVerdict
+		if json.Unmarshal([]byte(oldJSON.String), &old) == nil {
+			wasFail = old.IsFail()
+		}
+	}
+	switch {
+	case verdict.IsFail() && !wasFail:
 		fc.totalFailures++
+	case !verdict.IsFail() && wasFail:
+		fc.totalFailures--
 	}
 
-	// Update buffer
 	for _, rec := range fc.buffer {
 		if rec.TaskID == taskID {
 			rec.Verdict = verdict
+			rec.VerdictVersion = version
 			break
 		}
 	}
-
-	return nil
+	return version, true, nil
 }
 
 // logExecutionRecordDecodeFailure names the record and column whose stored JSON
@@ -498,7 +681,7 @@ func (fc *FeedbackCollector) scanRecords(rows *sql.Rows) ([]*ExecutionRecord, er
 		var durationMs int64
 		var thoughtSummary sql.NullString
 		var thinkingTokens sql.NullInt64
-		var provider, model sql.NullString
+		var provider, model, verdictVersion sql.NullString
 		var createdAt time.Time
 
 		err := rows.Scan(
@@ -506,7 +689,7 @@ func (fc *FeedbackCollector) scanRecords(rows *sql.Rows) ([]*ExecutionRecord, er
 			&rec.TaskRequest, &rec.ProblemType,
 			&actionsJSON, &resultJSON, &durationMs, &manifestJSON, &atomIDsJSON,
 			&thoughtSummary, &thinkingTokens, &groundingJSON, &verdictJSON,
-			&provider, &model, &createdAt,
+			&provider, &model, &createdAt, &verdictVersion,
 		)
 		if err != nil {
 			logging.Get(logging.CategoryAutopoiesis).Warn("Failed to scan record: %v", err)
@@ -514,6 +697,7 @@ func (fc *FeedbackCollector) scanRecords(rows *sql.Rows) ([]*ExecutionRecord, er
 		}
 
 		rec.Duration = time.Duration(durationMs) * time.Millisecond
+		rec.VerdictVersion = verdictVersion.String
 		rec.Timestamp = createdAt
 
 		// Parse JSON fields.
@@ -606,6 +790,10 @@ func (fc *FeedbackCollector) Close() error {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
 
+	if fc.closed {
+		return nil
+	}
+	fc.closed = true
 	if fc.db != nil {
 		return fc.db.Close()
 	}

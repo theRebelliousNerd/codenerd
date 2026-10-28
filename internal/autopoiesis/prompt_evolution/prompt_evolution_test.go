@@ -327,7 +327,7 @@ func TestFeedbackCollector(t *testing.T) {
 		// No Verdict yet - this is an unevaluated execution
 	}
 
-	if err := fc.Record(exec); err != nil {
+	if _, err := fc.Record(exec); err != nil {
 		t.Fatalf("Record failed: %v", err)
 	}
 
@@ -357,7 +357,7 @@ func TestFeedbackCollector(t *testing.T) {
 		Confidence:  0.9,
 		TaskID:      "task-001",
 	}
-	if err := fc.UpdateVerdict("task-001", verdict); err != nil {
+	if _, _, err := fc.UpdateVerdict("task-001", verdict); err != nil {
 		t.Fatalf("UpdateVerdict failed: %v", err)
 	}
 
@@ -375,7 +375,7 @@ func TestFeedbackCollector_NilRecord(t *testing.T) {
 		t.Fatalf("NewFeedbackCollector failed: %v", err)
 	}
 	defer fc.Close()
-	if err := fc.Record(nil); err == nil {
+	if _, err := fc.Record(nil); err == nil {
 		t.Fatal("expected error for nil record")
 	}
 }
@@ -400,7 +400,7 @@ func TestFeedbackCollector_LargePayload(t *testing.T) {
 			Output:  large,
 		},
 	}
-	if err := fc.Record(exec); err != nil {
+	if _, err := fc.Record(exec); err != nil {
 		t.Fatalf("expected large payload to be recorded, got error: %v", err)
 	}
 }
@@ -429,7 +429,7 @@ func TestFeedbackCollector_ConcurrentWrites(t *testing.T) {
 					Success: true,
 				},
 			}
-			if err := fc.Record(rec); err != nil {
+			if _, err := fc.Record(rec); err != nil {
 				errCh <- err
 			}
 		})
@@ -466,7 +466,7 @@ func TestFeedbackCollector_DatabaseError(t *testing.T) {
 			Success: false,
 		},
 	}
-	if err := fc.Record(rec); err == nil {
+	if _, err := fc.Record(rec); err == nil {
 		t.Fatal("expected record error after database close")
 	}
 }
@@ -1317,7 +1317,7 @@ func TestFeedbackCollector_RoundTripsPromptContext(t *testing.T) {
 		},
 	}
 
-	if err := fc.Record(exec); err != nil {
+	if _, err := fc.Record(exec); err != nil {
 		t.Fatalf("Record failed: %v", err)
 	}
 

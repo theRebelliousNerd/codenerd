@@ -18,7 +18,7 @@ func TestFeedbackCollector_LoadStats_CountsRealRecords(t *testing.T) {
 	}
 	defer fc.Close()
 
-	if err := fc.Record(&ExecutionRecord{
+	if _, err := fc.Record(&ExecutionRecord{
 		TaskID:    "task-1",
 		SessionID: "sess-1",
 		ShardType: "coder",
@@ -42,7 +42,7 @@ func TestFeedbackCollector_LoadStats_BrokenTableKeepsStatsStale(t *testing.T) {
 	}
 	defer fc.Close()
 
-	if err := fc.Record(&ExecutionRecord{TaskID: "task-1", SessionID: "sess-1", ShardType: "coder"}); err != nil {
+	if _, err := fc.Record(&ExecutionRecord{TaskID: "task-1", SessionID: "sess-1", ShardType: "coder"}); err != nil {
 		t.Fatalf("record: %v", err)
 	}
 	fc.loadStats()

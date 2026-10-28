@@ -234,6 +234,11 @@ type UserConfig struct {
 	// retrieval pass's hand-off to the model with (retrieval.go).
 	Retrieval *RetrievalConfig `json:"retrieval,omitempty"`
 
+	// PromptEvolution bounds the System Prompt Learning loop: record queue,
+	// per-cycle spend, generation claim lease and trial limits
+	// (prompt_evolution.go).
+	PromptEvolution *PromptEvolutionConfig `json:"prompt_evolution,omitempty"`
+
 	// Orient holds the orientation engine's thresholds (internal/orient): era,
 	// burst, lineage and read-candidate bounds, reaching its policy as
 	// config_param(/orient_<key>, N) rows.
@@ -1704,6 +1709,7 @@ func DefaultUserConfig() *UserConfig {
 	classificationCfg := DefaultClassificationConfig()
 	routingCfg := DefaultRoutingConfig()
 	retrievalCfg := DefaultRetrievalConfig()
+	promptEvolutionCfg := DefaultPromptEvolutionConfig()
 	observationCfg := DefaultObservationConfig()
 	researchCfg := DefaultResearchConfig()
 	uiCfg := DefaultUIConfig()
@@ -1737,6 +1743,7 @@ func DefaultUserConfig() *UserConfig {
 		Classification:               &classificationCfg,
 		Routing:                      &routingCfg,
 		Retrieval:                    &retrievalCfg,
+		PromptEvolution:              &promptEvolutionCfg,
 		Observation:                  &observationCfg,
 		Research:                     &researchCfg,
 		Usage:                        &UsageConfig{},
