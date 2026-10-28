@@ -144,7 +144,7 @@ func TestLearnedBootstrapContext_RealSQLLockCancellationAndRetry(test *testing.T
 				path := filepath.Join(workspace, ".nerd", "learned_patterns.db")
 				cleanupFailure := errors.New("learned bootstrap engine cleanup failure")
 				engine := &learnedBootstrapEngine{closeErr: cleanupFailure}
-				seed, err := storepkg.NewLearnedCorpusStore(path, engine)
+				seed, err := storepkg.NewLearnedCorpusStoreWithContext(context.Background(), path, engine)
 				if err != nil {
 					test.Fatal(err)
 				}

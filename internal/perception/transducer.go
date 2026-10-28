@@ -403,19 +403,6 @@ func GetShardTypeForVerb(verb string) string {
 // PERCEPTION LAYER INITIALIZATION
 // =============================================================================
 
-// InitPerceptionLayer initializes all perception components.
-// This should be called during session startup after the kernel and config are available.
-//
-// Components initialized:
-//   - SemanticClassifier (vector-based intent classification)
-//
-// The function performs graceful degradation: if semantic classification cannot be
-// initialized (e.g., no embedding config), the system continues with regex-only
-// classification. This ensures the perception layer is always functional.
-func InitPerceptionLayer(kernel core.Kernel, cfg *config.UserConfig) error {
-	return InitPerceptionLayerWithContext(context.Background(), kernel, cfg)
-}
-
 func InitPerceptionLayerWithContext(ctx context.Context, kernel core.Kernel, cfg *config.UserConfig) error {
 	if ctx == nil {
 		ctx = context.Background()

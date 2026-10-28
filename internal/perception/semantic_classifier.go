@@ -164,12 +164,6 @@ type SemanticClassifier struct {
 	config        SemanticConfig
 }
 
-// NewSemanticClassifierFromConfig creates a classifier using config settings.
-// This is the main constructor for production use.
-func NewSemanticClassifierFromConfig(kernel core.Kernel, cfg *config.UserConfig) (*SemanticClassifier, error) {
-	return NewSemanticClassifierFromConfigWithContext(context.Background(), kernel, cfg)
-}
-
 func NewSemanticClassifierFromConfigWithContext(ctx context.Context, kernel core.Kernel, cfg *config.UserConfig) (*SemanticClassifier, error) {
 	return newSemanticClassifierWithContext(ctx, kernel, cfg, intentHydrateTimeout)
 }
@@ -681,14 +675,6 @@ func NewEmbeddedCorpusStore(dimensions int) (*EmbeddedCorpusStore, error) {
 	return store, nil
 }
 
-// NewEmbeddedCorpusStoreWithCache creates an EmbeddedCorpusStore backed by a SQLite cache.
-// The cache persists embeddings between boots so that static intent_definition texts
-// are not re-embedded on every startup. If cachePath is empty, behaves identically
-// to NewEmbeddedCorpusStore (no cache).
-func NewEmbeddedCorpusStoreWithCache(dimensions int, cachePath string) (*EmbeddedCorpusStore, error) {
-	return NewEmbeddedCorpusStoreWithCacheWithContext(context.Background(), dimensions, cachePath)
-}
-
 func NewEmbeddedCorpusStoreWithCacheWithContext(ctx context.Context, dimensions int, cachePath string) (corpus *EmbeddedCorpusStore, outcome error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -805,12 +791,6 @@ func bytesToFloat32(buf []byte) []float32 {
 	return vec
 }
 
-// cacheGet retrieves a cached embedding by text hash and model name.
-// Returns nil if not found or on error.
-func (s *EmbeddedCorpusStore) cacheGet(textHash, modelName string) []float32 {
-	return s.cacheGetWithContext(context.Background(), textHash, modelName)
-}
-
 func (store *EmbeddedCorpusStore) cacheGetWithContext(ctx context.Context, textHash, modelName string) []float32 {
 	if store.cacheDB == nil {
 		return nil
@@ -826,11 +806,6 @@ func (store *EmbeddedCorpusStore) cacheGetWithContext(ctx context.Context, textH
 	return bytesToFloat32(blob)
 }
 
-// cachePut stores an embedding in the cache.
-func (s *EmbeddedCorpusStore) cachePut(textHash, modelName string, vec []float32) {
-	_ = s.cachePutWithContext(context.Background(), textHash, modelName, vec)
-}
-
 func (store *EmbeddedCorpusStore) cachePutWithContext(ctx context.Context, textHash, modelName string, vec []float32) error {
 	if store.cacheDB == nil {
 		return nil
@@ -844,16 +819,6 @@ func (store *EmbeddedCorpusStore) cachePutWithContext(ctx context.Context, textH
 		logging.Get(logging.CategoryEmbedding).Warn("Failed to cache embedding: %v", err)
 	}
 	return err
-}
-
-// LoadFromKernel hydrates the embedded corpus from intent_definition facts in the kernel.
-// This preserves the split-brain architecture: Mangle stores canonical patterns as data,
-// while semantic matching uses embeddings over those patterns.
-//
-// When a SQLite cache is configured, embeddings are looked up by content hash + model
-// name before falling back to the embedding engine. Only cache misses require API calls.
-func (s *EmbeddedCorpusStore) LoadFromKernel(ctx context.Context, kernel core.Kernel, engine embedding.EmbeddingEngine) error {
-	return s.loadFromKernel(ctx, kernel, engine, false)
 }
 
 func (store *EmbeddedCorpusStore) LoadFromKernelWithContext(ctx context.Context, kernel core.Kernel, engine embedding.EmbeddingEngine) error {
@@ -1155,12 +1120,6 @@ func (s *EmbeddedCorpusStore) Search(queryEmbed []float32, topK int) ([]Semantic
 // LEARNED CORPUS STORE IMPLEMENTATION
 // =============================================================================
 
-// NewLearnedCorpusStore initializes the learned patterns store.
-// In production this is backed by `.nerd/learned_patterns.db`; tests/dev fall back to memory.
-func NewLearnedCorpusStore(cfg *config.UserConfig, dimensions int, embedEngine embedding.EmbeddingEngine) (*LearnedCorpusStore, error) {
-	return NewLearnedCorpusStoreWithContext(context.Background(), cfg, dimensions, embedEngine)
-}
-
 func NewLearnedCorpusStoreWithContext(ctx context.Context, cfg *config.UserConfig, dimensions int, embedEngine embedding.EmbeddingEngine) (corpus *LearnedCorpusStore, outcome error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -1308,11 +1267,6 @@ var SharedSemanticClassifier *SemanticClassifier
 
 // sharedClassifierMu protects SharedSemanticClassifier initialization.
 var sharedClassifierMu = semaphore.NewWeighted(1)
-
-// InitSemanticClassifier initializes the shared classifier.
-func InitSemanticClassifier(kernel core.Kernel, cfg *config.UserConfig) error {
-	return InitSemanticClassifierWithContext(context.Background(), kernel, cfg)
-}
 
 func InitSemanticClassifierWithContext(ctx context.Context, kernel core.Kernel, cfg *config.UserConfig) error {
 	if ctx == nil {

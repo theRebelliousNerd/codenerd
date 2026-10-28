@@ -118,3 +118,11 @@ Required scenarios include sequential workspace switches, overlapping conflictin
 
 Completion means the live production path has explicit owners, scoped semantic evidence, traceable learning-to-decision linkage, and passing designed isolation/quality gates—not that every old constructor is called. No such gates were executed in this research pass.
 
+
+## As built (2026-10-28)
+
+- **Context-less wrappers.** As the doc's disposition advises, none were reconnected:
+  - **Deleted:** `InitSemanticClassifier` and `NewSemanticClassifierFromConfig` (no callers anywhere).
+  - **Moved to test seams:** `EmbeddedCorpusStore.cacheGet`/`cachePut`/`LoadFromKernel`, `NewEmbeddedCorpusStoreWithCache`, `perception.NewLearnedCorpusStore`, `InitPerceptionLayer` and `store.NewLearnedCorpusStore` (`internal/perception/test_seams_test.go`, `internal/store/test_seams_test.go`), where only tests call them. Production keeps the `…WithContext` constructors.
+  - **Earlier pass:** `isValidUnderstandingPromptContract` was removed and its tests now assert `understandingPromptContractReason`, the validator `getUnderstandingPrompt` uses. `NewZAIClient` is a test seam; configured construction stays in the client factory.
+- **Deferred:** the semantic owner keyed by workspace, corpus generation, model and kernel; turn-scoped `semantic_match` publication; and the learned-example and decision receipts. They need the multi-workspace session model decided first. Today's single-workspace operation does not exercise the cross-owner paths the doc infers.
