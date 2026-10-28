@@ -55,6 +55,13 @@ type MCPServerConfig struct {
 	// ${ENV_VAR} and $ENV_VAR expansion so tokens live in the environment
 	// rather than in a checked-in config file. Ignored for stdio.
 	Headers map[string]string `json:"headers,omitzero"`
+
+	// Reviews are the operator's host reviews of this server's effects,
+	// from .nerd/config.json. They are the only production source of
+	// ReviewedToolEffect: discovery describes a tool, it never admits one.
+	// Each binds a schema hash, so a changed tool stops matching until it
+	// is reviewed again.
+	Reviews []ReviewedToolEffect `json:"reviews,omitzero"`
 }
 
 // MCPServer represents a connected MCP server.

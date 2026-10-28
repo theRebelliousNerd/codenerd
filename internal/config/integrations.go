@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"codenerd/internal/mcp"
@@ -42,6 +43,41 @@ type MCPServerIntegration struct {
 	// in config.json; an unset variable drops the header instead of sending
 	// the literal placeholder as a credential.
 	Headers map[string]string `yaml:"headers" json:"headers,omitempty"`
+
+	// Reviews admit this server's tools. Discovery only describes a tool;
+	// a remote call is dispatched only for a tool with a host review whose
+	// schema hash still matches what the server advertises. `nerd mcp tools`
+	// prints each tool's schema hash and whether it is reviewed.
+	Reviews []MCPToolReview `yaml:"reviews" json:"reviews,omitempty"`
+}
+
+// MCPToolReview is one operator review of a remote tool's effect.
+type MCPToolReview struct {
+	// Tool is the tool's name on this server (not server/name).
+	Tool string `yaml:"tool" json:"tool"`
+	// Effect is what a call does: read, write, delete or execute. delete
+	// and execute still need a person to approve each exact request.
+	Effect string `yaml:"effect" json:"effect"`
+	// SchemaHash pins the reviewed schema (`nerd mcp tools`). A tool whose
+	// advertised schema changes stops matching until it is reviewed again.
+	SchemaHash string `yaml:"schema_hash" json:"schema_hash"`
+	// TargetArgument names the argument holding the affected resource, when
+	// the effect has one (a path, an id); policy sees its value.
+	TargetArgument string `yaml:"target_argument" json:"target_argument,omitempty"`
+	// RiskOverride replaces the inferred risk class (safe, mutating,
+	// destructive, arbitrary) when the operator knows better.
+	RiskOverride string `yaml:"risk_override" json:"risk_override,omitempty"`
+}
+
+func (r MCPToolReview) toEffect(serverID string) mcp.ReviewedToolEffect {
+	return mcp.ReviewedToolEffect{
+		Operation:      mcp.RemoteTool,
+		ToolID:         serverID + "/" + strings.TrimSpace(r.Tool),
+		SchemaHash:     strings.TrimSpace(r.SchemaHash),
+		Effect:         mcp.RemoteEffect(strings.TrimSpace(r.Effect)),
+		TargetArgument: strings.TrimSpace(r.TargetArgument),
+		RiskOverride:   mcp.RiskClass(strings.TrimSpace(r.RiskOverride)),
+	}
 }
 
 // DefaultTimeout returns a sensible default timeout based on server ID.
@@ -57,33 +93,61 @@ func DefaultTimeout(serverID string) string {
 }
 
 // Check reports the contradictions in an integrations section, addressed
-// under prefix ("integrations"). Only the section-level fallback is
-// checked: a per-server timeout that is missing or unusable falls back
-// at connect time, and refusing the file for it would newly refuse
-// files that load today.
+// under prefix ("integrations"): every configured review, and the
+// section-level timeout fallback. A per-server timeout that is missing or
+// unusable falls back at connect time, and refusing the file for it would
+// newly refuse files that load today.
 func (c IntegrationsConfig) Check(prefix string) []Problem {
+	return append(c.reviewProblems(prefix), c.timeoutProblems(prefix)...)
+}
+
+// reviewProblems checks every server's configured reviews with the same
+// normalization installation applies.
+func (c IntegrationsConfig) reviewProblems(prefix string) []Problem {
+	var problems []Problem
+	for serverID, server := range c.Servers {
+		for i, review := range server.Reviews {
+			if strings.TrimSpace(review.Tool) == "" {
+				problems = append(problems, Problem{Severity: SeverityError,
+					Path:    fmt.Sprintf("%s.servers.%s.reviews[%d].tool", prefix, serverID, i),
+					Message: "a review names no tool", Fix: "the tool's name on this server, as `nerd mcp tools` lists it"})
+				continue
+			}
+			if _, err := mcp.NormalizeReview(review.toEffect(serverID)); err != nil {
+				problems = append(problems, Problem{Severity: SeverityError,
+					Path:    fmt.Sprintf("%s.servers.%s.reviews[%d]", prefix, serverID, i),
+					Message: err.Error(),
+					Fix:     "effect is read, write, delete or execute; schema_hash is the hash `nerd mcp tools` prints; risk_override, if set, is safe, mutating, destructive or arbitrary"})
+			}
+		}
+	}
+	return problems
+}
+
+func (c IntegrationsConfig) timeoutProblems(prefix string) []Problem {
 	timeout := c.DefaultTimeout
 	if timeout == "" {
 		timeout = DefaultIntegrationsConfig().DefaultTimeout
 	}
+	var problems []Problem
 	d, err := time.ParseDuration(timeout)
 	switch {
 	case err != nil:
-		return []Problem{{
+		return append(problems, Problem{
 			Severity: SeverityError,
 			Path:     prefix + ".default_timeout",
 			Message:  fmt.Sprintf("%q is not a duration: %v", timeout, err),
 			Fix:      `a Go duration such as "30s" or "2m"`,
-		}}
+		})
 	case d <= 0:
-		return []Problem{{
+		return append(problems, Problem{
 			Severity: SeverityError,
 			Path:     prefix + ".default_timeout",
 			Message:  fmt.Sprintf("%q is not positive", timeout),
 			Fix:      "a positive duration, or remove the key for the default",
-		}}
+		})
 	}
-	return nil
+	return problems
 }
 
 // ResolveDefaultTimeout defaults, checks and parses the transport
@@ -94,7 +158,7 @@ func (c IntegrationsConfig) ResolveDefaultTimeout() (time.Duration, error) {
 	if v.DefaultTimeout == "" {
 		v.DefaultTimeout = DefaultIntegrationsConfig().DefaultTimeout
 	}
-	if problems := v.Check("integrations"); len(problems) > 0 {
+	if problems := v.timeoutProblems("integrations"); len(problems) > 0 {
 		return 0, fmt.Errorf("%s", problems[0].String())
 	}
 	d, _ := time.ParseDuration(v.DefaultTimeout) // Check parsed it
@@ -124,6 +188,10 @@ func (c *IntegrationsConfig) ToMCPServerConfigs() map[string]mcp.MCPServerConfig
 			timeout = DefaultTimeout(serverID)
 		}
 
+		var reviews []mcp.ReviewedToolEffect
+		for _, review := range server.Reviews {
+			reviews = append(reviews, review.toEffect(serverID))
+		}
 		configs[serverID] = mcp.MCPServerConfig{
 			ID:                serverID,
 			Enabled:           true,
@@ -137,6 +205,7 @@ func (c *IntegrationsConfig) ToMCPServerConfigs() map[string]mcp.MCPServerConfig
 			// auth headers were unreachable from config.json entirely.
 			Endpoint: server.Endpoint,
 			Headers:  server.Headers,
+			Reviews:  reviews,
 		}
 	}
 

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"codenerd/internal/config"
 	"codenerd/internal/features"
 	"codenerd/internal/mcp"
 	"codenerd/internal/store"
@@ -106,15 +107,33 @@ var mcpToolsCmd = &cobra.Command{
 			return nil
 		}
 
+		reviews := configuredMCPReviews()
+		unreviewed := 0
 		for _, tool := range tools {
-			desc := tool.Description
-			if len(desc) > 70 {
-				desc = desc[:70] + "..."
+			// The schema hash is what a review in .nerd/config.json pins
+			// (integrations.servers.<id>.reviews[].schema_hash); a tool with
+			// no matching review is discovered, not admitted, and every
+			// remote call to it is refused.
+			state := "NOT REVIEWED"
+			if review, ok := reviews[tool.ToolID]; ok {
+				switch {
+				case review.SchemaHash != tool.SchemaHash:
+					state = "REVIEW STALE (schema changed)"
+					unreviewed++
+				default:
+					state = "reviewed: " + string(review.Effect)
+				}
+			} else {
+				unreviewed++
 			}
-			fmt.Printf("  - %s: %s\n", tool.Name, desc)
+			fmt.Printf("  - %s  [%s]\n    schema_hash: %s\n    %s\n", tool.ToolID, state, tool.SchemaHash, tool.Description)
 		}
 
-		fmt.Printf("\nTotal: %d tools\n", len(tools))
+		fmt.Printf("\nTotal: %d tools, %d not admitted\n", len(tools), unreviewed)
+		if unreviewed > 0 {
+			fmt.Println(`Admit a tool under integrations.servers.<id>.reviews in .nerd/config.json:`)
+			fmt.Println(`  {"tool": "<name>", "effect": "read|write|delete|execute", "schema_hash": "<hash above>"}`)
+		}
 		return nil
 	},
 }
@@ -213,6 +232,24 @@ func readMCPServers(ctx context.Context) ([]*mcp.MCPServer, error) {
 		return nil, fmt.Errorf("failed to read MCP servers: %w", err)
 	}
 	return servers, nil
+}
+
+// configuredMCPReviews is the operator's reviews from .nerd/config.json, by
+// tool id. An unreadable config yields none: every tool then shows as not
+// admitted, which is what the runtime would do with it too.
+func configuredMCPReviews() map[string]mcp.ReviewedToolEffect {
+	out := map[string]mcp.ReviewedToolEffect{}
+	cfg, err := config.LoadUserConfig(filepath.Join(workspace, ".nerd", "config.json"))
+	if err != nil || cfg == nil {
+		return out
+	}
+	integrations := cfg.GetIntegrations()
+	for _, server := range integrations.ToMCPServerConfigs() {
+		for _, review := range server.Reviews {
+			out[review.ToolID] = review
+		}
+	}
+	return out
 }
 
 func readMCPTools(ctx context.Context) ([]*mcp.MCPTool, error) {

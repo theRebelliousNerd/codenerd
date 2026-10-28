@@ -127,6 +127,9 @@ func (m *MCPClientManager) SetFactEmitter(emitter *FactEmitter) {
 	defer m.mu.Unlock()
 	m.facts = emitter
 	m.reviewedEffects = make(map[string]ReviewedToolEffect)
+	// A new emitter starts a new authority epoch; the operator's configured
+	// reviews are the trusted source it is rebuilt from.
+	m.installConfiguredReviewsLocked()
 }
 
 // factEmitter returns the emitter under the read lock.

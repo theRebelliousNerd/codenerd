@@ -57,10 +57,6 @@ type remoteCallState struct {
 type remoteIdentityKey struct{}
 type remoteConfirmationKey struct{}
 
-func WithRemoteCallIdentity(ctx context.Context, identity RemoteCallIdentity) context.Context {
-	return context.WithValue(ctx, remoteIdentityKey{}, &remoteCallState{identity: identity})
-}
-
 func WithRiskConfirmation(ctx context.Context, confirmed bool) context.Context {
 	return context.WithValue(ctx, remoteConfirmationKey{}, confirmed)
 }
@@ -145,24 +141,60 @@ func knownRiskSource(source ClassificationSource) bool {
 func (manager *MCPClientManager) SetReviewedToolEffect(review ReviewedToolEffect) error {
 	manager.authorityMu.Lock()
 	defer manager.authorityMu.Unlock()
-	delete(manager.reviewedEffects, review.ToolID)
+	return manager.setReviewedToolEffectLocked(review)
+}
+
+// NormalizeReview defaults and checks one host review: the operation
+// defaults to a tool call, and resource and prompt reviews may only grant
+// reads. The config check and installation share it.
+func NormalizeReview(review ReviewedToolEffect) (ReviewedToolEffect, error) {
 	if review.Operation == "" {
 		review.Operation = RemoteTool
 	}
 	if review.Operation != RemoteTool && review.Operation != RemoteResource && review.Operation != RemotePrompt {
-		return fmt.Errorf("unknown reviewed MCP operation %q", review.Operation)
+		return review, fmt.Errorf("unknown reviewed MCP operation %q", review.Operation)
 	}
 	if review.Operation != RemoteTool && review.Effect != RemoteRead {
-		return fmt.Errorf("MCP resource and prompt reviews require an explicit read effect")
+		return review, fmt.Errorf("MCP resource and prompt reviews require an explicit read effect")
 	}
 	if remoteAction(review.Effect) == "" || review.ToolID == "" || review.SchemaHash == "" || (review.RiskOverride != "" && !review.RiskOverride.Valid()) {
-		return fmt.Errorf("invalid reviewed MCP effect for %q", review.ToolID)
+		return review, fmt.Errorf("invalid reviewed MCP effect for %q", review.ToolID)
+	}
+	return review, nil
+}
+
+func (manager *MCPClientManager) setReviewedToolEffectLocked(review ReviewedToolEffect) error {
+	delete(manager.reviewedEffects, review.ToolID)
+	review, err := NormalizeReview(review)
+	if err != nil {
+		return err
 	}
 	if manager.reviewedEffects == nil {
 		manager.reviewedEffects = make(map[string]ReviewedToolEffect)
 	}
 	manager.reviewedEffects[review.ToolID] = review
 	return nil
+}
+
+// installConfiguredReviewsLocked installs every server's configured reviews.
+// The caller holds authorityMu. A review the config check would have refused
+// is skipped and logged, never installed half-valid.
+func (manager *MCPClientManager) installConfiguredReviewsLocked() {
+	for serverID, cfg := range manager.config {
+		for _, review := range cfg.Reviews {
+			if err := manager.setReviewedToolEffectLocked(review); err != nil {
+				logging.Get(logging.CategoryTools).Warn("MCP server %s: configured review not installed: %v", serverID, err)
+			}
+		}
+	}
+}
+
+// ReviewFor reports the installed host review of toolID, if any.
+func (manager *MCPClientManager) ReviewFor(toolID string) (ReviewedToolEffect, bool) {
+	manager.authorityMu.Lock()
+	defer manager.authorityMu.Unlock()
+	review, ok := manager.reviewedEffects[toolID]
+	return review, ok
 }
 
 func (manager *MCPClientManager) RevokeReviewedToolEffect(toolID string) {

@@ -158,3 +158,14 @@ The existing [request-bound human approval audit](https://github.com/theRebellio
 
 The right next milestone is not deleting `WithRemoteCallIdentity`, nor changing a dead-code baseline. It is one configured end-to-end remote capability whose trusted review, task lineage, exact permission, bounded result and truthful outcome all survive the real production route. Only after that contract is chosen can unused interfaces be judged as retained extension points, superseded APIs or actual dead code.
 
+
+## As built (2026-10-28)
+
+- **Trusted admission from operator config.** `integrations.servers.<id>.reviews[]` in `.nerd/config.json` (`config.MCPToolReview`: tool, effect, schema_hash, target_argument, risk_override) is now the production source of host reviews. `IntegrationsConfig.ToMCPServerConfigs` maps them to `mcp.ReviewedToolEffect` on `MCPServerConfig.Reviews`, and `MCPClientManager.SetFactEmitter` installs them in each authority epoch (`installConfiguredReviewsLocked`). Before this, no production code installed a review, so every remote call on a configured server was refused. The config check (`IntegrationsConfig.Check` → `reviewProblems`) and installation share `mcp.NormalizeReview`. A review whose schema hash no longer matches is refused at dispatch, exactly as before.
+- **Honest readiness.** `nerd mcp tools` prints each tool's id, schema hash and admission state (reviewed with its effect, not reviewed, or stale because the schema changed), plus a count of unadmitted tools and the review stanza to add.
+- **Identity.** `WithRemoteCallIdentity` moved to the package's test seams, where fixtures need a deterministic identity. Production dispatch keeps allocating a fresh request identity for each leaf attempt, which is the doc's attempt contract.
+- **Deferred:**
+  - session-level logical-operation correlation (a parent ID, with child IDs per leaf);
+  - config reviews for resource and prompt reads (tool reviews only for now);
+  - typed refusal outcomes in `ControlPlane.Call`;
+  - reviewer provenance and expiry on reviews.
