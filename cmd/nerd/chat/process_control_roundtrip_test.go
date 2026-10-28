@@ -212,13 +212,13 @@ func TestProcessInputControlPacketIsGovernedBeforeKnowledgeConsultation(t *testi
 			return fmt.Errorf("specialist saw %d matching session notes, want one", noteCount)
 		}
 
-		corrections, err := kernel.Query("self_correction_hypothesis")
+		corrections, err := kernel.Query("self_correction")
 		if err != nil {
 			return fmt.Errorf("query self-correction: %w", err)
 		}
 		hasCorrection := false
 		for _, fact := range corrections {
-			if len(fact.Args) == 1 && fact.Args[0] == "chat control probe" {
+			if len(fact.Args) == 2 && fact.Args[0] == "chat control probe" {
 				hasCorrection = true
 			}
 		}
@@ -290,7 +290,7 @@ func TestProcessInputControlPacketIsGovernedBeforeKnowledgeConsultation(t *testi
 	if asserted, loaded, retracted := kernel.counts("session_note"); asserted != 1 || loaded != 0 || retracted != 1 {
 		t.Errorf("session note effects Assert=%d LoadFacts=%d RetractFact=%d, want 1/0/1", asserted, loaded, retracted)
 	}
-	if asserted, loaded, _ := kernel.counts("self_correction_hypothesis"); asserted != 1 || loaded != 0 {
+	if asserted, loaded, _ := kernel.counts("self_correction"); asserted != 1 || loaded != 0 {
 		t.Errorf("self-correction effects Assert=%d LoadFacts=%d, want one Assert and no LoadFacts", asserted, loaded)
 	}
 }

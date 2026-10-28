@@ -1224,9 +1224,13 @@ func (m Model) applyArticulationControlPacket(output *ArticulationOutput) applie
 		if m.kernel == nil {
 			warnings = append(warnings, "[Kernel] Self-correction hypothesis dropped: no chat kernel is configured")
 		} else {
+			// The declared self_correction(Hypothesis, At), the same fact the
+			// session executor asserts for the same envelope field. The chat
+			// path asserted an undeclared self_correction_hypothesis/1 that
+			// no rule could read and Query never returned.
 			hypothesis := core.Fact{
-				Predicate: "self_correction_hypothesis",
-				Args:      []any{output.SelfCorrection.Hypothesis},
+				Predicate: "self_correction",
+				Args:      []any{output.SelfCorrection.Hypothesis, time.Now().Unix()},
 			}
 			if err := m.kernel.Assert(hypothesis); err != nil {
 				warnings = append(warnings, fmt.Sprintf("[Kernel] Self-correction hypothesis rejected: %v", err))
