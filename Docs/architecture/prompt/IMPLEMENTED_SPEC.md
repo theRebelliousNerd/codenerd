@@ -268,8 +268,8 @@ Subcomponents always created: `AtomSelector`, `DependencyResolver`, `TokenBudget
 
 `collectKernelInjectedAtoms`:
 
-- **`injectable_context(shard, atomText)`** → one `CategoryContext` atom, `IsMandatory`, priority 95, content bullet list.  
-- **`specialist_knowledge(shard, topic, body)`** → one `CategoryKnowledge` atom, priority 90.  
+- **`injectable_context(shard, atomText)`** → one `CategoryContext` atom, `IsMandatory`, unscored importance, content bullet list.  
+- **`specialist_knowledge(shard, topic, body)`** → one `CategoryKnowledge` atom, `IsMandatory`, unscored importance.  
 
 Shard match: exact `ShardID`, `ShardInstanceID`, or `*` / `/_all`.
 
@@ -307,7 +307,53 @@ tokens from `pinning.go`, normalized on both the atom and the context side so a
 YAML `claude-opus-4` and a runtime `anthropic/claude-opus-4-20260501` reach the
 same Mangle constant. See `14-PROVIDER-MODEL-PINNING.md`.
 
-**Composition:** `Priority`, `IsMandatory`, `IsExclusive`, `DependsOn`, `ConflictsWith`.
+**Composition:** `Importance`, `IsMandatory`, `IsExclusive`, `DependsOn`, `ConflictsWith`.
+
+**Importance (as built 2026-10-28, `internal/prompt/importance.go`).** The
+hand-set `priority` (0..100; 1,246 of 2,445 atoms sat at the default 30) is gone
+as a decision input. `Importance` is Jev's answer, at corpus build time, to one
+Score: "If the coding agent ignored `guidance`, what would most likely happen?"
+(`internal/atomjudge/questions.go`). The five levels are written situations,
+and those sentences are the Score's criteria word for word:
+
+| Level | Name | Meaning |
+|---|---|---|
+| 1 | style | Ignoring this guidance changes only style or wording; the work is still correct. |
+| 2 | convention | Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works. |
+| 3 | efficiency | Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct. |
+| 4 | correctness | Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer. |
+| 5 | critical | Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions. |
+
+- The level is the Score's position rounded to the nearest level. The ledger
+  `internal/prompt/atom_importance.json` (embedded) keeps, per atom, the content
+  hash Jev judged, the level, the position and the five probabilities, plus the
+  question's fingerprint and the Jev model ID.
+- `go run ./cmd/tools/prompt_builder -score-importance` scores every atom the
+  ledger does not cover for exactly its current content (`-rescore-all` for
+  all). `-reconcile-embedded` writes the level into the corpus `importance`
+  column (`NULL` = unscored); `EnsureSchema` drops the old `priority` column.
+- The zero value is `ImportanceUnscored`: a missing or stale score, and every
+  atom outside the embedded corpus (project, expert, evolved, strategy,
+  retrieved, kernel-injected). An unscored atom gets no `atom_importance` fact,
+  so no importance rule decides anything about it; Go tie-breaks put it after
+  scored atoms. It is never given a stand-in level.
+- Importance orders and arbitrates; it never admits. Mandatory (skeleton) atoms
+  stay rule-selected. Uses: `conflict_loser` in `policy/jit_selection.mg` (the
+  less important of two conflicting candidates loses; both must be scored),
+  `candidate_atom` (a shard's level-4/5 atoms join the veto set), the Mangle
+  mandatory cap order (`selectMangleMandatoryIDs`), the resolver's peer
+  tie-break (`scoredPeerLess`) and the embedded baseline order.
+- Built-in YAML may not carry `priority`; a project atom that still does parses
+  through the observable `legacy-priority-ignored` migration (removal date
+  2027-01-01) and the value reaches nothing. `internal/init/agents_atomize.go`
+  no longer writes it.
+- Coverage: `TestEmbeddedLedgerCoversEveryAtom` (`internal/atomjudge`) fails
+  when an atom was edited or added without a rescore.
+- First full score, 2026-10-28, `jev-1.14.0`, 2,445 atoms in 3.1 s: style 4,
+  convention 201, efficiency 1,244, correctness 925, critical 71. Against the
+  old hand values: of the 1,246 atoms at the default 30, 609 are correctness
+  and 11 critical; of the 472 at 90..100, 56 are convention-level. 616 atoms put
+  at least 0.3 on a second level, so the probabilities are kept for audit.
 
 **Polymorphism / retrieval:** `Description`, `ContentConcise`, `ContentMin`, `Embedding`, `EmbeddingTask`.
 
@@ -315,7 +361,7 @@ same Mangle constant. See `14-PROVIDER-MODEL-PINNING.md`.
 
 ### 5.3 Mangle fact projection
 
-- `ToFact()` → `prompt_atom(ID, Category, Priority, TokenCount, IsMandatory)` — order matches `schemas_prompts.mg`  
+- `ToFact()` → `prompt_atom(ID, Category, TokenCount, IsMandatory)` — order matches `schemas_prompts.mg`; importance is `atom_importance(ID, Level)`, emitted only for a scored atom (`selector_facts.go`)  
 - `ToSelectorFacts()` → `atom_selector(ID, Dimension, Value)`  
 - `ToDependencyFacts()` / conflict facts similarly  
 
@@ -347,7 +393,7 @@ skeletonCategories = identity | protocol | safety | methodology
 `SelectAtoms` / `SelectAtomsWithTiming`:
 
 1. Filter structured-output-only shards (strip piggyback/reasoning protocol atoms for legislator & mangle_repair).  
-2. Compute `selectMangleMandatoryIDs` when shard is legislator|mangle_repair **and** language is mangle — forces high-priority mangle mandatory atoms under token/atom caps.  
+2. Compute `selectMangleMandatoryIDs` when shard is legislator|mangle_repair **and** language is mangle — forces the most important mangle mandatory atoms under token/atom caps.  
 3. Parallel: `loadSkeletonAtoms` + `loadFleshAtoms`.  
 4. Skeleton error → fail compile. Flesh error → warn, continue.  
 5. `mergeAtoms` (skeleton wins on ID collision).
@@ -356,7 +402,7 @@ skeletonCategories = identity | protocol | safety | methodology
 
 - Requires `s.kernel != nil` else CRITICAL error.  
 - Filter candidates to skeleton categories.  
-- Build/assert facts; query `selected_result(Atom, Priority, Source)`.  
+- Build/assert facts; query `selected_result(Atom, Source)`.  
 - Debug queries: `blocked_by_context`, `mandatory_selection`.  
 - All selected get LogicScore/Combined = 1.0, Source=`skeleton`.  
 - Missing category → warn (does not always hard-fail if any skeleton returned),
@@ -374,10 +420,42 @@ skeletonCategories = identity | protocol | safety | methodology
 ### 6.3 Flesh load
 
 - Non-skeleton categories only.  
-- Optional vector scores via `SemanticQuery` + `SemanticTopK` with timeout.  
-- Assert facts + `vector_hit(ID, Score)` strings.  
+- Optional vector scores via `SemanticQuery` + `SemanticTopK` with timeout.
+  `topKEligibleVectorScores` keeps the vector channel's own **slots** (relative
+  floor, top-K).  
+- Assert facts + `vector_hit(ID, Score)` for the recall pool and
+  `vector_slot(ID)` for the slots. Without Jev the pool is the slots.  
+- **Per-turn relevance (as built 2026-10-28, `relevance.go`,
+  `internal/atomjudge`).** With `typesafe.atom_relevance` on (default when the
+  section exists), `recallPool` widens the slots to up to
+  `atom_relevance_pool` (default 40) eligible atoms, the next most similar
+  above the absolute floor. Jev answers one Noul per pooled atom, "Does
+  `guidance` apply to the work in `request`?", over the state
+  `request{text, intent, target, language, frameworks, agent}`. Answers become
+  `atom_relevance(ID, Percent)` plus `atom_relevance_threshold(/yes|/no, P)`
+  (typesafe `judgment_yes_percent` / `judgment_no_percent`).  
+- One judgment per turn: answers are cached by request and atom content
+  (`relevanceCache`), so the many compiles of a turn ask once. Bounded by
+  `atom_relevance_timeout` (default 4s). A failed, late or incomplete judgment
+  asserts no relevance fact and keeps `vector_hit` to the slots: the compile is
+  exactly the vector channel's. Mandatory atoms are never put to Jev.  
 - Mangle filter or `fallbackFleshSelection` (context match + scores) if no kernel.  
-- Combined score weights logic vs vector (`vectorWeight` default 0.3).
+- Combined score weights logic vs vector (`vectorWeight` default 0.3) for
+  unjudged flesh. Judged flesh is ordered for the prompt cache, never by the
+  turn's probabilities (the kernel's admission already read them): carried
+  atoms at 0.9 in their carried order, new atoms at 0.5, so the resolver orders
+  new atoms by importance then ID and the budget sheds them first.  
+- **Carry-over (cache stability).** `carryMemory` remembers, per task (agent,
+  verb, target), the flesh the last judged compile admitted, in prompt order.
+  The next compile of that task adds those atoms to the recall pool and asserts
+  `flesh_carried(ID)`; `flesh_admitted(Atom, /carried)` keeps them through an
+  unsettled reading and drops them only when Jev reads them as not applying
+  (the 30-point margin below yes). The assembler places carried flesh in
+  `tierCarried`, after the mandatory tiers and before new flesh, so consecutive
+  turns of one task share the cached prefix through every carried atom. A new
+  task carries nothing.  
+- After a judged compile the selector logs the kernel's admission table
+  (`flesh_admitted`, `flesh_refused`, `logRelevanceAdmission`).
 
 ### 6.4 Mangle rule file (external)
 
@@ -385,7 +463,12 @@ skeletonCategories = identity | protocol | safety | methodology
 
 - `blocked_by_context(Atom)`  
 - `mandatory_selection(Atom)`  
-- `selected_result(Atom, Priority, Source)` with `/skeleton` and `/flesh` sources  
+- `selected_result(Atom, Source)` with `/skeleton` and `/flesh` sources  
+- the flesh admission table, one row per relevance band: `flesh_admitted(Atom,
+  /judged_applies)` from anywhere in the recall pool;
+  `/unsettled_vector_slot` and `/unjudged_vector_slot` only from a vector slot;
+  `flesh_refused(Atom, /judged_does_not_apply)` even from a slot. A missing
+  judgment is never a no (`internal/core/jit_atom_relevance_test.go`).  
 - uses `vector_hit`, context blocks, exclusivity/dependency rules as implemented in policy modules  
 
 Go must assert atoms/selectors/context consistent with these Decls.

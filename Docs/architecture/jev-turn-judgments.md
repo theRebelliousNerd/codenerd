@@ -162,6 +162,60 @@ problem.
 - Unsettled or failed: every problem is a defect, in the log's order. The last
   chain's judgments are retracted before Jev is asked again.
 
+## Prompt atoms
+
+Code: `internal/atomjudge` (both questions), `internal/prompt/importance.go`,
+`internal/prompt/relevance.go`, `cmd/tools/prompt_builder -score-importance`,
+rules in `jit_compiler.mg` and `policy/jit_selection.mg`. Spec:
+`Docs/architecture/prompt/IMPLEMENTED_SPEC.md` sections 5.2 and 6.3.
+
+### Atom importance: build time, no switch
+
+A Score per embedded atom: "If the coding agent ignored `guidance`, what would
+most likely happen?" The five levels are written situations, from "changes only
+style or wording" to "breaks the build, loses or corrupts data, or violates
+safety or permissions". The state is one line saying what a guidance block is;
+each atom is its own question, carrying its id, category, scope and full text.
+
+- Asked by `prompt_builder -score-importance`, never at runtime. The answers
+  live in the embedded ledger `internal/prompt/atom_importance.json`, with the
+  content hash judged, the probabilities and the Jev model ID.
+- Fact: `atom_importance(Atom, Level)`, only for an atom with a current score.
+- Rules: `conflict_loser` and `candidate_atom` (`policy/jit_selection.mg`). Go
+  orderings use it as a tie-break. It replaced the hand-set `priority`, which
+  is no longer read by anything.
+- Mandatory atoms are scored but stay rule-selected. An unscored atom, or one
+  edited since it was scored, has no importance; it is never given a stand-in
+  level.
+- Billed as `jev_atom_importance`.
+
+### Atom relevance: switch `atom_relevance`
+
+A Noul per flesh atom the vector search nominates: "Does `guidance` apply to the
+work in `request`?" The state is `request{text, intent, target, language,
+frameworks, agent}`; each atom is its own question.
+
+- The pool is the vector channel's slots plus the next most similar eligible
+  atoms, up to `atom_relevance_pool`. Mandatory atoms are never asked.
+- Asked once per turn: the answers are cached by request and atom content, so
+  the many compiles of one turn ask once. Bounded by `atom_relevance_timeout`.
+- Facts: `atom_relevance(Atom, Percent)` and
+  `atom_relevance_threshold(/yes|/no, Percent)`, per compile and ephemeral.
+- Rules (`jit_compiler.mg`, the flesh admission table):
+  - at or above yes: admitted from anywhere in the pool (`/judged_applies`);
+  - unsettled: admitted only from a vector slot;
+  - at or below no: refused, even from a vector slot (`flesh_refused`);
+  - not judged (off, failed, late or incomplete): the vector slots, as before.
+- Cache-aware: the turn's probabilities never order the prompt. A task
+  (agent, verb, target) carries the flesh its previous judged compile admitted;
+  carried atoms stay through an unsettled reading, leave only when Jev reads
+  them as not applying, and assemble in their previous order ahead of new flesh
+  (`flesh_admitted(_, /carried)`, assembler `tierCarried`). New flesh follows by
+  importance, then ID, and is shed first.
+- The log names the pool and timing, then the kernel's admitted and refused rows
+  (`logRelevanceAdmission`).
+- Billed as `jev_atom_relevance`.
+
 ## Learning and autopoiesis
 
 The questions are in `internal/learnjudge`, one file per use. The rules are in
@@ -546,6 +600,9 @@ evolved atom into the agent's instructions (`RunEvolutionCycle`, step 4).
   (`retrieval.DefaultSeedTimeout`).
 - Review checks and triage are bounded by `request_timeout` (default 30s,
   retries included).
+- Atom relevance is bounded by `atom_relevance_timeout` (default 4s) per prompt
+  compile. Measured live: 40 atoms in 150-235 ms, about 30k input tokens per
+  turn. Atom importance runs at build time only: 2,445 atoms in 3.1 s.
 - Every answered call is billed to the session's usage tracker
   (`typesafe.Client.Ask`, then `usage.RecordFromContext`):
   - provider `typesafe`;
@@ -578,6 +635,9 @@ leaves Jev off. No model or endpoint is defaulted.
 | `judgment_yes_percent` / `judgment_no_percent` | 70 / 30 | every rule above; the retrieval drop |
 | `turn_judgments`, `retrieval_relevance`, `review_checks`, `diagnosis_triage` | on | the use of that name |
 | `correction_judgments`, `task_verdicts`, `problem_types`, `tool_checks`, `autopoiesis_checks`, `atom_checks` | on | the learning and autopoiesis use of that name |
+| `atom_relevance` | on | per-turn flesh atom relevance (JIT selector) |
+| `atom_relevance_pool` | 40 | atom relevance |
+| `atom_relevance_timeout` | 4s | atom relevance, per compile |
 | `recent_turns` | 12 | turn judgments |
 | `batch_size` | 20 | retrieval relevance, review checks, triage |
 | `relevance_pool_factor` | 6 | retrieval relevance |
@@ -654,3 +714,7 @@ context limit, and any model other than `jev-latest`.
 | Request shape: held and running work as fields, stop asked only while work runs, omitted turns counted, one condition per question | `internal/turnjudge/judge_test.go` |
 | Relevance carries no matched keywords and says when a head is cut; findings state the cited line; batches keep order and fail whole | `internal/turnjudge/uses_test.go` |
 | Unsettled judgments are named and act on nothing; running work as a person reads it | `cmd/nerd/chat/jev_calibration_test.go` |
+| Atom importance: Score over the written levels, failure leaves atoms unscored, oversized atoms reported not cut, the embedded ledger covers every atom | `internal/atomjudge/atomjudge_test.go`, `internal/prompt/importance_test.go` |
+| Atom relevance: state and question shape, any missing answer fails the whole, switch and thresholds | `internal/atomjudge/atomjudge_test.go`, `internal/config/typesafe_test.go` |
+| Atom relevance in the selector: pool, bands as facts, one judgment per turn, failure or lateness is no evidence | `internal/prompt/relevance_test.go` |
+| Atom admission table and importance conflicts in Mangle | `internal/core/jit_atom_relevance_test.go` |

@@ -82,3 +82,14 @@
   values are bare `[a-z0-9_]+` tool names, never slash-prefixed, never
   empty, never duplicated. Do not present CodeDOM capability instructions
   as generic to leave them ungated.
+
+- Atom importance is Jev's build-time Score (`importance.go`, ledger
+  `atom_importance.json`); never author a priority or a level by hand. After
+  editing or adding atoms run
+  `go run ./cmd/tools/prompt_builder -score-importance` then
+  `-reconcile-embedded`; `TestEmbeddedLedgerCoversEveryAtom` fails until you do.
+  Unscored is a real state, not a default level.
+- Flesh relevance is Jev's per-turn Noul over the vector recall pool
+  (`relevance.go`, `internal/atomjudge`); the admission decision is the
+  `flesh_admitted`/`flesh_refused` table in `jit_compiler.mg`, never Go. A
+  failed or late judgment asserts nothing.

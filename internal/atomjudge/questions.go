@@ -35,7 +35,7 @@ var importanceState = map[string]any{
 
 // importanceInstruction is the Score's question. Probed side by side with
 // "How much harm would ignoring `guidance` cause?" on 2026-10-28
-// (Docs/architecture/jev-probes/atom-importance-wording.json); the two agreed
+// (Docs/architecture/jev-probes/2026-10-28-atom-jit/atom-importance-wording.json); the two agreed
 // within 0.15 on every atom, and this one names the situation the levels
 // describe.
 const importanceInstruction = "If the coding agent ignored `guidance`, what would most likely happen?"
@@ -71,7 +71,7 @@ func ImportanceScaleFingerprint() string {
 
 // relevanceQuestion is the per-turn Noul for one atom. Probed against "Would
 // following `guidance` help the agent carry out `request`?" on 2026-10-28
-// (Docs/architecture/jev-probes/atom-relevance-wording.json): this wording
+// (Docs/architecture/jev-probes/2026-10-28-atom-jit/atom-relevance-wording.json): this wording
 // put clear matches above 0.85 and clear mismatches below 0.1, where the
 // other compressed matches toward 0.6.
 func relevanceQuestion(g guidance) typesafe.Noul {
