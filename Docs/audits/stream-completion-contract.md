@@ -123,7 +123,7 @@ Let B be received bytes, E decoded events, Q the maximum queued bytes, and A att
 
 The main benefit sought is fewer silently incomplete answers and less downstream rework. It may cost more tokens when a formerly accepted prefix now triggers a legitimate regeneration. Measure that tradeoff rather than declaring every retry wasteful.
 
-Record disjoint resource categories: provider input/cached/output/reasoning tokens for all attempts; network bytes; parser CPU and allocations; buffered and retained bytes; queue/lease duration; time to first visible chunk; time to accepted terminal result; downstream validation and repair calls; human recovery; and final verified-task rate. Unknown usage stays unknown, with cost lower bounds, using the existing accounting proposal rather than a duplicate logger.
+Record provider input and output token totals for all attempts, with cached-input and reasoning-output subcounts explicitly marked non-additive where the provider includes them in those totals. Normalize to disjoint uncached-input, cache-read, cache-write, visible-output and reasoning-output buckets only when the provider's documented semantics support that partition; otherwise retain totals and overlapping subcounts without summing them. Also record network bytes; parser CPU and allocations; buffered and retained bytes; queue/lease duration; time to first visible chunk; time to accepted terminal result; downstream validation and repair calls; human recovery; and final verified-task rate. Unknown usage stays unknown, with cost lower bounds, using the existing accounting proposal rather than a duplicate logger.
 
 Compare at identical models, task snapshots, authority and acceptance requirements:
 
