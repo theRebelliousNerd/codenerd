@@ -161,10 +161,6 @@ func renderKernelContextBlock(rows []string, lim kernelInjectionLimits) string {
 	return types.ClampText(sb.String(), lim.injectedAtomChars, "injectable_context")
 }
 
-func (c *JITPromptCompiler) collectDynamicKernelSnapshot(kernel KernelQuerier, cc *CompilationContext) (atoms []*PromptAtom, fingerprint string, err error) {
-	return c.collectDynamicKernelSnapshotWithConfig(kernel, cc, c.GetConfig())
-}
-
 func (c *JITPromptCompiler) collectDynamicKernelSnapshotWithConfig(kernel KernelQuerier, cc *CompilationContext, config CompilerConfig) (atoms []*PromptAtom, fingerprint string, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -220,14 +216,6 @@ func (c *JITPromptCompiler) collectDynamicKernelSnapshotWithConfig(kernel Kernel
 		return nil, "", err
 	}
 	return atoms, HashContent(string(encoded)), nil
-}
-
-func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) ([]*PromptAtom, error) {
-	return c.collectKernelInjectedAtomsFromConfig(c.kernel, cc, c.GetConfig())
-}
-
-func (c *JITPromptCompiler) collectKernelInjectedAtomsFrom(kernel KernelQuerier, cc *CompilationContext) ([]*PromptAtom, error) {
-	return c.collectKernelInjectedAtomsFromConfig(kernel, cc, c.GetConfig())
 }
 
 func (c *JITPromptCompiler) collectKernelInjectedAtomsFromConfig(kernel KernelQuerier, cc *CompilationContext, config CompilerConfig) ([]*PromptAtom, error) {

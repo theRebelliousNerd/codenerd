@@ -79,10 +79,6 @@ func (x *edbIndex) aritiesOf(pred string) map[int]struct{} {
 	return x.arities[pred]
 }
 
-func (x *edbIndex) len() int {
-	return x.size
-}
-
 // clone copies the index structure; the facts and keys are shared.
 func (x *edbIndex) clone() *edbIndex {
 	out := &edbIndex{

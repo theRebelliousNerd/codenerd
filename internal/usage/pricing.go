@@ -22,11 +22,6 @@ type Price struct {
 	CacheWritePerMTok float64
 }
 
-// Cost returns the estimated USD cost of the given token counts.
-func (p Price) Cost(input, output int64) float64 {
-	return p.CostDetailed(input, output, 0, 0)
-}
-
 // CostDetailed prices input split into uncached, cache-read and cache-write
 // parts. cacheRead/cacheWrite are sub-counts of input; any excess over
 // input is clamped so a provider miscount can never price negative tokens.
@@ -211,12 +206,6 @@ func normalizeModelName(model string) string {
 		name = name[:i]
 	}
 	return name
-}
-
-// EstimateCost returns the estimated USD cost for a model and token counts, and
-// whether the model was priced at all.
-func EstimateCost(model string, input, output int64) (float64, bool) {
-	return EstimateCostDetailed(model, input, output, 0, 0)
 }
 
 // EstimateCostDetailed is EstimateCost with the cache sub-counts of input.

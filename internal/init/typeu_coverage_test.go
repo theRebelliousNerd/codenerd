@@ -204,29 +204,6 @@ func TestChunkDocument_WhenEmpty_ShouldReturnSingle(t *testing.T) {
 	assert.Equal(t, "", chunks[0])
 }
 
-func TestTruncateString_WhenVariousLengths_ShouldTruncateCorrectly(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		maxLen   int
-		expected string
-	}{
-		{name: "short string", input: "hello", maxLen: 10, expected: "hello"},
-		{name: "exact length", input: "hello", maxLen: 5, expected: "hello"},
-		{name: "needs truncation", input: "hello world", maxLen: 8, expected: "hello..."},
-		{name: "very short max", input: "hello", maxLen: 3, expected: "hel"},
-		{name: "max 2", input: "hello", maxLen: 2, expected: "he"},
-		{name: "max 1", input: "hello", maxLen: 1, expected: "h"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := truncateString(tt.input, tt.maxLen)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 func TestKeysFromMap_WhenEmpty_ShouldReturnEmpty(t *testing.T) {
 	keys := keysFromMap(map[string][]string{})
 	assert.Empty(t, keys)

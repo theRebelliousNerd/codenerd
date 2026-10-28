@@ -834,12 +834,6 @@ func (b *derivationBuilder) sharedLeaves(p string, out map[string]struct{}, stac
 	}
 }
 
-// BuildDerivationMap analyzes concatenated policy text with the real Mangle
-// parser and computes the static cross-shard derivation map.
-func BuildDerivationMap(policyText string, programFacts map[string]struct{}, owners map[string]string, shared map[string]struct{}, catchAll string) (*DerivationMap, error) {
-	return BuildDerivationMapWithConsumerRoutes(policyText, programFacts, owners, shared, nil, catchAll)
-}
-
 // BuildDerivationMapWithConsumerRoutes analyzes policy placement while
 // accounting for explicitly routed EDB copies. The route list must match the
 // one installed on the Cortex before its first mutation.

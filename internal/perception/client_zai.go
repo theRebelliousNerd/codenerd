@@ -113,12 +113,6 @@ func DefaultZAIConfig(apiKey string) ZAIConfig {
 	}
 }
 
-// NewZAIClient creates a new ZAI client with default config.
-func NewZAIClient(apiKey string) *ZAIClient {
-	config := DefaultZAIConfig(apiKey)
-	return NewZAIClientWithConfig(config)
-}
-
 // NewZAIClientWithConfig creates a new ZAI client with custom config.
 func NewZAIClientWithConfig(config ZAIConfig) *ZAIClient {
 	defaults := DefaultZAIConfig(config.APIKey)

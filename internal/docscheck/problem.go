@@ -15,8 +15,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-
-	"codenerd/internal/types"
 )
 
 // Code is the stable short name of one R6 structural check. Codes are part
@@ -70,36 +68,6 @@ type Problem struct {
 	Message string `json:"message"`
 }
 
-// Fact renders the problem as doc_problem(Package, File, Code, Message) with
-// the code as a /name so policy rules can match it. Package, File and
-// Message are wrapped in MangleString explicitly: Fact.ToAtom infers a bare
-// Go string's constant type from its shape, and a message that happened to
-// start with "/" would otherwise land as a name no rule expects.
-func (p Problem) Fact() types.Fact {
-	return types.Fact{
-		Predicate: "doc_problem",
-		Args: []any{
-			types.MangleString(p.Package),
-			types.MangleString(p.File),
-			types.MangleAtom("/" + string(p.Code)),
-			types.MangleString(p.Message),
-		},
-	}
-}
-
-// Facts converts problems to the facts a later lane asserts into the
-// kernel. The Decl is doc_problem(Pkg, File, Code, Message) bound
-// [/string, /string, /name, /string] in schemas_reviewer.mg (§41.4),
-// matching Problem.Fact's shape exactly (Pkg because `Package` is a
-// Mangle keyword, not a name a Decl variable can take).
-func Facts(problems []Problem) []types.Fact {
-	facts := make([]types.Fact, 0, len(problems))
-	for _, p := range problems {
-		facts = append(facts, p.Fact())
-	}
-	return facts
-}
-
 // PackageReport is one package's grade: how many .md files were read and
 // what was found, in the script's order (per-file findings sorted by path,
 // then package-shape findings in SLOTS order, then the layer rule).
@@ -107,16 +75,6 @@ type PackageReport struct {
 	Package  string
 	Files    int
 	Problems []Problem
-}
-
-// Facts converts the report's problems, in order.
-func (r PackageReport) Facts() []types.Fact {
-	return Facts(r.Problems)
-}
-
-// Count returns the number of problems in the report.
-func (r PackageReport) Count() int {
-	return len(r.Problems)
 }
 
 // Text renders the report exactly as the script prints it: one header line

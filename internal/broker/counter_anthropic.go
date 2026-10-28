@@ -67,13 +67,6 @@ type countCacheEntry struct {
 	count Count
 }
 
-// NewAnthropicCounter builds a counter against the given credentials. The
-// fallback is used when the endpoint is unreachable, slow, or unauthorized, and
-// its lower Confidence propagates to the caller rather than being hidden.
-func NewAnthropicCounter(apiKey, baseURL string, httpClient *http.Client, fallback *EstimatingCounter) *AnthropicCounter {
-	return NewAnthropicCounterWithWorkspace(apiKey, baseURL, "", httpClient, fallback)
-}
-
 // NewAnthropicCounterWithWorkspace keeps counting in the same workspace as
 // inference when credentials can address multiple workspaces.
 func NewAnthropicCounterWithWorkspace(apiKey, baseURL, workspaceID string, httpClient *http.Client, fallback *EstimatingCounter) *AnthropicCounter {
@@ -356,14 +349,6 @@ func (a *AnthropicCounter) store(key string, count Count) {
 		a.order.Remove(oldest)
 		delete(a.cache, oldest.Value.(*countCacheEntry).key)
 	}
-}
-
-func truncateForLog(b []byte) string {
-	const max = 200
-	if len(b) <= max {
-		return string(b)
-	}
-	return string(b[:max]) + "..."
 }
 
 var _ CalibratingCounter = (*AnthropicCounter)(nil)

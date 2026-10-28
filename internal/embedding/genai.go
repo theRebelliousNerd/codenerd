@@ -93,11 +93,6 @@ func retryableGenAIError(err error) bool {
 	return errors.As(err, &netErr)
 }
 
-// NewGenAIEngine creates a new GenAI embedding engine.
-func NewGenAIEngine(apiKey, model, taskType string) (*GenAIEngine, error) {
-	return NewGenAIEngineWithContext(context.Background(), apiKey, model, taskType)
-}
-
 func NewGenAIEngineWithContext(ctx context.Context, apiKey, model, taskType string) (*GenAIEngine, error) {
 	if ctx == nil {
 		ctx = context.Background()

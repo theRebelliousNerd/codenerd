@@ -914,17 +914,6 @@ func recoverSelectionPanic(phase string, errp *error) {
 	}
 }
 
-// getVectorScores retrieves semantic similarity scores for atoms.
-// Uses a configurable sub-timeout to prevent blocking JIT compilation.
-// Gracefully degrades (returns nil vector scores) if vector search returns an error or times out.
-func (s *AtomSelector) getVectorScores(
-	ctx context.Context,
-	query string,
-	topK int,
-) map[string]float64 {
-	return s.getVectorScoresWithConfig(ctx, query, topK, s.vectorConfigSnapshot())
-}
-
 func (s *AtomSelector) getVectorScoresWithConfig(
 	ctx context.Context,
 	query string,

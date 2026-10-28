@@ -161,17 +161,6 @@ func parseQueryPatternDetails(query string) parsedQueryPattern {
 	return parsed
 }
 
-// parseQueryPattern retains the historical decoded helper for tests and
-// callers inside this package. Runtime filtering uses the AST-preserving
-// parseQueryPatternDetails path above.
-func parseQueryPattern(query string) (predicateName string, pattern Fact, hasPattern bool, arity int) {
-	parsed := parseQueryPatternDetails(query)
-	if !parsed.hasPattern {
-		return parsed.predicate, Fact{}, false, 0
-	}
-	return parsed.predicate, atomToFact(parsed.atom), true, len(parsed.atom.Args)
-}
-
 // atomMatchesQueryPattern filters before converting to Fact. Public Fact
 // readback intentionally represents both Mangle names and strings as Go
 // strings, so filtering after atomToFact would erase the distinction between

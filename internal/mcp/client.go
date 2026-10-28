@@ -880,20 +880,6 @@ func (m *MCPClientManager) GetPrompt(ctx context.Context, serverID, name string,
 	return messages, err
 }
 
-// transportFor returns the live transport for a connected server.
-func (m *MCPClientManager) transportFor(serverID string) (MCPTransport, error) {
-	if serverID == "" {
-		return nil, fmt.Errorf("server ID cannot be empty")
-	}
-	m.mu.RLock()
-	conn, ok := m.servers[serverID]
-	m.mu.RUnlock()
-	if !ok || conn.Transport == nil || !conn.Transport.IsConnected() {
-		return nil, fmt.Errorf("server not connected: %s", serverID)
-	}
-	return conn.Transport, nil
-}
-
 // GetServer returns the connection for a specific server.
 func (m *MCPClientManager) GetServer(serverID string) (*MCPServerConnection, bool) {
 	m.mu.RLock()

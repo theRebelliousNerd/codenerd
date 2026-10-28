@@ -2,7 +2,6 @@ package broker
 
 import (
 	"net/http"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -219,24 +218,6 @@ func TestAnthropicFallbackIsTheSharedEstimator(t *testing.T) {
 	if _, conf := m.Calibrator().Ratio("claude-opus-5"); conf != ConfidenceCalibrated {
 		t.Errorf("an observation through the Anthropic counter did not reach the shared "+
 			"calibrator (confidence %q)", conf)
-	}
-}
-
-func TestTruncateForLogBoundsErrorBodies(t *testing.T) {
-	short := []byte("a short body")
-	if got := truncateForLog(short); got != "a short body" {
-		t.Errorf("truncateForLog shortened a short body: %q", got)
-	}
-
-	// An error body reaches a log line. A provider returning a megabyte of
-	// HTML must not put a megabyte in the log.
-	long := []byte(strings.Repeat("x", 5000))
-	got := truncateForLog(long)
-	if len(got) > 210 {
-		t.Errorf("truncateForLog returned %d chars, want it bounded", len(got))
-	}
-	if !strings.HasSuffix(got, "...") {
-		t.Error("a truncated body does not say it was truncated")
 	}
 }
 

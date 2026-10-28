@@ -10,7 +10,6 @@ package research
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 
 	"codenerd/internal/logging"
@@ -371,36 +370,4 @@ var CommonDocURLs = map[string][]string{
 		"https://github.com/charmbracelet/bubbletea",
 		"https://pkg.go.dev/github.com/charmbracelet/bubbletea",
 	},
-}
-
-// GetDocURLsForTech returns documentation URLs for a technology.
-func GetDocURLsForTech(tech string) []string {
-	tech = strings.ToLower(tech)
-	if urls, ok := CommonDocURLs[tech]; ok {
-		return urls
-	}
-	return nil
-}
-
-// GetDocURLsForTechs returns documentation URLs for multiple technologies,
-// deduplicated, in first-seen order. It does not apply Gemini's per-request
-// URL cap. That limit belongs on the request (EnableURLContext and the
-// Gemini client), which reports every URL it withholds. Cutting here hid
-// the remainder from every caller, including one that would send the rest
-// on a follow-up request (limits cleanup 2026-09-29).
-func GetDocURLsForTechs(techs []string) []string {
-	seen := make(map[string]bool)
-	var urls []string
-
-	for _, tech := range techs {
-		for _, url := range GetDocURLsForTech(tech) {
-			if seen[url] {
-				continue
-			}
-			seen[url] = true
-			urls = append(urls, url)
-		}
-	}
-
-	return urls
 }

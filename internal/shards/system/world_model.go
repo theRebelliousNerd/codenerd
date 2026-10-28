@@ -167,11 +167,6 @@ func parsedIncludeGlobs() []string {
 	return out
 }
 
-// NewWorldModelIngestorShard creates a new World Model Ingestor shard.
-func NewWorldModelIngestorShard() *WorldModelIngestorShard {
-	return NewWorldModelIngestorShardWithConfig(DefaultWorldModelConfig())
-}
-
 // NewWorldModelIngestorShardWithConfig creates a world model ingestor with custom config.
 func NewWorldModelIngestorShardWithConfig(cfg WorldModelConfig) *WorldModelIngestorShard {
 	base := NewBaseSystemShard("world_model_ingestor", StartupOnDemand)

@@ -396,11 +396,6 @@ var hostWitnessPredicates = map[string]struct{}{
 	// that could write user_agent_declared_tool could put a tool on its
 	// own turn.
 	"user_agent_declared_tool": {},
-	// What the docs checker measured (the R6 structural grade, `nerd docs
-	// check` via internal/docscheck): a model that could write doc_problem
-	// could invent findings about, or erase findings from, the corpus it
-	// may itself have written.
-	"doc_problem": {},
 	// What a tool call changed and what its validation established
 	// (tool_effects.mg, validation.mg): a model that could write a receipt
 	// could hide a rejected change, or affirm a validation nothing ran.

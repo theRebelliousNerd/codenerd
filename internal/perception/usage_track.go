@@ -110,14 +110,6 @@ type chatUsage struct {
 	} `json:"completion_tokens_details,omitempty"`
 }
 
-// cachedTokens is the cache-read count, 0 when unreported.
-func (u chatUsage) cachedTokens() int {
-	if u.PromptTokensDetails != nil && u.PromptTokensDetails.CachedTokens != nil {
-		return *u.PromptTokensDetails.CachedTokens
-	}
-	return 0
-}
-
 // metadata normalizes the block. Both sub-counts are already inside their
 // totals in this API, so nothing is folded.
 func (u chatUsage) metadata() types.UsageMetadata {

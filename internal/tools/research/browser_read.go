@@ -150,27 +150,6 @@ func researchHeadlessManager(ctx context.Context) (*browser.SessionManager, erro
 	return mgr, nil
 }
 
-func shutdownResearchBrowser() {
-	researchHeadlessMu.Lock()
-	mgr := researchHeadless
-	researchHeadless = nil
-	researchHeadlessMu.Unlock()
-	if mgr != nil {
-		_ = mgr.Shutdown(context.Background())
-	}
-}
-
-// researchPageBrowser is the process the current policy would read with,
-// if one has been started. Tests use it to count tabs. It does not launch.
-func researchPageBrowser() *browser.SessionManager {
-	if config.ResolvedResearchPolicy().BrowserHeadless {
-		researchHeadlessMu.Lock()
-		defer researchHeadlessMu.Unlock()
-		return researchHeadless
-	}
-	return getBrowserManager()
-}
-
 func requireResearchPageRuntime() error {
 	if getBrowserManager() == nil {
 		return fmt.Errorf("browser runtime is not bound; boot must call research.SetBrowserRuntime before a research page read (set browser.launch to the Chrome binary)")

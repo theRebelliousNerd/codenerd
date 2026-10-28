@@ -36,7 +36,7 @@ via_head(X) :- beta_fact(X), mixed_head(X).
 func TestDerivationMap_ToyProgram(t *testing.T) {
 	owners := map[string]string{"alpha_fact": "alpha", "beta_fact": "beta"}
 	shared := map[string]struct{}{"shared_sig": {}}
-	m, err := BuildDerivationMap(toyPolicy, nil, owners, shared, "cortex")
+	m, err := BuildDerivationMapWithConsumerRoutes(toyPolicy, nil, owners, shared, nil, "cortex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestDerivationMap_DefaultCorpus(t *testing.T) {
 		"user_intent": {}, "active_shard": {}, "current_time": {}, "executive_processed_intent": {},
 	}
 	start := time.Now()
-	m, err := BuildDerivationMap(schemas+"\n"+policy, nil, owners, shared, "cortex")
+	m, err := BuildDerivationMapWithConsumerRoutes(schemas+"\n"+policy, nil, owners, shared, nil, "cortex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ pure_reader(X) :- pure_head(X).
 `
 	owners := map[string]string{"alpha_fact": "alpha", "beta_fact": "beta"}
 	shared := map[string]struct{}{"shared_sig": {}, "shared_two": {}}
-	m, err := BuildDerivationMap(policy, nil, owners, shared, "cortex")
+	m, err := BuildDerivationMapWithConsumerRoutes(policy, nil, owners, shared, nil, "cortex")
 	if err != nil {
 		t.Fatal(err)
 	}

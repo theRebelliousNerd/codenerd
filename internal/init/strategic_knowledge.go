@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strings"
 
-	"codenerd/internal/core"
 	"codenerd/internal/store"
 )
 
@@ -293,36 +292,6 @@ func extractBalancedJSON(s string) string {
 		}
 	}
 	return ""
-}
-
-// extractDirectoriesFromFacts extracts directory paths from file_topology facts.
-func extractDirectoriesFromFacts(facts []core.Fact) []string {
-	seen := make(map[string]bool)
-	var dirs []string
-
-	for _, f := range facts {
-		if f.Predicate == "file_topology" && len(f.Args) >= 2 {
-			// file_topology(path, type) where type is /directory
-			if typeArg, ok := f.Args[1].(string); ok && typeArg == "/directory" {
-				if path, ok := f.Args[0].(string); ok && !seen[path] {
-					seen[path] = true
-					dirs = append(dirs, path)
-				}
-			}
-		}
-	}
-	return dirs
-}
-
-// truncateString truncates a string to maxLen characters, adding "..." if truncated.
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
 }
 
 // keysFromMap extracts keys from a map for display.

@@ -2755,11 +2755,6 @@ func (e *Executor) assertSecurityViolation(actionAtom types.MangleAtom, reason s
 // because permitted/3 is matched against the exact payload.
 const MaxActionPayloadBytes = 100 * 1024 // 100 KB
 
-func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) (bool, string) {
-	v := e.checkSafetyWithLease(call, safetyGateEnabled, "", nil, nil)
-	return v.allowed, v.reason
-}
-
 // safetyVerdict is the constitutional gate's answer for one call.
 type safetyVerdict struct {
 	allowed bool

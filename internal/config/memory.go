@@ -311,19 +311,6 @@ func SetEmbeddingPullTimeout(d time.Duration) {
 	embedding.SetPullTimeout(d)
 }
 
-// EmbeddingPullTimeout is the installed Ollama model-pull bound. Without a
-// load it is the default (30m).
-func EmbeddingPullTimeout() time.Duration {
-	if n := activeEmbeddingPullTimeout.Load(); n > 0 {
-		return time.Duration(n)
-	}
-	d, err := DefaultEmbeddingConfig().ResolvedPullTimeout()
-	if err != nil {
-		panic("config: default embedding.pull_timeout: " + err.Error())
-	}
-	return d
-}
-
 // EngineConfig is the embedding engine configuration for these settings. It is
 // the only conversion: twelve call sites used to copy the fields by hand, and
 // the two that skipped the copy (the campaign document ingestor, a factory

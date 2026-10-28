@@ -316,18 +316,6 @@ func (c *JITPromptCompiler) SetLearningStore(ls *store.LearningStore) {
 	c.bumpSourceEpoch()
 }
 
-// collectKnowledgeAtoms queries project knowledge plus the selected expert's
-// registered knowledge DB and converts hits to ephemeral PromptAtoms.
-// This is the Semantic Knowledge Bridge with a bounded expert extension:
-// the project LocalStore is searched semantically (with a lexical fallback
-// when no embedding engine is configured) and the single selected expert DB
-// is searched lexically through the shared handle. Sibling experts are never
-// consulted. Missing knowledge reads as missing (nil); nothing is fabricated.
-func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *CompilationContext) []*PromptAtom {
-	config, _, _ := c.configSnapshot()
-	return c.collectKnowledgeAtomsFrom(ctx, cc, config, c.snapshotSources(cc), nil)
-}
-
 // collectKnowledgeAtomsFrom searches the knowledge handles captured in src.
 // A lookup that errors or times out (as opposed to finding nothing) marks
 // the compile degraded.
@@ -479,12 +467,6 @@ func appendKnowledgePromptAtoms(dst []*PromptAtom, seen map[string]struct{}, ato
 		}
 	}
 	return dst
-}
-
-// collectLearningAtoms queries the LearningStore for relevant past learnings.
-func (c *JITPromptCompiler) collectLearningAtoms(ctx context.Context, cc *CompilationContext) []*PromptAtom {
-	config, _, _ := c.configSnapshot()
-	return c.collectLearningAtomsFrom(ctx, cc, config, c.snapshotSources(cc), nil)
 }
 
 // collectLearningAtomsFrom recalls from the learning store captured in src.

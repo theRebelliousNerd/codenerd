@@ -1,14 +1,11 @@
 package orient
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 
 	"codenerd/internal/config"
-	"codenerd/internal/embedding"
 	"codenerd/internal/types"
 )
 
@@ -98,75 +95,6 @@ type VisionView struct {
 	Path      string `json:"path"`
 	WeightPct int64  `json:"weight_pct"`
 	Why       string `json:"why"`
-}
-
-// Inspect scans root, asserts the measurements and any extra rows (agent
-// sources, role claims), and evaluates. extra's doc_tie rows are ignored:
-// this function assigns the single ordinal space. emb may be nil; similarity
-// is then skipped and the report says so.
-//
-// Init retains its engine between transduction and materialization; Inspect
-// is the read-only library view over one measurement pass.
-func Inspect(ctx context.Context, root string, cfg *config.OrientConfig, emb embedding.EmbeddingEngine, extra []types.Fact) (*Report, error) {
-	if cfg == nil {
-		return nil, fmt.Errorf("orient config is nil")
-	}
-	root, err := absPath(root)
-	if err != nil {
-		return nil, err
-	}
-	hist, err := ScanHistory(ctx, root)
-	if err != nil {
-		return nil, err
-	}
-	docs, err := CollectDocs(ctx, root, *cfg, emb)
-	if err != nil {
-		return nil, err
-	}
-	facts := make([]types.Fact, 0, len(hist.Facts)+len(docs.Facts)+len(extra))
-	facts = append(facts, hist.Facts...)
-	facts = append(facts, docs.Facts...)
-	for _, f := range extra {
-		if f.Predicate == "doc_tie" {
-			continue
-		}
-		facts = append(facts, f)
-	}
-	facts = append(facts, DocTieFacts(tiePaths(facts))...)
-
-	eng, err := NewEngine(cfg)
-	if err != nil {
-		return nil, err
-	}
-	defer eng.Close()
-	if err := eng.Assert(facts); err != nil {
-		return nil, err
-	}
-	if err := eng.Evaluate(ctx); err != nil {
-		return nil, err
-	}
-	rep, err := buildReport(eng)
-	if err != nil {
-		return nil, err
-	}
-	rep.Workspace = root
-	rep.Shallow = hist.Shallow
-	rep.Empty = hist.Empty
-	rep.Commits = hist.Commits
-	rep.SimilarityNote = docs.SimilarityNote
-	rep.Unreadable = docs.Unreadable
-	if docs.CacheWriteError != "" {
-		rep.CacheNote = docs.CacheWriteError
-	}
-	if hist.Shallow {
-		rep.HistoryNote = "History is shallow (git rev-parse --is-shallow-repository). Eras, generations, bursts, cohorts, evolution and origin sources were not drawn, because first-commit times in a truncated clone are not the repository's."
-	} else if hist.Empty {
-		rep.HistoryNote = "The repository has no commits. There is no timeline to draw."
-	}
-	if len(rep.Vision) == 0 {
-		rep.VisionNote = "none derivable (no doc_role_claim)"
-	}
-	return rep, nil
 }
 
 func buildReport(e *Engine) (*Report, error) {
@@ -430,21 +358,6 @@ func readViews(e *Engine, pred string) ([]ReadView, error) {
 		out = append(out, ReadView{Path: p, Reasons: reasons})
 	}
 	return out, nil
-}
-
-// JSON is the report, indented. Every omitted candidate and every
-// unreadable path is included; nothing is trimmed to fit a screen.
-func (r *Report) JSON() ([]byte, error) {
-	if r.Unreadable == nil {
-		r.Unreadable = []string{}
-	}
-	if r.Bursts == nil {
-		r.Bursts = []string{}
-	}
-	if r.Cohorts == nil {
-		r.Cohorts = []string{}
-	}
-	return json.MarshalIndent(r, "", "  ")
 }
 
 // Text is the human inspection. The read budget says how many qualifying

@@ -15,8 +15,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"codenerd/internal/config"
 )
 
 type ProcessInfo struct {
@@ -400,10 +398,6 @@ func (m *SessionManager) cleanupBrowserProcess(pid int, dir string, temporary bo
 		return removeUserDataDir(ctx, dir, policy.PollInterval())
 	}
 	return nil
-}
-
-func DefaultProcessQuerier() ProcessQuerier {
-	return newProcessQuerier(config.DefaultBrowserReaperConfig())
 }
 
 func descendantPIDs(root int, processes []ProcessInfo) []int {

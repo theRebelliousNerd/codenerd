@@ -74,18 +74,6 @@ type UncoveredBlock struct {
 	Count int
 }
 
-// parseCoverProfile parses a Go coverage profile from r and returns only the
-// blocks whose count is 0 and whose file path has a suffix matching one of
-// writtenFiles. parseCoverBlocks is the same parse without the count filter:
-// the element mapping needs the blocks this run did execute.
-func parseCoverProfile(r io.Reader, writtenFiles []string) ([]UncoveredBlock, error) {
-	blocks, err := parseCoverBlocks(r, writtenFiles)
-	if err != nil {
-		return nil, err
-	}
-	return uncoveredStatementBlocks(blocks), nil
-}
-
 // parseCoverBlocks parses a Go coverage profile from r and returns every
 // statement block whose file path has a suffix matching one of writtenFiles,
 // executed or not.

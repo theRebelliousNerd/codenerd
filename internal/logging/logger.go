@@ -497,13 +497,6 @@ func IsDebugMode() bool {
 	return effectiveDebugMode(config)
 }
 
-// IsDebugSelf returns whether debug-self mode is enabled in the effective config.
-func IsDebugSelf() bool {
-	configMu.RLock()
-	defer configMu.RUnlock()
-	return config.DebugSelf
-}
-
 // IsCategoryEnabled returns whether a specific category is enabled
 func IsCategoryEnabled(category Category) bool {
 	configMu.RLock()

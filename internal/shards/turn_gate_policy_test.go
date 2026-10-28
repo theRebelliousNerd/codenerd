@@ -201,7 +201,7 @@ func bootGateCortex(t *testing.T) *core.CortexKernel {
 	for _, pred := range SharedPredicates() {
 		shared[pred] = struct{}{}
 	}
-	dm, err := core.BuildDerivationMap(schemas+"\n"+policy, nil, owners, shared, "cortex")
+	dm, err := core.BuildDerivationMapWithConsumerRoutes(schemas+"\n"+policy, nil, owners, shared, nil, "cortex")
 	if err != nil {
 		t.Fatal(err)
 	}

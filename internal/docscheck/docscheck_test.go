@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"codenerd/internal/types"
 )
 
 // fixtureRoot locates a testdata fixture tree by name. Every fixture is a
@@ -120,8 +118,8 @@ func TestCheckPackage_Fixtures(t *testing.T) {
 			if rep.Files != tt.files {
 				t.Errorf("Files = %d, want %d", rep.Files, tt.files)
 			}
-			if rep.Count() != len(tt.want) {
-				t.Errorf("Count = %d, want %d", rep.Count(), len(tt.want))
+			if len(rep.Problems) != len(tt.want) {
+				t.Errorf("Count = %d, want %d", len(rep.Problems), len(tt.want))
 			}
 			checkProblems(t, tt.fixture, rep.Problems, tt.want)
 		})
@@ -193,65 +191,6 @@ func TestWriteJSON(t *testing.T) {
 	if got := Summarize([]PackageReport{rep}); got != (Summary{Packages: 1, Files: 13, Problems: 1}) {
 		t.Errorf("Summarize = %+v", got)
 	}
-}
-
-// TestProblemFact pins the kernel surface: doc_problem(Package, File, Code,
-// Message) with the code as a /name, and every argument surviving ToAtom.
-func TestProblemFact(t *testing.T) {
-	p := Problem{
-		Package: "pkg",
-		File:    "Docs/architecture/pkg/adr/ADR-001-example.md",
-		Code:    CodeNoWitnessLine,
-		Message: "adr/ADR-001-example.md: no **Witness:** line",
-	}
-	f := p.Fact()
-	if f.Predicate != "doc_problem" {
-		t.Errorf("Predicate = %q, want doc_problem", f.Predicate)
-	}
-	if len(f.Args) != 4 {
-		t.Fatalf("Args has %d entries, want 4", len(f.Args))
-	}
-	if got := types.ExtractString(f.Args[0]); got != "pkg" {
-		t.Errorf("arg 0 = %q, want pkg", got)
-	}
-	if got, ok := f.Args[2].(types.MangleAtom); !ok || got != "/no_witness_line" {
-		t.Errorf("arg 2 = %#v, want MangleAtom /no_witness_line", f.Args[2])
-	}
-	if _, err := f.ToAtom(); err != nil {
-		t.Errorf("ToAtom: %v", err)
-	}
-	rep, err := NewChecker(fixtureRoot(t, "bad_doc_class")).CheckPackage("pkg")
-	if err != nil {
-		t.Fatalf("CheckPackage: %v", err)
-	}
-	if facts := rep.Facts(); len(facts) != 1 || facts[0].Predicate != "doc_problem" {
-		t.Errorf("report Facts = %#v", facts)
-	}
-	if facts := Facts(nil); len(facts) != 0 {
-		t.Errorf("Facts(nil) = %#v, want empty", facts)
-	}
-}
-
-// TestDocProblemDeclMatchesProducer pins the Decl side of the contract
-// TestProblemFact pins on the Go side. TestUndeclaredAssertBudget only
-// checks the predicate name; a Decl whose bounds disagree with
-// Problem.Fact fails silently (internal/mangle/agents.md), so the shape
-// is pinned here, next to the producer.
-func TestDocProblemDeclMatchesProducer(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join(docscheckRepoRoot(t), "internal", "core", "defaults", "schemas_reviewer.mg"))
-	if err != nil {
-		t.Fatalf("read schemas_reviewer.mg: %v", err)
-	}
-	const want = "Decl doc_problem(Pkg, File, Code, Message) bound [/string, /string, /name, /string]."
-	for _, line := range strings.Split(string(raw), "\n") {
-		if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "Decl doc_problem(") {
-			if trimmed != want {
-				t.Errorf("Decl = %q, want %q", trimmed, want)
-			}
-			return
-		}
-	}
-	t.Error("no Decl doc_problem in schemas_reviewer.mg")
 }
 
 // docscheckRepoRoot walks up from the package directory to the go.mod root.

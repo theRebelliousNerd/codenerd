@@ -36,7 +36,7 @@ func wiringShared() map[string]struct{} {
 
 func buildWiringMap(t *testing.T) *DerivationMap {
 	t.Helper()
-	m, err := BuildDerivationMap(derivationWiringPolicy, nil, wiringOwners(), wiringShared(), "cortex")
+	m, err := BuildDerivationMapWithConsumerRoutes(derivationWiringPolicy, nil, wiringOwners(), wiringShared(), nil, "cortex")
 	if err != nil {
 		t.Fatalf("BuildDerivationMap: %v", err)
 	}
