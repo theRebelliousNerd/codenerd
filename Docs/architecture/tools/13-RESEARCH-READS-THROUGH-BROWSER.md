@@ -88,3 +88,21 @@ Spec for `Docs/audits/research-browser-ownership-and-evidence-retirement.md`; bu
   read fail as observation-incomplete. Content read but cleanup failed is
   `browserPage.CleanupErr`; `web_fetch` and `web_search` append a "cleanup pending" notice, and
   Context7 (archived source text) logs it.
+
+## Observation identity (2026-10-28)
+
+- `web_search` reports "No results" only when the page carries DuckDuckGo's own empty-results
+  state (a `no-results` class, `duckDuckGoReportsNoResults`); a page with no result cards and no
+  such state (a challenge, consent page, changed layout) is an error saying nothing is established.
+  The empty answer is scoped: the provider's answer at that time, not proof of absence.
+- `readBrowserPage` reads `document.URL` and `document.baseURI` in the same evaluation as the DOM.
+  `web_fetch` names the document when the browser ended somewhere other than the requested URL
+  (`[document: ... (requested ...)]`) and resolves relative links against `baseURI`; credentials
+  are dropped from emitted links.
+- A paged `web_fetch` names the snapshot (`sha256:` of the converted document) its window was cut
+  from; a continuation passing `snapshot` is refused when the document changed. The unpaged fetch
+  archived whole by the working context and paged with `recall_context` remains the way to read
+  one retained snapshot without navigating again.
+- A research result in the working context (`recordWorkingResult`, any `EffectExternal` tool with
+  no file argument) is a non-file observation with a stable revision, not an observation of the
+  focus file at that file's digest.

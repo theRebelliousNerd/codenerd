@@ -411,7 +411,14 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 	if toolErr != nil {
 		body += "\nERROR: " + toolErr.Error()
 	}
-	if observed == "" {
+	// A remote source -- a page, a search, a documentation lookup -- is
+	// not the focus file. Filed under the focus it took that file's digest as
+	// its revision, so editing the file staled the page and unchanged bytes
+	// called it current (Docs/audits/research-observation-identity-and-
+	// admission.md, Finding one). It is filed as a non-file observation: its
+	// revision is stable, so it is historical evidence of what was fetched,
+	// and a later fetch of the same arguments supersedes it.
+	if observed == "" && (entity != "" || !remoteObservation(call.Name)) {
 		observed = loop.focus
 	}
 	revision := loop.set.Revision(observed)
@@ -940,4 +947,11 @@ func (e *Executor) completeWithWorkingContext(ctx context.Context, provider type
 		return nil, fmt.Errorf("compile working context: %w", err)
 	}
 	return provider.CompleteWithToolResults(ctx, system, history, definitions)
+}
+
+// remoteObservation reports a tool whose result is acquired from outside the
+// workspace (tools.EffectExternal): it has no workspace revision to inherit.
+func remoteObservation(name string) bool {
+	effect, err := tools.LookupEffect(name)
+	return err == nil && effect == tools.EffectExternal
 }

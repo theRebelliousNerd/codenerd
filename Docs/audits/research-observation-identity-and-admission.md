@@ -208,3 +208,41 @@ Exit criteria should be explicit: no false negative-search promotion on the adve
 
 The completion condition is a grounded investigation whose final consumer can distinguish what was requested, what was actually acquired, which exact representation was delivered, and what remains unknown. Browser cleanup success, a nil tool error, a recall handle and a local file hash are individually useful facts; none substitutes for that source contract.
 
+
+## As-built status
+
+Verified and built 2026-10-28 on `main` (after `9d63f589`). The feature branch's runtime-ownership changes are on main; the four acquisition and adoption seams were unchanged from the audit.
+
+### Claim ledger
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| One: a URL/query result has no file entity, so it is filed under `loop.focus` at that file's revision | Real, fixed | `working_context.go:421` files an `EffectExternal` result with no file argument as a non-file observation (`remoteObservation`, `:954`); the existing `nonfile` revision is stable (`internal/context/working_revision.go` `sameWorkingRevision`) |
+| One: distinct URL/query arguments are not collapsed (Kind hashes tool and input) | Confirmed; unchanged | `working_context.go` `kind` |
+| One (witness B): a research-only turn with focus `.` gets an unavailable revision | Real, fixed by the same change (no focus is inherited) | as above |
+| Two: a page with no recognized result cards becomes "No results found", nil error | Real, fixed | `web_search.go:76`: an error unless `duckDuckGoReportsNoResults` (`:162`) sees the provider's empty state; the empty answer is worded as the provider's answer at that time |
+| Two: the 1 MB guard is marked when it trips | Confirmed; kept | `markSearchGuardTrip` |
+| Three: the page record returns the requested URL; no document URL or base URI | Real, fixed | `browser_read.go:476` reads `document.URL`/`document.baseURI` in the same eval; `browserPage.DocumentURL`/`BaseURI` |
+| Three: `htmlToMarkdown` takes `baseURL` but emits the raw `href` | Real, fixed | `resolveLink` (`web_fetch.go:342`) against `page.BaseURI` (`:127`); credentials dropped; a redirect is named by `documentNotice` (`:357`) |
+| Three: navigation-specific status provenance (frame/loader identity) is not retained | Confirmed; left open | `browser_read.go` status listener |
+| Four: every paged fetch navigates again and the hint is an offset only | Real, fixed by binding, not by caching | the paging notice names `snapshot=sha256:…` (`snapshotID`, `:390`); a continuation with `snapshot` is refused when the document changed (`sameSnapshot`, `:397`) |
+| Four: an unpaged fetch archived whole by the working context can be paged with `recall_context` | Confirmed; named in the spec as the way to read one retained snapshot | `13-RESEARCH-READS-THROUGH-BROWSER.md` |
+| `grounded_web_search` is a separate provider path not subject to the DDG parser | Confirmed; unchanged (its working-context adoption is fixed by One, as it is `EffectExternal`) | `effects.go` |
+
+### What was built
+
+- Ruling (One): reuse the ledger's existing non-file observation (`entity ""`, revision `nonfile`) for remote results instead of a new remote-entity kind; it is stable, still live (every ledger row's entity is touched), superseded by a later fetch of the same arguments, and no longer hot by inheriting the focus file. Relevance to the focus is not modelled as a dependency.
+- Ruling (Two): a positive witness is required for "empty": DuckDuckGo's own `no-results` element. Everything else without cards is an error that says nothing is established; no phrase denylist.
+- Ruling (Three): the browser's `baseURI` is the base (it already applies `<base>` and redirects), falling back to the requested URL only when the page reported none.
+- Ruling (Four): bind, do not cache. Each paged window names a digest of the converted document; continuing with that digest refuses a changed document instead of splicing two versions. Retaining a server-side snapshot per URL was not built: the working context already archives an unpaged fetch whole.
+- Spec: `Docs/architecture/tools/13-RESEARCH-READS-THROUGH-BROWSER.md` "Observation identity (2026-10-28)".
+
+### Tests
+
+`internal/tools/research/research_identity_test.go`: the empty-state recognizer accepts only the provider's state (not a blank page, a challenge, a new layout, or a look-alike class); relative and root links resolve against the document base and credentials are dropped; a same-document URL is not reported as a redirect; through real Chrome, a redirected fetch names its document and resolves its relative link against it, an unrecognized search page is a failure and a recognized empty page is a scoped "no results"; a paged continuation of an unchanged document succeeds and of a changed one is refused. `internal/session/working_remote_test.go`: a `web_fetch` result after a file read is a non-file observation whose revision does not move when the file is edited, and the focus stays on the file (failed before the fix). `go test ./internal/tools/research` passes.
+
+### Left open
+
+- A typed research-observation envelope (acquisition timestamp, semantic classification as data, revalidation policy in Mangle): not built; the outcomes are carried as truthful text and errors.
+- Navigation/frame identity for the HTTP status; known challenge/consent states as a distinct "unavailable" outcome (they are currently the generic unrecognized-page error).
+- Server-side retention of a fetched snapshot for paging without a second navigation; the cost study and the TUI end-to-end evaluation.

@@ -68,8 +68,17 @@ func executeWebSearch(ctx context.Context, args map[string]any) (string, error) 
 	}
 
 	if len(results) == 0 {
+		// "No results" is a claim about the provider's answer. A page with
+		// no recognized result cards and no recognized empty-results state
+		// is not a search answer at all -- a challenge, a consent page, a
+		// changed layout -- and reporting it as an empty search turned an
+		// unknown into negative evidence.
+		if !read.emptyConfirmed {
+			logging.Researcher("Web search page for %q held no recognized results or empty-results state", query)
+			return "", fmt.Errorf("search for %q returned a page that is not a recognized DuckDuckGo answer: no result cards and no empty-results marker (a challenge, consent page or changed layout). Nothing is established about results for this query%s", query, read.cleanup)
+		}
 		logging.Researcher("Web search returned no results for: %s", query)
-		return markSearchGuardTrip("No results found for: "+query, read.guardTripped) + read.cleanup, nil
+		return markSearchGuardTrip("No results found for: "+query+" (DuckDuckGo reported no results for this query; that is the provider's answer at this time, not proof the information does not exist)", read.guardTripped) + read.cleanup, nil
 	}
 
 	// Format results as markdown
@@ -117,6 +126,9 @@ var duckDuckGoSearchURL = "https://html.duckduckgo.com/html/?q=%s"
 type searchRead struct {
 	guardTripped bool
 	cleanup      string
+	// emptyConfirmed is set when a page with no result cards carries the
+	// provider's own empty-results state.
+	emptyConfirmed bool
 }
 
 // searchDuckDuckGo performs a search using DuckDuckGo HTML interface.
@@ -137,7 +149,50 @@ func searchDuckDuckGo(ctx context.Context, query string, maxResults int) ([]Sear
 
 	body, guardTripped := cutGuardBytes(page.HTML, webSearchGuardBytes)
 	results, err := parseDuckDuckGoResults(body, maxResults)
-	return results, searchRead{guardTripped: guardTripped, cleanup: page.cleanupNotice()}, err
+	read := searchRead{guardTripped: guardTripped, cleanup: page.cleanupNotice()}
+	if err == nil && len(results) == 0 {
+		read.emptyConfirmed = duckDuckGoReportsNoResults(body)
+	}
+	return results, read, err
+}
+
+// duckDuckGoReportsNoResults reports whether a page carries DuckDuckGo's
+// empty-results state: an element whose class list holds "no-results". The
+// absence of result cards alone is not that state.
+func duckDuckGoReportsNoResults(htmlContent string) bool {
+	doc, err := html.Parse(strings.NewReader(htmlContent))
+	if err != nil {
+		return false
+	}
+	var found bool
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if found {
+			return
+		}
+		if n.Type == html.ElementNode {
+			for _, attr := range n.Attr {
+				if attr.Key == "class" && hasClassToken(attr.Val, "no-results") {
+					found = true
+					return
+				}
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+	return found
+}
+
+func hasClassToken(classes, token string) bool {
+	for _, c := range strings.Fields(classes) {
+		if c == token {
+			return true
+		}
+	}
+	return false
 }
 
 // parseDuckDuckGoResults extracts search results from DuckDuckGo HTML.

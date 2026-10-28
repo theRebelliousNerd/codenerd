@@ -2,7 +2,10 @@ package research
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	neturl "net/url"
 	"regexp"
 	"strings"
 
@@ -42,6 +45,10 @@ func WebFetchTool() *tools.Tool {
 					Type:        "integer",
 					Description: "Rune offset where the max_length window starts (default: 0)",
 					Default:     0,
+				},
+				"snapshot": {
+					Type:        "string",
+					Description: "When continuing a paged fetch, the snapshot id its paging notice named. The call is refused if the document changed since, rather than splicing windows of two versions",
 				},
 				"include_links": {
 					Type:        "boolean",
@@ -101,20 +108,39 @@ func executeWebFetch(ctx context.Context, args map[string]any) (string, error) {
 	}
 	source, guardTripped := cutGuardBytes(source, webFetchGuardBytes)
 
+	continuing, _ := args["snapshot"].(string)
+	continuing = strings.TrimSpace(continuing)
+
 	if plainResearchBody(page) {
-		result := pageRunes(source, offset, maxLength)
-		return markGuardTrip(result, guardTripped) + page.cleanupNotice(), nil
+		snapshot := snapshotID(source)
+		if err := sameSnapshot(url, continuing, snapshot); err != nil {
+			return "", err
+		}
+		result := pageRunes(source, offset, maxLength, snapshot)
+		return documentNotice(url, page.DocumentURL) + markGuardTrip(result, guardTripped) + page.cleanupNotice(), nil
 	}
 
-	markdown, err := htmlToMarkdown(source, url, includeLinks)
+	// Relative links resolve against the base the browser used for this
+	// document -- its <base>, else the URL it ended at after redirects --
+	// not the URL that was asked for (RFC 3986 5.1). Before, they were
+	// emitted raw, unresolvable without knowing which document they came from.
+	base := page.BaseURI
+	if base == "" {
+		base = url
+	}
+	markdown, err := htmlToMarkdown(source, base, includeLinks)
 	if err != nil {
 		return "", fmt.Errorf("failed to convert to markdown: %w", err)
 	}
 
-	markdown = pageRunes(markdown, offset, maxLength)
+	snapshot := snapshotID(markdown)
+	if err := sameSnapshot(url, continuing, snapshot); err != nil {
+		return "", err
+	}
+	markdown = pageRunes(markdown, offset, maxLength, snapshot)
 
 	logging.Researcher("Web fetch completed: %s (%d chars)", url, len(markdown))
-	return markGuardTrip(markdown, guardTripped) + page.cleanupNotice(), nil
+	return documentNotice(url, page.DocumentURL) + markGuardTrip(markdown, guardTripped) + page.cleanupNotice(), nil
 }
 
 // webFetchGuardBytes caps one fetched response body. It is process
@@ -135,7 +161,7 @@ func markGuardTrip(result string, tripped bool) string {
 // [offset, offset+maxLength) rune window cut on rune boundaries so UTF-8 is
 // never split, plus a notice naming the remainder and the offset that
 // reaches it — an explicit window is paging, never a silent drop.
-func pageRunes(s string, offset, maxLength int) string {
+func pageRunes(s string, offset, maxLength int, snapshot string) string {
 	if maxLength <= 0 && offset <= 0 {
 		return s
 	}
@@ -149,7 +175,7 @@ func pageRunes(s string, offset, maxLength int) string {
 	}
 	window := string([]rune(s)[offset:end])
 	if end < total {
-		return fmt.Sprintf("%s\n\n[%d more chars, page with offset=%d]", window, total-end, end)
+		return fmt.Sprintf("%s\n\n[%d more chars, page with offset=%d and snapshot=%s]", window, total-end, end, snapshot)
 	}
 	if offset > 0 {
 		return fmt.Sprintf("%s\n\n[end of content, %d chars total]", window, total)
@@ -273,7 +299,7 @@ func extractText(n *html.Node, sb *strings.Builder, includeLinks bool, baseURL s
 			if includeLinks {
 				href := getAttr(n, "href")
 				if href != "" && !strings.HasPrefix(href, "#") {
-					sb.WriteString(fmt.Sprintf("](%s)", href))
+					sb.WriteString(fmt.Sprintf("](%s)", resolveLink(baseURL, href)))
 				}
 			}
 		}
@@ -308,4 +334,69 @@ func cleanMarkdown(s string) string {
 	s = strings.TrimSpace(s)
 
 	return s
+}
+
+// resolveLink resolves href against base and drops any credentials in the
+// result. An unparseable base or href is emitted as written: a link the
+// page wrote is still evidence, even when it cannot be made absolute.
+func resolveLink(base, href string) string {
+	ref, err := neturl.Parse(strings.TrimSpace(href))
+	if err != nil {
+		return href
+	}
+	if b, berr := neturl.Parse(base); berr == nil && b.IsAbs() {
+		ref = b.ResolveReference(ref)
+	}
+	ref.User = nil
+	return ref.String()
+}
+
+// documentNotice names the document the content came from when the browser
+// ended somewhere other than the requested URL (a redirect): the requested
+// URL is a locator, not the source of these bytes.
+func documentNotice(requested, document string) string {
+	if document == "" || sameLocator(requested, document) {
+		return ""
+	}
+	if u, err := neturl.Parse(document); err == nil {
+		u.User = nil
+		document = u.String()
+	}
+	return fmt.Sprintf("[document: %s (requested %s)]\n\n", document, requested)
+}
+
+// sameLocator compares two URLs as the browser would load them: an empty
+// path is "/", and scheme and host are case-insensitive.
+func sameLocator(a, b string) bool {
+	ua, errA := neturl.Parse(a)
+	ub, errB := neturl.Parse(b)
+	if errA != nil || errB != nil {
+		return a == b
+	}
+	for _, u := range []*neturl.URL{ua, ub} {
+		if u.Path == "" {
+			u.Path = "/"
+		}
+		u.Scheme = strings.ToLower(u.Scheme)
+		u.Host = strings.ToLower(u.Host)
+	}
+	return ua.String() == ub.String()
+}
+
+// snapshotID identifies the converted document a paging window was cut from.
+// Every fetch navigates again, so an offset alone can continue a different
+// version of the page: inserted text duplicates, deleted text skips
+// (Docs/audits/research-observation-identity-and-admission.md, Finding four).
+func snapshotID(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return "sha256:" + hex.EncodeToString(sum[:8])
+}
+
+// sameSnapshot refuses a continuation whose document changed since the
+// window it continues.
+func sameSnapshot(url, continuing, now string) error {
+	if continuing == "" || continuing == now {
+		return nil
+	}
+	return fmt.Errorf("%s changed since snapshot %s (it is now %s); continuing at that offset would splice two versions of the page. Fetch it again from offset 0", url, continuing, now)
 }

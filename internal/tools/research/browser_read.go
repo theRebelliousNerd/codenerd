@@ -40,7 +40,12 @@ const (
 // browserPage is one rendered document. HTML is documentElement.outerHTML.
 // Text is the body, or the <pre> text when Chrome wrapped a plain response.
 type browserPage struct {
-	URL         string
+	URL string
+	// DocumentURL is the URL of the document the browser ended on (after
+	// redirects), and BaseURI the base its relative links resolve against
+	// (its <base>, else DocumentURL). Empty when the page did not report them.
+	DocumentURL string
+	BaseURI     string
 	HTML        string
 	Text        string
 	Status      int
@@ -257,7 +262,7 @@ func readBrowserPage(ctx context.Context, rawURL string) (result browserPage, er
 		return browserPage{}, fmt.Errorf("DOM observation incomplete for %s, so a quiet page is not proof of a stable one; refusing the extract: %w", safeURL, incomplete)
 	}
 
-	html, text, err := evalRenderedPage(p)
+	rendered, err := evalRenderedPage(p)
 	if err != nil {
 		if ctx.Err() != nil {
 			return browserPage{}, ctx.Err()
@@ -266,8 +271,10 @@ func readBrowserPage(ctx context.Context, rawURL string) (result browserPage, er
 	}
 	return browserPage{
 		URL:         rawURL,
-		HTML:        html,
-		Text:        text,
+		DocumentURL: rendered.documentURL,
+		BaseURI:     rendered.baseURI,
+		HTML:        rendered.html,
+		Text:        rendered.text,
 		Status:      observed.status,
 		StatusText:  observed.text,
 		ContentType: contentTypeOf(observed),
@@ -451,24 +458,36 @@ func researchPageStableTimeout(ctx context.Context) (time.Duration, error) {
 	return config.ResolvedResearchPolicy().WebFetchTimeout, nil
 }
 
-func evalRenderedPage(p *rod.Page) (string, string, error) {
+// renderedPage is what one DOM read returns: the document, its text, and the
+// identity it was read under.
+type renderedPage struct {
+	html, text, documentURL, baseURI string
+}
+
+func evalRenderedPage(p *rod.Page) (renderedPage, error) {
 	// body > pre is how Chrome presents a text/plain or text/markdown
 	// response. textContent matches the source bytes more closely than
-	// innerText, which collapses whitespace.
+	// innerText, which collapses whitespace. document.URL and baseURI are
+	// read in the same evaluation, so they describe the same document.
 	obj, err := p.Eval(`() => {
 		const pre = document.querySelector("body > pre");
 		const text = pre ? (pre.textContent || "") : (document.body ? (document.body.innerText || "") : "");
 		const html = document.documentElement ? document.documentElement.outerHTML : "";
-		return {html: html, text: text};
+		return {html: html, text: text, url: document.URL || "", base: document.baseURI || ""};
 	}`)
 	if err != nil {
-		return "", "", err
+		return renderedPage{}, err
 	}
 	if obj == nil {
-		return "", "", fmt.Errorf("page DOM eval returned no value")
+		return renderedPage{}, fmt.Errorf("page DOM eval returned no value")
 	}
 	fields := obj.Value.Map()
-	return fields["html"].Str(), fields["text"].Str(), nil
+	return renderedPage{
+		html:        fields["html"].Str(),
+		text:        fields["text"].Str(),
+		documentURL: fields["url"].Str(),
+		baseURI:     fields["base"].Str(),
+	}, nil
 }
 
 // cutGuardBytes bounds one response body. The limit is the caller's process
