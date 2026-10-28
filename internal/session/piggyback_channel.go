@@ -159,28 +159,6 @@ func (loop *workingLoop) claimCallIDs(calls []types.ToolCall) ([]types.ToolCall,
 	return out, renamed
 }
 
-// piggybackCatalog renders the tool catalog for the tools this request offers:
-// the persona's allowlist narrowed to the offered definitions. Rendering from
-// the allowlist rather than straight from the definitions keeps one renderer
-// and one set of words for both the single-shot and the loop path.
-func (e *Executor) piggybackCatalog(cfg *config.EffectiveAgentRuntimeConfig, offered []types.ToolDefinition) string {
-	if len(offered) == 0 || cfg == nil {
-		return ""
-	}
-	names := make(map[string]bool, len(offered))
-	for _, def := range offered {
-		names[def.Name] = true
-	}
-	narrowed := *cfg
-	narrowed.AllowedTools = make([]string, 0, len(cfg.AllowedTools))
-	for _, name := range cfg.AllowedTools {
-		if names[name] {
-			narrowed.AllowedTools = append(narrowed.AllowedTools, name)
-		}
-	}
-	return e.buildToolCatalogForPiggyback(&narrowed)
-}
-
 // renderPiggybackConversation renders a working request's messages as the one
 // user prompt an envelope client receives, in order: each turn's prose under
 // its role, each tool request with the id the model will see its result under,

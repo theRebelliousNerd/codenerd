@@ -284,6 +284,13 @@ type CompilationContext struct {
 	// rather than hardcoding tool names in Go strings or atom YAML.
 	AvailableTools []string
 
+	// UnavailableTools is each name policy granted this turn that the
+	// request cannot carry, as "name: reason" (no backend on this runtime, or
+	// a generated tool on a native channel). It is kept out of
+	// AvailableTools so no atom treats it as callable, and rendered by
+	// {{available_tools}} so the model is not left to guess why it is absent.
+	UnavailableTools []string
+
 	// PreviousAttemptNoToolCall is set by the session executor when the model's
 	// previous turn produced narrative-only text for an intent that the kernel
 	// derived intent_requires_tool_call/1 for. Activates the
@@ -488,6 +495,9 @@ func (cc *CompilationContext) Clone() *CompilationContext {
 	if cc.AvailableTools != nil {
 		clone.AvailableTools = make([]string, len(cc.AvailableTools))
 		copy(clone.AvailableTools, cc.AvailableTools)
+	}
+	if cc.UnavailableTools != nil {
+		clone.UnavailableTools = append([]string(nil), cc.UnavailableTools...)
 	}
 	if cc.DerivedNeeds != nil {
 		clone.DerivedNeeds = slices.Clone(cc.DerivedNeeds)

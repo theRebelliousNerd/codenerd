@@ -297,3 +297,39 @@ The task is complete only when the actual request, not just the handler or a syn
 [spawn-catalog]: https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/session/spawner.go#L729-L784
 [generated-type]: https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/core/tool_registry.go#L26-L41
 [piggyback-append]: https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/session/piggyback_channel.go#L58-L75
+
+## As-built status
+
+Verified and built 2026-10-28 on `main` (after `c3f9333a`). The definition builder, Piggyback renderer and intersection were unchanged from the audited revision.
+
+### Claim ledger
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| T1: `buildToolDefinitions` reads only `tools.Global()`, so a granted generated tool is absent from native requests | Real; ruled a channel limitation, not an omission to paper over (see rulings) | `tool_offer.go:34`; generated tools never get an invented native schema |
+| T1: the working-loop Piggyback request intersected the allowlist with the modular-only definitions, so a granted generated tool vanished there while the single-shot renderer offered it | Real, fixed | `working_context.go:927` adds `generatedToolDefinitions` (`tool_offer.go:60`) to a `piggybackChannel` request before regime narrowing; commit regime withholds it |
+| T1: the generated round-trip test scripts the call and ignores the offered definitions | Confirmed; not changed (it tests execution, which still holds). A request-aware witness was added instead | `tool_offer_test.go` `TestWorkingPiggybackRequestOffersGrantedGeneratedTool` reads the actual system prompt the envelope client received |
+| T2: the Piggyback renderer printed name, description and required names only; no types, optional controls, enum/default or item shape | Real, fixed | `renderPiggybackCatalog` / `writeSchemaArguments` (`tool_offer.go:156`, `:189`) render from the offered definitions themselves |
+| T3: `resolveAvailableTools` passed policy grants to JIT without consulting backends, while `buildToolDefinitions` silently skipped missing ones | Real, fixed | `executor.go:1614` splits through `splitOfferable` (`tool_offer.go:111`) on the serving channel (`servingConsumer`) |
+| T3: `grounded_web_search` registration is conditional on a supporting searcher | Confirmed | `research.RegisterGroundedWebSearchIfSupported` (`grounded_web_search.go:115`) |
+| The grounded-search atom is conditional prose, not an unconditional instruction | Confirmed; unchanged | atom text |
+| Dispatch prefers the modular handler when a name exists in both registries | Confirmed; the offer now follows the same rule | `executor_tools.go` `generated := ... !tools.Global().Has(call.Name)`; `generatedToolDefinitions` skips shadowed names |
+
+### What was built
+
+- Ruling (T1): a generated tool's binary receives the call's arguments as one JSON object and has no admitted typed schema. Native providers need a typed object schema (Gemini rejects an OBJECT with no properties), and the host must not invent one, so generated tools are offered on the Piggyback text channel only, in both its single-shot and working-loop requests, with the contract stated in words. On a native channel they are a typed disposition, not a silent omission.
+- Ruling (T2): one renderer, fed the offered definitions, so the text channel carries the contract the native channel carries as JSON Schema. Required arguments first, then by name, for a stable prompt.
+- Ruling (T3): `CompilationContext.AvailableTools` holds only what this turn's request can carry; `UnavailableTools` holds `name: reason`. `{{available_tools}}` lists the second group under "Granted but not callable this turn". The allowlist (authority) is unchanged; only the claim of callability narrowed.
+- `catalogBuilderPool` was removed with the old renderer.
+- Spec: `Docs/architecture/session/IMPLEMENTED_SPEC.md` §5.4.
+
+### Tests
+
+`internal/session/tool_offer_test.go`: the working Piggyback request offers a granted generated tool (and its untyped contract) and not an ungranted one, and the native offer stays modular-only; the Piggyback catalog carries `list_files`' optional `recursive`/`include_hidden` and `get_element`'s `refs` array and `full` flag; `resolveAvailableTools` separates a no-backend grant on both channels and a generated tool on a native channel. `internal/prompt/available_tools_template_test.go`: the template names unavailable grants and never lists them as callable; `Clone` keeps them. The existing `TestExecutorPiggybackCatalogHonorsOuroborosCapabilities` passes unchanged.
+
+### Left open
+
+- An admitted per-tool schema for generated tools (option 1): needs a descriptor in generation, persistence and restoration bound to the binary identity; not built, so generated tools remain text-channel only.
+- A persisted per-request manifest/receipt (§6.1, §6.3) and stale-generation refusal: not built; the first increment the document recommends did not need them.
+- Budget: the working request now estimates the text-channel offer including generated definitions, but still counts definitions rather than the rendered Piggyback text (§6.3); not changed.
+- Collision disposition beyond "modular shadows generated", registry mutation between phases, and the paired user-journey evaluation (§8 B, TOOL-OFFER-05): not run.

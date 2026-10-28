@@ -426,14 +426,14 @@ a conservative minimum for degraded or partially initialized kernels.
 
 Piggyback exists so tool use coexists with Gemini grounding tools that cannot mix with native function calling.
 
-### 5.4 Tool catalog (Piggyback)
+### 5.4 Tool offer and catalog (verified 2026-10-28, `tool_offer.go`)
 
-`buildToolCatalogForPiggyback` merges:
+Policy grants a name; the request offers it only when a backend owns it and the channel can carry its argument contract.
 
-1. Modular tools from `tools.Global()` filtered by `cfg.AllowedTools`  
-2. Ouroboros tools from `ouroborosRegistry.ListTools()`  
-
-Plus encouragement to emit `missing_tool_for(...)` mangle_updates for generation. Uses `catalogBuilderPool` (`sync.Pool` of `strings.Builder`) for hot long sessions.
+- Native offer (`buildToolDefinitions`): every granted modular tool (`tools.Global()`) with its schema.
+- Text-channel offer: the native definitions plus `generatedToolDefinitions` (granted Ouroboros tools no modular tool shadows; dispatch prefers modular, so the offer does too). A generated tool has no typed argument schema, so it is offered only here, as an object with no properties. The single-shot path (`buildToolCatalogForPiggyback`) and the working loop (`completeWithWorkingContext` with a `piggybackChannel`) both add it; the commit regime withholds it.
+- `renderPiggybackCatalog` renders from the offered definitions, so both channels describe the same contract: each property with type (`array of <item>`), required/optional, description, enum and default; an untyped generated tool is stated as "one JSON object, passed unchanged ... no typed schema". `piggybackCatalog` narrows the offer to the allowlist.
+- The compile sees the same split: `resolveAvailableTools` asks the serving channel (`servingConsumer`) and sets `CompilationContext.AvailableTools` to the callable names and `UnavailableTools` to `name: reason` (no backend on this runtime; generated tool on a native channel). `{{available_tools}}` lists the second group as "Granted but not callable this turn".
 
 ### 5.5 `executeToolCall` pipeline
 

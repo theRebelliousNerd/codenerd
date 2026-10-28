@@ -118,15 +118,6 @@ func (e *Executor) interactiveGate() (InteractiveExecutiveGate, bool) {
 	return nil, false
 }
 
-// catalogBuilderPool reuses strings.Builder instances across
-// buildToolCatalogForPiggyback calls. The Piggyback tool catalog is assembled
-// once per LLM turn for grounding-capable clients (e.g. Gemini), so the
-// builder is hot on long-running sessions. Each Get must be paired with a
-// Reset before use and a Put after String() has been read.
-var catalogBuilderPool = sync.Pool{
-	New: func() any { return &strings.Builder{} },
-}
-
 // Executor implements the clean execution loop.
 // It replaces all hardcoded shard logic with JIT-driven behavior.
 type Executor struct {
@@ -1601,21 +1592,26 @@ func (e *Executor) resolveAvailableTools(ctx context.Context, cc *prompt.Compila
 	e.mu.RLock()
 	precompiled := e.EffectiveAgentRuntimeConfig
 	e.mu.RUnlock()
-	if precompiled != nil {
-		cc.AvailableTools = append([]string(nil), precompiled.AllowedTools...)
-		return
-	}
 	verb := intent.Verb
 	if verb == "" {
 		verb = "/general"
 	}
+	// The compile is told what this turn's request can actually carry, not
+	// every name policy grants: a grant with no backend, or a generated tool
+	// on a native channel, is listed as unavailable with its reason instead
+	// of being claimed callable (tool_offer.go).
+	textChannel := e.servingConsumer(verb) == "/executor_text_channel"
+	if precompiled != nil {
+		cc.AvailableTools, cc.UnavailableTools = e.splitOfferable(precompiled.AllowedTools, textChannel)
+		return
+	}
 	tools, err := e.turnDerivedTools(ctx, verb)
 	if err != nil {
 		logging.Get(logging.CategorySession).Warn("Tool envelope resolution failed for %q: %v (compiling with empty catalog)", verb, err)
-		cc.AvailableTools = nil
+		cc.AvailableTools, cc.UnavailableTools = nil, nil
 		return
 	}
-	cc.AvailableTools = tools
+	cc.AvailableTools, cc.UnavailableTools = e.splitOfferable(tools, textChannel)
 }
 
 // compileConfig creates an EffectiveAgentRuntimeConfig from the compilation result and intent.
@@ -1852,112 +1848,6 @@ func (e *Executor) generateResponseWithPiggybackTools(ctx context.Context, clien
 	}, nil
 }
 
-// buildToolCatalogForPiggyback creates a unified tool catalog for prompt injection.
-// This merges tools from both registries:
-// 1. Modular tools (tools.Global()) - Go function handlers
-// 2. Ouroboros tools (core.ToolRegistry) - compiled binary tools
-func (e *Executor) buildToolCatalogForPiggyback(cfg *config.EffectiveAgentRuntimeConfig) string {
-	// Keep prompt presentation aligned with the execution gate. In particular,
-	// a registered Ouroboros tool is not a capability grant, and nil/empty JIT
-	// configs expose no tools.
-	if cfg == nil || len(cfg.AllowedTools) == 0 {
-		return ""
-	}
-
-	// Use json.MarshalIndent to ensure the example is always valid JSON
-	exampleRequest := []map[string]any{{
-		"id":        "req_1",
-		"tool_name": "<tool_name>",
-		"tool_args": map[string]any{"arg_name": "arg_value"},
-		"purpose":   "why this tool is needed",
-	}}
-
-	exampleJSON, _ := json.MarshalIndent(exampleRequest, "", "  ")
-
-	catalog := catalogBuilderPool.Get().(*strings.Builder)
-	catalog.Reset()
-	defer catalogBuilderPool.Put(catalog)
-	catalog.WriteString("\n## Available Tools\n\n")
-	catalog.WriteString("Request tools via `tool_requests` in control_packet:\n")
-	catalog.WriteString("```json\n")
-	catalog.WriteString("\"tool_requests\": ")
-	catalog.Write(exampleJSON)
-	catalog.WriteString("\n```\n\n")
-
-	toolCount := 0
-
-	// 1. Add modular tools from tools.Global()
-	modularRegistry := tools.Global()
-	modularToolCount := 0
-	for _, toolName := range cfg.AllowedTools {
-		tool := modularRegistry.Get(toolName)
-		if tool == nil {
-			continue
-		}
-		if modularToolCount == 0 {
-			catalog.WriteString("### Built-in Tools\n\n")
-		}
-		catalog.WriteString(fmt.Sprintf("**%s**: %s\n", tool.Name, tool.Description))
-		// Add parameter hints if schema exists
-		if len(tool.Schema.Required) > 0 {
-			catalog.WriteString(fmt.Sprintf("  Required: %s\n", strings.Join(tool.Schema.Required, ", ")))
-		}
-		toolCount++
-		modularToolCount++
-	}
-	if modularToolCount > 0 {
-		catalog.WriteString("\n")
-	}
-
-	// 2. Add Ouroboros-generated tools
-	e.mu.RLock()
-	ouroborosReg := e.ouroborosRegistry
-	e.mu.RUnlock()
-
-	if ouroborosReg != nil {
-		ouroborosTools := ouroborosReg.ListTools()
-		ouroborosToolCount := 0
-		for _, tool := range ouroborosTools {
-			if !e.isToolAllowed(tool.Name, cfg) {
-				continue
-			}
-			if ouroborosToolCount == 0 {
-				catalog.WriteString("### Generated Tools (Ouroboros)\n\n")
-			}
-			catalog.WriteString(fmt.Sprintf("**%s**: %s\n", tool.Name, tool.Description))
-			if len(tool.Capabilities) > 0 {
-				catalog.WriteString(fmt.Sprintf("  Capabilities: %s\n", strings.Join(tool.Capabilities, ", ")))
-			}
-			toolCount++
-			ouroborosToolCount++
-		}
-		if ouroborosToolCount > 0 {
-			catalog.WriteString("\n")
-		}
-	}
-
-	// If no tools at all, return minimal catalog
-	if toolCount == 0 {
-		return ""
-	}
-
-	// Add tool generation encouragement
-	catalog.WriteString("### Missing a Tool?\n\n")
-	catalog.WriteString("If you need a capability not available above:\n")
-	catalog.WriteString("1. Add a mangle_update: `missing_tool_for(\"<capability>\", \"<description>\")`\n")
-	catalog.WriteString("2. The Ouroboros system will generate, compile, and register the tool\n")
-	catalog.WriteString("3. The tool will be available in subsequent turns\n\n")
-	catalog.WriteString("Example:\n")
-	catalog.WriteString("```json\n")
-	catalog.WriteString("\"mangle_updates\": [\"missing_tool_for(\\\"/parse_yaml\\\", \\\"Parse YAML files and return structured data\\\")\"]\n")
-	catalog.WriteString("```\n")
-
-	logging.Session("Built Piggyback++ tool catalog: %d tools (%d modular, %d ouroboros)",
-		toolCount, modularToolCount, toolCount-modularToolCount)
-
-	return catalog.String()
-}
-
 // parseToolRequestsFromControl extracts tool_requests from a control packet.
 func (e *Executor) parseToolRequestsFromControl(control *articulation.ControlPacket) []types.ToolCall {
 	if control == nil || len(control.ToolRequests) == 0 {
@@ -2048,43 +1938,6 @@ func (e *Executor) processMangleUpdatesFromEnvelope(envelope *articulation.Piggy
 		}
 		return factErr[admitted]
 	})
-}
-
-// buildToolDefinitions converts tool names from EffectiveAgentRuntimeConfig to ToolDefinition structs.
-func (e *Executor) buildToolDefinitions(cfg *config.EffectiveAgentRuntimeConfig) []types.ToolDefinition {
-	if cfg == nil || len(cfg.AllowedTools) == 0 {
-		logging.SessionDebug("buildToolDefinitions: no tools configured (cfg=%v)", cfg != nil)
-		return nil
-	}
-	logging.Session("buildToolDefinitions: building %d tool definitions", len(cfg.AllowedTools))
-
-	registry := tools.Global()
-	var defs []types.ToolDefinition
-
-	for _, toolName := range cfg.AllowedTools {
-		tool := registry.Get(toolName)
-		if tool == nil {
-			logging.SessionDebug("Tool %s not found in registry", toolName)
-			continue
-		}
-
-		// Build input schema from tool's schema
-		inputSchema := make(map[string]any)
-		inputSchema["type"] = "object"
-		inputSchema["properties"] = tool.Schema.Properties
-		if len(tool.Schema.Required) > 0 {
-			inputSchema["required"] = tool.Schema.Required
-		}
-
-		defs = append(defs, types.ToolDefinition{
-			Name:        tool.Name,
-			Description: tool.Description,
-			InputSchema: inputSchema,
-		})
-	}
-
-	logging.Session("Built %d tool definitions from %d allowed tools", len(defs), len(cfg.AllowedTools))
-	return defs
 }
 
 // appendToHistory stores a turn whole. What reaches the next turn's model is

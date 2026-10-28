@@ -509,10 +509,13 @@ func (te *TemplateEngine) registerDefaults() {
 	// Prompt atoms (e.g. system/tool_nudge/no_tool_call_retry) reference this
 	// so the model sees the actual allowed surface — not a hardcoded list.
 	te.functions["available_tools"] = func(cc *CompilationContext, args ...string) string {
-		if cc == nil || len(cc.AvailableTools) == 0 {
+		if cc == nil {
 			return "- (no tools were resolved for this turn — emit a final answer)"
 		}
 		var b strings.Builder
+		if len(cc.AvailableTools) == 0 {
+			b.WriteString("- (no tools were resolved for this turn — emit a final answer)")
+		}
 		b.Grow(len(cc.AvailableTools) * 24)
 		for i, t := range cc.AvailableTools {
 			if i > 0 {
@@ -521,6 +524,15 @@ func (te *TemplateEngine) registerDefaults() {
 			b.WriteString("- `")
 			b.WriteString(t)
 			b.WriteByte('`')
+		}
+		// A granted tool the request cannot carry is named with its reason,
+		// never listed as callable.
+		if len(cc.UnavailableTools) > 0 {
+			b.WriteString("\nGranted but not callable this turn:")
+			for _, u := range cc.UnavailableTools {
+				b.WriteString("\n- ")
+				b.WriteString(u)
+			}
 		}
 		return b.String()
 	}

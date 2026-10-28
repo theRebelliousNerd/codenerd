@@ -920,7 +920,14 @@ func largestToolResult(messages []types.Message) (mi, ri, size int) {
 }
 
 func (e *Executor) completeWithWorkingContext(ctx context.Context, provider types.ToolResultsProvider, system string, history []types.Message, definitions []types.ToolDefinition) (*types.LLMToolResponse, error) {
-	if loop := activeWorkingLoop(ctx); loop != nil {
+	loop := activeWorkingLoop(ctx)
+	// The text channel also carries the granted generated tools the native
+	// definitions cannot (tool_offer.go). The commit regime closes them with
+	// exploration: a generated binary is arbitrary code, not a write tool.
+	if channel, envelope := provider.(*piggybackChannel); envelope && (loop == nil || loop.regime != commitRegime) {
+		definitions = append(definitions[:len(definitions):len(definitions)], e.generatedToolDefinitions(channel.cfg)...)
+	}
+	if loop != nil {
 		if loop.regime == commitRegime {
 			definitions = commitRegimeDefinitions(definitions)
 		}
