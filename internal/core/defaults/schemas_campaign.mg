@@ -62,7 +62,7 @@ Decl phase_precedence(PhaseID, PriorityScore) bound [/string, /number].
 
 # phase_dependency(PhaseID, DependsOnPhaseID, DependencyType)
 # DependencyType: /hard (must complete), /soft (preferred), /artifact (needs output)
-Decl phase_dependency(PhaseID, DependsOnPhaseID, DependencyType) bound [/string, /string, /name].
+Decl phase_dependency(PhaseID, DependsOnPhaseID, DependencyType) bound [/string, /string, /name] inclusion [campaign_phase_id(PhaseID), campaign_phase_id(DependsOnPhaseID)].
 
 # phase_estimate(PhaseID, EstimatedTasks, EstimatedComplexity)
 # EstimatedComplexity: /low, /medium, /high, /critical
@@ -82,7 +82,16 @@ Decl suspicious_gap(DownstreamPhase, UpstreamPhase) bound [/string, /string].
 # TaskType: /file_create, /file_modify, /test_write, /test_run, /research,
 #           /shard_spawn, /tool_create, /verify, /document, /refactor, /integrate
 # Status: /pending, /in_progress, /completed, /failed, /skipped, /blocked
-Decl campaign_task(TaskID, PhaseID, Description, Status, TaskType) bound [/string, /string, /string, /name, /name].
+Decl campaign_task(TaskID, PhaseID, Description, Status, TaskType) bound [/string, /string, /string, /name, /name] inclusion [campaign_phase_id(PhaseID)].
+
+# Identity projections of a campaign plan: the closed reference domains the
+# plan's own edges must land in. The inclusion constraints on campaign_task,
+# task_dependency, task_soft_dependency, task_context_from and phase_dependency
+# are checked against them when a campaign snapshot is loaded or synced
+# (RealKernel.CheckBatchInclusion, kernel_inclusion.go): a plan whose edge
+# names a task or phase the plan does not hold is quarantined, not loaded.
+Decl campaign_task_id(TaskID) bound [/string].
+Decl campaign_phase_id(PhaseID) bound [/string].
 # eligible_task(TaskID) - derived: runnable tasks (deps met, no conflicts)
 Decl eligible_task(TaskID) bound [/string].
 # task_conflict(TaskID, OtherTaskID) - optional: tasks that must not run together
@@ -96,7 +105,7 @@ Decl task_priority(TaskID, Priority) bound [/string, /name].
 Decl task_order(TaskID, OrderIndex) bound [/string, /number].
 
 # task_dependency(TaskID, DependsOnTaskID)
-Decl task_dependency(TaskID, DependsOnTaskID) bound [/string, /string].
+Decl task_dependency(TaskID, DependsOnTaskID) bound [/string, /string] inclusion [campaign_task_id(TaskID), campaign_task_id(DependsOnTaskID)].
 
 # task_remediation_target(RemediationTaskID, OriginalTaskID, ViolationType)
 # Tracks which task a remediation fix is targeting and what violation it addresses
@@ -510,7 +519,7 @@ Decl campaign_risk_classification_ready(CampaignID) bound [/string].
 # executive. Found by the ToFacts predicate/arity golden test.
 
 # task_soft_dependency(TaskID, DependsOnTaskID) - preference, not a hard edge
-Decl task_soft_dependency(TaskID, DependsOnTaskID) bound [/string, /string].
+Decl task_soft_dependency(TaskID, DependsOnTaskID) bound [/string, /string] inclusion [campaign_task_id(TaskID), campaign_task_id(DependsOnTaskID)].
 
 # requires_resource(TaskID, Resource) - named semaphore the task needs
 Decl requires_resource(TaskID, Resource) bound [/string, /string].

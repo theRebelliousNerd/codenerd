@@ -20,7 +20,7 @@ func denseImportGraph(layers, width int) []types.Fact {
 					Args: []any{
 						fmt.Sprintf("p%d/f%d.go", p, a),
 						fmt.Sprintf("p%d/f%d.go", p+1, b),
-						types.MangleAtom("/import"),
+						"import",
 					},
 				})
 			}
@@ -108,10 +108,10 @@ func TestDependencyReachability_WhenSeeded_ShouldAnswer(t *testing.T) {
 
 	// A simple chain: a.go -> b.go -> c.go -> d.go.
 	chain := []types.Fact{
-		{Predicate: "dependency_link", Args: []any{"a.go", "b.go", types.MangleAtom("/import")}},
-		{Predicate: "dependency_link", Args: []any{"b.go", "c.go", types.MangleAtom("/import")}},
-		{Predicate: "dependency_link", Args: []any{"c.go", "d.go", types.MangleAtom("/import")}},
-		{Predicate: "dependency_link", Args: []any{"unrelated.go", "other.go", types.MangleAtom("/import")}},
+		{Predicate: "dependency_link", Args: []any{"a.go", "b.go", "import"}},
+		{Predicate: "dependency_link", Args: []any{"b.go", "c.go", "import"}},
+		{Predicate: "dependency_link", Args: []any{"c.go", "d.go", "import"}},
+		{Predicate: "dependency_link", Args: []any{"unrelated.go", "other.go", "import"}},
 	}
 	if err := k.AssertFactBatch(chain); err != nil {
 		t.Fatalf("assert chain: %v", err)

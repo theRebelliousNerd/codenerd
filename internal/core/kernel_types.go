@@ -77,6 +77,10 @@ type RealKernel struct {
 	// keeps logging these at ERROR.
 	sandbox bool
 
+	// admission caches the compiled Decl type checks of programInfo, per
+	// predicate, filled lazily (kernel_fact_decl.go). A clone starts empty.
+	admission *admissionSchema
+
 	// undeclared tracks predicates already reported by warnIfUndeclaredLocked,
 	// so each is named once per process instead of on every assert.
 	undeclared undeclaredWarner

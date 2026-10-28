@@ -9,6 +9,13 @@ Decl has_current_time() bound [].
 # Task Selection & Execution
 # =============================================================================
 
+# Identity projections: the reference domains of a campaign plan's edges
+# (inclusion constraints in schemas_campaign.mg). A task_dependency naming a
+# task the plan does not hold would otherwise block nothing below -- no
+# campaign_task row, no blocker -- and the dependent ran as if unconstrained.
+campaign_task_id(TaskID) :- campaign_task(TaskID, _, _, _, _).
+campaign_phase_id(PhaseID) :- campaign_phase(PhaseID, _, _, _, _, _).
+
 # Helper: check if task has blocking dependencies
 has_blocking_task_dep(TaskID) :-
     task_dependency(TaskID, BlockerID),

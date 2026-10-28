@@ -46,6 +46,9 @@ func (o *Orchestrator) LoadCampaign(campaignID string) error {
 	// Load campaign facts into kernel
 	facts := campaign.ToFacts()
 	logging.CampaignDebug("Loading %d facts into kernel", len(facts))
+	if err := checkCampaignSnapshot(o.kernel, &campaign, facts); err != nil {
+		return err
+	}
 	if err := o.kernel.LoadFacts(facts); err != nil {
 		return err
 	}
@@ -72,6 +75,10 @@ func (o *Orchestrator) SetCampaign(campaign *Campaign) error {
 	// Load campaign facts into kernel
 	facts := campaign.ToFacts()
 	logging.CampaignDebug("Loading %d campaign facts into kernel", len(facts))
+	if err := checkCampaignSnapshot(o.kernel, campaign, facts); err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Campaign plan rejected: %v", err)
+		return err
+	}
 	if err := o.kernel.LoadFacts(facts); err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Failed to load campaign facts: %v", err)
 		return err

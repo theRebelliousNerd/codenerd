@@ -227,6 +227,11 @@ func (k *RealKernel) HotLoadRule(rule string) error {
 	}
 	logging.KernelDebug("HotLoadRule: sandbox validation passed")
 
+	if err := k.checkCandidateBoundsAgainstProgram(rule); err != nil {
+		logging.Get(logging.CategoryKernel).Warn("HotLoadRule: candidate rule rejected by static bounds check (caller may repair and retry): %v", err)
+		return err
+	}
+
 	timer.StopWithInfo()
 	logging.Kernel("HotLoadRule: rule validated successfully")
 	return nil
@@ -406,6 +411,10 @@ func (k *RealKernel) HotLoadLearnedRule(rule string) error {
 	// 1. Validate using sandbox (compile-only)
 	if err := validateRuleSandbox(rule, schemas, policy, learned); err != nil {
 		logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: validation failed: %v", err)
+		return err
+	}
+	if err := k.checkCandidateBoundsAgainstProgram(rule); err != nil {
+		logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: %v", err)
 		return err
 	}
 

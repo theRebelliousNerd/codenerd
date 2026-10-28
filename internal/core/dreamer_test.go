@@ -108,8 +108,8 @@ func TestDreamer_EvaluateProjectionFailsClosedOnInvalidFact(t *testing.T) {
 	if !unsafe {
 		t.Fatal("projection with an unencodable fact was treated as safe")
 	}
-	if !strings.Contains(reason, "Mangle atom") {
-		t.Fatalf("encoding rejection reason = %q, want Mangle atom evidence", reason)
+	if !strings.Contains(reason, "nil arg at index 1") {
+		t.Fatalf("encoding rejection reason = %q, want the encoding failure named", reason)
 	}
 }
 

@@ -36,6 +36,14 @@ type KernelTransactor interface {
 	Transaction() KernelTransaction
 }
 
+// BatchInclusionChecker checks one complete batch -- an epoch of a closed
+// reference domain -- against the inclusion constraints its Decls declare,
+// before the batch is published. A non-nil error quarantines the batch; the
+// caller keeps the previous epoch. Both production kernels implement it.
+type BatchInclusionChecker interface {
+	CheckBatchInclusion(producer string, facts []Fact) error
+}
+
 type KernelTx struct {
 	tx KernelTransaction
 }

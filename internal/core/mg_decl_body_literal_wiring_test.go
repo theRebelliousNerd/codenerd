@@ -208,8 +208,13 @@ func TestKnowledgeLink_RelationIsANameConstant(t *testing.T) {
 	t.Run("bare relation is the regression", func(t *testing.T) {
 		k := setupMockKernel(t)
 		mustAssertFact(t, k, "activation", "internal/core/kernel.go", int64(90))
-		mustAssertFact(t, k, "knowledge_link", "internal/core/kernel.go",
-			types.MangleString("related_to"), "internal/core/kernel_eval.go")
+		// An explicit string in a /name slot is refused at admission: it
+		// could never match the /related_to literal, so storing it only hid
+		// the producer's mistake.
+		if err := k.Assert(Fact{Predicate: "knowledge_link", Args: []any{"internal/core/kernel.go",
+			types.MangleString("related_to"), "internal/core/kernel_eval.go"}}); err == nil {
+			t.Error("a MangleString relation in a /name slot must be rejected at admission")
+		}
 
 		if queryDerived(t, k, "activation(\"internal/core/kernel_eval.go\", 60)") {
 			t.Error("a bare \"related_to\" string should not match the /related_to literal")
@@ -271,7 +276,11 @@ func TestLearnedPreference_KeyIsAString(t *testing.T) {
 	t.Run("name key is the regression", func(t *testing.T) {
 		k := setupMockKernel(t)
 		seedTool(t, k)
-		mustAssertFact(t, k, "learned_preference", types.MangleAtom("/prefer_language"), "go")
+		// A name in a /string slot is refused at admission rather than
+		// stored where the "prefer_language" literal cannot see it.
+		if err := k.Assert(Fact{Predicate: "learned_preference", Args: []any{types.MangleAtom("/prefer_language"), "go"}}); err == nil {
+			t.Error("a MangleAtom key in a /string slot must be rejected at admission")
+		}
 		if queryDerived(t, k, boosted) {
 			t.Error("a /prefer_language name constant matched the \"prefer_language\" string literal")
 		}

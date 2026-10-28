@@ -395,7 +395,7 @@ Decl retrieved_context(AtomID) bound [/string].
 # current_context(Dimension, Tag)
 # Runtime context state injected by Go (alternative to compile_context)
 # Used by jit_compiler.mg for context matching
-Decl current_context(Dimension, Tag) bound [/name, /string].
+Decl current_context(Dimension, Tag) bound [/name, /name].
 
 # is_mandatory(AtomID)
 # Flag indicating atom must be selected if context matches
