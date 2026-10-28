@@ -28,14 +28,14 @@ Inspected branch tips:
 
 `internal/prompt/predicate_selector.go` has the identical blob `906e34e3e9a642dcf39481b119885619ae0d4160` on all four pins. The current core corpus loader and legislator wiring also have identical blobs across them. Store behavior differs on the feature branch and is explicitly credited below.
 
-The review searched 133 distinct versions of root audit documents and prompt/JIT/Mangle architecture documents across those branches, then inspected the relevant source. Existing research already covers atom-JIT cache generations, global vector-source scope, selector degradation, embedding-space identity, and resumable migration. This proposal does not repeat those mechanisms. It concerns the separate `PredicateSelector` surface: **same-space corpus membership/content freshness and authoritative signature hydration**. The architecture's [PredicateSelector section][arch-selector] already identifies this as separate from atom JIT; the current source establishes its production consumer, rather than relying on old prose about its product role.
+The review searched 133 distinct versions of root audit documents and prompt/JIT/Mangle architecture documents across those branches, then inspected the relevant source. Existing research already covers atom-JIT cache generations, global vector-source scope, selector degradation, embedding-space identity, and resumable migration. The store's [historical F15][store-f15] also already covers duplicate *identical predicate content*, mitigated by deduplication and a partial unique index. This proposal does not repeat those mechanisms. It concerns the separate `PredicateSelector` surface: **same-space corpus membership/content freshness and authoritative signature hydration**. The architecture's [PredicateSelector section][arch-selector] already identifies this as separate from atom JIT; the current source establishes its production consumer, rather than relying on old prose about its product role.
 
 No implementation, tests, benchmarks, codeNERD execution, inference, provider calls, or implementation changes were performed. The sequences below are proposed deterministic witnesses derived from source, not observed incidents. No user LocalStore was inspected, and no prevalence or performance improvement is claimed.
 
 ## 2. The existing production path and protections
 
-1. [`NewPredicateCorpus`][corpus-load] extracts the embedded database to a new read-only temporary SQLite file. A fresh binary can therefore bring a new corpus while the workspace's LocalStore remains persistent; this finding does not require mutating the read-only corpus inside a running process.
-2. [`LegislatorShard.SetParentKernel`][legislator-wire] constructs `PredicateSelector` from the kernel's corpus, attaches `VirtualStore.GetLocalDB()`, and hands the selector to its feedback loop. [`generateRule`][legislator-generate] uses that loop for rule generation.
+1. [`NewPredicateCorpus`][corpus-load] extracts the embedded database to a new read-only temporary SQLite file. The factory [opens `.nerd/knowledge.db`][factory-store] and [attaches it to VirtualStore][factory-attach]. A fresh binary can therefore bring a new corpus while the workspace's LocalStore remains persistent; this finding does not require mutating the read-only corpus inside a running process.
+2. [`LegislatorShard.SetParentKernel`][legislator-wire] constructs `PredicateSelector` from the kernel's corpus, attaches `VirtualStore.GetLocalDB()`, and hands the selector to its feedback loop. [`compileRule`][legislator-generate] uses that loop for natural-language rule synthesis. Direct Mangle input instead takes `ValidateOnly` and bypasses this selection path. [Direct-input control][legislator-direct]
 3. [`FeedbackLoop.GenerateAndValidate`][feedback-input] requests predicate selection for the initial prompt and again for retries. [`selectPredicates`][feedback-select] accepts a successful nonempty JIT result; it does not independently reconcile those signatures against the validator's declared set. Retry prompts call the list “Available Predicates (use ONLY these).” [Prompt builder][feedback-render]
 4. Domain selection still reads the current corpus and preserves bounded core/domain fallbacks. The semantic path also checks that a retrieved name exists in the current corpus; deleted names are skipped. These are real protections, but existence by name does not establish signature or represented-content identity.
 5. Generated rules still go through sanitization, sandbox `HotLoadRule`, and `ValidateLearnedRule`, with attempt/time budgets. Preserve these gates. A wrong prompt reference may cause rejection, auto-repair, retries, or failure; it does not establish that a wrong rule passes them. [Validation path][feedback-validation]
@@ -63,7 +63,7 @@ stored_count = current_count = 2
 
 With these conditions, a fresh selector declares indexing complete despite lacking the current `p/2` and `r/1` representations. A description-only change has the same freshness problem even without an arity change. These examples are synthetic inventories, not a claim that these specific names occur in the repository.
 
-The defect is not limited to equal-size upgrades. When the current corpus grows and indexing runs, the selector can add current contents without removing obsolete ones. The feature branch's writer replaces identical predicate **content**, not every historical representation sharing a predicate name; changed arity/description changes [`predicateVectorContent`][representation]. The writer's index cleanup also names the current content. [Batch writer][feature-batch]
+The defect is not limited to equal-size upgrades. When the current corpus grows and indexing runs, the selector can add current contents without removing obsolete ones. The feature branch's [partial unique index][feature-unique] identifies predicate **content**, not every historical representation sharing a predicate name; changed arity/description changes [`predicateVectorContent`][representation]. The writer's index cleanup also names the current content. [Batch writer][feature-batch]
 
 **Bounded recall consequence:** retrieval is limited before current-name hydration. Enough highly ranked stale or removed representations can consume the candidate allowance. Skipping missing names afterwards cannot recover a current predicate excluded upstream. This requires those stale rows to rank within the finite allowance; it is not an assertion that every upgraded workspace loses relevant predicates.
 
@@ -86,7 +86,7 @@ Exact additional conditions for a visible wrong-signature witness:
 - The stale candidate survives the final relevance/cap ordering; use a deterministic fake embedding and adequate cap in a future fixture to make this explicit.
 - The caller uses the semantic selector (`SelectForContext` or `SelectForRepair`), rather than only current-corpus domain selection.
 
-Name deletion is a negative control: the current hydration check drops the row rather than advertising the removed name. It can still contribute to the separate pre-hydration recall loss above. A clean new LocalStore and an unchanged corpus are also necessary controls.
+Name deletion is a negative control: the current hydration check drops the row rather than advertising the removed name. It can still contribute to the separate pre-hydration recall loss above. A clean new LocalStore, an unchanged corpus, a nil vector store, and direct Mangle input are also necessary controls. This is not the general prompt-atom selector or every chat turn. MangleRepair's separate model-repair prompt is another consumer, but initially valid or deterministically repaired rules need not reach it. [Repair selection][repair-selection]
 
 ### Related bounded edge: valid arity zero is rejected by semantic parsing
 
@@ -177,9 +177,14 @@ Primary outcomes: correct current vocabulary in actual prompts, verified rule/ta
 **Checkable exit:** the selector's readiness certificate names the current inventory; same-space persisted corpus drift cannot silently alter the advertised vocabulary; retrieval metadata cannot override authoritative arity; valid zero-arity candidates can participate; and all existing execution/schema gates remain unchanged.
 
 [arch-selector]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/Docs/architecture/prompt/IMPLEMENTED_SPEC.md#L557-L559
+[store-f15]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/Docs/architecture/store/12-FAILURE-MODES.md#L125-L130
+[factory-store]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/system/factory.go#L1088-L1096
+[factory-attach]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/system/factory.go#L1617-L1621
 [corpus-load]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/predicate_corpus.go#L73-L109
 [legislator-wire]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/shards/system/legislator.go#L147-L170
 [legislator-generate]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/shards/system/legislator.go#L330-L344
+[legislator-direct]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/shards/system/legislator.go#L279-L311
+[repair-selection]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/shards/system/mangle_repair.go#L758-L788
 [feedback-input]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/mangle/feedback/loop.go#L147-L195
 [feedback-select]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/mangle/feedback/loop.go#L453-L472
 [feedback-render]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/mangle/feedback/prompt_builder.go#L83-L91
@@ -190,6 +195,7 @@ Primary outcomes: correct current vocabulary in actual prompts, verified rule/ta
 [index]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/predicate_selector.go#L565-L663
 [representation]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/predicate_selector.go#L665-L684
 [feature-batch]: https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/store/vector_store.go#L306-L383
+[feature-unique]: https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/store/local_core.go#L763-L770
 [hydrate]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/predicate_selector.go#L520-L562
 [merge]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/predicate_selector.go#L486-L517
 [format]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/predicate_selector.go#L449-L483
