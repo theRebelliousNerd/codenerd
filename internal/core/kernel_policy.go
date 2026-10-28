@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -14,21 +13,41 @@ import (
 	"codenerd/internal/mangle/feedback"
 	"codenerd/internal/types"
 
+	"codeberg.org/TauCeti/mangle-go/ast"
 	"codeberg.org/TauCeti/mangle-go/factstore"
 )
 
-// unsafeNegationPattern matches negated atoms with anonymous variables
-// e.g., !active_shard(/coder, _) or !foo(_, Bar, _)
-var unsafeNegationPattern = regexp.MustCompile(`!\s*\w+\s*\([^)]*_[^)]*\)`)
-
-// checkUnsafeNegation validates that a rule doesn't contain unsafe negation patterns.
-// Unsafe patterns include anonymous variables (_) in negated atoms, which would be
-// unbound and violate Mangle's negation safety requirement.
+// checkUnsafeNegation rejects a candidate rule that negates an atom with an
+// anonymous variable (!active_shard(_, Type)): the wildcard is unbound, which
+// violates Mangle's negation safety requirement.
+//
+// It reads the parsed clauses. The regex it replaces matched any "_" between
+// the parentheses of a negated atom, so the name constant in
+// !executive_processed_intent(/current_intent) was refused as an "anonymous
+// variable" and a valid candidate never reached the sandbox. A rule that does
+// not parse is left to the sandbox compiler, which reports the parse error.
 func checkUnsafeNegation(rule string) error {
-	if unsafeNegationPattern.MatchString(rule) {
-		// Extract the offending pattern for better error messages
-		matches := unsafeNegationPattern.FindAllString(rule, -1)
-		return fmt.Errorf("unsafe negation pattern detected: %v - anonymous variables in negated atoms are unbound. Use a helper predicate instead (e.g., has_active_shard(Type) instead of !active_shard(_, Type))", matches)
+	unit, err := parseUnit(strings.NewReader(rule))
+	if err != nil {
+		return nil
+	}
+	var offending []string
+	for _, clause := range unit.Clauses {
+		for _, premise := range clause.Premises {
+			neg, ok := premise.(ast.NegAtom)
+			if !ok {
+				continue
+			}
+			for _, arg := range neg.Atom.Args {
+				if v, isVar := arg.(ast.Variable); isVar && v.Symbol == "_" {
+					offending = append(offending, neg.String())
+					break
+				}
+			}
+		}
+	}
+	if len(offending) > 0 {
+		return fmt.Errorf("unsafe negation pattern detected: %v - anonymous variables in negated atoms are unbound. Use a helper predicate instead (e.g., has_active_shard(Type) instead of !active_shard(_, Type))", offending)
 	}
 	return nil
 }
