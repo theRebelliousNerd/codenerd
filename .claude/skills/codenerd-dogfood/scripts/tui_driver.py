@@ -13,7 +13,12 @@ Usage, from the repo root (one command per call; the session persists):
   python3 .claude/skills/codenerd-dogfood/scripts/tui_driver.py read [N]
   python3 .claude/skills/codenerd-dogfood/scripts/tui_driver.py screen
   python3 .claude/skills/codenerd-dogfood/scripts/tui_driver.py progress
+  python3 .claude/skills/codenerd-dogfood/scripts/tui_driver.py restart [--yolo]
   python3 .claude/skills/codenerd-dogfood/scripts/tui_driver.py stop
+
+Watch it (and type into it) from another terminal with `tmux attach -t
+nerd-dogfood`. `restart` relaunches nerd in the same pane after a rebuild, so
+an attached terminal stays attached; `stop` ends the tmux session.
 
 `wait` returns when the session record has stopped changing for --quiet
 seconds after the last turn and the screen has settled; background jobs may
@@ -93,12 +98,30 @@ def messages(state):
 
 def cmd_start(argv):
     if alive():
-        print("already running; `stop` first")
+        print("already running; `stop` or `restart` first")
         return 1
-    args = ["./nerd"] + (["--yolo"] if "--yolo" in argv else [])
     started = time.time()
-    tmux("new-session", "-d", "-s", TMUX_SESSION, "-x", "220", "-y", "60", " ".join(args))
+    tmux("new-session", "-d", "-s", TMUX_SESSION, "-x", "220", "-y", "60", nerd_command(argv))
     save_state({"started": started})
+    return wait_ready()
+
+
+def cmd_restart(argv):
+    """Relaunches nerd in the existing pane (respawn-pane -k), so a terminal
+    attached to the session stays attached across a rebuild."""
+    if not alive():
+        return cmd_start(argv)
+    started = time.time()
+    tmux("respawn-pane", "-k", "-t", TMUX_SESSION, nerd_command(argv))
+    save_state({"started": started})
+    return wait_ready()
+
+
+def nerd_command(argv):
+    return " ".join(["./nerd"] + (["--yolo"] if "--yolo" in argv else []))
+
+
+def wait_ready():
     deadline = time.time() + 300
     while time.time() < deadline:
         if not alive():
@@ -198,7 +221,7 @@ def cmd_stop(argv):
     return 0
 
 
-COMMANDS = {"start": cmd_start, "say": cmd_say, "wait": cmd_wait, "read": cmd_read,
+COMMANDS = {"start": cmd_start, "restart": cmd_restart, "say": cmd_say, "wait": cmd_wait, "read": cmd_read,
             "screen": cmd_screen, "progress": cmd_progress, "stop": cmd_stop}
 
 

@@ -82,8 +82,13 @@ Two drivers, both in [scripts/](scripts/), run from the repo root:
   python3 .claude/skills/codenerd-dogfood/scripts/tui_driver.py read 6     # last 6 messages
   python3 .claude/skills/codenerd-dogfood/scripts/tui_driver.py progress   # each agent's transcript activity
   python3 .claude/skills/codenerd-dogfood/scripts/tui_driver.py screen     # the raw screen
+  python3 .claude/skills/codenerd-dogfood/scripts/tui_driver.py restart    # after a rebuild; keeps attached terminals
   python3 .claude/skills/codenerd-dogfood/scripts/tui_driver.py stop
   ```
+  To share the session with the user, open a Terminal panel tab running
+  `tmux attach -t nerd-dogfood`: they watch and type into the same TUI. After
+  a rebuild use `restart`, not Ctrl+C: quitting nerd ends the tmux session
+  and drops every attached terminal.
 - **[scripts/chat_driver.py](scripts/chat_driver.py)** drives `nerd chat`, the
   headless executor path. It skips the TUI's routing layer, so it reaches none
   of the chat behaviour above. Use it only for cheap executor-only checks.
