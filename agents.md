@@ -152,6 +152,10 @@ SQLite headers live at `sqlite_headers/sqlite3.h`.
 go test ./...
 ```
 
+### Live Model Calls
+
+Live tests and probes against `muse-spark-1.3-contributor` and Jev (TypeSafe) are fine and encouraged; no per-run approval needed. Use the endpoints and keys in `.nerd/config.json` and never print or commit a key.
+
 ### Stress / Long-Horizon Validation
 
 - In chat mode, run `/campaign assault ...`.
