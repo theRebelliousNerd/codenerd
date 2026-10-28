@@ -2,7 +2,6 @@ package approval
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/google/uuid"
 )
@@ -16,23 +15,35 @@ const (
 	AutonomyActor   = "codenerd (yolo)"
 )
 
-// AutoApprove records an approval of one exact request under the operator's
-// standing yolo instruction and returns its grant. It needs no attached host:
-// nobody is asked. The grant is the same as a human one from here on — Reserve
-// revalidates the operation, and the kernel still derives permission — and
-// the hard safety verdicts a human approval cannot lift are not lifted by
-// this one either (dream_reason_liftable, dreamer.mg).
-func (b *Broker) AutoApprove(intentID string, subject Subject, preview Preview, reason string) (*Grant, Request, error) {
-	if strings.TrimSpace(intentID) == "" {
-		return nil, Request{}, fmt.Errorf("approval request needs an execution intent")
+// SetAutonomous turns the operator's standing yolo instruction on or off.
+// While it is on, Await approves every request itself, as AutonomyActor, and
+// needs no attached host: nobody is asked. The chat sets it from the work mode
+// (Shift+Tab, /yolo); a headless run from work_mode in config.
+func (b *Broker) SetAutonomous(on bool) {
+	if b == nil {
+		return
 	}
-	digest, err := subject.Digest()
-	if err != nil {
-		return nil, Request{}, err
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.autonomous = on
+}
+
+// Autonomous reports whether the standing yolo instruction is on.
+func (b *Broker) Autonomous() bool {
+	if b == nil {
+		return false
 	}
-	if !preview.Verify() {
-		return nil, Request{}, fmt.Errorf("approval preview is not sealed with its own digest")
-	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.autonomous && !b.closed
+}
+
+// autoApprove records an approval of one exact request under the standing
+// yolo instruction and returns its grant. The grant is the same as a human one
+// from here on — Reserve revalidates the operation, and the kernel still
+// derives permission — and the hard safety verdicts a human approval cannot
+// lift are not lifted by this one either (dream_reason_liftable, dreamer.mg).
+func (b *Broker) autoApprove(intentID string, subject Subject, digest string, preview Preview) (*Grant, Request, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed {
@@ -57,7 +68,7 @@ func (b *Broker) AutoApprove(intentID string, subject Subject, preview Preview, 
 	r.Decision = &Decision{
 		RequestID: r.ID, RequestVersion: r.Version, RequestDigest: r.Digest,
 		Actor: AutonomyActor, Channel: AutonomyChannel, EventID: eventID, Verdict: VerdictApprove,
-		DecidedAt: now, Reason: reason,
+		DecidedAt: now, Reason: "standing yolo instruction (work_mode yolo)",
 	}
 	if err := b.journal.append(r, now); err != nil {
 		return nil, Request{}, err

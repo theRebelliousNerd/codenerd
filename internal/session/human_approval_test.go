@@ -314,9 +314,7 @@ func TestHumanApproval_ForgedFactDoesNotAdmit(t *testing.T) {
 func TestHumanApproval_YoloApprovesWithoutAPerson(t *testing.T) {
 	rig := newApprovalRig(t, time.Minute)
 	rig.host.Detach()
-	if err := rig.kernel.Assert(core.Fact{Predicate: "yolo_mode"}); err != nil {
-		t.Fatal(err)
-	}
+	rig.broker.SetAutonomous(true)
 	path := rig.file(t, "scratch.md", "x\n")
 	if _, err := rig.exec.executeToolCall(context.Background(), deleteCall("y1", "scratch.md"), validCapabilityTestConfig("delete_file")); err != nil {
 		t.Fatalf("yolo did not run an approvable delete: %v", err)

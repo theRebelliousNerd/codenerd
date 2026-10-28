@@ -255,7 +255,7 @@ func (v *VirtualStore) approvalLiftsDream(actionID string, res DreamResult) bool
 			return false
 		}
 	}
-	grants, err := v.kernel.Query("human_approval_granted")
+	grants, err := v.kernel.Query(types.HumanApprovalPredicate)
 	if err != nil {
 		return false
 	}

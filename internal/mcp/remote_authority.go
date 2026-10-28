@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"codenerd/internal/approval"
+	"codenerd/internal/types"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -106,10 +107,6 @@ func auditRemoteAuthorization(envelope RemoteCallEnvelope, allowed bool, reason 
 }
 
 func exactMangleString(value string) string { return strconv.Quote(value) }
-
-// humanApprovalPredicate is the host-asserted consent fact constitution.mg
-// joins against the exact pending_action it names.
-const humanApprovalPredicate = "human_approval_granted"
 
 func nilKernel(kernel KernelInterface) bool {
 	if kernel == nil {
@@ -400,7 +397,7 @@ func (manager *MCPClientManager) attemptRemoteCall(ctx context.Context, operatio
 			return nil, nil, fmt.Errorf("MCP remote effect %s refused: the approval cannot be used: %w", toolID, reserveErr)
 		}
 		reserved = true
-		facts = append(facts, fmt.Sprintf("%s(%s, %s, %s, %s, %s)", humanApprovalPredicate,
+		facts = append(facts, fmt.Sprintf("%s(%s, %s, %s, %s, %s)", types.HumanApprovalPredicate,
 			exactMangleString(requestID), envelope.Action, exactMangleString(target),
 			exactMangleString(envelope.PermissionPayload), exactMangleString(grant.Digest())))
 	}

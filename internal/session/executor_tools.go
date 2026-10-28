@@ -2948,7 +2948,7 @@ func (e *Executor) admitToolCall(call ToolCall, safetyGateEnabled bool, canonica
 		}
 		cleanup = append(cleanup, func() {
 			if err := e.kernel.RetractFact(consent); err != nil {
-				logging.Get(logging.CategorySession).Warn("Failed to retract %s: %v", humanApprovalPredicate, err)
+				logging.Get(logging.CategorySession).Warn("Failed to retract %s: %v", types.HumanApprovalPredicate, err)
 			}
 		})
 	}

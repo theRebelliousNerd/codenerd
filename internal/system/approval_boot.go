@@ -35,6 +35,9 @@ func initApprovalBroker(bctx *bootContext) error {
 		logging.Get(logging.CategoryBoot).Warn("Human approval unavailable this session (approvable actions stay refused): %v", err)
 		return nil
 	}
+	// A headless run follows the persisted work mode; the chat re-sets this
+	// whenever its mode changes (Shift+Tab, /yolo, --yolo).
+	broker.SetAutonomous(bctx.appCfg.YoloMode())
 	bctx.approvals = broker
 	bctx.approvalsRelease = release
 	return nil

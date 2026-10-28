@@ -35,10 +35,6 @@ import (
 // exact pending_action, and the call continues through every later gate and
 // the ordinary backend. Nothing here is a second executor.
 
-// humanApprovalPredicate is the host-asserted consent fact constitution.mg
-// joins against the pending_action it names.
-const humanApprovalPredicate = "human_approval_granted"
-
 // humanApprovalAdmission serializes every admission that carries a human
 // approval against every admission that does not. permitted/3 is keyed by
 // (Action, Target, Payload), so while an approved admission's fact is
@@ -286,8 +282,7 @@ func (e *Executor) awaitHumanApproval(ctx context.Context, call ToolCall, cfg *c
 	broker := e.approvalBroker()
 	action := gateAction(call.Name)
 	target := e.extractTarget(call.Args)
-	yolo := e.yoloMode()
-	if !yolo && !broker.HostAttached() {
+	if !broker.HostAttached() && !broker.Autonomous() {
 		return nil, fmt.Errorf("tool call blocked by safety gate: action %s target %s denied (%s); a person may approve this exact request, but no approval host is attached to this run — do not retry the same call; ask the user to perform it or to run interactively", call.Name, target, denial)
 	}
 	keep := broker.PreviewMaxBytes()
@@ -300,17 +295,12 @@ func (e *Executor) awaitHumanApproval(ctx context.Context, call ToolCall, cfg *c
 		return nil, fmt.Errorf("tool call blocked by safety gate: approval preview for %s failed: %w", call.Name, err)
 	}
 	intent := "exec-" + call.ID
-	var grant *approval.Grant
-	var req approval.Request
-	if yolo {
-		// The operator's standing instruction: nobody is asked. The approval
-		// is journaled as codeNERD's own, never as a person's.
+	if broker.Autonomous() {
 		logging.Get(logging.CategorySession).Info("Yolo approves %s %s (denied for: %s)", call.Name, target, denial)
-		grant, req, err = broker.AutoApprove(intent, subject, preview, "yolo: "+denial)
 	} else {
 		logging.Get(logging.CategorySession).Info("Awaiting human approval for %s %s", call.Name, target)
-		grant, req, err = broker.Await(ctx, intent, subject, preview)
 	}
+	grant, req, err := broker.Await(ctx, intent, subject, preview)
 	if err != nil {
 		if errors.Is(err, approval.ErrRejected) {
 			e.assertSecurityViolation(types.MangleAtom(action), "human rejected approval request "+req.ID)
@@ -338,17 +328,7 @@ func (e *Executor) humanApprovalFact(actionID string, actionAtom types.MangleAto
 		return types.Fact{}, fmt.Errorf("the admitted call does not match the approved request")
 	}
 	return types.Fact{
-		Predicate: humanApprovalPredicate,
+		Predicate: types.HumanApprovalPredicate,
 		Args:      []any{actionID, actionAtom, target, payload, approved.grant.Digest()},
 	}, nil
-}
-
-// yoloMode reports whether the operator's yolo autonomy is on: yolo_mode(),
-// asserted by the host from config, --yolo or /yolo (schemas_intent.mg).
-func (e *Executor) yoloMode() bool {
-	if e == nil || e.kernel == nil {
-		return false
-	}
-	rows, err := e.kernel.Query("yolo_mode")
-	return err == nil && len(rows) > 0
 }

@@ -38,6 +38,9 @@ type Broker struct {
 	// waiter to re-read the record it cares about.
 	changed chan struct{}
 	closed  bool
+	// autonomous is the operator's standing yolo instruction (autonomy.go):
+	// Await decides as AutonomyActor instead of asking a person.
+	autonomous bool
 }
 
 // NewBroker builds a broker, replaying and reconciling its journal when one is
@@ -149,6 +152,9 @@ func (b *Broker) Await(ctx context.Context, intentID string, subject Subject, pr
 	if !preview.Verify() {
 		return nil, Request{}, fmt.Errorf("approval preview is not sealed with its own digest")
 	}
+	if b.Autonomous() {
+		return b.autoApprove(intentID, subject, digest, preview)
+	}
 	id, err := b.open(intentID, subject, digest, preview)
 	if err != nil {
 		return nil, Request{}, err
@@ -174,7 +180,7 @@ func (b *Broker) Await(ctx context.Context, intentID string, subject Subject, pr
 			return nil, snapshot, ErrStale
 		case StatusAwaitingHuman:
 		default:
-			return nil, snapshot, fmt.Errorf("approval request %s is %s", id, status)
+			return nil, snapshot, fmt.Errorf("approval request %s is %s: another call with the same operation already claimed it, and it runs once", id, status)
 		}
 		timer := time.NewTimer(snapshot.ExpiresAt.Sub(b.now()))
 		select {
@@ -212,8 +218,14 @@ func (b *Broker) open(intentID string, subject Subject, digest string, preview P
 	if b.host == nil {
 		return "", ErrNoHost
 	}
+	// The same operation under the same intent joins its request, decided or
+	// not: a duplicate resume that arrives after the decision must neither ask
+	// the person again nor dispatch twice (Await returns the decision; a
+	// claimed or finished request runs for its first caller only). Only a
+	// request that ended undecided (expired, canceled, superseded) is asked
+	// again.
 	for _, r := range b.requests {
-		if r.IntentID == intentID && r.Digest == digest && r.Status == StatusAwaitingHuman {
+		if r.IntentID == intentID && r.Digest == digest && !endedUndecided(r.Status) {
 			return r.ID, nil
 		}
 	}
@@ -607,4 +619,10 @@ func OpenShared(opts Options) (*Broker, func() error, error) {
 		return err
 	}
 	return entry.broker, release, nil
+}
+
+// endedUndecided reports a request that closed without a person's decision
+// being acted on, so the same operation may be asked again.
+func endedUndecided(s Status) bool {
+	return s == StatusExpired || s == StatusCanceled || s == StatusSuperseded
 }
