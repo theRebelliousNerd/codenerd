@@ -8,7 +8,7 @@ import (
 
 // setupTestDreamer initializes a Dreamer with a real kernel (embedded defaults).
 // This relies on the kernel being able to boot from embedded defaults.
-func setupTestDreamer(t *testing.T) (*Dreamer, *RealKernel) {
+func setupTestDreamer(t testing.TB) (*Dreamer, *RealKernel) {
 	// Initialize real kernel with defaults (embedded)
 	k, err := NewRealKernel()
 	if err != nil {

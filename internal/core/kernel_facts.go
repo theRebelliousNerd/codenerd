@@ -409,9 +409,9 @@ func (k *RealKernel) ensureFactIndexLocked() {
 // rebuildFactIndexLocked rebuilds the dedupe index from current EDB.
 // Call only while holding k.mu.
 func (k *RealKernel) rebuildFactIndexLocked() {
-	k.factIndex = make(map[string]struct{}, len(k.facts))
+	k.factIndex = newEDBIndex()
 	for _, f := range k.facts {
-		k.factIndex[k.canonFact(f)] = struct{}{}
+		k.factIndex.insert(k.canonFact(f), f)
 	}
 }
 
@@ -457,7 +457,7 @@ func (k *RealKernel) addFactIfNewLockedErr(f Fact) (bool, error) {
 
 	k.ensureFactIndexLocked()
 	key := k.canonFact(f)
-	if _, ok := k.factIndex[key]; ok {
+	if k.factIndex.has(f.Predicate, key) {
 		return false, nil
 	}
 
@@ -484,7 +484,7 @@ func (k *RealKernel) addFactIfNewLockedErr(f Fact) (bool, error) {
 	} else {
 		k.cachedAtoms = nil
 	}
-	k.factIndex[key] = struct{}{}
+	k.factIndex.insert(key, f)
 	k.warnIfUndeclaredLocked(f)
 	return true, nil
 }
@@ -610,8 +610,8 @@ func (k *RealKernel) assertHeartbeat(fact Fact) error {
 			}
 		}
 		k.ensureFactIndexLocked()
-		delete(k.factIndex, oldKey)
-		k.factIndex[k.canonFact(fact)] = struct{}{}
+		k.factIndex.remove(existing.Predicate, oldKey)
+		k.factIndex.insert(k.canonFact(fact), fact)
 		// Intentionally NOT setting factsDirty — existence is unchanged.
 		k.mu.Unlock()
 		return nil
@@ -804,7 +804,7 @@ func (k *RealKernel) compactFactsLocked(keep func(Fact) bool) (removed int) {
 			// whole index after each retract re-canonicalized every
 			// remaining fact (7.9 s of one 52 s turn, measured 2026-10-27).
 			if k.factIndex != nil {
-				delete(k.factIndex, k.canonFact(f))
+				k.factIndex.remove(f.Predicate, k.canonFact(f))
 			}
 			continue
 		}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"codenerd/internal/logging"
 
@@ -39,11 +40,22 @@ import (
 // coneIndex is the rule-dependency graph of one programInfo, by predicate
 // symbol name. Names, not PredicateSym: a Fact carries a name, and a name with
 // two arities is treated as one node, which only ever widens a cone.
+//
+// It also carries the access paths a cone plan is cut through
+// (kernel_cone_plan.go). All of it is immutable once built except the plan
+// cache, which locks; it is shared by every kernel and clone compiled from the
+// same program.
 type coneIndex struct {
 	consumers map[string][]string // body predicate -> heads of the rules reading it
 	heads     map[string]struct{} // every predicate some rule derives
 	volatile  []string            // heads with an external() premise, re-derived every time
-	rules     int
+
+	rules        []ast.Clause                  // the program's rules, in program order
+	strata       []analysis.Nodeset            // the program's strata, in evaluation order
+	rulesByHead  map[string][]int              // head name -> indexes into rules, ascending
+	strataByPred map[string][]int              // predicate name -> indexes into strata, ascending
+	syms         map[string][]ast.PredicateSym // name -> every symbol the program knows under it
+	plans        conePlans
 }
 
 // errConeIneligible makes evaluate() take the full path. It is not a fault.
@@ -62,11 +74,54 @@ func premisePredicates(t ast.Term, out map[string]struct{}) {
 	}
 }
 
-func buildConeIndex(info *analysis.ProgramInfo) *coneIndex {
+// buildConeIndex indexes one analyzed, stratified program.
+func buildConeIndex(info *analysis.ProgramInfo, strata []analysis.Nodeset, predToStratum map[ast.PredicateSym]int) *coneIndex {
 	idx := &coneIndex{
-		consumers: make(map[string][]string),
-		heads:     make(map[string]struct{}),
-		rules:     len(info.Rules),
+		consumers:    make(map[string][]string),
+		heads:        make(map[string]struct{}),
+		rules:        info.Rules,
+		strata:       strata,
+		rulesByHead:  make(map[string][]int),
+		strataByPred: make(map[string][]int),
+		syms:         make(map[string][]ast.PredicateSym),
+	}
+	for i, rule := range info.Rules {
+		head := rule.Head.Predicate.Symbol
+		idx.rulesByHead[head] = append(idx.rulesByHead[head], i)
+	}
+	byName := make(map[string]map[int]struct{})
+	for sym, stratum := range predToStratum {
+		if byName[sym.Symbol] == nil {
+			byName[sym.Symbol] = make(map[int]struct{}, 1)
+		}
+		byName[sym.Symbol][stratum] = struct{}{}
+	}
+	for name, set := range byName {
+		list := make([]int, 0, len(set))
+		for s := range set {
+			list = append(list, s)
+		}
+		sort.Ints(list)
+		idx.strataByPred[name] = list
+	}
+	known := make(map[ast.PredicateSym]struct{}, len(info.Decls)+len(info.IdbPredicates))
+	for sym := range info.Decls {
+		known[sym] = struct{}{}
+	}
+	for sym := range info.IdbPredicates {
+		known[sym] = struct{}{}
+	}
+	for sym := range info.EdbPredicates {
+		known[sym] = struct{}{}
+	}
+	for _, rule := range info.Rules {
+		known[rule.Head.Predicate] = struct{}{}
+	}
+	for _, fact := range info.InitialFacts {
+		known[fact.Predicate] = struct{}{}
+	}
+	for sym := range known {
+		idx.syms[sym.Symbol] = append(idx.syms[sym.Symbol], sym)
 	}
 	external := make(map[string]struct{})
 	for sym, decl := range info.Decls {
@@ -203,43 +258,56 @@ func (k *RealKernel) clearDirtyLocked() {
 	k.dirtyPreds = nil
 }
 
+// coneIneligibilityLocked says why the next evaluate() cannot be a cone
+// evaluation, or "" when it can. Caller holds k.mu.
+func (k *RealKernel) coneIneligibilityLocked() string {
+	switch {
+	case k.dirtyAll || len(k.dirtyPreds) == 0:
+		return "write set unknown"
+	case !k.initialized || k.store == nil:
+		return "no evaluated store"
+	case k.policyDirty || k.programInfo == nil || k.cone == nil:
+		return "program changed"
+	case k.atomCacheStale:
+		return "atoms converted under an older program"
+	case k.proofRecorder != nil:
+		return "provenance recording"
+	case k.factIndex == nil:
+		return "no EDB index"
+	}
+	if _, ok := k.store.(factstore.FactStoreWithRemove); !ok {
+		return "store does not support removal"
+	}
+	return ""
+}
+
 // evaluateConeLocked re-derives the cone of the written predicates in place.
 // It returns errConeIneligible when the full path must run instead; any other
 // error leaves k.store half-rebuilt, and the caller falls back to the full
 // path, which builds a fresh store and so repairs it.
-func (k *RealKernel) evaluateConeLocked() error {
-	if k.dirtyAll || len(k.dirtyPreds) == 0 || !k.initialized || k.store == nil ||
-		k.policyDirty || k.programInfo == nil || k.cone == nil || k.atomCacheStale ||
-		k.proofRecorder != nil {
+//
+// On success it fills stats; on failure stats is left for the full path.
+func (k *RealKernel) evaluateConeLocked(stats *EvaluationStats) error {
+	if k.coneIneligibilityLocked() != "" {
 		return errConeIneligible
 	}
-	remover, ok := k.store.(factstore.FactStoreWithRemove)
-	if !ok {
-		return errConeIneligible
-	}
+	remover := k.store.(factstore.FactStoreWithRemove)
 	timer := logging.StartTimer(logging.CategoryKernel, "evaluate.cone")
 	defer timer.Stop()
+	prepareStarted := time.Now()
 
-	cone := k.cone.closure(k.dirtyPreds)
-	touched := make(map[string]struct{}, len(cone)+len(k.dirtyPreds))
-	for pred := range k.dirtyPreds {
-		touched[pred] = struct{}{}
-	}
-	for pred := range cone {
-		touched[pred] = struct{}{}
-	}
+	plan := k.cone.plan(k.dirtyPreds)
 
 	// Remove every fact, extensional and derived, of every touched predicate.
 	var doomed []ast.Atom
-	for _, sym := range k.store.ListPredicates() {
-		if _, ok := touched[sym.Symbol]; !ok {
-			continue
-		}
-		if err := k.store.GetFacts(ast.NewQuery(sym), func(a ast.Atom) error {
-			doomed = append(doomed, a)
-			return nil
-		}); err != nil {
-			return fmt.Errorf("cone: list %s: %w", sym.Symbol, err)
+	for _, pred := range plan.touched {
+		for _, sym := range k.cone.symbolsOf(pred, k.factIndex.aritiesOf(pred)) {
+			if err := k.store.GetFacts(ast.NewQuery(sym), func(a ast.Atom) error {
+				doomed = append(doomed, a)
+				return nil
+			}); err != nil {
+				return fmt.Errorf("cone: list %s: %w", sym.Symbol, err)
+			}
 		}
 	}
 	for _, atom := range doomed {
@@ -248,42 +316,15 @@ func (k *RealKernel) evaluateConeLocked() error {
 
 	// Put back what the EDB holds for them now.
 	restored := 0
-	for _, f := range k.facts {
-		if _, ok := touched[f.Predicate]; !ok {
-			continue
-		}
-		atom, err := k.factToAtomLocked(f)
-		if err != nil {
-			return fmt.Errorf("cone: convert %s: %w", f.Predicate, err)
-		}
-		k.store.Add(atom)
-		restored++
-	}
-
-	// The sub-program: the cone's rules, over the cone's strata in order.
-	rules := make([]ast.Clause, 0, 256)
-	for _, rule := range k.programInfo.Rules {
-		if _, ok := cone[rule.Head.Predicate.Symbol]; ok {
-			rules = append(rules, rule)
-		}
-	}
-	var strata []analysis.Nodeset
-	predToStratum := make(map[ast.PredicateSym]int)
-	for _, stratum := range k.strata {
-		inCone := false
-		for sym := range stratum {
-			if _, ok := cone[sym.Symbol]; ok {
-				inCone = true
-				break
+	for _, pred := range plan.touched {
+		for _, f := range k.factIndex.bucket(pred) {
+			atom, err := k.factToAtomLocked(f)
+			if err != nil {
+				return fmt.Errorf("cone: convert %s: %w", f.Predicate, err)
 			}
+			k.store.Add(atom)
+			restored++
 		}
-		if !inCone {
-			continue
-		}
-		for sym := range stratum {
-			predToStratum[sym] = len(strata)
-		}
-		strata = append(strata, stratum)
 	}
 
 	// Run the engine even when the cone holds no rule: it is what re-adds a
@@ -293,13 +334,21 @@ func (k *RealKernel) evaluateConeLocked() error {
 		IdbPredicates:    k.programInfo.IdbPredicates,
 		InitialFacts:     k.programInfo.InitialFacts,
 		InitialFactTimes: k.programInfo.InitialFactTimes,
-		Rules:            rules,
+		Rules:            plan.rules,
 		Decls:            k.programInfo.Decls,
 	}
 	opts := append([]engine.EvalOption{engine.WithCreatedFactLimit(k.effectiveDerivedFactLimitLocked())},
 		k.externalPredicateOptionsLocked()...)
-	if _, err := engine.EvalStratifiedProgramWithStats(sub, strata, predToStratum, k.store, opts...); err != nil {
+	prepared := time.Since(prepareStarted)
+	engineStarted := time.Now()
+	if _, err := engine.EvalStratifiedProgramWithStats(sub, plan.strata, plan.predToStratum, k.store, opts...); err != nil {
 		return fmt.Errorf("cone: fixpoint: %w", err)
+	}
+	*stats = EvaluationStats{
+		InputFacts: stats.InputFacts, Mode: "cone", StoreKind: storeKind(k.store),
+		PrepareDuration: prepared, EngineDuration: time.Since(engineStarted),
+		Touched: len(plan.touched), RemovedFacts: len(doomed), RestoredFacts: restored,
+		Rules: len(plan.rules), Strata: len(plan.strata),
 	}
 
 	written := make([]string, 0, len(k.dirtyPreds))
@@ -308,6 +357,6 @@ func (k *RealKernel) evaluateConeLocked() error {
 	}
 	sort.Strings(written)
 	logging.KernelDebug("evaluate.cone: written=[%s] cone=%d predicates, %d/%d rules, %d strata, %d facts removed, %d restored",
-		strings.Join(written, ","), len(cone), len(rules), k.cone.rules, len(strata), len(doomed), restored)
+		strings.Join(written, ","), len(plan.cone), len(plan.rules), len(k.cone.rules), len(plan.strata), len(doomed), restored)
 	return nil
 }
