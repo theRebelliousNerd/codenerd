@@ -265,10 +265,7 @@ func (v *VirtualStore) emitToolAndRoutingEvents(req ActionRequest, result Action
 	verb := strings.TrimPrefix(string(req.Type), "/")
 	label := verb
 	if strings.TrimSpace(req.Target) != "" {
-		label = verb + " " + req.Target
-		if len(label) > 80 {
-			label = label[:77] + "..."
-		}
+		label = types.Ellipsize(verb+" "+req.Target, 80)
 	}
 
 	if tbus != nil {
@@ -276,9 +273,7 @@ func (v *VirtualStore) emitToolAndRoutingEvents(req ActionRequest, result Action
 		if !result.Success {
 			summary = result.Error
 		}
-		if len(summary) > 160 {
-			summary = summary[:157] + "..."
-		}
+		summary = types.Ellipsize(summary, 160)
 		tbus.Emit(transparency.ToolEvent{
 			ToolName:  verb,
 			Result:    summary,
@@ -296,9 +291,7 @@ func (v *VirtualStore) emitToolAndRoutingEvents(req ActionRequest, result Action
 		outcome = "Failed"
 		details = result.Error
 	}
-	if len(details) > 400 {
-		details = details[:397] + "..."
-	}
+	details = types.Ellipsize(details, 400)
 	transparency.RecordOperation(types.OperationRecord{
 		Operation: verb,
 		Outcome:   outcome,

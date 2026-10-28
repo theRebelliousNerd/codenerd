@@ -6,8 +6,9 @@ import (
 	"strings"
 	"sync"
 
-	"codeberg.org/TauCeti/mangle-go/ast"
 	"codenerd/internal/logging"
+
+	"codeberg.org/TauCeti/mangle-go/ast"
 )
 
 // Asserting a predicate with no Decl is silent, and the fact is unreachable.

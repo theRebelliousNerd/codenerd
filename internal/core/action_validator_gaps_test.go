@@ -1,9 +1,11 @@
 package core
 
 import (
+	"codenerd/internal/types"
 	"context"
 	"math"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -68,10 +70,10 @@ func TestValidationResult_ToFacts_MassiveDetails(t *testing.T) {
 		Details:  details,
 	}
 	facts := vr.ToFacts()
-	// Length should be clamped to 1024
+	// Bounded by the fact-text limit, with the marker saying how much went.
 	detailStr := facts[0].Args[3].(string)
-	if len(detailStr) > 1024 {
-		t.Errorf("Details string not truncated, length: %d", len(detailStr))
+	if len(detailStr) > types.MaxFactTextBytes || !strings.Contains(detailStr, "[truncated") {
+		t.Errorf("details not bounded with a marker: %d bytes", len(detailStr))
 	}
 }
 

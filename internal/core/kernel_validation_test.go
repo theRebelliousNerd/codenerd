@@ -1,9 +1,10 @@
 package core
 
 import (
-	"codeberg.org/TauCeti/mangle-go/ast"
 	"strings"
 	"testing"
+
+	"codeberg.org/TauCeti/mangle-go/ast"
 )
 
 // REMEDIATED: All 8 TEST_GAP items — see kernel_validation_gaps_test.go:

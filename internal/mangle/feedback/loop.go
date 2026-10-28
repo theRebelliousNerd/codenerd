@@ -1,7 +1,6 @@
 package feedback
 
 import (
-	"codeberg.org/TauCeti/mangle-go/analysis"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"codeberg.org/TauCeti/mangle-go/analysis"
 
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle/synth"
@@ -480,22 +481,11 @@ func buildPredicateQuery(userPrompt string, errs []ValidationError) string {
 	for _, err := range errs {
 		sb.WriteString(err.Category.String())
 		sb.WriteString(": ")
-		sb.WriteString(truncatePredicateQuery(err.Message, 200))
+		// Whole: the repair is written against this message.
+		sb.WriteString(strings.TrimSpace(err.Message))
 		sb.WriteString("\n")
 	}
 	return sb.String()
-}
-
-func truncatePredicateQuery(text string, max int) string {
-	text = strings.TrimSpace(text)
-	if max <= 0 || len(text) <= max {
-		return text
-	}
-	runes := []rune(text)
-	if len(runes) <= max {
-		return text
-	}
-	return string(runes[:max]) + "..."
 }
 
 func limitPredicateList(predicates []string, limit int) []string {

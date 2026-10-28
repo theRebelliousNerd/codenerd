@@ -96,27 +96,6 @@ func TestClamp_AllCases(t *testing.T) {
 
 // --- truncate ---
 
-func TestTruncate_AllCases(t *testing.T) {
-	tests := []struct {
-		name      string
-		input     string
-		maxLen    int
-		wantExact string
-	}{
-		{"short", "hello", 10, "hello"},
-		{"exact", "hello", 5, "hello"},
-		{"truncated", "hello world", 5, "hello..."},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := truncate(tt.input, tt.maxLen)
-			if got != tt.wantExact {
-				t.Errorf("truncate(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.wantExact)
-			}
-		})
-	}
-}
-
 // --- hasSuggestion ---
 
 func TestHasSuggestion_WhenPresent_ShouldReturnTrue(t *testing.T) {

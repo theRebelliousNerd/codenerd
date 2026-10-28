@@ -865,12 +865,8 @@ func (c *ScheduledLLMCall) GroundedWebSearch(ctx context.Context, query string) 
 		callErr = fmt.Errorf("grounded_web_search: empty result")
 		logging.LogLLMError(c.ShardID+"-grounded", callErr, duration)
 	} else {
-		summary := result.Text
-		// Keep logging bounded; never log raw provider messages beyond length.
-		if len(summary) > 500 {
-			summary = summary[:500] + "..."
-		}
-		logging.LogLLMResponse(c.ShardID+"-grounded", summary, duration, len(summary)/4)
+		// The log line is bounded; the token estimate is of the whole text.
+		logging.LogLLMResponse(c.ShardID+"-grounded", types.Ellipsize(result.Text, 500), duration, len(result.Text)/4)
 		c.Scheduler.ReportSuccess()
 	}
 	return result, callErr

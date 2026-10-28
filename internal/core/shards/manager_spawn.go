@@ -356,10 +356,7 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	// Glass Box: spawn ping (transient). The matching completion event
 	// fires below with the actual duration so the scrollback shows the
 	// full lifecycle.
-	taskSummary := task
-	if len(taskSummary) > 60 {
-		taskSummary = taskSummary[:57] + "..."
-	}
+	taskSummary := types.Ellipsize(task, 60)
 	sm.emitShardEvent(fmt.Sprintf("Spawning %s", typeName), taskSummary, id, 0)
 	spawnStart := time.Now()
 
@@ -451,13 +448,13 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		if err != nil {
 			sm.emitShardEvent(fmt.Sprintf("%s failed", typeName), errMsg, id, dur)
 		} else {
-			sm.emitShardEvent(fmt.Sprintf("%s done", typeName), truncateForEvent(res, 120), id, dur)
+			sm.emitShardEvent(fmt.Sprintf("%s done", typeName), types.Ellipsize(res, 120), id, dur)
 		}
 
 		if transparencyMgr != nil {
 			transparencyMgr.EndShard(id, err != nil)
 			outcome := "Success"
-			details := truncateForEvent(res, 400)
+			details := types.Ellipsize(res, 400)
 			if err != nil {
 				outcome = "Failed"
 				details = errMsg

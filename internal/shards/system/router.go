@@ -448,10 +448,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 
 			// Emit tool event for always-visible tool execution in chat
 			if r.ToolEventBus != nil {
-				result := call.Result
-				if len(result) > 500 {
-					result = result[:500] + "..."
-				}
+				result := types.Ellipsize(call.Result, 500)
 				success := true
 				if call.Error != "" {
 					result = call.Error

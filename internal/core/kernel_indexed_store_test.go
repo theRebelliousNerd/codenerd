@@ -1,13 +1,14 @@
 package core
 
 import (
-	"codeberg.org/TauCeti/mangle-go/ast"
-	"codeberg.org/TauCeti/mangle-go/engine"
-	"codeberg.org/TauCeti/mangle-go/factstore"
 	"fmt"
 	"reflect"
 	"sort"
 	"testing"
+
+	"codeberg.org/TauCeti/mangle-go/ast"
+	"codeberg.org/TauCeti/mangle-go/engine"
+	"codeberg.org/TauCeti/mangle-go/factstore"
 )
 
 func TestIndexedEvaluationPreservesProductionClosure(t *testing.T) {

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"codenerd/internal/types"
 	"errors"
 	"testing"
 	"time"
@@ -293,10 +294,9 @@ func TestDreamPlanManager_MarkSubtaskComplete(t *testing.T) {
 		t.Errorf("Expected plan status completed, got %s", plan.Status)
 	}
 
-	// Verify truncated result in fact
-	expectedTrunc := longResult[:97] + "..."
-	if k.assertedFacts[0].Args[2] != expectedTrunc {
-		t.Errorf("Expected truncated result, got %v", k.assertedFacts[0].Args[2])
+	// The result is stored under the fact-text bound, not cut at 100 bytes.
+	if want := types.TruncateFactText(longResult); k.assertedFacts[0].Args[2] != want {
+		t.Errorf("step result = %v, want the fact-bounded result", k.assertedFacts[0].Args[2])
 	}
 
 	// Test kernel assert error (should not panic)

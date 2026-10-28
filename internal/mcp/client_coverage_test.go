@@ -40,33 +40,6 @@ func TestParseToolID_WhenValidSlash_ShouldSplit(t *testing.T) {
 
 // --- truncate ---
 
-func TestTruncate_WhenVariousLengths_ShouldTruncateCorrectly(t *testing.T) {
-	tests := []struct {
-		name   string
-		input  string
-		maxLen int
-		want   string
-	}{
-		{"short_enough", "hello", 10, "hello"},
-		{"exact_length", "hello", 5, "hello"},
-		{"needs_truncation", "hello world", 8, "hello..."},
-		{"very_short_max", "hello", 2, "he"},
-		{"zero_max", "hello", 0, ""},
-		{"max_3", "hello", 3, "hel"},
-		{"max_4", "hello", 4, "h..."},
-		{"empty_string", "", 10, ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := truncate(tt.input, tt.maxLen)
-			if got != tt.want {
-				t.Errorf("truncate(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
-			}
-		})
-	}
-}
-
 // --- NewMCPClientManager ---
 
 func TestNewMCPClientManager_WhenNilArgs_ShouldNotPanic(t *testing.T) {

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -215,7 +216,7 @@ Extract and return JSON:
   "alternatives_considered": [{"approach": "...", "why_rejected": "..."}]
 }
 
-JSON only:`, truncate(response, 3000))
+JSON only:`, types.ClampText(response, 12000, "tool-generation response"))
 
 	resp, err := tc.client.Complete(ctx, prompt)
 	if err != nil {

@@ -12,6 +12,7 @@ import (
 
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle/feedback"
+	"codenerd/internal/types"
 
 	"codeberg.org/TauCeti/mangle-go/factstore"
 )
@@ -202,11 +203,7 @@ func (k *RealKernel) HotLoadRule(rule string) error {
 	logging.Kernel("HotLoadRule: attempting to load rule (%d bytes)", len(rule))
 
 	// Log the rule being loaded (truncated for readability)
-	rulePreview := rule
-	if len(rulePreview) > 100 {
-		rulePreview = rulePreview[:100] + "..."
-	}
-	logging.KernelDebug("HotLoadRule: rule preview: %s", rulePreview)
+	logging.KernelDebug("HotLoadRule: rule preview: %s", types.Ellipsize(rule, 100))
 
 	k.mu.RLock()
 	schemas := k.schemas

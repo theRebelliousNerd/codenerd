@@ -3,8 +3,9 @@ package core
 import (
 	"io"
 
-	"codeberg.org/TauCeti/mangle-go/ast"
 	manglepkg "codenerd/internal/mangle"
+
+	"codeberg.org/TauCeti/mangle-go/ast"
 
 	"codeberg.org/TauCeti/mangle-go/parse"
 )

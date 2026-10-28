@@ -1,6 +1,7 @@
 package autopoiesis
 
 import (
+	"codenerd/internal/types"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -696,8 +697,8 @@ Return JSON:
   "reasoning": "..."
 }`,
 		feedback.ToolName,
-		truncate(feedback.Input, 500),
-		truncate(feedback.Output, 2000),
+		types.ClampText(feedback.Input, 2000, "tool input"),
+		types.ClampText(feedback.Output, 8000, "tool output"),
 		feedback.Duration,
 		feedback.Success,
 		assessment.Issues,

@@ -211,9 +211,8 @@ func TestTruncateClassificationInput_RuneSafe(t *testing.T) {
 	if strings.ContainsRune(got, '\uFFFD') {
 		t.Error("truncation produced U+FFFD replacement chars")
 	}
-	body := strings.TrimSuffix(got, "... [Input truncated due to length]")
-	if n := len([]rune(body)); n != maxClassificationInputChars {
-		t.Errorf("truncated to %d runes, want %d", n, maxClassificationInputChars)
+	if !strings.Contains(got, "[codenerd: truncated") || !strings.HasPrefix(got, "héllo") || !strings.HasSuffix(strings.TrimSpace(got), "héllo") {
+		t.Errorf("want head and tail kept around the marker, got %d bytes", len(got))
 	}
 }
 

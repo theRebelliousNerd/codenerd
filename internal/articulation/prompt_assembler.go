@@ -440,10 +440,7 @@ func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, input any) 
 			return assembled, nil
 		}
 		// Telemetry: record JIT fallback into the kernel if possible.
-		reason := err.Error()
-		if runes := []rune(reason); len(runes) > 400 {
-			reason = string(runes[:400])
-		}
+		reason := types.TruncateFactText(err.Error())
 		_ = compiler.AssertFacts([]string{
 			fmt.Sprintf("jit_fallback(%s, %q).", cc.ShardType, reason),
 		})

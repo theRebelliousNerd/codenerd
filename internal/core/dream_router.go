@@ -123,7 +123,7 @@ func (r *DreamRouter) RouteLearnings(learnings []*DreamLearning) []RouteResult {
 					Args: []any{
 						l.ID,
 						"/" + string(l.Type), // Name constant for Mangle
-						truncateResult(l.Content),
+						types.TruncateFactText(l.Content),
 						time.Now().Unix(),
 					},
 				}

@@ -9,9 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"codeberg.org/TauCeti/mangle-go/ast"
 	"codenerd/internal/store"
 	"codenerd/internal/types"
+
+	"codeberg.org/TauCeti/mangle-go/ast"
 )
 
 type mockGraphQuery struct {

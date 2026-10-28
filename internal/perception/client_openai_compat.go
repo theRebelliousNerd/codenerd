@@ -613,10 +613,7 @@ func (c *OpenAICompatClient) executeChat(ctx context.Context, reqBody OpenAIRequ
 			// Some models reject json_schema output; drop it and retry once.
 			if allowSchemaFallback && reqBody.ResponseFormat != nil && resp.StatusCode == http.StatusBadRequest &&
 				isSchemaRejection(bodyStr) {
-				snippet := bodyStr
-				if len(snippet) > 200 {
-					snippet = snippet[:200]
-				}
+				snippet := types.Ellipsize(bodyStr, 200)
 				logging.PerceptionWarn("[%s] structured output rejected, retrying without response_format: %s", c.vendor, snippet)
 				reqBody.ResponseFormat = nil
 				lastErr = fmt.Errorf("structured output rejected: %s", bodyStr)

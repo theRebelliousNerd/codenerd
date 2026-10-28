@@ -300,17 +300,15 @@ func emptyInputFallback(input string) (Intent, bool) {
 // classification call stays bounded no matter what was pasted.
 const maxClassificationInputChars = 50000
 
-// truncateClassificationInput caps input rune-safely: a byte slice at the
-// cap could split a multi-byte rune and poison the prompt with U+FFFD.
+// truncateClassificationInput bounds a giant paste for the classification
+// call: head and tail, line-snapped, rune-safe, with the marker naming the
+// cut. Head-only dropped the end of a large paste, which is where the
+// instruction ("...now fix this") usually is.
 func truncateClassificationInput(input string) (string, bool) {
 	if len(input) <= maxClassificationInputChars {
 		return input, false
 	}
-	runes := []rune(input)
-	if len(runes) <= maxClassificationInputChars {
-		return input, false
-	}
-	return string(runes[:maxClassificationInputChars]) + "... [Input truncated due to length]", true
+	return types.ClampText(input, maxClassificationInputChars, "user input"), true
 }
 
 // degradedClassificationIntent builds the fail-soft result for a failed

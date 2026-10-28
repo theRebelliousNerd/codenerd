@@ -444,29 +444,6 @@ func TestDefaultHeuristicRules(t *testing.T) {
 // HELPER FUNCTION TESTS
 // =============================================================================
 
-func TestTruncate(t *testing.T) {
-	tests := []struct {
-		input  string
-		maxLen int
-		want   string
-	}{
-		{"short", 10, "short"},
-		{"longer string", 5, "longe..."},
-		{"exact", 5, "exact"},
-		{"", 5, ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result := truncate(tt.input, tt.maxLen)
-			if result != tt.want {
-				t.Errorf("truncate(%q, %d) = %q, want %q",
-					tt.input, tt.maxLen, result, tt.want)
-			}
-		})
-	}
-}
-
 func TestClamp(t *testing.T) {
 	tests := []struct {
 		value, min, max float64

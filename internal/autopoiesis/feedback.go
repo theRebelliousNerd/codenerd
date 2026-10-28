@@ -743,13 +743,6 @@ func (ls *LearningStore) saveBytes(data []byte) error {
 // HELPER FUNCTIONS
 // =============================================================================
 
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
-}
-
 func clamp(value, min, max float64) float64 {
 	if value < min {
 		return min

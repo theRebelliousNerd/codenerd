@@ -366,10 +366,9 @@ func (vr *ValidationResult) ToFacts() []Fact {
 		actionTypeStr = actionTypeStr[:256]
 	}
 
-	errorStr := vr.Error
-	if len(errorStr) > 1024 {
-		errorStr = errorStr[:1024]
-	}
+	// The fact-argument bound, with its marker: a validation error cut
+	// silently at 1 KiB read as the whole error.
+	errorStr := types.TruncateFactText(vr.Error)
 
 	// Schema (schemas_execution.mg) declares ActionType and Method as
 	// /name and Reason as /name. The raw strings ("exec_cmd", "hash",
@@ -428,9 +427,7 @@ func (vr *ValidationResult) ToFacts() []Fact {
 		} else {
 			detailsStr = errorStr
 		}
-		if len(detailsStr) > 1024 {
-			detailsStr = detailsStr[:1024]
-		}
+		detailsStr = types.TruncateFactText(detailsStr)
 		facts = append(facts, Fact{
 			Predicate: "action_validation_failed",
 			Args: []any{

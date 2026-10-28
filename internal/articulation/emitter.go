@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // looksLikePartialEnvelope reports whether a raw response appears to be a
@@ -318,10 +319,7 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 		}
 
 		// Log comprehensive diagnostic info for debugging Piggyback failures.
-		responsePreview := rawResponse
-		if len(responsePreview) > 300 {
-			responsePreview = responsePreview[:300] + "..."
-		}
+		responsePreview := types.Ellipsize(rawResponse, 300)
 		if rp.LogFallbackAsError {
 			logging.Get(logging.CategoryArticulation).Error(
 				"Fallback parse: no valid Piggyback JSON found (len=%d, errors=[%s], preview=%q)",

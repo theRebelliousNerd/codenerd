@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"codenerd/internal/types"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -178,15 +179,35 @@ func FullSchema(tool *MCPTool, maxBytes int) string {
 	if tool == nil || len(tool.InputSchema) == 0 {
 		return "{}"
 	}
+	// Indented when it fits, compact when that fits instead; only a schema
+	// that fits neither is shortened, head and tail with the marker. A
+	// schema cut silently mid-object is not a schema, and the model would
+	// build its call against the half it saw.
 	var v any
 	if err := json.Unmarshal(tool.InputSchema, &v); err != nil {
-		return truncate(string(tool.InputSchema), maxBytes)
+		return types.ClampText(string(tool.InputSchema), schemaBudget(maxBytes), tool.Name+" input schema")
 	}
-	pretty, err := json.MarshalIndent(v, "", "  ")
+	if pretty, err := json.MarshalIndent(v, "", "  "); err == nil && len(pretty) <= maxBytes {
+		return string(pretty)
+	}
+	compact, err := json.Marshal(v)
 	if err != nil {
-		return truncate(string(tool.InputSchema), maxBytes)
+		return types.ClampText(string(tool.InputSchema), schemaBudget(maxBytes), tool.Name+" input schema")
 	}
-	return truncate(string(pretty), maxBytes)
+	if len(compact) <= maxBytes {
+		return string(compact)
+	}
+	return types.ClampText(string(compact), schemaBudget(maxBytes), tool.Name+" input schema")
+}
+
+// schemaMarkerRoom is reserved inside FullSchema's bound for the truncation
+// marker, so a shortened schema still fits maxBytes.
+const schemaMarkerRoom = 96
+
+// schemaBudget is the schema bytes kept under maxBytes; a bound too small
+// for the marker keeps one byte, so the result still names the cut.
+func schemaBudget(maxBytes int) int {
+	return max(maxBytes-schemaMarkerRoom, 1)
 }
 
 // ArgumentError reports a call whose arguments do not satisfy the tool's

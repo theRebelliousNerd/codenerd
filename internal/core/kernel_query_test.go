@@ -1,11 +1,12 @@
 package core
 
 import (
-	"codeberg.org/TauCeti/mangle-go/ast"
-	"codeberg.org/TauCeti/mangle-go/factstore"
 	"fmt"
 	"os"
 	"testing"
+
+	"codeberg.org/TauCeti/mangle-go/ast"
+	"codeberg.org/TauCeti/mangle-go/factstore"
 )
 
 // REMEDIATED: All 6 TEST_GAP items — see kernel_query_gaps_test.go:

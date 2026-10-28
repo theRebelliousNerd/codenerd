@@ -4,6 +4,7 @@ package core
 
 import (
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"fmt"
 	"sync"
 	"time"
@@ -65,7 +66,7 @@ func (m *DreamPlanManager) StorePlan(plan *DreamPlan) {
 					plan.ID,
 					subtask.Order,
 					"/" + shardType, // Name constant for Mangle
-					truncateResult(subtask.Description),
+					types.TruncateFactText(subtask.Description),
 					"/" + string(subtask.Status), // Name constant for Mangle
 				},
 			}
@@ -210,7 +211,7 @@ func (m *DreamPlanManager) MarkSubtaskComplete(id, result string) bool {
 			if s.ID == id {
 				fact := Fact{
 					Predicate: "dream_plan_step_completed",
-					Args:      []any{m.currentPlan.ID, s.Order, truncateResult(result), time.Now().Unix()},
+					Args:      []any{m.currentPlan.ID, s.Order, types.TruncateFactText(result), time.Now().Unix()},
 				}
 				if err := m.kernel.Assert(fact); err != nil {
 					logging.Get(logging.CategoryDream).Error("Failed to assert step completion fact: %v", err)
@@ -355,12 +356,4 @@ func (m *DreamPlanManager) ClearExpiredPlan(timeout time.Duration) bool {
 	}
 
 	return false
-}
-
-// truncateResult shortens result text for fact storage.
-func truncateResult(result string) string {
-	if len(result) > 100 {
-		return result[:97] + "..."
-	}
-	return result
 }

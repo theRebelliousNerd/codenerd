@@ -262,7 +262,7 @@ Return JSON:
 }`,
 		toolName,
 		description,
-		truncateCode(toolCode, 2000),
+		types.ClampText(toolCode, 12000, toolName+" source"),
 	)
 
 	resp, err := o.client.Complete(ctx, prompt)

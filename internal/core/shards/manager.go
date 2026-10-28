@@ -106,16 +106,6 @@ func (sm *ShardManager) SetGlassBoxBus(bus *transparency.GlassBoxEventBus) {
 	sm.glassBoxBus = bus
 }
 
-// truncateForEvent shortens a value for inclusion in a Glass Box
-// event detail. Long shard outputs would otherwise dominate the
-// scrollback line.
-func truncateForEvent(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max-3] + "..."
-}
-
 // emitShardEvent fires a CategoryShard Glass Box event immediately so
 // spawn/completion lines hit chat scrollback without batch delay.
 // Cheap to call when the bus is nil (returns immediately).

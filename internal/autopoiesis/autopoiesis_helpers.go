@@ -116,15 +116,6 @@ func complexityLevelString(level ComplexityLevel) string {
 	}
 }
 
-// truncateCode truncates code for LLM prompts while preserving structure
-func truncateCode(code string, maxLen int) string {
-	if len(code) <= maxLen {
-		return code
-	}
-	// Keep the beginning and note truncation
-	return code[:maxLen] + "\n// ... (truncated)"
-}
-
 // extractJSON extracts JSON from a potentially mixed-format response
 func extractJSON(text string) string {
 	// Try to find JSON object or array

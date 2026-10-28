@@ -987,14 +987,3 @@ func parseToolID(toolID string) (serverID, toolName string) {
 	}
 	return "", toolID
 }
-
-// truncate truncates a string to maxLen, adding "..." if truncated.
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
-}

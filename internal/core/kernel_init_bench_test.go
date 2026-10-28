@@ -1,9 +1,10 @@
 package core
 
 import (
+	"testing"
+
 	"codeberg.org/TauCeti/mangle-go/ast"
 	"codeberg.org/TauCeti/mangle-go/factstore"
-	"testing"
 )
 
 // Benchmark the performance of loadMangleFiles function

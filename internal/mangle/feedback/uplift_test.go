@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"unicode/utf8"
 
 	"codenerd/internal/mangle"
 )
@@ -189,22 +188,6 @@ func TestUpliftParenCheckIgnoresStringsAndComments(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("no unbalanced-parentheses error for %q", bad)
-	}
-}
-
-// Truncation must never split a rune: the query goes into an LLM prompt.
-func TestUpliftTruncateKeepsRunesWhole(t *testing.T) {
-	got := truncatePredicateQuery(strings.Repeat("é", 300), 200)
-	if !utf8.ValidString(got) {
-		t.Fatal("truncatePredicateQuery produced invalid UTF-8")
-	}
-	if n := len([]rune(strings.TrimSuffix(got, "..."))); n != 200 {
-		t.Fatalf("truncated to %d runes, want 200", n)
-	}
-	// Short multi-byte text passes through untouched.
-	short := "héllo wörld"
-	if got := truncatePredicateQuery(short, 200); got != short {
-		t.Fatalf("short text rewritten to %q", got)
 	}
 }
 
