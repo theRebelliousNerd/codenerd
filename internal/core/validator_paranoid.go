@@ -87,6 +87,17 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 		expectedContent = fmt.Sprint(content)
 	} else if efs, ok := req.Payload["expected_final_state"]; ok {
 		expectedContent = fmt.Sprint(efs)
+	} else if _, ok := req.Payload["source"]; ok {
+		// create_file writes its source gofmt'd with derived imports, so the
+		// bytes on disk are not the payload by design; comparing them would
+		// fail every create. The existence and syntax validators measure the
+		// written file, as for an edit.
+		return ValidationResult{
+			Verified:   true,
+			Confidence: 0.0,
+			Method:     "paranoid_validation_skipped",
+			Details:    map[string]any{"reason": "the tool transforms its source before writing; the written file is validated by syntax and existence"},
+		}
 	} else {
 		if req.Type == ActionEditFile {
 			return ValidationResult{
