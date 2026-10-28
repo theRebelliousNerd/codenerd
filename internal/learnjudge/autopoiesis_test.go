@@ -81,7 +81,7 @@ func TestJudgeToolOutput_BoundsLongOutputAndSaysSo(t *testing.T) {
 		long[i] = 'x'
 	}
 	got, err := JudgeToolOutput(context.Background(), a, "dump", "", string(long))
-	if err != nil || got[OutputReportsError] != 0.9 || len(a.questions) != 4 {
+	if err != nil || got[OutputReportsError] != 0.9 || len(a.questions) != 5 {
 		t.Fatalf("got %v err %v questions %d", got, err, len(a.questions))
 	}
 	state := a.state.(map[string]any)

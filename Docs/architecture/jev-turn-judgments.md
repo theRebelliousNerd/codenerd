@@ -404,6 +404,35 @@ attempt, made a need, and `toolTypePatterns` picked the kind.
   `TestDetectToolNeed_LLMWritesTheSpecOnlyForAGap` (`tool_need_test.go`), and
   `TestDetectToolNeed_FailedAttemptAloneIsNoNeed`.
 
+### Tool value: switch `tool_checks`
+
+Jev's observations about generated tools, as kernel evidence for the
+tool-value rules. A tool earns its place by adding a capability the harness
+lacks, condensing the search space, or doing far more work than it costs to
+describe, call and verify. Cost, condensation and use counts are the measured
+ledger's. Jev observes what code cannot (`internal/autopoiesis/tool_value.go`,
+`internal/learnjudge/toolvalue.go`):
+
+- Per call: `gives_what_was_asked`, "Does `output` give the caller what `input`
+  asked the tool for?" It is asked in the same request as the tool-output
+  judgments, so it costs no extra call. Fact: `tool_call_hit(Tool, Call, Percent)`.
+- Per tool, on demand (`nerd autopoiesis tools`, which prints the evidence):
+  - the generation-time duplicate check, reused with the tool's own
+    description against every other tool: `tool_duplicate_judgment(Tool, Other, Percent)`;
+  - `harness_covers`, "Could the harness, or one ordinary shell command,
+    already do what `tool` does?": `tool_harness_judgment(Tool, Percent)`.
+- Rule: `tool_value_evidence(Tool, Kind)` (`policy/jev_learning.mg`):
+  - `/hits_mark`: some call landed and none missed;
+  - `/misses_mark`: some call missed and none landed;
+  - a mix of both derives nothing, and the ledger decides;
+  - `/duplicate` and `/harness_covers`: at or above yes.
+- No answer is no fact, so the rules then see only the measured ledger.
+- Probe (`tool_value`): 14 of 14. `line_count`, `grep_todo` and `go_vet_pkg` read
+  as harness-covered (0.91 to 0.96); Avro, Mangle-stratify and PDF-table tools
+  did not (0.07 to 0.08). An error output, a wrong-format answer and a
+  2-of-48000 partial result all scored at or below 0.07 on
+  `gives_what_was_asked`.
+
 ### Autopoiesis checks: switch `autopoiesis_checks`
 
 As built 2026-10-28. Questions: `internal/learnjudge/autopoiesis.go`. Operation

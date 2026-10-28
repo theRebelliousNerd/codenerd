@@ -81,3 +81,58 @@ tool_gap_observed(Request, /jev) :-
 tool_gap_observed(Request, /pattern) :-
     tool_need_pattern(Request),
     !tool_need_judged(Request).
+
+# Tool value: Jev's observations about generated tools (autopoiesis/
+# tool_value.go). The measured ledger (cost, condensation, use counts) decides
+# a tool's value class; these rules turn Jev's readings into evidence it reads.
+
+# tool_call_hit(Tool, Call, Percent): Jev's probability that one call's output
+# gave the caller what its input asked for.
+Decl tool_call_hit(Tool, Call, Percent) bound [/string, /string, /number].
+# tool_duplicate_judgment(Tool, Other, Percent): Jev's probability that another
+# registered tool already does what Tool does; Other is the one it picked.
+Decl tool_duplicate_judgment(Tool, Other, Percent) bound [/string, /string, /number].
+# tool_harness_judgment(Tool, Percent): Jev's probability that the harness or
+# one shell command already does what Tool does.
+Decl tool_harness_judgment(Tool, Percent) bound [/string, /number].
+
+Decl tool_call_landed(Tool, Call) bound [/string, /string].
+Decl tool_call_missed(Tool, Call) bound [/string, /string].
+Decl tool_has_landed_call(Tool) bound [/string].
+Decl tool_has_missed_call(Tool) bound [/string].
+# tool_value_evidence(Tool, Kind): Kind is /hits_mark (calls land, none
+# missed), /misses_mark (calls miss, none landed), /duplicate or
+# /harness_covers.
+Decl tool_value_evidence(Tool, Kind) bound [/string, /name].
+
+tool_call_landed(Tool, Call) :-
+    tool_call_hit(Tool, Call, Percent),
+    config_param(/jev_yes_percent, Yes),
+    Percent >= Yes.
+tool_call_missed(Tool, Call) :-
+    tool_call_hit(Tool, Call, Percent),
+    config_param(/jev_no_percent, No),
+    Percent <= No.
+tool_has_landed_call(Tool) :- tool_call_landed(Tool, Call).
+tool_has_missed_call(Tool) :- tool_call_missed(Tool, Call).
+
+# Truth table per tool over its judged calls (an unsettled call counts as
+# neither):
+#   some landed  some missed   evidence
+#   yes          no            /hits_mark
+#   no           yes           /misses_mark
+#   yes          yes           none: mixed, the ledger decides
+tool_value_evidence(Tool, /hits_mark) :-
+    tool_has_landed_call(Tool),
+    !tool_has_missed_call(Tool).
+tool_value_evidence(Tool, /misses_mark) :-
+    tool_has_missed_call(Tool),
+    !tool_has_landed_call(Tool).
+tool_value_evidence(Tool, /duplicate) :-
+    tool_duplicate_judgment(Tool, Other, Percent),
+    config_param(/jev_yes_percent, Yes),
+    Percent >= Yes.
+tool_value_evidence(Tool, /harness_covers) :-
+    tool_harness_judgment(Tool, Percent),
+    config_param(/jev_yes_percent, Yes),
+    Percent >= Yes.

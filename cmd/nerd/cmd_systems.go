@@ -465,6 +465,23 @@ var autopoiesisToolsCmd = &cobra.Command{
 		}
 
 		fmt.Printf("\nTotal: %d tools\n", len(tools))
+
+		// Jev's value evidence (autopoiesis/tool_value.go): duplicates,
+		// tools the harness already covers, and whether calls hit the mark.
+		if cortex.Orchestrator != nil {
+			evidence, err := cortex.Orchestrator.JudgeToolValue(ctx)
+			switch {
+			case err != nil:
+				fmt.Printf("\nValue evidence unavailable: %v\n", err)
+			case len(evidence) == 0:
+				fmt.Println("\nValue evidence: none derived (Jev off, or no tool reads as duplicate, covered, or hitting/missing its calls).")
+			default:
+				fmt.Println("\nValue evidence (Jev observations, kernel-derived):")
+				for _, e := range evidence {
+					fmt.Printf("  - %s\n", e)
+				}
+			}
+		}
 		return nil
 	},
 }

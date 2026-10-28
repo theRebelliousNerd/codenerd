@@ -121,6 +121,9 @@ const (
 	OutputReportsPartial   = "reports_partial_results"
 	OutputReportsMorePages = "reports_more_pages"
 	OutputReportsRateLimit = "reports_rate_limit"
+	// OutputGivesWhatWasAsked is the per-call tool-value observation
+	// (toolvalue.go): did the output give the caller what its input asked for?
+	OutputGivesWhatWasAsked = "gives_what_was_asked"
 )
 
 // toolOutputLimit bounds the output Jev reads, within its per-question context
@@ -149,6 +152,13 @@ func toolOutputQuestions() map[string]typesafe.Question {
 			Criteria: &typesafe.NoulCriteria{
 				True:  "A page marker such as page 1 of 5, a next-page token or link, or a has_more flag that is true.",
 				False: "The output is all there is, or it states it is the last page.",
+			},
+		},
+		OutputGivesWhatWasAsked: typesafe.Noul{
+			Instructions: "Does `output` give the caller what `input` asked the tool for?",
+			Criteria: &typesafe.NoulCriteria{
+				True:  "The output holds the result the input asked for, complete enough to use without running the work again another way.",
+				False: "The output is an error, empty, about something else, or so partial that the caller has to redo or re-check the work.",
 			},
 		},
 		OutputReportsRateLimit: typesafe.Noul{

@@ -78,6 +78,9 @@ func (o *Orchestrator) toolOutputJudge() OutputJudge {
 		if err != nil {
 			return OutputJudgments{}, err
 		}
+		// The same answer carries the per-call tool-value observation
+		// (tool_value.go).
+		o.recordCallHit(f, p[learnjudge.OutputGivesWhatWasAsked])
 		return OutputJudgments{Probabilities: p, Yes: yes}, nil
 	}
 }
