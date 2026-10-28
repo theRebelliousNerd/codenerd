@@ -17,6 +17,7 @@
 #   intent_signal(/has_surface_response)   — perception already wrote a reply
 #   intent_signal(/scope_is_file)          — the turn names a concrete file
 #   intent_signal(/suggests_tools)         — perception named tools it needs
+#   intent_signal(/hypothetical)           — the request is a what-if
 #   delegation_candidate(/current_intent, Shard, Conf)
 #   multi_step_signal(Signal)
 #   multi_step_plan_step(Index, Shard)     — the decomposition /multi_step
@@ -31,9 +32,11 @@
 #   route_decision(/clarify, /none)           — ask before acting
 #   route_decision(/multi_step, /none)        — decompose into steps
 #   route_decision(/delegate, Shard)          — hand to a shard
+#   route_decision(/gather_evidence, /none)   — read the workspace evidence the
+#                                               turn needs, no shard to take it
 #
 # Lane precedence, derived here so that one lane at most holds:
-#   perception_answer > dream > assault > respond_directly > multi_step > clarify > delegate
+#   perception_answer > dream > assault > respond_directly > multi_step > clarify > delegate > gather_evidence
 # The three early lanes exclude everything after them (!early_lane());
 # respond_directly excludes the rest (!wants_direct_answer()); multi_step
 # excludes clarify and delegate (!multi_step_lane()); clarify excludes delegate
@@ -53,6 +56,9 @@
 
 # Verbs whose outcome is always prose — never shard work.
 conversational_verb(/greet).
+# "go" with nothing proposed is conversation; with a proposal pending it is
+# the approve_pending lane, which is early and so wins.
+conversational_verb(/approve).
 conversational_verb(/converse).
 conversational_verb(/help).
 conversational_verb(/knowledge).
@@ -67,6 +73,8 @@ conversational_verb(/explain).
 # up" arrives with is_question=false and delegates normally.
 workhorse_verb(/review).
 workhorse_verb(/review_enhance).
+# "Why did you fail?" is a question whose answer is the diagnosis chain.
+workhorse_verb(/self_diagnose).
 workhorse_verb(/security).
 workhorse_verb(/audit).
 workhorse_verb(/test).
@@ -160,6 +168,18 @@ dream_lane() :-
     user_intent(/current_intent, _, /dream, _, _),
     !perception_answer_lane().
 
+# A what-if perception recognised (its is_hypothetical signal, carried as the
+# turn's restriction) takes the same lane whatever verb it was classified
+# under: "what would happen if we modified retryLoop?" is a /fix by action and
+# a hypothetical by meaning, and meaning governs. Until 2026-10-28 only a
+# /dream verb reached this lane, and the recognised hypothetical was dropped
+# in the conversion to an intent. A turn held for a go-ahead is not a what-if.
+dream_lane() :-
+    intent_signal(/hypothetical),
+    user_intent(/current_intent, _, _, _, _),
+    !perception_answer_lane(),
+    !approve_lane().
+
 # An adversarial assault on the workspace -- a soak, stress or torture test
 # campaign -- is a campaign of its own (/campaign assault): a long run with its
 # own artifacts, not one shard's task and not prose, whether or not it is
@@ -171,12 +191,23 @@ assault_lane() :-
     user_intent(/current_intent, _, /assault, _, _),
     !perception_answer_lane().
 
+# Approving a pending proposal comes before every other lane: the reply is
+# about the proposal, not a new request.
+approve_lane() :-
+    work_proposal_pending(),
+    user_intent(/current_intent, _, /approve, _, _).
+
+early_lane() :- approve_lane().
 early_lane() :- perception_answer_lane().
 early_lane() :- dream_lane().
 early_lane() :- assault_lane().
 
+route_decision(/approve_pending, /none) :-
+    approve_lane().
+
 route_decision(/perception_answer, /none) :-
-    perception_answer_lane().
+    perception_answer_lane(),
+    !approve_lane().
 
 route_decision(/dream, /none) :-
     dream_lane().
@@ -214,18 +245,85 @@ multi_step_plan_ready() :-
     I < J,
     !multi_step_plan_unrouted().
 
+# Work admission: the work mode (config work_mode, asserted by the chat as
+# work_mode/1) decides whether a lane that starts work runs now or holds.
+#   yolo     runs, unless the brief (brief.mg) has a goal and is not ready:
+#            the main agent judges readiness, the kernel admits on it.
+#   propose  holds the work as a proposal until the user says go.
+#   explicit holds it quietly until the user says go.
+# The user's go-ahead admits held work in every mode. Read-only work
+# (research, review, analysis: a /query intent) is never held, so it grounds
+# the conversation instead of waiting on it. No work_mode fact (a caller
+# outside the chat) holds nothing.
+work_hold_requested() :- work_mode(/propose).
+work_hold_requested() :- work_mode(/explicit).
+work_hold_requested() :- work_mode(/yolo), brief_present(), !brief_ready().
+work_admitted() :- !work_hold_requested().
+work_admitted() :- intent_signal(/user_go_ahead).
+work_admitted() :- user_intent(/current_intent, /query, _, _, _).
+
 route_decision(/multi_step, /none) :-
-    multi_step_lane().
+    multi_step_lane(),
+    work_admitted().
 
 # Delegate when the confidence gate passes (should_delegate, delegation.mg),
 # unless the turn decomposes (the decomposition runs the steps) or must ask
 # first.
-route_decision(/delegate, Shard) :-
+delegate_lane_ready(Shard) :-
     should_delegate(Shard),
     !wants_direct_answer(),
     !multi_step_lane(),
     !clarify_lane(),
     !early_lane().
+
+route_decision(/delegate, Shard) :-
+    delegate_lane_ready(Shard),
+    work_admitted().
+
+work_awaiting_go() :- delegate_lane_ready(Shard), !work_admitted().
+work_awaiting_go() :- multi_step_lane(), !work_admitted().
+
+route_decision(/hold, /none) :-
+    work_awaiting_go().
+
+# Evidence needs a disposition. A read-only turn that needs the workspace
+# (needs_workspace_evidence: it names a file, or perception named tools) is
+# vetoed from the direct-answer lane, but nothing guaranteed another lane took
+# it: with no shard candidate, or one below the confidence gate, no lane
+# derived and articulation answered tool-less, as if it had looked. This lane
+# is that guarantee. The host reads the file the turn names, under the same
+# workspace containment and no new authority, or reports that none is named,
+# and articulation is handed that evidence or that absence. It derives only
+# when nothing else does: a delegation, a clarification and the early lanes
+# keep the turn.
+delegate_lane_derived() :- delegate_lane_ready(_).
+
+evidence_lane() :-
+    needs_workspace_evidence(),
+    user_intent(/current_intent, /query, _, _, _),
+    !wants_direct_answer(),
+    !early_lane(),
+    !clarify_lane(),
+    !delegate_lane_derived().
+
+route_decision(/gather_evidence, /none) :-
+    evidence_lane().
+
+# Read-only delegated work runs in the background: the chat answers at once
+# and stays open while a reviewer or researcher reads, and the result comes
+# back as a message and shard facts. A mutation never does: it stays in the
+# foreground under its verification loop and the work mode.
+route_background() :-
+    route_decision(/delegate, Shard),
+    user_intent(/current_intent, /query, _, _, _).
+
+# Name running background work to the main agent (the chat turn compiles as
+# "chat", persona.go), so it is not started twice and the conversation can
+# refer to it. Not to every shard: a researcher that read another job's task
+# here took it up as its own (live journey, 2026-10-28).
+injectable_context("chat", Line) :-
+    background_job(JobID, Shard, Task, /running),
+    Line = fn:string:concat("A background ", Shard, " shard is already working on: ", Task).
 
 # A delegated mutation runs the verification loop: the persona's attempts,
 # each judged (delegation_move, delegation.mg). Read-only work -- a review, an

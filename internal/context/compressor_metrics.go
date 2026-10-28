@@ -226,6 +226,7 @@ func cloneCompressedTurns(turns []CompressedTurn) []CompressedTurn {
 		out[i].ResultAtoms = cloneFacts(t.ResultAtoms)
 		out[i].MangleUpdates = append([]string(nil), t.MangleUpdates...)
 		out[i].MemoryOperations = append([]articulation.MemoryOperation(nil), t.MemoryOperations...)
+		out[i].ControlOutcomes = append([]articulation.ControlDisposition(nil), t.ControlOutcomes...)
 	}
 	return out
 }

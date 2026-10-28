@@ -270,7 +270,7 @@ Format your response as a structured analysis.`
 			DreamMode: true,
 		}
 		// Dream mode = low priority (background speculation)
-		ret, err := m.spawnTaskWithContext(consultCtx, name, prompt, dreamCtx, types.PriorityLow)
+		ret, err := m.spawnTaskWithContext(consultCtx, shardTypeToTaskRequest(name, prompt), dreamCtx, types.PriorityLow)
 		result := ret.Output
 
 		consultation := DreamConsultation{
@@ -546,7 +546,7 @@ func extractConcerns(text string) []string {
 }
 
 // collectSystemSummary waits briefly for newly derived routing/execution facts and formats them.
-func (m Model) collectSystemSummary(ctx context.Context, baseRouting, baseExec int) string {
+func (m Model) collectSystemSummary(ctx context.Context, base systemResultBaseline) string {
 	if m.kernel == nil {
 		return ""
 	}
@@ -554,12 +554,15 @@ func (m Model) collectSystemSummary(ctx context.Context, baseRouting, baseExec i
 	if !m.showSystemActions && !logging.IsDebugMode() {
 		return ""
 	}
-	routingNew, execNew := m.waitForSystemResults(ctx, baseRouting, baseExec, 1500*time.Millisecond)
+	routingNew, execNew := m.waitForSystemResults(ctx, base, 1500*time.Millisecond)
 	return formatSystemResults(routingNew, execNew)
 }
 
-// waitForSystemResults polls for new routing_result/execution_result facts diffed from baselines.
-func (m Model) waitForSystemResults(ctx context.Context, baseRouting, baseExec int, timeout time.Duration) ([]core.Fact, []core.Fact) {
+// waitForSystemResults polls for routing_result/execution_result rows that were
+// not in the turn's baseline (turn_results.go). Returning at the timeout means
+// "not observed yet", not "finished": the caller must not read an empty result as
+// proof the action did nothing.
+func (m Model) waitForSystemResults(ctx context.Context, base systemResultBaseline, timeout time.Duration) ([]core.Fact, []core.Fact) {
 	if m.kernel == nil {
 		return nil, nil
 	}
@@ -573,24 +576,15 @@ func (m Model) waitForSystemResults(ctx context.Context, baseRouting, baseExec i
 		case <-ctx.Done():
 			return nil, nil
 		case <-timeoutCh:
-			return m.diffFacts("routing_result", baseRouting), m.diffFacts("execution_result", baseExec)
+			return m.newSystemResults("routing_result", base), m.newSystemResults("execution_result", base)
 		case <-ticker.C:
-			routing := m.diffFacts("routing_result", baseRouting)
-			exec := m.diffFacts("execution_result", baseExec)
+			routing := m.newSystemResults("routing_result", base)
+			exec := m.newSystemResults("execution_result", base)
 			if len(routing) > 0 || len(exec) > 0 {
 				return routing, exec
 			}
 		}
 	}
-}
-
-// diffFacts returns facts beyond the baseline index for a predicate.
-func (m Model) diffFacts(predicate string, baseline int) []core.Fact {
-	facts, err := m.kernel.Query(predicate)
-	if err != nil || len(facts) <= baseline {
-		return nil
-	}
-	return facts[baseline:]
 }
 
 // formatSystemResults renders system action outputs for the chat surface.
@@ -725,7 +719,9 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 				i+1, strings.TrimPrefix(step.Verb, "/"), step.Target, step.ShardType))
 
 			if step.ShardType != "" {
-				ret, err := m.spawnTaskWithContext(ctx, step.ShardType, step.Task, nil, types.PriorityNormal)
+				req := shardTypeToTaskRequest(step.ShardType, step.Task)
+				req.Target = step.Target
+				ret, err := m.spawnTaskWithContext(ctx, req, nil, types.PriorityNormal)
 				result := ret.Output
 
 				// CRITICAL FIX: Inject multi-step shard results as facts
@@ -736,7 +732,7 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 				}
 
 				if err != nil {
-					results = append(results, fmt.Sprintf("**Status**: Failed\n**Error**: %v\n", err))
+					results = append(results, fmt.Sprintf("**Status**: Failed\n**Error**: %v\n", withPartialState(err, ret)))
 					// Don't continue to dependent steps if this fails
 					continue
 				}

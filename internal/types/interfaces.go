@@ -153,6 +153,13 @@ type LLMToolResponse struct {
 	// the order", not "the turn was empty". Feed it forward with
 	// AssistantMessageFrom, which falls back to the flat fields when it is nil.
 	Blocks []ContentBlock `json:"blocks,omitempty"`
+
+	// ControlsApplied is set by the host once it has read this response's
+	// control envelope and applied its effects. Text is then display text (the
+	// envelope's surface) and must never be read as control input again: an
+	// answer that explains the Piggyback format can contain a well-formed
+	// envelope of its own. It is the host's mark, not wire data.
+	ControlsApplied bool `json:"-"`
 }
 
 // ShardAgent defines the interface for all agents.

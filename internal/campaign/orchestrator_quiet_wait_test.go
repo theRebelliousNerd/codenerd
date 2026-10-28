@@ -95,6 +95,7 @@ func TestRunPhase_WhileTheOnlyRunnableTaskRunsTheLoopDoesNotPoll(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)
 	}
+	t.Cleanup(func() { _ = orch.Close() })
 	orch.publishPolicyParams()
 	orch.campaign = &Campaign{
 		ID:          "/campaign_quiet",

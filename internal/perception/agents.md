@@ -53,3 +53,20 @@
   non-commentary message items only (`metaAnswerText`); citations and retrieved pages are both
   kept. Grounding control is vendor-neutral (`SetEnableWebSearch`). Spec:
   `Docs/architecture/perception/13-META-SEARCH-GROUNDING.md`.
+- A classification has a typed outcome (`classification_outcome.go`): `Intent.Outcome`
+  says admitted, invalid response, provider failed or canceled, at which stage, and by
+  which method. A failed one still returns the degraded `/explain` with a nil error, but
+  that intent is not an interpretation: publish the outcome
+  (`PublishClassificationOutcome`) and let the kernel derive the disposition
+  (`policy/perception_outcome.mg`); never branch on `Response` text or a confidence of 0.
+  A caller without its own routing uses `AdmitClassification`. Jev judgments never make a
+  failed classification admitted.
+- Answer shape is chosen from the top-level keys (`classification_admission.go`): an
+  object with `understanding` is an envelope and a malformed one is an error, never
+  re-read as a bare understanding. Required: `action_type`, `confidence` (presence, not
+  value). Confidence above 1 up to 100 is a percentage, converted; elsewhere it is refused.
+  Vocabulary stays the kernel's.
+- One transducer type, one method plan (`LLMTransducer.methodPlan`): ParseIntent, the
+  history-aware method and GCD all end in `LLMTransducer.Understand`. Only
+  `core.ErrSchemaNotSupported` or an unreadable schema answer moves a schema attempt to
+  the free-form one; auth, cancellation, outages and rate limits are terminal.

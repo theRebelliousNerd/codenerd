@@ -71,6 +71,8 @@ type LocalStore struct {
 	reflectionCfg  *config.ReflectionConfig
 	backfillMu     sync.Mutex
 	backfillDone   chan struct{} // Closed when the pending vec backfill finishes; nil when idle.
+	noticeMu       sync.Mutex
+	noticedSpace   string // Embedding space whose excluded-vector notice was already logged.
 }
 
 // NewLocalStore initializes the SQLite database at the given path.
@@ -722,7 +724,7 @@ func (s *LocalStore) addStatsGaugesLocked(stats map[string]int64) {
 	if engine == nil {
 		return
 	}
-	if n, err := s.vecIndexMissingLocked(engine.Dimensions()); err == nil && n >= 0 {
+	if n, err := s.vecIndexMissingLocked(embeddingSpace(engine), engine.Dimensions()); err == nil && n >= 0 {
 		stats[StatVecIndexMissing] = n
 	} else if err != nil {
 		logging.StoreDebug("vec_index drift not measured: %v", err)

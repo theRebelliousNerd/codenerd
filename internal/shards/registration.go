@@ -260,6 +260,16 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// else the join splits and no approval could ever admit a
 				// call -- or, worse, a stale one could outlive its tuple.
 				"human_approval_granted",
+				// The turn's restriction (constitution.mg section 7D): the
+				// executor asserts these beside the pending_action they bind,
+				// and restricted_tuple / consent_gated_tuple join them with
+				// it, so they live where pending_action does or the
+				// restriction never bars anything on the production kernel.
+				"turn_restriction",
+				"restriction_tool_effect",
+				"pending_action_turn",
+				"pending_action_effect",
+				"consent_given",
 				"blocked",
 				"constitution",
 				"commit_barrier",
@@ -524,6 +534,21 @@ func SharedPredicates() []string {
 		"gauntlet_result",
 		"mutation_approved",
 		"yolo_mode",
+		// The work mode and the brief (brief.mg) gate every lane that starts
+		// work (routing_arbitration.mg), and the lanes derive in every shard.
+		"work_mode",
+		"work_proposal_pending",
+		"brief_goal",
+		"brief_constraint",
+		"brief_decision",
+		"brief_open_question",
+		"brief_marked_ready",
+		// Jev's turn judgments (jev_evidence.mg) feed the clarify, approve and
+		// self-diagnosis lanes, which derive in every shard; background_job
+		// feeds stop_background_requested beside them.
+		"jev_judgment",
+		"jev_judgment_about",
+		"background_job",
 		"action_verified",
 		"shard_context_refreshed",
 		"shadow_state",

@@ -14,7 +14,6 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
-	"codenerd/internal/types"
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
@@ -47,11 +46,24 @@ type browserPage struct {
 	Status      int
 	StatusText  string
 	ContentType string
+	// CleanupErr is set when the content was read but closing the tab or
+	// retiring its observations failed. The content is still valid; the
+	// failure is a pending cleanup obligation, reported rather than hidden,
+	// and it never justifies a second navigation.
+	CleanupErr error
+}
+
+// cleanupNotice names a pending cleanup in the words a tool result carries.
+func (p browserPage) cleanupNotice() string {
+	if p.CleanupErr == nil {
+		return ""
+	}
+	return fmt.Sprintf("\n\n[research browser cleanup pending: the page content above was read in full, but closing its tab or retiring its observations failed: %v]", p.CleanupErr)
 }
 
 // chromeLaunchError is a research-page Chrome launch failure. The message
-// names browser.launch because that is the config key for the binary; the
-// bound manager's launch list is unexported, so this process cannot copy it.
+// names browser.launch because research consumes it: the runtime copies the
+// operator's binary and flags into the headless launch (see researchLaunchArgv).
 type chromeLaunchError struct {
 	err error
 }
@@ -62,60 +74,10 @@ func (e *chromeLaunchError) Error() string {
 
 func (e *chromeLaunchError) Unwrap() error { return e.err }
 
-// researchKernelSink writes the headless browser's facts into whichever
-// kernel is bound right now. The sink outlives a single SetBrowserRuntime,
-// so it reads the kernel at fact time rather than capturing it.
-type researchKernelSink struct{}
-
-func (researchKernelSink) AddFacts(facts []mangle.Fact) error {
-	kernel := getBrowserKernel()
-	if kernel == nil || len(facts) == 0 {
-		return nil
-	}
-	converted := make([]types.Fact, 0, len(facts))
-	for _, fact := range facts {
-		converted = append(converted, types.Fact{
-			Predicate: fact.Predicate,
-			Args:      append([]any(nil), fact.Args...),
-		})
-	}
-	return kernel.AssertBatch(converted)
-}
-
-// The boot-bound SessionManager is often headed (browser.headless defaults
-// false). LaunchAdditional uses that same flag, so a research read cannot
-// ask the pool for a headless process. When research.browser_headless is
-// true, page reads use this separate process.
-var (
-	researchHeadlessMu sync.Mutex
-	researchHeadless   *browser.SessionManager
-)
-
-func researchHeadlessConfig() browser.Config {
-	cfg := browser.DefaultConfig()
-	cfg.Headless = true
-	cfg.EnableDOMIngestion = true
-	cfg.EventLoggingLevel = "normal"
-	cfg.EventThrottleMs = 50
-	cfg.SessionStore = ""
-	cfg.WorkspaceRoot = ""
-	off := false
-	cfg.EvidenceEnabled = &off
-	// Stability only needs net_* and dom_updated. Header facts are a
-	// credential surface this read does not use.
-	cfg.HeaderIngestionMode = browser.HeaderIngestionOff
-	if bin := discoverChromeBinary(); bin != "" {
-		// --disable-gpu keeps the read off a wedged Vulkan device. The
-		// sandbox flags are the ones in-repo Chrome launches already need.
-		cfg.Launch = []string{bin, "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"}
-	}
-	return cfg
-}
-
 // discoverChromeBinary finds a Chrome for the headless research process.
-// A custom browser.launch is honored only when research.browser_headless is
-// false and the read uses the boot-bound manager. NERD_TEST_CHROME_BIN is an
-// environment probe for tests, not a config default.
+// It is the fallback for an unset browser.launch (a configured launch wins, see
+// researchLaunchArgv). NERD_TEST_CHROME_BIN is an environment probe for tests,
+// not a config default.
 func discoverChromeBinary() string {
 	if explicit := os.Getenv("NERD_TEST_CHROME_BIN"); explicit != "" {
 		if st, err := os.Stat(explicit); err == nil && !st.IsDir() {
@@ -136,40 +98,6 @@ func discoverChromeBinary() string {
 	return ""
 }
 
-func researchHeadlessManager(ctx context.Context) (*browser.SessionManager, error) {
-	researchHeadlessMu.Lock()
-	defer researchHeadlessMu.Unlock()
-	if researchHeadless != nil {
-		return researchHeadless, nil
-	}
-	mgr := browser.NewSessionManagerWithSink(researchHeadlessConfig(), researchKernelSink{})
-	if err := mgr.Start(ctx); err != nil {
-		return nil, &chromeLaunchError{err: err}
-	}
-	researchHeadless = mgr
-	return mgr, nil
-}
-
-func requireResearchPageRuntime() error {
-	if getBrowserManager() == nil {
-		return fmt.Errorf("browser runtime is not bound; boot must call research.SetBrowserRuntime before a research page read (set browser.launch to the Chrome binary)")
-	}
-	if getBrowserKernel() == nil {
-		return fmt.Errorf("browser runtime was bound without a kernel; research page reads need DOM-stability facts from that kernel")
-	}
-	return nil
-}
-
-func researchPageManager(ctx context.Context) (*browser.SessionManager, error) {
-	if err := requireResearchPageRuntime(); err != nil {
-		return nil, err
-	}
-	if !config.ResolvedResearchPolicy().BrowserHeadless {
-		return getBrowserManager(), nil
-	}
-	return researchHeadlessManager(ctx)
-}
-
 type documentStatus struct {
 	status int
 	text   string
@@ -181,11 +109,21 @@ type documentStatus struct {
 // and reads the rendered document. The tab is closed before return. A failed
 // wait is an error: the result is not a blank frame. There is no net/http
 // fallback.
-func readBrowserPage(ctx context.Context, rawURL string) (browserPage, error) {
-	mgr, err := researchPageManager(ctx)
+//
+// The read leases the research runtime for its whole lifetime: one manager,
+// one kernel, one cancellation. Its sensor and the stability query use that
+// kernel, its observations are published through that manager, and the tab
+// close, which retires them, joins before the lease is released. A cleanup
+// failure after a successful read is reported on the page (CleanupErr); on a
+// failed read it is joined to the read's error.
+func readBrowserPage(ctx context.Context, rawURL string) (result browserPage, err error) {
+	lease, err := admitResearchRead(ctx)
 	if err != nil {
 		return browserPage{}, err
 	}
+	defer lease.release()
+	ctx = lease.ctx
+	mgr := lease.mgr
 	safeURL := mgr.SanitizeForEvidence(rawURL)
 
 	session, err := mgr.CreateTab(ctx, "", "about:blank", true)
@@ -196,7 +134,16 @@ func readBrowserPage(ctx context.Context, rawURL string) (browserPage, error) {
 		return browserPage{}, fmt.Errorf("open research tab for %s: %w", safeURL, err)
 	}
 	defer func() {
-		_ = mgr.CloseSession(context.Background(), session.ID)
+		cleanupErr := mgr.CloseSession(context.Background(), session.ID)
+		if cleanupErr == nil {
+			return
+		}
+		logging.ResearcherDebug("research page read: cleanup of %s failed: %v", session.ID, cleanupErr)
+		if err != nil {
+			err = fmt.Errorf("%w (research tab cleanup also failed: %v)", err, cleanupErr)
+			return
+		}
+		result.CleanupErr = cleanupErr
 	}()
 
 	page, ok := mgr.Page(session.ID)
@@ -278,22 +225,20 @@ func readBrowserPage(ctx context.Context, rawURL string) (browserPage, error) {
 		return browserPage{}, fmt.Errorf("HTTP %d: %s", observed.status, observed.text)
 	}
 
-	kernel := getBrowserKernel()
-	if kernel == nil {
-		return browserPage{}, fmt.Errorf("browser runtime was bound without a kernel; research page reads need DOM-stability facts from that kernel")
-	}
 	// The session stream installs its mutation observer on the about:blank
 	// tab, and that observer does not survive this navigation.
 	// DOM.documentUpdated is not a per-edit signal. waitForStableBrowser only
 	// reads dom_updated, so the edits have to be asserted or a page that is
-	// still mutating looks quiet.
-	stopDOM := watchResearchDOM(p, session.ID, kernel)
-	defer stopDOM()
+	// still mutating looks quiet. The sensor publishes through the leased
+	// manager, so its facts are counted, retired with the tab, and land in
+	// the same kernel the stability query reads.
+	watch := watchResearchDOM(p, mgr, session.ID)
+	defer watch.stop()
 	stableFor, err := researchPageStableTimeout(ctx)
 	if err != nil {
 		return browserPage{}, err
 	}
-	stable, err := waitForStableBrowser(ctx, kernel, session.ID, time.Now().UnixMilli(), stableFor, researchPageStablePoll, researchPageNetworkIdle, researchPageDOMIdle)
+	stable, err := waitForStableBrowser(ctx, lease.kernel, session.ID, time.Now().UnixMilli(), stableFor, researchPageStablePoll, researchPageNetworkIdle, researchPageDOMIdle)
 	if err != nil {
 		if ctx.Err() != nil {
 			return browserPage{}, ctx.Err()
@@ -306,6 +251,10 @@ func readBrowserPage(ctx context.Context, rawURL string) (browserPage, error) {
 			status = stable["status"]
 		}
 		return browserPage{}, fmt.Errorf("page did not reach DOM stability (%v); refusing a blank-frame extract", status)
+	}
+	// Quiet is only evidence of a quiet page if the observers were working.
+	if incomplete := watch.incomplete(mgr.SessionFactStats(session.ID)); incomplete != nil {
+		return browserPage{}, fmt.Errorf("DOM observation incomplete for %s, so a quiet page is not proof of a stable one; refusing the extract: %w", safeURL, incomplete)
 	}
 
 	html, text, err := evalRenderedPage(p)
@@ -325,20 +274,59 @@ func readBrowserPage(ctx context.Context, rawURL string) (browserPage, error) {
 	}, nil
 }
 
-// watchResearchDOM asserts dom_updated while the document keeps changing.
+// researchDOMWatch is the sensor that reports script edits to the kernel while
+// a research tab loads. It is joined by stop and reports its own completeness.
+type researchDOMWatch struct {
+	cancel context.CancelFunc
+	done   chan struct{}
+
+	mu      sync.Mutex
+	failure error
+}
+
+func (w *researchDOMWatch) fail(err error) {
+	w.mu.Lock()
+	if w.failure == nil {
+		w.failure = err
+	}
+	w.mu.Unlock()
+}
+
+// stop cancels the listener and waits for its event goroutine to exit, so no
+// late callback can publish after the tab's observations are retired.
+func (w *researchDOMWatch) stop() {
+	w.cancel()
+	<-w.done
+}
+
+// incomplete reports why the observation cannot certify stability: the sensor
+// failed to install or publish, or the manager dropped stream facts because
+// the epoch budget saturated. Nil means observed-and-quiet is trustworthy.
+func (w *researchDOMWatch) incomplete(stats browser.SessionFactStats) error {
+	w.mu.Lock()
+	failure := w.failure
+	w.mu.Unlock()
+	if failure != nil {
+		return failure
+	}
+	if stats.Dropped > 0 {
+		return fmt.Errorf("browser event budget saturated: %d facts dropped in epoch %d", stats.Dropped, stats.Epoch)
+	}
+	return nil
+}
+
+// watchResearchDOM publishes dom_updated while the document keeps changing.
 // The session stream's observer is installed on about:blank and does not
 // survive navigation, and a second EachEvent on DOM.documentUpdated did not
 // see script edits (a page that appended a node every 80ms still went quiet).
 // A binding installed on the live document reports those edits into the same
 // predicate waitForStableBrowser already reads. The 50ms throttle stays
-// inside the 200ms DOM-idle window without flooding the kernel. Cancel stops
-// the listener; it does not decide stability.
-func watchResearchDOM(page *rod.Page, sessionID string, kernel types.Kernel) func() {
-	if page == nil || kernel == nil {
-		return func() {}
-	}
-	const binding = "codenerdResearchDOM"
+// inside the 200ms DOM-idle window without flooding the kernel. stop ends the
+// listener and joins it; it does not decide stability.
+func watchResearchDOM(page *rod.Page, mgr *browser.SessionManager, sessionID string) *researchDOMWatch {
 	listen, cancel := page.WithCancel()
+	watch := &researchDOMWatch{cancel: cancel, done: make(chan struct{})}
+	const binding = "codenerdResearchDOM"
 	var last atomic.Int64
 	note := func() {
 		now := time.Now().UnixMilli()
@@ -349,10 +337,12 @@ func watchResearchDOM(page *rod.Page, sessionID string, kernel types.Kernel) fun
 		if !last.CompareAndSwap(prev, now) {
 			return
 		}
-		_ = kernel.Assert(types.Fact{
+		if err := mgr.PublishSessionFacts(sessionID, []mangle.Fact{{
 			Predicate: "dom_updated",
 			Args:      []any{sessionID, now},
-		})
+		}}); err != nil {
+			watch.fail(fmt.Errorf("publish dom_updated: %w", err))
+		}
 	}
 	wait := listen.EachEvent(
 		func(e *proto.RuntimeBindingCalled) {
@@ -363,15 +353,20 @@ func watchResearchDOM(page *rod.Page, sessionID string, kernel types.Kernel) fun
 		func(*proto.DOMChildNodeInserted) { note() },
 		func(*proto.DOMCharacterDataModified) { note() },
 	)
-	go wait()
+	go func() {
+		defer close(watch.done)
+		wait()
+	}()
 	if err := (proto.RuntimeAddBinding{Name: binding}).Call(page); err != nil {
-		logging.ResearcherDebug("research page read: dom binding: %v", err)
+		watch.fail(fmt.Errorf("install DOM binding: %w", err))
 	}
 	// Depth -1 arms mutation events for the whole document. A depth of 0
 	// left script-inserted nodes unreported.
 	depth := -1
-	_, _ = (proto.DOMGetDocument{Depth: &depth}).Call(page)
-	_, _ = page.Eval(`() => {
+	if _, err := (proto.DOMGetDocument{Depth: &depth}).Call(page); err != nil {
+		watch.fail(fmt.Errorf("arm DOM mutation events: %w", err))
+	}
+	if _, err := page.Eval(`() => {
 		const w = window;
 		if (w.__codenerdResearchDOM) return true;
 		w.__codenerdResearchDOM = true;
@@ -386,8 +381,10 @@ func watchResearchDOM(page *rod.Page, sessionID string, kernel types.Kernel) fun
 			subtree: true, childList: true, attributes: true, characterData: true
 		});
 		return true;
-	}`)
-	return cancel
+	}`); err != nil {
+		watch.fail(fmt.Errorf("install DOM mutation observer: %w", err))
+	}
+	return watch
 }
 
 func headerValue(headers proto.NetworkHeaders, name string) string {

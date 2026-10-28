@@ -3,10 +3,6 @@
 package chat
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -40,6 +36,10 @@ type UserPersona struct {
 
 // Capability represents a future project capability
 type Capability struct {
+	// ID is the capability's stable identity in the canonical vision. The
+	// wizard mints it when the capability is created (ensureIDs); position is
+	// never identity.
+	ID          string `json:"id,omitempty"`
 	Description string `json:"description"`
 	Timeline    string `json:"timeline"` // "now", "6mo", "1yr", "3yr", "moonshot"
 	Priority    string `json:"priority"` // "critical", "high", "medium", "low"
@@ -47,6 +47,8 @@ type Capability struct {
 
 // Risk represents an identified project risk
 type Risk struct {
+	// ID is the risk's stable identity in the canonical vision (see Capability.ID).
+	ID          string `json:"id,omitempty"`
 	Description string `json:"description"`
 	Likelihood  string `json:"likelihood"` // "high", "medium", "low"
 	Impact      string `json:"impact"`     // "high", "medium", "low"
@@ -60,6 +62,11 @@ type NorthstarRequirement struct {
 	Description string `json:"description"`
 	Priority    string `json:"priority"` // "must-have", "should-have", "nice-to-have"
 	Source      string `json:"source"`   // Origin: "user", "research", "red-team"
+	// Supports and Addresses are the capability and risk IDs this requirement
+	// realizes and mitigates. The wizard does not ask for them; derivation and
+	// the heuristic generator fill them, and they travel to the canonical vision.
+	Supports  []string `json:"supports,omitempty"`
+	Addresses []string `json:"addresses,omitempty"`
 }
 
 // =============================================================================
@@ -73,61 +80,6 @@ type requirementsGeneratedMsg struct {
 }
 
 // NOTE: northstarDocsAnalyzedMsg is defined in model.go
-
-// parseGeneratedRequirements parses LLM response into requirements
-func parseGeneratedRequirements(response string, startIdx int) []NorthstarRequirement {
-	var requirements []NorthstarRequirement
-	lines := strings.Split(response, "\n")
-	idx := startIdx
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		// Strip markdown list markers
-		line = strings.TrimPrefix(line, "- ")
-		line = strings.TrimPrefix(line, "* ")
-		// Parse type from brackets [F], [NF], [C]
-		reqType := "functional"
-		if strings.HasPrefix(line, "[") {
-			endBracket := strings.Index(line, "]")
-			if endBracket > 0 {
-				typeMarker := strings.ToLower(line[1:endBracket])
-				line = strings.TrimSpace(line[endBracket+1:])
-				switch typeMarker {
-				case "f", "functional":
-					reqType = "functional"
-				case "nf", "non-functional", "quality":
-					reqType = "non-functional"
-				case "c", "constraint":
-					reqType = "constraint"
-				}
-			}
-		}
-		// Parse priority if present
-		priority := "should-have"
-		if strings.Contains(strings.ToLower(line), "(must") {
-			priority = "must-have"
-		} else if strings.Contains(strings.ToLower(line), "(nice") {
-			priority = "nice-to-have"
-		}
-		if line == "" {
-			continue
-		}
-		idx++
-		requirements = append(requirements, NorthstarRequirement{
-			ID:          "REQ-" + string(rune('A'+idx-1)),
-			Type:        reqType,
-			Description: line,
-			Priority:    priority,
-			Source:      "auto-generated",
-		})
-		if idx-startIdx >= 15 { // Max 15 generated requirements
-			break
-		}
-	}
-	return requirements
-}
 
 // =============================================================================
 // WIZARD STATE
@@ -173,6 +125,11 @@ type NorthstarWizardState struct {
 	// Metadata
 	CreatedAt   time.Time
 	LastUpdated time.Time
+
+	// edit is the canonical vision this wizard is an editable view of, and what
+	// it was based on. Unexported on purpose: it is not part of the view and
+	// must never be serialized as one.
+	edit northstarEdit
 }
 
 // NewNorthstarWizard creates a new wizard state
@@ -187,43 +144,4 @@ func NewNorthstarWizard() *NorthstarWizardState {
 		Requirements: []NorthstarRequirement{},
 		Constraints:  []string{},
 	}
-}
-
-// loadExistingNorthstar attempts to load an existing northstar definition from disk
-func loadExistingNorthstar(workspace string) (*NorthstarWizardState, bool) {
-	jsonPath := filepath.Join(workspace, ".nerd", "northstar.json")
-	data, err := os.ReadFile(jsonPath)
-	if err != nil {
-		return nil, false
-	}
-
-	var wizard NorthstarWizardState
-	if err := json.Unmarshal(data, &wizard); err != nil {
-		return nil, false
-	}
-
-	// Ensure slices are initialized (JSON may decode nil slices)
-	if wizard.Personas == nil {
-		wizard.Personas = []UserPersona{}
-	}
-	if wizard.Capabilities == nil {
-		wizard.Capabilities = []Capability{}
-	}
-	if wizard.Risks == nil {
-		wizard.Risks = []Risk{}
-	}
-	if wizard.Requirements == nil {
-		wizard.Requirements = []NorthstarRequirement{}
-	}
-	if wizard.Constraints == nil {
-		wizard.Constraints = []string{}
-	}
-	if wizard.ResearchDocs == nil {
-		wizard.ResearchDocs = []string{}
-	}
-	if wizard.ExtractedFacts == nil {
-		wizard.ExtractedFacts = []string{}
-	}
-
-	return &wizard, true
 }

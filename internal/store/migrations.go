@@ -58,6 +58,11 @@ var pendingMigrations = []Migration{
 	// Knowledge atoms extended fields (added for shared knowledge pool)
 	{"knowledge_atoms", "source", "TEXT DEFAULT ''"},
 	{"knowledge_atoms", "tags", "TEXT DEFAULT '[]'"},
+	// The embedding space a generic vector was produced in (the engine
+	// identity, embedding.EmbeddingEngine.Name). NULL on rows written before
+	// the column existed: they stay stored and lexically recallable but are
+	// never compared against a query (vector_identity.go).
+	{"vectors", "embedding_model", "TEXT"},
 	// Prompt atoms polymorphism columns (for different verbosity levels)
 	{"prompt_atoms", "description", "TEXT"},
 	{"prompt_atoms", "content_concise", "TEXT"},

@@ -480,7 +480,7 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 
 	// Register reviewer intents
 	for _, intent := range []string{
-		"/review", "/review_enhance", "/security", "/analyze", "/audit", "/lint",
+		"/review", "/review_enhance", "/security", "/analyze", "/audit", "/lint", "/self_diagnose",
 		// non-canonical aliases
 		"/check", "/inspect",
 	} {
@@ -537,7 +537,7 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	for _, intent := range []string{
 		"/explain", "/read", "/stats", "/knowledge", "/help", "/greet",
 		"/configure", "/dream", "/shadow", "/assault",
-		"/converse", "/forget", "/remember",
+		"/converse", "/forget", "/remember", "/approve",
 		// Built-in consultable system shards. User agents get the same pair
 		// from registerUserAgentConfigAtoms; without these, /consult/<name>
 		// falls back to /general and logs a warning on every /clarify.

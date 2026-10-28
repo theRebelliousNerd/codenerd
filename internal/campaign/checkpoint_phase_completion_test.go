@@ -88,6 +88,7 @@ func newCheckpointPolicyOrchestrator(t *testing.T, review string, edit func(*con
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)
 	}
+	t.Cleanup(func() { _ = orch.Close() })
 	orch.publishPolicyParams()
 
 	// The checkpoint runs a /shard_validation review through the task executor.

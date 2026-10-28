@@ -388,6 +388,7 @@ func assertAttemptAcceptancePassed(t *testing.T, ctx context.Context, tk *tracin
 	if err != nil {
 		t.Fatalf("step acceptance-passed: NewOrchestrator: %v", err)
 	}
+	t.Cleanup(func() { _ = orch.Close() })
 	orch.campaign = camp
 	if err := tk.LoadFacts(camp.ToFacts()); err != nil {
 		t.Fatalf("step acceptance-wired: load campaign facts: %v", err)

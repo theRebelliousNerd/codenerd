@@ -24,6 +24,11 @@ panic_state(Action, "deletes_tested_symbol") :-
 panic_state(Action, "critical_path_missing") :-
     projected_fact(Action, /critical_path_hit, _).
 
+# A path under a nerd.md critical: entry is important, not untouchable: the
+# warning exists so a person decides. An approval of the exact request (human,
+# or yolo's own on the operator's standing instruction) lifts it.
+dream_reason_liftable("critical_path_missing").
+
 # Block actions the Dreamer marks as panic states
 dream_block(Action, Reason) :-
     panic_state(Action, Reason).

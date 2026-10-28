@@ -76,18 +76,18 @@ func TestExtractMetrics_ParsesKeyValuePairs(t *testing.T) {
 	}
 }
 
-func TestHardWrap_SplitsLines(t *testing.T) {
-	got := hardWrap("abcdef\nghij", 4)
+func TestWrapText_SplitsLines(t *testing.T) {
+	got := wrapText("abcdef\nghij", 4)
 	want := "abcd\nef\nghij"
 	if got != want {
-		t.Fatalf("hardWrap output = %q, want %q", got, want)
+		t.Fatalf("wrapText output = %q, want %q", got, want)
 	}
 }
 
-func TestHardWrap_ZeroWidthNoop(t *testing.T) {
+func TestWrapText_ZeroWidthNoop(t *testing.T) {
 	input := "abc"
-	if got := hardWrap(input, 0); got != input {
-		t.Fatalf("hardWrap width 0 = %q, want %q", got, input)
+	if got := wrapText(input, 0); got != input {
+		t.Fatalf("wrapText width 0 = %q, want %q", got, input)
 	}
 }
 
@@ -271,5 +271,18 @@ func TestSanitizeCommandInput_NormalInput(t *testing.T) {
 	result := sanitizeCommandInput(input)
 	if result != input {
 		t.Errorf("normal input should pass through unchanged, got %q", result)
+	}
+}
+
+// Error text breaks between words; only a token wider than the line splits.
+func TestWrapText_BreaksOnWords(t *testing.T) {
+	got := wrapText("the repair loop did not converge tool_calls=5", 20)
+	for _, line := range strings.Split(got, "\n") {
+		if len([]rune(line)) > 20 {
+			t.Fatalf("line %q is wider than 20", line)
+		}
+	}
+	if !strings.Contains(got, "tool_calls=5") || !strings.Contains(got, "converge") {
+		t.Fatalf("a word was split: %q", got)
 	}
 }

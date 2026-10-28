@@ -2,6 +2,7 @@ package chat
 
 import (
 	"codenerd/internal/approval"
+	"codenerd/internal/turnjudge"
 	"context"
 	"sync"
 	"time"
@@ -152,16 +153,6 @@ const (
 	BootStageScanning
 )
 
-// ContinuationMode controls multi-step task execution behavior.
-// Cycle with Shift+Tab, stop anytime with Ctrl+X.
-type ContinuationMode int
-
-const (
-	ContinuationModeAuto       ContinuationMode = iota // A: Fully automatic until complete
-	ContinuationModeConfirm                            // B: Pause after each step, Enter to continue
-	ContinuationModeBreakpoint                         // C: Auto for reads, pause before mutations
-)
-
 // streamKind enumerates the kinds of chunks delivered on a streamChunkMsg.
 // Zero value is surface (i.e. visible response text) so any caller that
 // doesn't set kind explicitly gets the legacy behaviour.
@@ -170,21 +161,12 @@ const (
 	streamKindThought
 )
 
-// String returns the display name for each mode
-func (m ContinuationMode) String() string {
-	names := []string{"Auto", "Confirm", "Breakpoint"}
-	if int(m) < len(names) {
-		return names[m]
-	}
-	return "Unknown"
-}
-
 // Subtask represents a pending subtask in the continuation queue
 type Subtask struct {
 	ID          string // Unique task identifier
 	Description string // What needs to be done
 	ShardType   string // Which shard to execute
-	IsMutation  bool   // True for write/run operations (for Breakpoint mode)
+	IsMutation  bool   // True for write/run operations (propose pauses before these)
 }
 
 // sessionItem is a list item for the session list
@@ -311,10 +293,24 @@ type Model struct {
 	turnIntentVerb string
 
 	// Clarification Loop State (Pause/Resume Protocol)
-	clarificationState    *ClarificationState
-	selectedOption        int // For option picker
-	pendingPatchLines     []string
-	lastClarifyInput      string // Track last input for clarification dedup
+	clarificationState *ClarificationState
+	selectedOption     int // For option picker
+	pendingPatchLines  []string
+	lastClarifyInput   string // Track last input for clarification dedup
+	// pendingWork is work the kernel held until the user says go
+	// (route_decision(/hold), work_hold.go); newer held work replaces it.
+	pendingWork *pendingWork
+	// goAheadWork is set only on the command that runs an approved proposal:
+	// processInput reuses its intent and the turn carries /user_go_ahead.
+	goAheadWork *pendingWork
+	// background is the read-only work running off the turn (background.go),
+	// shared across Model copies.
+	background *backgroundJobs
+	// turn is the in-flight turn (side_turn.go), shared across Model copies.
+	turn *turnState
+	// jev asks the turn's typed judgments (jev_turn.go); nil when the
+	// typesafe config section is absent.
+	jev                   turnjudge.Asker
 	lastDreamHypothetical string // Track last dream state hypothetical for learning follow-up
 
 	// Session State
@@ -336,19 +332,16 @@ type Model struct {
 	semanticSearcher    *retrieval.EmbeddingSemanticSearcher // Tier-4 vector cache, built lazily once embeddingEngine lands; a per-turn searcher re-embedded the corpus every turn
 	workspace           string
 	DisableSystemShards []string
-	// yoloFlag and apiKeyFlag are the launch flags (Config.Yolo, Config.APIKey).
+	// yoloFlag is session yolo (--yolo), never persisted;
+	// apiKeyFlag is --api-key.
 	yoloFlag   bool
 	apiKeyFlag string
-	// Debug-self (self_debug.go): watcher is a pointer so its offset survives
-	// Model value copies across turns. yoloViaDebugSelf records that session
-	// yolo came (also) from debug_self; debugSelfOwnsYolo means debug_self
-	// was the sole reason yoloFlag was set, so /debug-self off may clear it.
-	// Neither ever persists yolo:true.
-	selfDebug         *selfDebugWatcher
-	yoloViaDebugSelf  bool
-	debugSelfOwnsYolo bool
-	browserMgr        *browser.SessionManager // Browser automation manager
-	browserCtxCancel  context.CancelFunc      // Cancels browser manager goroutine
+	// Debug-self (self_debug.go): the watcher is a pointer so its offset
+	// survives Model value copies across turns. Debug-self reports problems;
+	// it does not touch the work mode.
+	selfDebug        *selfDebugWatcher
+	browserMgr       *browser.SessionManager // Browser automation manager
+	browserCtxCancel context.CancelFunc      // Cancels browser manager goroutine
 
 	// Campaign Orchestration
 	activeCampaign       *campaign.Campaign
@@ -359,16 +352,13 @@ type Model struct {
 	showCampaignPanel    bool
 	recurse              *recurseState // Non-nil while a /recurse sweep runs
 
-	// Continuation Protocol (Multi-Step Task Execution)
-	// Enables natural multi-step task chaining with three modes:
-	// - Auto: Fully automatic until complete (Ctrl+X to stop)
-	// - Confirm: Pause after each step (Enter to continue)
-	// - Breakpoint: Auto for reads, pause before mutations
-	continuationMode  ContinuationMode // Current mode (persisted to config)
-	continuationStep  int              // Current step number (1-indexed)
-	continuationTotal int              // Total steps detected
-	pendingSubtasks   []Subtask        // Queue of pending work
-	isInterrupted     bool             // User pressed Ctrl+X
+	// Continuation Protocol (multi-step task execution). The work mode
+	// (work_mode.go) decides the pauses: yolo never, propose before each
+	// mutation, explicit after every step. Ctrl+X stops any of them.
+	continuationStep  int       // Current step number (1-indexed)
+	continuationTotal int       // Total steps detected
+	pendingSubtasks   []Subtask // Queue of pending work
+	isInterrupted     bool      // User pressed Ctrl+X
 
 	// Learning Store for Autopoiesis (§8.3)
 	learningStore   *store.LearningStore

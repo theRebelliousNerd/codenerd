@@ -62,14 +62,14 @@ func executeWebSearch(ctx context.Context, args map[string]any) (string, error) 
 	logging.ResearcherDebug("Web search: query=%q, max_results=%d", query, maxResults)
 
 	// Use DuckDuckGo HTML search (no API key required)
-	results, guardTripped, err := searchDuckDuckGo(ctx, query, maxResults)
+	results, read, err := searchDuckDuckGo(ctx, query, maxResults)
 	if err != nil {
 		return "", fmt.Errorf("search failed: %w", err)
 	}
 
 	if len(results) == 0 {
 		logging.Researcher("Web search returned no results for: %s", query)
-		return markSearchGuardTrip("No results found for: "+query, guardTripped), nil
+		return markSearchGuardTrip("No results found for: "+query, read.guardTripped) + read.cleanup, nil
 	}
 
 	// Format results as markdown
@@ -87,7 +87,7 @@ func executeWebSearch(ctx context.Context, args map[string]any) (string, error) 
 	}
 
 	logging.Researcher("Web search completed: %d results for %q", len(results), query)
-	return markSearchGuardTrip(sb.String(), guardTripped), nil
+	return markSearchGuardTrip(sb.String(), read.guardTripped) + read.cleanup, nil
 }
 
 // webSearchGuardBytes caps one search-response body. It is process
@@ -111,10 +111,17 @@ func markSearchGuardTrip(result string, tripped bool) string {
 // production never sets it.
 var duckDuckGoSearchURL = "https://html.duckduckgo.com/html/?q=%s"
 
+// searchRead is what the page read says about itself beyond the results: the
+// body guard tripped (the caller marks the cut), or closing the tab failed
+// after the results were read (cleanup is the notice to append).
+type searchRead struct {
+	guardTripped bool
+	cleanup      string
+}
+
 // searchDuckDuckGo performs a search using DuckDuckGo HTML interface.
-// maxResults <= 0 means every result the page holds. It also reports
-// whether the body guard tripped so the caller can mark the cut.
-func searchDuckDuckGo(ctx context.Context, query string, maxResults int) ([]SearchResult, bool, error) {
+// maxResults <= 0 means every result the page holds.
+func searchDuckDuckGo(ctx context.Context, query string, maxResults int) ([]SearchResult, searchRead, error) {
 	searchURL := fmt.Sprintf(duckDuckGoSearchURL, url.QueryEscape(query))
 
 	// Per-request bound, not a run clock: it caps one browser page read.
@@ -125,12 +132,12 @@ func searchDuckDuckGo(ctx context.Context, query string, maxResults int) ([]Sear
 
 	page, err := readBrowserPage(ctx, searchURL)
 	if err != nil {
-		return nil, false, fmt.Errorf("request failed: %w", err)
+		return nil, searchRead{}, fmt.Errorf("request failed: %w", err)
 	}
 
 	body, guardTripped := cutGuardBytes(page.HTML, webSearchGuardBytes)
 	results, err := parseDuckDuckGoResults(body, maxResults)
-	return results, guardTripped, err
+	return results, searchRead{guardTripped: guardTripped, cleanup: page.cleanupNotice()}, err
 }
 
 // parseDuckDuckGoResults extracts search results from DuckDuckGo HTML.

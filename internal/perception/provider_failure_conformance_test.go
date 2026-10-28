@@ -241,14 +241,14 @@ func TestClassifyProviderFailure_WrappedRateLimitAndCancellationPrecedence(t *te
 // provider's body to the user.
 func TestDegradedIntentUsesTheSharedFailureContract(t *testing.T) {
 	outage := fmt.Errorf("LLM classification failed: %w", errors.New("transient server error (503): upstream connect error"))
-	if intent := degradedClassificationIntent(outage); !intent.TransientFailure {
+	if intent := degradedClassificationIntent(FailedOutcome(outage, MethodGeneric, 1)); !intent.Outcome.Retryable() || intent.Outcome.Failure != FailureTransient {
 		t.Fatalf("a 503 from a non-Gemini adapter was not treated as an outage: %+v", intent)
 	}
 
 	auth := fmt.Errorf("LLM classification failed: %w", fmt.Errorf("API request failed with status 401: {\"error\":\"%s\"}", conformanceSecret))
-	intent := degradedClassificationIntent(auth)
-	if intent.TransientFailure {
-		t.Fatal("an auth failure was reported as a transient outage")
+	intent := degradedClassificationIntent(FailedOutcome(auth, MethodGeneric, 1))
+	if intent.Outcome.Retryable() || intent.Outcome.Failure != FailureAuth {
+		t.Fatalf("an auth failure was reported as %+v, want a non-retryable auth failure", intent.Outcome)
 	}
 	if strings.Contains(intent.Response, conformanceSecret) {
 		t.Fatalf("the degraded response leaks the provider body: %q", intent.Response)

@@ -87,6 +87,13 @@ type SubAgentConfig struct {
 	// without inferring it from the task text.
 	IntentTarget string
 
+	// IntentConstraint is the routing layer's requirement for the task (a
+	// must / must-not rule), carried structurally beside the task text so the
+	// preset intent the subagent runs under holds it as the inline topology's
+	// does: retrieval and prompt assembly read intent.Constraint, and text
+	// alone leaves them blind to it.
+	IntentConstraint string
+
 	// Timeout is a caller's own limit on the subagent's execution. Zero means
 	// none: the subagent runs under the caller's context and stops when the
 	// working policy derives a stall.
@@ -332,11 +339,16 @@ func (s *SubAgent) execute(ctx context.Context, task string) (string, error) {
 	s.executor.SetHistory(s.conversationHistory)
 	intentVerb := s.config.IntentVerb
 	intentTarget := s.config.IntentTarget
+	intentConstraint := s.config.IntentConstraint
 	s.mu.RUnlock()
 
 	// For single-turn execution, process the task. When the spawner recorded
 	// the routed intent verb, run with a preset intent — no re-perception.
-	result, err := s.executor.ProcessWithIntent(ctx, task, presetIntentForTask(intentVerb, task, intentTarget))
+	preset := presetIntentForTask(intentVerb, task, intentTarget)
+	if preset != nil {
+		preset.Constraint = strings.TrimSpace(intentConstraint)
+	}
+	result, err := s.executor.ProcessWithIntent(ctx, task, preset)
 
 	// Capture the structured return before anything narrows it to a string.
 	// This is the only point at which the write set, the build verdict and the
@@ -358,6 +370,12 @@ func (s *SubAgent) execute(ctx context.Context, task string) (string, error) {
 	_ = s.CompressMemory(ctx, 10)
 
 	if err != nil {
+		// A failed turn that was admitted keeps what it can truthfully say --
+		// the step ledger and the evidence sentence -- the same as the inline
+		// topology does; a turn refused before admission has no result.
+		if result != nil {
+			return result.Response, err
+		}
 		return "", err
 	}
 	if result != nil && result.Error != nil {

@@ -287,7 +287,7 @@ func TestLearnedCorpusStore_Add(t *testing.T) {
 		embed[i] = float32(i) / 3072.0
 	}
 
-	if err := store.Add(entry, embed); err != nil {
+	if err := store.Add(context.Background(), entry, embed); err != nil {
 		t.Errorf("failed to add entry: %v", err)
 	}
 
@@ -308,7 +308,7 @@ func TestLearnedCorpusStore_Add_DimensionMismatch(t *testing.T) {
 	entry := CorpusEntry{TextContent: "test", Verb: "/test"}
 	wrongDimEmbed := make([]float32, 768) // Wrong dimensions (old size)
 
-	err = store.Add(entry, wrongDimEmbed)
+	err = store.Add(context.Background(), entry, wrongDimEmbed)
 	if err == nil {
 		t.Error("expected error for dimension mismatch")
 	}

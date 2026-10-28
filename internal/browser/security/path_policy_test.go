@@ -188,6 +188,41 @@ func TestResolveForUploadResolvesWorkspaceAlias(t *testing.T) {
 	}
 }
 
+// A request may spell the workspace in a way the policy was not built with --
+// another symlink to it here, a Windows 8.3 short name or a different case
+// there. The dot-path check measures from whichever of the request's ancestors
+// is the workspace, so a dot-named link cannot hide behind the second spelling.
+func TestResolveForUploadChecksDotPathsUnderAnyWorkspaceSpelling(t *testing.T) {
+	parent := t.TempDir()
+	workspace := filepath.Join(parent, "workspace")
+	file := filepath.Join(workspace, "data.csv")
+	writeUploadFixture(t, file)
+	policyAlias := filepath.Join(parent, "policy-alias")
+	otherAlias := filepath.Join(parent, "other-alias")
+	for _, alias := range []string{policyAlias, otherAlias} {
+		if err := os.Symlink(workspace, alias); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+	}
+	if err := os.Symlink(file, filepath.Join(workspace, ".hidden.csv")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	policy, err := NewPathPolicy(policyAlias, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := policy.ResolveForUpload(filepath.Join(otherAlias, ".hidden.csv")); err == nil || got != "" {
+		t.Errorf("second workspace spelling hid a dot path: %q, %v", got, err)
+	}
+	want, err := filepath.EvalSymlinks(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := policy.ResolveForUpload(filepath.Join(otherAlias, "data.csv")); err != nil || got != want {
+		t.Errorf("second workspace spelling upload = %q, %v; want %q, nil", got, err, want)
+	}
+}
+
 func TestResolveForUploadRefusesNonRegularFiles(t *testing.T) {
 	workspace := t.TempDir()
 	policy, err := NewPathPolicy(workspace, nil)

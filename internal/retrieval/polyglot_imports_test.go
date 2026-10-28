@@ -103,7 +103,9 @@ func TestBuildContext_TypeScriptIssueFillsTheImportTier(t *testing.T) {
 		"src/pricing.ts":  "export const total = () => 0;\n",
 	})
 	b := NewTieredContextBuilder(&TieredContextConfig{WorkDir: root})
-	tc, err := b.BuildContext(context.Background(), "checkout.ts computes the wrong total")
+	// "amount" is in neither file: pricing.ts must arrive through the import,
+	// not through a domain-term keyword hit.
+	tc, err := b.BuildContext(context.Background(), "checkout.ts computes the wrong amount")
 	if err != nil {
 		t.Fatal(err)
 	}

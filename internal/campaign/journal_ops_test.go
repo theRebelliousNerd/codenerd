@@ -26,6 +26,7 @@ func journalOpsOrchestrator(t *testing.T, workspace string) *Orchestrator {
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)
 	}
+	t.Cleanup(func() { _ = orch.Close() })
 	return orch
 }
 

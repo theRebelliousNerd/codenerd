@@ -73,11 +73,12 @@ type Checker struct {
 	mgFiles       []string
 	goListed      bool
 	mgListed      bool
+	words         map[string][]wordFile
 }
 
 // NewChecker returns a Checker rooted at workspaceRoot.
 func NewChecker(workspaceRoot string) *Checker {
-	return &Checker{root: workspaceRoot, witnessCache: map[string]bool{}}
+	return &Checker{root: workspaceRoot, witnessCache: map[string]bool{}, words: map[string][]wordFile{}}
 }
 
 // ArchDir is the Docs/architecture directory under the workspace root.
@@ -143,36 +144,11 @@ func (c *Checker) Check(pkgs []string) ([]PackageReport, error) {
 // shipped layers — in the script's order, so the human report matches line
 // for line.
 func (c *Checker) CheckPackage(pkg string) (PackageReport, error) {
-	if pkg == "" || pkg == "." || pkg == ".." || strings.ContainsAny(pkg, `/\`) {
-		return PackageReport{}, fmt.Errorf("invalid docs package %q", pkg)
-	}
 	dir := filepath.Join(c.ArchDir(), pkg)
-	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
-		return PackageReport{}, fmt.Errorf("unknown docs package %q: %s is not a directory", pkg, dir)
+	rels, err := c.packageDocs(pkg)
+	if err != nil {
+		return PackageReport{}, err
 	}
-	// The script walks with os.walk (files sorted per directory, directory
-	// order left to the OS). Sorting every package-relative path up front
-	// keeps the same within-directory order and makes the report
-	// deterministic across machines.
-	var rels []string
-	if err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() || !strings.HasSuffix(d.Name(), ".md") {
-			return nil
-		}
-		rel, rerr := filepath.Rel(dir, p)
-		if rerr != nil {
-			return rerr
-		}
-		rels = append(rels, filepath.ToSlash(rel))
-		return nil
-	}); err != nil {
-		return PackageReport{}, fmt.Errorf("walk docs package %q: %w", pkg, err)
-	}
-	sort.Strings(rels)
-
 	rep := PackageReport{Package: pkg}
 	statuses := map[string]bool{}
 	for _, rel := range rels {
@@ -196,6 +172,40 @@ func (c *Checker) CheckPackage(pkg string) (PackageReport, error) {
 	}
 	rep.Problems = append(rep.Problems, shape...)
 	return rep, nil
+}
+
+// packageDocs lists the package's .md files as sorted package-relative,
+// slash-separated paths. The script walks with os.walk (files sorted per
+// directory, directory order left to the OS). Sorting every path up front
+// keeps the same within-directory order and makes the report deterministic
+// across machines.
+func (c *Checker) packageDocs(pkg string) ([]string, error) {
+	if pkg == "" || pkg == "." || pkg == ".." || strings.ContainsAny(pkg, `/\`) {
+		return nil, fmt.Errorf("invalid docs package %q", pkg)
+	}
+	dir := filepath.Join(c.ArchDir(), pkg)
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		return nil, fmt.Errorf("unknown docs package %q: %s is not a directory", pkg, dir)
+	}
+	var rels []string
+	if err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(d.Name(), ".md") {
+			return nil
+		}
+		rel, rerr := filepath.Rel(dir, p)
+		if rerr != nil {
+			return rerr
+		}
+		rels = append(rels, filepath.ToSlash(rel))
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("walk docs package %q: %w", pkg, err)
+	}
+	sort.Strings(rels)
+	return rels, nil
 }
 
 // normalizeText mirrors Python text-mode reads for the checks' purposes.
@@ -452,6 +462,13 @@ func (c *Checker) witnessResolves(w string) (bool, error) {
 	}
 	var ext string
 	var match func(string) bool
+	// word is the identifier the match needs as a whole word; when val is
+	// not one plain identifier (pkg.Func, Recv.Method) it is empty and every
+	// tracked file is scanned.
+	word := ""
+	if isWord(val) {
+		word = val
+	}
 	switch kind {
 	case "test":
 		ext = ".go"
@@ -461,6 +478,12 @@ func (c *Checker) witnessResolves(w string) (bool, error) {
 		ext = ".go"
 		re := regexp.MustCompile(`\b` + regexp.QuoteMeta(val) + `\b`)
 		match = re.MatchString
+		if word != "" {
+			// A bare identifier matches exactly when it is a whole word
+			// of some tracked file; the word index answers without a
+			// second read of the file.
+			match = nil
+		}
 	case "predicate":
 		ext = ".mg"
 		re := regexp.MustCompile(`\b` + regexp.QuoteMeta(val) + `\s*\(`)
@@ -472,7 +495,7 @@ func (c *Checker) witnessResolves(w string) (bool, error) {
 	if hit, ok := c.witnessCache[key]; ok {
 		return hit, nil
 	}
-	hit, err := c.searchTracked(ext, match)
+	hit, err := c.searchTracked(ext, word, match)
 	if err != nil {
 		return false, err
 	}
@@ -644,13 +667,27 @@ func typeParamEnd(s string) int {
 // ext. The match is line-by-line because grep -E is line-oriented: a pattern
 // whose whitespace straddles a newline must not match here either. A missing
 // file is skipped; failure to list tracked files is an error.
-func (c *Checker) searchTracked(ext string, match func(string) bool) (bool, error) {
-	rels, err := c.repoFiles(ext)
+//
+// word, when non-empty, is an identifier every matching line must contain as
+// a whole word. Each tracked file is read once per checker to build its word
+// set, so U witnesses cost one pass over the bytes plus U set lookups, and
+// only the files that contain the word are read again for the line match. A
+// nil match means the whole-word occurrence is itself the answer.
+func (c *Checker) searchTracked(ext, word string, match func(string) bool) (bool, error) {
+	files, err := c.wordFiles(ext)
 	if err != nil {
 		return false, err
 	}
-	for _, rel := range rels {
-		full, ok := workspacePath(c.root, rel)
+	for _, f := range files {
+		if word != "" {
+			if _, ok := f.words[word]; !ok {
+				continue
+			}
+			if match == nil {
+				return true, nil
+			}
+		}
+		full, ok := workspacePath(c.root, f.rel)
 		if !ok {
 			continue
 		}
@@ -665,6 +702,72 @@ func (c *Checker) searchTracked(ext string, match func(string) bool) (bool, erro
 		}
 	}
 	return false, nil
+}
+
+// wordFile is one tracked file with the set of whole words it contains.
+type wordFile struct {
+	rel   string
+	words map[string]struct{}
+}
+
+// wordFiles builds, once per extension, the word set of every tracked file
+// with that extension. A file that cannot be read is left out, as the line
+// scan skips it.
+func (c *Checker) wordFiles(ext string) ([]wordFile, error) {
+	if files, ok := c.words[ext]; ok {
+		return files, nil
+	}
+	rels, err := c.repoFiles(ext)
+	if err != nil {
+		return nil, err
+	}
+	files := make([]wordFile, 0, len(rels))
+	for _, rel := range rels {
+		full, ok := workspacePath(c.root, rel)
+		if !ok {
+			continue
+		}
+		data, err := os.ReadFile(full)
+		if err != nil {
+			continue
+		}
+		files = append(files, wordFile{rel: rel, words: wordSet(data)})
+	}
+	c.words[ext] = files
+	return files, nil
+}
+
+// wordSet returns the ASCII word runs ([0-9A-Za-z_]+) of data — the unit
+// regexp's \b is defined over.
+func wordSet(data []byte) map[string]struct{} {
+	set := map[string]struct{}{}
+	start := -1
+	for i := 0; i <= len(data); i++ {
+		if i < len(data) && isIdentByte(data[i]) {
+			if start < 0 {
+				start = i
+			}
+			continue
+		}
+		if start >= 0 {
+			set[string(data[start:i])] = struct{}{}
+			start = -1
+		}
+	}
+	return set
+}
+
+// isWord reports whether s is one non-empty ASCII word run.
+func isWord(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if !isIdentByte(s[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // repoFiles lists tracked files with the extension. The list is built once

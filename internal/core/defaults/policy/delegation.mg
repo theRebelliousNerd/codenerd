@@ -133,6 +133,7 @@ action_mapping(/test, /run_tests).
 # Code review & analysis actions (delegate to reviewer shard)
 action_mapping(/review, /delegate_reviewer).
 action_mapping(/review_enhance, /delegate_reviewer).
+action_mapping(/self_diagnose, /delegate_reviewer).
 action_mapping(/security, /delegate_reviewer).
 action_mapping(/analyze, /delegate_reviewer).
 # F-ROUTE-3 (residual): /lint (taxonomy.go:790, Category /query, ShardType

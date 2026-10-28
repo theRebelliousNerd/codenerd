@@ -143,6 +143,9 @@ A `north-star`, `planned` or `target-state` file may describe what does not exis
   though the code does it;
 - anchor to what does exist -- the seam in today's code where the capability would attach,
   cited under rule 1;
+  (that citation is a reference to an existing attachment point, not a claim that the
+  capability is implemented: `nerd docs evidence` records it as a `planned_seam` reference and
+  nothing may derive realization from it);
 - trace to codeNERD's north star: which sentence of the vision this capability serves. A spec
   that serves none of it is a spec for a different project;
 - end in something buildable: the gap IDs it closes and their exit criteria.

@@ -501,6 +501,7 @@ func (m Model) handleLearnCommand(input string, parts []string) (tea.Model, tea.
 					})
 				} else {
 					err := m.localDB.ConfirmLearningCandidate(id)
+					var persistNote string
 					if err == nil && perception.SharedTaxonomy != nil {
 						verb := normalizeVerbAtom(targetCand.Verb)
 						fact := fmt.Sprintf(
@@ -509,7 +510,12 @@ func (m Model) handleLearnCommand(input string, parts []string) (tea.Model, tea.
 							verb,
 							escapeMangleString(targetCand.Target),
 						)
-						_ = perception.SharedTaxonomy.PersistLearnedFact(fact)
+						outcome, persistErr := perception.SharedTaxonomy.PersistLearnedFact(m.learningContext(), fact)
+						if persistErr != nil {
+							persistNote = fmt.Sprintf(" The mapping was not stored for matching: %v", persistErr)
+						} else {
+							persistNote = partialLearningNote(outcome)
+						}
 					}
 					if err != nil {
 						m = m.addMessage(Message{
@@ -520,8 +526,8 @@ func (m Model) handleLearnCommand(input string, parts []string) (tea.Model, tea.
 					} else {
 						m = m.addMessage(Message{
 							Role: "assistant",
-							Content: fmt.Sprintf("✓ Confirmed learning candidate %d: `%s` -> `%s` successfully!",
-								id, targetCand.Phrase, targetCand.Verb),
+							Content: fmt.Sprintf("✓ Confirmed learning candidate %d: `%s` -> `%s` successfully!%s",
+								id, targetCand.Phrase, targetCand.Verb, persistNote),
 							Time: time.Now(),
 						})
 					}
@@ -890,8 +896,20 @@ func (m Model) handleNorthstarCommand(input string, parts []string) (tea.Model, 
 	// Enter Northstar definition wizard - project vision and specification
 	m.setInputMode(InputModeNorthstar)
 
-	// Check for existing northstar session
-	existingWizard, hasExisting := loadExistingNorthstar(m.workspace)
+	// Check for an existing northstar: the authoritative vision, not the JSON export
+	existingWizard, hasExisting, loadErr := loadExistingNorthstar(m.workspace)
+	if loadErr != nil {
+		m.setInputMode(InputModeNormal)
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("Could not open the Northstar: %v\n\nNothing was changed. Fix the error and run `/northstar` again.", loadErr),
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+	}
 
 	if hasExisting && existingWizard.Mission != "" {
 		m.northstarWizard = existingWizard

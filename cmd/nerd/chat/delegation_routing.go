@@ -45,6 +45,17 @@ const (
 	RouteMultiStep
 	// RouteDelegate hands the task to a single shard.
 	RouteDelegate
+	// RouteHold holds work the work mode does not admit yet
+	// (routing_arbitration.mg): the main agent says what is held and keeps
+	// talking until the user says go.
+	RouteHold
+	// RouteApprovePending is the user's go-ahead on the pending proposal:
+	// that proposal's work runs now, with its own saved intent.
+	RouteApprovePending
+	// RouteGatherEvidence is a read-only turn that needs the workspace and has
+	// no shard to take it: the host reads the file it names (or reports that it
+	// names none) and articulation answers from that evidence, not from prose.
+	RouteGatherEvidence
 )
 
 // String renders the lane for logs and Glass Box events.
@@ -64,6 +75,12 @@ func (k RouteKind) String() string {
 		return "multi_step"
 	case RouteDelegate:
 		return "delegate"
+	case RouteHold:
+		return "hold"
+	case RouteApprovePending:
+		return "approve_pending"
+	case RouteGatherEvidence:
+		return "gather_evidence"
 	default:
 		return "none"
 	}
@@ -80,6 +97,12 @@ type RouteDecision struct {
 	// Verify is the kernel's route_verifies, for RouteDelegate: the
 	// delegation runs the verification loop rather than one plain run.
 	Verify bool
+	// Background is the kernel's route_background, for RouteDelegate: the
+	// delegation only reads, so it runs off the turn (background.go).
+	Background bool
+	// SelfDiagnosis is self_diagnosis_lane: the background job is the
+	// self-diagnosis chain's analysis step (self_diagnosis.go).
+	SelfDiagnosis bool
 }
 
 // decideRoute asserts this turn's routing EDB (delegation candidate,
@@ -121,6 +144,13 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 	_ = m.kernel.Retract("multi_step_signal")
 	_ = m.kernel.Retract("multi_step_plan_step")
 	_ = m.kernel.Retract("intent_signal")
+	_ = m.kernel.Retract("work_proposal_pending")
+	if m.pendingWork != nil {
+		if err := m.kernel.Assert(core.Fact{Predicate: "work_proposal_pending"}); err != nil {
+			logging.RoutingError("[decideRoute] assert work_proposal_pending failed: %v", err)
+			return none
+		}
+	}
 
 	if err := m.kernel.Assert(core.Fact{
 		Predicate: "delegation_candidate",
@@ -176,6 +206,15 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 	}
 	if strings.TrimSpace(intent.Response) != "" {
 		signals = append(signals, "/has_surface_response")
+	}
+	// A what-if perception recognised, whatever verb it was classified under:
+	// the dream lane consults and acts on nothing (routing_arbitration.mg).
+	if intent.Restriction.Has(perception.RestrictHypothetical) {
+		signals = append(signals, "/hypothetical")
+	}
+	// This turn is the approved proposal itself: the user said go.
+	if m.goAheadWork != nil {
+		signals = append(signals, "/user_go_ahead")
 	}
 	for _, sig := range signals {
 		if err := m.kernel.Assert(core.Fact{
@@ -234,9 +273,34 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 			logging.RoutingError("[decideRoute] query route_verifies failed: %v", err)
 			return none
 		}
-		decision = RouteDecision{Kind: RouteDelegate, Shard: shard, Verify: len(verifies) > 0}
+		background, err := m.kernel.Query("route_background")
+		if err != nil {
+			logging.RoutingError("[decideRoute] query route_background failed: %v", err)
+			return none
+		}
+		diagnosis, err := m.kernel.Query("self_diagnosis_lane")
+		if err != nil {
+			logging.RoutingError("[decideRoute] query self_diagnosis_lane failed: %v", err)
+			return none
+		}
+		decision = RouteDecision{Kind: RouteDelegate, Shard: shard, Verify: len(verifies) > 0,
+			Background: len(background) > 0, SelfDiagnosis: len(diagnosis) > 0}
 	case "/clarify":
 		decision = RouteDecision{Kind: RouteClarify}
+	case "/approve_pending":
+		decision = RouteDecision{Kind: RouteApprovePending}
+	case "/gather_evidence":
+		decision = RouteDecision{Kind: RouteGatherEvidence}
+	case "/hold":
+		// What the held work would be: the shard a delegation would go to,
+		// or the plan a decomposition would run.
+		decision = RouteDecision{Kind: RouteHold}
+		if ready, err := m.kernel.Query("delegate_lane_ready"); err == nil && len(ready) == 1 && len(ready[0].Args) == 1 {
+			decision.Shard = strings.TrimPrefix(types.ExtractString(ready[0].Args[0]), "/")
+		}
+		if lane, err := m.kernel.Query("multi_step_lane"); err == nil && len(lane) > 0 {
+			decision.Steps = steps
+		}
 	default:
 		logging.RoutingError("[decideRoute] the policy derived an unknown lane %s", route)
 		return none
@@ -258,7 +322,7 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 // on articulation behind /init. Honor the LLM suggestion.
 func resolveShardTypeForIntent(intent perception.Intent) string {
 	if st := perception.GetShardTypeForVerb(intent.Verb); st != "" && st != "/none" {
-		return strings.TrimPrefix(st, "/")
+		return readOnlyShardFor(intent, strings.TrimPrefix(st, "/"))
 	}
 	for _, a := range intent.Ambiguity {
 		if strings.HasPrefix(a, "shard=") {
@@ -271,6 +335,20 @@ func resolveShardTypeForIntent(intent perception.Intent) string {
 	return ""
 }
 
+// readOnlyShardFor is the shard that takes a read-only (/query) request whose
+// verb the corpus gives to the coder. /debug is the one such verb: "why does
+// this fail?" reads as a query, but the coder's persona verb is /fix, so a
+// delegation to it can only be judged as a write. Run in the background (the
+// lane every read-only delegation takes) it ends in the hollow-success guard
+// with "write-oriented intent /fix completed without a write", every time.
+// The reviewer investigates with the same read tools and no write intent.
+func readOnlyShardFor(intent perception.Intent, shard string) string {
+	if shard == "coder" && intent.Category == "/query" {
+		return "reviewer"
+	}
+	return shard
+}
+
 // shardTypeToTaskRequest hands a persona or intent verb to the task executor
 // as it is: the executor's intentFor is the one place a persona becomes a
 // verb (the kernel's persona_verb table). Chat kept its own table
@@ -278,6 +356,17 @@ func resolveShardTypeForIntent(intent perception.Intent) string {
 // (sweep finding F6).
 func shardTypeToTaskRequest(shardType, task string) session.TaskRequest {
 	return session.TaskRequest{IntentVerb: strings.TrimSpace(shardType), Task: task}
+}
+
+// intentTaskRequest is the request for work routed from a perceived intent:
+// its target and stated constraint ride as fields, the way the verified lane
+// already passes them (verification.Delegation), so the executor's preset
+// intent carries them instead of leaving them only inside the task text.
+func intentTaskRequest(shardType, task string, intent perception.Intent) session.TaskRequest {
+	req := shardTypeToTaskRequest(shardType, task)
+	req.Target = intent.Target
+	req.Constraint = taskConstraint(intent.Constraint)
+	return req
 }
 
 func (m *Model) withShardModelContext(ctx context.Context, shardType string) context.Context {

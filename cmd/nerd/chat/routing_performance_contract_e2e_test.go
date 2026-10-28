@@ -40,16 +40,21 @@ func TestE2E_RoutingPerformanceContract(t *testing.T) {
 
 	// 2. Measure Transduction Budget (< 800ms)
 	mockClient := NewMockLLMClient()
+	// The classification envelope perception reads today. The retired
+	// control_packet shape this fixture carried was never a classification: it
+	// only appeared to work because an answer with no routing fields decoded as
+	// a default /explain.
 	mockClient.SetDefaultResponse(`{
-		"surface_response": "I will explain the code structure.",
-		"control_packet": {
-			"intent_classification": {
-				"category": "/query",
-				"verb": "/explain",
-				"target": "architecture",
-				"confidence": 0.95
-			}
-		}
+		"understanding": {
+			"primary_intent": "explain",
+			"semantic_type": "definition",
+			"action_type": "explain",
+			"domain": "architecture",
+			"scope": {"level": "codebase", "target": "architecture"},
+			"confidence": 0.95,
+			"signals": {"is_question": true}
+		},
+		"surface_response": "I will explain the code structure."
 	}`)
 
 	tr := perception.NewUnderstandingTransducer(mockClient)

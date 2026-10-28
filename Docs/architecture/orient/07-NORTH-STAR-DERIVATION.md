@@ -147,7 +147,7 @@ The Bubbletea TUI wizard (`cmd/nerd/chat/northstar_llm.go`) is refactored into a
 - Deletes redundant inline prompt templates in favor of shared JIT prompt atoms (`internal/prompt/atoms/northstar/derive_classify.yaml`, `derive_vision.yaml`).
 - Eliminates dual-path drift between CLI and chat North Star generation.
 
-The existing `NorthstarRequirement` DTO (`cmd/nerd/chat/northstar_types.go:57`) lacks relational fields. Until its owner adds `Supports` and `Addresses` and the adapter can retain them, `generateRequirementsWithLLM` rejects linked results with a visible error instead of dropping links (`cmd/nerd/chat/northstar_llm.go:30`). `TestNorthstarTUI_RequirementsRejectUnrepresentableLinks` (`cmd/nerd/chat/northstar_llm_test.go:135`) is authored. The old prose parser (`parseGeneratedRequirements`, `cmd/nerd/chat/northstar_types.go:78`) is now test-only and must be deleted by that file's owner.
+`NorthstarRequirement` (`cmd/nerd/chat/northstar_types.go`) now carries `Supports` and `Addresses`; `generateRequirementsWithLLM` hands them through (`cmd/nerd/chat/northstar_llm.go`), and `parseRequirements` refuses a link to a capability or risk the wizard does not hold (`internal/northstar/derive_parse.go`, `checkRequirementLinks`). `TestNorthstarTUI_RequirementsCarryLinksToTheCanonicalIDs` and `TestNorthstarTUI_RequirementsRejectLinksToUnknownEntities` pin both. The old prose parser (`parseGeneratedRequirements`) is deleted. See `Docs/audits/northstar-lossless-strategic-editing.md` (as-built).
 
 ---
 

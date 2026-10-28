@@ -146,27 +146,33 @@ type systemExecutionResult struct {
 	Timestamp  int64
 }
 
-func (m Model) handleSystemDelegations(ctx context.Context, input string, intent perception.Intent, baseRouting, baseExec int) tea.Msg {
+// handleSystemDelegations turns the turn's system-action outcomes into a reply.
+// The second result is the typed blockers: actions whose routing failed and
+// which never ran. When no reply is produced they ride into the articulation
+// call as warnings, so the answer is not written as though the action ran.
+func (m Model) handleSystemDelegations(ctx context.Context, input string, intent perception.Intent, base systemResultBaseline) (tea.Msg, []string) {
 	if m.kernel == nil || m.shardMgr == nil {
-		return nil
+		return nil, nil
 	}
 
 	delegateFacts, _ := m.kernel.Query("delegate_task")
-	execFacts := m.diffFacts("execution_result", baseExec)
+	routingFacts := m.newSystemResults("routing_result", base)
+	execFacts := m.newSystemResults("execution_result", base)
 	if len(execFacts) == 0 && shouldWaitForSystemResults(intent, len(delegateFacts) > 0) {
-		_, execFacts = m.waitForSystemResults(ctx, baseRouting, baseExec, 1200*time.Millisecond)
+		routingFacts, execFacts = m.waitForSystemResults(ctx, base, 1200*time.Millisecond)
 	}
+	blockers := unroutedActions(routingFacts, execFacts)
 
 	executions := parseExecutionResults(execFacts)
-	if msg := m.buildResponseFromExecutions(ctx, input, intent, delegateFacts, executions, baseRouting, baseExec); msg != nil {
-		return msg
+	if msg := m.buildResponseFromExecutions(ctx, input, intent, delegateFacts, executions, base); msg != nil {
+		return msg, nil
 	}
 
 	if len(delegateFacts) == 0 {
-		return nil
+		return nil, blockers
 	}
 
-	return m.executeDelegateTaskFallback(ctx, input, intent, delegateFacts, baseRouting, baseExec)
+	return m.executeDelegateTaskFallback(ctx, input, intent, delegateFacts, base), nil
 }
 
 func shouldWaitForSystemResults(intent perception.Intent, hasDelegations bool) bool {
@@ -184,7 +190,7 @@ func shouldWaitForSystemResults(intent perception.Intent, hasDelegations bool) b
 	}
 }
 
-func (m Model) buildResponseFromExecutions(ctx context.Context, input string, intent perception.Intent, delegateFacts []core.Fact, executions []systemExecutionResult, baseRouting, baseExec int) tea.Msg {
+func (m Model) buildResponseFromExecutions(ctx context.Context, input string, intent perception.Intent, delegateFacts []core.Fact, executions []systemExecutionResult, base systemResultBaseline) tea.Msg {
 	if len(executions) == 0 {
 		return nil
 	}
@@ -202,7 +208,7 @@ func (m Model) buildResponseFromExecutions(ctx context.Context, input string, in
 		if actionType == "run_tests" {
 			surface := m.formatInterpretedResult(ctx, input, "tester", "run_tests", exec.Output, "")
 			return assistantMsg{
-				Surface: m.appendSystemSummary(surface, m.collectSystemSummary(ctx, baseRouting, baseExec)),
+				Surface: m.appendSystemSummary(surface, m.collectSystemSummary(ctx, base)),
 			}
 		}
 
@@ -214,7 +220,7 @@ func (m Model) buildResponseFromExecutions(ctx context.Context, input string, in
 			}
 			surface := m.formatInterpretedResult(ctx, input, "system", task, exec.Output, "")
 			return assistantMsg{
-				Surface: m.appendSystemSummary(surface, m.collectSystemSummary(ctx, baseRouting, baseExec)),
+				Surface: m.appendSystemSummary(surface, m.collectSystemSummary(ctx, base)),
 			}
 		}
 
@@ -229,7 +235,7 @@ func (m Model) buildResponseFromExecutions(ctx context.Context, input string, in
 			_ = m.kernel.LoadFacts(payload.Facts)
 		}
 		return assistantMsg{
-			Surface:     m.appendSystemSummary(surface, m.collectSystemSummary(ctx, baseRouting, baseExec)),
+			Surface:     m.appendSystemSummary(surface, m.collectSystemSummary(ctx, base)),
 			ShardResult: payload,
 		}
 	}
@@ -237,7 +243,7 @@ func (m Model) buildResponseFromExecutions(ctx context.Context, input string, in
 	return nil
 }
 
-func (m Model) executeDelegateTaskFallback(ctx context.Context, input string, intent perception.Intent, delegateFacts []core.Fact, baseRouting, baseExec int) tea.Msg {
+func (m Model) executeDelegateTaskFallback(ctx context.Context, input string, intent perception.Intent, delegateFacts []core.Fact, base systemResultBaseline) tea.Msg {
 	for _, fact := range delegateFacts {
 		shardType, taskDesc, pending := parseDelegateFact(fact)
 		if !pending || shardType == "" {
@@ -253,7 +259,7 @@ func (m Model) executeDelegateTaskFallback(ctx context.Context, input string, in
 		}
 
 		sessionCtx := m.buildSessionContext(ctx)
-		ret, spawnErr := m.spawnTaskWithContext(ctx, shardType, task, sessionCtx, types.PriorityHigh)
+		ret, spawnErr := m.spawnTaskWithContext(ctx, shardTypeToTaskRequest(shardType, task), sessionCtx, types.PriorityHigh)
 		result := ret.Output
 		payload := m.buildShardResultPayload(shardType, task, result, spawnErr)
 		if payload != nil && m.kernel != nil && len(payload.Facts) > 0 {
@@ -261,12 +267,12 @@ func (m Model) executeDelegateTaskFallback(ctx context.Context, input string, in
 		}
 
 		if spawnErr != nil {
-			return errorMsg(fmt.Errorf("shard delegation failed: %w", spawnErr))
+			return errorMsg(failedDelegation("shard delegation failed", spawnErr, ret))
 		}
 
 		surface := m.formatDelegationOutput(ctx, input, shardType, task, result)
 		return assistantMsg{
-			Surface:     m.appendSystemSummary(surface, m.collectSystemSummary(ctx, baseRouting, baseExec)),
+			Surface:     m.appendSystemSummary(surface, m.collectSystemSummary(ctx, base)),
 			ShardResult: payload,
 		}
 	}

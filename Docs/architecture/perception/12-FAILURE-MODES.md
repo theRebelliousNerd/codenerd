@@ -8,8 +8,8 @@
 
 | | |
 |--|--|
-| **Symptoms** | Degraded `/explain` intent; user sees trouble message or llm_unavailable clarification |
-| **Detection** | `[Understand] LLM FAILED`; `TransientFailure` when sentinel present |
+| **Symptoms** | Degraded `/explain` intent; user sees the kernel's cause-specific notice (`classification_stop`) |
+| **Detection** | `[Understand] LLM FAILED`; `Intent.Outcome` / `classification_outcome` row |
 | **Mitigation** | Provider retries (Gemini/ZAI); classification on fast tier reduces load; user retry |
 | **Code** | `understanding_adapter.go`, `client_gemini.go` `ErrLLMUnavailable` |
 
@@ -153,7 +153,7 @@
 ## First response checklist
 
 1. Read Perception COMPLETE lines for last turn.  
-2. Check TransientFailure / llm_unavailable path.  
+2. Check the `classification_outcome` row and `classification_stop`.  
 3. Confirm engine/provider in DetectProvider logs.  
 4. Confirm semantic classifier init.  
 5. Confirm classification model, not main model, on hot path.

@@ -4,71 +4,13 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"sync"
 	"unicode/utf8"
 
 	"codenerd/internal/browser"
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/tools"
-	"codenerd/internal/types"
 )
-
-// browserManager holds a shared browser session manager.
-var (
-	browserMgr         *browser.SessionManager
-	browserKernel      types.Kernel
-	browserKernelOwner *browser.SessionManager
-	browserMgrMu       sync.RWMutex
-)
-
-// getBrowserManager returns the browser session manager boot bound with
-// SetBrowserRuntime. A nil manager means the runtime is not bound: this
-// does not construct a fallback. A hidden nil-kernel manager would let a
-// research read run before the kernel can see DOM facts.
-func getBrowserManager() *browser.SessionManager {
-	browserMgrMu.RLock()
-	defer browserMgrMu.RUnlock()
-	return browserMgr
-}
-
-func requireBoundBrowser() (*browser.SessionManager, error) {
-	mgr := getBrowserManager()
-	if mgr == nil {
-		return nil, fmt.Errorf("browser runtime is not bound; boot must call research.SetBrowserRuntime before browser tools run")
-	}
-	return mgr, nil
-}
-
-// SetBrowserRuntime binds both browser control and browser reasoning to one
-// Cortex. The kernel is the same live authority used for planning and policy.
-func SetBrowserRuntime(mgr *browser.SessionManager, kernel types.Kernel) {
-	browserMgrMu.Lock()
-	browserMgr = mgr
-	browserKernel = kernel
-	browserKernelOwner = mgr
-	browserMgrMu.Unlock()
-}
-
-func getBrowserKernel() types.Kernel {
-	browserMgrMu.RLock()
-	defer browserMgrMu.RUnlock()
-	return browserKernel
-}
-
-// ClearBrowserManager removes mgr only if it is still the process binding.
-// This prevents an older Cortex shutdown from detaching a newer Cortex manager.
-func ClearBrowserManager(mgr *browser.SessionManager) {
-	browserMgrMu.Lock()
-	if browserMgr == mgr {
-		browserMgr = nil
-	}
-	if browserKernelOwner == mgr {
-		browserKernel = nil
-		browserKernelOwner = nil
-	}
-	browserMgrMu.Unlock()
-}
 
 // BrowserNavigateTool returns a tool for navigating to a URL with a browser.
 func BrowserNavigateTool() *tools.Tool {

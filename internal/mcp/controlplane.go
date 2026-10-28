@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -165,6 +166,10 @@ type ServerAtlas struct {
 	Facets    []FacetCensus `json:"facets,omitzero"`
 	Resources int           `json:"resources,omitzero"`
 	Prompts   int           `json:"prompts,omitzero"`
+	// Incomplete names each catalog whose collection stopped before the
+	// server's list was exhausted. The counts above are then a floor, not the
+	// server's catalog, and an unlisted tool is not a withdrawn one.
+	Incomplete []string `json:"incomplete_catalogs,omitzero"`
 }
 
 // AtlasResult is the whole reachable surface at one disclosure depth.
@@ -228,6 +233,9 @@ func (cp *ControlPlane) Atlas(ctx context.Context, opts AtlasOptions) *AtlasResu
 			row.Resources = len(cat.resources)
 			row.Prompts = len(cat.prompts)
 		}
+		if cp.manager != nil {
+			row.Incomplete = cp.manager.IncompleteCatalogs(id)
+		}
 		result.TotalTools += row.Tools
 		result.Servers = append(result.Servers, row)
 	}
@@ -241,14 +249,19 @@ func atlasSummary(a *AtlasResult) string {
 	if len(a.Servers) == 0 {
 		return "no MCP servers configured or connected"
 	}
-	connected := 0
+	connected, incomplete := 0, 0
 	for _, s := range a.Servers {
 		if s.Status == ServerStatusConnected {
 			connected++
 		}
+		incomplete += len(s.Incomplete)
 	}
-	return fmt.Sprintf("%d/%d server(s) connected, %d tool(s) reachable",
+	summary := fmt.Sprintf("%d/%d server(s) connected, %d tool(s) reachable",
 		connected, len(a.Servers), a.TotalTools)
+	if incomplete > 0 {
+		summary += fmt.Sprintf("; %d catalog(s) incomplete, counts are a floor", incomplete)
+	}
+	return summary
 }
 
 // --- Probe -----------------------------------------------------------------
@@ -529,14 +542,23 @@ func (cp *ControlPlane) catalogFor(ctx context.Context, serverID string) *server
 	cp.mu.Unlock()
 	cat := &serverCatalog{fetchedAt: cp.now(), epoch: epoch}
 	if cp.manager != nil {
-		if resources, err := cp.manager.DiscoverResources(ctx, serverID); err == nil {
+		// A partial collection still yields its subset; the error stays on the
+		// catalog so the gap is visible alongside what was found.
+		var incomplete *IncompleteCatalogError
+		if resources, err := cp.manager.DiscoverResources(ctx, serverID); err == nil || errors.As(err, &incomplete) {
 			cat.resources = resources
+			if err != nil {
+				cat.err = err.Error()
+			}
 		} else {
 			cat.err = err.Error()
 			logging.Get(logging.CategoryTools).Debug("MCP control plane: no resources from %s: %v", serverID, err)
 		}
-		if prompts, err := cp.manager.DiscoverPrompts(ctx, serverID); err == nil {
+		if prompts, err := cp.manager.DiscoverPrompts(ctx, serverID); err == nil || errors.As(err, &incomplete) {
 			cat.prompts = prompts
+			if err != nil && cat.err == "" {
+				cat.err = err.Error()
+			}
 		} else if cat.err == "" {
 			cat.err = err.Error()
 		}

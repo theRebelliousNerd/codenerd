@@ -95,7 +95,9 @@ func (m *SessionManager) startDefault(ctx context.Context) (string, error) {
 		}
 		for _, session := range staleSessions {
 			waitSessionEventStream(session)
-			m.forgetSessionBudget(session.meta.ID)
+			if err := m.forgetSessionBudget(session.meta.ID); err != nil {
+				logging.BrowserWarn("stale session %s left facts behind: %v", session.meta.ID, err)
+			}
 		}
 		for _, record := range staleBrowsers {
 			if err := m.closeBrowserResources(record); err != nil {
@@ -418,8 +420,7 @@ func (m *SessionManager) CreateTab(ctx context.Context, browserID, url string, i
 		m.mu.Lock()
 		delete(m.sessions, meta.ID)
 		m.mu.Unlock()
-		closeErr := m.closeAndDrainSession(record)
-		m.forgetSessionBudget(meta.ID)
+		closeErr := errors.Join(m.closeAndDrainSession(record), m.forgetSessionBudget(meta.ID))
 		return nil, errors.Join(fmt.Errorf("start browser event stream: %w", err), closeErr)
 	}
 	// Registering the session first lets first-byte events resolve its registry.
@@ -430,8 +431,7 @@ func (m *SessionManager) CreateTab(ctx context.Context, browserID, url string, i
 		m.mu.Lock()
 		delete(m.sessions, meta.ID)
 		m.mu.Unlock()
-		closeErr := m.closeAndDrainSession(record)
-		m.forgetSessionBudget(meta.ID)
+		closeErr := errors.Join(m.closeAndDrainSession(record), m.forgetSessionBudget(meta.ID))
 		return nil, errors.Join(fmt.Errorf("record intentional navigation: %w", err), closeErr)
 	}
 	if err := p.Navigate(url); err != nil {
@@ -440,8 +440,7 @@ func (m *SessionManager) CreateTab(ctx context.Context, browserID, url string, i
 		m.mu.Lock()
 		delete(m.sessions, meta.ID)
 		m.mu.Unlock()
-		closeErr := m.closeAndDrainSession(record)
-		m.forgetSessionBudget(meta.ID)
+		closeErr := errors.Join(m.closeAndDrainSession(record), m.forgetSessionBudget(meta.ID))
 		return nil, errors.Join(fmt.Errorf("wait for initial document parsing: %w", err), closeErr)
 	}
 	actualURL, title := url, ""
@@ -521,8 +520,7 @@ func (m *SessionManager) AttachToBrowser(ctx context.Context, browserID, targetI
 		m.mu.Lock()
 		delete(m.sessions, meta.ID)
 		m.mu.Unlock()
-		m.forgetSessionBudget(meta.ID)
-		return nil, fmt.Errorf("start browser event stream: %w", err)
+		return nil, errors.Join(fmt.Errorf("start browser event stream: %w", err), m.forgetSessionBudget(meta.ID))
 	}
 	_ = m.persistSessions()
 	return &meta, nil
@@ -552,9 +550,9 @@ func (m *SessionManager) CloseSession(_ context.Context, sessionID string) error
 		return nil
 	}
 	closeErr := m.closeAndDrainSession(record)
-	m.forgetSessionBudget(sessionID)
+	retireErr := m.forgetSessionBudget(sessionID)
 	_ = m.persistSessions()
-	return closeErr
+	return errors.Join(closeErr, retireErr)
 }
 
 // closeAndDrainSession first cancels callbacks, then closes the target to
@@ -610,7 +608,7 @@ func (m *SessionManager) CloseBrowser(_ context.Context, browserID string) error
 	var result error
 	for _, session := range sessions {
 		result = errors.Join(result, m.closeAndDrainSession(session))
-		m.forgetSessionBudget(session.meta.ID)
+		result = errors.Join(result, m.forgetSessionBudget(session.meta.ID))
 	}
 	return errors.Join(result, m.closeBrowserResources(record))
 }
@@ -685,8 +683,11 @@ func (m *SessionManager) shutdown(_ context.Context) error {
 	var result error
 	for _, session := range sessions {
 		result = errors.Join(result, m.closeAndDrainSession(session))
-		m.forgetSessionBudget(session.meta.ID)
+		result = errors.Join(result, m.forgetSessionBudget(session.meta.ID))
 	}
+	// Facts a failed retraction queued must get a last attempt before the
+	// owner goes away; a still-failing retry is a shutdown error, not silence.
+	result = errors.Join(result, m.retireFacts(nil))
 	for _, managed := range browsers {
 		if err := m.closeBrowserResources(managed); err != nil {
 			result = errors.Join(result, err)

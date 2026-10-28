@@ -5,7 +5,7 @@
 //   - model_update.go: Main Update loop and message routing
 //   - model_handlers.go: Input handlers (submit, clarification, dream learning)
 //   - model_session_context.go: Session context building and kernel queries
-//   - model_helpers.go: Utility functions (extractFindings, hardWrap, etc.)
+//   - model_helpers.go: Utility functions (extractFindings, wrapText, etc.)
 //   - commands.go: /command handling
 //   - process.go: Natural language input processing
 //   - view.go: Rendering functions

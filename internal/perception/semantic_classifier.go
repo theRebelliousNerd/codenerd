@@ -562,6 +562,12 @@ func (sc *SemanticClassifier) AddLearnedPattern(ctx context.Context, pattern, ve
 	timer := logging.StartTimer(logging.CategoryPerception, "SemanticClassifier.AddLearnedPattern")
 	defer timer.Stop()
 
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if strings.TrimSpace(pattern) == "" {
 		return fmt.Errorf("cannot learn an empty pattern")
 	}
@@ -612,7 +618,7 @@ func (sc *SemanticClassifier) AddLearnedPattern(ctx context.Context, pattern, ve
 		Confidence:  confidence,
 	}
 
-	if err := learnedStore.Add(entry, patternEmbed); err != nil {
+	if err := learnedStore.Add(ctx, entry, patternEmbed); err != nil {
 		return fmt.Errorf("failed to add pattern to learned store: %w", err)
 	}
 
@@ -1198,7 +1204,7 @@ func (s *LearnedCorpusStore) Search(queryEmbed []float32, topK int) ([]SemanticM
 				TextContent: m.TextContent,
 				Verb:        m.Verb,
 				Target:      m.Target,
-				Constraint:  "",
+				Constraint:  m.Constraint,
 				Similarity:  m.Similarity,
 				Rank:        m.Rank,
 				Source:      "learned",
@@ -1213,8 +1219,13 @@ func (s *LearnedCorpusStore) Search(queryEmbed []float32, topK int) ([]SemanticM
 	return searchInMemory(s.entries, s.embeddings, queryEmbed, topK, "learned"), nil
 }
 
-// Add adds a new pattern to the learned store.
-func (s *LearnedCorpusStore) Add(entry CorpusEntry, entryEmbed []float32) error {
+// Add adds a new pattern to the learned store. ctx is the operation's: on the
+// durable backend it reaches the backend's embedding call and SQL write, and a
+// pre-cancelled ctx starts neither.
+func (s *LearnedCorpusStore) Add(ctx context.Context, entry CorpusEntry, entryEmbed []float32) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.mu.RLock()
 	backend := s.backend
 	dims := s.dimensions
@@ -1224,7 +1235,7 @@ func (s *LearnedCorpusStore) Add(entry CorpusEntry, entryEmbed []float32) error 
 		if dims > 0 && len(entryEmbed) != 0 && len(entryEmbed) != dims {
 			return fmt.Errorf("embedding dimension mismatch: expected %d, got %d", dims, len(entryEmbed))
 		}
-		return backend.AddPattern(context.Background(), entry.TextContent, entry.Verb, entry.Target, entry.Constraint, entry.Confidence)
+		return backend.AddPattern(ctx, entry.TextContent, entry.Verb, entry.Target, entry.Constraint, entry.Confidence)
 	}
 
 	s.mu.Lock()

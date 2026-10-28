@@ -271,6 +271,7 @@ func TestRunPhase_WriteSetGatesConflictingMutations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewOrchestrator() error = %v", err)
 	}
+	t.Cleanup(func() { _ = orch.Close() })
 
 	orch.campaign = &Campaign{
 		ID:          "/campaign_locking",

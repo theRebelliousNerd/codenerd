@@ -69,6 +69,12 @@ type Count struct {
 	Tokens     int        `json:"tokens"`
 	Segments   Segments   `json:"segments"`
 	Confidence Confidence `json:"confidence"`
+	// EstimatedTokens is the part of Tokens no provider produced: content the
+	// provider's counting endpoint cannot be asked about, added as a bounded
+	// estimate (a replayed server-tool result). Zero when Tokens is all one
+	// regime. A Count with a nonzero EstimatedTokens is never ConfidenceExact,
+	// whatever produced the rest of it.
+	EstimatedTokens int `json:"estimated_tokens,omitempty"`
 	// Source names the mechanism, e.g. "anthropic.count_tokens" or
 	// "estimator:calibrated(3.71)". It is for humans reading receipts.
 	Source string `json:"source"`

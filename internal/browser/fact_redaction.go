@@ -6,7 +6,15 @@ import (
 )
 
 func (m *SessionManager) addFacts(facts []mangle.Fact) error {
-	safeFacts := m.sanitizeFacts(facts)
+	return m.publishSanitized(m.sanitizeFacts(facts))
+}
+
+// publishSanitized hands already-sanitized facts to the flight recorder and
+// the sink. Callers that must later retract exactly what the sink stored
+// sanitize first, keep that slice, and publish it here: a retraction key built
+// from the pre-sanitization copy would not match a fact whose strings the
+// redactor rewrote.
+func (m *SessionManager) publishSanitized(safeFacts []mangle.Fact) error {
 	m.recordFlightFacts(safeFacts)
 	if m.engine == nil {
 		return nil

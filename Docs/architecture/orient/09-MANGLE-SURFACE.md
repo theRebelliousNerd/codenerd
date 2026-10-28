@@ -155,7 +155,12 @@ Decl spec_depends(ChildSpec, ParentSpec).
 # Last git committer timestamp for spec unit (%ct epoch)
 Decl spec_mtime(SpecID, LastCommitterUnix).
 
-# Semantic realization link between code unit and spec unit
+# A specification names a target in a stated role; not a realization claim
+# Role: /witness | /planned_witness | /planned_seam | /negative | /historical | /cited
+Decl spec_reference(SpecUnit, Target, Role).
+
+# Semantic realization link between code unit and spec unit. Derived only from
+# an accepted relation claim, never from spec_reference or a confidence score.
 Decl unit_realizes(CodeUnit, SpecUnit).
 
 # Model link transduction claim with confidence and evidence
@@ -172,8 +177,12 @@ Decl unit_tested_by(CodeUnit, TestUnit, GateStatus).
 # Learned specification template format for foreign repository
 Decl repo_spec_template(Format, PathPattern, HeaderList).
 
-# Runtime architectural documentation problem emitted by generalized docscheck
-Decl doc_problem(Pkg, File, Code, Message).
+# No runtime documentation-problem predicate is declared. The `doc_problem`
+# surface was removed as unconsumed (commit b0f04d78) and `nerd docs evidence`
+# reports references, resolutions, and a scan manifest as CLI records, not
+# kernel facts. A kernel surface for them needs a producer, admission that
+# keeps host evidence out of model envelopes, a consumer, and invalidation
+# (10-SPEC-ALIGNMENT.md section 5).
 ```
 
 ### Technical Debt, Shims, and Dark Fields (Lane TBD, Decision D6)

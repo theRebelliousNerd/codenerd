@@ -349,14 +349,16 @@ func (m Model) renderErrorPanel() string {
 		Render("Error") +
 		m.styles.Text.Muted.Render("  Alt+E: scroll  Alt+Shift+E: hide")
 
-	// Width is the box's content width: viewport minus border (2) and
-	// padding (2), so the bordered panel spans exactly the viewport.
+	// lipgloss Width counts the padding but not the border: Width(vw-2) is a
+	// vw-wide box whose text area is vw-4, the width the error text is
+	// wrapped to (layout.go). MaxWidth bounds the whole box, border included;
+	// it used to be vw-4, which cut the right border off.
 	panelStyle := lipgloss.NewStyle().
 		Border(border).
 		BorderForeground(m.styles.Theme.Destructive()).
 		Padding(0, 1).
-		Width(max(m.viewport.Width-4, 1)).
-		MaxWidth(max(m.viewport.Width-4, 1))
+		Width(max(m.viewport.Width-2, 1)).
+		MaxWidth(max(m.viewport.Width, 1))
 
 	return panelStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, m.errorVP.View()))
 }
@@ -420,10 +422,7 @@ func (m Model) renderHeader() string {
 }
 
 func (m Model) renderFooter() string {
-	// Build continuation mode indicator
-	modeChar := 'A' + rune(m.continuationMode)
-	modeName := m.continuationMode.String()
-	continuationModeStr := fmt.Sprintf("[%c] %s", modeChar, modeName)
+	workModeStr := workModeLabel(m.workMode())
 
 	// Build pane mode indicator
 	paneModeStr := ""
@@ -485,21 +484,56 @@ func (m Model) renderFooter() string {
 		}
 	}
 
-	// Build hotkeys section - show Ctrl+X prominently when loading
-	hotkeys := ""
-	if m.isLoading {
-		hotkeys = "Ctrl+X: STOP | "
+	// Status first, hotkeys after, each packed onto as many lines as the
+	// width needs: a single line was cut off at the terminal edge, losing the
+	// hotkeys (and on narrow terminals the status) entirely.
+	status := []string{workModeStr, paneModeStr}
+	if bg := m.backgroundFooter(); bg != "" {
+		status = append(status, bg)
 	}
-	hotkeys += "Shift+Tab: mode | Alt+L: logic | Alt+G: glass | Alt+D: debug | Alt+P: jit | Alt+A: auto | Alt+S: shards | /help"
+	if t := m.turnFooter(); t != "" {
+		status = append(status, t)
+	}
+	for _, seg := range []string{campaignIndicator, continuationIndicator, contextIndicator, memoryIndicator, mouseIndicator, glassIndicator} {
+		if seg = strings.TrimPrefix(seg, " | "); seg != "" {
+			status = append(status, seg)
+		}
+	}
+	status = append(status, time.Now().Format("15:04"))
+	var hotkeys []string
+	if m.isLoading {
+		hotkeys = append(hotkeys, "Ctrl+X: STOP")
+	}
+	hotkeys = append(hotkeys, "Shift+Tab: mode", "Alt+L: logic", "Alt+G: glass", "Alt+D: debug", "Alt+P: jit", "Alt+A: auto", "Alt+S: shards", "/help")
 
-	timestamp := time.Now().Format("15:04")
-	help := m.styles.Text.Muted.Render(fmt.Sprintf("%s | %s%s%s%s%s%s%s | %s | %s",
-		continuationModeStr, paneModeStr, campaignIndicator, continuationIndicator, contextIndicator, memoryIndicator, mouseIndicator, glassIndicator, timestamp, hotkeys))
 	maxW := max(m.width, 1)
+	lines := append(packFooterSegments(status, maxW), packFooterSegments(hotkeys, maxW)...)
 	return lipgloss.NewStyle().
 		MarginTop(1).
 		MaxWidth(maxW).
-		Render(help)
+		Render(m.styles.Text.Muted.Render(strings.Join(lines, "\n")))
+}
+
+// packFooterSegments joins segments with " | " onto as few lines of width
+// columns as fit, never splitting a segment.
+func packFooterSegments(segs []string, width int) []string {
+	var lines []string
+	cur := ""
+	for _, s := range segs {
+		switch {
+		case cur == "":
+			cur = s
+		case lipgloss.Width(cur)+3+lipgloss.Width(s) <= width:
+			cur += " | " + s
+		default:
+			lines = append(lines, cur)
+			cur = s
+		}
+	}
+	if cur != "" {
+		lines = append(lines, cur)
+	}
+	return lines
 }
 
 func (m Model) renderBootScreen() string {

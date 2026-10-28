@@ -296,6 +296,11 @@ func fetchURL(ctx context.Context, url string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if page.CleanupErr != nil {
+		// The body is archived as the source document, so a notice cannot be
+		// appended to it. The pending cleanup stays in the research log.
+		logging.Researcher("Context7 read of %s succeeded; browser cleanup pending: %v", url, page.CleanupErr)
+	}
 	body := page.Text
 	ct := strings.ToLower(page.ContentType)
 	if strings.Contains(ct, "text/html") || strings.Contains(ct, "xhtml") {

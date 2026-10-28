@@ -1,13 +1,21 @@
 package articulation
 
 import (
+	"encoding/json"
 	"strings"
 	"unicode/utf8"
 )
 
-// surfaceKeyMarker is the surface_response object key the streaming parser
-// hunts for. Matched only outside string literals at envelope depth.
-const surfaceKeyMarker = `"surface_response"`
+// surfaceKeyName is the surface_response object key the streaming parser
+// hunts for, matched by its decoded spelling and case-insensitively (as the
+// final parser matches it), only at envelope depth in key position.
+const surfaceKeyName = "surface_response"
+
+// maxStreamKeyBytes is the longest spelling of the surface key worth holding
+// a chunk for: every character of the name written as a \uXXXX escape (6 bytes
+// each) plus the two quotes. A key string longer than this is not the surface
+// key however it decodes.
+const maxStreamKeyBytes = len(surfaceKeyName)*6 + 2
 
 // StreamParser extracts surface_response incrementally from a streaming JSON
 // envelope. Feed it chunks as they arrive; each call returns the newly
@@ -153,23 +161,23 @@ loop:
 				p.inString = true
 				continue
 			}
-			// A provider can split anywhere, including inside this key or
-			// between the key, colon, whitespace, and value quote. Retain only
-			// an incomplete key prefix; once the marker is complete, the parser
-			// advances through the colon and whitespace in its normal state.
+			// A provider can split anywhere, including inside this key. A key
+			// is its decoded spelling (the final parser's rule), so hold at
+			// the opening quote until the closing quote has arrived, then
+			// decode and compare. A string that runs past any possible
+			// spelling of the name is some other key.
 			if p.depth == 1 && p.arrayDepth == 0 && p.topLevelExpectKey {
-				candidate := data[i:]
-				if len(candidate) < len(surfaceKeyMarker) && strings.HasPrefix(surfaceKeyMarker, candidate) {
+				name, closed, complete := scanStreamKey(data[i:])
+				if !complete {
 					end = i
 					break loop
 				}
-				if strings.HasPrefix(candidate, surfaceKeyMarker) {
-					p.topLevelExpectKey = false
+				p.topLevelExpectKey = false
+				if closed > 0 && strings.EqualFold(name, surfaceKeyName) {
 					p.markerFound = true
-					i += len(surfaceKeyMarker) - 1
+					i += closed - 1
 					continue
 				}
-				p.topLevelExpectKey = false
 			}
 			// This is another complete string key/value. Skip it as ordinary
 			// JSON.
@@ -224,4 +232,36 @@ loop:
 
 	p.lastDetectionIndex = end
 	return out.String()
+}
+
+// scanStreamKey reads the string literal that opens data (data[0] is its
+// opening quote). It reports the decoded value and the literal's byte length
+// when the closing quote is present; complete is false only when more bytes
+// could still finish a literal short enough to matter, so the caller waits. A
+// literal that is too long to be the surface key, or does not decode, returns
+// complete with closed == 0 and the caller skips it as an ordinary string.
+func scanStreamKey(data string) (name string, closed int, complete bool) {
+	limit := min(len(data), maxStreamKeyBytes)
+	escaped := false
+	for j := 1; j < limit; j++ {
+		c := data[j]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if c == '\\' {
+			escaped = true
+			continue
+		}
+		if c == '"' {
+			if err := json.Unmarshal([]byte(data[:j+1]), &name); err != nil {
+				return "", 0, true
+			}
+			return name, j + 1, true
+		}
+	}
+	if len(data) < maxStreamKeyBytes {
+		return "", 0, false
+	}
+	return "", 0, true
 }

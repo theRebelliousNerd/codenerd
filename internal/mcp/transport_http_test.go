@@ -31,10 +31,7 @@ func mcpTestServer(t *testing.T) *httptest.Server {
 		var result any
 		switch req.Method {
 		case "initialize":
-			result = map[string]any{
-				"capabilities": map[string]bool{"tools": true, "resources": false},
-				"serverInfo":   map[string]string{"name": "test-mcp", "version": "0.1"},
-			}
+			result = standardInitializeResult("tools")
 		case "tools/list":
 			result = map[string]any{
 				"tools": []map[string]any{
@@ -42,7 +39,10 @@ func mcpTestServer(t *testing.T) *httptest.Server {
 				},
 			}
 		case "tools/call":
-			result = map[string]any{"content": "echoed"}
+			result = standardToolResult("echoed", false)
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+			return
 		case "ping":
 			result = map[string]any{}
 		default:

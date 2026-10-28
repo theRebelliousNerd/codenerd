@@ -562,6 +562,12 @@ func runPerceptionTest(cmd *cobra.Command, args []string) error {
 	fmt.Printf("   Target:     %s\n", intent.Target)
 	fmt.Printf("   Constraint: %s\n", intent.Constraint)
 	fmt.Printf("   Confidence: %.2f\n", intent.Confidence)
+	if intent.Outcome.Failed() {
+		// This command reports what perception produced; a failed
+		// classification is shown as one, not as an interpretation.
+		fmt.Printf("   Outcome:    %s (stage %s, class %s, method %s)\n",
+			intent.Outcome.Disposition, intent.Outcome.Stage, intent.Outcome.Failure, intent.Outcome.Method)
+	}
 	fmt.Println(strings.Repeat("─", 50))
 	fmt.Printf("🔀 Routing:\n")
 	if shardType == "" || shardType == "/none" {

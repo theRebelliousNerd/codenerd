@@ -9,18 +9,18 @@ import (
 
 // CoreLimits enforces system-wide resource constraints.
 type CoreLimits struct {
-	MaxTotalMemoryMB int `yaml:"max_total_memory_mb" json:"max_total_memory_mb"` // Total RAM limit; also the Go runtime's soft memory limit
+	MaxTotalMemoryMB int `yaml:"max_total_memory_mb" json:"max_total_memory_mb,omitempty"` // Total RAM limit; also the Go runtime's soft memory limit
 	// GCPercent is the Go garbage collector's target (GOGC): collect when the
 	// heap has grown this many percent over the live heap. The runtime's 100
 	// spent 57% of a boot's CPU in GC (measured 2026-10-27); 200 halves the
 	// collections, and max_total_memory_mb, applied as the soft memory limit,
 	// makes the collector work harder near that ceiling instead of growing past
 	// it. The GOGC environment variable, when set, wins.
-	GCPercent             int `yaml:"gc_percent" json:"gc_percent"`
-	MaxConcurrentShards   int `yaml:"max_concurrent_shards" json:"max_concurrent_shards"`       // Max parallel shards
-	MaxConcurrentAPICalls int `yaml:"max_concurrent_api_calls" json:"max_concurrent_api_calls"` // Max simultaneous LLM API calls
-	MaxFactsInKernel      int `yaml:"max_facts_in_kernel" json:"max_facts_in_kernel"`           // EDB size limit
-	MaxDerivedFactsLimit  int `yaml:"max_derived_facts_limit" json:"max_derived_facts_limit"`   // Mangle gas limit (Bug #17)
+	GCPercent             int `yaml:"gc_percent" json:"gc_percent,omitempty"`
+	MaxConcurrentShards   int `yaml:"max_concurrent_shards" json:"max_concurrent_shards,omitempty"`       // Max parallel shards
+	MaxConcurrentAPICalls int `yaml:"max_concurrent_api_calls" json:"max_concurrent_api_calls,omitempty"` // Max simultaneous LLM API calls
+	MaxFactsInKernel      int `yaml:"max_facts_in_kernel" json:"max_facts_in_kernel,omitempty"`           // EDB size limit
+	MaxDerivedFactsLimit  int `yaml:"max_derived_facts_limit" json:"max_derived_facts_limit,omitempty"`   // Mangle gas limit (Bug #17)
 
 	// SQLHostClass declares the machine class SQLite's page cache and mmap
 	// window are sized for: "workstation" (the default), "laptop" (1/4) or

@@ -39,6 +39,16 @@ type TieredContextBuilder struct {
 	// the definition-scan heuristic.
 	semantic SemanticSearcher
 
+	// relevance, when set, judges Tier 2's keyword candidates (relevance.go);
+	// a judged probability at or below relevanceDrop leaves the file out.
+	relevance     RelevanceJudge
+	relevanceDrop float64
+	// relevancePool widens the keyword pool the judge sees beyond what Tier 2
+	// keeps, so a source file ranked under docs that name every term can
+	// rise; relevanceHead bounds each file's head in a question.
+	relevancePool int
+	relevanceHead int
+
 	// Budget allocation (percentages)
 	tier1Budget float64
 	tier2Budget float64
@@ -66,6 +76,16 @@ type TieredContextConfig struct {
 	// definition-scan heuristic. Optional by design: the retriever must work in
 	// a session with no embedding backend configured.
 	Semantic SemanticSearcher
+
+	// Relevance, when set, judges Tier 2's keyword candidates (relevance.go).
+	// RelevanceDrop is the probability at or below which a judged file is
+	// left out.
+	Relevance     RelevanceJudge
+	RelevanceDrop float64
+	// RelevancePoolFactor and RelevanceHeadBytes are typesafe.
+	// relevance_pool_factor and relevance_head_bytes.
+	RelevancePoolFactor int
+	RelevanceHeadBytes  int
 }
 
 // DefaultTieredContextConfig returns sensible defaults.
@@ -113,18 +133,22 @@ func NewTieredContextBuilder(cfg *TieredContextConfig) *TieredContextBuilder {
 	}
 
 	return &TieredContextBuilder{
-		retriever:   retriever,
-		workDir:     cfg.WorkDir,
-		findCache:   make(map[string]string),
-		semantic:    semantic,
-		tier1Budget: cfg.Tier1Budget,
-		tier2Budget: cfg.Tier2Budget,
-		tier3Budget: cfg.Tier3Budget,
-		tier4Budget: cfg.Tier4Budget,
-		maxTier1:    int(float64(maxTotal) * cfg.Tier1Budget),
-		maxTier2:    int(float64(maxTotal) * cfg.Tier2Budget),
-		maxTier3:    int(float64(maxTotal) * cfg.Tier3Budget),
-		maxTier4:    int(float64(maxTotal) * cfg.Tier4Budget),
+		retriever:     retriever,
+		workDir:       cfg.WorkDir,
+		findCache:     make(map[string]string),
+		semantic:      semantic,
+		relevance:     cfg.Relevance,
+		relevanceDrop: cfg.RelevanceDrop,
+		relevancePool: max(cfg.RelevancePoolFactor, 1),
+		relevanceHead: cfg.RelevanceHeadBytes,
+		tier1Budget:   cfg.Tier1Budget,
+		tier2Budget:   cfg.Tier2Budget,
+		tier3Budget:   cfg.Tier3Budget,
+		tier4Budget:   cfg.Tier4Budget,
+		maxTier1:      int(float64(maxTotal) * cfg.Tier1Budget),
+		maxTier2:      int(float64(maxTotal) * cfg.Tier2Budget),
+		maxTier3:      int(float64(maxTotal) * cfg.Tier3Budget),
+		maxTier4:      int(float64(maxTotal) * cfg.Tier4Budget),
 	}
 }
 
@@ -148,6 +172,10 @@ type TieredContext struct {
 	IssueText string         `json:"issue_text"`
 	Keywords  *IssueKeywords `json:"keywords"`
 	Files     []ContextFile  `json:"files"`
+
+	// Judged is the relevance judge's verdict on each Tier 2 candidate it saw
+	// (relevance.go); empty when no judge ran.
+	Judged []JudgedFile `json:"judged,omitempty"`
 
 	// Candidates is the ranked Tier 2 keyword evidence, kept alongside the
 	// selected files because candidate_file/2 and keyword_hit/3 need the scores
@@ -197,7 +225,8 @@ func (b *TieredContextBuilder) BuildContext(ctx context.Context, issueText strin
 	logging.Context("TieredContextBuilder: Tier 1 - %d explicitly mentioned files", tc.Tier1Count)
 
 	// Tier 2: Keyword match files
-	tier2Files, candidates, keywordOutcome := b.searchKeywordFiles(ctx, keywords, addedFiles)
+	tier2Files, candidates, judged, keywordOutcome := b.searchKeywordFiles(ctx, issueText, keywords, addedFiles)
+	tc.Judged = judged
 	tc.Candidates = candidates
 	tc.Outcomes = append(tc.Outcomes, keywordOutcome)
 	if keywordOutcome.Status != StatusComplete {
@@ -372,7 +401,7 @@ func (b *TieredContextBuilder) locateFile(ctx context.Context, partial string) s
 // the caller needs to assert candidate_file/2 and keyword_hit/3 — those carry
 // scores and per-keyword counts that ContextFile does not model — and the
 // search's outcome. A partial search still ranks the hits it has.
-func (b *TieredContextBuilder) searchKeywordFiles(ctx context.Context, keywords *IssueKeywords, addedFiles map[string]bool) ([]ContextFile, []CandidateFile, TierOutcome) {
+func (b *TieredContextBuilder) searchKeywordFiles(ctx context.Context, request string, keywords *IssueKeywords, addedFiles map[string]bool) ([]ContextFile, []CandidateFile, []JudgedFile, TierOutcome) {
 	// The previous revision also called FindRelevantFiles(ctx, "", …) here.
 	// With an empty issue text ExtractKeywords yields nothing, so that call
 	// ran a whole second keyword sweep of the repository that could only
@@ -380,11 +409,18 @@ func (b *TieredContextBuilder) searchKeywordFiles(ctx context.Context, keywords 
 	// below already uses the keywords the caller extracted.
 	hits, outcome := b.retriever.SearchKeywords(ctx, keywords)
 
-	// Rank the files
+	// Rank the files. With a relevance judge the pool is wider and the judge
+	// orders it; the full keyword ranking stays the candidate evidence.
 	ranked := b.retriever.RankFiles(hits, keywords, b.maxTier2*2)
+	selection := ranked
+	var judged []JudgedFile
+	if b.relevance != nil {
+		pool := b.retriever.RankFiles(hits, keywords, b.maxTier2*b.relevancePool)
+		selection, judged = b.judgeTier2(ctx, request, pool, addedFiles)
+	}
 
 	var files []ContextFile
-	for _, candidate := range ranked {
+	for _, candidate := range selection {
 		if len(files) >= b.maxTier2 {
 			break
 		}
@@ -403,7 +439,7 @@ func (b *TieredContextBuilder) searchKeywordFiles(ctx context.Context, keywords 
 		})
 	}
 
-	return files, ranked, outcome
+	return files, ranked, judged, outcome
 }
 
 // =============================================================================

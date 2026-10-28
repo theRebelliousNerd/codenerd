@@ -1,6 +1,7 @@
 package mangle
 
 import (
+	"codenerd/internal/types"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -57,7 +58,7 @@ var grantRoots = []string{"permitted"}
 // Leaving a consent predicate off this list can only protect more, never less:
 // the premises it would have guarded become grant path instead.
 var grantConsent = map[string]bool{
-	"human_approval_granted": true,
+	types.HumanApprovalPredicate: true,
 }
 
 // GrantPath maps each predicate whose facts can widen a grant root to the head

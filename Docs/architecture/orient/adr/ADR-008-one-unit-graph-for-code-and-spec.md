@@ -31,7 +31,8 @@ These graphs had zero relational connections:
    The graph is formed by three relational families:
    - `code_depends(ConsumerUnit, ProviderUnit)`: Structural dependencies in source code.
    - `spec_depends(DependentSpec, PrerequisiteSpec)`: Hierarchical requirements in specifications.
-   - `unit_realizes(CodeUnit, SpecUnit)`: Semantic realization links established through explicit code citations, spec path citations, and verified model transduction claims.
+   - `spec_reference(SpecUnit, Target, Role)`: A citation with a stated role (witness, planned seam, negative, historical, cited). A reference never implies realization.
+   - `unit_realizes(CodeUnit, SpecUnit)`: Semantic realization links derived only from relation claims (model transduction or an explicit author claim) accepted by an accountable approver under a versioned policy.
 
 ## Consequences
 

@@ -220,9 +220,9 @@ func TestPerceptionJIT_FirewallBridgeKeepsCanonicalClosure(test *testing.T) {
 	assertPerceptionSelection(test, result, corpus)
 	client := &perceptionRequestCapture{}
 	transducer := perception.NewLLMTransducer(client, nil, assembled)
-	understanding, err := transducer.Understand(context.Background(), "Explain calculator.Sum.", nil, nil, nil, "")
-	if err != nil {
-		test.Fatalf("Understand: %v", err)
+	understanding, outcome := transducer.Understand(context.Background(), "Explain calculator.Sum.", nil, nil, nil, "")
+	if outcome.Failed() {
+		test.Fatalf("Understand: %+v", outcome)
 	}
 	if client.calls != 1 || client.system != result.Prompt || understanding.Scope.Target != "calculator.Sum" {
 		test.Fatal("firewall's compiled contract did not reach the model and typed consumer")

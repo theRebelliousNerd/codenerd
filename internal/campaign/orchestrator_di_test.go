@@ -29,6 +29,7 @@ func TestOrchestrator_DependencyInjection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewOrchestrator() error = %v", err)
 	}
+	t.Cleanup(func() { _ = orch.Close() })
 
 	if orch.kernel != mockKernel {
 		t.Error("kernel injection failed")

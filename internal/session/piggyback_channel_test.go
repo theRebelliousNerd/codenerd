@@ -114,7 +114,7 @@ func TestPiggybackClientSeesItsToolResultsAndContinues(t *testing.T) {
 	if !strings.Contains(third, "tool_request id=pb_") || !strings.Contains(third, "tool_result id=pb_") {
 		t.Fatalf("the reused id was not replaced by a loop-unique one:\n%s", third)
 	}
-	if got := executor.processPiggybackControlPacket(resp.Text); got != "all done" {
+	if got := executor.admitResponseControls(resp, result); got != "all done" {
 		t.Fatalf("final surface = %q, want the model's conclusion", got)
 	}
 	if result.ToolCallsExecuted != 2 {
@@ -257,7 +257,7 @@ func TestPiggybackSafetyNoticeOutlivesTheRoundThatRaisedIt(t *testing.T) {
 	if len(result.safetyNotices) != 1 {
 		t.Fatalf("carried %d safety notice(s), want the one the first round raised: %v", len(result.safetyNotices), result.safetyNotices)
 	}
-	response := withSafetyNotices(executor.processPiggybackControlPacket(resp.Text), result.safetyNotices)
+	response := withSafetyNotices(executor.admitResponseControls(resp, result), result.safetyNotices)
 	if !strings.HasPrefix(response, safetyNoticePrefix) || !strings.HasSuffix(response, "finished") {
 		t.Fatalf("the response does not carry the first round's notice ahead of the conclusion:\n%s", response)
 	}

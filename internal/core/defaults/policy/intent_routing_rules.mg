@@ -430,6 +430,7 @@ verb_persona(/validate, /tester).
 
 verb_persona(/review, /reviewer).
 verb_persona(/review_enhance, /reviewer).
+verb_persona(/self_diagnose, /reviewer).
 verb_persona(/security, /reviewer).
 verb_persona(/analyze, /reviewer).
 verb_persona(/audit, /reviewer).

@@ -54,7 +54,16 @@ func (c *schemaGeminiStub) CompleteWithSystem(ctx context.Context, systemPrompt,
 	return c.response, nil
 }
 
-func geminiTestBase(t *testing.T, client LLMClient, kernel *core.RealKernel) *GeminiThinkingTransducer {
+// The stubs run with thinking enabled, which is what selects the thinking
+// methods (LLMTransducer.methodPlan).
+func (c *failingGeminiClient) IsThinkingEnabled() bool  { return true }
+func (c *failingGeminiClient) GetThinkingLevel() string { return "high" }
+func (c *textGeminiClient) IsThinkingEnabled() bool     { return true }
+func (c *textGeminiClient) GetThinkingLevel() string    { return "high" }
+func (c *schemaGeminiStub) IsThinkingEnabled() bool     { return true }
+func (c *schemaGeminiStub) GetThinkingLevel() string    { return "high" }
+
+func geminiTestBase(t *testing.T, client LLMClient, kernel *core.RealKernel) *UnderstandingTransducer {
 	t.Helper()
 	base, ok := NewUnderstandingTransducer(client).(*UnderstandingTransducer)
 	if !ok {
@@ -63,12 +72,12 @@ func geminiTestBase(t *testing.T, client LLMClient, kernel *core.RealKernel) *Ge
 	if kernel != nil {
 		base.SetKernel(kernel)
 	}
-	return NewGeminiThinkingTransducer(base)
+	return base
 }
 
 // TestGeminiTransducer_DegradesOnLLMError pins the shared no-error contract:
 // a failed classification degrades to /explain with a nil error, and a
-// transient outage marks TransientFailure — exactly like the base path.
+// transient outage is a retryable provider failure — one path for every client.
 func TestGeminiTransducer_DegradesOnLLMError(t *testing.T) {
 	ctx := context.Background()
 
@@ -80,8 +89,8 @@ func TestGeminiTransducer_DegradesOnLLMError(t *testing.T) {
 	if intent.Verb != "/explain" || intent.Category != "/query" {
 		t.Errorf("degraded intent=%s %s, want /query /explain", intent.Category, intent.Verb)
 	}
-	if intent.TransientFailure {
-		t.Error("plain error marked TransientFailure, want false")
+	if intent.Outcome.Retryable() || intent.Outcome.Disposition != ClassificationProviderFailed {
+		t.Errorf("plain error outcome=%+v, want a non-retryable provider failure", intent.Outcome)
 	}
 
 	tc = geminiTestBase(t, &failingGeminiClient{err: ErrLLMUnavailable}, nil)
@@ -89,8 +98,8 @@ func TestGeminiTransducer_DegradesOnLLMError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseIntentWithContext returned error %v, want degraded intent", err)
 	}
-	if !intent.TransientFailure {
-		t.Error("transient outage did not mark TransientFailure")
+	if !intent.Outcome.Retryable() || intent.Outcome.Failure != FailureTransient {
+		t.Errorf("transient outage outcome=%+v, want a retryable transient failure", intent.Outcome)
 	}
 	if !strings.Contains(intent.Response, "briefly overloaded") {
 		t.Errorf("transient Response=%q, want outage wording", intent.Response)

@@ -1,10 +1,12 @@
 package perception
 
 import (
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 	"codenerd/internal/types"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -152,18 +154,32 @@ func (t *TaxonomyEngine) HasWorkspace() bool {
 	return t.workspaceRoot != ""
 }
 
-// QueueForLearning enqueues the reasoning traces for background pattern extraction.
-func (t *TaxonomyEngine) QueueForLearning(traces []ReasoningTrace) {
-	if t.worker != nil {
-		t.worker.Enqueue(traces)
+// QueueForLearning enqueues the reasoning traces for background pattern
+// extraction and reports whether the history was accepted. A rejected history
+// is a lost learning opportunity, never a silent success.
+func (t *TaxonomyEngine) QueueForLearning(traces []ReasoningTrace) Admission {
+	if t.worker == nil {
+		return AdmissionRejectedClosed
 	}
+	return t.worker.Enqueue(traces)
 }
 
-// StopWorker gracefully shuts down the consolidation worker.
+// StopWorker closes learning admission, drains every accepted history and
+// joins the consolidation worker, with no budget.
 func (t *TaxonomyEngine) StopWorker() {
 	if t.worker != nil {
 		t.worker.Stop()
 	}
+}
+
+// ShutdownWorker is StopWorker bounded by ctx: when the budget ends, the
+// in-flight history is cancelled, queued ones are abandoned and counted in the
+// returned *ShutdownIncompleteError, and the worker is joined either way.
+func (t *TaxonomyEngine) ShutdownWorker(ctx context.Context) error {
+	if t.worker == nil {
+		return nil
+	}
+	return t.worker.Shutdown(ctx)
 }
 
 // nerdPath returns the correct path for a .nerd subdirectory.
@@ -790,6 +806,22 @@ var DefaultTaxonomyData = []TaxonomyDef{
 		Patterns: []string{"(?i)^thanks\\b", "(?i)\\bthank you\\b", "(?i)\\bbye\\b"},
 	},
 	{
+		// Emitted by UnderstandingTransducer for action_type=diagnose_self:
+		// codeNERD's own failures. /reviewer reads codeNERD's source for the
+		// root causes; the kernel lays out the chain (self_diagnosis.mg).
+		Verb: "/self_diagnose", Category: "/query", ShardType: "/reviewer", Priority: 96,
+		Synonyms: []string{"debug yourself", "diagnose yourself", "self debug", "what went wrong with you", "why did you fail"},
+		Patterns: []string{"(?i)\\b(debug|diagnose|fix) (yourself|itself|codenerd)\\b", "(?i)\\bwhy (did|do) you (fail|break|crash)"},
+	},
+	{
+		// Emitted by UnderstandingTransducer for action_type=approve: the
+		// user's go-ahead on work the assistant proposed. /none: it starts the
+		// proposal's own work, it is never a task of its own.
+		Verb: "/approve", Category: "/query", ShardType: "/none", Priority: 55,
+		Synonyms: []string{"go ahead", "go for it", "do it", "proceed", "approved", "start it", "sounds good"},
+		Patterns: []string{"(?i)^go\\b", "(?i)\\bgo ahead\\b", "(?i)^(yes|yep|ok|okay),? (do it|go|start|proceed)", "(?i)\\bproceed\\b"},
+	},
+	{
 		// Emitted by UnderstandingTransducer for action_type=deploy.
 		// /coder: releases execute through the coder's command/file tools.
 		Verb: "/deploy", Category: "/mutation", ShardType: "/coder", Priority: 72,
@@ -798,10 +830,29 @@ var DefaultTaxonomyData = []TaxonomyDef{
 	},
 }
 
-// ShutdownSharedTaxonomy cleanly stops the global SharedTaxonomy worker goroutine.
-// Safe to invoke multiple times (idempotent).
-func ShutdownSharedTaxonomy() {
-	if SharedTaxonomy != nil {
-		SharedTaxonomy.StopWorker()
+// ShutdownSharedTaxonomy closes admission on the global SharedTaxonomy worker
+// and joins it, so no accepted learning job is still using the classifier,
+// embedding engine or LocalStore when they close. It waits for the queue for
+// one critic call plus one embedding request (llm_timeouts.per_call_timeout +
+// embedding.request_timeout) and then cancels what is left; a nil error means
+// every accepted job was processed. Safe to invoke multiple times; a stopped
+// worker is never reopened, later submissions are rejected_closed.
+func ShutdownSharedTaxonomy() error {
+	if SharedTaxonomy == nil {
+		return nil
 	}
+	ctx, cancel := sharedTaxonomyDrainContext()
+	defer cancel()
+	return SharedTaxonomy.ShutdownWorker(ctx)
+}
+
+// sharedTaxonomyDrainContext is the budget ShutdownSharedTaxonomy gives the
+// accepted queue. Without a configured per-call timeout there is no clock to
+// derive one from, and the drain is unbounded.
+func sharedTaxonomyDrainContext() (context.Context, context.CancelFunc) {
+	perCall := config.GetLLMTimeouts().PerCallTimeout
+	if perCall <= 0 {
+		return context.WithCancel(context.Background())
+	}
+	return context.WithTimeout(context.Background(), perCall+config.EmbeddingRequestTimeout())
 }

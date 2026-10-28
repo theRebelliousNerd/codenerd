@@ -202,8 +202,11 @@ func (m *SessionManager) replaceProgressiveControlSnapshot(sessionID string, gen
 		}
 		return stale, fmt.Errorf("page navigated while replacing observation facts; observe session %s again", sessionID)
 	}
+	// Keep the sanitized spelling: the sink stores it, and the next exact
+	// retraction of this snapshot must name those facts.
+	facts = m.sanitizeFacts(facts)
 	if len(facts) > 0 {
-		if err := m.addFacts(facts); err != nil {
+		if err := m.publishSanitized(facts); err != nil {
 			if retractor != nil && !stale {
 				// The preceding exact snapshot was already collected. Preserve an
 				// empty current snapshot so the next call does not retract it twice.

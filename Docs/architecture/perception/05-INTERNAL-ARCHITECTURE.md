@@ -11,7 +11,7 @@
 │  ┌─────────────────────┐   ┌──────────────────────────────────┐  │
 │  │ Understanding       │──►│ LLMTransducer                    │  │
 │  │ Transducer          │   │  BuildPrompt → Complete → parse  │  │
-│  │ (+ GeminiThinking)  │   │  deriveRouting → assert facts    │  │
+│  │                     │   │  deriveRouting → assert facts    │  │
 │  └──────────┬──────────┘   └──────────────▲───────────────────┘  │
 │             │                             │                       │
 │             │ semantic matches            │ LLMClient             │
@@ -106,7 +106,7 @@ VerbEntry ──► regex/synonym candidates
 
 | State | Behavior |
 |-------|----------|
-| Constructed | holds client; may be GeminiThinking wrapper |
+| Constructed | holds client; thinking is read from the client by `LLMTransducer.methodPlan` |
 | First Parse | `initialize` loads prompt, builds LLMTransducer |
 | Per turn | semantic → understand → convert; cache lastUnderstanding |
 | Kernel set | `SetKernel` installs `RealKernelRouter` |

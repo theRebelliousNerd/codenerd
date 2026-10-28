@@ -119,7 +119,7 @@ func goldenVerbPersona() map[string]string {
 	add("verify", "/verify", "/validate")
 	add("reviewer",
 		"/review", "/review_enhance", "/security", "/analyze", "/audit", "/lint",
-		"/check", "/inspect")
+		"/check", "/inspect", "/self_diagnose")
 	add("researcher",
 		"/explore", "/search", "/research", "/init",
 		"/learn", "/understand", "/find")
@@ -130,7 +130,7 @@ func goldenVerbPersona() map[string]string {
 		"/general",
 		"/explain", "/read", "/stats", "/knowledge", "/help", "/greet",
 		"/configure", "/dream", "/shadow", "/assault",
-		"/converse", "/forget", "/remember",
+		"/converse", "/forget", "/remember", "/approve",
 		"/requirements_interrogator", "/consult/requirements_interrogator")
 	return m
 }

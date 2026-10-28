@@ -35,10 +35,6 @@ import (
 // exact pending_action, and the call continues through every later gate and
 // the ordinary backend. Nothing here is a second executor.
 
-// humanApprovalPredicate is the host-asserted consent fact constitution.mg
-// joins against the pending_action it names.
-const humanApprovalPredicate = "human_approval_granted"
-
 // humanApprovalAdmission serializes every admission that carries a human
 // approval against every admission that does not. permitted/3 is keyed by
 // (Action, Target, Payload), so while an approved admission's fact is
@@ -282,11 +278,13 @@ func approvalPreview(call ToolCall, subject approval.Subject, reads []fileRevisi
 // awaitHumanApproval opens a request for the denied call, blocks for the
 // person's decision, and claims the approval against the call as it stands
 // when it resumes. Every refusal comes back as the tool error the model sees.
-func (e *Executor) awaitHumanApproval(ctx context.Context, call ToolCall, cfg *config.EffectiveAgentRuntimeConfig, canonicalPayload, denial string) (*humanApproval, error) {
+func (e *Executor) awaitHumanApproval(ctx context.Context, call ToolCall, cfg *config.EffectiveAgentRuntimeConfig, canonicalPayload, denial string, personRequired bool) (*humanApproval, error) {
 	broker := e.approvalBroker()
 	action := gateAction(call.Name)
 	target := e.extractTarget(call.Args)
-	if !broker.HostAttached() {
+	// A person-required request (the user's "confirm first" on this request)
+	// is not decided by the standing yolo instruction: it needs a host.
+	if !broker.HostAttached() && (personRequired || !broker.Autonomous()) {
 		return nil, fmt.Errorf("tool call blocked by safety gate: action %s target %s denied (%s); a person may approve this exact request, but no approval host is attached to this run — do not retry the same call; ask the user to perform it or to run interactively", call.Name, target, denial)
 	}
 	keep := broker.PreviewMaxBytes()
@@ -299,8 +297,17 @@ func (e *Executor) awaitHumanApproval(ctx context.Context, call ToolCall, cfg *c
 		return nil, fmt.Errorf("tool call blocked by safety gate: approval preview for %s failed: %w", call.Name, err)
 	}
 	intent := "exec-" + call.ID
-	logging.Get(logging.CategorySession).Info("Awaiting human approval for %s %s", call.Name, target)
-	grant, req, err := broker.Await(ctx, intent, subject, preview)
+	if broker.Autonomous() && !personRequired {
+		logging.Get(logging.CategorySession).Info("Yolo approves %s %s (denied for: %s)", call.Name, target, denial)
+	} else {
+		logging.Get(logging.CategorySession).Info("Awaiting human approval for %s %s", call.Name, target)
+	}
+	await := broker.Await
+	if personRequired {
+		await = broker.AwaitPerson
+		logging.Get(logging.CategorySession).Info("Awaiting the user's confirmation for %s %s (confirm_first on this request)", call.Name, target)
+	}
+	grant, req, err := await(ctx, intent, subject, preview)
 	if err != nil {
 		if errors.Is(err, approval.ErrRejected) {
 			e.assertSecurityViolation(types.MangleAtom(action), "human rejected approval request "+req.ID)
@@ -328,7 +335,7 @@ func (e *Executor) humanApprovalFact(actionID string, actionAtom types.MangleAto
 		return types.Fact{}, fmt.Errorf("the admitted call does not match the approved request")
 	}
 	return types.Fact{
-		Predicate: humanApprovalPredicate,
+		Predicate: types.HumanApprovalPredicate,
 		Args:      []any{actionID, actionAtom, target, payload, approved.grant.Digest()},
 	}, nil
 }

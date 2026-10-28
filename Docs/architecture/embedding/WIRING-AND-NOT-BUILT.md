@@ -98,11 +98,11 @@ now carries its decision.
   retries uploads only. Tests: `TestGenAIEngine_RetriesATransientFailure`,
   `_DoesNotRetryABadRequest`, `_GivesUpAfterItsAttempts`,
   `_RetryWaitObservesTheContext` (`internal/embedding/guards_test.go`).
-- Ollama batch is sequential (`internal/embedding/ollama.go:267`) — **open,
-  declined for now.** Throughput from concurrent requests depends on the
-  server's `OLLAMA_NUM_PARALLEL`, and the real fix, the batched `/api/embed`
-  endpoint, changes the wire protocol; neither can be measured or verified
-  without an Ollama server. Reopen with a measurement.
+- Ollama batch is sequential — **done.** `EmbedBatch` uses the batched
+  `/api/embed` endpoint in bounded chunks with `truncate:false` and a per-text
+  fallback (`embedBatchNative`, `EmbedBatch` in `internal/embedding/ollama.go`;
+  `batch_truncation_test.go`). Not verified against a live Ollama server: the
+  tests use a fake that reproduces the documented truncation default.
 - Unknown task types reached the API — **done, `fc857b3`.** `checkTaskType`
   (`internal/embedding/task_selector.go:53`) refuses a type outside
   `knownTaskTypes` (`:38`, the set `config.EmbeddingConfig.TaskType`

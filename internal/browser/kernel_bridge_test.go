@@ -127,10 +127,14 @@ func TestRollSessionEpoch_WhenRetractorWired_ShouldCollectRetiredFacts(t *testin
 		t.Error("the new epoch's own watermark must not be collected")
 	}
 
-	// The second roll has nothing left to collect.
+	// The second roll collects only the retired epoch's own watermark: the
+	// event facts were already collected, and the new watermark stays live.
 	manager.RollSessionEpoch("s1")
-	if len(kernel.retracted) != 5 {
-		t.Errorf("second roll retracted more facts (%d); tracking was not cleared", len(kernel.retracted))
+	if len(kernel.retracted) != 6 {
+		t.Fatalf("second roll left %d retracted facts, want 5 events + the retired epoch-2 watermark", len(kernel.retracted))
+	}
+	if last := kernel.retracted[5]; last.Predicate != "browser_epoch" || last.Args[1] != int64(2) {
+		t.Errorf("second roll retracted %v, want the epoch-2 watermark", last)
 	}
 }
 

@@ -2,8 +2,8 @@
 doc-class: north-star
 subsystem: orient
 implementation-status: target-state
-last-verified: 2026-09-29
-verified-against: bb7bafac
+last-verified: 2026-10-28
+verified-against: 31e27a9b
 supersedes: []
 ---
 
@@ -39,7 +39,10 @@ The unified unit graph carries three distinct edge families:
 
 - `code_depends(ConsumerUnit, ProviderUnit)`: Structural dependencies in code, populated from package imports (`recurse_workspace.go:128-130`), file imports (`dependency_link` and `file_imports` in `internal/world/dependency_links.go:12-51`), and symbol invocations (`code_calls` in `internal/world/cartographer.go:273-279`).
 - `spec_depends(DependentSpec, PrerequisiteSpec)`: Requirement ordering in specifications, populated from explicit document cross-references and North Star hierarchy (`northstar_supports` and `northstar_serves` in `schemas_misc.mg:67-73`).
-- `unit_realizes(CodeUnit, SpecUnit)`: Semantic realization links establishing that a code unit implements or satisfies a spec unit.
+- `spec_reference(SpecUnit, Target, Role)`: A specification names a code, test, or predicate target in a stated role (`/witness`, `/planned_witness`, `/planned_seam`, `/negative`, `/historical`, `/cited`). A reference is evidence that the document refers to a target. It is not a claim that the target realizes anything.
+- `unit_realizes(CodeUnit, SpecUnit)`: Semantic realization. It is derived only from an accepted relation claim (section 2), never from a reference, a resolved declaration, or a model-reported confidence score.
+
+The relation chain keeps five kinds of evidence apart (`Docs/audits/documentation-evidence-contract.md`): a **reference** (the document names a target), a **resolution** (the target resolves to a declaration in a stated scope), a **relation claim** (someone asserts implementation, attachment, example, dependency, contradiction, or history), a **relation disposition** (an accountable approver accepts or rejects the claim under a versioned policy), and an **execution receipt** (a specific check ran against a specific state). None is promoted into the next because a path, a name, or an unrelated passing test exists.
 
 ---
 
@@ -47,19 +50,21 @@ The unified unit graph carries three distinct edge families:
 
 Links between code and specifications are established through deterministic sensor facts and calibrated model transduction. Mangle never executes fuzzy string matching or probabilistic heuristics; it reasons strictly over discrete asserted facts.
 
-### Deterministic Link Sensors (High Confidence)
+### Deterministic Reference Sensors
 
-1. **Explicit Spec Citations**: When a specification document explicitly names a file path or symbol identifier, a Go parser emits `unit_realizes(CodeUnit, SpecUnit)` with proof provenance `/spec_citation`.
-2. **Code Intent Citations**: When source code docstrings, comments, or test function names cite a specification identifier (such as an ADR identifier, requirement key, or gap identifier), the CodeDOM parser emits `unit_realizes(CodeUnit, SpecUnit)` with proof provenance `/code_citation`.
+1. **Explicit Spec Citations**: When a specification document names a file path, symbol, test, or predicate, a Go sensor emits a reference and resolves it against the parse tree (`Checker.Evidence`, `internal/docscheck/evidence.go:234`). The role comes from the citing sentence, the nearest heading, and the document's own layer: a planned, target-state, or north-star document cites the **existing seam** where a capability would attach (R6 rule 2, `Docs/journeys/09-architecture-doc-standard.md:138`), which is a `/planned_seam` reference and never a realization.
+2. **Code Intent Citations**: When source comments or test names cite a specification identifier, the CodeDOM parser emits the same kind of reference from the code side. A comment that says a requirement is not implemented is a `/negative` reference.
 
-### Model Link Transduction and Verification
+Resolution is scoped and declaration-based: a bare name declared in several packages yields candidates, not the first hit; a name that occurs only in a comment, string, use site, or rule body is occurrence-only; a test target must be a `_test.go` function whose signature `go test` runs. Both sensors carry a scan manifest (domain, generation digest, deficits, terminal state); an empty or partial scan is unknown, not aligned.
 
-For code units and spec units lacking explicit cross-citations:
+### Model Link Transduction and Review
+
+For code units and spec units lacking an accepted relation:
 
 1. **Candidate Retrieval**: Go sensors compute pairwise semantic embedding similarity between spec requirement statements and code element summary embeddings. Pairs exceeding a similarity floor are staged as link candidates.
-2. **Transduction Claim**: The model evaluates the candidate pair, claiming a link with an explicit confidence score: `spec_link_claim(CodeUnit, SpecUnit, ConfidencePct, EvidenceSnippet)`.
-3. **Policy Acceptance**: Mangle policy accepts claims where `ConfidencePct` meets or exceeds `config_param(/orient_link_confidence_threshold, 85)`.
-4. **Clarification Seam**: Ambiguous claims falling between the confidence floor and acceptance threshold do not silently bind; they are routed to the operator as clarification questions.
+2. **Transduction Claim**: The model evaluates the candidate pair and records a relation claim with a role and a confidence score: `spec_link_claim(CodeUnit, SpecUnit, ConfidencePct, EvidenceSnippet)`. A claim is a proposal; the model cannot approve its own claim (`core.ModelObservationPolicy`, `internal/core/mangle_updates.go:48`, is an allowlist that names no documentation-evidence predicate).
+3. **Disposition**: `ConfidencePct` against `config_param(/orient_link_confidence_threshold, 85)` only prioritizes review. A claim becomes a `unit_realizes` fact when an accountable approver (the task's user or an explicitly delegated repository approver) accepts it under a versioned policy, or when a policy explicitly approved by that authority admits mechanically verifiable dispositions. The disposition records approver, authority source, policy version, and cited evidence. Broadening the covered requirement or relaxing the witness bar needs renewed approval.
+4. **Clarification Seam**: Ambiguous claims do not silently bind; they are routed to the operator as clarification questions.
 
 ---
 
@@ -69,8 +74,8 @@ Unit status is not an ungrounded string returned by a prompt; it is an intension
 
 | Derived Status | Semantic Definition | Exact Derivation Condition |
 |---|---|---|
-| `/aligned` | The unit conforms to its specification. | Every capability in the spec unit is realized by code units with passing tests, and no un-specced public symbols or uncommitted drifts exist. |
-| `/behind` | The code lags behind the specification. | The spec unit describes capabilities or requirements whose code realization is absent, or whose witness tests are failing or unexecuted. |
+| `/aligned` | All enumerated, applicable obligations of the unit have admissible current evidence under this policy and observation scope. It does not mean the software is universally correct. | Every capability in the spec unit has an accepted `unit_realizes` relation and an acceptance obligation discharged by a current execution receipt for exactly that requirement, no un-specced public symbols or uncommitted drifts exist, and the scan manifest for the requested domain is complete. A result for a subset of packages stays subset-scoped. |
+| `/behind` | The code lags behind the specification. | The spec unit describes capabilities or requirements whose code realization is absent, or whose witness tests are failing or unexecuted. A requirement with only references and no accepted relation is `/behind`, not `/aligned`. |
 | `/ahead` | The code introduces un-specced behavior. | Public API functions, exported types, or external endpoints exist in the code unit without any realizing specification unit. |
 | `/missing` | The unit has zero architectural coverage. | A production code unit exists with no corresponding spec unit in any documentation layer. |
 | `/stale` | The specification is chronologically obsolete. | The spec unit's last git committer timestamp (`%ct`) is older than the latest behavioral modification to the code units it covers. Filesystem `mtime` is never used. |
@@ -116,7 +121,7 @@ During initialization (`internal/orient`), document parsers examine existing doc
 
 - When generating missing specs or repairing drift, codeNERD formats new files according to the discovered `repo_spec_template`.
 - When a repository possesses zero architectural specifications, codeNERD prompts the operator during first-boot clarification, offering the 09-standard architecture scaffold (`Docs/journeys/09-architecture-doc-standard.md`) as the default framework.
-- **Runtimes Integration of `docscheck`**: codeNERD's existing `internal/docscheck` validator (`internal/docscheck/docscheck.go:66-150`), currently restricted to CLI execution (`cmd/nerd/cmd_docs.go:85`), is generalized into an active runtime sensor. Its `doc_problem` facts (`internal/docscheck/problem.go:55-101`, `schemas_reviewer.mg:83`) are asserted into the kernel during live execution.
+- **Documentation evidence, not documentation problems**: the structural R6 grade (`docsCheckInto`, `cmd/nerd/cmd_docs.go:125`) is unchanged and stays CLI-only. The evidence view (`nerd docs evidence`, `docsEvidenceInto`, `cmd/nerd/cmd_docs.go:157`) is shipped: it reports references, roles, and resolution grades with a scan manifest, and produces no relation claims, dispositions, acceptance obligations, or execution receipts. The `doc_problem` fact surface no longer exists (removed in commit b0f04d78 as unconsumed); this document does not restore it. A runtime kernel surface for documentation evidence is introduced only with a producer, declarations, admission policy that keeps host measurements and dispositions out of model envelopes, a consumer, invalidation, and acceptance evidence together.
 
 ---
 
@@ -129,13 +134,20 @@ During initialization (`internal/orient`), document parsers examine existing doc
 | **Chronology Sensor** | Extracts git committer timestamps (`%ct`) for all code and spec units via streaming log. | Go (`internal/orient/history.go`, `git log --name-status -M`). |
 | **Link Candidate Proposer** | Computes embedding cosine similarity for unlinked pairs; captures model claims. | Go (Vector store, LLM transduction client). |
 | **Native Template Learner** | Discovers repository spec format and registry schemas. | Go (`internal/orient/docs.go`, heading and table pattern matching). |
-| **Unit Graph Assembly** | Unifies code and spec nodes into a bipartite graph. | Mangle EDB facts (`code_unit`, `spec_unit`, `code_depends`, `spec_depends`, `unit_realizes`). |
+| **Unit Graph Assembly** | Unifies code and spec nodes into a bipartite graph. | Mangle EDB facts (`code_unit`, `spec_unit`, `code_depends`, `spec_depends`, `spec_reference`, `unit_realizes`). |
 | **Status Evaluation** | Computes fixpoint deriving `/aligned`, `/behind`, `/ahead`, `/missing`, `/stale`, `/not_trending`. | Mangle IDB rules (`internal/orient/spec_status.mg`). |
 | **Spec-First Turn Gate** | Validates that code edits are accompanied by required spec updates. | Mangle IDB rules (`internal/core/defaults/policy/coder_safety.mg`). |
 
 ---
 
 ## 7. Verification Tests That Prove This Capability
+
+Shipped (evidence contract):
+
+- `internal/docscheck/evidence_test.go`: `TestEvidencePlannedSeamIsReferenceNotRealization`, `TestEvidenceNegativeAndHistoricalCitationsKeepTheirRole`, `TestEvidenceTextOccurrenceIsNotDeclaration`, `TestEvidenceAmbiguousNamesYieldCandidates`, `TestEvidenceTestIdentityIsSeparateFromTextMatch`, `TestEvidenceSameTestNameInTwoPackagesIsAmbiguous`, `TestEvidenceGenerationTracksEveryInput`, `TestEvidenceScopeAndEmptyDomain`, `TestEvidenceUnparsedSourceMakesAbsenceUnobserved`.
+- `internal/core/doc_evidence_authority_test.go`: `TestModelObservationPolicyRefusesDocumentEvidence`.
+
+Planned (unit graph and status derivation):
 
 1. **`TestSpecAlignment_UnitStatusDerivation`**: Loads a multi-unit fixture containing aligned, behind, ahead, missing, and stale units. Verifies that Mangle fixpoint derives the exact expected status atom for each unit.
 2. **`TestSpecAlignment_GitCommitterStaleness`**: Creates code and spec files with identical filesystem `mtime` but differing git committer timestamps (`%ct`). Verifies that staleness evaluates strictly against git timestamps.
@@ -147,7 +159,7 @@ During initialization (`internal/orient`), document parsers examine existing doc
 
 ## 8. Failure Modes and Resilience
 
-- **Reflection and Dynamic Registration**: In languages with dependency injection or dynamic reflection, code symbols may appear unreferenced by static AST analysis. The link sensor allows docstrings or manifest tags to assert explicit realization edges, overriding static call-graph blindness.
+- **Reflection and Dynamic Registration**: In languages with dependency injection or dynamic reflection, code symbols may appear unreferenced by static AST analysis. Docstrings or manifest tags may propose explicit relation claims for such symbols; they enter the same review as any claim (section 2) and do not become `unit_realizes` by being tagged.
 - **Link Transduction Hallucination**: An overconfident LLM might assert links between unrelated code and spec units. Mitigation: links require embedding similarity above a strict mathematical floor before reaching the model, and claims require explicit citation quotes.
 - **Extreme Monorepo Scale**: On repositories with $>20\text{k}$ files, computing pairwise embeddings across all symbols is cost-prohibitive. Mitigation: candidate proposing is scoped to unit packages and ancestor dependency cones, never the entire cartesian product.
 - **Missing Git History**: In shallow CI clones (`--depth 1`) or unversioned directories, committer timestamps cannot prove staleness. Mitigation: the system detects shallow clones via `git rev-parse --is-shallow-repository` and marks chronological status as `/unverified_history` rather than emitting false staleness verdicts.

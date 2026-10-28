@@ -3,6 +3,7 @@ package northstar
 import (
 	"codenerd/internal/projectdoc"
 	"context"
+	"errors"
 	"fmt"
 	pathpkg "path"
 	"path/filepath"
@@ -212,20 +213,28 @@ func (g *Guardian) Initialize() error {
 		)
 	}
 
-	g.refreshKernelFacts()
+	// A failed projection is logged by refreshKernelFacts; Initialize has
+	// loaded the authority either way.
+	_ = g.refreshKernelFacts()
 
 	return nil
 }
 
-func (g *Guardian) refreshKernelFacts() {
+// refreshKernelFacts replaces the kernel's northstar_* facts with the current
+// vision's projection. It returns every retraction and assertion failure
+// together: a kernel left holding stale or partial facts is a projection
+// failure the caller has to be able to report.
+func (g *Guardian) refreshKernelFacts() error {
 	g.mu.RLock()
 	kernel := g.kernel
 	vision := cloneVision(g.vision)
 	g.mu.RUnlock()
 
 	if kernel == nil {
-		return
+		return nil
 	}
+
+	var errs []error
 
 	// Retract all existing northstar facts
 	type BatchRetractor interface {
@@ -233,15 +242,19 @@ func (g *Guardian) refreshKernelFacts() {
 	}
 
 	if br, ok := kernel.(BatchRetractor); ok {
-		_ = br.RemoveFactsByPredicateSet(northstarPredicatesMap)
+		if err := br.RemoveFactsByPredicateSet(northstarPredicatesMap); err != nil {
+			errs = append(errs, fmt.Errorf("retract northstar facts: %w", err))
+		}
 	} else {
 		for _, p := range northstarPredicatesList {
-			_ = kernel.Retract(p)
+			if err := kernel.Retract(p); err != nil {
+				errs = append(errs, fmt.Errorf("retract %s: %w", p, err))
+			}
 		}
 	}
 
 	if vision == nil {
-		return
+		return errors.Join(errs...)
 	}
 
 	// Assert new facts
@@ -252,15 +265,19 @@ func (g *Guardian) refreshKernelFacts() {
 	facts := vision.ToFacts()
 	if ba, ok := kernel.(BatchAsserter); ok {
 		if err := ba.AssertBatch(facts); err != nil {
-			logging.Get(logging.CategoryNorthstar).Debug("Failed to assert batch northstar facts: %v", err)
+			errs = append(errs, fmt.Errorf("assert northstar facts: %w", err))
 		}
 	} else {
 		for _, fact := range facts {
 			if err := kernel.Assert(fact); err != nil {
-				logging.Get(logging.CategoryNorthstar).Debug("Failed to assert northstar fact %s: %v", fact.Predicate, err)
+				errs = append(errs, fmt.Errorf("assert %s: %w", fact.Predicate, err))
 			}
 		}
 	}
+	if len(errs) > 0 {
+		logging.Get(logging.CategoryNorthstar).Warn("Northstar kernel projection incomplete: %v", errors.Join(errs...))
+	}
+	return errors.Join(errs...)
 }
 
 // HasVision returns true if a vision is defined.
@@ -284,7 +301,9 @@ func (g *Guardian) GetState() *GuardianState {
 	return cloneGuardianState(g.state)
 }
 
-// UpdateVision updates the stored vision.
+// UpdateVision replaces the stored vision unconditionally. Callers that edit
+// a vision they read earlier use UpdateVisionFromBase instead, which refuses to
+// overwrite a vision that changed in between.
 func (g *Guardian) UpdateVision(vision *Vision) error {
 	if vision == nil {
 		return fmt.Errorf("vision is nil")
@@ -294,34 +313,51 @@ func (g *Guardian) UpdateVision(vision *Vision) error {
 		return err
 	}
 
+	stateErr, projection := g.publishVision(vision)
+	for _, err := range projection {
+		logging.Get(logging.CategoryNorthstar).Warn("Vision projection failed: %v", err)
+	}
+	if stateErr != nil {
+		return stateErr
+	}
+
+	logging.Get(logging.CategoryNorthstar).Info("Vision updated: %s", types.Ellipsize(vision.Mission, 50))
+	return nil
+}
+
+// publishVision installs a vision the store has already committed: the
+// guardian's cached copy and state, the JSON and .mg export surfaces, and the
+// kernel facts. The commit is not undone by a failure here, so failures are
+// returned for the caller to report, not hidden: stateErr is a failed state
+// refresh, projection the failed exports and kernel writes.
+func (g *Guardian) publishVision(vision *Vision) (stateErr error, projection []error) {
 	state, err := g.store.GetState()
 	if err != nil {
-		return fmt.Errorf("failed to refresh guardian state: %w", err)
+		stateErr = fmt.Errorf("failed to refresh guardian state: %w", err)
 	}
 
 	g.mu.Lock()
 	g.vision = cloneVision(vision)
-	g.state = cloneGuardianState(state)
+	if err == nil {
+		g.state = cloneGuardianState(state)
+	}
 	g.mu.Unlock()
 
 	// Push the new vision back out to the operator-visible surfaces in the same
 	// call. Without this the store and .nerd/northstar.json diverge the instant
 	// anything updates the vision programmatically, and the next boot's
 	// reconciliation has to guess by mtime which half is real.
-	if g.store != nil {
-		nerdDir := filepath.Dir(g.store.Path())
-		if _, err := WriteVisionJSON(nerdDir, vision); err != nil {
-			logging.Get(logging.CategoryNorthstar).Warn("Failed to export vision JSON: %v", err)
-		}
-		if err := WriteVisionMangle(nerdDir, vision); err != nil {
-			logging.Get(logging.CategoryNorthstar).Warn("Failed to export vision facts: %v", err)
-		}
+	nerdDir := filepath.Dir(g.store.Path())
+	if _, err := WriteVisionJSON(nerdDir, vision); err != nil {
+		projection = append(projection, fmt.Errorf("export %s: %w", VisionJSONFileName, err))
 	}
-
-	g.refreshKernelFacts()
-
-	logging.Get(logging.CategoryNorthstar).Info("Vision updated: %s", types.Ellipsize(vision.Mission, 50))
-	return nil
+	if err := WriteVisionMangle(nerdDir, vision); err != nil {
+		projection = append(projection, fmt.Errorf("export %s: %w", VisionMangleFileName, err))
+	}
+	if err := g.refreshKernelFacts(); err != nil {
+		projection = append(projection, err)
+	}
+	return stateErr, projection
 }
 
 // =============================================================================
@@ -844,14 +880,27 @@ func cloneVision(v *Vision) *Vision {
 			}
 		}
 	}
-	clone.Capabilities = append([]Capability(nil), v.Capabilities...)
+	if v.Capabilities != nil {
+		clone.Capabilities = make([]Capability, len(v.Capabilities))
+		for i, c := range v.Capabilities {
+			c.Serves = append([]string(nil), c.Serves...)
+			clone.Capabilities[i] = c
+		}
+	}
 	if v.Risks != nil {
 		clone.Risks = make([]Risk, len(v.Risks))
 		for i, r := range v.Risks {
 			clone.Risks[i] = cloneRisk(r)
 		}
 	}
-	clone.Requirements = append([]Requirement(nil), v.Requirements...)
+	if v.Requirements != nil {
+		clone.Requirements = make([]Requirement, len(v.Requirements))
+		for i, r := range v.Requirements {
+			r.Supports = append([]string(nil), r.Supports...)
+			r.Addresses = append([]string(nil), r.Addresses...)
+			clone.Requirements[i] = r
+		}
+	}
 	clone.Constraints = append([]string(nil), v.Constraints...)
 	return &clone
 }

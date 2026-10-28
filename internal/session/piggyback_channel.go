@@ -74,8 +74,13 @@ func (p *piggybackChannel) CompleteWithToolResults(ctx context.Context, systemPr
 		return nil, err
 	}
 	resp := &types.LLMToolResponse{Text: text, StopReason: "end_turn"}
-	if p.e.promotePiggybackToolRequests(resp) {
-		if loop := activeWorkingLoop(ctx); loop != nil {
+	loop := activeWorkingLoop(ctx)
+	var turn *ExecutionResult
+	if loop != nil {
+		turn = loop.result
+	}
+	if p.e.promotePiggybackToolRequests(resp, turn) {
+		if loop != nil {
 			if calls, renamed := loop.claimCallIDs(resp.ToolCalls); renamed {
 				resp.Rewrite(resp.Text, calls)
 			}

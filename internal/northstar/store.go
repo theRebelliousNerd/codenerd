@@ -193,8 +193,23 @@ func (s *Store) initSchema() error {
 // VISION OPERATIONS
 // =============================================================================
 
-// SaveVision stores or updates the project vision.
+// SaveVision stores or updates the project vision, replacing whatever is there.
 func (s *Store) SaveVision(v *Vision) error {
+	return s.saveVision(v, nil)
+}
+
+// SaveVisionIfBase stores v only if the stored vision still has the content
+// whose digest is base (see VisionDigest; NoVisionDigest means "no vision may
+// exist yet"). The comparison runs inside the write transaction, so a writer
+// that got in between the caller's read and this call -- the CLI import, another
+// Guardian, an accepted file reconciliation -- is refused with a
+// *BaseStaleError rather than silently overwritten. A refused save changes
+// nothing.
+func (s *Store) SaveVisionIfBase(v *Vision, base string) error {
+	return s.saveVision(v, &base)
+}
+
+func (s *Store) saveVision(v *Vision, base *string) error {
 	if v == nil {
 		return fmt.Errorf("vision is nil")
 	}
@@ -228,9 +243,25 @@ func (s *Store) SaveVision(v *Vision) error {
 		return err
 	}
 
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin save vision transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if base != nil {
+		current, err := loadVisionRow(tx)
+		if err != nil {
+			return err
+		}
+		if actual := VisionDigest(current); actual != *base {
+			return &BaseStaleError{Expected: *base, Actual: actual}
+		}
+	}
+
 	now := time.Now()
 	if v.CreatedAt.IsZero() {
-		createdAt, err := s.lookupVisionCreatedAt()
+		createdAt, err := lookupVisionCreatedAt(tx)
 		if err != nil {
 			return err
 		}
@@ -240,12 +271,6 @@ func (s *Store) SaveVision(v *Vision) error {
 		v.CreatedAt = createdAt
 	}
 	v.UpdatedAt = now
-
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("begin save vision transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
 
 	_, err = tx.Exec(`
 		INSERT INTO vision (id, mission, problem, vision_statement, personas_json,
@@ -285,11 +310,20 @@ func (s *Store) SaveVision(v *Vision) error {
 func (s *Store) LoadVision() (*Vision, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return loadVisionRow(s.db)
+}
 
+// rowQuerier is the part of *sql.DB and *sql.Tx the vision row read needs, so
+// the same read serves the plain load and the in-transaction base comparison.
+type rowQuerier interface {
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+func loadVisionRow(q rowQuerier) (*Vision, error) {
 	var v Vision
 	var personasJSON, capsJSON, risksJSON, reqsJSON, constraintsJSON sql.NullString
 
-	err := s.db.QueryRow(`
+	err := q.QueryRow(`
 		SELECT mission, problem, vision_statement, personas_json, capabilities_json,
 			risks_json, requirements_json, constraints_json, created_at, updated_at
 		FROM vision WHERE id = 1
@@ -736,9 +770,9 @@ func (s *Store) ResetSessionObservations() error {
 	return err
 }
 
-func (s *Store) lookupVisionCreatedAt() (time.Time, error) {
+func lookupVisionCreatedAt(q rowQuerier) (time.Time, error) {
 	var createdAt time.Time
-	err := s.db.QueryRow(`SELECT created_at FROM vision WHERE id = 1`).Scan(&createdAt)
+	err := q.QueryRow(`SELECT created_at FROM vision WHERE id = 1`).Scan(&createdAt)
 	if err == sql.ErrNoRows {
 		return time.Time{}, nil
 	}

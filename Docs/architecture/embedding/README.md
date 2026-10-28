@@ -37,7 +37,7 @@ All constructors and methods below were checked against the cited lines.
 | `GenAIEngine.EmbedBatchJob` | `internal/embedding/genai.go:330` | Async batch submission; rejects empty input (`genai.go:335`) |
 | `NewOllamaEngine` | `internal/embedding/ollama.go:44` | Local endpoint + model |
 | `OllamaEngine.Embed` | `internal/embedding/ollama.go:81` | POSTs `ollamaEmbedRequest` to `/api/embeddings` (`ollama.go:119`); up to 3 attempts with 300ms doubling backoff (`ollama.go:95`, `ollama.go:96`) |
-| `OllamaEngine.EmbedBatch` | `internal/embedding/ollama.go:233` | No native batch: calls `Embed` sequentially (`ollama.go:231`) |
+| `OllamaEngine.EmbedBatch` | `internal/embedding/ollama.go:233` | Native `/api/embed` in bounded chunks with `truncate:false`; a refused chunk falls back to per-text `Embed` (split-and-pool) |
 | `OllamaEngine.EnsureModel` | `internal/embedding/ollama.go:329` | Resolve → prefer installed → `POST /api/pull` once per engine (four-step chain documented at `ollama.go:28`) |
 | `OllamaEngine.HealthCheck` | `internal/embedding/ollama.go:296` | GETs `/api/tags` (`ollama.go:304`) |
 | `SelectTaskType` | `internal/embedding/task_selector.go:36` | Pure `ContentType` × query-flag → task string; unknown input falls to `SEMANTIC_SIMILARITY` (`task_selector.go:74`) |

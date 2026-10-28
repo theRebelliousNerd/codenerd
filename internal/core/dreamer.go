@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,11 @@ type DreamResult struct {
 	ProjectedFacts []Fact
 	Unsafe         bool
 	Reason         string
+	// PanicReasons are the panic_state reasons that made the action unsafe,
+	// sorted; empty when the block came from a failed or refused simulation
+	// rather than a rule. Only rule reasons can ever be weighed against a
+	// human approval (VirtualStore.dreamGate).
+	PanicReasons []string
 }
 
 // Dreamer simulates the impact of actions before execution.
@@ -266,9 +272,10 @@ func (d *Dreamer) SimulateAction(ctx context.Context, req ActionRequest) DreamRe
 	}
 
 	logging.DreamDebug("SimulateAction: evaluating projection for safety")
-	unsafe, reason := d.evaluateProjection(kernel, actionID, projected)
+	unsafe, reason, panics := d.evaluateProjection(kernel, actionID, projected)
 	result.Unsafe = unsafe
 	result.Reason = reason
+	result.PanicReasons = panics
 
 	if unsafe {
 		logging.Dream("SimulateAction: ACTION BLOCKED - %s on %s (reason: %s)", req.Type, req.Target, reason)
@@ -286,7 +293,7 @@ func (d *Dreamer) SimulateAction(ctx context.Context, req ActionRequest) DreamRe
 }
 
 // evaluateProjection loads projected facts into a sandboxed kernel and queries panic_state.
-func (d *Dreamer) evaluateProjection(kernel *RealKernel, actionID string, projected []Fact) (bool, string) {
+func (d *Dreamer) evaluateProjection(kernel *RealKernel, actionID string, projected []Fact) (bool, string, []string) {
 	timer := logging.StartTimer(logging.CategoryDream, "evaluateProjection")
 	logging.DreamDebug("evaluateProjection: cloning kernel for sandbox evaluation")
 	cloneStarted := time.Now()
@@ -301,7 +308,7 @@ func (d *Dreamer) evaluateProjection(kernel *RealKernel, actionID string, projec
 				"evaluateProjection: failed to stage projected fact %s: %v",
 				fact.Predicate, err)
 			timer.Stop()
-			return true, fmt.Sprintf("dream projection rejected %s: %v", fact.Predicate, err)
+			return true, fmt.Sprintf("dream projection rejected %s: %v", fact.Predicate, err), nil
 		}
 	}
 
@@ -312,7 +319,7 @@ func (d *Dreamer) evaluateProjection(kernel *RealKernel, actionID string, projec
 		// If evaluation fails, treat as unsafe to be conservative
 		logging.Get(logging.CategoryDream).Error("evaluateProjection: sandbox evaluation failed: %v", err)
 		timer.Stop()
-		return true, fmt.Sprintf("dream evaluation failed: %v", err)
+		return true, fmt.Sprintf("dream evaluation failed: %v", err), nil
 	}
 	// Attribute the check's cost (KERNEL-PERF-01): the clone, then the
 	// evaluation split into store preparation and the engine's fixpoint.
@@ -333,7 +340,7 @@ func (d *Dreamer) evaluateProjection(kernel *RealKernel, actionID string, projec
 	}
 	if !hasPanicState {
 		timer.Stop()
-		return true, "dream query failed: panic_state predicate not declared"
+		return true, "dream query failed: panic_state predicate not declared", nil
 	}
 
 	logging.DreamDebug("evaluateProjection: querying panic_state predicate")
@@ -342,10 +349,14 @@ func (d *Dreamer) evaluateProjection(kernel *RealKernel, actionID string, projec
 		// Conservative: if we can't query panic_state, we can't prove safety.
 		logging.Get(logging.CategoryDream).Error("evaluateProjection: panic_state query failed: %v", err)
 		timer.Stop()
-		return true, fmt.Sprintf("dream query failed: %v", err)
+		return true, fmt.Sprintf("dream query failed: %v", err), nil
 	}
 
 	logging.DreamDebug("evaluateProjection: found %d panic_state results", len(results))
+	// Every reason, not the first: a block a human approval may lift must be
+	// one whose reasons are ALL liftable (VirtualStore.dreamGate).
+	seen := map[string]bool{}
+	var panics []string
 	for _, fact := range results {
 		if len(fact.Args) == 0 {
 			continue
@@ -358,14 +369,20 @@ func (d *Dreamer) evaluateProjection(kernel *RealKernel, actionID string, projec
 		if len(fact.Args) > 1 {
 			reason = types.ExtractString(fact.Args[1])
 		}
-		logging.Dream("evaluateProjection: UNSAFE - panic_state detected for %s: %s", actionID, reason)
-		timer.Stop()
-		return true, reason
+		if !seen[reason] {
+			seen[reason] = true
+			panics = append(panics, reason)
+		}
 	}
-
-	logging.DreamDebug("evaluateProjection: no panic_state detected, action is safe")
 	timer.Stop()
-	return false, ""
+	if len(panics) > 0 {
+		sort.Strings(panics)
+		reason := strings.Join(panics, ", ")
+		logging.Dream("evaluateProjection: UNSAFE - panic_state detected for %s: %s", actionID, reason)
+		return true, reason, panics
+	}
+	logging.DreamDebug("evaluateProjection: no panic_state detected, action is safe")
+	return false, "", nil
 }
 
 // projectEffects converts an ActionRequest into a set of projected facts.

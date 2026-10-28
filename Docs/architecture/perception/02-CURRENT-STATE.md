@@ -28,7 +28,7 @@
 | Area | Hot files | Status |
 |------|-----------|--------|
 | LLM-first transduction | `understanding_adapter.go`, `transducer_llm.go` | Live, primary |
-| Gemini thinking specialization | `transducer_gemini.go` | Live when thinking enabled |
+| Understanding schema and schema-capable client | `classification_schema.go` | Live; the one `LLMTransducer` reads the capability in `methodPlan` |
 | Verb corpus / regex | `transducer.go` | Live dual path |
 | Semantic vector classify | `semantic_classifier.go` | Live if embed engine boots |
 | Taxonomy Mangle | `taxonomy.go`, `taxonomy_persistence.go` | Live SharedTaxonomy |
@@ -44,7 +44,7 @@
 
 ### Construction
 
-- `NewUnderstandingTransducer`, `NewLLMTransducer`, `NewGeminiThinkingTransducer`
+- `NewUnderstandingTransducer`, `NewLLMTransducer` (one transducer type; a thinking client selects the thinking methods inside `LLMTransducer.methodPlan`)
 - `NewSemanticClassifier`, `NewSemanticClassifierFromConfig`, `InitSharedSemanticClassifier`
 - `NewTaxonomyEngine`, package `init` → `SharedTaxonomy`
 - `NewClientFromEnv`, `NewClientFromConfig`, `NewClassificationClientFromConfig`

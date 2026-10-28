@@ -42,6 +42,26 @@ var ErrMaxRetriesExceeded = errors.New("max retries exceeded - escalating to use
 // as a success. Callers should use errors.Is to detect it.
 var ErrVerificationUnavailable = errors.New("verification unavailable")
 
+// ExecutionError is a delegation attempt whose worker failed. It is the
+// worker's own error, unchanged for errors.Is and errors.As, together with the
+// observation the worker had produced by then: a worker that fails after tool
+// work has changed files, and the failure alone tells the caller nothing about
+// them. No judge ran and the kernel decided no move -- a failed execution is
+// not retried here (a blind retry would repeat effects the failed attempt may
+// already have had).
+type ExecutionError struct {
+	// Attempt is the attempt that failed, from 1.
+	Attempt int64
+	// Return is what the worker had observed about itself when it failed.
+	Return observation.Return
+	// Err is the worker's error.
+	Err error
+}
+
+func (e *ExecutionError) Error() string { return "shard execution failed: " + e.Err.Error() }
+
+func (e *ExecutionError) Unwrap() error { return e.Err }
+
 // QualityViolation represents a type of corner-cutting detected in code.
 type QualityViolation string
 
@@ -189,6 +209,12 @@ type Delegation struct {
 	// Persona is the shard persona ("coder", "reviewer", a specialist's
 	// name) or an intent verb.
 	Persona string
+	// Target and Constraint are the resolved target and the user's current
+	// requirement, carried structurally beside Task so each attempt's worker
+	// holds them as intent fields and not only as words inside the task text.
+	// A retry's task is rewritten with the judge's defect; these are not.
+	Target     string
+	Constraint string
 	// MaxAttempts is the persona's attempt cap,
 	// shard_profiles.<persona>.max_retries.
 	MaxAttempts int
@@ -259,9 +285,9 @@ func (v *TaskVerifier) VerifyWithRetry(ctx context.Context, d Delegation) (strin
 		// ExecuteObserved and ran without the blackboard: the delegations the
 		// kernel routes through verification -- mutations -- were the ones
 		// that never saw the prior shard results.
-		ret, err := observed.ExecuteObservedWithContext(ctx, session.TaskRequest{IntentVerb: intent, Task: task}, d.SessionContext, d.Priority)
+		ret, err := observed.ExecuteObservedWithContext(ctx, session.TaskRequest{IntentVerb: intent, Task: task, Target: d.Target, Constraint: d.Constraint}, d.SessionContext, d.Priority)
 		if err != nil {
-			return ret.Output, nil, fmt.Errorf("shard execution failed: %w", err)
+			return ret.Output, nil, &ExecutionError{Attempt: attempt, Return: ret, Err: err}
 		}
 		if err := k.Assert(types.Fact{Predicate: "delegation_attempt", Args: []any{root, attempt, outcomeAtom(ret.Outcome)}}); err != nil {
 			return ret.Output, nil, fmt.Errorf("assert attempt %d: %w", attempt, err)

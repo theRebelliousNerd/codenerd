@@ -320,7 +320,7 @@ func TestDerive_RequirementsKeepAllFieldsAndObjects(t *testing.T) {
 	if !reflect.DeepEqual(decoded, state) || len(got) != 20 || got[0].ID != "REQ-003" || got[1].ID != "REQ-002" {
 		t.Fatalf("lost state, object or explicit ID: %+v", got)
 	}
-	if _, err := parseRequirements(`{"requirements":[{"id":"REQ-001","description":"duplicate","type":"functional","priority":"must-have"}]}`, state.ExistingRequirements); err == nil {
+	if _, err := parseRequirements(`{"requirements":[{"id":"REQ-001","description":"duplicate","type":"functional","priority":"must-have"}]}`, state); err == nil {
 		t.Fatal("reused existing ID")
 	}
 }

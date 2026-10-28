@@ -53,8 +53,8 @@ func TestDebugSelfMode_JSONKeyAndImpliesDebugMode(t *testing.T) {
 	if !strings.Contains(string(raw), `"debug_self":true`) {
 		t.Fatalf("debug_self must serialize under logging: %s", raw[:300])
 	}
-	// Enabling debug_self must not persist debug_mode:true or yolo:true.
-	if strings.Contains(string(raw), `"debug_mode":true`) || strings.Contains(string(raw), `"yolo":true`) {
+	// Enabling debug_self must not persist debug_mode:true or work_mode yolo.
+	if strings.Contains(string(raw), `"debug_mode":true`) || strings.Contains(string(raw), `"work_mode":"yolo"`) {
 		t.Fatalf("debug_self must not flip persisted debug_mode/yolo: %s", raw[:300])
 	}
 }

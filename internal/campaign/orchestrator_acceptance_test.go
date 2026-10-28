@@ -52,6 +52,7 @@ func acceptanceOrchestrator(t *testing.T, accept *Acceptance, exec tactile.Execu
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)
 	}
+	t.Cleanup(func() { _ = orch.Close() })
 	orch.campaign = &Campaign{
 		ID: "/campaign_accept", Title: "acceptance", Status: StatusActive,
 		TotalPhases: 1, CompletedPhases: 1, TotalTasks: 1, CompletedTasks: 1,

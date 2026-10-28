@@ -3,6 +3,7 @@ package chat
 import (
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/approval"
+	"codenerd/internal/retrieval"
 	"fmt"
 	"strings"
 	"time"
@@ -20,6 +21,17 @@ import (
 )
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.updateCore(msg)
+	// A message queued while a turn ran starts once nothing is in flight.
+	if nm, ok := next.(Model); ok && !nm.isLoading && nm.turn.queuedCount() > 0 {
+		var queued tea.Cmd
+		nm, queued = nm.startQueuedTurn()
+		return nm, tea.Batch(cmd, queued)
+	}
+	return next, cmd
+}
+
+func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Performance instrumentation: Track slow Update() handlers
 	startTime := time.Now()
 	defer func() {
@@ -148,6 +160,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m = m.pushAssistantMsgWithThought(msg.Surface, msg.ThoughtSummary)
 		persistCmd = m.saveSessionStateCmd()
+
+	case sideTurnMsg:
+		m = m.applySideTurn(msg)
+		return m, nil
+
+	case backgroundStartMsg:
+		// The turn handed its work to the background: answer now, run it.
+		m.isLoading = false
+		m.turnCount++
+		m = m.pushAssistantMsg(msg.Surface)
+		return m, tea.Batch(m.startBackground(msg.Job, msg.Job.Task), m.saveSessionStateCmd())
+
+	case backgroundDoneMsg:
+		var cmd tea.Cmd
+		m, cmd = m.finishBackground(msg)
+		return m, cmd
+
+	case holdMsg:
+		// Work held for the user's go-ahead: the conversation stays open.
+		m.isLoading = false
+		m.turnCount++
+		m.pendingWork = msg.Work
+		m = m.pushAssistantMsg(msg.Surface)
+		persistCmd = m.saveSessionStateCmd()
+
+	case approveWorkMsg:
+		// The kernel read the reply as the go-ahead on the held proposal.
+		m.isLoading = false
+		var cmd tea.Cmd
+		m, cmd = m.approvePendingWork()
+		return m, cmd
 
 	case responseMsg:
 		m.isLoading = false
@@ -365,14 +408,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Show progress for completed step
 		m = m.pushAssistantMsg(fmt.Sprintf("✓ [%d/%d] %s", m.continuationStep-1, m.continuationTotal, m.statusMessage))
 
-		// Check continuation mode to decide whether to pause
-		shouldPause := false
-		switch m.continuationMode {
-		case ContinuationModeConfirm:
-			shouldPause = true // Always pause in Confirm mode
-		case ContinuationModeBreakpoint:
-			shouldPause = msg.isMutation // Pause only for mutations
-		}
+		shouldPause := m.pausesBefore(msg.isMutation)
 
 		if shouldPause {
 			m.isLoading = false
@@ -702,6 +738,14 @@ func (m Model) handleBootCompleteMsg(msg bootCompleteMsg) (tea.Model, tea.Cmd) {
 		m.retriever = c.Retriever
 		m.localDB = c.LocalDB
 		m.embeddingEngine = c.EmbeddingEngine
+		// One Tier-4 searcher for the session, built here on the model that
+		// persists: built inside a turn it lived on that turn's copy of the
+		// Model, so every turn re-embedded the corpus inside its retrieval
+		// budget. Its corpus is embedded in the background now, so turns rank.
+		if c.EmbeddingEngine != nil {
+			m.semanticSearcher = retrieval.NewEmbeddingSemanticSearcher(c.EmbeddingEngine, m.workspace)
+			go warmSemanticCorpus(m.semanticSearcher)
+		}
 		m.learningStore = c.LearningStore
 		m.compressor = c.Compressor
 		m.feedbackStore = c.FeedbackStore
@@ -793,7 +837,7 @@ func (m Model) handleBootCompleteMsg(msg bootCompleteMsg) (tea.Model, tea.Cmd) {
 
 		// Mirror persisted yolo autonomy into the kernel: the fact is session
 		// state and does not survive restarts, but the config does.
-		m.syncYoloFact()
+		m.syncWorkModeFacts()
 	}
 
 	// If boot failed, allow input immediately. If boot succeeded, wait until scan completes.
@@ -955,14 +999,7 @@ func (m Model) handleContinuationInitMsg(msg continuationInitMsg) (tea.Model, te
 
 	m = m.pushAssistantMsg(msg.completedSurface)
 
-	// Decide whether to pause before next step.
-	shouldPause := false
-	switch m.continuationMode {
-	case ContinuationModeConfirm:
-		shouldPause = true
-	case ContinuationModeBreakpoint:
-		shouldPause = msg.next.isMutation
-	}
+	shouldPause := m.pausesBefore(msg.next.isMutation)
 
 	if shouldPause {
 		m.isLoading = false

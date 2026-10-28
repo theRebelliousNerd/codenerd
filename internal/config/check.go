@@ -118,6 +118,12 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 	if err := c.CheckAPIKeyPools(); err != nil {
 		add(SeverityError, "api_key_pools", err.Error(), "")
 	}
+	if c.Logging != nil && c.Logging.SelfProblemWarnRepeats < 0 {
+		add(SeverityError, "logging.self_problem_warn_repeats", fmt.Sprintf("%d is negative", c.Logging.SelfProblemWarnRepeats), "a count of 1 or more, or remove the key for the default")
+	}
+	if err := checkWorkMode(c.WorkMode); err != nil {
+		add(SeverityError, "work_mode", err.Error(), "set work_mode to yolo, propose or explicit")
+	}
 	if c.Anthropic != nil {
 		if err := c.Anthropic.Validate(); err != nil {
 			add(SeverityError, "anthropic", err.Error(), "")
@@ -447,6 +453,12 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		out = append(out, c.JIT.Check("jit")...)
 	}
 
+	// --- typesafe ---
+	// Absent is off; present must name its model, endpoint and key.
+	if c.TypeSafe != nil {
+		out = append(out, c.TypeSafe.Check("typesafe")...)
+	}
+
 	// --- everything the file leaves to a default ---
 	if raw != nil {
 		for _, path := range ImplicitFields(raw) {
@@ -578,6 +590,9 @@ func walkImplicit(t reflect.Type, doc map[string]any, prefix string, out *[]stri
 		switch ft.Kind() {
 		case reflect.Struct:
 			child, _ := value.(map[string]any)
+			if child == nil && isOptionalSection(ft) {
+				continue // off, not defaulted
+			}
 			if !present || child == nil {
 				child = map[string]any{}
 			}

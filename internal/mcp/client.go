@@ -25,6 +25,9 @@ type MCPClientManager struct {
 	// resource/prompt refresh begins and on connection lifecycle changes, so a
 	// delayed operation cannot invalidate or publish over a newer catalog.
 	catalogGenerations map[string]uint64
+	// coverage records, per server and catalog kind, whether the last
+	// collection reached the end of the server's list. Protected by mu.
+	coverage map[string]CatalogCoverage
 
 	servers  map[string]*MCPServerConnection
 	store    *MCPToolStore
@@ -284,10 +287,12 @@ func (m *MCPClientManager) Connect(ctx context.Context, serverID string) error {
 		return err
 	}
 
-	// Get capabilities
+	// The transport observed the server's capabilities during its handshake;
+	// a connection that cannot report them is not a validated connection.
 	caps, err := transport.GetCapabilities(ctx)
 	if err != nil {
-		logging.Get(logging.CategoryTools).Warn("Failed to get capabilities from %s: %v", serverID, err)
+		m.updateServerStatus(serverID, ServerStatusError)
+		return errors.Join(fmt.Errorf("MCP server %s reported no capabilities: %w", serverID, err), transport.Disconnect())
 	}
 
 	// Create server record
@@ -300,16 +305,14 @@ func (m *MCPClientManager) Connect(ctx context.Context, serverID string) error {
 		DiscoveredAt:  time.Now(),
 		LastConnected: time.Now(),
 	}
-	if caps != nil {
-		if caps.Tools {
-			server.Capabilities = append(server.Capabilities, "tools")
-		}
-		if caps.Resources {
-			server.Capabilities = append(server.Capabilities, "resources")
-		}
-		if caps.Prompts {
-			server.Capabilities = append(server.Capabilities, "prompts")
-		}
+	if caps.Tools {
+		server.Capabilities = append(server.Capabilities, "tools")
+	}
+	if caps.Resources {
+		server.Capabilities = append(server.Capabilities, "resources")
+	}
+	if caps.Prompts {
+		server.Capabilities = append(server.Capabilities, "prompts")
 	}
 
 	// The authority lock fences lifecycle invalidation and catalog publication.
@@ -353,6 +356,12 @@ func (m *MCPClientManager) Connect(ctx context.Context, serverID string) error {
 			delete(m.reviewedEffects, toolID)
 		}
 	}
+	// A new connection drops reviews installed against the previous one, but
+	// the operator's configured reviews are the trusted source those were built
+	// from: reinstall them, still bound to their schema hash, so a configured
+	// server is not left with no admissible tool after its own connect.
+	m.installConfiguredReviewsForServerLocked(serverID)
+	m.clearCoverageLocked(serverID)
 	m.mu.Unlock()
 
 	// Publish connected status only after the new connection is current and the
@@ -457,17 +466,25 @@ func (m *MCPClientManager) DiscoverTools(ctx context.Context, serverID string) e
 
 	// List tools from server
 	schemas, err := conn.Transport.ListTools(ctx)
-	if err != nil {
+	var incomplete *IncompleteCatalogError
+	partial := errors.As(err, &incomplete)
+	if err != nil && !partial {
 		invalidateErr := m.invalidateRemoteCatalog(RemoteTool, serverID)
 		return errors.Join(fmt.Errorf("failed to list tools: %w", err), invalidateErr)
 	}
+	m.setCoverage(RemoteTool, serverID, coverageFrom("tools", len(schemas), err))
 	if len(schemas) == 0 {
+		if partial {
+			// Nothing was collected, so nothing is known: keep the current
+			// catalog and report the gap.
+			return err
+		}
 		if err := m.invalidateRemoteCatalog(RemoteTool, serverID); err != nil {
 			return err
 		}
 		return m.factEmitter().Error()
 	}
-	if err := m.beginRemoteToolRefresh(serverID, conn, schemas); err != nil {
+	if err := m.beginRemoteToolRefresh(serverID, conn, schemas, !partial); err != nil {
 		return err
 	}
 
@@ -497,6 +514,19 @@ func (m *MCPClientManager) DiscoverTools(ctx context.Context, serverID string) e
 	previous := make([]*MCPTool, 0)
 	if current, ok := m.servers[serverID]; ok && current == conn {
 		previous = append(previous, current.Tools...)
+		if partial {
+			// Unlisted tools were retained by beginRemoteToolRefresh; they
+			// stay registered, they are not withdrawn.
+			listed := make(map[string]struct{}, len(tools))
+			for _, tool := range tools {
+				listed[tool.ToolID] = struct{}{}
+			}
+			for _, old := range previous {
+				if _, ok := listed[old.ToolID]; !ok {
+					tools = append(tools, old)
+				}
+			}
+		}
 		current.Tools = tools
 	} else {
 		m.mu.Unlock()
@@ -523,6 +553,10 @@ func (m *MCPClientManager) DiscoverTools(ctx context.Context, serverID string) e
 
 	if err := m.factEmitter().Error(); err != nil {
 		return fmt.Errorf("publish MCP discovery for %s: %w", serverID, err)
+	}
+	if partial {
+		logging.Get(logging.CategoryTools).Warn("MCP server %s: %v", serverID, incomplete)
+		return incomplete
 	}
 	return nil
 }
@@ -739,9 +773,10 @@ func (m *MCPClientManager) DiscoverResources(ctx context.Context, serverID strin
 	m.mu.Unlock()
 	m.authorityMu.Unlock()
 
-	resources, err := provider.ListResources(ctx)
-	if err != nil {
-		return nil, err
+	resources, listErr := provider.ListResources(ctx)
+	var incompleteResources *IncompleteCatalogError
+	if listErr != nil && !errors.As(listErr, &incompleteResources) {
+		return nil, listErr
 	}
 	m.authorityMu.Lock()
 	defer m.authorityMu.Unlock()
@@ -761,8 +796,9 @@ func (m *MCPClientManager) DiscoverResources(ctx context.Context, serverID strin
 	}
 	m.resources[serverID] = append([]MCPResource(nil), resources...)
 	m.mu.Unlock()
+	m.setCoverage(RemoteResource, serverID, coverageFrom("resources", len(resources), listErr))
 	logging.Get(logging.CategoryTools).Info("Discovered %d resources from %s", len(resources), serverID)
-	return resources, nil
+	return resources, listErr
 }
 
 // ReadResource fetches one resource's contents from a server.
@@ -822,9 +858,10 @@ func (m *MCPClientManager) DiscoverPrompts(ctx context.Context, serverID string)
 	m.mu.Unlock()
 	m.authorityMu.Unlock()
 
-	prompts, err := provider.ListPrompts(ctx)
-	if err != nil {
-		return nil, err
+	prompts, listErr := provider.ListPrompts(ctx)
+	var incompletePrompts *IncompleteCatalogError
+	if listErr != nil && !errors.As(listErr, &incompletePrompts) {
+		return nil, listErr
 	}
 	m.authorityMu.Lock()
 	defer m.authorityMu.Unlock()
@@ -844,8 +881,9 @@ func (m *MCPClientManager) DiscoverPrompts(ctx context.Context, serverID string)
 	}
 	m.prompts[serverID] = append([]MCPPrompt(nil), prompts...)
 	m.mu.Unlock()
+	m.setCoverage(RemotePrompt, serverID, coverageFrom("prompts", len(prompts), listErr))
 	logging.Get(logging.CategoryTools).Info("Discovered %d prompts from %s", len(prompts), serverID)
-	return prompts, nil
+	return prompts, listErr
 }
 
 // GetPrompt renders a server-side prompt template.

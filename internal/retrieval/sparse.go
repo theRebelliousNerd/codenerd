@@ -171,6 +171,12 @@ var (
 	methodPattern       = regexp.MustCompile(`\.([a-z_][a-z0-9_]*)\s*\(`)
 	classPattern        = regexp.MustCompile(`\bclass\s+([A-Z][a-zA-Z0-9_]*)`)
 	quotedPattern       = regexp.MustCompile(`["'\x60]([a-zA-Z_][a-zA-Z0-9_]*)["'\x60]`)
+	// identifierPattern is a code identifier written in prose: camelCase or
+	// snake_case, with no call parentheses ("renderFooter", "work_mode").
+	identifierPattern = regexp.MustCompile(`\b([a-z][a-z0-9]*(?:[A-Z][a-zA-Z0-9]*|_[a-z0-9_]+)+)\b`)
+	// wordPattern is a plain lowercase word; content words of four letters or
+	// more are the request's domain terms ("approval", "broker", "footer").
+	wordPattern = regexp.MustCompile(`\b([a-z][a-z]{3,})\b`)
 )
 
 // ExtractKeywords extracts keywords from issue text using heuristics.
@@ -254,6 +260,31 @@ func ExtractKeywords(issueText string) *IssueKeywords {
 				kw.Tertiary = append(kw.Tertiary, quoted)
 				kw.Weights[quoted] = 0.5
 			}
+		}
+	}
+
+	// Identifiers written in prose, without call parentheses (Secondary).
+	for _, match := range identifierPattern.FindAllStringSubmatch(issueText, -1) {
+		if id := match[1]; kw.Weights[id] == 0 && !isCommonWord(id) {
+			functions[id] = true
+			kw.Secondary = append(kw.Secondary, id)
+			kw.Weights[id] = 0.7
+		}
+	}
+
+	// Domain terms (Tertiary). Until 2026-10-28 a request in plain English
+	// yielded no keyword at all ("why does the approval broker open a second
+	// request for a duplicate call" searched for nothing), because every
+	// pass above wants code syntax. Weighted lowest: a file must match
+	// several to outrank a symbol hit.
+	// A mentioned path's segments ("internal", "core") are not domain terms:
+	// the path itself is already the highest-weight keyword.
+	prose := filePathPattern.ReplaceAllString(issueText, " ")
+	for _, match := range wordPattern.FindAllStringSubmatch(prose, -1) {
+		if w := match[1]; kw.Weights[w] == 0 && !isCommonWord(w) && !proseWords[w] {
+			functions[w] = true
+			kw.Tertiary = append(kw.Tertiary, w)
+			kw.Weights[w] = 0.4
 		}
 	}
 
@@ -461,6 +492,21 @@ func (r *SparseRetriever) determineTier(filePath string, score float64, keywords
 
 // commonWords is the stop-word set for keyword extraction. Package-level:
 // rebuilding a 120-entry map on every extracted token was pure allocation.
+// proseWords are words that carry no domain meaning in a request, beyond
+// commonWords: verbs of asking and doing, and filler. Only the domain-term
+// pass reads them; a symbol or a quoted identifier is never filtered by them.
+var proseWords = map[string]bool{
+	"about": true, "again": true, "also": true, "anything": true, "because": true,
+	"change": true, "check": true, "doesnt": true, "dont": true, "even": true,
+	"explain": true, "fails": true, "failing": true, "fixed": true, "going": true,
+	"happen": true, "happens": true, "here": true, "instead": true, "keep": true,
+	"keeps": true, "like": true, "make": true, "maybe": true, "much": true,
+	"need": true, "needs": true, "please": true, "really": true, "something": true,
+	"still": true, "sure": true, "thing": true, "things": true, "there": true,
+	"what": true, "which": true, "while": true, "whole": true, "with": true,
+	"without": true, "would": true, "wrong": true, "your": true,
+}
+
 var commonWords = map[string]bool{
 	"the": true, "a": true, "an": true, "is": true, "are": true,
 	"was": true, "were": true, "be": true, "been": true, "being": true,

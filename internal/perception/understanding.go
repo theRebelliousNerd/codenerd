@@ -57,6 +57,10 @@ type Understanding struct {
 	// --- Raw Surface Response (from LLM) ---
 	// The natural language response to show the user.
 	SurfaceResponse string `json:"surface_response"`
+
+	// Brief is the conversation's running brief, returned whole and updated
+	// (brief.go). Nil when the model returned none: the kept brief stands.
+	Brief *Brief `json:"brief,omitzero"`
 }
 
 // Scope represents the breadth of the user's request.
@@ -136,7 +140,10 @@ type Routing struct {
 	// Higher weight = more likely to be useful.
 	ToolPriorities map[string]int `json:"tool_priorities,omitzero"`
 
-	// BlockedTools are tools that cannot be used (due to constraints).
+	// BlockedTools are tools that cannot be used (due to constraints). It is a
+	// diagnostic of what the constraint tables name, not an enforcement input:
+	// what a restriction withholds and bars is derived from the turn's
+	// Restriction (restriction.go, policy/constitution.mg, section 7D).
 	BlockedTools []string `json:"blocked_tools,omitzero"`
 
 	// RequiredValidations are checks that must pass before/after execution.
@@ -156,6 +163,9 @@ type UnderstandingEnvelope struct {
 
 	// SurfaceResponse is the natural language response for the user.
 	SurfaceResponse string `json:"surface_response"`
+
+	// Brief is the updated running brief (brief.go).
+	Brief *Brief `json:"brief,omitzero"`
 }
 
 // Validate checks that the Understanding contains valid values.
@@ -204,13 +214,10 @@ func (u *Understanding) IsActionRequest() bool {
 
 // IsReadOnly returns true if this understanding should not modify any files.
 func (u *Understanding) IsReadOnly() bool {
-	if u.Signals.IsHypothetical {
+	// The user's own limits are read once, in restriction.go, so this helper
+	// and the restriction the turn carries cannot disagree about spelling.
+	if r := RestrictionFrom(u); r.Has(RestrictHypothetical) || r.Has(RestrictReadOnly) || r.Has(RestrictNoChanges) || r.Has(RestrictDryRun) {
 		return true
-	}
-	for _, c := range u.UserConstraints {
-		if c == "no_changes" || c == "read_only" || c == "dry_run" {
-			return true
-		}
 	}
 	switch u.ActionType {
 	case "investigate", "explain", "research", "review":
@@ -222,7 +229,7 @@ func (u *Understanding) IsReadOnly() bool {
 
 // NeedsConfirmation returns true if the harness should confirm before executing.
 func (u *Understanding) NeedsConfirmation() bool {
-	if u.Signals.RequiresConfirmation {
+	if u.Signals.RequiresConfirmation || RestrictionFrom(u).Has(RestrictConfirmFirst) {
 		return true
 	}
 	// High-risk actions need confirmation

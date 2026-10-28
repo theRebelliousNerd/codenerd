@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -60,7 +61,7 @@ func (s *LocalStore) ReembedAllVectors(ctx context.Context) error {
 	logging.Store("Starting re-embedding of all vectors without embeddings")
 
 	// Fetch all vectors without embeddings
-	vectors, err := listVectorsForReembed(s.db, true)
+	vectors, err := listVectorsForReembed(s.db, true, "")
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to query vectors for re-embedding: %v", err)
 		return err
@@ -98,12 +99,16 @@ func (s *LocalStore) ReembedAllVectors(ctx context.Context) error {
 			return fmt.Errorf("failed to generate batch embeddings: %w", err)
 		}
 
-		embedded, batchSkipped, err := s.applyVectorEmbeddings(batch, embeddings)
+		space, err := requireEmbeddingSpace(engine)
 		if err != nil {
 			return err
 		}
-		totalEmbedded += embedded
-		skipped += batchSkipped
+		applied, err := s.applyVectorEmbeddings(batch, embeddings, space)
+		if err != nil {
+			return err
+		}
+		totalEmbedded += applied.Embedded
+		skipped += applied.Skipped + applied.Stale
 	}
 
 	if skipped > 0 {
@@ -123,13 +128,20 @@ type vectorToEmbed struct {
 }
 
 // listVectorsForReembed reads the rows a re-embed pass will process: only
-// unembedded rows normally, every row for a force pass.
-func listVectorsForReembed(db *sql.DB, unembeddedOnly bool) ([]vectorToEmbed, error) {
-	query := "SELECT id, content, metadata FROM vectors"
+// unembedded rows normally, every row for a force pass, minus the rows already
+// stamped with skipSpace (a resumed run's progress). A row with no text is
+// never listed: the engines refuse it, and it has no meaning to rank.
+func listVectorsForReembed(db *sql.DB, unembeddedOnly bool, skipSpace string) ([]vectorToEmbed, error) {
+	query := "SELECT id, content, metadata FROM vectors WHERE TRIM(content) != ''"
+	var args []any
 	if unembeddedOnly {
-		query += " WHERE embedding IS NULL"
+		query += " AND embedding IS NULL"
 	}
-	rows, err := db.Query(query)
+	if skipSpace != "" {
+		query += " AND NOT (" + vectorEligibleClause + ")"
+		args = append(args, skipSpace)
+	}
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -138,9 +150,11 @@ func listVectorsForReembed(db *sql.DB, unembeddedOnly bool) ([]vectorToEmbed, er
 	var vectors []vectorToEmbed
 	for rows.Next() {
 		var v vectorToEmbed
-		if err := rows.Scan(&v.id, &v.content, &v.metadata); err != nil {
+		var meta sql.NullString
+		if err := rows.Scan(&v.id, &v.content, &meta); err != nil {
 			continue
 		}
+		v.metadata = meta.String
 		vectors = append(vectors, v)
 	}
 	if err := rows.Err(); err != nil {
@@ -149,17 +163,41 @@ func listVectorsForReembed(db *sql.DB, unembeddedOnly bool) ([]vectorToEmbed, er
 	return vectors, nil
 }
 
-// applyVectorEmbeddings writes one batch of fresh embeddings to vectors and,
-// when the ANN index exists, to vec_index by rowid. Short batches (a failed
-// per-item embed left a nil slot) and unserializable vectors are skipped, so
-// one bad row costs the batch nothing.
-func (s *LocalStore) applyVectorEmbeddings(batch []vectorToEmbed, embeddings [][]float32) (embedded, skipped int, err error) {
+// applyOutcome says what happened to one published batch. Every row of the
+// batch is in exactly one bucket.
+type applyOutcome struct {
+	Embedded int // written and stamped with the producing space
+	Skipped  int // no usable vector: left at its previous embedding and stamp
+	Stale    int // its source row changed or vanished while the provider worked
+}
+
+// applyVectorEmbeddings publishes one batch of fresh embeddings to vectors and,
+// when the ANN index exists and space is still the attached engine's, to
+// vec_index by rowid.
+//
+// Publication is conditional, in two ways. The write names the content the
+// vector was computed from (WHERE id = ? AND content = ?): the provider call
+// ran without the store lock, and a row replaced or deleted meanwhile would
+// otherwise receive a vector of text it no longer holds. And space is the
+// identity of the engine that produced the batch, captured by the caller before
+// the call: it is stamped on the row, and it gates the index, so a batch from
+// an engine replaced mid-flight is stored under its own name and never enters
+// the new engine's index.
+//
+// A row that gets no new vector keeps its OLD vector and its OLD stamp, which
+// is what keeps it out of every ranking in the new space; it is the caller's
+// job to report it.
+func (s *LocalStore) applyVectorEmbeddings(batch []vectorToEmbed, embeddings [][]float32, space string) (applyOutcome, error) {
+	var out applyOutcome
+	if space == "" {
+		return out, ErrNoEmbeddingIdentity
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	tx, err := s.db.Begin()
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to start transaction: %w", err)
+		return out, fmt.Errorf("failed to start transaction: %w", err)
 	}
 	// A failed commit or an early return below must not leave the txn open;
 	// a committed txn makes this Rollback a no-op.
@@ -170,68 +208,90 @@ func (s *LocalStore) applyVectorEmbeddings(batch []vectorToEmbed, embeddings [][
 		}
 	}()
 
-	updateStmt, err := tx.Prepare("UPDATE vectors SET embedding = ? WHERE id = ?")
+	updateStmt, err := tx.Prepare("UPDATE vectors SET embedding = ?, embedding_model = ? WHERE id = ? AND content = ?")
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to prepare update stmt: %w", err)
+		return out, fmt.Errorf("failed to prepare update stmt: %w", err)
 	}
 	defer updateStmt.Close()
 
+	indexable := s.vectorExt.Load() && s.currentSpaceLocked() == space
+	if s.vectorExt.Load() && !indexable {
+		logging.Get(logging.CategoryStore).Warn("embedding engine changed while re-embedding: vectors stored in space %q and not indexed (current space %q)", space, s.currentSpaceLocked())
+	}
 	var deleteVecStmt, insertVecStmt *sql.Stmt
-	if s.vectorExt.Load() {
+	if indexable {
 		// Delete-then-insert: vec0 errors on INSERT OR REPLACE rowid
 		// conflicts instead of replacing. See insertVecIndexRow.
 		deleteVecStmt, err = tx.Prepare("DELETE FROM vec_index WHERE rowid = ?")
 		if err != nil {
-			return 0, 0, fmt.Errorf("failed to prepare vec_index delete stmt: %w", err)
+			return out, fmt.Errorf("failed to prepare vec_index delete stmt: %w", err)
 		}
 		defer deleteVecStmt.Close()
 		insertVecStmt, err = tx.Prepare("INSERT INTO vec_index (rowid, embedding, content, metadata) VALUES (?, ?, ?, ?)")
 		if err != nil {
-			return 0, 0, fmt.Errorf("failed to prepare vec_index stmt: %w", err)
+			return out, fmt.Errorf("failed to prepare vec_index stmt: %w", err)
 		}
 		defer insertVecStmt.Close()
 	}
 
 	for j, v := range batch {
 		if j >= len(embeddings) {
-			skipped++
+			out.Skipped++
 			continue
 		}
 		embeddingJSON, encErr := encodeEmbedding(embeddings[j])
 		if encErr != nil {
 			logging.Get(logging.CategoryStore).Warn(
 				"Leaving vector %d at its previous embedding: %v", v.id, encErr)
-			skipped++
+			out.Skipped++
 			continue
 		}
-		if _, err := updateStmt.Exec(embeddingJSON, v.id); err != nil {
+		res, err := updateStmt.Exec(embeddingJSON, space, v.id, v.content)
+		if err != nil {
 			logging.Get(logging.CategoryStore).Error("Failed to update vector %d: %v", v.id, err)
-			return embedded, skipped, fmt.Errorf("failed to update vector %d: %w", v.id, err)
+			return out, fmt.Errorf("failed to update vector %d: %w", v.id, err)
+		}
+		if n, raErr := res.RowsAffected(); raErr == nil && n == 0 {
+			logging.Get(logging.CategoryStore).Warn("Vector %d changed while its embedding was computed; the stale vector is not published", v.id)
+			out.Stale++
+			continue
 		}
 		// Keep sqlite-vec index in sync when available, keyed by rowid so a
 		// re-embed replaces the old entry instead of appending a stale twin.
-		if s.vectorExt.Load() {
+		if indexable {
 			if _, err := deleteVecStmt.Exec(v.id); err != nil {
-				return embedded, skipped, fmt.Errorf("failed to clear vec_index for vector %d: %w", v.id, err)
+				return out, fmt.Errorf("failed to clear vec_index for vector %d: %w", v.id, err)
 			}
 			vecBlob := encodeFloat32Slice(embeddings[j])
 			if _, err := insertVecStmt.Exec(v.id, vecBlob, v.content, v.metadata); err != nil {
-				return embedded, skipped, fmt.Errorf("failed to update vec_index for vector %d: %w", v.id, err)
+				return out, fmt.Errorf("failed to update vec_index for vector %d: %w", v.id, err)
 			}
 		}
-		embedded++
+		out.Embedded++
 	}
 
 	if err := tx.Commit(); err != nil {
-		return embedded, skipped, fmt.Errorf("failed to commit transaction: %w", err)
+		return out, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 	committed = true
-	return embedded, skipped, nil
+	return out, nil
 }
 
 // ReembedAllVectorsForce regenerates embeddings for ALL vectors, overwriting existing ones.
 // This is required when switching embedding providers/models.
 // Returns the number of vectors re-embedded.
+//
+// A nil error is a certificate: afterwards every embeddable row is stamped
+// with the attached engine's space. A pass that leaves any row behind returns
+// the count it did embed together with an *IncompleteReembedError (matching
+// ErrIncompleteReembed) -- a row that failed keeps its old vector and old
+// stamp, which keeps it out of every semantic ranking, and it is reported
+// instead of being counted away.
+//
+// The pass is resumable. Its progress lives in the database (see
+// vector_migration.go): an interrupted or incomplete run for the same target
+// space is continued by skipping the rows it already brought over; a run
+// after a completed one starts over, which is what "force" means.
 func (s *LocalStore) ReembedAllVectorsForce(ctx context.Context) (int, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "ReembedAllVectorsForce")
 	defer timer.Stop()
@@ -243,6 +303,10 @@ func (s *LocalStore) ReembedAllVectorsForce(ctx context.Context) (int, error) {
 		logging.Get(logging.CategoryStore).Error("Cannot force re-embed: no embedding engine configured")
 		return 0, fmt.Errorf("no embedding engine configured")
 	}
+	target, err := requireEmbeddingSpace(engine)
+	if err != nil {
+		return 0, err
+	}
 	// A pending backfill writes the same vec_index rows; wait for it rather
 	// than racing it. Must run without holding s.mu.
 	if err := s.waitForVecBackfill(ctx); err != nil {
@@ -251,23 +315,27 @@ func (s *LocalStore) ReembedAllVectorsForce(ctx context.Context) (int, error) {
 
 	logging.Store("Starting force re-embedding of all vectors in DB: %s", s.dbPath)
 
-	vectors, err := listVectorsForReembed(s.db, false)
+	run, err := s.beginVectorMigration(target)
+	if err != nil {
+		return 0, err
+	}
+	if run.Resumed {
+		logging.Store("Resuming force re-embed run %s toward %q: rows already in that space are kept", run.ID, target)
+	}
+
+	vectors, err := listVectorsForReembed(s.db, false, resumeSkipSpace(run))
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to query vectors for force re-embedding: %v", err)
 		return 0, err
 	}
 
-	if len(vectors) == 0 {
-		logging.StoreDebug("No vectors found for force re-embedding")
-		return 0, nil
-	}
-
 	logging.Store("Found %d vectors to force re-embed", len(vectors))
 
-	// A force pass rewrites every row, so clear the ANN index once up front.
-	// This also heals stale twins appended by the old rowid-less force loop,
-	// which per-row deletes cannot reach (they live under other rowids).
-	if s.vectorExt.Load() {
+	// A fresh force pass rewrites every row, so clear the ANN index once up
+	// front. This also heals stale twins appended by the old rowid-less force
+	// loop, which per-row deletes cannot reach (they live under other rowids).
+	// A resumed pass keeps the index: the rows it skips are already in it.
+	if s.vectorExt.Load() && !run.Resumed {
 		if _, err := s.db.Exec("DELETE FROM vec_index"); err != nil {
 			logging.Get(logging.CategoryStore).Warn("Force re-embed vec_index clear failed: %v", err)
 		}
@@ -278,7 +346,13 @@ func (s *LocalStore) ReembedAllVectorsForce(ctx context.Context) (int, error) {
 	totalEmbedded := 0
 	skipped := 0
 	var lastFallbackErr error
+	var passErr error
+	lastSpace := target
 	for i := 0; i < len(vectors); i += batchSize {
+		if err := ctx.Err(); err != nil {
+			passErr = err
+			break
+		}
 		end := min(i+batchSize, len(vectors))
 		batch := vectors[i:end]
 		batchNum := (i / batchSize) + 1
@@ -355,27 +429,39 @@ func (s *LocalStore) ReembedAllVectorsForce(ctx context.Context) (int, error) {
 			}
 		}
 
+		// The batch is stamped with the engine that produced it, read after
+		// the provider call (an Ollama engine settles its resolved model name
+		// on first use) and from the engine captured above, never from
+		// whatever is attached when the call returns.
+		space, err := requireEmbeddingSpace(engine)
+		if err != nil {
+			passErr = err
+			break
+		}
+		lastSpace = space
 		// The shared writer keys vec_index by rowid: the old force loop
 		// omitted rowid, so every force re-embed APPENDED stale twins of
 		// each row instead of replacing them.
-		embedded, batchSkipped, err := s.applyVectorEmbeddings(batch, embeddings)
+		applied, err := s.applyVectorEmbeddings(batch, embeddings, space)
+		totalEmbedded += applied.Embedded
+		skipped += applied.Skipped + applied.Stale
 		if err != nil {
-			return totalEmbedded, err
+			passErr = err
+			break
 		}
-		totalEmbedded += embedded
-		skipped += batchSkipped
 	}
 
-	if totalEmbedded == 0 && lastFallbackErr != nil {
-		return 0, lastFallbackErr
+	report, finishErr := s.finishVectorMigration(run, lastSpace, skipped, lastFallbackErr)
+	if passErr != nil {
+		return totalEmbedded, errors.Join(passErr, finishErr)
 	}
-
-	if skipped > 0 {
-		logging.Get(logging.CategoryStore).Warn(
-			"Force re-embedding complete: %d vectors processed, %d left at their previous embedding", totalEmbedded, skipped)
-	} else {
-		logging.Store("Force re-embedding complete: %d vectors processed", totalEmbedded)
+	if finishErr != nil {
+		return totalEmbedded, finishErr
 	}
+	if !report.Complete() {
+		return totalEmbedded, report.incompleteError(lastFallbackErr)
+	}
+	logging.Store("Force re-embedding complete: %d vectors processed, every embeddable row is in space %q", totalEmbedded, report.Target)
 	return totalEmbedded, nil
 }
 

@@ -86,7 +86,7 @@ func TestDreamer_EvaluateProjectionFailsClosedAtFactLimit(t *testing.T) {
 	d, k := setupTestDreamer(t)
 	k.SetMaxFacts(k.FactCount())
 
-	unsafe, reason := d.evaluateProjection(k, "dream:capacity", []Fact{{
+	unsafe, reason, _ := d.evaluateProjection(k, "dream:capacity", []Fact{{
 		Predicate: "projected_action",
 		Args:      []any{"dream:capacity", MangleAtom("/write_file"), "scratch.txt"},
 	}})
@@ -101,7 +101,7 @@ func TestDreamer_EvaluateProjectionFailsClosedAtFactLimit(t *testing.T) {
 func TestDreamer_EvaluateProjectionFailsClosedOnInvalidFact(t *testing.T) {
 	d, k := setupTestDreamer(t)
 
-	unsafe, reason := d.evaluateProjection(k, "dream:invalid", []Fact{{
+	unsafe, reason, _ := d.evaluateProjection(k, "dream:invalid", []Fact{{
 		Predicate: "projected_action",
 		Args:      []any{"dream:invalid", nil, "scratch.txt"},
 	}})

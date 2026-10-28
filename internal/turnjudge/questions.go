@@ -1,0 +1,121 @@
+package turnjudge
+
+import (
+	"fmt"
+	"strings"
+
+	"codenerd/internal/typesafe"
+)
+
+// Every question Jev is asked about a chat turn, in one place: the wording,
+// the criteria and the names are what an audit of this layer reads and edits.
+// Each asks one judgment a person could make at a glance from the state.
+// What the answers decide is the kernel's (policy/jev_evidence.mg), never
+// these questions'.
+
+// Judgment names. They are the kernel's names too (jev_judgment/2).
+const (
+	ChangesFiles     = "changes_files"
+	WantsAnswer      = "wants_answer"
+	NamesTarget      = "names_target"
+	Hypothetical     = "hypothetical"
+	AboutCodeNERD    = "about_codenerd"
+	WantsToStop      = "wants_to_stop"
+	RulesOutChanges  = "rules_out_changes"
+	ApprovesHeldWork = "approves_held_work"
+	AddsToHeldWork   = "adds_to_held_work"
+	answeredPrefix   = "answered_"
+)
+
+// fixedQuestions are asked every turn.
+func fixedQuestions() map[string]typesafe.Question {
+	return map[string]typesafe.Question{
+		ChangesFiles: typesafe.Noul{
+			Instructions: "Is the user asking for files in their codebase to be created, edited or deleted?",
+			Criteria: &typesafe.NoulCriteria{
+				True:  "The user wants code or files written, changed, fixed, refactored, renamed or removed.",
+				False: "The user asks a question, wants something explained, found, reviewed or run, or is chatting.",
+			},
+		},
+		WantsAnswer: typesafe.Noul{
+			Instructions: "Does the user want an answer or an explanation from the assistant?",
+			Criteria: &typesafe.NoulCriteria{
+				True:  "The user asks a question, or asks for something to be explained, found or reviewed.",
+				False: "The user asks for code or files to be changed, or is only chatting.",
+			},
+		},
+		NamesTarget: typesafe.Noul{
+			Instructions: "Do `message` and `recent_turns` together say which file, function or feature the request is about?",
+			Criteria: &typesafe.NoulCriteria{
+				True:  "A file, function, package or feature is named, or the recent turns make clear which one is meant.",
+				False: "The request leaves open which code it is about, such as 'fix it' with nothing named before.",
+			},
+		},
+		Hypothetical: typesafe.Noul{
+			Instructions: "Is the user asking what would happen if something were done, without asking for it to be done?",
+			Criteria: &typesafe.NoulCriteria{
+				True:  "The user asks 'what if', 'what would happen', or how risky a change would be.",
+				False: "The user asks for the change itself, or asks about the code as it is now.",
+			},
+		},
+		AboutCodeNERD: typesafe.Noul{
+			Instructions: "Is the user asking the assistant to look into its own errors, logs or behaviour?",
+			Criteria: &typesafe.NoulCriteria{
+				True:  "The user asks why the assistant failed, asks it to debug itself, or points it at its own logs.",
+				False: "The user asks about their own code or project, even code that has bugs.",
+			},
+		},
+		RulesOutChanges: typesafe.Noul{
+			Instructions: "Has the user ruled out changing any files for this request?",
+			Criteria: &typesafe.NoulCriteria{
+				True:  "The user says to only look, read, explain or report, and not to change, edit, write or touch anything.",
+				False: "The user asks for changes, allows them, or says nothing about whether files may change.",
+			},
+		},
+		WantsToStop: typesafe.Noul{
+			Instructions: "Is the user telling the assistant to stop or cancel work that is already running?",
+			Criteria: &typesafe.NoulCriteria{
+				True:  "The user says stop, cancel, abort, hold on, or never mind about work in progress.",
+				False: "The user asks for something new, answers a question, or comments without stopping anything.",
+			},
+		},
+	}
+}
+
+// heldWorkQuestion is asked only while work is held for a go-ahead.
+func heldWorkQuestion() typesafe.Question {
+	return typesafe.Noul{
+		Instructions: "Is the user telling the assistant to start `held_work` now?",
+		Criteria: &typesafe.NoulCriteria{
+			True:  "The user says go, do it, yes, start, or otherwise approves starting the held work as it is.",
+			False: "The user asks about the held work, changes it, declines it, or talks about something else.",
+		},
+	}
+}
+
+// addsToHeldWorkQuestion separates "go" from "go, and also ...": a go-ahead
+// that asks for more is a new request, not the held one.
+func addsToHeldWorkQuestion() typesafe.Question {
+	return typesafe.Noul{
+		Instructions: "Does the user ask for anything beyond starting `held_work` exactly as it is?",
+		Criteria: &typesafe.NoulCriteria{
+			True:  "The user adds, removes or changes something, such as 'go, and also add a test' or 'do it but skip the docs'.",
+			False: "The user only says to start it, such as 'go', 'yes do it' or 'ship it', or does not approve it at all.",
+		},
+	}
+}
+
+// openQuestion asks whether the latest message answers one of the brief's
+// open questions. The question is inline: a hop through an index is the
+// indirection Jev handles worst.
+func openQuestion(q string) typesafe.Question {
+	return typesafe.Noul{
+		Instructions: fmt.Sprintf("Does `message` answer this open question: %q?", strings.TrimSpace(q)),
+		Criteria: &typesafe.NoulCriteria{
+			True:  "The message gives the information the question asks for, or settles it.",
+			False: "The message is about something else, or leaves the question open.",
+		},
+	}
+}
+
+func answeredName(i int) string { return fmt.Sprintf("%s%d", answeredPrefix, i) }

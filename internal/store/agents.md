@@ -16,3 +16,10 @@
 - `RecallLearningContentContext` hydrates one ranked fact with a bounded,
   cancellable query and existing secret redaction. Preserve its qualifications;
   reject oversized content instead of treating the short handle as a full fact.
+- Generic `vectors` rows carry `embedding_model`, the producing engine's `Name`.
+  Every semantic read (vec_index, brute force), the vec_index builders and the
+  count/contents helpers admit only rows stamped with the attached engine's
+  space (`vector_identity.go`); stamp from the engine captured before the
+  provider call. Unstamped or foreign rows stay stored and keyword-recallable,
+  and are never stamped by guesswork. A force re-embed returns
+  `*IncompleteReembedError` unless every embeddable row is in the target space.

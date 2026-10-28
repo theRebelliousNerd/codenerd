@@ -374,6 +374,7 @@ type SessionManager struct {
 	progressiveSnapshots  map[string]progressiveControlSnapshot
 	budgetMu              sync.Mutex
 	budgets               map[string]*sessionFactBudget
+	pendingRetire         []mangle.Fact // exact facts a failed retraction left for retry; guarded by budgetMu
 	correlationContainers []string
 	containerFetcher      ContainerLogFetcher
 	processQuerier        ProcessQuerier

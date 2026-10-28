@@ -35,7 +35,7 @@ Focused production-bridge race controls also pass in `artifact:.corpus-build/run
 | Full field vocabulary validation | `validate()` exists but unused on hot Understand path | **Gap / intentional dead code** |
 | Piggyback for intent | UnderstandingEnvelope is classification contract | **Non-gap** (evolution; Piggyback for emission) |
 | Never block chat on learning | ConsolidationWorker drop-on-full | **Non-gap** |
-| Honest outage messaging | TransientFailure + clarification path | **Non-gap** (Gemini-origin sentinel; others may not wrap) |
+| Honest outage messaging | `Intent.Outcome` + `perception_outcome.mg` notice | **Non-gap** (provider failure classes are shared across adapters) |
 | Multi-workspace taxonomy isolation | Shared globals + SetWorkspace | **Partial** |
 | Provider README accuracy | Operator README somewhat stale | **Doc gap** (package README, not arch corpus) |
 | Complete e2e for every provider | Mock-heavy + gated live | **Partial** |

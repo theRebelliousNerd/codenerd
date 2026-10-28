@@ -86,9 +86,23 @@ func (c *AnthropicClient) InputWindowTokens() int { return c.maxInputTokens }
 // than max_input_tokens is refused before it is built or sent. The session
 // executor fits its own requests to the same window by the same measure, so
 // what reaches this refusal is a request that was never fitted -- a direct
-// caller of the slot.
+// caller of the slot. It is the admission of every request that goes through
+// exchange, so it counts the server web tool declarations exchange appends.
 func (c *AnthropicClient) admitInput(system string, messages []types.Message, defs []types.ToolDefinition) error {
-	return admitInputWindow(c.maxInputTokens, ProviderAnthropic, c.GetModel(), system, messages, defs)
+	return c.admit(system, messages, defs, c.serverTools(c.GetModel()))
+}
+
+// admit measures a request against the slot's input cap together with the
+// server tool declarations it will carry (none for a streamed request, which
+// declares no server tool). Those declarations are not in defs, so a count
+// that left them out would be short by exactly their size.
+func (c *AnthropicClient) admit(system string, messages []types.Message, defs []types.ToolDefinition, server []AnthropicTool) error {
+	declared, err := serverDeclarationTokens(server)
+	if err != nil {
+		return fmt.Errorf("%s %s: the server tool declarations could not be measured against the slot's max_input_tokens of %d, so the request was not sent: %w",
+			ProviderAnthropic, c.GetModel(), c.maxInputTokens, err)
+	}
+	return admitInputWindow(c.maxInputTokens, ProviderAnthropic, c.GetModel(), system, messages, defs, declared)
 }
 
 func (c *AnthropicClient) EnableSystemCaching() {
@@ -256,13 +270,13 @@ func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, system, user s
 	if err != nil {
 		return "", err
 	}
-	return c.completeText(ctx, req, "CompleteWithSystem", usageOpChat)
+	return c.completeText(ctx, req, anthropicInput{history: userTurn(user)}, "CompleteWithSystem", usageOpChat)
 }
 
-func (c *AnthropicClient) completeText(ctx context.Context, req AnthropicRequest, operation, usageOperation string) (string, error) {
+func (c *AnthropicClient) completeText(ctx context.Context, req AnthropicRequest, in anthropicInput, operation, usageOperation string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.httpClient.Timeout)
 	defer cancel()
-	resp, err := c.exchange(ctx, req, anthropicCachePlan{system: c.systemCaching()})
+	resp, err := c.exchange(ctx, req, anthropicCachePlan{system: c.systemCaching()}, in)
 	if err != nil {
 		return "", err
 	}
@@ -317,7 +331,7 @@ func (c *AnthropicClient) CompleteWithTools(ctx context.Context, system, user st
 	if err != nil {
 		return nil, err
 	}
-	return c.completeTools(ctx, req, defs, anthropicCachePlan{system: true}, "CompleteWithTools")
+	return c.completeTools(ctx, req, anthropicInput{history: userTurn(user), defs: defs}, anthropicCachePlan{system: true}, "CompleteWithTools")
 }
 
 func (c *AnthropicClient) CompleteWithToolResults(ctx context.Context, system string, history []types.Message, defs []types.ToolDefinition) (*types.LLMToolResponse, error) {
@@ -339,13 +353,14 @@ func (c *AnthropicClient) CompleteWithToolResults(ctx context.Context, system st
 	if err != nil {
 		return nil, err
 	}
-	return c.completeTools(ctx, req, defs, toolLoopCachePlan, "CompleteWithToolResults")
+	return c.completeTools(ctx, req, anthropicInput{history: history, defs: defs}, toolLoopCachePlan, "CompleteWithToolResults")
 }
 
-func (c *AnthropicClient) completeTools(ctx context.Context, req AnthropicRequest, defs []ToolDefinition, plan anthropicCachePlan, operation string) (*LLMToolResponse, error) {
+func (c *AnthropicClient) completeTools(ctx context.Context, req AnthropicRequest, in anthropicInput, plan anthropicCachePlan, operation string) (*LLMToolResponse, error) {
+	defs := in.defs
 	ctx, cancel := context.WithTimeout(ctx, c.httpClient.Timeout)
 	defer cancel()
-	resp, err := c.exchange(ctx, req, plan)
+	resp, err := c.exchange(ctx, req, plan, in)
 	if err != nil {
 		return nil, err
 	}

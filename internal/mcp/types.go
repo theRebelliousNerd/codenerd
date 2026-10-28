@@ -183,12 +183,24 @@ func (a MCPToolAnnotations) IsZero() bool {
 		a.IdempotentHint == nil && a.OpenWorldHint == nil
 }
 
-// MCPCapabilities represents server capabilities from the MCP protocol.
+// MCPCapabilities is the host's observation of a server's initialize result.
+//
+// The wire form is an object of object-valued capabilities; each boolean here
+// records only that the server declared that capability (an empty object still
+// counts). It is derived by parseInitializeResult and never decoded straight
+// from the wire, so a malformed envelope cannot become a valid empty set.
 type MCPCapabilities struct {
 	Tools     bool `json:"tools"`
 	Resources bool `json:"resources"`
 	Prompts   bool `json:"prompts"`
 	Logging   bool `json:"logging"`
+
+	// ProtocolVersion is the version the server selected and this client
+	// accepted. ServerName and ServerVersion are self-reported and descriptive
+	// only; they are not an identity.
+	ProtocolVersion string `json:"protocol_version,omitzero"`
+	ServerName      string `json:"server_name,omitzero"`
+	ServerVersion   string `json:"server_version,omitzero"`
 }
 
 // ToolAnalysis represents the LLM-extracted metadata for a tool.
@@ -300,8 +312,14 @@ type SelectedTool struct {
 }
 
 // MCPCallResult represents the result of calling an MCP tool.
+//
+// Success is false for a JSON-RPC error, for a malformed result and for a
+// result whose isError is true. ToolError distinguishes the last: the remote
+// tool ran and reported failure, as opposed to the protocol failing. Output
+// keeps the remote's full result in every case.
 type MCPCallResult struct {
 	Success   bool            `json:"success"`
+	ToolError bool            `json:"tool_error,omitzero"`
 	Output    json.RawMessage `json:"output,omitzero"`
 	Error     string          `json:"error,omitzero"`
 	LatencyMs int64           `json:"latency_ms"`
@@ -309,19 +327,24 @@ type MCPCallResult struct {
 
 // MCPTransport defines the interface for MCP protocol transports.
 type MCPTransport interface {
-	// Connect establishes connection to the MCP server.
+	// Connect establishes the connection and completes the initialization
+	// handshake (initialize, version and capability validation, the initialized
+	// notification). It reports success only when all of it succeeded.
 	Connect(ctx context.Context) error
 
 	// Disconnect closes the connection.
 	Disconnect() error
 
-	// ListTools retrieves available tools from the server.
+	// ListTools retrieves the server's tools across every page. A collection
+	// that stopped early returns the tools gathered together with an
+	// *IncompleteCatalogError.
 	ListTools(ctx context.Context) ([]MCPToolSchema, error)
 
 	// CallTool invokes a tool on the MCP server.
 	CallTool(ctx context.Context, name string, args map[string]any) (*MCPCallResult, error)
 
-	// GetCapabilities returns server capabilities.
+	// GetCapabilities returns the capabilities the server declared during the
+	// initialization handshake that Connect performed. It does not re-probe.
 	GetCapabilities(ctx context.Context) (*MCPCapabilities, error)
 
 	// Ping checks if the server is responsive.

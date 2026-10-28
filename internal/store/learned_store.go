@@ -343,6 +343,41 @@ func (s *LearnedCorpusStore) backfillVecLearnedWithContext(ctx context.Context, 
 	return ctx.Err()
 }
 
+// lockContext takes the write lock, giving up when ctx ends first.
+func (s *LearnedCorpusStore) lockContext(ctx context.Context) error {
+	return acquireContext(ctx, s.mu.TryLock, s.mu.Lock, s.mu.Unlock)
+}
+
+// rlockContext takes the read lock, giving up when ctx ends first.
+func (s *LearnedCorpusStore) rlockContext(ctx context.Context) error {
+	return acquireContext(ctx, s.mu.TryRLock, s.mu.RLock, s.mu.RUnlock)
+}
+
+// acquireContext takes a sync.RWMutex lock with a context. The mutex cannot be
+// waited on with one, so a contended wait is made in a goroutine that hands
+// the lock straight back if ctx won the race; it ends the moment the holder
+// releases, so nothing outlives the contention.
+func acquireContext(ctx context.Context, try func() bool, lock, unlock func()) error {
+	if try() {
+		return nil
+	}
+	locked := make(chan struct{})
+	go func() {
+		lock()
+		close(locked)
+	}()
+	select {
+	case <-locked:
+		return nil
+	case <-ctx.Done():
+		go func() {
+			<-locked
+			unlock()
+		}()
+		return ctx.Err()
+	}
+}
+
 // AddPattern adds a learned pattern with its embedding.
 // Generates embedding automatically using the configured engine.
 func (s *LearnedCorpusStore) AddPattern(ctx context.Context, pattern, verb, target, constraint string, confidence float64) error {
@@ -361,7 +396,9 @@ func (s *LearnedCorpusStore) AddPattern(ctx context.Context, pattern, verb, targ
 	// Snapshot the engine under a read lock, then embed WITHOUT holding the
 	// write lock: embedding is a network call, and holding mu across it
 	// serialized every reader behind every AddPattern.
-	s.mu.RLock()
+	if err := s.rlockContext(ctx); err != nil {
+		return fmt.Errorf("learned corpus store read lock: %w", err)
+	}
 	engine := s.embedEngine
 	s.mu.RUnlock()
 	if engine == nil {
@@ -384,8 +421,20 @@ func (s *LearnedCorpusStore) AddPattern(ctx context.Context, pattern, verb, targ
 
 	logging.StoreDebug("Generated embedding: %d dimensions", len(embeddingVec))
 
-	s.mu.Lock()
+	if err := s.lockContext(ctx); err != nil {
+		return fmt.Errorf("learned corpus store write lock: %w", err)
+	}
 	defer s.mu.Unlock()
+
+	// The embedding ran without the lock, so the store may have been closed
+	// (Close sets db to nil) or the caller's context may have ended while it
+	// did or while the lock was awaited.
+	if s.db == nil {
+		return fmt.Errorf("learned corpus store not initialized")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	// Encode embedding as binary blob
 	embeddingBlob := encodeFloat32SliceToBlob(embeddingVec)
@@ -468,7 +517,7 @@ func (s *LearnedCorpusStore) Search(queryEmbedding []float32, topK int) ([]Seman
 // is absent. Same contract as searchVec: confidence > 0.3, cosine order,
 // topK cap, 1-based ranks.
 func (s *LearnedCorpusStore) searchBruteForce(query []float32, topK int) ([]SemanticMatch, error) {
-	rows, err := s.db.Query(`SELECT pattern, verb, target, embedding FROM learned_patterns WHERE confidence > 0.3`)
+	rows, err := s.db.Query(`SELECT pattern, verb, target, constraint_text, embedding FROM learned_patterns WHERE confidence > 0.3`)
 	if err != nil {
 		return nil, fmt.Errorf("brute-force learned search failed: %w", err)
 	}
@@ -477,9 +526,9 @@ func (s *LearnedCorpusStore) searchBruteForce(query []float32, topK int) ([]Sema
 	var matches []SemanticMatch
 	for rows.Next() {
 		var pattern, verb string
-		var target sql.NullString
+		var target, constraint sql.NullString
 		var blob []byte
-		if err := rows.Scan(&pattern, &verb, &target, &blob); err != nil {
+		if err := rows.Scan(&pattern, &verb, &target, &constraint, &blob); err != nil {
 			continue
 		}
 		vec := decodeFloat32Blob(blob)
@@ -491,6 +540,7 @@ func (s *LearnedCorpusStore) searchBruteForce(query []float32, topK int) ([]Sema
 			Predicate:   "learned_intent",
 			Verb:        verb,
 			Target:      target.String,
+			Constraint:  constraint.String,
 			Category:    "learned",
 			Similarity:  float32Cosine(query, vec),
 		})
@@ -582,6 +632,7 @@ func (s *LearnedCorpusStore) searchVec(queryBlob []byte, topK int) ([]SemanticMa
 			continue
 		}
 
+		match.Constraint = constraintText.String
 		match.Predicate = "learned_intent"
 		match.Category = "learned"
 		match.Similarity = 1.0 - distance
@@ -619,6 +670,7 @@ type SemanticMatch struct {
 	Predicate   string  // Mangle predicate (e.g., "user_intent")
 	Verb        string  // Intent verb (e.g., "create", "fix", "explain")
 	Target      string  // Intent target (e.g., "function", "test", "file")
+	Constraint  string  // Learned qualifier of the mapping ("" when it has none)
 	Category    string  // Intent category (e.g., "code", "test", "review")
 	Similarity  float64 // Cosine similarity score (0.0-1.0)
 	Rank        int     // Result rank (1-based)

@@ -54,6 +54,7 @@ func TestNewOrchestrator_MaxChurnHotspotsReachesTheGatherer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewOrchestrator: %v", err)
 		}
+		t.Cleanup(func() { _ = orch.Close() })
 		if orch.intelligenceGatherer != supplied {
 			t.Fatal("stamping replaced the supplied gatherer")
 		}
@@ -81,6 +82,7 @@ func TestNewOrchestrator_MaxChurnHotspotsReachesTheGatherer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewOrchestrator: %v", err)
 		}
+		t.Cleanup(func() { _ = orch.Close() })
 		assertGatherer(t, orch.intelligenceGatherer)
 		if orch.decomposer == nil || orch.decomposer.intelligence != orch.intelligenceGatherer {
 			t.Fatal("the default-wired gatherer did not reach the decomposer")

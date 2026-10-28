@@ -75,21 +75,25 @@ func bruteForceRowsToEntries(rows *sql.Rows, queryEmbedding []float32, limit int
 	return results, nil
 }
 
+// bruteForceBaseQuery selects the rows a query embedded in one space may be
+// compared with (bound argument: the space). The indexed path applies the same
+// gate through vecEligibleRowidFilter, so the two paths rank the same rows.
+const bruteForceBaseQuery = "SELECT id, content, embedding, metadata, created_at FROM vectors WHERE " + vectorEligibleClause
+
 // vectorRecallBruteForce is the fallback cosine similarity search.
-func (s *LocalStore) vectorRecallBruteForce(queryText string, queryEmbedding []float32, limit int) ([]VectorEntry, error) {
+func (s *LocalStore) vectorRecallBruteForce(queryText string, q semanticQuery, limit int) ([]VectorEntry, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	s.noteExcludedLocked(q.space)
 
-	rows, err := s.db.Query(
-		"SELECT id, content, embedding, metadata, created_at FROM vectors WHERE embedding IS NOT NULL",
-	)
+	rows, err := s.db.Query(bruteForceBaseQuery, q.space)
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to query vectors: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
 
-	results, err := bruteForceRowsToEntries(rows, queryEmbedding, limit, nil)
+	results, err := bruteForceRowsToEntries(rows, q.vec, limit, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -103,11 +107,12 @@ func (s *LocalStore) vectorRecallBruteForce(queryText string, queryEmbedding []f
 }
 
 // vectorRecallBruteForceByPaths is the fallback cosine similarity search with path filtering.
-func (s *LocalStore) vectorRecallBruteForceByPaths(queryText string, queryEmbedding []float32, limit int, allowedPaths []string) ([]VectorEntry, error) {
+func (s *LocalStore) vectorRecallBruteForceByPaths(queryText string, q semanticQuery, limit int, allowedPaths []string) ([]VectorEntry, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	s.noteExcludedLocked(q.space)
 
-	queryStr, args := buildPathFilteredQuery(allowedPaths)
+	queryStr, args := buildPathFilteredQuery(q.space, allowedPaths)
 	rows, err := s.db.Query(queryStr, args...)
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to query path-filtered vectors: %v", err)
@@ -115,15 +120,16 @@ func (s *LocalStore) vectorRecallBruteForceByPaths(queryText string, queryEmbedd
 	}
 	defer rows.Close()
 
-	return bruteForceRowsToEntries(rows, queryEmbedding, limit, nil)
+	return bruteForceRowsToEntries(rows, q.vec, limit, nil)
 }
 
 // vectorRecallBruteForceFiltered is the fallback cosine similarity search with metadata filtering.
-func (s *LocalStore) vectorRecallBruteForceFiltered(queryText string, queryEmbedding []float32, limit int, metaKey string, metaValue any) ([]VectorEntry, error) {
+func (s *LocalStore) vectorRecallBruteForceFiltered(queryText string, q semanticQuery, limit int, metaKey string, metaValue any) ([]VectorEntry, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	s.noteExcludedLocked(q.space)
 
-	queryStr := "SELECT id, content, embedding, metadata, created_at FROM vectors WHERE embedding IS NOT NULL"
+	queryStr := bruteForceBaseQuery
 	var rows *sql.Rows
 	var err error
 
@@ -134,9 +140,9 @@ func (s *LocalStore) vectorRecallBruteForceFiltered(queryText string, queryEmbed
 	// rows the ANN path found.
 	if metaKey != "" && metaValue != nil {
 		path := fmt.Sprintf(`$."%s"`, metaKey)
-		rows, err = s.db.Query(queryStr+" AND json_extract(metadata, ?) = ?", path, metaValue)
+		rows, err = s.db.Query(queryStr+" AND json_extract(metadata, ?) = ?", q.space, path, metaValue)
 	} else {
-		rows, err = s.db.Query(queryStr)
+		rows, err = s.db.Query(queryStr, q.space)
 	}
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to query vectors: %v", err)
@@ -144,7 +150,7 @@ func (s *LocalStore) vectorRecallBruteForceFiltered(queryText string, queryEmbed
 	}
 	defer rows.Close()
 
-	return bruteForceRowsToEntries(rows, queryEmbedding, limit, func(e VectorEntry) bool {
+	return bruteForceRowsToEntries(rows, q.vec, limit, func(e VectorEntry) bool {
 		return matchesMetadata(e.Metadata, metaKey, metaValue)
 	})
 }

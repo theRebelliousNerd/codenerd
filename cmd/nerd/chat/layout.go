@@ -118,7 +118,9 @@ func (m Model) applyLayout() Model {
 	// (textarea + border), content padding, whichever of the error panel,
 	// activity trail and a stacked campaign panel are on screen.
 	const headerHeight = 4
-	const footerHeight = 3
+	// The footer wraps to the width (renderFooter), so its height is
+	// measured: margin and lines, plus the row it always had to spare.
+	footerHeight := lipgloss.Height(m.renderFooter()) + 1
 	inputHeight := m.textarea.Height() + 2 // rounded border top+bottom
 	errorPanelHeight := 0
 	if m.err != nil && m.showError {

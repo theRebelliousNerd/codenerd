@@ -11,7 +11,7 @@
 | F3 | Transducer failure | observe error | Process fails | No silent wrong intent |
 | F4 | JIT compile failure | compile err | Baseline prompt | Weaker specialization |
 | F5 | ConfigFactory failure | compileConfig | Empty config; tool allowlist fails closed | Prose-only response remains possible |
-| F6 | LLM generation failure or nil response | generateResponse / follow-up guards | Fatal to Process | No response |
+| F6 | LLM generation failure or nil response | generateResponse / follow-up guards | Fatal to the turn; `settleTurn` returns the result (writes, receipts, checks) with the error | No response; effects already made stay and are reported |
 | F7 | Planning-only on mutation intent | no tool_calls + Mangle requires | Single nudge retry | Retry may still fail |
 | F8 | Tool not allowed / missing | isToolAllowed / registries | Error tool result | Model may spin |
 | F9 | Safety deny | checkSafety false | Block tool | Correct deny |
@@ -40,10 +40,11 @@
 | F30 | Campaign vs Cortex wire drift | dual constructors | Manual audit | Config inconsistency |
 | F31 | nerd.md query unavailable during write | three write gates | Fail closed + durable safety audit | Writes pause until kernel recovery |
 | F32 | Large pending edit body | byte cap | Store SHA-256 digest metadata above 16 KiB | Policies cannot inspect full oversized body |
+| F33 | Hard loop error after tool work | `runToolLoop` error | One terminal settlement: result kept, `/failed` verdict, acceptance `unverified`, cost and turn record written, exact fact retirement | Unfinished model text is dropped; durable restart recovery is not provided; closure has no wall-clock bound of its own |
 
 ## 2. Partial execution semantics
 
-Once a tool executes successfully, a later failure (validate, next tool, LLM follow-up) does **not** automatically roll back filesystem changes. Session is not a transactional FS. Campaign write-set gating (outside session) may add higher-level recovery.
+Once a tool executes successfully, a later failure (validate, next tool, LLM follow-up) does **not** automatically roll back filesystem changes. Session is not a transactional FS. Campaign write-set gating (outside session) may add higher-level recovery. A later failure does not discard the account of those changes either: the failed turn still returns its `ExecutionResult`, and delegation owners (inline task, subagent, verifier, chat) carry the changed paths and checks to the user.
 
 ## 3. Operator playbooks
 

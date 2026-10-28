@@ -103,7 +103,7 @@ func executeWebFetch(ctx context.Context, args map[string]any) (string, error) {
 
 	if plainResearchBody(page) {
 		result := pageRunes(source, offset, maxLength)
-		return markGuardTrip(result, guardTripped), nil
+		return markGuardTrip(result, guardTripped) + page.cleanupNotice(), nil
 	}
 
 	markdown, err := htmlToMarkdown(source, url, includeLinks)
@@ -114,7 +114,7 @@ func executeWebFetch(ctx context.Context, args map[string]any) (string, error) {
 	markdown = pageRunes(markdown, offset, maxLength)
 
 	logging.Researcher("Web fetch completed: %s (%d chars)", url, len(markdown))
-	return markGuardTrip(markdown, guardTripped), nil
+	return markGuardTrip(markdown, guardTripped) + page.cleanupNotice(), nil
 }
 
 // webFetchGuardBytes caps one fetched response body. It is process

@@ -256,6 +256,13 @@ func (p *PerceptionFirewallShard) ensureTransducer() perception.Transducer {
 	if p.promptAssembler != nil {
 		t.SetPromptAssembler(articulation.NewPromptAssemblerAdapter(p.promptAssembler))
 	}
+	// The firewall's transducer reads the same kernel the firewall asserts
+	// into. Without it deriveRouting takes its no-kernel path: the model's
+	// suggested mode and shards pass through, no blocked tools are derived and
+	// no routing facts are published, on exactly the path chat prefers.
+	if tk, ok := t.(perception.TransducerWithKernel); ok && p.Kernel != nil {
+		tk.SetKernel(p.Kernel)
+	}
 	p.transducer = t
 	return t
 }
@@ -507,11 +514,16 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 	parseFailed := parseErr != nil
 	if parseErr != nil {
 		logging.SystemShardsDebug("[PerceptionFirewall] Transducer parse failed (degrading): %v", parseErr)
+		transducerErr := parseErr
 		if p.config.UseFallbackParsing {
 			intent = p.parseWithFallback(input)
 			validatedUpdates = nil
 			parseErr = nil
 		}
+		// A transducer that errors instead of degrading still reports why: the
+		// typed cause rides on the intent whether or not the regex fallback
+		// produced a guess. That guess is not an admitted interpretation.
+		intent.Outcome = perception.FailedOutcome(transducerErr, "", 0)
 	}
 
 	// Normalize category/verb to name constants (leading '/').
@@ -533,6 +545,7 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 	tx.Retract("ambiguity_flag")
 	tx.Retract("clarification_needed")
 	tx.Retract("intent_unknown")
+	tx.Retract("classification_outcome")
 	tx.Retract("intent_unmapped")
 	tx.Retract("no_action_reason")
 	tx.Retract("clarification_question")
@@ -555,13 +568,23 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 			Args:      []any{phrase},
 		})
 	}
+	// What happened when a model tried to read this turn. The kernel derives
+	// the turn's disposition from it (policy/perception_outcome.mg); a failed
+	// classification is not user ambiguity, so none of the intent_unknown or
+	// ambiguity reasoning below applies to it.
+	classificationFailed := intent.Outcome.Failed()
+	if fact, ok := intent.Outcome.Fact(intentID); ok {
+		tx.Assert(fact)
+	}
 	if err := tx.Commit(); err != nil {
 		logging.Get(logging.CategoryPerception).Error("perception ephemera cleanup failed: %v", err)
 	}
 
 	unknownReason := ""
 	if strings.TrimSpace(intent.Verb) == "" {
-		unknownReason = "/no_verb_match"
+		if !classificationFailed {
+			unknownReason = "/no_verb_match"
+		}
 		intent.Verb = "/explain"
 		if intent.Category == "" || intent.Category == "/instruction" {
 			intent.Category = "/query"
@@ -570,18 +593,10 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 			intent.Confidence = 0.3
 		}
 	} else if parseFailed {
-		unknownReason = "/llm_failed"
 		if intent.Confidence > 0.4 {
 			intent.Confidence = 0.4
 		}
-	} else if intent.TransientFailure {
-		// The transducer swallowed a transient model outage (503/5xx) into a
-		// degraded /explain intent with a nil error, so parseFailed is false.
-		// Surface it as /llm_unavailable so clarification tells the user the
-		// model was briefly unreachable rather than implying they were unclear.
-		// (The degraded intent already carries Confidence 0, so no clamp needed.)
-		unknownReason = "/llm_unavailable"
-	} else if intent.Confidence < p.config.AmbiguityThreshold {
+	} else if !classificationFailed && intent.Confidence < p.config.AmbiguityThreshold {
 		unknownReason = "/heuristic_low"
 	}
 
@@ -662,8 +677,10 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 		p.trackSuccess(pattern)
 	}
 
-	// Ambiguity handling
-	if intent.Confidence < p.config.AmbiguityThreshold {
+	// Ambiguity handling. A failed classification has confidence 0 because
+	// nothing was read, not because the user was unclear; it asks the user
+	// nothing and teaches the autopoiesis tracker nothing.
+	if !classificationFailed && intent.Confidence < p.config.AmbiguityThreshold {
 		logging.Get(logging.CategorySystemShards).Warn("[PerceptionFirewall] Ambiguous intent detected: confidence=%.2f", intent.Confidence)
 		_ = p.Kernel.Assert(types.Fact{
 			Predicate: "ambiguity_flag",

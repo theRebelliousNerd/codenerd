@@ -51,7 +51,7 @@ func TestYolo_TogglesKernelFact(t *testing.T) {
 func TestYolo_BootRestoresFact(t *testing.T) {
 	m := NewTestModel()
 	m.Config = config.DefaultUserConfig()
-	m.Config.Yolo = true
+	m.Config.WorkMode = config.WorkModeYolo
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -76,7 +76,7 @@ func TestYolo_BootRestoresFact(t *testing.T) {
 func TestRunClarifierShard_YoloSkips(t *testing.T) {
 	m := NewTestModel()
 	m.Config = config.DefaultUserConfig()
-	m.Config.Yolo = true
+	m.Config.WorkMode = config.WorkModeYolo
 	m.shardMgr = nil
 	m.taskExecutor = nil
 

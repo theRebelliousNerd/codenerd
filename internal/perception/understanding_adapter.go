@@ -36,20 +36,19 @@ type UnderstandingTransducer struct {
 
 // NewUnderstandingTransducer creates a transducer using LLM-first classification.
 func NewUnderstandingTransducer(client LLMClient) Transducer {
-	base := &UnderstandingTransducer{
-		client: client,
-	}
-
-	// Check if this is a Gemini client with thinking enabled
+	// One transducer type serves every client. A client with thinking enabled
+	// is classified through the thinking methods (LLMTransducer.methodPlan);
+	// the capability is read there, once, so ParseIntent, the history-aware
+	// method and the GCD adaptation cannot disagree about it. Until 2026-10-28
+	// a separate wrapper type embedded this one, and the embedded GCD method
+	// called the base context method, bypassing the wrapper's schema path for
+	// the one caller (the perception firewall) that used GCD.
 	if thinkingProvider, ok := client.(ThinkingProvider); ok && thinkingProvider.IsThinkingEnabled() {
-		logging.Perception("[Transducer] Using GeminiThinkingTransducer (thinking mode enabled, level=%s)",
-			thinkingProvider.GetThinkingLevel())
-		// Return the specialized transducer for Gemini Thinking Mode
-		return NewGeminiThinkingTransducer(base)
+		logging.Perception("[Transducer] thinking mode enabled (level=%s)", thinkingProvider.GetThinkingLevel())
+	} else {
+		logging.Perception("[Transducer] thinking mode NOT detected")
 	}
-
-	logging.Perception("[Transducer] Using UnderstandingTransducer (thinking mode NOT detected)")
-	return base
+	return &UnderstandingTransducer{client: client}
 }
 
 // SetPromptAssembler sets the JIT prompt assembler.
@@ -191,7 +190,14 @@ func mentionsUnderstandingObject(object string) bool {
 }
 
 func isUnderstandingEnvelopeShape(shape map[string]any) bool {
-	if len(shape) != 2 {
+	// understanding and surface_response, and optionally the running brief.
+	switch len(shape) {
+	case 2:
+	case 3:
+		if _, ok := shape["brief"].(map[string]any); !ok {
+			return false
+		}
+	default:
 		return false
 	}
 	if _, ok := shape["surface_response"].(string); !ok {
@@ -312,33 +318,28 @@ func truncateClassificationInput(input string) (string, bool) {
 }
 
 // degradedClassificationIntent builds the fail-soft result for a failed
-// classification (LLM error or unparseable response). Callers do not
-// expect ParseIntentWithContext to error here, so both transducer
-// implementations return this with a nil error.
-//
-// It distinguishes a transient model outage (503/5xx that survived retries)
-// from a genuine inability to understand the user, marking TransientFailure
-// so the perception firewall can assert intent_unknown(_, /llm_unavailable)
-// instead of laundering this into a "you were unclear" (/heuristic_low)
-// clarification.
-func degradedClassificationIntent(err error) Intent {
-	// The raw error carries the provider's response body; the user gets the
-	// failure class and status instead (SafeProviderFailureMessage).
+// classification (a provider error or an unreadable answer). Callers do not
+// expect ParseIntentWithContext to error here, so this is returned with a nil
+// error; the typed cause rides on Intent.Outcome, where the perception
+// firewall and the chat publish it as classification_outcome and the kernel
+// derives what the turn does (policy/perception_outcome.mg). The Intent itself
+// is a compatibility projection -- a zero-confidence /explain -- and is not an
+// interpretation of the user.
+func degradedClassificationIntent(outcome ClassificationOutcome) Intent {
+	// The raw error carries the provider's response body, and a bad answer
+	// carries the model's output; the user gets the class, the status and the
+	// safe code instead (ClassificationOutcome.SafeMessage).
 	degraded := Intent{
 		Verb:     "/explain",
 		Category: "/query",
-		Response: fmt.Sprintf("I had trouble understanding that: %s", SafeProviderFailureMessage(err)),
+		Response: fmt.Sprintf("I had trouble understanding that: %s", outcome.SafeMessage()),
+		Outcome:  outcome,
 	}
-	// Every adapter's exhausted outage counts, not only errors that wrap
-	// ErrLLMUnavailable (which only the Gemini client ever did).
-	if IsTransientProviderFailure(err) {
-		degraded.TransientFailure = true
-		// On the live interactive path the canonical user-facing wording comes
-		// from clarification.mg's clarification_question(_, /llm_unavailable)
-		// rule (the kernel is the single source of truth). We set the same text
-		// verbatim here only as a degraded fallback for any code path that reads
-		// intent.Response directly, so the user never sees the misleading
-		// "I had trouble understanding that" framing for a transient outage.
+	if outcome.Retryable() && outcome.Disposition == ClassificationProviderFailed {
+		// On the live interactive path the canonical wording comes from the
+		// kernel (perception_outcome.mg). The same text is set here only for a
+		// caller that reads Intent.Response directly, so the user never sees the
+		// misleading "I had trouble understanding that" framing for an outage.
 		degraded.Response = "I couldn't reach the language model just now - it may be briefly overloaded. Please try again in a moment."
 	}
 	return degraded
@@ -422,14 +423,15 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 	logging.Perception("[ParseIntentWithContext] calling LLMTransducer.Understand (hasStrategicContext=%v, strategicLen=%d)...",
 		hasStrategicCtx, len(strategicContext))
 	sessionCtx := types.GetSessionContext(ctx)
-	understanding, err := t.llmTransducer.Understand(ctx, input, history, semanticMatches, sessionCtx, strategicContext)
-	if err != nil {
-		logging.Perception("[ParseIntentWithContext] LLM understanding FAILED after %dms: %v",
-			time.Since(llmStart).Milliseconds(), err)
-		logging.Get(logging.CategoryPerception).Warn("LLM classification failed: %v", err)
-		return degradedClassificationIntent(err), nil
+	understanding, outcome := t.llmTransducer.Understand(ctx, input, history, semanticMatches, sessionCtx, strategicContext)
+	if outcome.Failed() {
+		logging.Perception("[ParseIntentWithContext] LLM understanding FAILED after %dms: disposition=%s stage=%s class=%s method=%s code=%q",
+			time.Since(llmStart).Milliseconds(), outcome.Disposition, outcome.Stage, outcome.Failure, outcome.Method, outcome.Code)
+		logging.Get(logging.CategoryPerception).Warn("LLM classification failed: %s", outcome.SafeMessage())
+		return degradedClassificationIntent(outcome), nil
 	}
-	logging.Perception("[ParseIntentWithContext] LLM understanding: %dms", time.Since(llmStart).Milliseconds())
+	logging.Perception("[ParseIntentWithContext] LLM understanding: %dms | method=%s attempts=%d",
+		time.Since(llmStart).Milliseconds(), outcome.Method, outcome.Attempts)
 
 	// GAP-018 FIX: Cache understanding for debugging
 	cacheStart := time.Now()
@@ -439,6 +441,7 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 
 	// Convert Understanding to Intent for backward compatibility
 	intent := t.understandingToIntent(understanding)
+	intent.Outcome = outcome
 	hasSurface := len(intent.Response) > 0
 	surfacePreview := intent.Response
 	if len(surfacePreview) > 100 {
@@ -516,6 +519,8 @@ func (t *UnderstandingTransducer) understandingToIntent(u *Understanding) Intent
 		ScopeLevel:  u.Scope.Level,
 		ScopeFile:   u.Scope.File,
 		ToolsNeeded: u.SuggestedApproach.ToolsNeeded,
+		Brief:       u.Brief,
+		Restriction: RestrictionFrom(u),
 
 		// Preserve Understanding in Ambiguity for debugging
 		Ambiguity: ambiguityInfo,
@@ -607,6 +612,14 @@ func (t *UnderstandingTransducer) mapActionToVerb(actionType, domain string) str
 		return "/forget"
 	case "chat":
 		return "/converse"
+	case "diagnose_self":
+		// codeNERD's own failures: the kernel's self-diagnosis chain.
+		return "/self_diagnose"
+	case "approve":
+		// The go-ahead on a proposal the assistant made. Whether a proposal
+		// is pending is the kernel's question (approve_lane,
+		// routing_arbitration.mg), not this mapping's.
+		return "/approve"
 	case "deploy":
 		return "/deploy"
 	case "migrate":
@@ -712,9 +725,12 @@ func (t *UnderstandingTransducer) ResolveFocus(ctx context.Context, reference st
 }
 
 // ParseIntentWithGCD implements the Transducer interface for Grammar-Constrained Decoding.
-// For UnderstandingTransducer, this is equivalent to ParseIntentWithContext since
-// the LLM-first approach uses structured JSON output instead of Mangle syntax validation.
-// The returned mangle updates are always empty as LLM-first doesn't generate raw Mangle.
+// It is the same classification operation as ParseIntentWithContext -- one
+// type, one method plan, so the schema-enforced attempt a schema-capable
+// thinking client gets is the same through every public entry point. The
+// retry limit is unused: this transducer's attempts are its method plan, not a
+// Mangle-syntax validation loop. The returned mangle updates are always empty
+// as LLM-first doesn't generate raw Mangle.
 func (t *UnderstandingTransducer) ParseIntentWithGCD(ctx context.Context, input string, history []ConversationTurn, maxRetries int) (Intent, []string, error) {
 	intent, err := t.ParseIntentWithContext(ctx, input, history)
 	if err != nil {
@@ -779,6 +795,8 @@ You are the perception layer of a coding agent. Your job is to deeply understand
 | remember | Store preference for future | No (memory only) |
 | forget | Remove stored preference | No (memory only) |
 | chat | Social interaction, greeting | No |
+| approve | Go-ahead on work you just proposed or held ("go", "do it", "yes, start") | No (starts the held work) |
+| diagnose_self | Diagnose codeNERD itself: its own errors, logs or misbehavior ("debug yourself", "why did you fail") | No |
 | migrate | Move code between frameworks/versions | Yes |
 | optimize | Improve performance, reduce resource usage | Yes |
 | document | Write docs, comments, READMEs | Yes |
@@ -839,12 +857,40 @@ Look for phrases like:
 - "just explain, don't fix" → read-only
 - "without external dependencies" → no new deps
 
+Four limits are enforced by the harness, not left to prose. When the user sets
+one, put its exact token in user_constraints, beside any other constraint:
+- no_changes: change nothing ("don't touch anything", "no actual changes")
+- read_only: only read and report ("just look", "just explain, don't fix")
+- dry_run: simulate, change nothing ("simulation only", "dry run")
+- confirm_first: ask the user before acting ("check with me first",
+  "show me before you apply it"); also set requires_confirmation
+A "what if" request sets is_hypothetical. Never use a token the user did not
+ask for: a restricted request cannot do its work.
+
 ### 7. Implicit Assumptions
 
 What is the user assuming that they didn't say?
 - "This was working before" (implies recent regression)
 - "Following our patterns" (implies existing conventions)
 - "Like the other endpoints" (implies reference implementation)
+
+### 8. The Brief
+
+The brief is what this conversation has settled about the work. You receive the
+current brief under "Current Brief" and return it whole, updated, in "brief":
+
+- "goal": the work the user wants, in one sentence. Keep it while the user is
+  still discussing it; replace it only when they move to different work.
+- "constraints": what the user requires or rules out.
+- "decisions": what has been decided between you, including answers to
+  earlier open questions.
+- "open_questions": what you still need from the user before the work can
+  start well. Remove a question once it is answered.
+- "ready": true when the brief is enough to start the work and nothing open
+  blocks it. You judge this; work may start on it without asking again.
+
+Small talk and questions about the code leave the brief as it is: return it
+unchanged. An empty brief stays empty until the user describes work.
 
 ## Output Format
 
@@ -881,7 +927,14 @@ You MUST output valid JSON in this exact structure:
       "context_needed": ["<what context would help>"]
     }
   },
-  "surface_response": "<natural language response to user>"
+  "surface_response": "<natural language response to user>",
+  "brief": {
+    "goal": "<the work, one sentence; empty if none>",
+    "constraints": ["<what the user requires or rules out>"],
+    "decisions": ["<what has been decided>"],
+    "open_questions": ["<what you still need to know>"],
+    "ready": <true|false>
+  }
 }
 
 ## Important Rules

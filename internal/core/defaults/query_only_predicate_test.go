@@ -131,6 +131,14 @@ func currentQueryOnlyPredicates(t *testing.T) (names []string, sites map[string]
 	root := repoRootFrom(t, cwd)
 
 	_, mangleProduced, _, _ := mangleCorpus(t, filepath.Join(root, "internal", "core", "defaults"))
+	// Packages that embed their own rules (internal/orient's treatment.mg,
+	// internal/context's) produce what they derive too.
+	for _, dir := range []string{"orient", "context"} {
+		_, produced, _, _ := mangleCorpus(t, filepath.Join(root, "internal", dir))
+		for pred := range produced {
+			mangleProduced[pred] = struct{}{}
+		}
+	}
 	queried, goProduced := goQueriedAndProduced(t, root)
 
 	sites = make(map[string][]string)

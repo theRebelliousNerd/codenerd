@@ -100,8 +100,11 @@ func TestVectorStore_ExtraMethods(t *testing.T) {
 		t.Errorf("Expected 2 added, got %d", added)
 	}
 
+	// With an engine attached the count is what the engine can serve: a
+	// keyword-only row is stored but not yet a semantic vector, so a caller
+	// deciding "is this indexed?" is told no.
 	count, _ = store.CountVectorsByMetadata("doc_id", "d3")
-	if count != 1 {
-		t.Errorf("Expected 1 vector for d3, got %d", count)
+	if count != 0 {
+		t.Errorf("a keyword-only row must not count as served by the attached engine, got %d", count)
 	}
 }

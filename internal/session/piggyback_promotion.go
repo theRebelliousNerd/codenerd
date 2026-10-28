@@ -12,24 +12,30 @@ import (
 // tool loop.
 //
 // Precedence: if the response already has native ToolCalls, promotion is skipped
-// so native calls are never duplicated.
+// so native calls are never duplicated. A response the host already admitted
+// (ControlsApplied) holds display text, never an envelope, and is never
+// promoted.
 //
 // Side effects: the Piggyback envelope's surface/control side effects
 // (mangle_updates, memory ops, self-correction, context feedback) are applied
-// exactly once via processPiggybackControlPacket. The response Text is replaced
-// with the surface response so a later processPiggybackControlPacket on the same
-// text finds no control packet and becomes a no-op. This preserves
-// offered-tool/permission/history/write-accounting/budget gates because promotion
-// only populates ToolCalls; execution still goes through executeToolBatch which
-// enforces isToolAllowed, budget, safety, and write accounting.
+// exactly once, from the one parse made here. The response Text becomes the
+// surface and the response is marked ControlsApplied, which is what keeps the
+// task tail from reading that surface as an envelope again. The mark, not a
+// hope that the surface happens to contain no JSON, is the guarantee: an
+// answer explaining the Piggyback format can hold a well-formed envelope.
+// Controls that did not take effect are carried to result as notices. This
+// preserves offered-tool/permission/history/write-accounting/budget gates
+// because promotion only populates ToolCalls; execution still goes through
+// executeToolBatch which enforces isToolAllowed, budget, safety, and write
+// accounting.
 //
 // Returns true when promotion happened.
-func (e *Executor) promotePiggybackToolRequests(resp *types.LLMToolResponse) bool {
-	if resp == nil || len(resp.ToolCalls) != 0 {
+func (e *Executor) promotePiggybackToolRequests(resp *types.LLMToolResponse, result *ExecutionResult) bool {
+	if resp == nil || len(resp.ToolCalls) != 0 || resp.ControlsApplied {
 		return false
 	}
 	// Use AllowPlain so both raw JSON envelopes and text-wrapped envelopes are
-	// handled. This mirrors processPiggybackControlPacket.
+	// handled.
 	processed := articulation.ProcessLLMResponseAllowPlain(resp.Text)
 	if processed.Control == nil || len(processed.Control.ToolRequests) == 0 {
 		return false
@@ -52,28 +58,16 @@ func (e *Executor) promotePiggybackToolRequests(resp *types.LLMToolResponse) boo
 	if len(valid) == 0 {
 		return false
 	}
-	// Apply control side effects exactly once. processPiggybackControlPacket
-	// parses again but is idempotent after we replace Text with surface: the
-	// second parse (at ProcessWithIntent tail) will find no control packet.
-	// We call it here to ensure mangle_updates etc. are not lost when the
+	// Apply control side effects exactly once, from this parse, even when the
 	// envelope is consumed as tool calls rather than as terminal prose.
-	surface := e.processPiggybackControlPacket(resp.Text)
-	// surface should equal processed.Surface; if processPiggyback found no
-	// control (should not happen since we did), fall back.
-	if surface == "" && processed.Surface != "" {
-		surface = processed.Surface
-		// Still need to ensure mangle updates are asserted if processPiggyback
-		// was a no-op due to parsing variance. Use the already-parsed control.
-		if len(processed.Control.MangleUpdates) > 0 {
-			env := &articulation.PiggybackEnvelope{Surface: processed.Surface, Control: *processed.Control}
-			e.processMangleUpdatesFromEnvelope(env)
-		}
-	}
+	surface, dispositions := e.applyPiggybackControls(processed)
+	carryControlNotices(result, dispositions)
 	// Both views, in one call. Writing resp.Text and resp.ToolCalls directly
 	// would leave a block-carrying response holding the original envelope text
 	// and no tool_use blocks, so the assistant turn appended to history would
 	// claim it called nothing while the next user turn answered calls that are
 	// not in the transcript.
 	resp.Rewrite(surface, valid)
+	resp.ControlsApplied = true
 	return true
 }

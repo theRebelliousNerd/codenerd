@@ -202,7 +202,9 @@ func TestDebugSelfInjection_RendersOnlyWhenNonEmpty(t *testing.T) {
 	}
 }
 
-func TestDebugSelfCommand_TogglesPersistsAndImpliesSessionYolo(t *testing.T) {
+// Debug-self reports codeNERD's own problems; the work mode is the one
+// autonomy switch, and debug-self leaves it where the user put it.
+func TestDebugSelfCommand_TogglesPersistsAndLeavesTheWorkMode(t *testing.T) {
 	m := NewTestModel()
 	m.workspace = t.TempDir()
 	if err := os.MkdirAll(filepath.Join(m.workspace, ".nerd"), 0o755); err != nil {
@@ -215,8 +217,8 @@ func TestDebugSelfCommand_TogglesPersistsAndImpliesSessionYolo(t *testing.T) {
 	if !on.debugSelfEnabled() {
 		t.Fatal("bare /debug-self must toggle on from off")
 	}
-	if !on.yoloEnabled() || !on.yoloViaDebugSelf {
-		t.Fatal("debug-self on must imply session yolo via debug_self")
+	if on.yoloEnabled() || on.workMode() != m.workMode() {
+		t.Fatalf("debug-self changed the work mode to %s", on.workMode())
 	}
 	raw, err := os.ReadFile(filepath.Join(m.workspace, ".nerd", "config.json"))
 	if err != nil {
@@ -225,15 +227,15 @@ func TestDebugSelfCommand_TogglesPersistsAndImpliesSessionYolo(t *testing.T) {
 	if !strings.Contains(string(raw), `"debug_self": true`) {
 		t.Fatalf("persisted config missing debug_self:true: %s", raw[:300])
 	}
-	if strings.Contains(string(raw), `"yolo": true`) {
-		t.Fatal("debug-self must not persist yolo:true")
+	if strings.Contains(string(raw), `"work_mode": "yolo"`) {
+		t.Fatal("debug-self must not persist work_mode yolo")
 	}
 
 	updated, _ = on.handleCmdDebugSelf("/debug-self status", []string{"/debug-self", "status"})
 	statusModel := updated.(Model)
 	last := statusModel.history[len(statusModel.history)-1].Content
 	if !strings.Contains(last, "Debug-self mode is ON") ||
-		!strings.Contains(last, "session-level via debug_self") ||
+		!strings.Contains(last, "debug-self does not change it") ||
 		!strings.Contains(last, "Log capture:") {
 		t.Fatalf("status must name debug_self yolo source and capture state: %q", last)
 	}
@@ -243,8 +245,8 @@ func TestDebugSelfCommand_TogglesPersistsAndImpliesSessionYolo(t *testing.T) {
 	if off.debugSelfEnabled() {
 		t.Fatal("/debug-self off must toggle off")
 	}
-	if off.yoloEnabled() {
-		t.Fatal("turning debug-self off must end the yolo it solely granted")
+	if off.workMode() != m.workMode() {
+		t.Fatal("turning debug-self off changed the work mode")
 	}
 }
 
@@ -255,14 +257,14 @@ func TestDebugSelfCommand_OffKeepsPersistedYoloAndStatusUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.Config = config.DefaultUserConfig()
-	m.Config.Yolo = true
+	m.Config.WorkMode = config.WorkModeYolo
 
 	updated, _ := m.handleCmdDebugSelf("/debug-self on", []string{"/debug-self", "on"})
 	on := updated.(Model)
 	updated, _ = on.handleCmdDebugSelf("/debug-self status", []string{"/debug-self", "status"})
 	last := updated.(Model).history[len(updated.(Model).history)-1].Content
-	if !strings.Contains(last, "persisted yolo:true") {
-		t.Fatalf("status must distinguish persisted yolo from debug_self yolo: %q", last)
+	if !strings.Contains(last, "Work mode: [Y] Yolo") {
+		t.Fatalf("status must name the work mode in force: %q", last)
 	}
 	updated, _ = on.handleCmdDebugSelf("/debug-self off", []string{"/debug-self", "off"})
 	if !updated.(Model).yoloEnabled() {

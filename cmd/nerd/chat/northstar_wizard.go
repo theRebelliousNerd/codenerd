@@ -698,7 +698,7 @@ _Enter constraints (one per line) or type "done"._`, len(w.Requirements)),
 		return m.autoGenerateRequirements()
 	} else if w.SubStep == 0 {
 		// New requirement
-		reqID := fmt.Sprintf("REQ-%03d", len(w.Requirements)+1)
+		reqID := w.nextRequirementID()
 		w.Requirements = append(w.Requirements, NorthstarRequirement{
 			ID:          reqID,
 			Description: input,
@@ -882,8 +882,8 @@ func (m Model) handleNorthstarSummary(input string) (tea.Model, tea.Cmd) {
 		// Show full summary and continue
 		return m.showNorthstarSummary()
 	case "new":
-		// Start fresh
-		m.northstarWizard = NewNorthstarWizard()
+		// Start fresh, still bound to the vision this replaces
+		m.northstarWizard = m.northstarWizard.startReplacement()
 		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: getNorthstarWelcomeMessage(),

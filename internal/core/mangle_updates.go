@@ -16,8 +16,11 @@ type MangleUpdatePolicy struct {
 	MaxUpdates        int
 }
 
-// MangleUpdateBlock records a rejected update and the reason.
+// MangleUpdateBlock records a rejected update and the reason. Index is the
+// update's position in the list that was filtered, so a caller can tell two
+// equal updates apart and account for every position.
 type MangleUpdateBlock struct {
+	Index  int
 	Update string
 	Reason string
 }
@@ -88,6 +91,7 @@ func FilterMangleUpdates(kernel Kernel, updates []string, policy MangleUpdatePol
 	for i, update := range updates {
 		if i >= maxUpdates {
 			blocked = append(blocked, MangleUpdateBlock{
+				Index:  i,
 				Update: update,
 				Reason: "mangle_updates limit exceeded",
 			})
@@ -101,6 +105,7 @@ func FilterMangleUpdates(kernel Kernel, updates []string, policy MangleUpdatePol
 
 		if strings.Contains(trimmed, ":-") {
 			blocked = append(blocked, MangleUpdateBlock{
+				Index:  i,
 				Update: update,
 				Reason: "rules are not allowed in mangle_updates",
 			})
@@ -110,6 +115,7 @@ func FilterMangleUpdates(kernel Kernel, updates []string, policy MangleUpdatePol
 		lower := strings.ToLower(trimmed)
 		if strings.HasPrefix(lower, "decl ") || strings.HasPrefix(lower, "decl\t") {
 			blocked = append(blocked, MangleUpdateBlock{
+				Index:  i,
 				Update: update,
 				Reason: "Decl statements are not allowed in mangle_updates",
 			})
@@ -117,6 +123,7 @@ func FilterMangleUpdates(kernel Kernel, updates []string, policy MangleUpdatePol
 		}
 		if strings.HasPrefix(lower, "import ") || strings.HasPrefix(lower, "include ") {
 			blocked = append(blocked, MangleUpdateBlock{
+				Index:  i,
 				Update: update,
 				Reason: "imports are not allowed in mangle_updates",
 			})
@@ -127,6 +134,7 @@ func FilterMangleUpdates(kernel Kernel, updates []string, policy MangleUpdatePol
 		fact, err := ParseFactString(factText)
 		if err != nil {
 			blocked = append(blocked, MangleUpdateBlock{
+				Index:  i,
 				Update: update,
 				Reason: fmt.Sprintf("parse error: %v", err),
 			})
@@ -135,6 +143,7 @@ func FilterMangleUpdates(kernel Kernel, updates []string, policy MangleUpdatePol
 
 		if !predicateAllowed(fact.Predicate, policy) {
 			blocked = append(blocked, MangleUpdateBlock{
+				Index:  i,
 				Update: update,
 				Reason: fmt.Sprintf("predicate %q not allowed in mangle_updates", fact.Predicate),
 			})
@@ -144,6 +153,7 @@ func FilterMangleUpdates(kernel Kernel, updates []string, policy MangleUpdatePol
 		if kernel != nil {
 			if ok, reason := validatePredicateDeclaration(kernel, fact.Predicate, len(fact.Args)); !ok {
 				blocked = append(blocked, MangleUpdateBlock{
+					Index:  i,
 					Update: update,
 					Reason: reason,
 				})
@@ -153,6 +163,7 @@ func FilterMangleUpdates(kernel Kernel, updates []string, policy MangleUpdatePol
 
 		if arg, found := shellEscapingArg(fact); found && !proseOnly(kernel, fact.Predicate) {
 			blocked = append(blocked, MangleUpdateBlock{
+				Index:  i,
 				Update: update,
 				Reason: fmt.Sprintf("shell metacharacters in a string argument of %s (%q), which is not prose_only", fact.Predicate, arg),
 			})

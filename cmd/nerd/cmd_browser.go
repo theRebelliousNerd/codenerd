@@ -157,6 +157,7 @@ func getBrowserConfig() browser.Config {
 		configured := userCfg.GetBrowserConfig()
 		cfg.DebuggerURL = configured.DebuggerURL
 		cfg.Launch = append([]string(nil), configured.Launch...)
+		cfg.Reaper = configured.Reaper
 		cfg.Headless = configured.Headless
 		cfg.ViewportWidth = configured.ViewportWidth
 		cfg.ViewportHeight = configured.ViewportHeight

@@ -101,14 +101,27 @@ func (c *Compressor) processTurn(ctx context.Context, turn Turn, controlsAlready
 	c.refreshActivationContextsLocked()
 
 	// 3. Process memory operations
+	outcomes := append([]articulation.ControlDisposition(nil), turn.ControlOutcomes...)
 	if turn.ControlPacket != nil && len(turn.ControlPacket.MemoryOperations) > 0 {
 		logging.ContextDebug("Processing %d memory operations", len(turn.ControlPacket.MemoryOperations))
 		if !controlsAlreadyApplied {
-			for _, op := range turn.ControlPacket.MemoryOperations {
-				c.processMemoryOperation(op)
+			// This path applies the operations itself, so it also knows how
+			// each one ended. Only the ones that landed are kept as memory
+			// operations of the turn; the rest are kept as outcomes.
+			applied := make([]articulation.MemoryOperation, 0, len(turn.ControlPacket.MemoryOperations))
+			for i, op := range turn.ControlPacket.MemoryOperations {
+				d := c.processMemoryOperation(op)
+				d.Index = i
+				if d.Took() {
+					applied = append(applied, op)
+				} else {
+					outcomes = append(outcomes, d)
+				}
 			}
+			result.MemoryOps = applied
+		} else {
+			result.MemoryOps = turn.ControlPacket.MemoryOperations
 		}
-		result.MemoryOps = turn.ControlPacket.MemoryOperations
 	}
 
 	// 4. Create compressed turn (NO SURFACE TEXT)
@@ -135,7 +148,11 @@ func (c *Compressor) processTurn(ctx context.Context, turn Turn, controlsAlready
 	if turn.ControlPacket != nil {
 		compressed.MangleUpdates = turn.ControlPacket.MangleUpdates
 		compressed.MemoryOperations = turn.ControlPacket.MemoryOperations
+		if !controlsAlreadyApplied {
+			compressed.MemoryOperations = result.MemoryOps
+		}
 	}
+	compressed.ControlOutcomes = outcomes
 
 	// 5. Add to recent turns (sliding window)
 	c.recentTurns = append(c.recentTurns, compressed)
@@ -238,7 +255,7 @@ func (c *Compressor) persistTurnLocked() {
 
 // processMemoryOperation hands a memory operation from the control packet to
 // ApplyMemoryOperation, the implementation the session executor shares.
-func (c *Compressor) processMemoryOperation(op articulation.MemoryOperation) {
+func (c *Compressor) processMemoryOperation(op articulation.MemoryOperation) articulation.ControlDisposition {
 	// A nil pointer in an interface is not a nil interface: pass none at all
 	// so the operation reports the missing half instead of calling through it.
 	var kernel MemoryKernel
@@ -249,7 +266,7 @@ func (c *Compressor) processMemoryOperation(op articulation.MemoryOperation) {
 	if c.store != nil {
 		store = c.store
 	}
-	ApplyMemoryOperation(kernel, store, op)
+	return ApplyMemoryOperation(kernel, store, op)
 }
 
 // shouldCompress returns true if compression should be triggered.
@@ -449,6 +466,9 @@ func (c *Compressor) generateObservationMaskedSummary(turns []CompressedTurn, ma
 			sb.WriteString(turn.IntentAtom.String())
 			sb.WriteString("\n")
 		}
+		// A control that did not take effect is never masked: it is the
+		// difference between "remembered" and "asked to remember".
+		writeControlOutcomes(&sb, turn)
 		if isMasked {
 			for _, atom := range turn.FocusAtoms {
 				sb.WriteString(atom.String())
@@ -471,6 +491,16 @@ func (c *Compressor) generateObservationMaskedSummary(turns []CompressedTurn, ma
 		logging.Context("C3 observation masking applied to %d/%d compressed turns", maskedCount, len(turns))
 	}
 	return sb.String(), maskedCount
+}
+
+// writeControlOutcomes writes one comment line per control of the turn that
+// did not take full effect, from the host's record of it.
+func writeControlOutcomes(sb *strings.Builder, turn CompressedTurn) {
+	for _, d := range turn.ControlOutcomes {
+		if notice := d.Notice(); notice != "" {
+			sb.WriteString(fmt.Sprintf("# turn %d: %s\n", turn.TurnNumber, notice))
+		}
+	}
 }
 
 // maxSummaryResultAtoms is how many of a turn's result atoms a compressed

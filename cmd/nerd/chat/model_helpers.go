@@ -12,6 +12,7 @@ import (
 
 	"codenerd/internal/broker"
 	"codenerd/internal/northstar"
+	"codenerd/internal/perception"
 	"codenerd/internal/types"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -156,21 +157,36 @@ func extractMetrics(result string) map[string]any {
 	return metrics
 }
 
-// hardWrap wraps text at the given width, splitting long lines.
-func hardWrap(s string, width int) string {
+// wrapText wraps s to width columns on word boundaries; only a single token
+// wider than the line (a long path, a URL) is split inside. Error text is
+// read, and a break inside "tool_calls" or "cmd/nerd" reads as two words.
+func wrapText(s string, width int) string {
 	if width < 1 || s == "" {
 		return s
 	}
-
-	lines := strings.Split(s, "\n")
-	out := make([]string, 0, len(lines))
-	for _, line := range lines {
-		remaining := []rune(line)
-		for len(remaining) > width {
-			out = append(out, string(remaining[:width]))
-			remaining = remaining[width:]
+	var out []string
+	for _, line := range strings.Split(s, "\n") {
+		var cur []rune
+		for _, word := range strings.Fields(line) {
+			w := []rune(word)
+			if len(cur) > 0 && len(cur)+1+len(w) > width {
+				out = append(out, string(cur))
+				cur = nil
+			}
+			for len(w) > width {
+				if len(cur) > 0 {
+					out = append(out, string(cur))
+					cur = nil
+				}
+				out = append(out, string(w[:width]))
+				w = w[width:]
+			}
+			if len(cur) > 0 {
+				cur = append(cur, ' ')
+			}
+			cur = append(cur, w...)
 		}
-		out = append(out, string(remaining))
+		out = append(out, string(cur))
 	}
 	return strings.Join(out, "\n")
 }
@@ -193,7 +209,7 @@ func (m *Model) refreshErrorViewport() {
 		return
 	}
 	width := max(m.errorVP.Width, 1)
-	m.errorVP.SetContent(hardWrap(m.err.Error(), width))
+	m.errorVP.SetContent(wrapText(m.err.Error(), width))
 }
 
 // extractClarificationQuestion extracts the question from an error message
@@ -239,13 +255,10 @@ func matchesAnyTrigger(input string, triggers []string) bool {
 	return false
 }
 
-// isNegativeFeedback checks for common frustration signals.
-// Uses word boundaries to avoid false-positives (e.g., "how do I fail gracefully" won't trigger).
+// isNegativeFeedback reports a rebuke of the assistant's last answer
+// (perception.IsRebuke), which starts the learning loop in place of the turn.
 func isNegativeFeedback(input string) bool {
-	return matchesAnyTrigger(input, []string{
-		"bad bot", "wrong", "stop", "no that's not right",
-		"you didn't", "fail", "incorrect", "mistake",
-	})
+	return perception.IsRebuke(input)
 }
 
 // isDreamConfirmation checks if user is confirming dream state learnings

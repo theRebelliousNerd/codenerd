@@ -286,7 +286,6 @@ func TestE2E_Perception_Adversarial_InputTruncation(t *testing.T) {
 	t.Logf("Prompt length: %d, Target length: %d", len(prompt), len(intent.Target))
 }
 
-
 // TODO: Null/Undefined/Empty Vectors
 // - Empty JSON / Empty Strings: What happens if the LLM returns `{"understanding": {"primary_intent": "", "semantic_type": "", "action_type": ""}}`? Does the system fallback correctly, or does it try to route an empty verb?
 // - Null Values: What if the LLM returns `{"understanding": {"primary_intent": null}}`? In Go, depending on the unmarshaling logic, this might cause a panic if not handled correctly or default to an empty string.
@@ -303,4 +302,4 @@ func TestE2E_Perception_Adversarial_InputTruncation(t *testing.T) {
 
 // TODO: State Conflicts
 // - Concurrent Perception: The `UnderstandingTransducer` holds state (e.g., `lastUnderstanding`). If two requests are processed concurrently using the same transducer instance (which shouldn't happen by design, but might in a bug), does `GetLastUnderstanding()` return the wrong state?
-// - Transient Failure State Conflict: The `TransientFailure` boolean on the `Intent` struct. What happens if the system is rapidly oscillating between available and unavailable? Does the fallback logic correctly handle a transient failure followed immediately by a malformed response?
+// - Transient Failure State Conflict: The typed `Outcome` on the `Intent` struct. What happens if the system is rapidly oscillating between available and unavailable? Does the fallback logic correctly handle a transient failure followed immediately by a malformed response?

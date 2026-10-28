@@ -72,7 +72,7 @@ Mirrored by `core.IntegrationClient` for VirtualStore.
 | `MCPServer` | Runtime/persisted server record |
 | `MCPTool` | Full tool with metadata, embedding, usage |
 | `MCPToolSchema` | Wire schema from tools/list |
-| `MCPCapabilities` | tools/resources/prompts/logging flags |
+| `MCPCapabilities` | Observed initialize result: declared tools/resources/prompts/logging, negotiated protocol version, self-reported server name/version |
 | `ToolAnalysis` | Analyzer output |
 | `ToolCompilationContext` | Shard/task/intent/budget inputs |
 | `CompiledToolSet` | Full + condensed + minimal + stats |

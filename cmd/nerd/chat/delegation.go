@@ -61,17 +61,16 @@ func (m *Model) spawnTask(ctx context.Context, shardType string, task string) (s
 // An executor that cannot answer ExecuteObservedWithContext still runs the
 // task: the observation then holds the output and nothing else, and consumers
 // must read an absent verdict as unverified — never as success.
-func (m *Model) spawnTaskWithContext(ctx context.Context, shardType string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (observation.Return, error) {
+func (m *Model) spawnTaskWithContext(ctx context.Context, req session.TaskRequest, sessionCtx *types.SessionContext, priority types.SpawnPriority) (observation.Return, error) {
 	if m.taskExecutor == nil {
 		return observation.Return{}, fmt.Errorf("taskExecutor not initialized")
 	}
-	ctx = m.withShardModelContext(ctx, shardType)
-	req := shardTypeToTaskRequest(shardType, task)
+	ctx = m.withShardModelContext(ctx, req.IntentVerb)
 	if observed, ok := m.taskExecutor.(session.ObservedTaskExecutor); ok {
 		return observed.ExecuteObservedWithContext(ctx, req, sessionCtx, priority)
 	}
 	out, err := m.taskExecutor.ExecuteWithContext(ctx, req, sessionCtx, priority)
-	return observation.Return{Agent: shardType, Task: task, Output: out}, err
+	return observation.Return{Agent: req.IntentVerb, Task: req.Task, Output: out}, err
 }
 
 // =============================================================================
@@ -104,12 +103,12 @@ func (m Model) formatShardTaskWithContext(verb, target, constraint, workspace st
 						actualTarget = file
 					}
 				}
-				return fmt.Sprintf("fix file:%s findings:[%s]", actualTarget, findingsStr)
+				return withTaskConstraint(fmt.Sprintf("fix file:%s findings:[%s]", actualTarget, findingsStr), constraint)
 			}
 		}
 		// If fixing after a test failure, include test errors
 		if priorResult.ShardType == "tester" && priorResult.RawOutput != "" {
-			return fmt.Sprintf("fix file:%s test_errors:[%s]", target, priorShardContext(priorResult))
+			return withTaskConstraint(fmt.Sprintf("fix file:%s test_errors:[%s]", target, priorShardContext(priorResult)), constraint)
 		}
 
 	case "/refactor":
@@ -122,20 +121,20 @@ func (m Model) formatShardTaskWithContext(verb, target, constraint, workspace st
 			// no matter what the reviewer wrote.
 			suggestions := filterFindingsBySeverity(priorResult.Findings, []string{"low", "medium"})
 			if len(suggestions) > 0 {
-				return fmt.Sprintf("refactor file:%s suggestions:[%s]", target, formatFindingsForTask(suggestions, target))
+				return withTaskConstraint(fmt.Sprintf("refactor file:%s suggestions:[%s]", target, formatFindingsForTask(suggestions, target)), constraint)
 			}
 		}
 
 	case "/test":
 		// If testing after a fix, include what was fixed
 		if priorResult.ShardType == "coder" {
-			return fmt.Sprintf("write_tests for %s after_fix context:[%s]", target, priorShardContext(priorResult))
+			return withTaskConstraint(fmt.Sprintf("write_tests for %s after_fix context:[%s]", target, priorShardContext(priorResult)), constraint)
 		}
 
 	case "/debug":
 		// Include prior test or error context
 		if priorResult.ShardType == "tester" || priorResult.ShardType == "reviewer" {
-			return fmt.Sprintf("debug %s context:[%s]", target, priorShardContext(priorResult))
+			return withTaskConstraint(fmt.Sprintf("debug %s context:[%s]", target, priorShardContext(priorResult)), constraint)
 		}
 	}
 
@@ -411,11 +410,21 @@ func flattenForTask(s string) string {
 // drop it (observed 2026-09-17: the coder was started with "fix issue in
 // <file>" and guessed what to fix); every verb now appends it.
 func withTaskConstraint(base, constraint string) string {
-	c := strings.TrimSpace(constraint)
-	if c == "" || strings.EqualFold(c, "none") {
+	c := taskConstraint(constraint)
+	if c == "" {
 		return base
 	}
 	return base + " with constraint: " + c
+}
+
+// taskConstraint is perception's constraint as a requirement: blank and the
+// word "none" both mean the user stated no limit.
+func taskConstraint(constraint string) string {
+	c := strings.TrimSpace(constraint)
+	if strings.EqualFold(c, "none") {
+		return ""
+	}
+	return c
 }
 
 // splitSlashTarget separates a slash command's arguments into the target the

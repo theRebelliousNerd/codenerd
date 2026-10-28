@@ -241,14 +241,14 @@ type Intent struct {
 	Response         string                         // Natural language response (Piggyback Protocol)
 	MemoryOperations []articulation.MemoryOperation // Memory operations for learning/forgetting (Cold Storage)
 
-	// TransientFailure marks an intent that is degraded because the language
-	// model was temporarily unreachable (a transient 5xx / 503 that survived
-	// retries), NOT because the user was ambiguous. The perception firewall
-	// reads this to assert intent_unknown(_, /llm_unavailable) instead of the
-	// misleading /heuristic_low (user-ambiguity) reason. It is the in-struct
-	// carrier for the ErrLLMUnavailable signal across the nil-error contract of
-	// ParseIntentWithContext / ParseIntentWithGCD.
-	TransientFailure bool
+	// Outcome is what happened when a model tried to classify this turn
+	// (classification_outcome.go). A failed classification still returns a
+	// degraded /explain Intent with a nil error -- the graceful-degradation
+	// contract callers rely on -- and Outcome is the typed cause that
+	// projection used to lose to one transient bit: provider failure class,
+	// stage, and method. The zero value means no model classified this intent
+	// (a delegated task's preset, a blank input).
+	Outcome ClassificationOutcome
 
 	// IsQuestion is true when the user is asking a question (wants an answer)
 	// rather than requesting an action (wants work done). Carried from the
@@ -271,6 +271,16 @@ type Intent struct {
 	// search, ...). A non-empty list is perception stating the turn needs
 	// workspace evidence; routing treats it the same as a file scope.
 	ToolsNeeded []string
+
+	// Brief is the running brief perception returned with this turn
+	// (brief.go); nil keeps the brief the kernel holds.
+	Brief *Brief
+
+	// Restriction is the limit the user put on this request (read-only,
+	// dry run, what-if, confirm first), recognised by perception and carried
+	// with the intent so execution, delegation and action admission see it
+	// (restriction.go). Zero means none recognised.
+	Restriction Restriction
 }
 
 // ConversationTurn represents a single turn in conversation history.
@@ -440,6 +450,13 @@ func InitPerceptionLayerWithContext(ctx context.Context, kernel core.Kernel, cfg
 // Should be called during graceful shutdown.
 func ClosePerceptionLayer() error {
 	logging.Perception("Closing perception layer components")
+
+	// The consolidation worker persists through the classifier and the stores
+	// closed below, so it is joined first. Chat stops it earlier still; this
+	// covers headless exits, and a second stop is a no-op.
+	if err := ShutdownSharedTaxonomy(); err != nil {
+		logging.Get(logging.CategoryPerception).Warn("Consolidation worker did not drain before close: %v", err)
+	}
 
 	if err := CloseSemanticClassifier(); err != nil {
 		logging.Get(logging.CategoryPerception).Warn("Error closing SemanticClassifier: %v", err)

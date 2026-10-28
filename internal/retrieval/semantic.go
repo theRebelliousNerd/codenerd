@@ -127,6 +127,23 @@ func NewEmbeddingSemanticSearcher(engine Embedder, workDir string) *EmbeddingSem
 	}
 }
 
+// Warm embeds the bounded corpus ahead of any query, off the turn's path. The
+// vectors land in the cache SimilarFiles ranks from, so a turn only ranks;
+// before this, every turn spent its retrieval budget embedding and the pass
+// expired with a fraction of the corpus covered. Safe to run beside queries:
+// a concurrent caller waits for a vector in flight instead of paying twice.
+func (s *EmbeddingSemanticSearcher) Warm(ctx context.Context) error {
+	if s == nil || s.engine == nil {
+		return nil
+	}
+	paths, _, err := s.corpus(ctx)
+	if err != nil || len(paths) == 0 {
+		return err
+	}
+	_, err = s.vectorsFor(ctx, paths)
+	return err
+}
+
 // SimilarFiles embeds the query and cosine-ranks the workspace corpus against
 // it, reporting how much of the eligible corpus the ranking covered.
 func (s *EmbeddingSemanticSearcher) SimilarFiles(ctx context.Context, query string, limit int) (SemanticResult, error) {

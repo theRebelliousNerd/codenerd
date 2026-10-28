@@ -31,9 +31,12 @@ var wrongExampleMarker = regexp.MustCompile(`(?i)(wrong|bad|incorrect|don't|do n
 // (71), and negations of an atom holding a wildcard -- which the engine
 // deletes from the clause without a word -- became negations of a projection
 // (`has_p(X) :- p(X, _).` then `!has_p(X)`, 35): 972 loading, 344 failing
-// unmarked. The number may only go down: lower it in the change that fixes
+// unmarked. 2026-10-28: capability/codedom_query_tools taught `:- goal.` as a
+// query (seven blocks; a query is one atom, `? goal.`, and a conjunction needs
+// a rule), and the two permitted derivations left their Decls out: 338. The
+// number may only go down: lower it in the change that fixes
 // more of them.
-const maxUnmarkedFailingExamples = 344
+const maxUnmarkedFailingExamples = 338
 
 func TestAtomCorpus_MangleExamplesTheEngineRejectsDoNotGrow(t *testing.T) {
 	corpus, err := prompt.LoadEmbeddedCorpus()

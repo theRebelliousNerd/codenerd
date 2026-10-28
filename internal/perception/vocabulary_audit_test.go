@@ -26,9 +26,9 @@ func TestUnderstand_SurfacesKernelDerivedVocabularyMisses(t *testing.T) {
 	  "surface_response": "Looking."}`
 	tr := NewLLMTransducer(&cannedJSONClient{response: envelope}, NewRealKernelRouter(kernel), "system")
 
-	u, err := tr.Understand(context.Background(), "why is x.go failing", nil, nil, nil, "")
-	if err != nil {
-		t.Fatalf("Understand: %v", err)
+	u, outcome := tr.Understand(context.Background(), "why is x.go failing", nil, nil, nil, "")
+	if outcome.Failed() {
+		t.Fatalf("Understand: %+v", outcome)
 	}
 	if u.Routing == nil {
 		t.Fatal("Routing is nil with kernel wired")
@@ -60,9 +60,9 @@ func TestUnderstand_InVocabularyUnderstandingHasNoMisses(t *testing.T) {
 	  "surface_response": "Looking."}`
 	tr := NewLLMTransducer(&cannedJSONClient{response: envelope}, NewRealKernelRouter(kernel), "system")
 
-	u, err := tr.Understand(context.Background(), "why does the test fail", nil, nil, nil, "")
-	if err != nil {
-		t.Fatalf("Understand: %v", err)
+	u, outcome := tr.Understand(context.Background(), "why does the test fail", nil, nil, nil, "")
+	if outcome.Failed() {
+		t.Fatalf("Understand: %+v", outcome)
 	}
 	if len(u.Routing.VocabularyMisses) != 0 {
 		t.Fatalf("in-vocabulary understanding reported misses: %v", u.Routing.VocabularyMisses)

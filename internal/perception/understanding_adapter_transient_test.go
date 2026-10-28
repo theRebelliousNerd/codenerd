@@ -38,7 +38,7 @@ func (m *transientErrLLMClient) CompleteWithStreaming(ctx context.Context, syste
 // model is transiently unavailable (the 503/5xx case wrapped as ErrLLMUnavailable
 // at the Gemini retry sites and re-wrapped by Understand), ParseIntentWithContext
 // must (1) still return a nil error to preserve its degraded-/explain contract,
-// (2) set Intent.TransientFailure so the firewall can distinguish this from user
+// (2) set Intent.Outcome so the firewall can distinguish this from user
 // ambiguity, and (3) give an honest "couldn't reach the model" response rather
 // than "I had trouble understanding that".
 func TestParseIntentWithContext_TransientFailureMarksIntent(t *testing.T) {
@@ -52,8 +52,8 @@ func TestParseIntentWithContext_TransientFailureMarksIntent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseIntentWithContext returned non-nil error %v; the degraded-intent contract requires nil", err)
 	}
-	if !intent.TransientFailure {
-		t.Fatalf("intent.TransientFailure = false; a transient ErrLLMUnavailable must be marked so the firewall can report /llm_unavailable")
+	if got := intent.Outcome; got.Disposition != ClassificationProviderFailed || got.Failure != FailureTransient || !got.Retryable() {
+		t.Fatalf("intent.Outcome = %+v; a transient ErrLLMUnavailable must be a retryable provider failure so the kernel can derive the outage notice", got)
 	}
 	if intent.Verb != "/explain" {
 		t.Fatalf("intent.Verb = %q, want /explain (degraded fallback)", intent.Verb)
@@ -69,10 +69,8 @@ func TestParseIntentWithContext_TransientFailureMarksIntent(t *testing.T) {
 }
 
 // TestParseIntentWithContext_NonTransientErrorNotMarked is the negative control:
-// a generic (non-sentinel) LLM failure must NOT be flagged transient, so it falls
-// through to the existing /llm_failed (or /heuristic_low) handling rather than
-// claiming the model was overloaded. This is the partition that keeps the new
-// /llm_unavailable reason honest.
+// a generic (non-sentinel) LLM failure must NOT be flagged transient, so the kernel
+// derives a blocker rather than claiming the model was overloaded.
 func TestParseIntentWithContext_NonTransientErrorNotMarked(t *testing.T) {
 	client := &transientErrLLMClient{err: errors.New("malformed JSON from model")}
 	tr := NewUnderstandingTransducer(client).(*UnderstandingTransducer)
@@ -81,8 +79,11 @@ func TestParseIntentWithContext_NonTransientErrorNotMarked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseIntentWithContext returned non-nil error %v; degraded path must return nil", err)
 	}
-	if intent.TransientFailure {
-		t.Fatalf("intent.TransientFailure = true for a non-transient error; only ErrLLMUnavailable should set it")
+	if intent.Outcome.Retryable() {
+		t.Fatalf("intent.Outcome = %+v for a non-transient error; only an outage is retryable", intent.Outcome)
+	}
+	if intent.Outcome.Disposition != ClassificationProviderFailed || intent.Outcome.Failure != FailurePermanent {
+		t.Fatalf("intent.Outcome = %+v, want a permanent provider failure", intent.Outcome)
 	}
 	if intent.Verb != "/explain" {
 		t.Fatalf("intent.Verb = %q, want /explain (degraded fallback)", intent.Verb)

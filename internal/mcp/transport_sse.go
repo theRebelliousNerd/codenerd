@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -9,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
 	"sync"
 	"time"
 
@@ -41,6 +39,10 @@ type SSETransport struct {
 	generation     uint64
 	streamActive   bool
 	endpointReady  bool
+	// closeCause records why the current stream ended when the transport, not
+	// the caller, ended it (an oversized event, a read failure), so calls
+	// waiting on the stream report the cause instead of a bare "closed".
+	closeCause error
 
 	headers map[string]string
 }
@@ -60,12 +62,13 @@ func NewSSETransportWithHeaders(baseURL string, timeout time.Duration, headers m
 		baseURL: baseURL,
 		timeout: timeout,
 		client: &http.Client{
-			Timeout: timeout,
+			Timeout:       timeout,
+			CheckRedirect: refuseCrossHostRedirect,
 		},
 		// A client-wide timeout also bounds reading the response body. SSE
 		// bodies are intentionally long-lived, so only bound response headers;
 		// POST requests retain the configured client timeout above.
-		streamClient: &http.Client{Transport: streamTransport},
+		streamClient: &http.Client{Transport: streamTransport, CheckRedirect: refuseCrossHostRedirect},
 		pending:      make(map[int]chan *mcpResponse),
 		nextID:       1,
 		headers:      ExpandHeaderValues(headers),
@@ -96,6 +99,7 @@ func (t *SSETransport) Connect(ctx context.Context) error {
 	t.serverInfo = nil
 	t.postURL = ""
 	t.endpointReady = false
+	t.closeCause = nil
 	t.initSignal = make(chan struct{})
 	t.connectionDone = make(chan struct{})
 	t.pending = make(map[int]chan *mcpResponse)
@@ -174,10 +178,10 @@ func (t *SSETransport) Connect(ctx context.Context) error {
 	initCtx, cancelInit := context.WithTimeout(ctx, t.timeout)
 	defer cancelInit()
 
-	caps, err := t.GetCapabilities(initCtx)
+	caps, err := t.initialize(initCtx)
 	if err != nil {
 		t.finishConnection(generation)
-		return fmt.Errorf("failed to get capabilities: %w", err)
+		return fmt.Errorf("failed to initialize MCP session: %w", err)
 	}
 
 	t.mu.Lock()
@@ -189,7 +193,7 @@ func (t *SSETransport) Connect(ctx context.Context) error {
 	t.connected = true
 	t.mu.Unlock()
 
-	logging.Get(logging.CategoryTools).Info("MCP SSE transport connected to %s", t.baseURL)
+	logging.Get(logging.CategoryTools).Info("MCP SSE transport connected to %s (protocol %s)", t.baseURL, caps.ProtocolVersion)
 	return nil
 }
 
@@ -246,53 +250,21 @@ func (t *SSETransport) finishConnection(generation uint64) {
 func (t *SSETransport) readLoop(ctx context.Context, body io.ReadCloser, generation uint64) {
 	defer body.Close()
 
-	scanner := bufio.NewScanner(body)
-	var eventType string
-	var eventData bytes.Buffer
-
-	for scanner.Scan() {
-		select {
-		case <-ctx.Done():
-			return
-		default:
+	err := scanSSE(body, maxWireMessageBytes, func(eventType, data string) bool {
+		if ctx.Err() != nil {
+			return true
 		}
+		t.handleEvent(generation, eventType, data)
+		return false
+	})
 
-		line := scanner.Text()
-		if line == "" {
-			// End of event
-			data := eventData.String()
-			if len(data) > 0 && data[len(data)-1] == '\n' {
-				data = data[:len(data)-1]
-			}
-			t.handleEvent(generation, eventType, data)
-
-			eventType = "message" // Default event type
-			eventData.Reset()
-			continue
-		}
-
-		if after, ok := strings.CutPrefix(line, "event: "); ok {
-			eventType = after
-		} else if after, ok := strings.CutPrefix(line, "data: "); ok {
-			eventData.WriteString(after)
-			eventData.WriteByte('\n')
-		} else if strings.HasPrefix(line, ":") ||
-			strings.HasPrefix(line, "id: ") ||
-			strings.HasPrefix(line, "retry: ") {
-			// Comment, id, and retry fields are defined by the SSE spec and
-			// deliberately unused here.
-		} else {
-			// Previously these three recognized-but-unused prefixes were empty
-			// else-if branches with no final else, which made the whole chain a
-			// no-op: a malformed or unexpected SSE field was indistinguishable
-			// from one we chose to skip, and vanished without trace. Naming the
-			// unknown case is what makes the branches above mean anything.
-			logging.Get(logging.CategoryTools).Debug("SSE: ignoring unrecognized field line: %.80q", line)
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
+	if err != nil && ctx.Err() == nil {
 		logging.Get(logging.CategoryTools).Warn("SSE read error: %v", err)
+		t.mu.Lock()
+		if t.generation == generation && t.streamActive {
+			t.closeCause = err
+		}
+		t.mu.Unlock()
 	}
 
 	// If the loop exits without an intentional cancellation, the server dropped
@@ -317,27 +289,39 @@ func (t *SSETransport) handleEvent(generation uint64, eventType, data string) {
 		logging.Get(logging.CategoryTools).Debug("Received SSE endpoint: %s", redactForLog(data, maxLoggedPayload))
 
 	case "message":
-		var resp mcpResponse
-		if err := json.Unmarshal([]byte(data), &resp); err != nil {
-			logging.Get(logging.CategoryTools).Warn("Failed to unmarshal SSE message: %v. Data: %s", err, redactForLog(data, maxLoggedPayload))
+		msg, err := decodeRPCMessage([]byte(data))
+		if err != nil {
+			logging.Get(logging.CategoryTools).Warn("Dropping SSE message: %v. Data: %s", err, redactForLog(data, maxLoggedPayload))
+			return
+		}
+		if kind := msg.kind(); kind != rpcResponse {
+			// A server request or notification carries an ID or method of its
+			// own and is never the answer to one of ours.
+			logging.Get(logging.CategoryTools).Debug("Ignoring server %s %q on the SSE stream", kind, msg.Method)
+			return
+		}
+		id, ok := msg.intID()
+		if !ok {
+			logging.Get(logging.CategoryTools).Warn("Dropping SSE response with unusable id %s", string(msg.ID))
 			return
 		}
 
 		t.mu.Lock()
-		ch, ok := t.pending[resp.ID]
+		ch, pending := t.pending[id]
 		if t.generation != generation || !t.streamActive {
-			ok = false
+			pending = false
 		}
-
-		if ok {
+		if pending {
+			// The first terminal response completes the call; a duplicate
+			// finds no pending entry and is dropped.
+			delete(t.pending, id)
 			select {
-			case ch <- &resp:
+			case ch <- msg.response(id):
 			default:
-				logging.Get(logging.CategoryTools).Warn("Response channel full for ID %d", resp.ID)
+				logging.Get(logging.CategoryTools).Warn("Response channel full for ID %d", id)
 			}
 		} else {
-			// Could be a notification or unsolicited message (not supported yet)
-			logging.Get(logging.CategoryTools).Debug("Received unsolicited message ID %d", resp.ID)
+			logging.Get(logging.CategoryTools).Debug("Dropping response for unknown or completed request ID %d", id)
 		}
 		t.mu.Unlock()
 
@@ -386,11 +370,36 @@ func (t *SSETransport) call(ctx context.Context, method string, params any) (*mc
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	fullURL := t.resolveURL(postURL)
+	if err := t.post(ctx, postURL, body); err != nil {
+		return nil, err
+	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", fullURL, bytes.NewReader(body))
+	// The POST is only acknowledged here; the JSON-RPC response arrives on the
+	// event stream, matched to this call by ID.
+	select {
+	case resp, ok := <-ch:
+		if !ok {
+			return nil, t.closedError()
+		}
+		if resp.Error != nil {
+			return resp, fmt.Errorf("MCP error %d: %s", resp.Error.Code, resp.Error.Message)
+		}
+		return resp, nil
+	case <-connectionDone:
+		return nil, t.closedError()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(t.timeout):
+		return nil, fmt.Errorf("timeout waiting for response")
+	}
+}
+
+// post sends one JSON-RPC message to the session endpoint. Any 2xx status
+// acknowledges it; the answer, if there is one, comes on the event stream.
+func (t *SSETransport) post(ctx context.Context, postURL string, body []byte) error {
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", t.resolveURL(postURL), bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return fmt.Errorf("failed to create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	for k, v := range t.headers {
@@ -399,36 +408,41 @@ func (t *SSETransport) call(ctx context.Context, method string, params any) (*mc
 
 	httpResp, err := t.client.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return fmt.Errorf("request failed: %w", err)
 	}
 	defer httpResp.Body.Close()
 
-	if httpResp.StatusCode >= 400 {
-		bodyBytes, _ := io.ReadAll(httpResp.Body)
-		return nil, fmt.Errorf("server returned status %d: %s", httpResp.StatusCode, string(bodyBytes))
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		return fmt.Errorf("server returned status %d: %s", httpResp.StatusCode, diagnosticBody(httpResp.Body))
 	}
+	return nil
+}
 
-	// For SSE, the response is usually "Accepted" (202) or just 200 OK with empty body,
-	// and the actual result comes via SSE.
-	// However, standard MCP might return result immediately if it's not async?
-	// The spec says: "The server MUST respond to the POST request with a 200 OK status code... The actual JSON-RPC response ... will be sent via the SSE connection."
-
-	select {
-	case resp, ok := <-ch:
-		if !ok {
-			return nil, fmt.Errorf("connection closed")
-		}
-		if resp.Error != nil {
-			return resp, fmt.Errorf("MCP error %d: %s", resp.Error.Code, resp.Error.Message)
-		}
-		return resp, nil
-	case <-connectionDone:
-		return nil, fmt.Errorf("connection closed")
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-time.After(t.timeout):
-		return nil, fmt.Errorf("timeout waiting for response")
+// notify sends a notification: no ID and no response to wait for.
+func (t *SSETransport) notify(ctx context.Context, notification mcpNotification) error {
+	t.mu.RLock()
+	active := t.streamActive
+	postURL := t.postURL
+	t.mu.RUnlock()
+	if !active || postURL == "" {
+		return fmt.Errorf("not connected to MCP server")
 	}
+	body, err := json.Marshal(notification)
+	if err != nil {
+		return fmt.Errorf("failed to marshal notification: %w", err)
+	}
+	return t.post(ctx, postURL, body)
+}
+
+// closedError reports why the stream a call was waiting on ended.
+func (t *SSETransport) closedError() error {
+	t.mu.RLock()
+	cause := t.closeCause
+	t.mu.RUnlock()
+	if cause != nil {
+		return fmt.Errorf("connection closed: %w", cause)
+	}
+	return fmt.Errorf("connection closed")
 }
 
 func (t *SSETransport) resolveURL(u string) string {
@@ -443,62 +457,37 @@ func (t *SSETransport) resolveURL(u string) string {
 	return base.ResolveReference(ref).String()
 }
 
-// GetCapabilities returns server capabilities.
+// GetCapabilities returns the capabilities observed during Connect.
 func (t *SSETransport) GetCapabilities(ctx context.Context) (*MCPCapabilities, error) {
 	t.mu.RLock()
-	if t.serverInfo != nil {
-		caps := *t.serverInfo
-		t.mu.RUnlock()
-		return &caps, nil
+	defer t.mu.RUnlock()
+	if t.serverInfo == nil {
+		return nil, fmt.Errorf("not connected to MCP server")
 	}
-	t.mu.RUnlock()
+	caps := *t.serverInfo
+	return &caps, nil
+}
 
-	resp, err := t.call(ctx, "initialize", map[string]any{
-		"protocolVersion": "2024-11-05",
-		"capabilities":    map[string]any{},
-		"clientInfo": map[string]string{
-			"name":    "codeNERD",
-			"version": "1.0.0",
-		},
-	})
+// initialize runs the handshake on the open stream: initialize, version and
+// capability validation, then the initialized notification.
+func (t *SSETransport) initialize(ctx context.Context) (*MCPCapabilities, error) {
+	resp, err := t.call(ctx, "initialize", initializeParams())
 	if err != nil {
 		return nil, err
 	}
-
-	var result struct {
-		Capabilities MCPCapabilities `json:"capabilities"`
-		ServerInfo   struct {
-			Name    string `json:"name"`
-			Version string `json:"version"`
-		} `json:"serverInfo"`
+	caps, err := parseInitializeResult(resp.Result)
+	if err != nil {
+		return nil, err
 	}
-
-	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		// Try parsing as simpler structure
-		var simple MCPCapabilities
-		if err2 := json.Unmarshal(resp.Result, &simple); err2 != nil {
-			return nil, fmt.Errorf("failed to parse capabilities: %w", err)
-		}
-		return &simple, nil
+	if err := t.notify(ctx, initializedNotification()); err != nil {
+		return nil, fmt.Errorf("initialized notification: %w", err)
 	}
-
-	return &result.Capabilities, nil
+	return caps, nil
 }
 
-// ListTools retrieves available tools from the server.
+// ListTools retrieves every page of the server's tools.
 func (t *SSETransport) ListTools(ctx context.Context) ([]MCPToolSchema, error) {
-	resp, err := t.call(ctx, "tools/list", nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list tools: %w", err)
-	}
-
-	var result struct {
-		Tools []MCPToolSchema `json:"tools"`
-	}
-	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse tools response: %w", err)
-	}
-	return result.Tools, nil
+	return listToolsVia(ctx, t)
 }
 
 // CallTool invokes a tool on the MCP server.
@@ -521,20 +510,7 @@ func (t *SSETransport) CallTool(ctx context.Context, name string, args map[strin
 		}, nil
 	}
 
-	// Error handling is done in call(), but if resp still has error (shouldn't happen with my implementation of call)
-	if resp.Error != nil {
-		return &MCPCallResult{
-			Success:   false,
-			Error:     resp.Error.Message,
-			LatencyMs: latencyMs,
-		}, nil
-	}
-
-	return &MCPCallResult{
-		Success:   true,
-		Output:    resp.Result,
-		LatencyMs: latencyMs,
-	}, nil
+	return callResultFromRPC(resp, latencyMs), nil
 }
 
 // Ping checks if the server is responsive.

@@ -48,7 +48,7 @@ func TestPersistLearnedFact_RefusesUnparseable(t *testing.T) {
 		`learned_exemplar("x", /delete, "db", "", notanumber).`,
 	}
 	for _, p := range payloads {
-		if err := eng.PersistLearnedFact(p); err == nil {
+		if _, err := eng.PersistLearnedFact(context.Background(), p); err == nil {
 			t.Errorf("payload %q accepted, want refusal", p)
 		}
 	}
@@ -75,7 +75,7 @@ func TestPersistLearnedFact_RoundTripsValid(t *testing.T) {
 	eng.SetWorkspace(root)
 
 	fact := `learned_exemplar("xyzzy batter", /document, "", "", 0.95).`
-	if err := eng.PersistLearnedFact(fact); err != nil {
+	if _, err := eng.PersistLearnedFact(context.Background(), fact); err != nil {
 		t.Fatalf("PersistLearnedFact: %v", err)
 	}
 	raw, err := os.ReadFile(filepath.Join(root, ".nerd", "mangle", "learned_taxonomy.mg"))
@@ -193,7 +193,7 @@ func TestConsolidationWorker_NilEngine(t *testing.T) {
 // TestLearnedPatternContext_HasDeadline pins that a pattern-learning embed
 // carries the installed embedding.request_timeout.
 func TestLearnedPatternContext_HasDeadline(t *testing.T) {
-	ctx, cancel := learnedPatternContext()
+	ctx, cancel := learnedPatternContext(context.Background())
 	defer cancel()
 	dl, ok := ctx.Deadline()
 	if !ok {

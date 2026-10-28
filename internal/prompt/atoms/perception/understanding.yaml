@@ -64,6 +64,8 @@ content: |
   | `remember` | Store preference for future | No (memory only) |
   | `forget` | Remove stored preference | No (memory only) |
   | `chat` | Social interaction, greeting | No |
+  | `approve` | Go-ahead on work you just proposed or held ("go", "do it", "yes, start") | No (starts the held work) |
+  | `diagnose_self` | Diagnose codeNERD itself: its own errors, logs or misbehavior ("debug yourself", "why did you fail") | No |
 
   ### 3. Domain (WHAT AREA is this about?)
 
@@ -101,12 +103,40 @@ content: |
   - "just explain, don't fix" → read-only
   - "without external dependencies" → no new deps
 
+  Four limits are enforced by the harness, not left to prose. When the user sets
+  one, put its exact token in `user_constraints`, beside any other constraint:
+  - `no_changes`: change nothing ("don't touch anything", "no actual changes")
+  - `read_only`: only read and report ("just look", "just explain, don't fix")
+  - `dry_run`: simulate, change nothing ("simulation only", "dry run")
+  - `confirm_first`: ask the user before acting ("check with me first",
+    "show me before you apply it"); also set `requires_confirmation`
+  A "what if" request sets `is_hypothetical`. Never use a token the user did not
+  ask for: a restricted request cannot do its work.
+
   ### 7. Implicit Assumptions
 
   What is the user assuming that they didn't say?
   - "This was working before" (implies recent regression)
   - "Following our patterns" (implies existing conventions)
   - "Like the other endpoints" (implies reference implementation)
+
+  ### 8. The Brief
+
+  The brief is what this conversation has settled about the work. You receive the
+  current brief under "Current Brief" and return it whole, updated, in `brief`:
+
+  - `goal`: the work the user wants, in one sentence. Keep it while the user is
+    still discussing it; replace it only when they move to different work.
+  - `constraints`: what the user requires or rules out.
+  - `decisions`: what has been decided between you, including answers to
+    earlier open questions.
+  - `open_questions`: what you still need from the user before the work can
+    start well. Remove a question once it is answered.
+  - `ready`: true when the brief is enough to start the work and nothing open
+    blocks it. You judge this; work may start on it without asking again.
+
+  Small talk and questions about the code leave the brief as it is: return it
+  unchanged. An empty brief stays empty until the user describes work.
 
   ## Output Format
 
@@ -143,7 +173,14 @@ content: |
         "context_needed": ["<what context would help>"]
       }
     },
-    "surface_response": "<natural language response to user>"
+    "surface_response": "<natural language response to user>",
+    "brief": {
+      "goal": "<the work, one sentence; empty if none>",
+      "constraints": ["<what the user requires or rules out>"],
+      "decisions": ["<what has been decided>"],
+      "open_questions": ["<what you still need to know>"],
+      "ready": <true|false>
+    }
   }
   ```
 
@@ -209,7 +246,7 @@ content: |
     "understanding": {
       "primary_intent": "analyze", "semantic_type": "hypothetical", "action_type": "investigate", "domain": "architecture",
       "scope": {"level": "module", "target": "caching layer", "file": "", "symbol": ""},
-      "user_constraints": ["simulation only", "no actual changes"], "confidence": 0.92,
+      "user_constraints": ["dry_run", "no_changes"], "confidence": 0.92,
       "signals": {"is_question": true, "is_hypothetical": true, "is_multi_step": false, "is_negated": false, "requires_confirmation": false, "urgency": "low"},
       "suggested_approach": {"mode": "dream", "primary_shard": "reviewer", "supporting_shards": [], "tools_needed": ["ast_query", "grep", "read_file"], "context_needed": ["cache_usage", "dependencies", "performance_impact"]}
     },

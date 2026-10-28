@@ -8,13 +8,32 @@ type LoggingConfig struct {
 	Format     string          `yaml:"format" json:"format,omitempty"`             // json, text
 	File       string          `yaml:"file" json:"file,omitempty"`                 // legacy single file
 	DebugMode  bool            `yaml:"debug_mode" json:"debug_mode,omitempty"`     // Master toggle - false = no logging (production)
-	DebugSelf  bool            `yaml:"debug_self" json:"debug_self,omitempty"`     // Watch own problems log per chat turn; implies DebugMode + session yolo
+	DebugSelf  bool            `yaml:"debug_self" json:"debug_self,omitempty"`     // Watch own problems log per chat turn; implies DebugMode (never the work mode)
 	TraceLLMIO bool            `yaml:"trace_llm_io" json:"trace_llm_io,omitempty"` // Dump full LLM prompt packages and responses to llm_io log
 	Categories map[string]bool `yaml:"categories" json:"categories,omitempty"`     // Per-category toggles
 	// PerformanceSampling controls sampling rate for non-slow performance logs (0.0-1.0).
 	PerformanceSampling float64 `yaml:"performance_sampling" json:"performance_sampling,omitempty"`
 	// PerformanceThresholdsMs sets per-system slow thresholds in milliseconds.
 	PerformanceThresholdsMs map[string]int64 `yaml:"performance_thresholds_ms" json:"performance_thresholds_ms,omitempty"`
+	// SelfProblemWarnRepeats is how often one warning must recur in the
+	// problems log before debug-self calls it hot and names it to the model
+	// (self_problem_hot, policy/self_problems.mg). Errors are always hot.
+	// Default DefaultSelfProblemWarnRepeats.
+	SelfProblemWarnRepeats int `yaml:"self_problem_warn_repeats" json:"self_problem_warn_repeats,omitempty"`
+}
+
+// DefaultSelfProblemWarnRepeats is the warning recurrence at which debug-self
+// treats a warning as a problem worth the model's attention.
+const DefaultSelfProblemWarnRepeats = 3
+
+// Params are the logging knobs the kernel's rules read, as config_param rows
+// (config_param_required(/logging, Key), policy/self_problems.mg). Nil-safe.
+func (c *LoggingConfig) Params() []Param {
+	repeats := DefaultSelfProblemWarnRepeats
+	if c != nil && c.SelfProblemWarnRepeats > 0 {
+		repeats = c.SelfProblemWarnRepeats
+	}
+	return []Param{{Key: "/logging_self_problem_warn_repeats", Value: int64(repeats)}}
 }
 
 // EffectiveDebugMode reports whether logging is effectively on. DebugSelf

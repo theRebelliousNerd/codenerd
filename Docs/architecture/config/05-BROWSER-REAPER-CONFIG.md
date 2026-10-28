@@ -39,6 +39,13 @@ individually: `initAutopoiesisAndBrowser` (`internal/system/factory.go:1756`),
 (`internal/tools/research/browser_read.go:94`). Copying the new section is
 outside B3 ownership and remains required for operator overrides.
 
+As built 2026-10-28: all three adapters now carry the section. `initAutopoiesisAndBrowser`
+copies `configured.Reaper` into the interactive manager and passes it to
+`research.SetBrowserRuntime` (`BrowserRuntimeOptions.Reaper`), which `researchHeadlessConfig`
+applies to the headless research manager; `getBrowserConfig` copies it for the CLI
+(`TestGetBrowserConfigReadsWorkspaceNativeSettings`, written but not run: `cmd/nerd` did not
+build while other lanes were mid-edit).
+
 | Gap ID | Capability | Current state | Target state | Severity | Phase | Blocking dependencies | Exit criteria |
 |---|---|---|---|---|---|---|---|
 | GAP-CONFIG-BROWSER-REAPER-01 | Cleanup request settings | OPEN: section and checks authored at `internal/config/browser_reaper.go:6` | All native entry paths consume the section | High | B3 integration | CLI/factory/research adapter owners | `go test -count=1 ./internal/config/...` passes; adapter tests prove explicit reaper settings reach both operator and headless research managers. |

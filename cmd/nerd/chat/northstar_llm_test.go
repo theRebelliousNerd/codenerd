@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -132,13 +133,44 @@ func TestNorthstarTUI_ReadFailuresAreVisible(t *testing.T) {
 	}
 }
 
-func TestNorthstarTUI_RequirementsRejectUnrepresentableLinks(t *testing.T) {
+func TestNorthstarTUI_RequirementsCarryLinksToTheCanonicalIDs(t *testing.T) {
+	client := &northstarTUIScriptClient{complete: func(_ context.Context, _, user string) (string, error) {
+		body, _ := northstarTUIFrame(t, user)
+		// The model is shown the wizard's stable IDs, not positional aliases.
+		if !strings.Contains(body, `"ID":"cap_custom"`) && !strings.Contains(body, `"id":"cap_custom"`) {
+			t.Fatalf("model was not shown the capability's real ID: %s", body)
+		}
+		return `{"requirements":[{"type":"functional","description":"Ground decisions","priority":"must-have","source":"Capabilities[0]","supports":["cap_custom"],"addresses":["risk_1"]}]}`, nil
+	}}
+	w := &NorthstarWizardState{Mission: "Ground decisions",
+		Capabilities: []Capability{{ID: "cap_custom", Description: "Evidence", Timeline: "now", Priority: "critical"}},
+		Risks:        []Risk{{Description: "Drift", Likelihood: "high", Impact: "high"}}}
+	m := Model{client: client, northstarWizard: w}
+	msg := m.generateRequirementsWithLLM()().(requirementsGeneratedMsg)
+	if msg.err != nil || len(msg.requirements) != 1 {
+		t.Fatalf("message = %+v", msg)
+	}
+	req := msg.requirements[0]
+	if !reflect.DeepEqual(req.Supports, []string{"cap_custom"}) || !reflect.DeepEqual(req.Addresses, []string{"risk_1"}) {
+		t.Fatalf("links did not survive the TUI adapter: %+v", req)
+	}
+	if w.Risks[0].ID != "risk_1" {
+		t.Fatal("a risk created in the wizard was not given its stable ID before generation")
+	}
+}
+
+func TestNorthstarTUI_RequirementsRejectLinksToUnknownEntities(t *testing.T) {
+	calls := 0
 	client := &northstarTUIScriptClient{complete: func(context.Context, string, string) (string, error) {
-		return `{"requirements":[{"id":"REQ-001","type":"functional","description":"Ground decisions","priority":"must-have","source":"Capabilities[0]","supports":["cap_1"]}]}`, nil
+		calls++
+		return `{"requirements":[{"type":"functional","description":"Ground decisions","priority":"must-have","source":"Capabilities[0]","supports":["cap_ghost"]}]}`, nil
 	}}
 	m := Model{client: client, northstarWizard: &NorthstarWizardState{Mission: "Ground decisions", Capabilities: []Capability{{Description: "Evidence", Timeline: "now", Priority: "critical"}}}}
 	msg := m.generateRequirementsWithLLM()().(requirementsGeneratedMsg)
-	if msg.err == nil || len(msg.requirements) != 0 || !strings.Contains(msg.err.Error(), "cannot preserve") {
-		t.Fatal("TUI silently discarded a requirement link")
+	if msg.err == nil || len(msg.requirements) != 0 || !strings.Contains(msg.err.Error(), "unknown capability") {
+		t.Fatalf("a dangling link was accepted into the wizard: %+v", msg)
+	}
+	if calls < 2 {
+		t.Fatalf("a refused derivation was not retried (calls=%d)", calls)
 	}
 }

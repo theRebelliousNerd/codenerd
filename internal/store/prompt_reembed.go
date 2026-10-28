@@ -137,6 +137,15 @@ func (s *LocalStore) ReembedAllPromptAtomsForce(ctx context.Context) (int, error
 		totalEmbedded += embedded
 	}
 
+	// An atom whose embedding failed keeps its old vector and its old stamp,
+	// which the searcher refuses to rank (stamp != engine name). It is still a
+	// row the pass was responsible for: report it rather than count it away.
+	if totalEmbedded < len(atoms) {
+		return totalEmbedded, &IncompleteReembedError{
+			Table: "prompt_atoms", Target: modelName,
+			Total: int64(len(atoms)), Done: int64(totalEmbedded), Failed: int64(len(atoms) - totalEmbedded),
+		}
+	}
 	logging.Store("Force re-embedding prompt atoms complete: %d atoms processed", totalEmbedded)
 	return totalEmbedded, nil
 }

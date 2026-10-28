@@ -431,7 +431,7 @@ type requirementsPayload struct {
 	Requirements *[]draftRequirement `json:"requirements"`
 }
 
-func parseRequirements(resp string, existing []WizardRequirement) ([]WizardRequirement, error) {
+func parseRequirements(resp string, state WizardRequirementsInput) ([]WizardRequirement, error) {
 	raw, err := finalJSON(resp)
 	if err != nil {
 		return nil, err
@@ -453,7 +453,39 @@ func parseRequirements(resp string, existing []WizardRequirement) ([]WizardRequi
 			Priority: r.Priority, Source: r.Source, Supports: r.Supports, Addresses: r.Addresses,
 		})
 	}
-	return assignRequirementIDs(reqs, existing)
+	if err := checkRequirementLinks(reqs, state); err != nil {
+		return nil, err
+	}
+	return assignRequirementIDs(reqs, state.ExistingRequirements)
+}
+
+// checkRequirementLinks refuses a requirement whose supports or addresses name
+// a capability or risk the wizard state does not have. A dangling link used to
+// pass here and be dropped from the facts later, so the model's claim that a
+// requirement covered a risk vanished without anyone being told; refusing makes
+// the derivation take another attempt, and fail visibly when none parses.
+func checkRequirementLinks(reqs []WizardRequirement, state WizardRequirementsInput) error {
+	caps := make(map[string]bool, len(state.Capabilities))
+	for _, c := range state.Capabilities {
+		caps[strings.TrimSpace(c.ID)] = true
+	}
+	risks := make(map[string]bool, len(state.Risks))
+	for _, r := range state.Risks {
+		risks[strings.TrimSpace(r.ID)] = true
+	}
+	for _, r := range reqs {
+		for _, id := range r.Supports {
+			if !caps[strings.TrimSpace(id)] {
+				return fmt.Errorf("requirement %q supports unknown capability %q", r.Description, id)
+			}
+		}
+		for _, id := range r.Addresses {
+			if !risks[strings.TrimSpace(id)] {
+				return fmt.Errorf("requirement %q addresses unknown risk %q", r.Description, id)
+			}
+		}
+	}
+	return nil
 }
 
 var requirementID = regexp.MustCompile(`^REQ-[0-9]{3,}$`)

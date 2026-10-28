@@ -309,7 +309,7 @@ See §5.
 
 #### Phase H — Articulate / post-process
 
-1. `processPiggybackControlPacket` extracts surface text + control side-effects  
+1. `admitResponseControls` extracts surface text + control side-effects  
 2. History append user + assistant (incl. thought summary/signature if present)  
 3. Cap history at 50 turns  
 4. `perception.SharedTaxonomy.QueueForLearning` if available  
@@ -317,6 +317,16 @@ See §5.
 6. If tools errored **and** final response empty → set `result.Error`  
 
 Returns `*ExecutionResult` with response/intent, attempted and successful tool counters, written-path evidence, duration, and error state.
+
+#### Phase I — Terminal settlement (`settleTurn`, `turn_settlement.go`)
+
+Every admitted turn (one that holds an `ExecutionResult`) leaves through `settleTurn` exactly once, whether `runToolLoop` returned normally or with a hard error (provider failure after tool work, continuation-policy stop, cancel, unsatisfied post-edit gate, incomplete planned steps).
+
+- A hard error is the turn's primary failure: `result.Error = err`, returned unchanged (`errors.Is` still finds the provider's error, the context's, `ErrVerificationFailed`, `ErrStepsIncomplete`). The result keeps what the loop measured: writes, preimages, tool receipts, checks run, `ToolErrors`.
+- The response of a failed turn is never parsed as a completion claim and its control packet is not applied. `Response` holds only the planned-step ledger, executive safety notices and the closing evidence sentence.
+- The same closure as the ordinary path runs: acceptance report (`unverified` when the turn never reached verification), kernel verdict (`/failed`, with `turn_missing_evidence` for the checks not reached), `turn_cost`, turn record, context feedback, history (only when there is a reply to pair with the request), learning. Closure makes no model call and runs no tool. A canceled turn is closed on `context.WithoutCancel(ctx)` and queues no learning.
+- The audit `TurnEnd` and prompt co-use settlement read the returned values (`turnSucceeded`), so they agree with the caller. Per-turn kernel facts are retired by a `defer` installed before the first owned assertion; exits before the model call (unfittable baseline, refused restriction) retire them too.
+- A request refused before admission (empty input, pre-canceled context, failed perception, acceptance baseline) has no result and returns `nil, err`.
 
 ### 4.5 ExecutionResult
 
@@ -726,7 +736,7 @@ When editing session:
 | 8 | No-tool nudge | optional | Best-effort single retry |
 | 9 | Safety per tool | `checkSafety` | Block tool |
 | 10 | Executive gate | type assert | Skip if absent |
-| 11 | Piggyback post | `processPiggybackControlPacket` | Raw text fallback |
+| 11 | Piggyback post | `admitResponseControls` | Raw text fallback |
 | 12 | History / learn / persist | append / Queue / go Store | Best-effort |
 
 This is the authoritative living spec for `internal/session` as of **2026-07-13**.

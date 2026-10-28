@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"codenerd/internal/docdecl"
 )
 
 func TestBrokenKindsAndCleanTree(t *testing.T) {
@@ -71,7 +73,7 @@ func TestCLIExitCodes(t *testing.T) {
 	if !strings.Contains(text, "summary: broken=") {
 		t.Fatalf("no summary:\n%s", text)
 	}
-	lines := splitLines(text)
+	lines := docdecl.SplitLines(text)
 	if len(lines) == 0 || !strings.HasPrefix(lines[len(lines)-1], "summary:") {
 		t.Fatalf("summary is not the last line:\n%s", text)
 	}
@@ -248,22 +250,6 @@ func TestNormalizeSymbol(t *testing.T) {
 		if ok != tc.ok || got != tc.want {
 			t.Errorf("normalize %q = %q %v, want %q %v", tc.in, got, ok, tc.want, tc.ok)
 		}
-	}
-}
-
-func TestDeclNamesIgnoreComments(t *testing.T) {
-	src := "# Decl ghost(X).\n/*\nDecl ghost3(X).\n*/\n/* Decl ghost2(X). */\nDecl keep_me(X).\nDecl elsewhere(X) bound [/string].\n"
-	got := declNames(src)
-	if !got["keep_me"] || !got["elsewhere"] {
-		t.Fatalf("decls %#v", got)
-	}
-	for _, bad := range []string{"ghost", "ghost2", "ghost3", "Declare"} {
-		if got[bad] {
-			t.Fatalf("counted %s in %#v", bad, got)
-		}
-	}
-	if declNames("Declare something(X).\n")["Declare"] {
-		t.Fatal("Declare is not Decl")
 	}
 }
 

@@ -72,7 +72,7 @@ user input → perception → user_intent → kernel next_action
 | Component | Status | Notes |
 |-----------|--------|-------|
 | `UnderstandingTransducer` / `LLMTransducer` | **Implemented** | Primary interactive path |
-| `GeminiThinkingTransducer` | **Implemented** | Schema-capable thinking path |
+| Thinking / schema methods | **Implemented** | `LLMTransducer.methodPlan`: schema-enforced attempt for a schema-capable thinking client, then free-form |
 | `SemanticClassifier` + dual corpus stores | **Implemented** | Graceful degradation if embed engine fails |
 | `TaxonomyEngine` + verb corpus | **Implemented** | SharedTaxonomy init; learned_taxonomy.mg |
 | Multi-provider LLM clients | **Implemented** | ZAI, Anthropic, OpenAI, Gemini, xAI, OpenRouter, Ollama |
@@ -82,7 +82,7 @@ user input → perception → user_intent → kernel next_action
 | Worker secondary client | **Implemented** | `NewWorkerClientFromUserConfig` |
 | TracingLLMClient + ConsolidationWorker | **Implemented** | Async learning from traces |
 | Piggyback schema builders | **Implemented** | Canonical schema from articulation |
-| Transient LLM failure signalling | **Implemented** | `ErrLLMUnavailable` + `Intent.TransientFailure` |
+| Classification outcome | **Implemented** | `Intent.Outcome` (`classification_outcome.go`), `classification_outcome/5`, `policy/perception_outcome.mg` |
 | Stability-bypass (reuse prior intent) | **Removed** | Documented as deliberate removal in adapter |
 | `validate()` field checks on understand path | **Dead / skipped** | Comments: always discarded; deriveRouting uses suggestions + Mangle |
 | Local `.mg` sources in package | **N/A** | Uses `core.GetDefaultContent` schemas + policy taxonomy files |
@@ -101,7 +101,9 @@ user input → perception → user_intent → kernel next_action
 internal/perception/
   transducer.go              # Intent, Transducer interface, verb corpus path
   transducer_llm.go          # LLMTransducer, JSON extract, routing derivation
-  transducer_gemini.go       # GeminiThinkingTransducer + understanding schema
+  classification_schema.go   # understanding JSON schema + schemaCapableClient
+  classification_outcome.go  # ClassificationOutcome, publish/stop helpers
+  classification_admission.go # shape-aware parseResponse
   understanding.go           # Understanding / Scope / Signals / Routing types
   understanding_adapter.go   # UnderstandingTransducer (canonical Transducer)
   semantic_classifier.go     # Vector classify + stores + SharedSemanticClassifier
@@ -191,7 +193,7 @@ TransducerWithKernel extends Transducer with kernel integration for routing.
 ```
 
 Canonical constructor: `NewUnderstandingTransducer(client LLMClient) Transducer`.  
-If client implements `ThinkingProvider` and thinking is enabled → returns `*GeminiThinkingTransducer`.
+Always returns `*UnderstandingTransducer`; if the client implements `ThinkingProvider` with thinking enabled, the thinking methods are selected inside `LLMTransducer.methodPlan`.
 
 ### 4.2 `Intent` (kernel-facing)
 
@@ -203,7 +205,7 @@ If client implements `ThinkingProvider` and thinking is enabled → returns `*Ge
 | `Confidence` | 0.0–1.0 |
 | `Response` | Surface NL (Piggyback-era / Understanding surface) |
 | `MemoryOperations` | promote/forget ops |
-| `TransientFailure` | True when LLM outage, not user ambiguity |
+| `Outcome` | Typed classification outcome; zero = no model classified this intent |
 | `IsQuestion` | From Understanding signals / interrogative semantic types |
 
 `Intent.ToFact()` builds:
@@ -234,7 +236,7 @@ Envelope: `UnderstandingEnvelope{understanding, surface_response}`.
 4. **No stability-bypass** — every turn classifies fresh (prior short-circuit removed; misclassified “thanks” as `/fix`).  
 5. `SharedSemanticClassifier.Classify` (optional; failures non-fatal).  
 6. `llmTransducer.Understand(...)` with history, matches, session ambient, strategic context.  
-7. On error: return degraded `/explain` with **nil error** (contract); set `TransientFailure` if `errors.Is(err, ErrLLMUnavailable)`.  
+7. On error: return degraded `/explain` with **nil error** (contract); carry the typed cause in `Intent.Outcome`.  
 8. Cache last understanding; `understandingToIntent` maps action→verb, semantic→category, carries `IsQuestion`.
 
 ### 4.5 `LLMTransducer.Understand` (`transducer_llm.go`)
@@ -287,7 +289,7 @@ Category: instruction semantic → `/instruction`; mutating actions → `/mutati
 
 ### 4.8 Gemini thinking path
 
-`transducer_gemini.go` embeds `UnderstandingTransducer`, re-implements `ParseIntentWithContext` for thinking-mode clients, uses flattened `understandingSchema` (Gemini max schema depth 6) with `CompleteWithSchema` when available.
+`classification_schema.go` holds the flattened `understandingSchema` (Gemini max schema depth 6) with `CompleteWithSchema` when available.
 
 ### 4.9 Verb-corpus dual path (`transducer.go`)
 
@@ -509,7 +511,7 @@ Intent.ToFact → user_intent
 | Fact arg sanitization | `sanitizeFactArg` |
 | Input length caps | 50k parse, 32k classify, 2k regex |
 | Config is boss | no silent key fallback when provider set |
-| Transient outage vs ambiguity | `TransientFailure` / `ErrLLMUnavailable` |
+| Outage / auth / unreadable answer vs ambiguity | `Intent.Outcome` / `classification_outcome` |
 | Queue drop not block | ConsolidationWorker |
 | Double-stop safe | ConsolidationWorker `stopOnce` |
 | Verb corpus concurrency | `verbCorpusMu` RWMutex |

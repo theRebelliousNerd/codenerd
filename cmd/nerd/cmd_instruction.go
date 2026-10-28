@@ -14,6 +14,7 @@ import (
 
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
+	"codenerd/internal/perception"
 	"codenerd/internal/session"
 	coresys "codenerd/internal/system"
 	"codenerd/internal/types"
@@ -82,6 +83,11 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 	intent, err := cortex.Transducer.ParseIntent(ctx, userInput)
 	if err != nil {
 		return fmt.Errorf("perception error: %w", err)
+	}
+	// A request no model read is not run on the compatibility intent a failed
+	// classification leaves: the kernel's notice for the cause ends the command.
+	if err := perception.AdmitClassification(cortex.Kernel, "/current_intent", intent); err != nil {
+		return fmt.Errorf("perception: %w", err)
 	}
 	logger.Info("Intent parsed",
 		zap.String("verb", intent.Verb),

@@ -20,7 +20,7 @@ Any string from user/LLM that becomes a Mangle fact argument is length-capped an
 ### I2 — Degraded parse never panics the chat loop
 
 `ParseIntentWithContext` returns a usable `Intent` (often `/explain`) with **nil error** when classification fails, unless a lower layer panics (should not).  
-Transient provider failures set `TransientFailure=true` so firewall asserts `/llm_unavailable` not `/heuristic_low`.
+A failed classification carries `Intent.Outcome`; the firewall asserts `classification_outcome`, never `/heuristic_low`, and the kernel derives the disposition (`perception_outcome.mg`).
 
 ### I3 — Config honesty
 

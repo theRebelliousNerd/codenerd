@@ -32,7 +32,7 @@ Scoring: **5** = fully aligned in code · **3** = partial / mixed · **1** = wea
 
 1. Clear **describe vs decide** split in types and routing.  
 2. Classification **model tiering** fixes critical-path latency bug.  
-3. **TransientFailure** prevents laundering 503s as user ambiguity.  
+3. **Intent.Outcome** prevents laundering 503s as user ambiguity.  
 4. **Injection** and JSON extraction hardness covered by break tests.  
 5. **xaioauth** cleanly separated from API-key xAI.
 

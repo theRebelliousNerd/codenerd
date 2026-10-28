@@ -36,20 +36,30 @@ func (m Model) clearStaleKernelFacts() {
 	// a stale /is_question cannot flip this turn's route_decision.
 	_ = m.kernel.Retract("intent_signal")
 
-	// NERD-EVOLVE-START: P3_routing_assertion
-	// Retract per-turn perception routing facts so stale values from the
-	// previous turn cannot influence C1/C4 composition in this turn.
-	// These are reasserted by LLMTransducer.assertRoutingFacts() during perception.
-	_ = m.kernel.Retract("current_understanding")
-	_ = m.kernel.Retract("llm_suggested_mode")
-	_ = m.kernel.Retract("candidate_mode")
-	_ = m.kernel.Retract("best_candidate_priority")
-	_ = m.kernel.Retract("derived_mode")
-	_ = m.kernel.Retract("derived_primary_shard")
-	_ = m.kernel.Retract("derived_context_priority")
-	_ = m.kernel.Retract("derived_tool_priority")
-	// NERD-EVOLVE-END: P3_routing_assertion
+	// The perception routing facts are retired BEFORE perception runs, by
+	// clearStaleRoutingFacts: clearing them here, after perception, retracted
+	// the ones the transducer had just published for this turn.
 
+}
+
+// clearStaleRoutingFacts retires the previous turn's perception routing facts.
+// It runs before perception, never after: LLMTransducer.assertRoutingFacts
+// publishes current_understanding, the suggested and derived mode, the primary
+// shard and the context and tool priorities for THIS turn during perception, so
+// a clear that followed it (clearStaleKernelFacts did, until 2026-10-28)
+// removed exactly what the transducer had just asserted. Retiring first means
+// a turn whose perception publishes nothing still cannot inherit last turn's.
+func (m Model) clearStaleRoutingFacts() {
+	if m.kernel == nil {
+		return
+	}
+	for _, pred := range []string{
+		"current_understanding", "llm_suggested_mode", "candidate_mode",
+		"best_candidate_priority", "derived_mode", "derived_primary_shard",
+		"derived_context_priority", "derived_tool_priority",
+	} {
+		_ = m.kernel.Retract(pred)
+	}
 }
 
 func (m Model) processMemoryOperations(intent perception.Intent, warnings *[]string) {
@@ -75,16 +85,19 @@ func (m Model) processMemoryOperations(intent perception.Intent, warnings *[]str
 				*warnings = append(*warnings, "[Memory] failed to forget: kernel does not support scoped memory retraction")
 				continue
 			}
-			memorycontext.ApplyMemoryOperation(memoryKernel, nil, memOp)
+			if d := memorycontext.ApplyMemoryOperation(memoryKernel, nil, memOp); !d.Took() {
+				*warnings = append(*warnings, d.Notice())
+			}
 		}
 	}
 }
 
-func (m Model) executeInfoGatheringActions(ctx context.Context, input string, intent perception.Intent, actions []core.Fact, warnings *[]string) ([]core.Fact, []string) {
+func (m Model) executeInfoGatheringActions(ctx context.Context, input string, intent perception.Intent, actions []core.Fact, warnings *[]string) ([]core.Fact, []string, []evidenceObservation) {
 	// Execute Info-Gathering Actions (Pre-Articulation)
 	// This implements the OODA "Act" phase for info retrieval
 	var executionResults []core.Fact
 	var mangleUpdates []string
+	var evidence []evidenceObservation
 
 	for _, action := range actions {
 		actionName := nextActionName(action)
@@ -97,18 +110,22 @@ func (m Model) executeInfoGatheringActions(ctx context.Context, input string, in
 		if actionKey == "fs_read" {
 			target := intent.Target // Simple mapping for now
 			if target != "" && target != "none" {
-				content, err := readFileContent(m.workspace, target, 8000)
-				if err == nil {
-					// Feed result back to kernel
-					resFact := core.Fact{
+				obs := readEvidenceFile(m.workspace, target, evidenceReadBudget())
+				evidence = append(evidence, obs)
+				switch obs.Coverage {
+				case coverageWhole:
+					// Only a whole file is the kernel's file_content: a prefix
+					// stored as the file would make every later reader of the
+					// fact (has_file_content, edit preconditions) a prefix too.
+					executionResults = append(executionResults, core.Fact{
 						Predicate: "file_content",
-						Args:      []any{target, content},
-					}
-					executionResults = append(executionResults, resFact)
-					// Also allow articulation to see it
-					*warnings = append(*warnings, fmt.Sprintf("Read file: %s (%d bytes)", target, len(content)))
-				} else {
-					*warnings = append(*warnings, fmt.Sprintf("Failed to read file %s: %v", target, err))
+						Args:      []any{target, obs.Body},
+					})
+					*warnings = append(*warnings, fmt.Sprintf("Read file: %s (%d bytes)", target, obs.SourceBytes))
+				case coverageSpan:
+					*warnings = append(*warnings, fmt.Sprintf("Read file: %s (only the first %d of %d bytes were read; the rest was not)", target, obs.ReturnedBytes, obs.SourceBytes))
+				default:
+					*warnings = append(*warnings, fmt.Sprintf("Failed to read file %s: %s", target, obs.Diagnostic))
 				}
 			}
 		}
@@ -155,5 +172,5 @@ func (m Model) executeInfoGatheringActions(ctx context.Context, input string, in
 		}
 	}
 
-	return executionResults, mangleUpdates
+	return executionResults, mangleUpdates, evidence
 }

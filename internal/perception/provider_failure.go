@@ -101,7 +101,12 @@ func SafeProviderFailureMessage(err error) string {
 	if class == "" {
 		return ""
 	}
-	status := providerFailureStatus(err)
+	return safeFailureMessage(class, providerFailureStatus(err))
+}
+
+// safeFailureMessage is SafeProviderFailureMessage for a failure already
+// reduced to its class and status, the form a ClassificationOutcome keeps.
+func safeFailureMessage(class ProviderFailureClass, status int) string {
 	switch class {
 	case FailureCanceled:
 		return "the model call was canceled before it finished"

@@ -165,6 +165,7 @@ func (m Model) autoGenerateRequirements() (tea.Model, tea.Cmd) {
 // areas, and asks targeted follow-up questions instead of silently finishing.
 func (m Model) autoGenerateRequirementsHeuristic() (tea.Model, tea.Cmd) {
 	w := m.northstarWizard
+	w.ensureIDs()
 	initialCount := len(w.Requirements)
 
 	northstarHasRequirement := func(substr string) bool {
@@ -183,11 +184,12 @@ func (m Model) autoGenerateRequirementsHeuristic() (tea.Model, tea.Cmd) {
 				continue
 			}
 			w.Requirements = append(w.Requirements, NorthstarRequirement{
-				ID:          fmt.Sprintf("REQ-%03d", len(w.Requirements)+1),
+				ID:          w.nextRequirementID(),
 				Type:        "functional",
 				Description: fmt.Sprintf("Implement: %s", cap.Description),
 				Priority:    "must-have",
 				Source:      "capability",
+				Supports:    []string{cap.ID},
 			})
 		}
 	}
@@ -199,11 +201,12 @@ func (m Model) autoGenerateRequirementsHeuristic() (tea.Model, tea.Cmd) {
 				continue
 			}
 			w.Requirements = append(w.Requirements, NorthstarRequirement{
-				ID:          fmt.Sprintf("REQ-%03d", len(w.Requirements)+1),
+				ID:          w.nextRequirementID(),
 				Type:        "non-functional",
 				Description: fmt.Sprintf("Risk mitigation: %s", risk.Mitigation),
 				Priority:    "should-have",
 				Source:      "risk-mitigation",
+				Addresses:   []string{risk.ID},
 			})
 		}
 	}
@@ -235,7 +238,7 @@ func (m Model) autoGenerateRequirementsHeuristic() (tea.Model, tea.Cmd) {
 		}
 
 		w.Requirements = append(w.Requirements, NorthstarRequirement{
-			ID:          fmt.Sprintf("REQ-%03d", len(w.Requirements)+1),
+			ID:          w.nextRequirementID(),
 			Type:        reqType,
 			Description: fact,
 			Priority:    priority,

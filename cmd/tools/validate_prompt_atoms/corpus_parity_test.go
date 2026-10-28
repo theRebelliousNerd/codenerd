@@ -53,8 +53,13 @@ func TestCheckedInCorpusOrderedParity(t *testing.T) {
 		t.Fatal("validator and embedded runtime atom order differ")
 	}
 
-	const wantCount = 923
-	const wantDigest = "c7ede3ef1218e03ecc8f46ded51ba405eb1e55663e3a59704eadc7d76cad0b33"
+	// The golden follows the atom IDs, not the YAML files: 923 -> 2445 when
+	// e5489d53 split every atom over 1500 characters into a head and its
+	// sections (section_of), each section being an atom of its own. To
+	// refresh it after an intended corpus change, take the count and digest
+	// this test prints.
+	const wantCount = 2445
+	const wantDigest = "a3f09f073cd8bcdfd5ed5958208c01ec8cbedabcdd68afaccf316acd2db4e9ae"
 	if len(stats.AtomIDs) != wantCount {
 		t.Fatalf("atom count = %d, want golden %d", len(stats.AtomIDs), wantCount)
 	}

@@ -130,6 +130,7 @@ func TestRunPhase_AModificationWithAnAbsentTargetLandsInTheExistingCode(t *testi
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)
 	}
+	t.Cleanup(func() { _ = orch.Close() })
 	orch.replanner = nil
 	if err := orch.SetCampaign(c); err != nil {
 		t.Fatalf("SetCampaign: %v", err)

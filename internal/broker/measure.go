@@ -28,6 +28,9 @@ const (
 	// A replayed thinking block costs its type marker plus the framing around
 	// an opaque signature, which is longer than a text block's wrapper.
 	perThinkingOverheadChars = 24
+	// A replayed server-tool block is counted by its own JSON
+	// (types.ServerBlockChars); this is the wrapper around it.
+	perServerBlockOverheadChars = 24
 )
 
 // measure returns the character size of an assembled request, broken out by
@@ -89,6 +92,12 @@ func measure(req *Request) Segments {
 				n += perToolResultOverheadChar +
 					utf8.RuneCountInString(b.ToolUseID) +
 					utf8.RuneCountInString(b.Text)
+			case types.BlockServerTool:
+				// Replayed byte for byte to the endpoint, so billed as input:
+				// a search or fetch result is often the largest thing in the
+				// request. Left out, a turn that replays a fetched page
+				// measured the same as one that replays a snippet.
+				n += perServerBlockOverheadChars + types.ServerBlockChars(b.Raw)
 			}
 		}
 
@@ -179,4 +188,23 @@ func splitProportional(total int, chars Segments) Segments {
 		out.Tools = 0
 	}
 	return out
+}
+
+// serverContentChars is the part of a request's size that is replayed
+// server-tool content, in the characters measure counts. It is what a provider
+// counting endpoint cannot be asked about, so a counter that sends the rest to
+// the endpoint adds this as a declared estimate.
+func serverContentChars(req *Request) int {
+	if req == nil {
+		return 0
+	}
+	chars := 0
+	for i := range req.Messages {
+		for _, b := range req.Messages[i].Content() {
+			if b.Kind == types.BlockServerTool {
+				chars += perServerBlockOverheadChars + types.ServerBlockChars(b.Raw)
+			}
+		}
+	}
+	return chars
 }

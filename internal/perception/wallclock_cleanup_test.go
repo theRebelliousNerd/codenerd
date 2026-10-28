@@ -16,7 +16,7 @@ func TestLearnedPatternContext_FollowsEmbeddingRequestTimeout(t *testing.T) {
 	t.Cleanup(func() { config.SetEmbeddingRequestTimeout(prev) })
 	config.SetEmbeddingRequestTimeout(90 * time.Second)
 
-	ctx, cancel := learnedPatternContext()
+	ctx, cancel := learnedPatternContext(context.Background())
 	defer cancel()
 	dl, ok := ctx.Deadline()
 	if !ok {

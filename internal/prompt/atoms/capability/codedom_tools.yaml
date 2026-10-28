@@ -70,39 +70,36 @@
 
     ### Common Useful Queries
 
+    A query is one atom, optionally led by `?`. To combine conditions, define a rule and query its head.
+
     **Find all functions in a file:**
     ```mangle
-    :- code_element(Ref, /function, "internal/auth/user.go", Start, End).
+    ? code_element(Ref, /function, "internal/auth/user.go", Start, End).
     ```
 
     **Find callers of a function:**
     ```mangle
-    :- code_calls(Caller, "auth.Login").
+    ? code_calls(Caller, "auth.Login").
     ```
 
     **Find data contracts:**
     ```mangle
-    :- is_data_contract(Ref).
+    ? is_data_contract(Ref).
     ```
 
-    **Find async code without context:**
+    **Find async code:**
     ```mangle
-    :- is_async_context(Ref), not is_context_aware(Ref).
+    ? is_async_context(Ref).
     ```
 
     **Find API couplings:**
     ```mangle
-    :- api_dependency(Backend, Frontend), wire_name(Backend, Key).
-    ```
-
-    **Find test coverage gaps:**
-    ```mangle
-    :- coverage_gap(Ref, /no_direct_tests).
+    ? api_dependency(Backend, Frontend).
     ```
 
     **Find potential panics (Rust):**
     ```mangle
-    :- potential_panic(Ref), rs_uses_unwrap(Ref).
+    ? potential_panic(Ref).
     ```
 
     ### Combining Queries with Actions

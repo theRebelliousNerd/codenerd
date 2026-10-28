@@ -176,6 +176,7 @@ func TestNewOrchestrator_WhenKernelIsReal_ShouldDefaultWireIntelligence(t *testi
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)
 	}
+	t.Cleanup(func() { _ = orch.Close() })
 
 	if orch.intelligenceGatherer == nil {
 		t.Error("IntelligenceGatherer was not default-wired despite a real kernel and workspace")
@@ -212,6 +213,7 @@ func TestNewOrchestrator_WhenIntelligenceSupplied_ShouldNotOverrideIt(t *testing
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)
 	}
+	t.Cleanup(func() { _ = orch.Close() })
 	if orch.intelligenceGatherer != supplied {
 		t.Fatal("default wiring replaced an explicitly configured IntelligenceGatherer")
 	}

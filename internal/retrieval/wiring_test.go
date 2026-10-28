@@ -551,3 +551,27 @@ func TestBuildContext_ShouldPopulateTier3OnGoWorkspace(t *testing.T) {
 	}
 	t.Errorf("tier 3 did not include the imported package: %v", tier3)
 }
+
+// Warm embeds the corpus ahead of the turn: the query that follows embeds only
+// itself, so a turn ranks instead of spending its budget embedding files.
+func TestEmbeddingSemanticSearcher_WarmMovesEmbeddingOffTheTurn(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "match.go", []byte("package main\n// zebra zebra zebra\n"))
+	writeFile(t, dir, "other.go", []byte("package main\n// unrelated\n"))
+	engine := &fakeEmbedder{}
+	s := NewEmbeddingSemanticSearcher(engine, dir)
+	if err := s.Warm(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	warmed := engine.batches
+	if warmed == 0 {
+		t.Fatal("Warm embedded nothing")
+	}
+	result, err := s.SimilarFiles(context.Background(), "zebra problem", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if engine.batches != warmed || result.Covered != 2 {
+		t.Fatalf("the query embedded corpus files again (%d batches after %d warm) or covered %d of 2", engine.batches, warmed, result.Covered)
+	}
+}

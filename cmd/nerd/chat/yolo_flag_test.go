@@ -20,7 +20,7 @@ func TestInitChat_YoloFlagIsSessionAutonomy(t *testing.T) {
 	if !m.yoloEnabled() {
 		t.Fatal("the --yolo flag did not turn on autonomy in the chat it launched")
 	}
-	if m.Config.Yolo {
+	if m.Config.YoloMode() {
 		t.Fatal("the --yolo flag was written into the persisted config")
 	}
 
@@ -29,7 +29,7 @@ func TestInitChat_YoloFlagIsSessionAutonomy(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.kernel = k
-	m.syncYoloFact()
+	m.syncWorkModeFacts()
 	if rows, _ := k.Query("yolo_mode"); len(rows) != 1 {
 		t.Fatalf("the kernel holds %d yolo_mode facts under --yolo, want 1: the clarification rules still ask", len(rows))
 	}
@@ -48,11 +48,6 @@ func TestInitChat_YoloFlagIsSessionAutonomy(t *testing.T) {
 
 	control := InitChat(Config{})
 	control.Config = config.DefaultUserConfig()
-	// The repo's own debug_self is not under test either: it grants session
-	// yolo at InitChat through the same flag field.
-	control.yoloFlag = false
-	control.yoloViaDebugSelf = false
-	control.debugSelfOwnsYolo = false
 	if control.yoloEnabled() {
 		t.Fatal("a chat launched without --yolo is autonomous")
 	}

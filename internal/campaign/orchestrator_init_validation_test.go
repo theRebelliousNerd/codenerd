@@ -68,6 +68,7 @@ func TestNewOrchestrator_AcceptsValidMinimalConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected NewOrchestrator error: %v", err)
 	}
+	t.Cleanup(func() { _ = orch.Close() })
 	if orch == nil {
 		t.Fatal("expected non-nil orchestrator")
 	}

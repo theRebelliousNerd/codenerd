@@ -17,7 +17,7 @@
 
 | File | Role | Hotspots |
 |------|------|----------|
-| `executor.go` | Clean loop, interfaces, Piggyback, history, persist | `ProcessWithIntent`, `generateResponse*`, `processMangleUpdatesFromEnvelope`, `processPiggybackControlPacket` |
+| `executor.go` | Clean loop, interfaces, Piggyback, history, persist | `ProcessWithIntent`, `generateResponse*`, `processMangleUpdatesFromEnvelope`, `admitResponseControls` |
 | `executor_tools.go` | Tool loop + safety | `runToolLoop`, `checkSafety`, `executeToolCall` |
 | `build_verify.go`, `test_verify.go`, `coverage_profile.go` | Post-edit build/test/coverage gates | verify, repair, bounded subprocesses |
 | `critic.go`, `lsp_diagnostics.go`, `severity.go` | Advisory semantic and diagnostic gates | critic uplift, gopls findings |

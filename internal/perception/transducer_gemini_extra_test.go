@@ -5,17 +5,8 @@ import (
 	"testing"
 )
 
-func TestNewGeminiThinkingTransducer(t *testing.T) {
-	base := NewUnderstandingTransducer(&baseMockLLMClient{}).(*UnderstandingTransducer)
-	tc := NewGeminiThinkingTransducer(base)
-	if tc == nil {
-		t.Errorf("NewGeminiThinkingTransducer returned nil")
-	}
-}
-
-func TestGeminiThinkingTransducer_ParseIntent(t *testing.T) {
-	base := NewUnderstandingTransducer(&baseMockLLMClient{}).(*UnderstandingTransducer)
-	tc := NewGeminiThinkingTransducer(base)
+func TestThinkingClient_ParseIntent(t *testing.T) {
+	tc := NewUnderstandingTransducer(&textGeminiClient{response: geminiSchemaEnvelope}).(*UnderstandingTransducer)
 	ctx := context.Background()
 	_, err := tc.ParseIntent(ctx, "hello")
 	if err != nil {
@@ -23,9 +14,8 @@ func TestGeminiThinkingTransducer_ParseIntent(t *testing.T) {
 	}
 }
 
-func TestGeminiThinkingTransducer_ParseIntentWithContext(t *testing.T) {
-	base := NewUnderstandingTransducer(&baseMockLLMClient{}).(*UnderstandingTransducer)
-	tc := NewGeminiThinkingTransducer(base)
+func TestThinkingClient_ParseIntentWithContext(t *testing.T) {
+	tc := NewUnderstandingTransducer(&textGeminiClient{response: geminiSchemaEnvelope}).(*UnderstandingTransducer)
 	ctx := context.Background()
 	_, err := tc.ParseIntentWithContext(ctx, "hello", nil)
 	if err != nil {
