@@ -240,6 +240,8 @@ func (s *Strategy) TotalUses() int {
 // the evolution loop can determine from the failure alone, so it is a policy
 // choice rather than an inference.
 type PinScope string
+
+const (
 	// PinScopeModel pins to the provider and the EXACT model token, and is the
 	// default. Dated snapshots of one model family differ behaviorally, so a
 	// failure observed on one snapshot is not evidence about another; the cost
@@ -247,7 +249,6 @@ type PinScope string
 	PinScopeModel PinScope = "model"
 
 
-const (
 	// PinScopeModelFamily pins to the provider and the model FAMILY, so an atom
 	// learned on claude-opus-4-20260501 also applies to a later snapshot of
 	// claude-opus-4. Explicit opt-in only: nothing in the evolution loop earns
