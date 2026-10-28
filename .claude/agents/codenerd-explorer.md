@@ -4,6 +4,7 @@ description: >
   Explores and builds new uses of Jev (TypeSafe) in codeNERD, with live probes.
   Opus, and it cannot start subagents or forks.
 model: opus
+effort: medium
 disallowedTools:
   - Agent
   - Workflow
