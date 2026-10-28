@@ -3,6 +3,8 @@ package ui
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestDetectTheme(t *testing.T) {
@@ -65,6 +67,16 @@ func TestLogo(t *testing.T) {
 	}
 	if strings.Count(logo, "\n") < 3 {
 		t.Errorf("Logo() expected multiple lines, got %d", strings.Count(logo, "\n"))
+	}
+}
+
+// The rendered logo, colors stripped, is exactly the art: same rows, same
+// columns. A segment style with a margin or padding broke every row in two.
+func TestLogo_RendersExactlyTheArt(t *testing.T) {
+	got := ansi.Strip(Logo(DefaultStyles()))
+	want := strings.TrimRight(logoArt, "\n")
+	if got != want {
+		t.Fatalf("rendered logo differs from logo.txt:\n%s\n--- want ---\n%s", got, want)
 	}
 }
 

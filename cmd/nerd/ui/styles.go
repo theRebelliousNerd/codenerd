@@ -495,10 +495,13 @@ var logoArt string
 // the primary one. TestLogoArt pins the grid this depends on.
 const logoNerdColumn = 38
 
-// Logo returns the codeNERD block logo.
+// Logo returns the codeNERD block logo. Each row is colored in two segments,
+// so the segment styles carry color and weight only: a layout property such as
+// Text.Title's bottom margin would put a blank line under every segment and
+// shear "code" and "NERD" onto separate rows.
 func Logo(s Styles) string {
-	code := s.Text.Title.Foreground(s.Theme.Secondary())
-	nerd := s.Text.Title.Foreground(s.Theme.Primary())
+	code := lipgloss.NewStyle().Bold(true).Foreground(s.Theme.Secondary())
+	nerd := lipgloss.NewStyle().Bold(true).Foreground(s.Theme.Primary())
 	lines := strings.Split(strings.TrimRight(logoArt, "\n"), "\n")
 	out := make([]string, len(lines))
 	for i, line := range lines {
