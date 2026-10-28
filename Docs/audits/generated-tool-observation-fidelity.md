@@ -168,3 +168,36 @@ Release exits: all required result/diagnostic bytes are accessible or explicitly
 
 The host already captures more generated-tool evidence than the solver receives, while the normal wrapper discards another class of useful evidence before capture. Close those two seams before adding prompts, retries or another diagnostic agent. The small architectural unit is a truthful, recoverable generated-call observation—not a new planner, broader execution permission or a stronger claim of success.
 
+
+## As-built status
+
+Verified and built 2026-10-28 on `main` (after `50cb9c64`). The wrapper, runtime and session projection were unchanged from the audited revision.
+
+### Claim ledger
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| A: the wrapper encodes the result only in the no-error branch, so a partial result returned with an error becomes `output: null` | Real, fixed | `tool_compiler.go:403` encodes a non-empty result beside the error; exit stays 1 |
+| A: the runtime decodes an envelope carrying both output and error into `Output` plus `BackendError` | Confirmed; unchanged and now reached | `runtime_registry.go:488-490` |
+| A: the production fixture hand-writes its partial envelope because the wrapper dropped it | Confirmed; the fixture was kept. A real-wrapper, real-build test was added | `tool_compiler_partial_test.go` |
+| B: generated-stdin-v1 keeps stderr only in the receipt; the session returns `receipt.Output` and the error | Real, fixed | `executor_tools.go:2716`, `:2719` (and the success return) now return `generatedObservation(receipt)` (`generated_observation.go`) |
+| B: legacy-argv appends stderr to Output already | Confirmed; not appended twice | `generated_observation.go` returns legacy Output as is |
+| Capture overflow is an explicit backend error (not a silent cut) | Confirmed; the observation also labels the stderr as a prefix | `runtime_registry.go` `OutputTruncated` |
+| `recordWorkingResult` archives the projected body, so recall cannot recover what projection dropped | Confirmed; recall now archives the body with stderr in it | `working_context.go` `recordWorkingResult` |
+| Inline-clone working archives end with the task | Confirmed; not changed (cross-task diagnostic handoff is out of scope) | `task_executor.go` `RetireWorkingScopes` |
+
+### What was built
+
+- Ruling (A): the wrapper encodes a non-empty result regardless of the error; a JSON result stays JSON. The error still fails the call. Already compiled binaries keep their old wrapper until regenerated; nothing pretends otherwise.
+- Ruling (B): the model's tool result is the decoded output followed by the stderr under `[generated tool stderr]` (or `...; the capture bound was reached, so this is a prefix]`), with `logging.RedactSecrets` applied. `receipt.Output` is untouched, so validators, learning and the durable receipt are unchanged. No extra Mangle predicate: whether the call failed is still the receipt's error, and stderr presence decides nothing. The whole diagnostic is carried; the working context archives a large result behind a recall handle.
+- Spec: `Docs/architecture/session/IMPLEMENTED_SPEC.md` §5.5, `Docs/architecture/autopoiesis/INTERNALS.md` (Compilation).
+
+### Tests
+
+`internal/autopoiesis/tool_compiler_partial_test.go` compiles a real generated function through the real wrapper and checks a text and a JSON partial result survive beside the error with exit 1 (fails with the old condition). `internal/session/generated_observation_test.go`: stderr beside a result, stderr-only failure, whitespace-only stderr and legacy protocol leave the result alone, credentials redacted, a cut capture marked.
+
+### Left open
+
+- Separate structured components (result / stderr / parse / exit) as Mangle facts with logic-owned disclosure (§ proposed contract 3-4): not built; one labelled observation was enough to put the diagnostic in front of the solver.
+- Post-task (parent TUI) recall of a worker's diagnostic: out of scope, as the document says.
+- Regenerating existing generated binaries; the comparative experiment and cost measurements: not run.

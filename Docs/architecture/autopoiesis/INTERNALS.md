@@ -63,6 +63,13 @@ binaries (`checkCachedBinary`, `:317`) or stores new ones
 (`:531`) has an offline fallback, `validateGoCodeOffline` (`:594`), and
 `generateStdoutParser` (`:184`) bridges binary output back to strings.
 
+`ToolCompiler.writeWrapper` (`tool_compiler.go`) wraps a non-`main`
+`func(context.Context, string) (string, error)` in the generated-stdin-v1
+envelope. A returned result is encoded whether or not an error came with it,
+so a partial result survives beside the `error` field; the error still exits
+1 (verified 2026-10-28, `tool_compiler_partial_test.go`). Binaries compiled
+before that keep the old wrapper until regenerated.
+
 ## Execution (registry.go, yaegi_executor.go)
 
 `RuntimeRegistry.Register` (`registry.go:127`) stores tools; `Execute`
@@ -107,22 +114,26 @@ surfaced on the façade (`GetToolPatterns` / `GetAllPatterns`,
 `ShouldRefineTool` (`:93`) gates refinement on recent executions
 (`getRecentExecutionsForTool`, `:145`).
 
-## Traces (traces.go)
+## Tool-generation audit records (traces.go)
 
-`TraceCollector` (`:130`) owns `ReasoningTrace`s (`:63`) built from
-`ThoughtStep` / `Decision` / `Alternative` (`:104` / `:112` / `:120`).
-Prompts, responses, and finalization go through `RecordPrompt` (`:174`),
-`RecordResponse` (`:180`), and `FinalizeTrace` (`:250`), with LLM-assisted
-reasoning extraction available (`extractReasoningWithLLM`, `:204`) and
-persistence in `save` / `load` (`:982` / `:964`). `AnalyzeGenerations`
-(`:380`) mines `GenerationAudit`s (`:316`) and
-`OptimizationOpportunity`s (`:361`). Generated code gets entry, exit,
-error, timing, API-call, and iteration logging injected by `LogInjector`
-(`:549`; `InjectLogging` at `:559`) and audited by `ValidateLogging`
-(`:575`) against `LoggingRequirements` (`:521`;
-`DefaultLoggingRequirements` at `:534`).
+`TraceCollector` owns `ToolGenerationRecord` values describing requests,
+declared design metadata, generated artifacts, usage counts, and observed
+outcomes. `RecordPrompt` retains the supplied prompts. `RecordResponse` records
+only token usage and elapsed time; it neither stores the response body nor
+extracts or reconstructs intermediate deliberation. `FinalizeTrace` records the
+artifact and outcome. Records persist in `tool_generation_records.json`;
+pre-change extracted-prose files remain untouched and are not loaded.
+`AnalyzeGenerations` aggregates success rates, quality, issues, and explicitly
+supplied design metadata into `GenerationAudit` and `OptimizationOpportunity`
+values. `LogInjector` adds entry, exit, error, timing, API-call, and iteration
+logging to generated code; `ValidateLogging` checks those requirements.
 
 ## Prompt evolution (prompt_evolution/evolver.go)
+
+The judge receives task requests, actions, execution results, source references,
+and usage counts. Provider thought summaries are excluded from the execution
+record and judge prompt. New feedback rows leave the legacy `thought_summary`
+column empty; historical values are excluded on read.
 
 `PromptEvolver` (`:144`) runs `RunEvolutionCycle` (`:284`), records
 outcomes (`RecordExecution`, `:253`), gates cycles on `ShouldRunEvolution`

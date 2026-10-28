@@ -397,9 +397,10 @@ func main() {
 	res, err := %s(ctx, input)
 	
 	output := ToolOutput{}
-	if err != nil {
-		output.Error = err.Error()
-	} else {
+	// A result is encoded whether or not an error came with it: a partial
+	// result returned beside an error is what the caller needs to repair or
+	// resume from, and the error still fails the call (exit 1, error field).
+	if res != "" || err == nil {
 		// If res is valid JSON, treat it as json.RawMessage, else marshal it
 		if json.Valid([]byte(res)) {
 			output.Output = json.RawMessage(res)
@@ -407,6 +408,9 @@ func main() {
 			marshaled, _ := json.Marshal(res)
 			output.Output = json.RawMessage(marshaled)
 		}
+	}
+	if err != nil {
+		output.Error = err.Error()
 	}
 
 	enc := json.NewEncoder(os.Stdout)

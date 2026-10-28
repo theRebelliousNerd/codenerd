@@ -446,7 +446,7 @@ Strict order:
 5. **Execute** modular registry first, else Ouroboros JSON-args binary  
 6. **Post-validate** `ValidateInteractiveToolResult` (modular success path)  
 
-Modular path returns `result.Result` string; Ouroboros returns raw string. Tool results fed back to native loop are truncated at **16 KiB** (`truncateToolResult`).
+Modular path returns `result.Result` string. A generated (Ouroboros) call returns `generatedObservation(receipt)` (`generated_observation.go`): the decoded result, then the process stderr under a `[generated tool stderr]` label, credential-redacted and marked when the capture bound cut it; `receipt.Output` itself is unchanged for validators and learning (legacy-argv already appends stderr). Tool results fed back to native loop are truncated at **16 KiB** (`truncateToolResult`).
 
 ### 5.6 Allow-list semantics
 
