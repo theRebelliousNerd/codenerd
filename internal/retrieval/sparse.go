@@ -81,7 +81,8 @@ func DefaultSparseRetrieverConfig(workDir string) *SparseRetrieverConfig {
 		WorkDir:       workDir,
 		MaxResults:    100,
 		SearchTimeout: 30 * time.Second,
-		Parallelism:   4,
+		// Zero: one file reader per core, up to maxDefaultParallelism.
+		Parallelism: 0,
 		// Directory membership is workspace.For. These globs are a purpose
 		// filter (bytecode, minified bundles), not a second ignore list.
 		ExcludePatterns: []string{
@@ -100,7 +101,7 @@ func NewSparseRetriever(cfg *SparseRetrieverConfig) *SparseRetriever {
 
 	parallelism := cfg.Parallelism
 	if parallelism <= 0 {
-		parallelism = runtime.NumCPU()
+		parallelism = min(runtime.NumCPU(), maxDefaultParallelism)
 	}
 
 	// Zero means default throughout this config: an unset cache size would
@@ -335,61 +336,78 @@ func (r *SparseRetriever) SearchKeywords(ctx context.Context, keywords *IssueKey
 	logging.Context("SparseRetriever: searching %d keywords", len(keywords.AllKeywords()))
 
 	allKeywords := keywords.AllKeywords()
-	results := make(chan []KeywordHit, len(allKeywords))
-	errors := make(chan error, len(allKeywords))
-
-	// Limit parallelism
-	semaphore := make(chan struct{}, r.parallelism)
-	var wg sync.WaitGroup
-
+	var allHits []KeywordHit
+	var missing []string
 	for _, keyword := range allKeywords {
-		// Check cache first
 		if cached, ok := r.cache.Get(keyword); ok {
 			r.metrics.cacheHits.Add(1)
-			results <- cached
+			allHits = append(allHits, cached...)
 			continue
 		}
 		r.metrics.cacheMisses.Add(1)
-
-		kw := keyword
-		wg.Go(func() {
-			semaphore <- struct{}{}
-			defer func() { <-semaphore }()
-
-			hits, err := r.searchSingleKeyword(ctx, kw)
-			if err != nil {
-				errors <- err
-				return
-			}
-
-			// Cache the result
-			r.cache.Set(kw, hits)
-			results <- hits
-		})
+		missing = append(missing, keyword)
 	}
 
-	// Wait and collect results
-	go func() {
-		wg.Wait()
-		close(results)
-		close(errors)
-	}()
-
-	var allHits []KeywordHit
-	for hits := range results {
-		allHits = append(allHits, hits...)
-	}
-
-	// Check for errors
-	for err := range errors {
+	if len(missing) > 0 {
+		var found map[string][]KeywordHit
+		var err error
+		if r.backend != nil {
+			found, err = r.searchEachKeyword(ctx, missing)
+		} else {
+			// Every missing keyword in one walk: each file is read and
+			// lower-cased once for all of them. One walk per keyword read the
+			// whole workspace once per keyword, and a task brief carries
+			// dozens (measured 2026-10-27: the 10 s retrieval budget expired
+			// with 5448 hits still coming).
+			ctx, cancel := context.WithTimeout(ctx, r.searchTimeout)
+			found, err = r.searchKeywordsNative(ctx, missing)
+			cancel()
+		}
 		if err != nil {
 			logging.Context("SparseRetriever: search error: %v", err)
+		}
+		for _, keyword := range missing {
+			hits := found[keyword]
+			if err == nil {
+				r.cache.Set(keyword, hits)
+			}
+			allHits = append(allHits, hits...)
 		}
 	}
 
 	logging.Context("SparseRetriever: found %d total hits", len(allHits))
 	return allHits, nil
 }
+
+// searchEachKeyword runs the configured external backend once per keyword,
+// up to r.parallelism at a time.
+func (r *SparseRetriever) searchEachKeyword(ctx context.Context, keywords []string) (map[string][]KeywordHit, error) {
+	found := make(map[string][]KeywordHit, len(keywords))
+	var mu sync.Mutex
+	var firstErr error
+	semaphore := make(chan struct{}, max(r.parallelism, 1))
+	var wg sync.WaitGroup
+	for _, keyword := range keywords {
+		wg.Go(func() {
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+			hits, err := r.searchSingleKeyword(ctx, keyword)
+			mu.Lock()
+			defer mu.Unlock()
+			found[keyword] = hits
+			if err != nil && firstErr == nil {
+				firstErr = err
+			}
+		})
+	}
+	wg.Wait()
+	return found, firstErr
+}
+
+// maxDefaultParallelism caps the default file-reader count. Each reader holds
+// one file and its lower-cased copy (up to maxScanFileSize each), so the cap
+// bounds memory on a many-core host; the walk is I/O-bound well before it.
+const maxDefaultParallelism = 32
 
 // Scan resource bounds.
 //
@@ -465,14 +483,13 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 	ctx, cancel := context.WithTimeout(ctx, r.searchTimeout)
 	defer cancel()
 
-	searchStart := time.Now()
-	r.metrics.searches.Add(1)
-	r.activeSearches.Add(1)
-	defer r.activeSearches.Add(-1)
-
 	// An external backend (ripgrep) replaces the native scan entirely when one
 	// is configured; the bounds below only apply to the in-process walk.
 	if backend := r.backend; backend != nil {
+		searchStart := time.Now()
+		r.metrics.searches.Add(1)
+		r.activeSearches.Add(1)
+		defer r.activeSearches.Add(-1)
 		hits, berr := backend.Search(ctx, r.workDir, keyword, r.excludePatterns)
 		r.metrics.hits.Add(int64(len(hits)))
 		r.metrics.searchNanos.Add(int64(time.Since(searchStart)))
@@ -482,128 +499,117 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 		return hits, berr
 	}
 
-	var hits []KeywordHit
-	hitCounts := make(map[string]int)
+	found, err := r.searchKeywordsNative(ctx, []string{keyword})
+	return found[keyword], err
+}
+
+// searchKeywordsNative scans the workspace once for every keyword: each file
+// is admitted, size- and binary-checked, read and lower-cased once, then
+// matched against each keyword still under its hit cap. Per keyword the hits
+// are exactly what a walk for that keyword alone records: word-bounded
+// matches, at most maxHitsPerFile per file and maxHitsPerKeyword in all, each
+// carrying its file's running count.
+func (r *SparseRetriever) searchKeywordsNative(ctx context.Context, keywords []string) (map[string][]KeywordHit, error) {
+	searchStart := time.Now()
+	r.metrics.searches.Add(int64(len(keywords)))
+	r.activeSearches.Add(1)
+	defer r.activeSearches.Add(-1)
+	defer func() { r.metrics.searchNanos.Add(int64(time.Since(searchStart))) }()
+
+	lowered := make([][]byte, len(keywords))
+	for i, kw := range keywords {
+		lowered[i] = []byte(strings.ToLower(kw))
+	}
+	found := make(map[string][]KeywordHit, len(keywords))
+	hitCounts := make(map[string]int) // keyword + "\x00" + path
 	var mu sync.Mutex
+	full := func(i int) bool { return len(found[keywords[i]]) >= maxHitsPerKeyword }
 
-	kwBytes := []byte(strings.ToLower(keyword))
-
-	// Channel for files to process
 	files := make(chan string, 1000)
-
-	// Worker pool.
-	//
-	// SearchKeywords already runs up to r.parallelism keyword searches at
-	// once, and each search used to start r.parallelism file workers of its
-	// own — so the process ran parallelism² readers, every one of them doing
-	// blocking file I/O over the same tree. The shared budget below caps the
-	// total across all concurrent searches; each search takes an equal slice
-	// of it and always gets at least one worker.
-	workers := r.workerBudget()
 	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
+	for range r.workerBudget() {
 		wg.Go(func() {
 			for path := range files {
-				select {
-				case <-ctx.Done():
+				if ctx.Err() != nil {
 					return
-				default:
 				}
-
-				// Stop reading once the hit cap is reached: the ranking below
-				// only keeps maxResults files, so scanning the rest of a large
-				// repo for a common keyword is wasted work.
 				mu.Lock()
-				reachedCap := len(hits) >= maxHitsPerKeyword
+				allFull := true
+				for i := range keywords {
+					if !full(i) {
+						allFull = false
+						break
+					}
+				}
 				mu.Unlock()
-				if reachedCap {
+				if allFull {
 					return
 				}
 
-				// Size gate before the read. os.ReadFile on an unbounded path
-				// pulled entire multi-gigabyte artifacts into memory, and the
-				// bytes.ToLower copy plus the per-line index below multiplied
-				// that several times over. Source files are small; anything
-				// past the cutoff is a build artifact, dataset or media blob.
 				if info, err := os.Stat(path); err != nil || info.Size() > maxScanFileSize {
 					r.metrics.filesSkipped.Add(1)
 					continue
 				}
-
 				data, err := os.ReadFile(path)
 				if err != nil {
 					r.metrics.filesSkipped.Add(1)
 					continue
 				}
-
-				// Skip binaries. A NUL byte in the first few KiB is the
-				// conventional signal, and matching a keyword inside a
-				// compiled object is noise regardless.
 				if isBinaryContent(data) {
 					r.metrics.filesSkipped.Add(1)
 					continue
 				}
 				r.metrics.filesScanned.Add(1)
-
-				// Convert to lower for case-insensitive search
 				lowerData := bytes.ToLower(data)
-				offsets := ScanBuffer(lowerData, kwBytes)
 
-				if len(offsets) == 0 {
-					continue
-				}
-
-				// Map byte offsets to lines and columns
-				lines := bytes.Split(data, []byte("\n"))
-				lineOffsets := make([]int, len(lines))
-				currentOffset := 0
-				for i, line := range lines {
-					lineOffsets[i] = currentOffset
-					currentOffset += len(line) + 1 // +1 for \n
-				}
-
-				var localHits []KeywordHit
-				for _, offset := range offsets {
-					// One minified or generated file can hold hundreds of
-					// thousands of matches; ranking only cares that the file
-					// matched a lot, not about every individual position.
-					if len(localHits) >= maxHitsPerFile {
-						break
-					}
-
-					// Word boundary check
-					if !isWordBoundary(lowerData, offset, len(kwBytes)) {
+				var lines [][]byte
+				var lineOffsets []int
+				for i, kwBytes := range lowered {
+					offsets := ScanBuffer(lowerData, kwBytes)
+					if len(offsets) == 0 {
 						continue
 					}
-
-					// Find line
-					lineIdx := sort.SearchInts(lineOffsets, offset+1) - 1
-					if lineIdx < 0 {
-						lineIdx = 0
+					if lines == nil {
+						lines = bytes.Split(data, []byte("\n"))
+						lineOffsets = make([]int, len(lines))
+						current := 0
+						for li, line := range lines {
+							lineOffsets[li] = current
+							current += len(line) + 1
+						}
 					}
-
-					colNum := offset - lineOffsets[lineIdx] + 1
-					contextLine := strings.TrimRight(string(lines[lineIdx]), "\r\n")
-					contextLine = strings.TrimSpace(contextLine)
-
-					localHits = append(localHits, KeywordHit{
-						FilePath: path,
-						Keyword:  keyword,
-						Line:     lineIdx + 1,
-						Column:   colNum,
-						Context:  contextLine,
-					})
-				}
-
-				if len(localHits) > 0 {
-					mu.Lock()
-					for _, h := range localHits {
-						if len(hits) >= maxHitsPerKeyword {
+					var localHits []KeywordHit
+					for _, offset := range offsets {
+						if len(localHits) >= maxHitsPerFile {
 							break
 						}
-						hitCounts[h.FilePath]++
-						h.Count = hitCounts[h.FilePath]
-						hits = append(hits, h)
+						if !isWordBoundary(lowerData, offset, len(kwBytes)) {
+							continue
+						}
+						lineIdx := sort.SearchInts(lineOffsets, offset+1) - 1
+						if lineIdx < 0 {
+							lineIdx = 0
+						}
+						localHits = append(localHits, KeywordHit{
+							FilePath: path,
+							Keyword:  keywords[i],
+							Line:     lineIdx + 1,
+							Column:   offset - lineOffsets[lineIdx] + 1,
+							Context:  strings.TrimSpace(strings.TrimRight(string(lines[lineIdx]), "\r\n")),
+						})
+					}
+					if len(localHits) == 0 {
+						continue
+					}
+					mu.Lock()
+					for _, h := range localHits {
+						if full(i) {
+							break
+						}
+						key := keywords[i] + "\x00" + path
+						hitCounts[key]++
+						h.Count = hitCounts[key]
+						found[keywords[i]] = append(found[keywords[i]], h)
 					}
 					mu.Unlock()
 				}
@@ -611,19 +617,16 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 		})
 	}
 
-	// Walk directory.
-	//
-	// Both the cancellation check and the select on the send are required. The
-	// workers return as soon as ctx is done; the walk then filled the 1000-slot
-	// channel and blocked on the next send forever, so close(files) was never
-	// reached, wg.Wait() never returned, and a timed-out search hung its caller
-	// and leaked its goroutines instead of coming back with partial results.
+	// Walk directory. The cancellation check and the select on the send are
+	// both required: workers return once ctx is done, and a walk blocked on a
+	// full channel would never close it, so wg.Wait would never return.
 	mem, memErr := membershipFor(r.workDir)
 	if memErr != nil {
+		close(files)
+		wg.Wait()
 		r.metrics.errors.Add(1)
-		return nil, memErr
+		return found, memErr
 	}
-
 	var walked int64
 	err := filepath.WalkDir(r.workDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -632,7 +635,6 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 		if ctx.Err() != nil {
 			return filepath.SkipAll
 		}
-
 		member, admErr := mem.Admit(path, d.IsDir())
 		if admErr != nil {
 			return admErr
@@ -640,18 +642,14 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 		if !member {
 			return nil
 		}
-
-		// Caller exclusions sit on top of membership.
 		for _, pattern := range r.excludePatterns {
-			matched, _ := filepath.Match(pattern, d.Name())
-			if matched {
+			if matched, _ := filepath.Match(pattern, d.Name()); matched {
 				if d.IsDir() {
 					return filepath.SkipDir
 				}
 				return nil
 			}
 		}
-
 		if !d.IsDir() {
 			walked++
 			select {
@@ -662,28 +660,26 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 		}
 		return nil
 	})
-
 	close(files)
 	wg.Wait()
 	r.metrics.filesWalked.Add(walked)
+	total := 0
+	for _, hits := range found {
+		total += len(hits)
+	}
+	r.metrics.hits.Add(int64(total))
 
-	r.metrics.hits.Add(int64(len(hits)))
-	r.metrics.searchNanos.Add(int64(time.Since(searchStart)))
-
-	// Surface context cancellation/timeout as an error so callers can
-	// distinguish an interrupted search from a genuinely empty result set.
 	if cerr := ctx.Err(); cerr != nil {
 		r.metrics.timeouts.Add(1)
 		if cerr == context.DeadlineExceeded {
-			return hits, fmt.Errorf("search timeout for keyword %q", keyword)
+			return found, fmt.Errorf("search timeout for %d keyword(s)", len(keywords))
 		}
-		return hits, fmt.Errorf("search for keyword %q canceled: %w", keyword, cerr)
+		return found, fmt.Errorf("search for %d keyword(s) canceled: %w", len(keywords), cerr)
 	}
 	if err != nil {
 		r.metrics.errors.Add(1)
 	}
-
-	return hits, err
+	return found, err
 }
 
 // parseRipgrepOutput parses grep/ripgrep "--vimgrep" style output of the form
