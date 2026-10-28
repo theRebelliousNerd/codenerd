@@ -113,8 +113,8 @@ func TestCloseChangeEvidence_PreExistingFailuresDoNotFailTheTurn(t *testing.T) {
 	if result.TestCheck.Verdict() != VerifyFailed {
 		t.Fatalf("TestCheck = %s, want the process exit kept", result.TestCheck.Verdict())
 	}
-	if len(result.TestCheck.PreExistingFailures) != 1 || result.TestCheck.PreExistingFailures[0] != "TestAlwaysFails" {
-		t.Fatalf("PreExistingFailures = %v, want [TestAlwaysFails]", result.TestCheck.PreExistingFailures)
+	if len(result.TestCheck.PreExistingFailures) != 1 || result.TestCheck.PreExistingFailures[0] != "verifyprobe.TestAlwaysFails" {
+		t.Fatalf("PreExistingFailures = %v, want [verifyprobe.TestAlwaysFails]", result.TestCheck.PreExistingFailures)
 	}
 	if !strings.Contains(result.TestCheck.Output, "TestAlwaysFails") {
 		t.Fatalf("the text does not name the pre-existing failure:\n%s", result.TestCheck.Output)
@@ -276,7 +276,7 @@ func TestVerifyAndRepairPinning_PreExistingFailuresMeasureAndANewFailureDoesNot(
 		if result.TestCheck.Verdict() != VerifyFailed {
 			t.Fatalf("TestCheck = %s, want the raw exit failed", result.TestCheck.Verdict())
 		}
-		if !result.TestCheck.BaselineRan || len(result.TestCheck.PreExistingFailures) != 1 || result.TestCheck.PreExistingFailures[0] != "TestAlwaysFails" {
+		if !result.TestCheck.BaselineRan || len(result.TestCheck.PreExistingFailures) != 1 || result.TestCheck.PreExistingFailures[0] != "pinprobe.TestAlwaysFails" {
 			t.Fatalf("attribution = ran %v pre-existing %v\n%s", result.TestCheck.BaselineRan, result.TestCheck.PreExistingFailures, result.TestCheck.Output)
 		}
 		result.PinCheck = BuildVerification{Reason: sentinel}

@@ -52,6 +52,7 @@ func TestFactsMixedRun(t *testing.T) {
 		int64(1),
 	})
 	assertFact(t, facts[3], PredFailingTest, []any{
+		types.MangleString("example.com/mod"),
 		types.MangleString("TestErr"),
 		types.MangleString("kaboom"),
 	})
@@ -79,7 +80,7 @@ func assertFact(t *testing.T, f types.Fact, pred string, want []any) {
 }
 
 // A real build failure yields the compiler diagnostic and a package-level
-// failing_test. The repair rule only tests failing_test(_, _) for existence;
+// failing_test. The repair rules test failing_test for existence;
 // the file stays on test_build_failure, which carries the package. Test is
 // empty because no test ran, so the name cannot be mistaken for one that did.
 func TestFactsBuildFailure(t *testing.T) {
@@ -96,6 +97,7 @@ func TestFactsBuildFailure(t *testing.T) {
 		types.MangleString("undefined: undefinedSymbol"),
 	})
 	assertFact(t, facts[1], PredFailingTest, []any{
+		types.MangleString("example.com/mod"),
 		types.MangleString(""),
 		types.MangleString("undefined: undefinedSymbol"),
 	})

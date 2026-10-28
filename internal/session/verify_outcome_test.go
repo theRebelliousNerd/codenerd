@@ -309,8 +309,8 @@ func TestVerifyAndRepairTests_PreExistingFailuresNeedNoRepair(t *testing.T) {
 	if got := result.TestCheck.Verdict(); got != VerifyFailed {
 		t.Errorf("Verdict() = %v; want the process failure, not a rewritten pass", got)
 	}
-	if len(result.TestCheck.PreExistingFailures) != 1 || result.TestCheck.PreExistingFailures[0] != "TestAlwaysFails" {
-		t.Errorf("PreExistingFailures = %v; want [TestAlwaysFails]", result.TestCheck.PreExistingFailures)
+	if len(result.TestCheck.PreExistingFailures) != 1 || result.TestCheck.PreExistingFailures[0] != "verifyprobe.TestAlwaysFails" {
+		t.Errorf("PreExistingFailures = %v; want [verifyprobe.TestAlwaysFails]", result.TestCheck.PreExistingFailures)
 	}
 	if !strings.Contains(result.TestCheck.Output, "TestAlwaysFails") {
 		t.Errorf("the text does not name the pre-existing failure: %q", result.TestCheck.Output)

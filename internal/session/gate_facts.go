@@ -70,13 +70,13 @@ func (e *Executor) syncTestGateFacts(turn types.MangleAtom, result *ExecutionRes
 		})
 	}
 	if result.TestCheck.BaselineRan {
-		for _, name := range result.TestCheck.BaselineFailures {
-			if name == "" {
+		for _, k := range result.TestCheck.BaselineFailures {
+			if k.Name == "" {
 				continue
 			}
 			e.assertTurnFact(types.Fact{
 				Predicate: "turn_test_failed_before",
-				Args:      []any{turn, types.MangleString(name)},
+				Args:      []any{turn, types.MangleString(k.Pkg), types.MangleString(k.Name)},
 			})
 		}
 	}

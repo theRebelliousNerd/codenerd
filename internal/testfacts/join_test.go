@@ -75,6 +75,7 @@ func TestRootBuildFileDropsDotSlash(t *testing.T) {
 		}
 		found = true
 		assertFact(t, f, PredFailingTest, []any{
+			types.MangleString("example.com/mod"),
 			types.MangleString(""),
 			types.MangleString("undefined: undefinedSymbol"),
 		})
@@ -233,6 +234,7 @@ func TestInitPanicIsPackageFailure(t *testing.T) {
 		}
 		found = true
 		assertFact(t, fact, PredFailingTest, []any{
+			types.MangleString("example.com/mod/sub"),
 			types.MangleString(""),
 			types.MangleString("init boom"),
 		})

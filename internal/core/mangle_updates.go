@@ -38,9 +38,9 @@ type MangleUpdateBlock struct {
 // and the atom no longer teaches it.
 //
 // "failing_test" left with it. internal/testfacts measures it from
-// `go test -json`, and context_compilation.mg joins failing_test(_, _) to
-// decide that the suite is failing. A model that writes the fact could
-// invent or hide a failure. It is a host witness, not an observation, and
+// `go test -json`, and the gate and context rules read the turn-scoped
+// copy of that measurement. A model that writes the fact could invent or
+// hide a failure. It is a host witness, not an observation, and
 // the atom names it on the refused list next to build_state and test_state.
 //
 // The prompt atom protocol/piggyback/mangle_updates is meant to teach exactly
@@ -383,10 +383,10 @@ var hostWitnessPredicates = map[string]struct{}{
 	"config_param": {}, "config_param_required": {},
 	"hollow_success": {}, "has_hollow_success": {}, "has_turn_tools": {}, "has_turn_write": {}, "has_turn_test": {},
 	"build_state": {}, "test_state": {},
-	// What `go test -json` measured (internal/testfacts). failing_test is
-	// what context_compilation.mg joins; the four located predicates are
-	// the same measurement, one row per case, site, diagnostic, or repeated
-	// line. A model that writes any of them could invent or hide a failure.
+	// What `go test -json` measured (internal/testfacts), in the shape the
+	// host asserts turn-scoped: failing_test plus the four located
+	// predicates, one row per case, site, diagnostic, or repeated line. A
+	// model that writes any of them could invent or hide a failure.
 	"failing_test": {}, "test_case": {}, "test_failure_at": {},
 	"test_build_failure": {}, "test_output_repeat": {},
 	// What may carry unchecked strings, and what the host acts on: a

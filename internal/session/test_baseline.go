@@ -26,7 +26,7 @@ func attributeTestFailures(ctx context.Context, workspace string, packages []str
 	// Full sanitized names, subtests included. The -run below is still the
 	// parents: Go splits a -run regexp on '/', so "TestX/case_one" would
 	// not select that subtest.
-	headFailed := failedTestNames(head.Result)
+	headFailed := failedTestKeys(head.Result)
 	if len(headFailed) == 0 {
 		logging.SessionDebug("test gate: no baseline attribution: no failed test names in the head run's Result")
 		return head
@@ -70,7 +70,7 @@ func attributeTestFailures(ctx context.Context, workspace string, packages []str
 	// fail does not become a failure; the /test rule charges a head name
 	// only when it is absent here.
 	head.BaselineRan = true
-	head.BaselineFailures = failedTestNames(baseline)
+	head.BaselineFailures = failedTestKeys(baseline)
 	preExisting := partitionPreExisting(headFailed, baseline)
 	if len(preExisting) == 0 {
 		logging.SessionDebug("test gate: no baseline attribution: every failure is new to this turn (%d failed)", len(headFailed))
@@ -82,12 +82,16 @@ func attributeTestFailures(ctx context.Context, workspace string, packages []str
 // notePreExisting names the failures that also fail without this turn's
 // edits. It does not change the outcome: the head run failed, and whether
 // that failure is the turn's is the /test rule's.
-func notePreExisting(head TestVerification, preExisting []string, all bool) TestVerification {
-	if all {
-		logging.Get(logging.CategorySession).Warn("test gate: %d failure(s) also fail before this turn's edits (pre-existing), not charged to the turn: %s", len(preExisting), strings.Join(preExisting, ", "))
+func notePreExisting(head TestVerification, preExisting []TestKey, all bool) TestVerification {
+	labels := make([]string, len(preExisting))
+	for i, k := range preExisting {
+		labels[i] = k.String()
 	}
-	head.PreExistingFailures = preExisting
-	head.Output = "Pre-existing failures (also fail without this turn's edits; not yours to fix): " + strings.Join(preExisting, ", ") + "\n" + head.Output
+	if all {
+		logging.Get(logging.CategorySession).Warn("test gate: %d failure(s) also fail before this turn's edits (pre-existing), not charged to the turn: %s", len(labels), strings.Join(labels, ", "))
+	}
+	head.PreExistingFailures = labels
+	head.Output = "Pre-existing failures (also fail without this turn's edits; not yours to fix): " + strings.Join(labels, ", ") + "\n" + head.Output
 	return head
 }
 
@@ -100,31 +104,31 @@ func failuresAllPredate(v TestVerification) bool {
 	if !v.BaselineRan {
 		return false
 	}
-	names := failedTestNames(v.Result)
-	if len(names) == 0 {
+	keys := failedTestKeys(v.Result)
+	if len(keys) == 0 {
 		return false
 	}
-	before := make(map[string]bool, len(v.BaselineFailures))
-	for _, name := range v.BaselineFailures {
-		before[name] = true
+	before := make(map[TestKey]bool, len(v.BaselineFailures))
+	for _, k := range v.BaselineFailures {
+		before[k] = true
 	}
-	for _, name := range names {
-		if !before[name] {
+	for _, k := range keys {
+		if !before[k] {
 			return false
 		}
 	}
 	return true
 }
 
-func partitionPreExisting(headFailed []string, baseline *testfacts.Result) []string {
-	baselineSet := make(map[string]bool, len(headFailed))
-	for _, n := range failedTestNames(baseline) {
-		baselineSet[n] = true
+func partitionPreExisting(headFailed []TestKey, baseline *testfacts.Result) []TestKey {
+	baselineSet := make(map[TestKey]bool, len(headFailed))
+	for _, k := range failedTestKeys(baseline) {
+		baselineSet[k] = true
 	}
-	var preExisting []string
-	for _, n := range headFailed {
-		if baselineSet[n] {
-			preExisting = append(preExisting, n)
+	var preExisting []TestKey
+	for _, k := range headFailed {
+		if baselineSet[k] {
+			preExisting = append(preExisting, k)
 		}
 	}
 	return preExisting

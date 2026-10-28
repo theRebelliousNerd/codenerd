@@ -32,12 +32,19 @@ context_relevant(RootFile, /p95) :-
     test_state(/failing),
     pytest_failure(_, _, RootFile, _, _).
 
-# Test-failure relevance (Go tests): source files associated with failing tests
-# failing_test/2 (schemas_reviewer.mg:123), test_file_for/2 (schemas_shards.mg:185).
+# Test-failure relevance (Go tests). These read the turn's own measured run
+# (turn_test_failure_at / turn_test_build_failure, coder_safety.mg), the only
+# producer of test failures; a repair round compiles its context while those
+# rows stand. The file a test fails in, the file a build diagnostic names, and
+# the source file that failing test file covers (test_file_for, the world
+# scanner's pairing). Paths on both sides are workspace-canonical.
+context_relevant(File, /p95) :-
+    turn_test_failure_at(Turn, Pkg, Test, File, Line, Msg, Count).
+context_relevant(File, /p95) :-
+    turn_test_build_failure(Turn, Pkg, File, Line, Msg).
 context_relevant(SourceFile, /p90) :-
-    test_state(/failing),
-    failing_test(_, _),
-    test_file_for(_, SourceFile).
+    turn_test_failure_at(Turn, Pkg, Test, TestFile, Line, Msg, Count),
+    test_file_for(TestFile, SourceFile).
 
 # Session-note relevance: what the model noted for itself this session with the
 # memory operation "note" (session_note/2). Below the intent and the focus it
@@ -135,12 +142,6 @@ context_file_priority(Dep, /p85) :-
     test_state(/failing),
     pytest_failure(_, _, RootFile, _, _),
     dependency_link(RootFile, Dep, _).
-
-# Test-failure override (Go tests)
-context_file_priority(SourceFile, /p90) :-
-    test_state(/failing),
-    failing_test(_, _),
-    test_file_for(_, SourceFile).
 
 # Wire C4 file priorities into C1's context_relevant chain
 context_relevant(File, Priority) :-

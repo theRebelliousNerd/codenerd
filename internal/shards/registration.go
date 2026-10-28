@@ -158,6 +158,12 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// The turn's own report admitting unfinished work
 				// (session/admission_audit.go), negated by turn_verified.
 				"turn_self_reported_incomplete",
+				// Each write's effect receipt and validation reading
+				// (tool_effects.mg). turn_verified negates
+				// turn_has_rejected_effect / turn_has_unmeasured_effect,
+				// derived from these; homed elsewhere, that negation is
+				// blind and a rejected write still verifies the turn.
+				"turn_tool_effect", "turn_tool_validation", "turn_tool_effect_superseded",
 				// The edit sites a brief names, beside turn_verb:
 				// turn_needs_step_plan (turn_steps.mg) joins the two.
 				"turn_brief_site",

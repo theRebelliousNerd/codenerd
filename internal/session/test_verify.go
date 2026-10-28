@@ -94,11 +94,11 @@ type TestVerification struct {
 	PreExistingFailures []string
 
 	// BaselineRan is true when the pre-turn run finished. BaselineFailures
-	// is every sanitized name that run failed, not only the ones the head
-	// also failed. Nil names and BaselineRan false means the baseline did
-	// not run, so nothing is known to predate the turn.
+	// keys every test that run failed, not only the ones the head also
+	// failed. Nil keys and BaselineRan false means the baseline did not run,
+	// so nothing is known to predate the turn.
 	BaselineRan      bool
-	BaselineFailures []string
+	BaselineFailures []TestKey
 }
 
 // Verdict returns the authoritative outcome, deriving one for hand-built

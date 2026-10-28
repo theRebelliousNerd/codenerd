@@ -41,14 +41,14 @@ func TestTurnGate_DerivedRulesMatchOnShardedKernel(t *testing.T) {
 
 	both.assert(append(goWrite(oldTest),
 		gf("turn_test_measured", ma(oldTest), ma("/failing")),
-		gf("turn_failing_test", ma(oldTest), ms("TestAlwaysFails"), ms("always fails")),
-		gf("turn_test_failed_before", ma(oldTest), ms("TestAlwaysFails")),
+		gf("turn_failing_test", ma(oldTest), ms("p"), ms("TestAlwaysFails"), ms("always fails")),
+		gf("turn_test_failed_before", ma(oldTest), ms("p"), ms("TestAlwaysFails")),
 	)...)
 	both.assert(append(goWrite(newTest),
 		gf("turn_test_measured", ma(newTest), ma("/failing")),
-		gf("turn_failing_test", ma(newTest), ms("TestAlwaysFails"), ms("always fails")),
-		gf("turn_failing_test", ma(newTest), ms("TestOK"), ms("bad")),
-		gf("turn_test_failed_before", ma(newTest), ms("TestAlwaysFails")),
+		gf("turn_failing_test", ma(newTest), ms("p"), ms("TestAlwaysFails"), ms("always fails")),
+		gf("turn_failing_test", ma(newTest), ms("p"), ms("TestOK"), ms("bad")),
+		gf("turn_test_failed_before", ma(newTest), ms("p"), ms("TestAlwaysFails")),
 	)...)
 	both.assert(append(goWrite(unnamed),
 		gf("turn_test_measured", ma(unnamed), ma("/failing")),
@@ -90,13 +90,13 @@ func TestTurnGate_DerivedRulesMatchOnShardedKernel(t *testing.T) {
 	both.assert(append(goWrite(impOld),
 		gf("turn_test_measured", ma(impOld), ma("/passing")),
 		gf("turn_importer_measured", ma(impOld), ma("/failing")),
-		gf("turn_importer_failing_test", ma(impOld), ms("TestAlreadyRed"), ms("red before the turn")),
-		gf("turn_importer_failed_before", ma(impOld), ms("TestAlreadyRed")),
+		gf("turn_importer_failing_test", ma(impOld), ms("p"), ms("TestAlreadyRed"), ms("red before the turn")),
+		gf("turn_importer_failed_before", ma(impOld), ms("p"), ms("TestAlreadyRed")),
 	)...)
 	both.assert(append(goWrite(impNew),
 		gf("turn_test_measured", ma(impNew), ma("/passing")),
 		gf("turn_importer_measured", ma(impNew), ma("/failing")),
-		gf("turn_importer_failing_test", ma(impNew), ms("TestLabel"), ms("Label = a.widget")),
+		gf("turn_importer_failing_test", ma(impNew), ms("p"), ms("TestLabel"), ms("Label = a.widget")),
 	)...)
 	both.assert(append(goWrite(impUnnamed),
 		gf("turn_test_measured", ma(impUnnamed), ma("/passing")),
@@ -108,8 +108,8 @@ func TestTurnGate_DerivedRulesMatchOnShardedKernel(t *testing.T) {
 	)...)
 	both.assert(append(goWrite(ownOldImpUnfinish),
 		gf("turn_test_measured", ma(ownOldImpUnfinish), ma("/failing")),
-		gf("turn_failing_test", ma(ownOldImpUnfinish), ms("TestAlwaysFails"), ms("always fails")),
-		gf("turn_test_failed_before", ma(ownOldImpUnfinish), ms("TestAlwaysFails")),
+		gf("turn_failing_test", ma(ownOldImpUnfinish), ms("p"), ms("TestAlwaysFails"), ms("always fails")),
+		gf("turn_test_failed_before", ma(ownOldImpUnfinish), ms("p"), ms("TestAlwaysFails")),
 		gf("turn_importer_measured", ma(ownOldImpUnfinish), ma("/unfinished")),
 	)...)
 
@@ -154,7 +154,7 @@ func TestTurnGate_DerivedRulesMatchOnShardedKernel(t *testing.T) {
 	both.lacks("turn_importer_blocks", impOld, "")
 	both.gate(impNew, "/test", "/failing")
 	both.has("turn_red_gate", impNew, "/test")
-	both.has("turn_importer_failure", impNew, "TestLabel")
+	both.has("turn_importer_failure", impNew, "p\tTestLabel")
 	both.has("turn_importer_blocks", impNew, "")
 	both.gate(impUnnamed, "/test", "/failing")
 	both.has("turn_importer_blocks", impUnnamed, "")

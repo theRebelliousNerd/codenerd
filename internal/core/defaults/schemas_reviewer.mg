@@ -132,15 +132,14 @@ Decl nesting_depth(File, Function, Depth) bound [/string, /string, /number].
 # 41.8 Test State Predicates
 # -----------------------------------------------------------------------------
 
-# failing_test(TestName, ErrorMessage) - details of failing tests.
-# TestName is empty when the package failed before any test ran (a build
-# failure or an init panic): no test name exists to record, and an import
-# path must not be stored as one. The message is then the first compiler
-# diagnostic, or the panic text. The Decl has no package, so two packages
-# with the same message collapse to one fact; the file stays on
-# test_failure_at / test_build_failure, which carry the package.
-# context_compilation.mg only tests failing_test(_, _) for existence.
-Decl failing_test(TestName, ErrorMessage) bound [/string, /string].
+# failing_test(Pkg, TestName, ErrorMessage) - details of failing tests, the
+# shape internal/testfacts measures. The host asserts it turn-scoped, as
+# turn_failing_test (coder_safety.mg); this Decl names the measurement so a
+# model write of it is refused (core.ModelObservationPolicy). TestName is
+# empty when the package failed before any test ran (a build failure or an
+# init panic). The message is then the first compiler diagnostic, or the
+# panic text.
+Decl failing_test(Pkg, TestName, ErrorMessage) bound [/string, /string, /string].
 
 # test_case(Pkg, Test, Status, ElapsedMs)
 # One row per test that reached a verdict. Status is /pass, /fail, or /skip.

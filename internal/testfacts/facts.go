@@ -24,9 +24,12 @@ const (
 	// PredTestOutputRepeat names test_output_repeat(Line, Count): one per
 	// output line seen more than once across the run.
 	PredTestOutputRepeat = "test_output_repeat"
-	// PredFailingTest names failing_test(Test, Message): one per failing
-	// test, with its first failure's message, and one with an empty Test
-	// for a package that failed to build or panicked before any test ran.
+	// PredFailingTest names failing_test(Package, Test, Message): one per
+	// failing package+test, with its first failure's message, and one with an
+	// empty Test for a package that failed to build or panicked before any
+	// test ran. The package is part of the identity: two packages failing a
+	// test of the same name are two failures, and baseline attribution must
+	// not let one hide the other.
 	PredFailingTest = "failing_test"
 )
 
@@ -102,6 +105,7 @@ func (r *Result) Facts() []types.Fact {
 		out = append(out, types.Fact{
 			Predicate: PredFailingTest,
 			Args: []any{
+				types.MangleString(ft.Package),
 				types.MangleString(ft.Test),
 				types.MangleString(ft.Message),
 			},
@@ -176,10 +180,7 @@ func (r *Result) failingTests() []Failure {
 	return out
 }
 
-// firstFailures keeps the first Failure per package+test pair. The
-// predicate carries no package, so two packages failing the same test
-// name yield two facts; that collision is the schema's shape, not this
-// transducer's to resolve.
+// firstFailures keeps the first Failure per package+test pair.
 func firstFailures(failures []Failure) []Failure {
 	var out []Failure
 	seen := make(map[[2]string]bool)

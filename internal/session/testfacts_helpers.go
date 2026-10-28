@@ -50,11 +50,57 @@ func verificationOutput(res *testfacts.Result) string {
 	return strings.TrimSpace(out)
 }
 
+// TestKey identifies one test: its package import path and its full
+// sanitized name, subtest suffix included. Baseline attribution compares
+// keys, never bare names: two packages that each have a TestLoad are two
+// tests, and a name-only comparison let an old failure in one package hide a
+// new failure in the other.
+type TestKey struct {
+	Pkg  string
+	Name string
+}
+
+// String is the key as the model and the operator read it.
+func (k TestKey) String() string {
+	if k.Pkg == "" {
+		return k.Name
+	}
+	return k.Pkg + "." + k.Name
+}
+
+// failedTestKeys keys every failed test, deduplicated and sorted by package
+// then name. A test with no name (a package-level failure) has no key: it
+// cannot predate the turn, so it is never attributed to the baseline.
+func failedTestKeys(res *testfacts.Result) []TestKey {
+	if res == nil {
+		return nil
+	}
+	set := make(map[TestKey]bool)
+	for _, p := range res.Packages {
+		for _, t := range p.Tests {
+			if t.Status != testfacts.StatusFail || t.Name == "" {
+				continue
+			}
+			set[TestKey{Pkg: p.Name, Name: t.Name}] = true
+		}
+	}
+	out := make([]TestKey, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Pkg != out[j].Pkg {
+			return out[i].Pkg < out[j].Pkg
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
 // failedTestNames names every failed test, deduplicated and sorted, in the
 // sanitized spelling testfacts reports. A subtest keeps its suffix:
-// t.Run("case one") arrives as "TestX/case_one", never "case one". Baseline
-// pre-existing checks and pin failure reports compare on these full names,
-// so a new subtest is not hidden behind a parent that already failed.
+// t.Run("case one") arrives as "TestX/case_one", never "case one". Names
+// select tests (-run) and label reports; attribution uses failedTestKeys.
 func failedTestNames(res *testfacts.Result) []string {
 	if res == nil {
 		return nil

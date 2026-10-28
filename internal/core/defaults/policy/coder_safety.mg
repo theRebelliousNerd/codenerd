@@ -360,16 +360,18 @@ Decl turn_test_case(Turn, Pkg, Test, Status, ElapsedMs) bound [/name, /string, /
 Decl turn_test_failure_at(Turn, Pkg, Test, File, Line, Message, Count) bound [/name, /string, /string, /string, /number, /string, /number].
 Decl turn_test_build_failure(Turn, Pkg, File, Line, Message) bound [/name, /string, /string, /number, /string].
 Decl turn_test_output_repeat(Turn, Line, Count) bound [/name, /string, /number].
-Decl turn_failing_test(Turn, TestName, ErrorMessage) bound [/name, /string, /string].
+Decl turn_failing_test(Turn, Pkg, TestName, ErrorMessage) bound [/name, /string, /string, /string].
 
 # The /test gate. The executor asserts what the runs measured and does not
 # rewrite the outcome. turn_test_measured is the head run's raw exit, and
 # only when that run was conclusive. turn_failing_test names each failing
-# test (sanitized, subtests included); an empty name is a build that named
-# no test. turn_test_failed_before is every test the pre-turn baseline
-# failed, when that baseline finished. A failure is this turn's when the
-# head named it and the baseline did not. A failing run that named no test
-# is the turn's: attribution it could not make is not a pass.
+# test by package and sanitized name (subtests included); an empty name is a
+# build that named no test. turn_test_failed_before is every package+test the
+# pre-turn baseline failed, when that baseline finished. A failure is this
+# turn's when the head failed that package+test and the baseline did not:
+# identity is the pair, so an old example/a.TestLoad failure cannot hide a
+# new example/b.TestLoad one. A failing run that named no test is the turn's:
+# attribution it could not make is not a pass.
 #
 # The packages that import what the turn wrote are a second run of this
 # same gate (session/importer_gate_facts.go), not a second gate and not a
@@ -383,30 +385,30 @@ Decl turn_failing_test(Turn, TestName, ErrorMessage) bound [/name, /string, /str
 # repaired. A skipped importer run, or one this turn did not make, asserts
 # nothing, and the own rules stand. A failure is the turn's when the
 # importer head named it and the importer baseline did not.
-Decl turn_test_failed_before(Turn, TestName) bound [/name, /string].
+Decl turn_test_failed_before(Turn, Pkg, TestName) bound [/name, /string, /string].
 Decl turn_test_measured(Turn, Outcome) bound [/name, /name].
-Decl turn_own_test_failure(Turn, Name) bound [/name, /string].
+Decl turn_own_test_failure(Turn, Pkg, Name) bound [/name, /string, /string].
 Decl turn_has_own_test_failure(Turn) bound [/name].
 Decl turn_has_failing_test(Turn) bound [/name].
-Decl turn_importer_failed_before(Turn, TestName) bound [/name, /string].
-Decl turn_importer_failing_test(Turn, TestName, ErrorMessage) bound [/name, /string, /string].
+Decl turn_importer_failed_before(Turn, Pkg, TestName) bound [/name, /string, /string].
+Decl turn_importer_failing_test(Turn, Pkg, TestName, ErrorMessage) bound [/name, /string, /string, /string].
 Decl turn_importer_measured(Turn, Outcome) bound [/name, /name].
-Decl turn_importer_failure(Turn, Name) bound [/name, /string].
+Decl turn_importer_failure(Turn, Pkg, Name) bound [/name, /string, /string].
 Decl turn_has_importer_failure(Turn) bound [/name].
 Decl turn_has_importer_failing_test(Turn) bound [/name].
 Decl turn_importer_blocks(Turn) bound [/name].
 
-turn_own_test_failure(Turn, Name) :-
-    turn_failing_test(Turn, Name, _),
-    !turn_test_failed_before(Turn, Name).
-turn_has_own_test_failure(Turn) :- turn_own_test_failure(Turn, _).
-turn_has_failing_test(Turn) :- turn_failing_test(Turn, _, _).
+turn_own_test_failure(Turn, Pkg, Name) :-
+    turn_failing_test(Turn, Pkg, Name, Msg),
+    !turn_test_failed_before(Turn, Pkg, Name).
+turn_has_own_test_failure(Turn) :- turn_own_test_failure(Turn, Pkg, Name).
+turn_has_failing_test(Turn) :- turn_failing_test(Turn, Pkg, Name, Msg).
 
-turn_importer_failure(Turn, Name) :-
-    turn_importer_failing_test(Turn, Name, _),
-    !turn_importer_failed_before(Turn, Name).
-turn_has_importer_failure(Turn) :- turn_importer_failure(Turn, _).
-turn_has_importer_failing_test(Turn) :- turn_importer_failing_test(Turn, _, _).
+turn_importer_failure(Turn, Pkg, Name) :-
+    turn_importer_failing_test(Turn, Pkg, Name, Msg),
+    !turn_importer_failed_before(Turn, Pkg, Name).
+turn_has_importer_failure(Turn) :- turn_importer_failure(Turn, Pkg, Name).
+turn_has_importer_failing_test(Turn) :- turn_importer_failing_test(Turn, Pkg, Name, Msg).
 # A run that did not finish, a new importer failure, or a failing run that
 # named no test. The projection is what negation can see.
 turn_importer_blocks(Turn) :- turn_importer_measured(Turn, /unfinished).
@@ -421,7 +423,7 @@ turn_gate(Turn, /test, /failing) :-
     turn_test_measured(Turn, /failing),
     turn_has_own_test_failure(Turn).
 # No failing_test row at all. The projection is what negation can see:
-# !turn_failing_test(Turn, _, _) is deleted (engine truth 020 item 1).
+# !turn_failing_test(Turn, _, _, _) is deleted (engine truth 020 item 1).
 turn_gate(Turn, /test, /failing) :-
     turn_test_measured(Turn, /failing),
     !turn_has_failing_test(Turn).

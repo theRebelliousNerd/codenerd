@@ -35,7 +35,7 @@ func chargeTestGate(t *testing.T, own, imp TestVerification) VerifyOutcome {
 func TestImporterGate_AttributionAndUnfinished(t *testing.T) {
 	oldFail := TestVerification{
 		Ran: true, Outcome: VerifyFailed, Output: "FAIL TestOld",
-		BaselineRan: true, BaselineFailures: []string{"TestOld"},
+		BaselineRan: true, BaselineFailures: []TestKey{{Pkg: "p", Name: "TestOld"}},
 		Result: failedImporterResult("TestOld", "old"),
 	}
 	newFail := TestVerification{
@@ -151,5 +151,27 @@ func TestFailedChecksSummary_NamesAnImporterFailure(t *testing.T) {
 	got := failedChecksSummary(result)
 	if got != "importer tests fail: the tests of the packages that import what this turn changed" {
 		t.Fatalf("failedChecksSummary = %q", got)
+	}
+}
+
+// The /test rule joins on package+test. example/a.TestLoad predates the turn;
+// example/b.TestLoad is new, so the gate fails. With name-only rows both
+// sides were {TestLoad} and the gate passed.
+func TestTestGate_SameNameInAnotherPackageIsCharged(t *testing.T) {
+	own := TestVerification{
+		Ran: true, Outcome: VerifyFailed, Output: "FAIL TestLoad",
+		BaselineRan:      true,
+		BaselineFailures: []TestKey{{Pkg: "example/a", Name: "TestLoad"}},
+		Result: &testfacts.Result{Failures: []testfacts.Failure{
+			{Package: "example/a", Test: "TestLoad", Message: "old", File: "a/load_test.go", Line: 1},
+			{Package: "example/b", Test: "TestLoad", Message: "new", File: "b/load_test.go", Line: 1},
+		}},
+	}
+	if got := chargeTestGate(t, own, TestVerification{}); got != VerifyFailed {
+		t.Fatalf("/test = %v; want failed: example/b.TestLoad is new", got)
+	}
+	own.BaselineFailures = append(own.BaselineFailures, TestKey{Pkg: "example/b", Name: "TestLoad"})
+	if got := chargeTestGate(t, own, TestVerification{}); got != VerifyPassed {
+		t.Fatalf("/test = %v; want passed: both failures predate the turn", got)
 	}
 }

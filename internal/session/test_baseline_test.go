@@ -99,10 +99,10 @@ func TestAttributeTestFailures_AllPreExistingPasses(t *testing.T) {
 	if got.Outcome != VerifyFailed || got.OK || !got.Ran {
 		t.Fatalf("all-pre-existing run stays the process exit, got Outcome=%v Ran=%v OK=%v output=%q", got.Outcome, got.Ran, got.OK, got.Output)
 	}
-	if len(got.PreExistingFailures) != 1 || got.PreExistingFailures[0] != "TestAlwaysFails" {
-		t.Errorf("PreExistingFailures = %v; want [TestAlwaysFails]", got.PreExistingFailures)
+	if len(got.PreExistingFailures) != 1 || got.PreExistingFailures[0] != "verifyprobe.TestAlwaysFails" {
+		t.Errorf("PreExistingFailures = %v; want [verifyprobe.TestAlwaysFails]", got.PreExistingFailures)
 	}
-	const prefix = "Pre-existing failures (also fail without this turn's edits; not yours to fix): TestAlwaysFails"
+	const prefix = "Pre-existing failures (also fail without this turn's edits; not yours to fix): verifyprobe.TestAlwaysFails"
 	if !strings.HasPrefix(got.Output, prefix) {
 		t.Errorf("output should begin with %q, got %q", prefix, got.Output)
 	}
@@ -144,8 +144,8 @@ func TestAttributeTestFailures_ExpiredDeadlineStillAttributes(t *testing.T) {
 	if got.Outcome != VerifyFailed {
 		t.Fatalf("expired-deadline attribution keeps the process exit, got Outcome=%v output=%q", got.Outcome, got.Output)
 	}
-	if len(got.PreExistingFailures) != 1 || got.PreExistingFailures[0] != "TestAlwaysFails" {
-		t.Errorf("PreExistingFailures = %v; want [TestAlwaysFails]", got.PreExistingFailures)
+	if len(got.PreExistingFailures) != 1 || got.PreExistingFailures[0] != "verifyprobe.TestAlwaysFails" {
+		t.Errorf("PreExistingFailures = %v; want [verifyprobe.TestAlwaysFails]", got.PreExistingFailures)
 	}
 	if !strings.Contains(got.Output, "TestAlwaysFails") {
 		t.Errorf("output should name the pre-existing failure, got %q", got.Output)
@@ -206,10 +206,10 @@ func TestAttributeTestFailures_MixedNewAndPreExisting(t *testing.T) {
 	if got.Outcome != VerifyFailed {
 		t.Fatalf("mixed gate should stay failed, got Outcome=%v output=%q", got.Outcome, got.Output)
 	}
-	if len(got.PreExistingFailures) != 1 || got.PreExistingFailures[0] != "TestAlwaysFails" {
-		t.Fatalf("PreExistingFailures = %v; want [TestAlwaysFails]", got.PreExistingFailures)
+	if len(got.PreExistingFailures) != 1 || got.PreExistingFailures[0] != "verifyprobe.TestAlwaysFails" {
+		t.Fatalf("PreExistingFailures = %v; want [verifyprobe.TestAlwaysFails]", got.PreExistingFailures)
 	}
-	const prefix = "Pre-existing failures (also fail without this turn's edits; not yours to fix): TestAlwaysFails"
+	const prefix = "Pre-existing failures (also fail without this turn's edits; not yours to fix): verifyprobe.TestAlwaysFails"
 	if !strings.HasPrefix(got.Output, prefix) {
 		t.Errorf("output should begin with %q, got %q", prefix, got.Output)
 	}
@@ -264,10 +264,10 @@ func TestAttributeTestFailures_NewSubtestIsNotPreExisting(t *testing.T) {
 	for _, n := range got.PreExistingFailures {
 		has[n] = true
 	}
-	if !has["TestAlways/old_case"] {
+	if !has["verifyprobe.TestAlways/old_case"] {
 		t.Errorf("PreExistingFailures = %v; want the sanitized subtest TestAlways/old_case", got.PreExistingFailures)
 	}
-	if has["TestAlways/new_case"] {
+	if has["verifyprobe.TestAlways/new_case"] {
 		t.Errorf("the new subtest was treated as pre-existing: %v", got.PreExistingFailures)
 	}
 	if !strings.Contains(got.Output, "new fails") {
@@ -278,7 +278,7 @@ func TestAttributeTestFailures_NewSubtestIsNotPreExisting(t *testing.T) {
 // Partition compares full sanitized names: a sibling subtest that passed
 // at baseline is not pre-existing, and the parent that failed in both is.
 func TestPartitionPreExisting_SubtestSpelling(t *testing.T) {
-	head := []string{"TestSub", "TestSub/case_one", "TestSub/case_two"}
+	head := []TestKey{{"verifyprobe", "TestSub"}, {"verifyprobe", "TestSub/case_one"}, {"verifyprobe", "TestSub/case_two"}}
 	baseline := &testfacts.Result{
 		Packages: []*testfacts.Package{{
 			Name: "verifyprobe",
@@ -290,7 +290,7 @@ func TestPartitionPreExisting_SubtestSpelling(t *testing.T) {
 		}},
 	}
 	got := partitionPreExisting(head, baseline)
-	want := []string{"TestSub", "TestSub/case_one"}
+	want := []TestKey{{"verifyprobe", "TestSub"}, {"verifyprobe", "TestSub/case_one"}}
 	if len(got) != len(want) {
 		t.Fatalf("partitionPreExisting = %v; want %v", got, want)
 	}
@@ -459,5 +459,31 @@ func TestRunBaselineTests_UsesGateRunnerAndArgs(t *testing.T) {
 	}
 	if v, ok := findFlag("-run"); !ok || v != runArg {
 		t.Errorf("runner args %q should contain -run %q", gotArgs, runArg)
+	}
+}
+
+// Identity is package+test. example/a.TestLoad failed before the turn and
+// still fails; example/b.TestLoad is new. A name-only comparison saw
+// {TestLoad} on both sides and called the new failure pre-existing.
+func TestPartitionPreExisting_SameNameInAnotherPackageIsNew(t *testing.T) {
+	head := []TestKey{{"example/a", "TestLoad"}, {"example/b", "TestLoad"}}
+	baseline := &testfacts.Result{Packages: []*testfacts.Package{
+		{Name: "example/a", Tests: []*testfacts.Test{{Name: "TestLoad", Status: testfacts.StatusFail}}},
+		{Name: "example/b", Tests: []*testfacts.Test{{Name: "TestLoad", Status: testfacts.StatusPass}}},
+	}}
+	got := partitionPreExisting(head, baseline)
+	if len(got) != 1 || got[0] != (TestKey{"example/a", "TestLoad"}) {
+		t.Fatalf("partitionPreExisting = %v; want only example/a.TestLoad", got)
+	}
+	v := TestVerification{
+		Ran: true, Outcome: VerifyFailed, BaselineRan: true,
+		BaselineFailures: failedTestKeys(baseline),
+		Result: &testfacts.Result{Packages: []*testfacts.Package{
+			{Name: "example/a", Tests: []*testfacts.Test{{Name: "TestLoad", Status: testfacts.StatusFail}}},
+			{Name: "example/b", Tests: []*testfacts.Test{{Name: "TestLoad", Status: testfacts.StatusFail}}},
+		}},
+	}
+	if failuresAllPredate(v) {
+		t.Fatal("failuresAllPredate = true; example/b.TestLoad is new")
 	}
 }

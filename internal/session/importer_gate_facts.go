@@ -103,13 +103,13 @@ func (e *Executor) syncImporterGateFacts(turn types.MangleAtom, result *Executio
 		return
 	}
 	if result.ImporterCheck.BaselineRan {
-		for _, name := range result.ImporterCheck.BaselineFailures {
-			if name == "" {
+		for _, k := range result.ImporterCheck.BaselineFailures {
+			if k.Name == "" {
 				continue
 			}
 			e.assertTurnFact(types.Fact{
 				Predicate: "turn_importer_failed_before",
-				Args:      []any{turn, types.MangleString(name)},
+				Args:      []any{turn, types.MangleString(k.Pkg), types.MangleString(k.Name)},
 			})
 		}
 	}
