@@ -1,0 +1,20 @@
+package SLUG
+
+// Experiment: SLUG
+// Hypothesis: <one sentence: what Mangle-only feature does what job better than Go or plain Datalog>
+// Verdict:    <filled in after the run: worked / failed / surprised, and why>
+
+import (
+	"testing"
+
+	"codenerd/_mangle_lab/harness"
+)
+
+const program = `
+# Decls first, then facts, then rules.
+`
+
+func TestExperiment(t *testing.T) {
+	r := harness.Run(t, program)
+	t.Log(r.Facts("pred/1"))
+}

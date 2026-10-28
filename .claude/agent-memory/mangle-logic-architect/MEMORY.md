@@ -1,0 +1,1 @@
+- [Mangle playbook](mangle-playbook.md) — stance, lab and showcase loop, and v0.7 findings (unchecked bounds, negated externals, termination, lattice store)
