@@ -306,6 +306,8 @@ type Model struct {
 	// background is the read-only work running off the turn (background.go),
 	// shared across Model copies.
 	background *backgroundJobs
+	// turn is the in-flight turn (side_turn.go), shared across Model copies.
+	turn *turnState
 	// jev asks the turn's typed judgments (jev_turn.go); nil when the
 	// typesafe config section is absent.
 	jev                   turnjudge.Asker

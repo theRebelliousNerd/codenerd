@@ -209,6 +209,7 @@ func InitChat(cfg Config) Model {
 		yoloFlag:            cfg.Yolo || debugSelfOn,
 		jev:                 jev,
 		background:          newBackgroundJobs(),
+		turn:                newTurnState(),
 		apiKeyFlag:          cfg.APIKey,
 		selfDebug:           newSelfDebugWatcher(),
 		yoloViaDebugSelf:    debugSelfOn,

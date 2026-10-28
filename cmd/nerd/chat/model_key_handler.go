@@ -61,6 +61,9 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		// Ctrl+X: Stop current activity immediately
 		if m.isLoading {
 			m.isInterrupted = true
+			// Cancel the running turn itself; until 2026-10-28 Ctrl+X only hid
+			// the spinner while the work went on.
+			m.turn.stop()
 			if m.kernel != nil {
 				_ = m.kernel.Assert(core.Fact{Predicate: "interrupt_requested", Args: nil})
 			}
@@ -246,6 +249,9 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			model, cmd := m.handleSubmit()
 			return model.(Model), cmd, true
 		}
+		// While a turn runs: a side turn once it works, else queued.
+		model, cmd := m.submitWhileBusy()
+		return model, cmd, true
 
 	case tea.KeyUp:
 		// Logic pane navigation when focused
@@ -440,12 +446,10 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		}
 	}
 
-	// Handle regular key input — not fully handled, let Update() continue
-	if !m.isLoading {
-		var tiCmd tea.Cmd
-		m.textarea, tiCmd = m.textarea.Update(msg)
-		return m, tiCmd, false
-	}
-
-	return m, nil, false
+	// Handle regular key input — not fully handled, let Update() continue.
+	// Typing goes on while a turn runs: Enter then makes a side turn or a
+	// queued message (side_turn.go).
+	var tiCmd tea.Cmd
+	m.textarea, tiCmd = m.textarea.Update(msg)
+	return m, tiCmd, false
 }

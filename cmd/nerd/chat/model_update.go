@@ -21,6 +21,17 @@ import (
 )
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.updateCore(msg)
+	// A message queued while a turn ran starts once nothing is in flight.
+	if nm, ok := next.(Model); ok && !nm.isLoading && nm.turn.queuedCount() > 0 {
+		var queued tea.Cmd
+		nm, queued = nm.startQueuedTurn()
+		return nm, tea.Batch(cmd, queued)
+	}
+	return next, cmd
+}
+
+func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Performance instrumentation: Track slow Update() handlers
 	startTime := time.Now()
 	defer func() {
@@ -149,6 +160,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m = m.pushAssistantMsgWithThought(msg.Surface, msg.ThoughtSummary)
 		persistCmd = m.saveSessionStateCmd()
+
+	case sideTurnMsg:
+		m = m.applySideTurn(msg)
+		return m, nil
 
 	case backgroundStartMsg:
 		// The turn handed its work to the background: answer now, run it.

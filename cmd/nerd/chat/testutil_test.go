@@ -491,6 +491,7 @@ func NewTestModel(opts ...TestModelOption) Model {
 		transparencyMgr:    transparency.NewTransparencyManager(nil),
 		shardResultHistory: make([]*ShardResult, 0),
 		background:         newBackgroundJobs(),
+		turn:               newTurnState(),
 	}
 
 	// Try to initialize glamour renderer (may fail in test environment)

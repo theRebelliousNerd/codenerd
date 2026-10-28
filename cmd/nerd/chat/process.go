@@ -78,6 +78,9 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 		ctx = usage.WithSessionID(ctx, m.sessionID)
 		defer cancel()
+		// Ctrl+X and a side turn's stop reach this turn through m.turn.
+		m.turn.begin(cancel)
+		defer m.turn.end()
 
 		oodaStart := time.Now()
 		trimmed := strings.TrimSpace(input)
@@ -437,6 +440,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		// the lane derived without the plan, a plan of one step fell through
 		// here, and the turn was neither decomposed nor delegated.
 		if route.Kind == RouteMultiStep {
+			m.turn.setWorking(fmt.Sprintf("%d steps: %s", len(route.Steps), oneLine(input)))
 			m.ReportStatus(fmt.Sprintf("Multi-step: %d steps...", len(route.Steps)))
 			cmd := m.executeMultiStepTask(ctx, intent, input, route.Steps)
 			return cmd()
@@ -498,6 +502,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				}
 				return backgroundStartMsg{Surface: backgroundStartSurface(intent.Response, job), Job: job}
 			}
+			m.turn.setWorking(shardType + ": " + oneLine(intent.Verb+" "+intent.Target))
 			m.ReportStatus(fmt.Sprintf("Act: delegating to %s...", shardType))
 			// Format task based on verb and target, with prior shard context (blackboard pattern)
 			// This enables cross-shard context: reviewer findings -> coder, test errors -> debugger

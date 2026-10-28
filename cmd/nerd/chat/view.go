@@ -491,6 +491,9 @@ func (m Model) renderFooter() string {
 	if bg := m.backgroundFooter(); bg != "" {
 		status = append(status, bg)
 	}
+	if t := m.turnFooter(); t != "" {
+		status = append(status, t)
+	}
 	for _, seg := range []string{campaignIndicator, continuationIndicator, contextIndicator, memoryIndicator, mouseIndicator, glassIndicator} {
 		if seg = strings.TrimPrefix(seg, " | "); seg != "" {
 			status = append(status, seg)
