@@ -765,6 +765,26 @@ func (k *RealKernel) AssertWithoutEval(fact Fact) error {
 	return nil
 }
 
+// EvaluatePending evaluates what AssertWithoutEval staged: only the cone of the
+// staged predicates when the kernel's store is current, the full fixpoint
+// otherwise. Unlike Evaluate it does not demand every rule, so a clone of an
+// evaluated kernel answers a what-if in the time of its change, not the time
+// of the whole program.
+func (k *RealKernel) EvaluatePending() error {
+	timer := logging.StartTimer(logging.CategoryKernel, "EvaluatePending")
+	defer timer.Stop()
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.initialized && !k.dirtyAll && len(k.dirtyPreds) == 0 && !k.factsDirty.Load() && !k.policyDirty {
+		return nil // nothing staged: the store is current
+	}
+	if err := k.evaluate(); err != nil {
+		return err
+	}
+	k.factsDirty.Store(false)
+	return nil
+}
+
 // Evaluate forces re-evaluation of all rules. Call after AssertWithoutEval batch.
 func (k *RealKernel) Evaluate() error {
 	timer := logging.StartTimer(logging.CategoryKernel, "Evaluate")

@@ -18,6 +18,7 @@ import (
 	"codenerd/internal/atomicfile"
 	"codenerd/internal/config"
 	"codenerd/internal/embedding"
+	"codenerd/internal/mangle"
 	"codenerd/internal/types"
 
 	"golang.org/x/sync/singleflight"
@@ -460,15 +461,23 @@ func refresh(ctx context.Context, root string, emb embedding.EmbeddingEngine) (*
 		rememberRefresh(root, head, paths, out.Pending)
 		return out, nil
 	}
-	// Stale: the full engine is needed for the pre-refresh projection delta.
-	e, err := s.Engine(ctx)
+	// Stale: the pre-refresh projection is what the last refresh saved, and
+	// what every kernel loaded at boot, so it is read back rather than
+	// re-derived. Re-deriving it built and evaluated the whole old snapshot,
+	// about half of a stale boot (measured 2026-10-27: ~29 s of a ~60 s
+	// refresh). The engine path remains for a projection that is missing or
+	// unreadable.
+	before, err := savedProjectionFacts(root)
 	if err != nil {
-		return nil, err
-	}
-	before, err := projectionFacts(e)
-	_ = e.Close()
-	if err != nil {
-		return nil, err
+		e, err := s.Engine(ctx)
+		if err != nil {
+			return nil, err
+		}
+		before, err = projectionFacts(e)
+		_ = e.Close()
+		if err != nil {
+			return nil, err
+		}
 	}
 	changed := map[string]bool{}
 	for _, row := range out.Changed {
@@ -649,4 +658,32 @@ func hasDayWitness(rows []types.Fact) bool {
 		}
 	}
 	return false
+}
+
+// savedProjectionFacts reads the rows of the projection the last Save wrote
+// (.nerd/orientation/orientation.mg): every line that is not a declaration or
+// a comment is one ground fact.
+func savedProjectionFacts(root string) ([]types.Fact, error) {
+	body, err := os.ReadFile(filepath.Join(root, ".nerd", "orientation", "orientation.mg"))
+	if err != nil {
+		return nil, err
+	}
+	var rows strings.Builder
+	for _, line := range strings.Split(string(body), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "Decl ") {
+			continue
+		}
+		rows.WriteString(trimmed)
+		rows.WriteString("\n")
+	}
+	parsed, err := mangle.ParseGroundFacts(rows.String())
+	if err != nil {
+		return nil, fmt.Errorf("saved orientation projection: %w", err)
+	}
+	out := make([]types.Fact, len(parsed))
+	for i, f := range parsed {
+		out[i] = types.Fact{Predicate: f.Predicate, Args: f.Args}
+	}
+	return out, nil
 }

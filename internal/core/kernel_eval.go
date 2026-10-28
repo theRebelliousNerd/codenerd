@@ -533,6 +533,19 @@ func (k *RealKernel) Clone() *RealKernel {
 		// warnings (re-warn on the clone is benign).
 	}
 	clone.factsDirty.Store(true)
+	// A clean, evaluated parent hands over its store, so the clone's next
+	// evaluate re-derives only the cone of what is written to it. Without
+	// this every clone paid a full fixpoint: a dream safety check, which
+	// stages one action's projected facts on a clone and asks panic_state,
+	// cost ~2.5 s per gated action (measured 2026-10-27, 102 s over 50).
+	if k.initialized && k.store != nil && !k.factsDirty.Load() && !k.dirtyAll &&
+		len(k.dirtyPreds) == 0 && !k.policyDirty && !k.atomCacheStale {
+		if copied, ok := copyFactStore(k.store); ok {
+			clone.store = copied
+			clone.dirtyAll = false
+			clone.factsDirty.Store(false)
+		}
+	}
 
 	// Deep copy facts
 	for i, f := range k.facts {
@@ -643,4 +656,23 @@ func newEvaluationFactStore(facts int) factstore.FactStore {
 		return factstore.NewMultiIndexedArrayInMemoryStore()
 	}
 	return factstore.NewSimpleInMemoryStore()
+}
+
+// copyFactStore copies every atom of an evaluated store into a fresh one that
+// supports removal (the cone evaluator removes and re-derives in place). The
+// atoms themselves are immutable values and are shared.
+func copyFactStore(src factstore.FactStore) (factstore.FactStore, bool) {
+	dst := factstore.NewSimpleInMemoryStore()
+	if _, ok := any(dst).(factstore.FactStoreWithRemove); !ok {
+		return nil, false
+	}
+	for _, sym := range src.ListPredicates() {
+		if err := src.GetFacts(ast.NewQuery(sym), func(a ast.Atom) error {
+			dst.Add(a)
+			return nil
+		}); err != nil {
+			return nil, false
+		}
+	}
+	return dst, true
 }

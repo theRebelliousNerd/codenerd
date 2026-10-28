@@ -153,7 +153,11 @@ func (d *Dreamer) assertCriticalPathFactsLocked() {
 			return
 		}
 	}
-	d.kernel.Evaluate()
+	if err := d.kernel.EvaluatePending(); err != nil {
+		logging.Get(logging.CategoryDream).Error(
+			"Dreamer: evaluating critical_path_prefix facts failed: %v; simulations refused until repaired", err)
+		return
+	}
 	d.criticalPathsReady = true
 	logging.DreamDebug("Dreamer: asserted %d critical_path_prefix facts", len(d.critical))
 }
@@ -300,7 +304,9 @@ func (d *Dreamer) evaluateProjection(kernel *RealKernel, actionID string, projec
 	}
 
 	logging.DreamDebug("evaluateProjection: evaluating sandbox kernel with %d projected facts", len(projected))
-	if err := clone.Evaluate(); err != nil {
+	// Only the cone of the projected predicates is re-derived: the clone
+	// carries its parent's evaluated store (Clone).
+	if err := clone.EvaluatePending(); err != nil {
 		// If evaluation fails, treat as unsafe to be conservative
 		logging.Get(logging.CategoryDream).Error("evaluateProjection: sandbox evaluation failed: %v", err)
 		timer.Stop()

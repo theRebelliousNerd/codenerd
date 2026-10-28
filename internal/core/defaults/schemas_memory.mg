@@ -29,7 +29,7 @@ Decl trace_recall_result(TraceID, Score, Outcome, Summary) bound [/string, /numb
 
 # learning_recall_result(LearningID, Score, Predicate, Description)
 # Score is integer 0-100 (scaled from 0.0-1.0 in Go)
-Decl learning_recall_result(LearningID, Score, Predicate, Description) bound [/string, /number, /string, /string].
+Decl learning_recall_result(LearningID, Score, Predicate, Description) bound [/number, /number, /string, /string].
 
 # knowledge_edge(Subject, Relation, Object) - Knowledge graph relationship edge
 # Records entity relationships in the knowledge graph tier

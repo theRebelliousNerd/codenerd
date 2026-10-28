@@ -1046,7 +1046,9 @@ func (c *CortexKernel) TotalFactCount() int {
 	return total
 }
 
-// EvaluateAll forces fixpoint evaluation on all dirty shards.
+// EvaluateAll brings every shard current: each re-derives the cone of what was
+// written to it since its last evaluation (EvaluatePending), and a shard with
+// nothing pending does no work.
 // Returns the total time spent evaluating.
 func (c *CortexKernel) EvaluateAll() (time.Duration, error) {
 	c.mu.RLock()
@@ -1066,7 +1068,10 @@ func (c *CortexKernel) EvaluateAll() (time.Duration, error) {
 		go func(shard *KernelShard) {
 			defer wg.Done()
 			start := time.Now()
-			err := shard.kernel.Evaluate()
+			// Brings each shard current: the cone of what was written to it,
+			// nothing for a shard with no pending change. Forcing every rule on
+			// every shard re-derived seven freshly evaluated kernels at boot.
+			err := shard.kernel.EvaluatePending()
 			results <- evalResult{domain: shard.Domain(), elapsed: time.Since(start), err: err}
 		}(shard)
 	}

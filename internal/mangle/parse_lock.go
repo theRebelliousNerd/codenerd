@@ -68,3 +68,29 @@ func atomConsumesInput(s string, atom ast.Atom) bool {
 	}
 	return strip(s) == strip(atom.String())
 }
+
+// ParseGroundFacts parses Mangle text holding only ground facts (no rules, no
+// declarations) into Facts, with arguments converted exactly as the engine's
+// query results are, so a parsed row and a queried row of the same fact
+// compare equal.
+func ParseGroundFacts(text string) ([]Fact, error) {
+	unit, err := ParseUnit(strings.NewReader(text))
+	if err != nil {
+		return nil, err
+	}
+	facts := make([]Fact, 0, len(unit.Clauses))
+	for _, clause := range unit.Clauses {
+		if len(clause.Premises) > 0 || clause.Transform != nil {
+			return nil, fmt.Errorf("mangle: %s is a rule, not a ground fact", clause.Head.Predicate.Symbol)
+		}
+		args := make([]any, len(clause.Head.Args))
+		for i, arg := range clause.Head.Args {
+			if _, isVar := arg.(ast.Variable); isVar {
+				return nil, fmt.Errorf("mangle: %s has a variable argument, not a ground fact", clause.Head.Predicate.Symbol)
+			}
+			args[i] = convertBaseTermToInterface(arg)
+		}
+		facts = append(facts, Fact{Predicate: clause.Head.Predicate.Symbol, Args: args})
+	}
+	return facts, nil
+}
