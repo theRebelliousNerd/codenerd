@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -94,11 +95,48 @@ func (h *HolographicProvider) applyImpactPriorities(ctx context.Context, hc *Hol
 			maxPriority = c.Priority
 		}
 	}
-	hc.PrioritizedCallers = callers
+	hc.PrioritizedCallers = h.attachDeclaredSpans(callers)
 	hc.ImpactPriority = maxPriority
 
 	logging.WorldDebug("applyImpactPriorities: %d prioritized callers (max priority: %d)",
 		len(callers), maxPriority)
+}
+
+// attachDeclaredSpans gives each caller the line span of its declaration from
+// the code_defines facts the impact rules already join. The caller's name is
+// code_defines' own symbol (<pkg>.<Name>, <pkg>.<Recv>.<Name>), so the match
+// is exact and costs no file read. A (file, symbol) with more than one span
+// (build-tag twins, one init per file) has no single address: it keeps its
+// name and path and says how many declarations share them.
+func (h *HolographicProvider) attachDeclaredSpans(callers []PrioritizedCaller) []PrioritizedCaller {
+	facts, err := h.kernel.Query("code_defines")
+	if err != nil || len(facts) == 0 {
+		return callers
+	}
+	type site struct{ file, symbol string }
+	type span struct{ start, end int }
+	spans := make(map[site][]span)
+	for _, f := range facts {
+		if len(f.Args) < 5 {
+			continue
+		}
+		k := site{h.stringArg(f.Args[0]), h.stringArg(f.Args[1])}
+		sp := span{h.intArg(f.Args[3], 0), h.intArg(f.Args[4], 0)}
+		if sp.start <= 0 || slices.Contains(spans[k], sp) {
+			continue
+		}
+		spans[k] = append(spans[k], sp)
+	}
+	for i := range callers {
+		found := spans[site{callers[i].File, callers[i].Name}]
+		switch {
+		case len(found) == 1:
+			callers[i].StartLine, callers[i].EndLine = found[0].start, found[0].end
+		case len(found) > 1:
+			callers[i].Declarations = len(found)
+		}
+	}
+	return callers
 }
 
 // BuildWithImpactPriorities builds holographic context enhanced with impact

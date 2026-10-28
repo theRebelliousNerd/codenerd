@@ -108,8 +108,11 @@ type PrioritizedCaller struct {
 	Body      string `json:"body,omitempty"`       // Whole function, when a caller supplied it
 	StartLine int    `json:"start_line,omitempty"` // 1-based inclusive
 	EndLine   int    `json:"end_line,omitempty"`   // 1-based inclusive
-	Priority  int    `json:"priority"`             // Priority from context_priority query (higher = more important)
-	Depth     int    `json:"depth"`                // Distance in call graph (1 = direct caller)
+	// Declarations is how many declarations in File share Name when no one
+	// span can be the caller's; the view names the file, not a guess.
+	Declarations int `json:"declarations,omitempty"`
+	Priority     int `json:"priority"` // Priority from context_priority query (higher = more important)
+	Depth        int `json:"depth"`    // Distance in call graph (1 = direct caller)
 }
 
 // SymbolSignature represents a function or method signature available in package scope.
@@ -556,6 +559,9 @@ func (h *HolographicProvider) promptSection(ctx context.Context, filePath string
 				}
 			}
 			lb.WriteString("`")
+			if c.Declarations > 1 {
+				fmt.Fprintf(&lb, " (%d declarations share this name in the file; no single span)", c.Declarations)
+			}
 			if c.Priority != 0 {
 				fmt.Fprintf(&lb, " (priority %d", c.Priority)
 				if c.Depth != 0 {
