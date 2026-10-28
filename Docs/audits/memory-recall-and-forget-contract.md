@@ -144,3 +144,9 @@ The minimum coherent delivery is: one promotion discriminator across both produc
 [shard-retract]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_shard.go#L222-L238
 [memory-atom]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/atoms/protocol/piggyback.yaml#L112-L148
 
+
+## Status (2026-10-28)
+
+Built: remember from every producer stores type `preference` (legacy `(preference, learned)` rows adopted on store open); a person's forget (host-set `MemoryDomainUserMemory`, `json:"-"`) resolves to exactly one saved preference, deletes it by id, retires its `learned_preference` copy exactly and acknowledges it; a model packet's forget stays session-note-only and says so. `internal/context/memory_forget.go`, `internal/store/user_memory.go`, `cmd/nerd/chat/process_helpers.go`; tests beside each.
+Ruled out: tombstones (hydration reads the store, a later remember is deliberate), bulk/key deletes, matching by the shared `preference` key.
+Open: no `/memories` listing for disambiguation; semantic (embedding) matching of the forget words; physical-erasure inventory (SQLite secure_delete). The embedded prompt corpus needs a rebuild for the reworded `protocol/piggyback/memory_ops` atom.

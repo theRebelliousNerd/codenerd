@@ -467,6 +467,10 @@ type Model struct {
 	// record (read-only).
 	approvals    *approval.Broker
 	approvalView ui.DiffApprovalView
+	// approvalAside holds the IDs of requests the person closed the review
+	// on without deciding. Only a request outside it reopens the modal;
+	// "/approvals review" reopens it for these.
+	approvalAside map[string]bool
 
 	// Boot State
 	isBooting bool
@@ -537,7 +541,7 @@ type KnowledgeResult struct {
 type Message struct {
 	Role           string // "user", "assistant", or "system" (Glass Box events)
 	Content        string
-	ThoughtSummary string // The reasoning trace / thoughts
+	ThoughtSummary string // Brief decision explanation or provider-supplied summary
 	Time           time.Time
 
 	// Glass Box fields (only set when Role == "system")

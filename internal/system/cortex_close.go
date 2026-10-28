@@ -45,6 +45,21 @@ func (c *Cortex) Close() error {
 		c.approvalsRelease = nil
 		c.Approvals = nil
 	}
+	// Stop admitting delegated tasks and stop the ones running, then wait for
+	// them: a worker is the holder of the kernel, stores and registries torn
+	// down below. A worker that ignores the stop is named in the error rather
+	// than reported as ended.
+	if c.SessionSpawner != nil {
+		spawner := c.SessionSpawner
+		if err := runCloseStep("SessionSpawner.Shutdown", closeStepTimeout+time.Second, func() error {
+			ctx, cancel := context.WithTimeout(context.Background(), closeStepTimeout)
+			defer cancel()
+			_, err := spawner.Shutdown(ctx)
+			return err
+		}); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	// Stop generated admission and join execution, recording and refinement
 	// before releasing any of their kernel, prompt or persistence dependencies.
 	if c.generatedExecutor != nil {

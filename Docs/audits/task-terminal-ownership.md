@@ -190,3 +190,9 @@ The first milestone is simple to state: an accepted task still has someone respo
   - separate "stop waiting" from "cancel task" in the API;
   - byte budgets for terminal retention;
   - a bounded owner context for cleanup that runs after cancellation.
+
+## Status (2026-10-28, re-verified on main)
+
+T1 (worker-owned settlement) and T2 (latched stop) re-read as present and passing. Built since: `Spawner.Shutdown(ctx)` closes admission, stops and joins running workers and names any that ignore the stop, called from `Cortex.Close` (it stopped no session subagent before); `ErrTaskResultExpired` for a late reader of an evicted result; a double release of the spawn reservation on a refused registration fixed. Tests in `task_terminal_ownership_test.go`, `cortex_close_spawner_test.go`.
+Ruled out: a separate "stop waiting" API (no consumer wants detach), a new cleanup context (settlement does no IO after cancel).
+Open: byte budgets for terminal retention (no measured need; a new config key), durable results across restart.
