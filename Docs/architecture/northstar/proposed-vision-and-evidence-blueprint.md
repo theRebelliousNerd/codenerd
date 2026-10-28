@@ -814,3 +814,57 @@ A future schema/policy extension should distinguish proposed, implemented, and i
 6. Keep implementation status and evidence in current-state/gap records. Do not rewrite target capabilities as “shipped” because the import succeeded.
 
 **The intended result is not a longer inspirational prompt. It is a connected, reviewable product contract: who the system serves, what it must accomplish, what can go wrong, what must hold, and which boundaries remain inviolable.**
+
+## As built (2026-10-27)
+
+The proposed vision itself was **not** imported or adopted; `.nerd/` vision files are untouched. The code gaps from sections 8 and 9 are implemented as follows.
+
+**NS-VISION-01 — import validation, no partial authority change.**
+- `internal/northstar/validate.go:ValidateVision` returns a `*VisionValidationError` listing every issue (path + message): empty mission, empty/duplicate persona, capability, risk and requirement IDs, empty or dangling `serves`/`supports`/`addresses` references, and malformed mitigation records. It unwraps to `ErrVisionImportRejected`.
+- It runs before any write in `Store.SaveVision` and `Store.installDerivedVisionIfAbsent`. `Guardian.UpdateVision`, `nerd northstar load` and the wizard's `persistWizardVision` all go through those, so a rejected vision changes neither the store, the JSON/.mg exports nor the kernel.
+- `LoadVisionJSON` validates too. `SyncVisionAuthority` now returns `SyncRejected` plus the error for an unparseable or invalid `northstar.json` and **writes nothing**. Before this, a corrupt file was silently overwritten by an export of the store. `nerd northstar` read commands warn and carry on with the stored vision.
+- Ruling: structure is rejected, spelling is not. Free-text priority, timeline and likelihood spellings are still normalized by the projection, because the wizard accepts free text there.
+- `TestBlueprintCandidate_ImportsAndProjectsAsDocumented` imports this document's section 4 JSON. It checks that the JSON validates and that `ToFacts` emits exactly the section 5 facts, plus one `northstar_mitigation_state(..., /proposed)` per risk.
+
+**NS-VISION-02 — explicit unknown alignment.**
+- `AlignmentUnknown` and `AlignmentResult.Assessed()` (in `types.go`) give "not assessed" its own state.
+- `Guardian.CheckAlignment` now reports these cases as unknown with score 0: no LLM (previously passed at 0.8) and a completion error (previously a warning at 0.7). No vision is skipped with no score (previously 1.0).
+- `parseAlignmentResponse` reports unknown when the response has no usable SCORE or RESULT. Previously such a response kept a default 0.7, which classified as passed. A bare `RESULT: passed` is unknown. A bare non-passing result is honoured at the bottom of its score band. When SCORE and RESULT disagree, the stricter verdict wins.
+- Consumers:
+  - `Store.RecordAlignmentCheck` and `Store.GetMetrics` keep unassessed checks out of the running alignment and the mean score, and report `UnknownRate`.
+  - `BackgroundEventHandler` maps unknown to `clarify`.
+  - Chat `/alignment` (`cmd/nerd/chat/model_helpers.go`) prints "not assessed".
+  - `nerd northstar state` prints the unassessed rate.
+
+**NS-VISION-04 — campaign path consumes gate results consistently.**
+- `CampaignObserver.StartCampaign` returns the check and no longer decides.
+- `campaign.runNorthstarRiskGate` maps alignment results to gate outcomes:
+
+  | Alignment result | Gate outcome |
+  |---|---|
+  | blocked | `/blocked`: hard on every surface |
+  | unknown, or an error | new `RiskGateOutcomeInconclusive`: hard `/protected_surface_unassessed` on protected surfaces, soft `/inconclusive` elsewhere |
+  | failed | `/passed` with a `/requires_changes` concern: a soft warning |
+  | passed, warning | `/passed` |
+  | skipped | `/skipped` |
+
+- The rules live in `campaign_rules.mg` Section 13, with a matching Go mirror in `mirrorRiskClassification`. Both are covered by the kernel-versus-mirror agreement test.
+- Ruling: phase gates during a campaign stay advisory except for an explicit blocked verdict. An unassessed phase check is logged as unassessed. The hard stop on protected surfaces belongs to the preflight.
+
+**NS-VISION-03 and section 9 — typed, revision-bound mitigation evidence; waivers stay waived.**
+- `internal/northstar/mitigation.go` adds three optional fields to risks: `mitigation_status` (proposed, implemented, verified or waived), typed `mitigation_evidence` (kind, ref, outcome, full commit SHA), and a `waiver` record (authority, scope, rationale, expiry).
+- These project as `northstar_mitigation_state`, `northstar_mitigation_evidence` and `northstar_risk_waiver`, declared in `schemas_misc.mg`. They are added to the guardian's retract set.
+- `prompt_northstar.mg`: `has_mitigation` now requires `verified_mitigation`, meaning:
+  - the status is /verified, and
+  - there is /passed evidence whose revision equals `git_state(/head, Sha)`, and
+  - there is no non-passing evidence at that HEAD.
+- Mitigation prose alone no longer silences `unmitigated_risk`. A new commit invalidates the verification. Outside a git checkout, nothing is fresh, so the rules fail closed.
+- An active, unexpired waiver (checked against `current_time`) suppresses the unmitigated warning but never derives `has_mitigation`.
+- `internal/core/kernel_sysfacts.go` now asserts `git_state(/head, Sha)`.
+- The alignment prompt and the `nerd northstar` risk views show each mitigation's status.
+- Kernel coverage: `TestMitigationState_KernelDistinguishesProseImplementedVerifiedAndWaived`.
+
+**Deferred.**
+- *Evidence writer.* Mitigation evidence is authored in `northstar.json`. No verification run writes it back automatically yet, because no production path today knows which checks verify a vision-level risk.
+- *Typed evidence for requirements.* Requirements, the other obligation type, do not yet have typed evidence. Only risk mitigations do.
+- *NS-VISION-05.* Per-turn injection is already a kernel-selected subset (mission, critical capabilities, unmitigated risks, constraints). Trimming the alignment judge's full-vision prompt needs a live-model quality comparison, which this lane cannot run. Doing it without one would trade unmeasured quality for tokens.
