@@ -60,7 +60,7 @@ func TestRolePrompts_AutopoiesisRolesCompileFromTheirAtoms(t *testing.T) {
 			"Output ONLY a JSON array of attack vectors.",
 		},
 		"prompt_atom_generator": {
-			"You are an expert at creating prompt atoms for an AI coding agent.",
+			"You are an expert at creating prompt atoms for an AI coding agent: from the failures in the message",
 			"Output ONLY valid YAML, no other text.",
 		},
 		"strategy_refiner": {

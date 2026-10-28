@@ -1,7 +1,7 @@
 {"scale":"importance/8c0263a2411d93f1","model":"jev-1.14.0","atoms":{
 "autopoiesis/agent_prompt_writer/contract":{"content_hash":"d13a191553d04ff6ae359b0423abc7e9c6688ab6fc6b1e68dc94659e0ea89d5e","level":4,"score":2.53,"probabilities":[0.03,0.12,0.17,0.68,0]},
 "autopoiesis/complexity_analyzer/contract":{"content_hash":"e2abfe2161cb774b93f18d2b3c8fd03799af7e8200043884f13f61ed413cd4e5","level":3,"score":2.23,"probabilities":[0.01,0.17,0.38,0.44,0]},
-"autopoiesis/meta/atom_generator":{"content_hash":"d552e9281e19cda21fa73dd9fe489ba6523cc3bc87953cd3d7ada902e0d8e2e3","level":3,"score":2.36,"probabilities":[0.03,0.14,0.29,0.53,0.01]},
+"autopoiesis/meta/atom_generator":{"content_hash":"d4f24cb61f55e137e767d711fca24d0aad53cc8cdff0d65b0416329aa2d6d6d6","level":4,"score":2.51,"probabilities":[0.03,0.09,0.24,0.63,0.01]},
 "autopoiesis/meta/strategy_refiner":{"content_hash":"4bcddbaceb7f51180e620cc6663455c28f90ae01b610fd6b24dcfd1307947907","level":3,"score":1.82,"probabilities":[0.06,0.25,0.5,0.19,0]},
 "autopoiesis/panic_maker/contract":{"content_hash":"2feb7fe98f54032d2f3bceacab388f0eccf1e85c6877b57682a0ffd387213af5","level":4,"score":3.03,"probabilities":[0.01,0.01,0.03,0.83,0.12]},
 "autopoiesis/persistence_analyzer/contract":{"content_hash":"051ec4491178a85e4d20f69efee59ee2e609c2b3022ac2ee394b6446ee202060","level":3,"score":2.48,"probabilities":[0.04,0.12,0.18,0.66,0]},
