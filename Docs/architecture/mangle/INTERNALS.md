@@ -105,6 +105,20 @@ repairs a rejected candidate; `feedback/config.go` holds the retry defaults;
 `internal/core/kernel_policy.go:267`) and `mangleRuleSystemPrompt`
 (`feedback/system_prompt.go`) are the prompt surface.
 
+Rule extraction (as built 2026-10-28). Without a synth spec the loop takes the
+rule from the reply with `ExtractRuleFromResponse`
+(`feedback/prompt_builder.go`). A JSON reply's string fields (`rule`,
+`surface_response`, ...) go through the same text extraction as a bare reply
+(`extractRuleFromText`), and `cleanRuleCandidate` ends every candidate at the
+first labelled prose line (`proseFieldRe`: `CONFIDENCE:`, `RATIONALE:`,
+`**Explanation:**`), whatever path found it. Before this, the structured
+`RULE:/CONFIDENCE:/RATIONALE:` cut ran on a bare reply only, and a
+JSON-wrapped reply sent its confidence and rationale to the sandbox compiler
+(`mismatched input 'CONFIDENCE:'`).
+
+`AtomValidator`'s `shard_profile` spec mirrors its Decl: arity 3,
+`(AgentName /string, Type /name, KnowledgePath /string)` (`grammar.go`).
+
 ## Proof trees (`proof_tree.go`, 502 lines)
 
 `ProofTreeTracer` (`proof_tree.go:51-59`) indexes rules by head predicate

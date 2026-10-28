@@ -199,13 +199,15 @@ func (v *AtomValidator) loadCorePredicates() {
 	}
 
 	// Shard Management (§7)
+	// Mirrors Decl shard_profile(AgentName, Type, KnowledgePath) in
+	// schemas_shards.mg; this spec claimed a four-argument predicate nothing
+	// declares or produces.
 	v.ValidPredicates["shard_profile"] = PredicateSpec{
-		Name: "shard_profile", Arity: 4,
+		Name: "shard_profile", Arity: 3,
 		Args: []ArgSpec{
-			{Name: "AgentName", Type: ArgTypeName},
-			{Name: "Description", Type: ArgTypeString},
-			{Name: "Topics", Type: ArgTypeString},
-			{Name: "Tools", Type: ArgTypeString},
+			{Name: "AgentName", Type: ArgTypeString},
+			{Name: "Type", Type: ArgTypeName},
+			{Name: "KnowledgePath", Type: ArgTypeString},
 		},
 	}
 	v.ValidPredicates["delegate_task"] = PredicateSpec{

@@ -15,6 +15,16 @@ var factPatternRe = regexp.MustCompile(`([a-z_][a-z0-9_]*\s*\([^)]*\)\.)`)
 // it on every cleanRuleCandidate call wastes a compile per LLM response.
 var cleanQuotedAtomRe = regexp.MustCompile(`"([a-z][a-z0-9_]*)"`)
 
+// ruleLabelRe matches a leading RULE: label, bare or bolded, and the bold
+// markers left in front of the rule when the label was cut off before it.
+var ruleLabelRe = regexp.MustCompile(`^[ \t]*\**(?:(?i:rule)\**:\**)?`)
+
+// proseFieldRe matches a line that opens a labelled prose field of the
+// structured reply ("CONFIDENCE: 0.9", "RATIONALE: ...", "**Explanation:**").
+// No Mangle clause line starts with a capitalised word and a colon, so the
+// rule ends where the first such line begins.
+var proseFieldRe = regexp.MustCompile(`(?m)^[ \t]*\**[A-Z][A-Za-z_ ]*\**:\**(?:[ \t]|$)`)
+
 // PromptBuilder constructs feedback prompts for LLM retry attempts.
 // Uses progressive strategy: more context and constraints on each retry.
 type PromptBuilder struct {
@@ -241,7 +251,7 @@ func extractRuleFromJSON(response string) string {
 	if strings.HasPrefix(trimmed, "\"") && strings.HasSuffix(trimmed, "\"") {
 		var decoded string
 		if err := json.Unmarshal([]byte(trimmed), &decoded); err == nil {
-			return cleanRuleCandidate(decoded)
+			return extractRuleFromText(decoded)
 		}
 	}
 
@@ -260,7 +270,7 @@ func extractRuleFromJSON(response string) string {
 		for _, item := range list {
 			switch typed := item.(type) {
 			case string:
-				if candidate := cleanRuleCandidate(typed); candidate != "" {
+				if candidate := extractRuleFromText(typed); candidate != "" {
 					return candidate
 				}
 			case map[string]any:
@@ -285,8 +295,11 @@ func extractRuleString(payload map[string]any) string {
 			switch typed := value.(type) {
 			case string:
 				// Keep scanning on empty: an empty "rule" key must not
-				// shadow a populated "output" key later in the list.
-				if candidate := cleanRuleCandidate(typed); candidate != "" {
+				// shadow a populated "output" key later in the list. A
+				// string field is a reply in its own right ("RULE: ...\n
+				// CONFIDENCE: ..." inside surface_response), so it goes
+				// through the same text extraction as a bare reply.
+				if candidate := extractRuleFromText(typed); candidate != "" {
 					return candidate
 				}
 			case map[string]any:
@@ -306,10 +319,20 @@ func cleanRuleCandidate(candidate string) string {
 		return ""
 	}
 
-	upper := strings.ToUpper(trimmed)
-	if strings.HasPrefix(upper, "RULE:") {
-		trimmed = strings.TrimSpace(trimmed[len("RULE:"):])
+	// The RULE: label itself, bare or bolded ("**RULE:**"), and the bold
+	// markers a "**RULE:** x :- y." line leaves behind after the label.
+	trimmed = strings.TrimSpace(ruleLabelRe.ReplaceAllString(trimmed, ""))
+
+	// Only the rule reaches the compiler: whatever path found the candidate
+	// (a code block, a JSON field, the bare reply), a labelled prose field
+	// after it is the model talking about the rule, not the rule. The
+	// 2026-10-28 dogfood session sent "CONFIDENCE: 0.8" and its rationale to
+	// the sandbox compiler from a JSON-wrapped reply.
+	if loc := proseFieldRe.FindStringIndex(trimmed); loc != nil {
+		trimmed = trimmed[:loc[0]]
 	}
+	// The bold markers of a "**CONFIDENCE:**" field cut mid-label.
+	trimmed = strings.TrimRight(trimmed, "* \t\r\n")
 
 	// Remove ALL backticks (not just outer ones) - fixes internal backtick artifacts
 	trimmed = strings.ReplaceAll(trimmed, "`", "")
@@ -350,6 +373,17 @@ func ExtractRuleFromResponse(response string) string {
 
 	if candidate := extractRuleFromJSON(response); candidate != "" {
 		return candidate
+	}
+	return extractRuleFromText(response)
+}
+
+// extractRuleFromText extracts the rule from a reply that is not JSON: the
+// structured RULE:/CONFIDENCE:/RATIONALE: format, a code block, a bare clause
+// or a fact.
+func extractRuleFromText(response string) string {
+	response = strings.TrimSpace(response)
+	if response == "" {
+		return ""
 	}
 
 	// First, handle structured output format: "RULE: <code>\nCONFIDENCE: ...\nRATIONALE: ..."
