@@ -54,9 +54,9 @@ func (s *stubDistinctLLM) Complete(_ context.Context, prompt string) (string, er
 func (s *stubDistinctLLM) CompleteWithSystem(_ context.Context, systemPrompt string, userPrompt string) (string, error) {
 	kind := "generic"
 	switch {
-	case strings.Contains(systemPrompt, "methodology prompt atom"):
+	case strings.Contains(systemPrompt, "Write the methodology atoms"):
 		kind = "methodology"
-	case strings.Contains(systemPrompt, "domain prompt atom"):
+	case strings.Contains(systemPrompt, "Write the domain atoms"):
 		kind = "domain"
 	}
 	return s.Complete(context.Background(), kind+" "+userPrompt)

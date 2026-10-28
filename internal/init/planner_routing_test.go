@@ -76,9 +76,9 @@ func scriptedPlanner(system, user string) (string, error) {
 		],"core":[{"name":"SecurityAuditor","why":"the agent runs tools on the user's machine","cites":["north_star"]}]}`, nil
 	case strings.Contains(system, "Choose which of this repository's own commands"):
 		return `{"tools":[{"command":"make test","name":"test","category":"test","description":"Runs the fixture's tests."}]}`, nil
-	case strings.Contains(system, "methodology prompt atom"):
+	case strings.Contains(system, "Write the methodology atoms"):
 		return "## Methodology\n\n- Trace every artifact to its reader before calling work done.", nil
-	case strings.Contains(system, "domain prompt atom"):
+	case strings.Contains(system, "Write the domain atoms"):
 		return "## Domain\n\n- Agents fail by building code that nothing calls.", nil
 	}
 	return "", fmt.Errorf("unscripted planner request: %.120q / %.120q", system, user)
@@ -95,7 +95,7 @@ func phaseOf(request string) string {
 		return "domain_experts"
 	case strings.Contains(request, "Choose which of this repository's own commands"):
 		return "project_tools"
-	case strings.Contains(request, "methodology prompt atom"), strings.Contains(request, "domain prompt atom"):
+	case strings.Contains(request, "Write the methodology atoms"), strings.Contains(request, "Write the domain atoms"):
 		return "specialist_prompts"
 	}
 	return "other"
