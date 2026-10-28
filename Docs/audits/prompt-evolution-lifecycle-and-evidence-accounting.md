@@ -137,3 +137,31 @@ Quarantine without an experiment path starves candidates of evidence. Over-aggre
 | GAP-PE-RESEARCH-05: controlled incremental-utility trials | P2 | 01–04 plus held-out workload | Preregistered quality/regression/cost analysis supports a reviewed deployment decision, including a no-promote result |
 
 These identifiers are local research proposals, not existing implementation commitments. No source or production policy is changed by this document.
+
+## As built (2026-10-27)
+
+All four P1 seams were confirmed against current source before building (pending files were served; cycles re-read every FAIL; recording was a goroutine per turn behind a mutex held across model calls; `INSERT OR REPLACE` plus unconditional counters).
+
+**Implemented**
+
+- GAP-PE-RESEARCH-01, lifecycle-aware admission. `internal/prompt/evolved_atoms.go`: `EvolvedAtomManager` keeps `EvolvedCandidate` (state, `Version`, provenance) per file; `pending/` loads as `EvolvedQuarantined`, `promoted/` as `EvolvedPromoted`. `GetMatching` serves promoted candidates on context match and a quarantined one only when `prompt_trial_admitted(AtomID, Version)` names its exact `EvolvedCandidateHash` (content + selectors + composition fields), as a non-mandatory copy; `collectEvolvedAtoms` reads admission from the compile's private kernel scope (`cc.Kernel`). Kernel side: `prompt_trial_envelope/4`, `prompt_trial_exposures/2`, `prompt_trial_admitted/2` in `schemas_prompts.mg`; rule in `policy/prompt_trials.mg` (unexpired via `current_time`, exposures below budget; every literal fails closed). Go materializes envelopes: `PromptEvolver.ApproveTrial/RevokeTrial/Trials/SetTrialFactSink` (`evolver_candidates.go`), `trialFactSink` in `internal/system/factory_learning.go`. Operator surface: `/trial-atom <id> [hours] [max-exposures] | revoke <id> | list` (`cmd/nerd/chat/commands_evolution.go`, parser `trial_command.go`). Promotion and rejection end a trial.
+- GAP-PE-RESEARCH-02, consumed-version claims and global budget. `evidence_ledger.go`: `generation_claims` (lease, owner fence, statuses claimed/completed/released/publish_failed) and `consumed_evidence (task_id, verdict_version)`; key = `generationClaimKey(pin scope|group, atomGeneratorVersion, sorted task@verdict_version)`. `GetFailuresByProblemType` returns only unconsumed failures. `evolver_cycle.go`: `RunEvolutionCycle` judges at most `MaxCycleJudgeCalls`, serves groups oldest-evidence-first, and caps generation+refine calls and stored atoms per cycle across groups; the rest is reported as deferred.
+- GAP-PE-RESEARCH-03, owned recording and drain. `evolver_recording.go`: `recordQueue` (bounded channel + one worker), `SubmitExecution` returns `accepted | rejected_full | rejected_closed`; `PromptEvolver.Close` stops admission, cancels the cycle (`lifeCtx`), drains within `RecordDrainTimeout` (abandoned records counted and returned as an incomplete-shutdown error), joins cycles and synchronous `RecordExecution`, then closes stores. No model call runs under `pe.mu`; publication completes the fenced claim under the lock. `turnEvolutionRecorder.RecordTurn` and chat `recordShardExecution` use the queue; `cortex_close.go` gives the step drain + step timeout.
+- GAP-PE-RESEARCH-04, idempotent attribution and cost. `FeedbackCollector.Record` now returns `RecordOutcome`: identity = task id, `payload_hash` decides duplicate vs `ErrConflictingEvent`; `UpdateVerdict` is a no-op for the same `verdict_version` and moves the failure counter by the difference. Ledger tables `candidate_exposures` and `candidate_attributions (event, candidate, candidate_version, verdict_version, superseded)`; credit is applied after the observation persists, a revised verdict supersedes, and candidate counts are reproduced from rows (`refreshCountsLocked`). `RecordAtomUsage` (the non-idempotent increment) was deleted. Spend: `adaptation_spend` filled by `meteredLLM` around the judge/generator client (judge/generate/refine; ok/error/unusable/discarded/publish_failed), surfaced in `GetStats().Spend`, `/evolution-stats` and `nerd` systems output.
+- Tunables: `prompt_evolution` section (`internal/config/prompt_evolution.go`: queue capacity, drain timeout, cycle judge/generation/atom caps, claim lease, trial exposures/TTL), defaulted, validated in `Check`, mapped by `EvolverConfigFrom`. `EvolutionStats.SuccessfulCycles/AvgCycleDuration` are now filled.
+
+**Ruled differently**
+
+- Trial scope is the candidate's own selectors pinned by the version hash, not a separate envelope scope column: widening scope changes the version and ends admission.
+- Expiry is enforced twice (Go publishes only live envelopes; the rule requires `current_time`), so a stale or missing clock fails closed rather than extending a trial.
+- A generation that returns but yields no candidate still consumes its evidence (recorded as `unusable`); only a failed model call releases the claim. Re-trying identical evidence with the same generator would otherwise repurchase nothing every cycle.
+- Exposure = served in a recorded turn's atom list. Eligible/selected events are not recorded separately (the turn record carries only included atoms).
+- Legacy file counts are not evidence: all candidate counts are re-derived from the ledger at load, so pre-ledger pending atoms start at zero and cannot auto-promote from unreviewed exposure.
+- Token usage stays unknown: the evolver's `LLMClient` returns text only, so the ledger records calls, bytes and duration, not estimated tokens.
+
+**Deferred**
+
+- GAP-PE-RESEARCH-05 controlled incremental-utility trials (randomized cohorts, held-out repositories, intervals): needs live models and workloads. The mechanism pieces exist (pinned-version envelope, exposure and credit rows kept apart, spend ledger).
+- Crash-durable outbox for accepted-but-unpersisted records: a hard crash still loses the in-memory queue; graceful close drains it.
+- Cross-process judging of the same unevaluated record is not claimed (generation is).
+- `StrategyStore.RecordOutcome` remains non-idempotent itself; the queue calls it only on first persistence of an event.

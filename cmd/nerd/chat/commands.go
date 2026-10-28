@@ -22,7 +22,7 @@
 //	Query:      /query, /why, /explain, /explain-off, /logic, /glassbox, /transparency, /shadow, /whatif, /browser
 //	Review:     /approve, /reject-finding, /accept-finding, /review-accuracy
 //	Tools:      /tool, /jit, /cleanup-tools, /shards, /autopoiesis, /facts
-//	Evolution:  /evolve, /evolution-stats, /evolved-atoms, /promote-atom, /reject-atom, /strategies
+//	Evolution:  /evolve, /evolution-stats, /evolved-atoms, /promote-atom, /reject-atom, /trial-atom, /strategies
 package chat
 
 import (
@@ -266,6 +266,8 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 		return m.handlePromoteAtomCommand(input, parts)
 	case "/reject-atom":
 		return m.handleCmdRejectAtom(input, parts)
+	case "/trial-atom":
+		return m.handleCmdTrialAtom(input, parts)
 
 	default:
 		m = m.addMessage(Message{

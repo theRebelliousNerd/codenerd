@@ -295,8 +295,15 @@ var autopoiesisStatusCmd = &cobra.Command{
 			fmt.Println("evolver present but NOT recording (no turn recorder on the session executor)")
 		} else {
 			stats := cortex.PromptEvolver.GetStats()
-			fmt.Printf("%d executions recorded, %d atoms pending / %d promoted, %d cycles\n",
-				stats.TotalExecutionsRecorded, stats.AtomsPending, stats.AtomsPromoted, stats.TotalCycles)
+			fmt.Printf("%d executions recorded, %d atoms quarantined / %d promoted, %d active trials, %d cycles\n",
+				stats.TotalExecutionsRecorded, stats.AtomsPending, stats.AtomsPromoted, stats.ActiveTrials, stats.TotalCycles)
+			fmt.Printf("  Recording:       %d persisted, %d duplicate, %d failed, %d rejected, %d abandoned\n",
+				stats.Recording.Persisted, stats.Recording.Duplicates, stats.Recording.Failed,
+				stats.Recording.RejectedFull+stats.Recording.RejectedClosed, stats.Recording.Abandoned)
+			for _, spend := range stats.Spend {
+				fmt.Printf("  Spend %-9s  %d calls (%d failed), %d unusable, %d discarded\n",
+					string(spend.Category)+":", spend.Calls, spend.FailedCalls, spend.Unusable, spend.Discarded)
+			}
 			fmt.Print("  Auto-evolution:  ")
 			if features.IsPromptEvolutionEnabled() {
 				fmt.Println("on")
