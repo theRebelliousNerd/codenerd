@@ -157,3 +157,22 @@ The existing `working_ledger_test.go` is a useful source of policy examples, not
 | LEDGER-PERF-04 | Registered request path demonstrates reduced full preparation cost without altered prompt bytes, weaker freshness or extra recall burden. |
 
 These IDs are local research proposals, not adopted repository gaps. The owning context/session specs must be reconciled before any authorized implementation. The guiding principle is simple: retain the policy's meaning while making the data preparation and intermediate representation cheaper.
+
+## As built (2026-10-27)
+
+**Implemented**
+
+* LEDGER-PERF-01 — one read/parse per file per observation epoch. `internal/context/working_revision.go:WorkingSet.revisions` resolves each entity once, groups by resolved path, streams the digest when only the whole file is asked for, otherwise reads the file once and parses it once per language its spellings name, then answers every element by key lookup. Outcomes are exactly the old per-entity `Revision` (digest, element revision, `absent`, `unavailable`, `nonfile`), including a partly parsed file's retained elements; a canceled epoch leaves unread files `unavailable`. `Revision` is now that batch of one. `WorkingSet.Ledger` observes the ledger's entities plus `LedgerRound.Observe` in one call and returns them as `LedgerDecision.Revisions`; `session.updateLedger` binds the focus view and `loop.restated` to that epoch instead of re-reading files after the decision.
+* LEDGER-PERF-02 — prefix totals without all prior pairs. `working_shed_prior`, `working_shed_prior_bytes`, `working_shed_has_prior` and `working_shed_first` are gone from `working_set.mg`. `working_shed_run(Pos, Before)` is an exclusive prefix sum along one chain of `3N` positions (`Rank*N + Seq`, N = `working_ledger_len`), stepping by a candidate's bytes or by 0; `working_shed_before` reads it and `working_shed` keeps the unchanged `Before < Need` test (the first candidate has `Before = 0 < Need`, so no separate first rule). It derives `3N+1` rows only when `working_still_over()`. Policy stays in Mangle; no host sort/second evaluation.
+* LEDGER-PERF-03 (host contract) — `LedgerRound.validate` refuses an empty or repeated call, a negative size, or a round that decreases along arrival order, the assumptions the scan relies on. `session.mergeRepeatedCalls` carries a reused call id as one row (bytes summed, latest arrival and round) because the request evicts by id.
+* Tests: `working_ledger_prefix_test.go` (60 randomized ledgers against the ordered-prefix reference, threshold equality, zero bytes, stale rows, linear row count, nothing below the ceiling, contract refusals), `working_revision_test.go` (batch equals the old per-entity algorithm on digest/element/absent/unsupported/missing/escape/partial-parse fixtures, unrelated-edit identity, cancellation, epoch returned by `Ledger`, benchmark), `session/working_ledger_merge_test.go`.
+
+**Ruled differently**
+
+* Option 1 vs 2 of §4: neither a new engine aggregate nor a host scan. The chain is plain recursive Mangle (`fn:plus`/`fn:mult`), so there is no second phase, no epoch-stamped `candidate_prefix` relation and no host-owned fact to protect; LEDGER-PERF-03's stale-prefix admission is moot. The ordering key `(Rank, Round, Seq)` is computed as `(Rank, Seq)` because the host now guarantees rounds never decrease along `Seq`.
+* Duplicate call keys are not a contract error at the session: they are merged where they arise, since eviction is per id.
+
+**Deferred**
+
+* LEDGER-PERF-04 (registered-request cost measurement, A/B/C/D comparison, p50/p95/p99) needs live sessions; not run. No wall-clock speedup is claimed.
+* Cross-round parse reuse (a content-addressed CodeDOM cache) was not added: per-call grouping only, per §3.

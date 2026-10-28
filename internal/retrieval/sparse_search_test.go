@@ -2,6 +2,7 @@ package retrieval
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,14 +110,14 @@ func TestSearchKeywords_NilAndEmpty(t *testing.T) {
 	r := testRetriever(t.TempDir())
 	ctx := context.Background()
 
-	hits, err := r.SearchKeywords(ctx, nil)
-	if err != nil || hits != nil {
-		t.Fatalf("nil keywords: got hits=%v err=%v, want nil,nil", hits, err)
+	hits, outcome := r.SearchKeywords(ctx, nil)
+	if outcome.Status != StatusComplete || hits != nil {
+		t.Fatalf("nil keywords: got hits=%v outcome=%s, want nil, complete", hits, outcome)
 	}
 
-	hits, err = r.SearchKeywords(ctx, &IssueKeywords{})
-	if err != nil || hits != nil {
-		t.Fatalf("empty keywords: got hits=%v err=%v, want nil,nil", hits, err)
+	hits, outcome = r.SearchKeywords(ctx, &IssueKeywords{})
+	if outcome.Status != StatusComplete || hits != nil {
+		t.Fatalf("empty keywords: got hits=%v outcome=%s, want nil, complete", hits, outcome)
 	}
 }
 
@@ -125,9 +126,9 @@ func TestSearchKeywords_MentionedFilesOnly(t *testing.T) {
 	r := testRetriever(t.TempDir())
 	kw := &IssueKeywords{MentionedFiles: []string{"a.go", "b.go"}}
 
-	hits, err := r.SearchKeywords(context.Background(), kw)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	hits, outcome := r.SearchKeywords(context.Background(), kw)
+	if outcome.Status != StatusComplete {
+		t.Fatalf("search not complete: %s", outcome)
 	}
 	if len(hits) != 2 {
 		t.Fatalf("expected 2 mentioned-file hits, got %d", len(hits))
@@ -154,9 +155,9 @@ func TestSearchKeywords_RealFiles(t *testing.T) {
 
 	r := testRetriever(dir)
 	kw := &IssueKeywords{Primary: []string{"handleError"}}
-	hits, err := r.SearchKeywords(context.Background(), kw)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	hits, outcome := r.SearchKeywords(context.Background(), kw)
+	if outcome.Status != StatusComplete {
+		t.Fatalf("search not complete: %s", outcome)
 	}
 	if len(hits) == 0 {
 		t.Fatal("expected at least one hit for handleError")
@@ -178,7 +179,7 @@ func TestSearchKeywords_RealFiles(t *testing.T) {
 	}
 }
 
-func TestFindRelevantFiles_EndToEnd(t *testing.T) {
+func TestFindRelevant_EndToEnd(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	src := "package main\n\nfunc handle_error() error { return nil }\n"
@@ -189,7 +190,7 @@ func TestFindRelevantFiles_EndToEnd(t *testing.T) {
 	r := testRetriever(dir)
 	// Crosses the full pipeline: ExtractKeywords -> SearchKeywords -> RankFiles.
 	issue := "The handle_error() function returns the wrong value"
-	candidates, err := r.FindRelevantFiles(context.Background(), issue, 10)
+	candidates, err := findRelevant(context.Background(), r, issue, 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -202,4 +203,15 @@ func TestFindRelevantFiles_EndToEnd(t *testing.T) {
 	if candidates[0].TotalHits < 1 || candidates[0].RelevanceScore <= 0 {
 		t.Errorf("expected positive hits/score, got %+v", candidates[0])
 	}
+}
+
+// findRelevant is extraction, search and ranking end to end, the way the
+// tiered builder's keyword tier runs them.
+func findRelevant(ctx context.Context, r *SparseRetriever, issue string, limit int) ([]CandidateFile, error) {
+	keywords := ExtractKeywords(issue)
+	hits, outcome := r.SearchKeywords(ctx, keywords)
+	if outcome.Status == StatusUnavailable {
+		return nil, fmt.Errorf("keyword search unavailable: %s", outcome)
+	}
+	return r.RankFiles(hits, keywords, limit), nil
 }

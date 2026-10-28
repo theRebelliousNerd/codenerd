@@ -12,178 +12,7 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"codenerd/internal/core"
-	"codenerd/internal/types"
 )
-
-// =============================================================================
-// Cache invalidation (kernel-driven)
-// =============================================================================
-
-// TestInvalidateFromKernel_WhenFileWritten_ShouldDropCachedHits proves the
-// invalidation signal is read out of the EDB. Before this, a five-minute cache
-// TTL meant an agent that edited a file and then searched again was answered
-// from hits computed before the edit.
-func TestInvalidateFromKernel_WhenFileWritten_ShouldDropCachedHits(t *testing.T) {
-	dir := t.TempDir()
-	r := newBoundedRetriever(t, dir)
-
-	target := filepath.Join(dir, "alpha.go")
-	r.cache.Set("needle", []KeywordHit{{FilePath: target, Keyword: "needle"}})
-	r.cache.Set("other", []KeywordHit{{FilePath: filepath.Join(dir, "beta.go"), Keyword: "other"}})
-
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
-	if err := k.LoadFacts([]core.Fact{{
-		Predicate: "file_written",
-		Args:      []any{types.MangleString(target), types.MangleString("deadbeef"), types.MangleString("/session_1"), int64(1755000000)},
-	}}); err != nil {
-		t.Fatalf("LoadFacts: %v", err)
-	}
-
-	if dropped := r.InvalidateFromKernel(k); dropped != 1 {
-		t.Fatalf("dropped %d cache entries, want 1", dropped)
-	}
-	if _, ok := r.cache.Get("needle"); ok {
-		t.Error("cached hits for the written file survived invalidation")
-	}
-	if _, ok := r.cache.Get("other"); !ok {
-		t.Error("an unrelated keyword's cache entry was dropped")
-	}
-
-	// The cursor must advance so a second pass over the same write log is a
-	// no-op rather than re-dropping everything on every seed.
-	r.cache.Set("needle", []KeywordHit{{FilePath: target, Keyword: "needle"}})
-	if dropped := r.InvalidateFromKernel(k); dropped != 0 {
-		t.Errorf("replayed %d already-seen writes, want 0", dropped)
-	}
-}
-
-// TestInvalidateFromKernel_WhenAnotherWriteSharesTheTimestamp_ShouldDropCachedHits
-// protects files written during the same Unix second. The kernel records
-// file_written timestamps at second precision, so a timestamp cursor alone
-// cannot distinguish a new write from a fact already observed in that second.
-func TestInvalidateFromKernel_WhenAnotherWriteSharesTheTimestamp_ShouldDropCachedHits(t *testing.T) {
-	dir := t.TempDir()
-	r := newBoundedRetriever(t, dir)
-	target := filepath.Join(dir, "alpha.go")
-	const timestamp int64 = 1755000000
-
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
-	first := core.Fact{
-		Predicate: "file_written",
-		Args:      []any{types.MangleString(target), types.MangleString("first-hash"), types.MangleString("/session_1"), timestamp},
-	}
-	if err := k.LoadFacts([]core.Fact{first}); err != nil {
-		t.Fatalf("LoadFacts first write: %v", err)
-	}
-	r.cache.Set("needle", []KeywordHit{{FilePath: target, Keyword: "needle"}})
-	if dropped := r.InvalidateFromKernel(k); dropped != 1 {
-		t.Fatalf("first write dropped %d cache entries, want 1", dropped)
-	}
-
-	// Re-populate as a later search would, then add a distinct same-path write
-	// whose Unix-second timestamp collides with the first fact.
-	r.cache.Set("needle", []KeywordHit{{FilePath: target, Keyword: "needle"}})
-	second := core.Fact{
-		Predicate: "file_written",
-		Args:      []any{types.MangleString(target), types.MangleString("second-hash"), types.MangleString("/session_1"), timestamp},
-	}
-	if err := k.LoadFacts([]core.Fact{second}); err != nil {
-		t.Fatalf("LoadFacts second write: %v", err)
-	}
-
-	if dropped := r.InvalidateFromKernel(k); dropped != 1 {
-		t.Fatalf("same-second write dropped %d cache entries, want 1", dropped)
-	}
-	if _, ok := r.cache.Get("needle"); ok {
-		t.Fatal("cached hits survived a distinct same-second write to the file")
-	}
-
-	// Replaying the exact write log must remain idempotent.
-	r.cache.Set("needle", []KeywordHit{{FilePath: target, Keyword: "needle"}})
-	if dropped := r.InvalidateFromKernel(k); dropped != 0 {
-		t.Fatalf("replayed write log dropped %d cache entries, want 0", dropped)
-	}
-
-	// A same-hash write to another path is a distinct event. This guards
-	// against an identity key that accidentally omits the path.
-	other := filepath.Join(dir, "beta.go")
-	third := core.Fact{
-		Predicate: "file_written",
-		Args:      []any{types.MangleString(other), types.MangleString("second-hash"), types.MangleString("/session_1"), timestamp},
-	}
-	if err := k.LoadFacts([]core.Fact{third}); err != nil {
-		t.Fatalf("LoadFacts third write: %v", err)
-	}
-	r.cache.Set("other-needle", []KeywordHit{{FilePath: other, Keyword: "other-needle"}})
-	if dropped := r.InvalidateFromKernel(k); dropped != 1 {
-		t.Fatalf("same-hash write to a different path dropped %d cache entries, want 1", dropped)
-	}
-	if _, ok := r.cache.Get("other-needle"); ok {
-		t.Fatal("cached hits survived a write with a colliding hash on a different path")
-	}
-
-	// Replaying every exact fact remains idempotent after the cursor boundary
-	// has accumulated more than one distinct event.
-	r.cache.Set("needle", []KeywordHit{{FilePath: target, Keyword: "needle"}})
-	r.cache.Set("other-needle", []KeywordHit{{FilePath: other, Keyword: "other-needle"}})
-	if dropped := r.InvalidateFromKernel(k); dropped != 0 {
-		t.Fatalf("replayed full write log dropped %d cache entries, want 0", dropped)
-	}
-}
-
-// TestInvalidateFiles_ShouldMatchRelativeAndAbsoluteForms: the cache holds the
-// scanner's paths while the kernel holds whatever the writer used, so the two
-// spellings of one file have to invalidate each other.
-func TestInvalidateFiles_ShouldMatchRelativeAndAbsoluteForms(t *testing.T) {
-	dir := t.TempDir()
-	r := newBoundedRetriever(t, dir)
-	abs := filepath.Join(dir, "internal", "alpha.go")
-
-	r.cache.Set("kw", []KeywordHit{{FilePath: abs, Keyword: "kw"}})
-	if dropped := r.InvalidateFiles("internal/alpha.go"); dropped != 1 {
-		t.Fatalf("relative form dropped %d entries, want 1", dropped)
-	}
-
-	r.cache.Set("kw", []KeywordHit{{FilePath: "internal/alpha.go", Keyword: "kw"}})
-	if dropped := r.InvalidateFiles(abs); dropped != 1 {
-		t.Fatalf("absolute form dropped %d entries, want 1", dropped)
-	}
-}
-
-func TestInvalidateAll_ShouldEmptyCacheAndResetCursor(t *testing.T) {
-	r := newBoundedRetriever(t, t.TempDir())
-	r.cache.Set("kw", []KeywordHit{{FilePath: "a.go"}})
-	r.mu.Lock()
-	r.lastWriteCursor = 99
-	r.mu.Unlock()
-
-	r.InvalidateAll()
-
-	if _, ok := r.cache.Get("kw"); ok {
-		t.Error("cache not emptied")
-	}
-	r.mu.RLock()
-	cursor := r.lastWriteCursor
-	r.mu.RUnlock()
-	if cursor != 0 {
-		t.Errorf("write cursor = %d, want 0", cursor)
-	}
-}
-
-func TestInvalidateFromKernel_WhenSourceNil_ShouldBeNoOp(t *testing.T) {
-	r := newBoundedRetriever(t, t.TempDir())
-	if got := r.InvalidateFromKernel(nil); got != 0 {
-		t.Errorf("nil source dropped %d entries", got)
-	}
-}
 
 // =============================================================================
 // Tier 3: Go imports
@@ -263,9 +92,9 @@ type stubSemantic struct {
 	calls   int
 }
 
-func (s *stubSemantic) SimilarFiles(_ context.Context, _ string, _ int) ([]SemanticMatch, error) {
+func (s *stubSemantic) SimilarFiles(_ context.Context, _ string, _ int) (SemanticResult, error) {
 	s.calls++
-	return s.matches, s.err
+	return SemanticResult{Matches: s.matches, Eligible: len(s.matches), Covered: len(s.matches)}, s.err
 }
 
 func TestSemanticExpansion_WhenSearcherConfigured_ShouldUseVectorMatches(t *testing.T) {
@@ -276,7 +105,10 @@ func TestSemanticExpansion_WhenSearcherConfigured_ShouldUseVectorMatches(t *test
 	cfg.Semantic = &stubSemantic{matches: []SemanticMatch{{FilePath: target, Score: 0.87}}}
 	b := NewTieredContextBuilder(cfg)
 
-	files := b.semanticExpansion(context.Background(), "something about widgets", &IssueKeywords{}, map[string]bool{})
+	files, outcome := b.semanticExpansion(context.Background(), "something about widgets", &IssueKeywords{}, map[string]bool{})
+	if outcome.Used != BackendEmbeddings || outcome.Status != StatusComplete {
+		t.Errorf("outcome = %s, want complete via embeddings", outcome)
+	}
 	if len(files) != 1 {
 		t.Fatalf("got %d tier 4 files, want 1", len(files))
 	}
@@ -297,7 +129,11 @@ func TestSemanticExpansion_WhenSearcherFails_ShouldFallBackToDefinitionScan(t *t
 	b := NewTieredContextBuilder(cfg)
 
 	keywords := &IssueKeywords{MentionedSymbols: []string{"Widget"}}
-	files := b.semanticExpansion(context.Background(), "Widget is broken", keywords, map[string]bool{})
+	files, outcome := b.semanticExpansion(context.Background(), "Widget is broken", keywords, map[string]bool{})
+	// Fixture 6: the attempt and the fallback are reported separately.
+	if outcome.Attempted != BackendEmbeddings || outcome.Used != BackendDefinitionScan || outcome.Status != StatusPartial || outcome.Reason != ReasonBackendError {
+		t.Errorf("outcome = %s, want embeddings attempted, definition scan used, partial (backend_error)", outcome)
+	}
 
 	if stub.calls != 1 {
 		t.Errorf("semantic searcher called %d times, want 1", stub.calls)
@@ -346,9 +182,13 @@ func TestEmbeddingSemanticSearcher_ShouldRankAndCacheVectors(t *testing.T) {
 	engine := &fakeEmbedder{}
 	s := NewEmbeddingSemanticSearcher(engine, dir)
 
-	matches, err := s.SimilarFiles(context.Background(), "zebra zebra zebra problem", 5)
+	result, err := s.SimilarFiles(context.Background(), "zebra zebra zebra problem", 5)
 	if err != nil {
 		t.Fatalf("SimilarFiles: %v", err)
+	}
+	matches := result.Matches
+	if result.Eligible != 2 || result.Covered != 2 {
+		t.Errorf("coverage = %d of %d, want 2 of 2", result.Covered, result.Eligible)
 	}
 	if len(matches) == 0 {
 		t.Fatal("no matches")
@@ -410,19 +250,24 @@ func TestEmbeddingSemanticSearcher_WhenBudgetExpiresMidCorpus_ShouldRankPartialA
 	engine := &partialEmbedder{failSecond: true}
 	s := NewEmbeddingSemanticSearcher(engine, dir)
 
-	matches, err := s.SimilarFiles(context.Background(), "zebra zebra zebra", 5)
+	result, err := s.SimilarFiles(context.Background(), "zebra zebra zebra", 5)
 	if err != nil {
 		t.Fatalf("SimilarFiles with partial corpus: %v", err)
+	}
+	matches := result.Matches
+	if result.Incomplete == "" || result.Covered != semanticEmbedChunkSize || result.Eligible != semanticEmbedChunkSize+8 {
+		t.Errorf("a partly embedded corpus must say so: %+v", result)
 	}
 	if len(matches) == 0 || !strings.HasSuffix(matches[0].FilePath, "f00.go") {
 		t.Fatalf("partial matches = %v, want f00.go ranked from the completed chunk", matches)
 	}
 
 	engine.failSecond = false
-	matches, err = s.SimilarFiles(context.Background(), "zebra zebra zebra", 5)
+	result, err = s.SimilarFiles(context.Background(), "zebra zebra zebra", 5)
 	if err != nil {
 		t.Fatalf("second SimilarFiles: %v", err)
 	}
+	matches = result.Matches
 	if len(matches) == 0 || !strings.HasSuffix(matches[0].FilePath, fmt.Sprintf("f%02d.go", semanticEmbedChunkSize+7)) {
 		t.Fatalf("completed matches = %v, want the final file ranked first", matches)
 	}
@@ -533,8 +378,8 @@ func TestMetrics_ShouldCountWalkScanAndCacheActivity(t *testing.T) {
 	r := newBoundedRetriever(t, dir)
 	kw := &IssueKeywords{Primary: []string{"needle"}, Weights: map[string]float64{"needle": 1}}
 
-	if _, err := r.SearchKeywords(context.Background(), kw); err != nil {
-		t.Fatalf("SearchKeywords: %v", err)
+	if _, outcome := r.SearchKeywords(context.Background(), kw); outcome.Status != StatusComplete {
+		t.Fatalf("SearchKeywords: %s", outcome)
 	}
 	first := r.Metrics()
 	if first.Searches != 1 {
@@ -557,8 +402,8 @@ func TestMetrics_ShouldCountWalkScanAndCacheActivity(t *testing.T) {
 	}
 
 	// Second identical search must be a cache hit and must not walk again.
-	if _, err := r.SearchKeywords(context.Background(), kw); err != nil {
-		t.Fatalf("SearchKeywords (cached): %v", err)
+	if _, outcome := r.SearchKeywords(context.Background(), kw); outcome.Status != StatusComplete || outcome.CacheHits != 1 {
+		t.Fatalf("SearchKeywords (cached): %s, %d cache hits", outcome, outcome.CacheHits)
 	}
 	second := r.Metrics()
 	if second.CacheHits != 1 {

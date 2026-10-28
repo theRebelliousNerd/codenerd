@@ -105,11 +105,18 @@ func NewTieredContextBuilder(cfg *TieredContextConfig) *TieredContextBuilder {
 			defaults.Tier1Budget, defaults.Tier2Budget, defaults.Tier3Budget, defaults.Tier4Budget
 	}
 
+	// A nil *EmbeddingSemanticSearcher (no engine) stored in the interface is
+	// not nil there; it would read as "embeddings attempted".
+	semantic := cfg.Semantic
+	if s, ok := semantic.(*EmbeddingSemanticSearcher); ok && s == nil {
+		semantic = nil
+	}
+
 	return &TieredContextBuilder{
 		retriever:   retriever,
 		workDir:     cfg.WorkDir,
 		findCache:   make(map[string]string),
-		semantic:    cfg.Semantic,
+		semantic:    semantic,
 		tier1Budget: cfg.Tier1Budget,
 		tier2Budget: cfg.Tier2Budget,
 		tier3Budget: cfg.Tier3Budget,
@@ -152,6 +159,10 @@ type TieredContext struct {
 	// rather than the raw spelling.
 	ResolvedMentions map[string]string `json:"resolved_mentions,omitempty"`
 
+	// Outcomes is each searching tier's provenance (keyword, semantic): what
+	// it searched, with which backend, and whether it finished.
+	Outcomes []TierOutcome `json:"outcomes,omitempty"`
+
 	// Statistics
 	Tier1Count int `json:"tier1_count"`
 	Tier2Count int `json:"tier2_count"`
@@ -186,14 +197,14 @@ func (b *TieredContextBuilder) BuildContext(ctx context.Context, issueText strin
 	logging.Context("TieredContextBuilder: Tier 1 - %d explicitly mentioned files", tc.Tier1Count)
 
 	// Tier 2: Keyword match files
-	tier2Files, candidates, err := b.searchKeywordFiles(ctx, keywords, addedFiles)
+	tier2Files, candidates, keywordOutcome := b.searchKeywordFiles(ctx, keywords, addedFiles)
 	tc.Candidates = candidates
-	if err != nil {
-		logging.Context("TieredContextBuilder: Tier 2 search error: %v", err)
-	} else {
-		tc.Files = append(tc.Files, tier2Files...)
-		tc.Tier2Count = len(tier2Files)
+	tc.Outcomes = append(tc.Outcomes, keywordOutcome)
+	if keywordOutcome.Status != StatusComplete {
+		logging.Context("TieredContextBuilder: Tier 2 %s", keywordOutcome)
 	}
+	tc.Files = append(tc.Files, tier2Files...)
+	tc.Tier2Count = len(tier2Files)
 
 	logging.Context("TieredContextBuilder: Tier 2 - %d keyword match files", tc.Tier2Count)
 
@@ -204,8 +215,9 @@ func (b *TieredContextBuilder) BuildContext(ctx context.Context, issueText strin
 
 	logging.Context("TieredContextBuilder: Tier 3 - %d import neighbor files", tc.Tier3Count)
 
-	// Tier 4: Semantic expansion (placeholder - requires embedding service)
-	tier4Files := b.semanticExpansion(ctx, issueText, keywords, addedFiles)
+	// Tier 4: Semantic expansion
+	tier4Files, semanticOutcome := b.semanticExpansion(ctx, issueText, keywords, addedFiles)
+	tc.Outcomes = append(tc.Outcomes, semanticOutcome)
 	tc.Files = append(tc.Files, tier4Files...)
 	tc.Tier4Count = len(tier4Files)
 
@@ -356,19 +368,17 @@ func (b *TieredContextBuilder) locateFile(ctx context.Context, partial string) s
 // =============================================================================
 
 // searchKeywordFiles uses the SparseRetriever to find keyword matches. It
-// returns the selected Tier 2 files and the full ranked candidate list, which
+// returns the selected Tier 2 files, the full ranked candidate list, which
 // the caller needs to assert candidate_file/2 and keyword_hit/3 — those carry
-// scores and per-keyword counts that ContextFile does not model.
-func (b *TieredContextBuilder) searchKeywordFiles(ctx context.Context, keywords *IssueKeywords, addedFiles map[string]bool) ([]ContextFile, []CandidateFile, error) {
+// scores and per-keyword counts that ContextFile does not model — and the
+// search's outcome. A partial search still ranks the hits it has.
+func (b *TieredContextBuilder) searchKeywordFiles(ctx context.Context, keywords *IssueKeywords, addedFiles map[string]bool) ([]ContextFile, []CandidateFile, TierOutcome) {
 	// The previous revision also called FindRelevantFiles(ctx, "", …) here.
 	// With an empty issue text ExtractKeywords yields nothing, so that call
 	// ran a whole second keyword sweep of the repository that could only
 	// return an empty ranking — pure cost, no candidates. The direct search
 	// below already uses the keywords the caller extracted.
-	hits, err := b.retriever.SearchKeywords(ctx, keywords)
-	if err != nil {
-		return nil, nil, err
-	}
+	hits, outcome := b.retriever.SearchKeywords(ctx, keywords)
 
 	// Rank the files
 	ranked := b.retriever.RankFiles(hits, keywords, b.maxTier2*2)
@@ -393,7 +403,7 @@ func (b *TieredContextBuilder) searchKeywordFiles(ctx context.Context, keywords 
 		})
 	}
 
-	return files, ranked, nil
+	return files, ranked, outcome
 }
 
 // =============================================================================
@@ -527,19 +537,38 @@ func (b *TieredContextBuilder) resolveImport(importPath, currentFile string) str
 // spelling. It prefers a real embedding pass when one is configured and falls
 // back to scanning for symbol definitions otherwise — a fallback, not a
 // placeholder: the definition scan is the only thing that works in a session
-// with no embedding backend, which is the common case.
-func (b *TieredContextBuilder) semanticExpansion(ctx context.Context, issueText string, keywords *IssueKeywords, addedFiles map[string]bool) []ContextFile {
+// with no embedding backend, which is the common case. The outcome records
+// the backend attempted and the one whose files were kept, separately.
+func (b *TieredContextBuilder) semanticExpansion(ctx context.Context, issueText string, keywords *IssueKeywords, addedFiles map[string]bool) ([]ContextFile, TierOutcome) {
+	out := TierOutcome{Tier: TierSemantic, Status: StatusComplete, Reason: ReasonNone, Attempted: BackendDefinitionScan, Used: BackendDefinitionScan}
 	if b.semantic != nil && b.maxTier4 > 0 {
-		matches, err := b.semantic.SimilarFiles(ctx, issueText, b.maxTier4*2)
-		if err != nil {
+		out.Attempted = BackendEmbeddings
+		result, err := b.semantic.SimilarFiles(ctx, issueText, b.maxTier4*2)
+		out.Eligible, out.Covered = result.Eligible, result.Covered
+		switch {
+		case err != nil:
 			logging.Context("TieredContextBuilder: Tier 4 semantic search failed, falling back to definition scan: %v", err)
-		} else if files := semanticMatchFiles(matches, b.maxTier4, addedFiles); len(files) > 0 {
-			return files
+			out.Status, out.Reason, out.Detail = StatusPartial, errorReason(err), err.Error()
+		default:
+			if files := semanticMatchFiles(result.Matches, b.maxTier4, addedFiles); len(files) > 0 {
+				out.Used = BackendEmbeddings
+				switch {
+				case result.Incomplete != "":
+					out.Status, out.Reason, out.Detail = StatusPartial, ReasonEmbedIncomplete, result.Incomplete
+				case result.Covered < result.Eligible:
+					out.Status, out.Reason = StatusPartial, ReasonBoundedCorpus
+				}
+				return files, out
+			}
+			// No usable match: a result, not a failure. The definition
+			// scan still gets its turn.
+			out.Reason = ReasonNoSemanticHits
 		}
 	}
 
 	// Heuristic expansion based on symbol names.
 	var files []ContextFile
+	var scanErr error
 
 	for _, symbol := range keywords.MentionedSymbols {
 		if len(files) >= b.maxTier4 {
@@ -547,7 +576,10 @@ func (b *TieredContextBuilder) semanticExpansion(ctx context.Context, issueText 
 		}
 
 		// Search for files defining this symbol
-		definitionFiles := b.findSymbolDefinitions(ctx, symbol)
+		definitionFiles, err := b.findSymbolDefinitions(ctx, symbol)
+		if err != nil && scanErr == nil {
+			scanErr = err
+		}
 		for _, defFile := range definitionFiles {
 			if len(files) >= b.maxTier4 {
 				break
@@ -566,8 +598,11 @@ func (b *TieredContextBuilder) semanticExpansion(ctx context.Context, issueText 
 			})
 		}
 	}
+	if scanErr != nil && out.Status == StatusComplete {
+		out.Status, out.Reason, out.Detail = StatusPartial, errorReason(scanErr), scanErr.Error()
+	}
 
-	return files
+	return files, out
 }
 
 // definitionKeywords are the language keywords that introduce a definition.
@@ -595,16 +630,18 @@ var definitionKeywords = []string{
 // caret was reaching for is applied afterwards against each hit's column,
 // which the scanner already reports. The keyword list also covers Go, Rust, JS
 // and TS rather than Python alone.
-func (b *TieredContextBuilder) findSymbolDefinitions(ctx context.Context, symbol string) []string {
+func (b *TieredContextBuilder) findSymbolDefinitions(ctx context.Context, symbol string) ([]string, error) {
 	var files []string
+	var firstErr error
 	seen := make(map[string]bool)
 
 	for _, keyword := range definitionKeywords {
 		pattern := keyword + " " + symbol
 
 		hits, err := b.retriever.searchSingleKeyword(ctx, pattern)
-		if err != nil {
-			continue
+		if err != nil && firstErr == nil {
+			// The hits it found are still true; the search is not whole.
+			firstErr = err
 		}
 
 		for _, hit := range hits {
@@ -622,7 +659,7 @@ func (b *TieredContextBuilder) findSymbolDefinitions(ctx context.Context, symbol
 		}
 	}
 
-	return files
+	return files, firstErr
 }
 
 // isLineLeading reports whether pattern begins the line, ignoring leading

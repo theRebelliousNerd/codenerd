@@ -8,7 +8,6 @@ import (
 	"codenerd/internal/core"
 )
 
-
 // TODO: Add tests for empty string injections in context keywords/topics to ensure they don't grant universal score boosts.
 // TODO: Add tests simulating massive strings (e.g., 50MB fact strings) to evaluate OOM resilience and CPU exhaustion.
 // TODO: Add concurrency tests (e.g., 100 goroutines calling ScoreFacts) to verify thread safety against context pointer mutations.

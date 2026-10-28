@@ -34,3 +34,18 @@ retrieval_brief_file(Issue, File, Tier, Relevance) :-
     tiered_context_file(Issue, File, Tier, Relevance, _),
     config_param(/retrieval_brief_min_relevance, Floor),
     Relevance >= Floor.
+
+# What the model is told about a pass that did not search everything
+# (retrieval_outcome, section 52.6). A partial or unavailable tier is a
+# caveat beside the brief -- its files are true, but a file missing from it is
+# not evidence that none matches -- except a semantic corpus that is bounded
+# by design: that holds on every pass over a large repository, and the brief
+# already says its files are places to start, not a census.
+# (The comparison is not the last literal: "/bounded_corpus." would read the
+# terminating "." as part of the name constant.)
+retrieval_brief_caveat(Issue, Tier, /partial, Reason) :-
+    Reason != /bounded_corpus,
+    retrieval_outcome(Issue, Tier, /partial, Reason).
+
+retrieval_brief_caveat(Issue, Tier, /unavailable, Reason) :-
+    retrieval_outcome(Issue, Tier, /unavailable, Reason).

@@ -760,7 +760,14 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 			extra = 0
 		}
 	}
-	decision, err := loop.set.Ledger(ctx, entries, round, loop.restated, loop.hotFiles(), loop.recalledIDs())
+	entries = mergeRepeatedCalls(entries)
+	decision, err := loop.set.Ledger(ctx, working.LedgerRound{
+		Entries: entries, Round: round, Restated: loop.restated,
+		Hot: loop.hotFiles(), Recalled: loop.recalledIDs(),
+		// The focus view's revision comes from the same epoch the policy
+		// decided on, not from a second read of the file.
+		Observe: []string{loop.focus},
+	})
 	if err != nil {
 		return fmt.Errorf("working ledger: %w", err)
 	}
@@ -788,7 +795,7 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 		key = ledgerKey(n - 1)
 	}
 	var notes []string
-	if revision := loop.set.Revision(loop.focus); loop.focus+"@"+revision != loop.viewed {
+	if revision := decision.Revisions[loop.focus]; loop.focus+"@"+revision != loop.viewed {
 		if view := e.workingFocusView(ctx, loop); view != "" {
 			notes = append(notes, view)
 		}
@@ -807,7 +814,9 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 				return fmt.Errorf("working ledger: %w", err)
 			}
 			notes = append(notes, fmt.Sprintf(staleObservationNotice, handle, tool, r.Entity, r.Entity))
-			loop.restated[r.ID] = loop.set.Revision(r.Entity)
+			// The revision the policy judged it stale against: a write
+			// landing after the decision is the next round's to see.
+			loop.restated[r.ID] = decision.Revisions[r.Entity]
 		}
 	}
 	if len(notes) > 0 {
@@ -818,6 +827,34 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 		loop.appended[key] = text
 	}
 	return nil
+}
+
+// mergeRepeatedCalls carries a call id that answers more than one result as
+// one ledger row. A client can reuse an id across rounds (a scripted one
+// does), and the request evicts by id -- every result under it moves out
+// together (loop.evicted) -- so the ledger measures the id as the request
+// treats it: all of its bytes, at its latest arrival and round. That keeps
+// the rows in round order, which the policy's shed scan requires
+// (working.LedgerRound).
+func mergeRepeatedCalls(entries []working.LedgerEntry) []working.LedgerEntry {
+	bytes := make(map[string]int, len(entries))
+	last := make(map[string]int, len(entries))
+	for i, e := range entries {
+		bytes[e.Call] += e.Bytes
+		last[e.Call] = i
+	}
+	if len(last) == len(entries) {
+		return entries
+	}
+	merged := make([]working.LedgerEntry, 0, len(last))
+	for i, e := range entries {
+		if last[e.Call] != i {
+			continue
+		}
+		e.Bytes = bytes[e.Call]
+		merged = append(merged, e)
+	}
+	return merged
 }
 
 // workingFocusView is the focus file's current view (outline with line ranges,

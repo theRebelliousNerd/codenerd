@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log"
 	"os"
@@ -177,6 +178,25 @@ func (m *Membership) storeSnap(snap gitSnapshot) {
 
 // Root is the canonical workspace root this membership was opened on.
 func (m *Membership) Root() string { return m.root }
+
+// Revision identifies the member set this value answers for: its root and
+// ignore patterns (one Membership per pair, cached for the process) and, in
+// a git root, the stamps of HEAD, the ref HEAD names, the index, the root
+// .gitignore and info/exclude. An answer computed over the members (a
+// keyword scan's cached result) is reusable only while Revision holds: a
+// checkout, a reset, an ignore edit or an index rewrite moves it. A non-git
+// root's members are walked on demand, so only its patterns identify it.
+// Nested .gitignore files are not stamped; a caller that sees one change
+// treats its cached answers as stale itself.
+func (m *Membership) Revision() string {
+	if m == nil {
+		return ""
+	}
+	m.ensureFresh()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return fmt.Sprintf("%p|%t|%+v|%s", m, m.git, m.stamps, m.refName)
+}
 
 // Refresh re-reads the git snapshot, or drops the non-git file list so the
 // next Files call walks again. Scan ticks call this. Pattern changes are a

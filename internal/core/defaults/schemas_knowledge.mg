@@ -155,3 +155,27 @@ Decl issue_retrieval_wanted(Intent) bound [/name].
 # retrieval_brief_file(IssueID, File, Tier, Relevance): a retrieved file the
 # model is handed as a place to start reading.
 Decl retrieval_brief_file(IssueID, File, Tier, Relevance) bound [/string, /string, /name, /number].
+
+# -----------------------------------------------------------------------------
+# 52.6 Retrieval Provenance
+# -----------------------------------------------------------------------------
+# What each searching tier of a pass did, asserted by the pass (Go:
+# internal/retrieval outcome.go), so a short result from a search that did
+# not finish is not read as "nothing else matches".
+# Tier: /keyword, /semantic. Status: /complete, /partial, /unavailable.
+# Reason: /none, /timeout, /canceled, /backend_error, /membership_error,
+# /overflow, /bounded_corpus, /embed_incomplete, /no_semantic_hits.
+Decl retrieval_outcome(IssueID, Tier, Status, Reason) bound [/string, /name, /name, /name].
+
+# retrieval_backend(IssueID, Tier, Attempted, Used): the backend the tier was
+# configured to use and the one whose results it kept.
+# Backends: /native, /ripgrep, /embeddings, /definition_scan.
+Decl retrieval_backend(IssueID, Tier, Attempted, Used) bound [/string, /name, /name, /name].
+
+# retrieval_coverage(IssueID, Tier, Eligible, Covered): files the tier's
+# domain holds and the ones it searched, where the tier measures them.
+Decl retrieval_coverage(IssueID, Tier, Eligible, Covered) bound [/string, /name, /number, /number].
+
+# retrieval_brief_caveat(IssueID, Tier, Status, Reason): a tier shortfall the
+# model is told about beside the brief (policy/retrieval.mg).
+Decl retrieval_brief_caveat(IssueID, Tier, Status, Reason) bound [/string, /name, /name, /name].

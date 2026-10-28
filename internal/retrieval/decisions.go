@@ -52,6 +52,9 @@ var issueKeyed = map[string]int{
 	"file_mentioned":      1,
 	"tiered_context_file": 0,
 	"issue_context":       0,
+	"retrieval_outcome":   0,
+	"retrieval_backend":   0,
+	"retrieval_coverage":  0,
 }
 
 // issueKeyedKinds is each issue-keyed predicate's Decl, slot by slot: 's'
@@ -66,6 +69,9 @@ var issueKeyedKinds = map[string]string{
 	"file_mentioned":      "ss",
 	"tiered_context_file": "ssn##",
 	"issue_context":       "s##",
+	"retrieval_outcome":   "snnn",
+	"retrieval_backend":   "snnn",
+	"retrieval_coverage":  "sn##",
 }
 
 // retypedRow restores a queried row's argument types from its Decl.
@@ -219,15 +225,33 @@ func Brief(src FactSource, issueID string) ([]BriefFile, error) {
 // is not a new request.
 const briefHeader = "[harness: files the retrieval pass ranked for this task -- the ones it names, then keyword, import and semantic matches, with tier and relevance percent. Places to start reading, not a new request; the structural queries still answer anything they miss.]"
 
-// RenderBrief renders the brief as harness text, or "" when there is none.
-func RenderBrief(files []BriefFile) string {
-	if len(files) == 0 {
+// caveatHeader opens the caveats where a brief carries any: the tiers whose
+// shortfall policy decided the model must know about
+// (retrieval_brief_caveat).
+const caveatHeader = "[harness: the retrieval pass did not search everything it should have.]"
+
+// RenderBrief renders the brief as harness text, or "" when there is none. A
+// pass that found nothing but did not finish still says so: an empty brief
+// from a failed search must not read as "nothing matches".
+func RenderBrief(files []BriefFile, caveats []BriefCaveat) string {
+	if len(files) == 0 && len(caveats) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(briefHeader)
-	for _, f := range files {
-		fmt.Fprintf(&b, "\n- %s (%s, %d)", f.Path, f.Tier, f.Relevance)
+	if len(files) > 0 {
+		b.WriteString(briefHeader)
+		for _, f := range files {
+			fmt.Fprintf(&b, "\n- %s (%s, %d)", f.Path, f.Tier, f.Relevance)
+		}
+	}
+	if len(caveats) > 0 {
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(caveatHeader)
+		for _, c := range caveats {
+			b.WriteString("\n" + caveatLine(c))
+		}
 	}
 	return b.String()
 }
@@ -337,7 +361,11 @@ func (t *TaskRetriever) Retrieve(ctx context.Context, intentID, taskText string)
 		logging.Get(logging.CategoryContext).Warn("task retrieval: brief for %s not read: %v", issueID, err)
 		return "", release
 	}
-	logging.Context("task retrieval %s: %d of %d retrieved files handed to the model", issueID, len(files),
-		report.TierCounts[0]+report.TierCounts[1]+report.TierCounts[2]+report.TierCounts[3])
-	return RenderBrief(files), release
+	caveats, err := Caveats(t.kernel, issueID)
+	if err != nil {
+		logging.Get(logging.CategoryContext).Warn("task retrieval: caveats for %s not read: %v", issueID, err)
+	}
+	logging.Context("task retrieval %s: %d of %d retrieved files and %d caveat(s) handed to the model", issueID, len(files),
+		report.TierCounts[0]+report.TierCounts[1]+report.TierCounts[2]+report.TierCounts[3], len(caveats))
+	return RenderBrief(files, caveats), release
 }

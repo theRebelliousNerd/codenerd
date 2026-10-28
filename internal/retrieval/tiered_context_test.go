@@ -11,7 +11,7 @@ import (
 
 func TestKeywordHitCacheClear(t *testing.T) {
 	c := NewKeywordHitCache(8, time.Hour)
-	c.Set("kw", []KeywordHit{{FilePath: "a.go"}})
+	c.Set("kw", keywordResult{hits: []KeywordHit{{FilePath: "a.go"}}}, c.Begin(""))
 	if _, ok := c.Get("kw"); !ok {
 		t.Fatal("entry should be present after Set")
 	}

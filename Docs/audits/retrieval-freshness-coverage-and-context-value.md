@@ -1,7 +1,7 @@
 ---
 doc-class: research-proposal
 subsystem: retrieval-context
-implementation-status: proposed
+implementation-status: partial
 last-verified: 2026-10-27
 verified-against: e16f5a3ac94e9b5887039bb5ce96832dfcf5b74a
 verification-method: static-source-inspection
@@ -185,3 +185,27 @@ Ablate each refinement separately. Reject an optimization that lowers initial to
 
 Before implementation, update the owning architecture specs and their gap IDs using the repository's spec-first convention; this audit does not close historical rows. Stop broadening a retrieval pass when its explicit budget is reached and preserve the unresolved coverage obligation. Do not turn a budget stop into evidence that the missing symbol or implementation does not exist.
 
+
+## As built (2026-10-27)
+
+Built on 6ef257cb (one native walk for every uncached keyword, reader pool of `min(NumCPU,32)`): the walk's per-file body is now `scan_native.go:SparseRetriever.scanFile`, shared by the walk and the delta below.
+
+**Implemented**
+
+* R1 — query-level absence invalidation (queue item 1). `keyword_cache.go:KeywordHitCache` is keyed by a search domain (`Begin`): `search.go:SparseRetriever.searchDomain` = backend + purpose globs + new `workspace.Membership.Revision` (root/patterns identity and git HEAD, its ref, index, `.gitignore`, `info/exclude` stamps); another domain empties the cache. Every change moves the cache epoch and a scan publishes only into the epoch it started in (`Set(keyword, result, epoch)` refuses a late pre-change result). `invalidation.go:ApplyFileChanges` maintains every cached result by `H_next = (H_prev − hits in changed files) ∪ Search(q, changed files)`, reading each changed member once for all cached keywords; deleted/excluded files only lose hits. Ignore files, `.git/` paths, the external backend, or a membership failure clear the cache instead; overflowed results (cap reached) are dropped, as is any result a delta pushes to the cap. `InvalidateFromKernel` now also reads `file_deleted/1` (deletes never invalidated before), and treats timestampless events as new when absent at the previous pass.
+* R3 — first-class provenance (queue item 2). `outcome.go:TierOutcome` (status complete/partial/unavailable, reason, attempted vs used backend, eligible/covered, queries/cache hits/incomplete keywords). `SearchKeywords` returns `([]KeywordHit, TierOutcome)` instead of a nil error after logged failures; failed keywords are partial and never cached. `tiered_context.go:semanticExpansion` reports the attempted and used backend separately (embedding error → partial via `definition_scan`; no usable matches → `no_semantic_hits`; bounded or incomplete corpus → partial). `SeedReport.Outcomes` replaced `SemanticTier`. `OutcomeFacts` asserts `retrieval_outcome/4`, `retrieval_backend/4`, `retrieval_coverage/4` (schemas_knowledge.mg 52.6, issue-keyed, retracted with the issue). Policy `retrieval_brief_caveat/4` (policy/retrieval.mg) decides what the model is told; `decisions.go:RenderBrief(files, caveats)` renders it beside the brief, even when no file was found. Consumers: the task brief (`TaskRetriever.Retrieve` → working-loop anchor), the chat activation priorities (`retrieval_brief_caveat`: 85), `nerd retrieve` output and `--facts`.
+* R2 — semantic cache lifetime vs coverage (queue item 3). `semantic.go:EmbeddingSemanticSearcher` keys each vector by path + sha256 of the exact head bytes (the searcher is bound to one engine, workspace and head size); concurrent misses wait on one in-flight embed; empty vectors are not cached; vectors whose dimension differs from the query's are not ranked and count as uncovered; vectors of files that left the corpus are dropped each pass. `SimilarFiles` returns `SemanticResult{Matches, Eligible, Covered, Incomplete}`.
+* Found and fixed: a typed-nil `*EmbeddingSemanticSearcher` in `TieredContextConfig.Semantic` read as configured; `FindRelevantFiles` had no production caller and was removed.
+* Tests (fixtures of §7 that are deterministic): `invalidation_test.go` (1 empty→new match maintained from cache, 2 second match joins, 3 delete/edit/ignore change, 4 in-flight publish refused, overflow, cursor, path spellings, 5 one failed keyword partial, canceled walk unavailable, overflow partial), `outcome_test.go` (policy caveats, retraction, render, end-to-end through `TaskRetriever`, 7 content-keyed reuse, forget, concurrent misses, dimension mismatch, 8 bounded corpus), `wiring_test.go` (6 attempted vs used), `workspace/membership_revision_test.go`.
+
+**Ruled differently**
+
+* The cache key's "membership/config revision" is `Membership.Revision`; the index stamp is included, so an index rewrite (stage, reset, checkout) clears the cache — correctness over hit rate.
+* The bounded semantic corpus is asserted as fact but policy does not caveat it: it holds on every pass over a large repository.
+* The cached delta is applied only to native-scan results; with the ripgrep backend any change clears the cache (path forms are the backend's).
+
+**Deferred**
+
+* Queue item 4 (coverage-aware corpus selection: stratified vs task-conditioned, exploration allocation, explicit test corpus): coverage is now exposed, but choosing the rule needs the paired task study; the corpus is still the lexicographic first 256 heads.
+* Out-of-band edits with no kernel event (an editor outside codeNERD) are still bounded only by the 5-minute TTL; no watcher-gap measurement exists to mark freshness unknown.
+* §6/§7 task-suite and cost-vector evaluation, fixture 9/10 (covered by existing working-set and issue-scoping tests) need live models.

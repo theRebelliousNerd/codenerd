@@ -177,7 +177,10 @@ func TestFindSymbolDefinitions_ShouldMatchRealDefinitions(t *testing.T) {
 	writeFile(t, dir, "caller.go", []byte("package main\n\nfunc run() { _ = Widget() }\n"))
 
 	b := NewTieredContextBuilder(DefaultTieredContextConfig(dir))
-	files := b.findSymbolDefinitions(context.Background(), "Widget")
+	files, err := b.findSymbolDefinitions(context.Background(), "Widget")
+	if err != nil {
+		t.Fatalf("definition scan: %v", err)
+	}
 
 	if len(files) == 0 {
 		t.Fatal("tier 4 found no definitions; the literal-vs-regex bug is back")
@@ -229,7 +232,7 @@ func TestFindSymbolDefinitions_ShouldNotMatchUnrelatedSymbol(t *testing.T) {
 	writeFile(t, dir, "widget.py", []byte("class Widget:\n    pass\n"))
 
 	b := NewTieredContextBuilder(DefaultTieredContextConfig(dir))
-	if files := b.findSymbolDefinitions(context.Background(), "Gadget"); len(files) != 0 {
+	if files, _ := b.findSymbolDefinitions(context.Background(), "Gadget"); len(files) != 0 {
 		t.Errorf("expected no definitions for an absent symbol, got %v", files)
 	}
 }

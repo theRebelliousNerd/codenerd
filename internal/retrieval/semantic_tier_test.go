@@ -209,13 +209,17 @@ func seedProbe(t *testing.T, dir, issueID string, engine embedding.EmbeddingEngi
 // with an engine the report records the embeddings tier and Tier 4 fills.
 func TestSeedIssueFacts_WithEngine_ShouldUseEmbeddingsTier(t *testing.T) {
 	report := seedProbe(t, semanticTierWorkspace(t), "/issue_sem_tier", fakeTierEmbedder{})
-	if report.SemanticTier != "embeddings" {
-		t.Errorf("SemanticTier = %q, want %q", report.SemanticTier, "embeddings")
+	o, ok := outcomeOf(report, TierSemantic)
+	if !ok || o.Attempted != BackendEmbeddings || o.Used != BackendEmbeddings || o.Status != StatusComplete {
+		t.Errorf("semantic outcome = %+v, want embeddings attempted and used, complete", o)
+	}
+	if o.Eligible != 5 || o.Covered != 5 {
+		t.Errorf("semantic coverage = %d of %d, want all 5 files", o.Covered, o.Eligible)
 	}
 	if report.TierCounts[3] == 0 {
 		t.Error("Tier 4 is empty despite a working engine")
 	}
-	if s := report.Summary(); strings.Contains(s, "heuristic fallback") {
+	if s := report.Summary(); strings.Contains(s, BackendDefinitionScan) {
 		t.Errorf("embeddings summary must not claim a fallback: %q", s)
 	}
 }
@@ -228,10 +232,10 @@ func TestSeedIssueFacts_WithoutEngine_ShouldSurfaceFallbackAndKeepOtherTiers(t *
 	embedReport := seedProbe(t, dir, "/issue_sem_tier", fakeTierEmbedder{})
 	heurReport := seedProbe(t, dir, "/issue_sem_heur", nil)
 
-	if heurReport.SemanticTier != "heuristic fallback" {
-		t.Errorf("SemanticTier = %q, want %q", heurReport.SemanticTier, "heuristic fallback")
+	if o, _ := outcomeOf(heurReport, TierSemantic); o.Attempted != BackendDefinitionScan || o.Used != BackendDefinitionScan {
+		t.Errorf("semantic outcome = %+v, want the definition scan attempted and used", o)
 	}
-	if s := heurReport.Summary(); !strings.Contains(s, "heuristic fallback") {
+	if s := heurReport.Summary(); !strings.Contains(s, BackendDefinitionScan) {
 		t.Errorf("nil-engine summary must surface the degradation: %q", s)
 	}
 	for tier := 1; tier <= 3; tier++ {
@@ -240,4 +244,14 @@ func TestSeedIssueFacts_WithoutEngine_ShouldSurfaceFallbackAndKeepOtherTiers(t *
 				tier, embedReport.TierCounts[tier-1], heurReport.TierCounts[tier-1])
 		}
 	}
+}
+
+// outcomeOf is the named tier's provenance in a seed report.
+func outcomeOf(r *SeedReport, tier string) (TierOutcome, bool) {
+	for _, o := range r.Outcomes {
+		if o.Tier == tier {
+			return o, true
+		}
+	}
+	return TierOutcome{}, false
 }

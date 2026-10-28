@@ -80,7 +80,7 @@ func TestKeywordHitCache_TTLAndEviction(t *testing.T) {
 
 	t.Run("ttl_expired", func(t *testing.T) {
 		cache := NewKeywordHitCache(10, -1*time.Second)
-		cache.Set("k", hits)
+		cache.Set("k", keywordResult{hits: hits}, cache.Begin(""))
 		if _, ok := cache.Get("k"); ok {
 			t.Fatalf("Get() ok=true, want false for expired entry")
 		}
@@ -88,21 +88,21 @@ func TestKeywordHitCache_TTLAndEviction(t *testing.T) {
 
 	t.Run("evicts_oldest", func(t *testing.T) {
 		cache := NewKeywordHitCache(2, time.Hour)
-		cache.Set("a", hits)
-		cache.Set("b", hits)
+		cache.Set("a", keywordResult{hits: hits}, cache.Begin(""))
+		cache.Set("b", keywordResult{hits: hits}, cache.Begin(""))
 
 		cache.mu.Lock()
 		cache.entries["a"].timestamp = time.Unix(0, 0)
 		cache.entries["b"].timestamp = time.Unix(100, 0)
 		cache.mu.Unlock()
 
-		cache.Set("c", hits)
+		cache.Set("c", keywordResult{hits: hits}, cache.Begin(""))
 
-		cache.mu.RLock()
+		cache.mu.Lock()
 		_, hasA := cache.entries["a"]
 		_, hasB := cache.entries["b"]
 		_, hasC := cache.entries["c"]
-		cache.mu.RUnlock()
+		cache.mu.Unlock()
 
 		if hasA || !hasB || !hasC {
 			t.Fatalf("cache eviction unexpected (a=%v b=%v c=%v)", hasA, hasB, hasC)
@@ -220,7 +220,7 @@ func TestKeywordHitCache_Concurrency(t *testing.T) {
 			defer wg.Done()
 			key := "key" // High collision
 			if i%2 == 0 {
-				cache.Set(key, []KeywordHit{{FilePath: "a.go"}})
+				cache.Set(key, keywordResult{hits: []KeywordHit{{FilePath: "a.go"}}}, cache.Begin(""))
 			} else {
 				cache.Get(key)
 			}

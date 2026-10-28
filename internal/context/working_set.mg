@@ -337,37 +337,51 @@ working_shed_key(Call, 2, Round, Seq, Bytes) :-
     !working_drop(Call), !working_recall_held(ID),
     working_hot_live(ID).
 
-# working_shed_prior(Call, Prior): Prior is shed before Call. Lower rank
-# first, then an earlier round, then an earlier arrival.
-Decl working_shed_prior(Call, Prior) bound [/string, /string].
-working_shed_prior(Call, Prior) :-
-    working_shed_key(Call, Rank, _, _, _),
-    working_shed_key(Prior, PriorRank, _, _, _),
-    PriorRank < Rank.
-working_shed_prior(Call, Prior) :-
-    working_shed_key(Call, Rank, Round, _, _),
-    working_shed_key(Prior, Rank, PriorRound, _, _),
-    PriorRound < Round.
-working_shed_prior(Call, Prior) :-
-    working_shed_key(Call, Rank, Round, Seq, _),
-    working_shed_key(Prior, Rank, Round, PriorSeq, _),
-    PriorSeq < Seq.
-
-Decl working_shed_prior_bytes(Call, Total) bound [/string, /number].
-working_shed_prior_bytes(Call, Total) :-
-    working_shed_key(Call, _, _, _, _),
-    working_shed_prior(Call, Prior),
-    working_shed_key(Prior, _, _, _, PriorBytes)
-    |> do fn:group_by(Call), let Total = fn:sum(PriorBytes).
-Decl working_shed_has_prior(Call) bound [/string].
-working_shed_has_prior(Call) :- working_shed_prior(Call, _).
-Decl working_shed_first(Call) bound [/string].
-working_shed_first(Call) :-
-    working_shed_key(Call, _, _, _, _), !working_shed_has_prior(Call).
+# Shed order is lower rank first, then an earlier round, then an earlier
+# arrival. The host guarantees working_ledger_seq is dense from 0 in arrival
+# order and that rounds never decrease along it (WorkingSet.Ledger refuses a
+# ledger that breaks either), so within one rank (Round, Seq) order is Seq
+# order, and the candidate at (Rank, Seq) sits at position Rank*N + Seq of one
+# chain over every rank, N the ledger's length.
+#
+# working_shed_run(Pos, Before) is the exclusive prefix sum along that chain:
+# the bytes of every candidate at a position below Pos. Each position steps
+# once -- by its candidate's bytes, or by 0 where no candidate sits -- so the
+# scan derives 3N+1 rows where the all-prior relation it replaced (each
+# candidate joined to every candidate ahead of it) derived m(m-1)/2 pairs for
+# m candidates. Below the ceiling working_still_over() is false and none of
+# it is derived.
+Decl working_shed_rank(Rank) bound [/number].
+working_shed_rank(0).
+working_shed_rank(1).
+working_shed_rank(2).
+Decl working_ledger_len(N) bound [/number].
+working_ledger_len(N) :-
+    working_ledger_seq(_, Seq)
+    |> do fn:group_by(), let N = fn:count().
+Decl working_shed_at(Rank, Seq) bound [/number, /number].
+working_shed_at(Rank, Seq) :- working_shed_key(_, Rank, _, Seq, _).
+Decl working_shed_step(Pos, Bytes) bound [/number, /number].
+working_shed_step(Pos, Bytes) :-
+    working_shed_key(_, Rank, _, Seq, Bytes), working_ledger_len(N),
+    Pos = fn:plus(fn:mult(Rank, N), Seq).
+working_shed_step(Pos, 0) :-
+    working_still_over(), working_shed_rank(Rank), working_ledger_seq(_, Seq),
+    !working_shed_at(Rank, Seq), working_ledger_len(N),
+    Pos = fn:plus(fn:mult(Rank, N), Seq).
+Decl working_shed_run(Pos, Before) bound [/number, /number].
+working_shed_run(0, 0) :- working_still_over().
+working_shed_run(Next, After) :-
+    working_shed_run(Pos, Before), working_shed_step(Pos, Bytes),
+    Next = fn:plus(Pos, 1), After = fn:plus(Before, Bytes).
+Decl working_shed_before(Call, Before) bound [/string, /number].
+working_shed_before(Call, Before) :-
+    working_shed_key(Call, Rank, _, Seq, _), working_ledger_len(N),
+    Pos = fn:plus(fn:mult(Rank, N), Seq), working_shed_run(Pos, Before).
 
 # A candidate leaves while the bytes ahead of it do not yet cover
-# (remain - ceiling). The first has nothing ahead of it, and a ledger that
-# is still over always owes at least that one. Later candidates stop once
+# (remain - ceiling). The first has 0 ahead of it, and a ledger that is still
+# over owes at least 1 byte, so it always leaves. Later candidates stop once
 # the prefix covers the excess, so a live result moves only when the ceiling
 # cannot be met otherwise, oldest live last.
 #
@@ -382,12 +396,10 @@ working_shed_first(Call) :-
 # (commit regime), so recall was the only way back.
 Decl working_shed(Call) bound [/string].
 working_shed(Call) :-
-    working_shed_key(Call, _, _, _, _),
-    working_shed_prior_bytes(Call, Before),
+    working_shed_before(Call, Before),
     working_remain_bytes(Remain), working_ledger_ceiling(Ceiling),
     Need = fn:minus(Remain, Ceiling),
     Before < Need.
-working_shed(Call) :- working_shed_first(Call).
 
 Decl working_evict(Call) bound [/string].
 working_evict(Call) :- working_drop(Call).
