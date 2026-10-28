@@ -266,6 +266,8 @@ func (m Model) processInput(input string) tea.Cmd {
 		// Seed the shared kernel immediately so system shards can begin deriving actions.
 		if m.kernel != nil {
 			m.clearStaleKernelFacts()
+			// What running background work has done so far, for this turn's context.
+			m.refreshJobProgress(time.Now())
 			resultBase = m.snapshotSystemResults()
 			// Only assert user_intent ourselves if the PerceptionFirewall shard didn't already do it.
 			if !intentHandledBySystem {

@@ -124,8 +124,13 @@ func (c *core) logSettled(receipt Receipt, req *Request, obs *callObserver, call
 			Logical:   logicalOf(req),
 		})
 	}
-	if tr := sessionlog.TranscriptFrom(obs.ctx); tr != nil && resp != nil && callErr == nil {
-		tr.Assistant(obs.ctx, receipt.Model, resp)
+	if tr := sessionlog.TranscriptFrom(obs.ctx); tr != nil {
+		switch {
+		case callErr != nil:
+			tr.CallFailed(obs.ctx, receipt.Model, callErr)
+		case resp != nil:
+			tr.Assistant(obs.ctx, receipt.Model, resp)
+		}
 	}
 }
 

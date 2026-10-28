@@ -19,6 +19,7 @@ func RunAgent(ctx context.Context, role, id, task string, run func(context.Conte
 	}
 	ctx = WithAgent(ctx, role, id)
 	tr := TranscriptFrom(ctx)
+	tr.setTask(TaskFrom(ctx))
 	tr.Input(ctx, task)
 	defer func() {
 		if p := recover(); p != nil {

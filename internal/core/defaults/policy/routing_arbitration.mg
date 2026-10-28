@@ -325,6 +325,13 @@ injectable_context("chat", Line) :-
     background_job(JobID, Shard, Task, /running),
     Line = fn:string:concat("A background ", Shard, " shard is already working on: ", Task).
 
+# Its progress so far, so the main agent answers "how is it going?" from what
+# the job has done rather than guessing (background_job_progress).
+injectable_context("chat", Line) :-
+    background_job(JobID, Shard, _, /running),
+    background_job_progress(JobID, Text),
+    Line = fn:string:concat("Progress of the background ", Shard, " job: ", Text).
+
 # A delegated mutation runs the verification loop: the persona's attempts,
 # each judged (delegation_move, delegation.mg). Read-only work -- a review, an
 # analysis -- has nothing written to verify, and each attempt's extra judge

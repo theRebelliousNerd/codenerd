@@ -18,10 +18,12 @@ const TranscriptSchema = "codenerd.transcript/1"
 
 // Transcript event kinds.
 const (
-	EventInput      = "input"       // the task or user input the agent was given
-	EventAssistant  = "assistant"   // one model answer, with the tool calls it asked for
-	EventToolResult = "tool_result" // what a tool call returned to the agent
-	EventFinal      = "final"       // the agent's final answer or the error that ended it
+	EventInput      = "input"        // the task or user input the agent was given
+	EventAssistant  = "assistant"    // one model answer, with the tool calls it asked for
+	EventToolResult = "tool_result"  // what a tool call returned to the agent
+	EventFinal      = "final"        // the agent's final answer or the error that ended it
+	EventCallStart  = "call_started" // a model call went out; its answer or failure follows
+	EventCallFailed = "call_failed"  // a model call ended in an error
 )
 
 // TranscriptEvent is one entry of a transcript.
@@ -57,6 +59,10 @@ type Transcript struct {
 	seq    int
 	opened bool
 	broken bool
+	// task is the task id the agent works on (WithTask), so a caller holding
+	// the id can find this agent's progress (Store.ProgressForTask).
+	task string
+	prog progressState
 }
 
 type transcriptHeader struct {
@@ -134,6 +140,21 @@ func (t *Transcript) ToolResult(ctx context.Context, tool, callID, content strin
 	t.append(TranscriptEvent{Kind: EventToolResult, Turn: TurnFrom(ctx), Tool: tool, CallID: callID, IsError: isError, Text: Lines(content)})
 }
 
+// CallStarted records that a model call went out, so a long call reads as
+// "waiting on the model" while it runs.
+func (t *Transcript) CallStarted(ctx context.Context, model string) {
+	t.append(TranscriptEvent{Kind: EventCallStart, Turn: TurnFrom(ctx), Model: model})
+}
+
+// CallFailed records a model call that ended in an error.
+func (t *Transcript) CallFailed(ctx context.Context, model string, err error) {
+	ev := TranscriptEvent{Kind: EventCallFailed, Turn: TurnFrom(ctx), Model: model}
+	if err != nil {
+		ev.Error = err.Error()
+	}
+	t.append(ev)
+}
+
 // Final records the agent's last word for a turn.
 func (t *Transcript) Final(ctx context.Context, text string, err error) {
 	ev := TranscriptEvent{Kind: EventFinal, Turn: TurnFrom(ctx), Text: Lines(text)}
@@ -160,6 +181,7 @@ func (t *Transcript) append(ev TranscriptEvent) {
 	t.seq++
 	ev.Seq = t.seq
 	ev.Time = time.Now()
+	t.prog.observe(ev)
 	body, err := marshalEvent(ev)
 	if err != nil {
 		t.seq--

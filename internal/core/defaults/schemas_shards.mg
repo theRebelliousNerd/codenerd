@@ -211,6 +211,11 @@ Decl work_mode(Mode) bound [/name].
 # such job, Status /running, /done or /failed.
 Decl route_background() bound [].
 Decl background_job(JobID, Shard, Task, Status) bound [/string, /string, /string, /name].
+# background_job_progress(JobID, Text): one line per agent working on a running
+# background job -- its elapsed time, model calls, tool results, last tool and
+# what it is waiting on -- from the transcripts the harness writes. Refreshed
+# every chat turn.
+Decl background_job_progress(JobID, Text) bound [/string, /string].
 Decl work_proposal_pending() bound [].
 Decl work_hold_requested() bound [].
 Decl work_admitted() bound [].

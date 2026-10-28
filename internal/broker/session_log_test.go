@@ -140,10 +140,15 @@ func TestDebugOffWritesNoExchangeFilesButTheAgentKeepsItsTranscript(t *testing.T
 			Text  []string `json:"text"`
 		} `json:"events"`
 	}
-	if err := json.Unmarshal(data, &doc); err != nil || len(doc.Events) != 1 {
+	// The call going out, then its answer: a long call reads as waiting on
+	// the model while it runs (sessionlog.Progress).
+	if err := json.Unmarshal(data, &doc); err != nil || len(doc.Events) != 2 {
 		t.Fatalf("transcript: %v %s", err, data)
 	}
-	if e := doc.Events[0]; e.Kind != sessionlog.EventAssistant || e.Model != "fake-model" || sessionlog.Join(e.Text) != "the answer" {
+	if e := doc.Events[0]; e.Kind != sessionlog.EventCallStart || e.Model != "fake-model" {
+		t.Fatalf("call-started event: %+v", e)
+	}
+	if e := doc.Events[1]; e.Kind != sessionlog.EventAssistant || e.Model != "fake-model" || sessionlog.Join(e.Text) != "the answer" {
 		t.Fatalf("assistant event: %+v", e)
 	}
 }

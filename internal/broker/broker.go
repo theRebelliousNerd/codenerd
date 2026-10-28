@@ -349,6 +349,9 @@ func (c *core) observed(ctx context.Context, receipt Receipt, req *Request) (con
 	obs := &callObserver{}
 	ctx, obs.call = c.beginLog(ctx, receipt, req)
 	obs.ctx = ctx
+	// The agent's transcript says the call went out, so a long call reads as
+	// "waiting on the model" while it runs (sessionlog.Progress).
+	sessionlog.TranscriptFrom(ctx).CallStarted(ctx, receipt.Model)
 	return usage.WithObserver(ctx, obs), obs
 }
 

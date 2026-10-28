@@ -15,7 +15,9 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/session"
+	"codenerd/internal/sessionlog"
 	"codenerd/internal/types"
+	"codenerd/internal/usage"
 )
 
 // Background read-only work. When the kernel derives route_background() — a
@@ -176,6 +178,12 @@ func (m Model) startBackground(job backgroundJob, input string) tea.Cmd {
 	}
 	ctx, cancel := context.WithCancel(parent)
 	job.Session = m.sessionID
+	// The job's agents file under this session, tagged with the job's id, so
+	// the main agent can read their progress while they run (jobProgress).
+	if m.usageTracker != nil {
+		ctx = usage.NewContext(ctx, m.usageTracker)
+	}
+	ctx = sessionlog.WithTask(usage.WithSessionID(ctx, m.sessionID), job.ID)
 	m.background.add(job, cancel)
 	m.assertBackgroundJob(job, "/running")
 	return func() tea.Msg {
@@ -328,4 +336,32 @@ func (m Model) backgroundFooter() string {
 // they are shown (formatInterpretedResult), in the foreground or not.
 func interpretsOutput(shard string) bool {
 	return shard == "reviewer" || shard == "tester"
+}
+
+// jobProgress is what each running job's agents have done so far, one line per
+// agent, read from the transcripts the harness writes (sessionlog.Progress).
+func (m Model) jobProgress(job backgroundJob, now time.Time) []string {
+	var lines []string
+	for _, p := range sessionlog.Current().ProgressForTask(job.Session, job.ID) {
+		lines = append(lines, p.Text(now))
+	}
+	return lines
+}
+
+// refreshJobProgress replaces the kernel's background_job_progress facts with
+// each running job's progress now. The main agent reads them in its context
+// every turn (routing_arbitration.mg), so "how is it going?" is answered from
+// what the job has done, not guessed.
+func (m Model) refreshJobProgress(now time.Time) {
+	if m.kernel == nil {
+		return
+	}
+	_ = m.kernel.Retract("background_job_progress")
+	for _, job := range m.background.list() {
+		for _, line := range m.jobProgress(job, now) {
+			if err := m.kernel.Assert(core.Fact{Predicate: "background_job_progress", Args: []any{job.ID, line}}); err != nil {
+				logging.Get(logging.CategoryKernel).Warn("background %s: assert progress: %v", job.ID, err)
+			}
+		}
+	}
 }
