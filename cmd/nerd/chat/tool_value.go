@@ -55,3 +55,11 @@ func (m Model) retireTool(name string) tea.Cmd {
 		return responseMsg(fmt.Sprintf("Withdrew generated tool `%s` (%s). Its source is kept, so it can be regenerated.", name, proposal.Reason))
 	}
 }
+
+// partAt is the i-th word of a slash command, "" when it was not given.
+func partAt(parts []string, i int) string {
+	if i < len(parts) {
+		return parts[i]
+	}
+	return ""
+}

@@ -859,7 +859,7 @@ func (m Model) handleToolCommand(input string, parts []string) (tea.Model, tea.C
 		case "value":
 			m = m.addMessage(Message{Role: "assistant", Content: m.renderToolValue(), Time: time.Now()})
 		case "retire":
-			if len(parts) < 3 {
+			if name := partAt(parts, 2); name == "" {
 				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: "Usage: `/tool retire <name>`\n\nWithdraws a generated tool the policy proposes to retire (see `/tool value`), after approval.",
@@ -868,14 +868,14 @@ func (m Model) handleToolCommand(input string, parts []string) (tea.Model, tea.C
 			} else {
 				m = m.addMessage(Message{
 					Role:    "assistant",
-					Content: fmt.Sprintf("Asking for approval to withdraw generated tool `%s`...", parts[2]),
+					Content: fmt.Sprintf("Asking for approval to withdraw generated tool `%s`...", name),
 					Time:    time.Now(),
 				})
 				m.viewport.SetContent(m.renderHistory())
 				m.viewport.GotoBottom()
 				m.textarea.Reset()
 				m.isLoading = true
-				return m, tea.Batch(m.spinner.Tick, m.retireTool(parts[2]))
+				return m, tea.Batch(m.spinner.Tick, m.retireTool(name))
 			}
 		case "generate":
 			if len(parts) < 3 {
