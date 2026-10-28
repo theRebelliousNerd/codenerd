@@ -174,7 +174,7 @@ Report verified completions, escaped regressions, false vetoes, unverified outco
 
 ## 9 Checkable handoff
 
-The first documentation step is to reconcile the research-branch verification audit with main's as-built appendix, preserving the narrative-as-artifact decision and the already-deferred identity/evaluation work. Then add explicit gap rows to the verification, observation, session and core specifications for the narrower contracts above. No package-wide redesign is necessary to state these exits.
+Update (2026-10-28): the research-branch verification audit was reconciled with main's as-built appendix in commit `62e90b2836b0afe15cee49b05950ff1fa97d20d3`, preserving the narrative-as-artifact decision and deferred work. The remaining documentation step is to add explicit gap rows to the verification, observation, session and core specifications for the narrower contracts above. No package-wide redesign is necessary to state these exits.
 
 Acceptance criteria for future authorized work:
 
