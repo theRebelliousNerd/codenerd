@@ -3043,6 +3043,8 @@ func missingEvidenceSentence(atom string) string {
 		return "a file this turn changed was rejected by its post-action validator and not repaired"
 	case "/effect_unmeasured":
 		return "a file this turn changed was never measured by a completed validation"
+	case "/family_review_open":
+		return "a member of a declared code family changed and a peer was neither changed nor decided to need no change"
 	default:
 		return strings.TrimPrefix(atom, "/")
 	}

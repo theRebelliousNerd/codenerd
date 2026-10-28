@@ -25,7 +25,8 @@ func BuiltinEffect(name string) Effect {
 		"get_impacted_tests", "git_diff", "git_log", "research_cache_get",
 		"research_cache_stats", "browser_extract", "browser_observe",
 		"browser_evidence", "browser_specs", "browser_wait",
-		"mcp_map", "mcp_probe", "mcp_expand":
+		"mcp_map", "mcp_probe", "mcp_expand",
+		"family_no_change":
 		return EffectRead
 	case "write_file", "edit_file", "delete_file", "edit_lines", "insert_lines",
 		"delete_lines", "edit_element", "replace_element", "insert_element", "delete_element",

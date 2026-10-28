@@ -9,6 +9,7 @@ import (
 
 	internalbuild "codenerd/internal/build"
 	"codenerd/internal/logging"
+	"codenerd/internal/tools"
 	"codenerd/internal/types"
 )
 
@@ -688,6 +689,20 @@ func (e *Executor) noteCheckRun(result *ExecutionResult, exitCode int) {
 	e.assertTurnFact(types.Fact{
 		Predicate: "turn_check_run",
 		Args:      []any{result.turnAtom(), int64(result.gateSeq), int64(exitCode)},
+	})
+}
+
+// noteFamilyDecision asserts the model's recorded no-change decision for one
+// member of a declared code family. The decision is the model's judgment and
+// is kept with its reason; it settles the review, it does not verify the
+// member (policy/code_families.mg).
+func (e *Executor) noteFamilyDecision(result *ExecutionResult, d tools.FamilyDecision) {
+	if e == nil || e.kernel == nil || result == nil {
+		return
+	}
+	e.assertTurnFact(types.Fact{
+		Predicate: "turn_family_no_change",
+		Args:      []any{result.turnAtom(), types.MangleString(d.Family), types.MangleString(d.Member), types.MangleString(d.Reason)},
 	})
 }
 

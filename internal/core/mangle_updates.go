@@ -296,6 +296,12 @@ var hostWitnessPredicates = map[string]struct{}{
 	// could suppress turn_unwitnessed through its negation and manufacture
 	// its own completion.
 	"witness_executed": {}, "witness_met": {}, "turn_unwitnessed": {}, "turn_has_unwitnessed": {},
+	// Declared code families and their reviews (code_families.mg). A model
+	// that could write a family member, or a no-change decision, could
+	// dissolve the obligation its own change created.
+	"code_family": {}, "code_family_member": {}, "code_family_requirement": {}, "turn_family_no_change": {},
+	"turn_family_member_changed": {}, "turn_family_obligation": {}, "turn_family_member_settled": {},
+	"turn_family_open": {}, "turn_has_open_family_obligation": {},
 	// This turn's `go test -json` rows (session/turn_test_facts.go). A model
 	// that could write them could name a failure the gate did not run, or
 	// hide one it did. The unscoped test_case predicates stay host witnesses

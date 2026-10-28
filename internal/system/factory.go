@@ -1399,6 +1399,9 @@ func initKernel(bctx *bootContext) error {
 		bctx.kernel = cortex
 		go refreshOrientationInBackground(bctx.workspace, cortex)
 	}
+	if err := loadCodeFamilies(bctx.workspace, bctx.kernel); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: code families not loaded: %v\n", err)
+	}
 
 	if err := perception.InitPerceptionLayerWithContext(bctx.ctx, bctx.kernel, bctx.appCfg); err != nil {
 		if bctx.ctx.Err() != nil {

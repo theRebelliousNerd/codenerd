@@ -557,6 +557,9 @@ safe_action(/callers_of).
 safe_action(/callees_of).
 safe_action(/unreferenced_symbols).
 safe_action(/get_element).
+# Records a reasoned no-change decision for a code family peer; writes nothing
+# (code_families.mg, 2026-10-28).
+safe_action(/family_no_change).
 # Structural reads and element-addressed edits (CodeDOM, R8, 2026-09-23). The
 # edits are the same class as edit_lines and write_file: every one names its
 # file(s) in path/paths, so the secret-path and write gates see its target.

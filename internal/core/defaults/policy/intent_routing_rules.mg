@@ -297,6 +297,7 @@ envelope_tool(/codedom, /edit_lines).
 envelope_tool(/codedom, /insert_lines).
 envelope_tool(/codedom, /delete_lines).
 envelope_tool(/codedom, /apply_edits).
+envelope_tool(/codedom, /family_no_change).
 
 # --- /codedom_read: the read half, for the researcher. ---
 envelope_tool(/codedom_read, /find_symbol).

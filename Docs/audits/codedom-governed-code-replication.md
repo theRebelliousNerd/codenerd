@@ -143,3 +143,22 @@ For a first bounded experiment, choose small non-security-critical adapters with
 [Kapser and Godfrey, Cloning Considered Harmful Considered Harmful](https://plg2.cs.uwaterloo.ca/~migod/papers/2006/wcre06-clonePatterns.pdf) documents cases where cloning serves engineering purposes and argues that motivation matters before refactoring. It supports asking why a clone exists, not assuming all cloning is beneficial or automatically safe.
 
 The CodeNERD-specific refinement is to connect clone intent, canonical element revisions, existing effect records and Mangle-derived verification obligations. The novelty claim is deliberately limited to a proposed integration to investigate. The first question remains whether existing CodeDOM views already eliminate enough navigation cost that actual duplication is unnecessary.
+
+## As built (2026-10-28)
+
+- **Contract file:** `.nerd/code_families.json` (`internal/codefamily`) holds `schema_version`, and per family `family_id`, `members` (CodeDOM element refs), `shared_requirements` and `allowed_differences`. The loader refuses unknown fields, a wrong version, duplicate IDs or members, a family with fewer than two members, and a family with no shared requirement. It is loaded into the kernel at boot (`system.loadCodeFamilies`); a malformed file loads nothing and is reported.
+- **Executive contract** (`policy/code_families.mg`):
+  - A changed member (`turn_changed_element`) derives `turn_family_obligation` for every other member and each shared requirement.
+  - An obligation is settled when that peer changes in the same turn, or when the model records a reasoned `family_no_change`.
+  - An open obligation withholds `turn_verified` (`coder_safety.mg`) and adds `turn_missing_evidence(/family_review_open)`.
+  - Each open review is named to the model through `injectable_context`: the peer, the family and the requirement.
+  - Family facts and decisions are host-witness predicates that a model cannot assert, and they are homed on the world shard with `turn_changed_element`.
+- **Tool:** `family_no_change` (CodeDOM; safe, envelope `/codedom`) records `tools.FamilyDecision`. The session drains it into `turn_family_no_change`, and a reason of at least a sentence is required.
+- **Prompt:** `capability/code_families` explains the review and that peers may differ.
+- **Deferred:**
+  - member revisions and the generation vector, with compare-and-swap on completion;
+  - per-member verification evidence beyond the existing test gates;
+  - candidate-family discovery;
+  - multi-batch staging.
+
+  Completion is closed over the declared family only.

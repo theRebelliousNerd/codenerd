@@ -26,6 +26,8 @@ func RegisterAll(registry *tools.Registry) error {
 		ReplaceElementTool(),
 		InsertElementTool(),
 		DeleteElementTool(),
+		// A reviewed judgment that a code family peer needs no change
+		FamilyNoChangeTool(),
 		CreateFileTool(),
 		RepointTool(),
 

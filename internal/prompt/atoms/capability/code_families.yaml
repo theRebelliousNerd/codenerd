@@ -1,0 +1,19 @@
+# Code families: declared shared obligations across independently located
+# implementations (Docs/audits/codedom-governed-code-replication.md).
+- id: "capability/code_families"
+  category: "capability"
+  subcategory: "code_families"
+  priority: 60
+  is_mandatory: false
+  depends_on: []
+  requires_tools: [family_no_change, get_element]
+  content: |
+    ## Code Families: A Change Owes Its Peers a Review
+
+    A project can declare code families in `.nerd/code_families.json`: separate implementations (for example one retry adapter per provider) that must keep satisfying the same shared requirements while differing locally.
+
+    When you change one member, every other member owes a review against each shared requirement. The context names each open review: the peer, the family and the requirement. For each one, `get_element` the peer and then either:
+    - edit it, if the requirement now needs the same change there, or
+    - call `family_no_change` with the family, the peer's ref and the concrete reason the requirement still holds for it.
+
+    An open review keeps the turn unverified. Do not copy your edit into peers mechanically: they are allowed to differ, and the review is whether the shared requirement still holds.

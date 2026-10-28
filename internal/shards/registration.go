@@ -164,6 +164,10 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// derived from these; homed elsewhere, that negation is
 				// blind and a rejected write still verifies the turn.
 				"turn_tool_effect", "turn_tool_validation", "turn_tool_effect_superseded",
+				// Declared code families and the turn's no-change decisions
+				// (code_families.mg) join turn_changed_element here, and
+				// turn_verified negates the open reviews they derive.
+				"code_family", "code_family_member", "code_family_requirement", "turn_family_no_change",
 				// The edit sites a brief names, beside turn_verb:
 				// turn_needs_step_plan (turn_steps.mg) joins the two.
 				"turn_brief_site",

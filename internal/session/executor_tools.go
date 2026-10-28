@@ -994,6 +994,7 @@ func (e *Executor) executeAndRecordToolCall(
 	}
 	toolCtx, testRuns := tools.WithTestRunLog(ctx)
 	toolCtx, checkRuns := tools.WithAcceptanceRunLog(toolCtx)
+	toolCtx, familyDecisions := tools.WithFamilyDecisionLog(toolCtx)
 	toolCtx, validationOf := withToolValidationLog(toolCtx)
 	// A test call that names no packages tests what this turn wrote, the same
 	// packages verifyTests runs after the turn, and not the whole module.
@@ -1026,6 +1027,11 @@ func (e *Executor) executeAndRecordToolCall(
 		for _, run := range runs {
 			e.noteCheckRun(result, run.ExitCode)
 		}
+	}
+	// A family_no_change decision settles that member's review
+	// (code_families.mg) for this turn only.
+	for _, d := range familyDecisions() {
+		e.noteFamilyDecision(result, d)
 	}
 	// The write's effect is accounted on every terminal path, before any
 	// post-action error is returned: a failed postcondition is not proof of
