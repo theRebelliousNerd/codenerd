@@ -13,10 +13,7 @@ func TestBuildContextFacts_CompileShard(t *testing.T) {
 
 	findCompileShard := func(facts []any) (string, bool) {
 		for _, f := range facts {
-			str, ok := f.(string)
-			if !ok {
-				continue
-			}
+			str := factText(f)
 			if strings.Contains(str, "compile_shard") {
 				return str, true
 			}
@@ -47,10 +44,7 @@ func TestBuildContextFacts_CompileShard(t *testing.T) {
 	hasShard := false
 	hasShardType := false
 	for _, f := range facts {
-		str, ok := f.(string)
-		if !ok {
-			continue
-		}
+		str := factText(f)
 		if str == `atom_tag("atom-1", /shard, /coder)` {
 			hasShard = true
 		}
@@ -63,10 +57,7 @@ func TestBuildContextFacts_CompileShard(t *testing.T) {
 
 	// Ensure atom_tag values are atoms not strings
 	for _, f := range facts {
-		str, ok := f.(string)
-		if !ok {
-			continue
-		}
+		str := factText(f)
 		if strings.Contains(str, `atom_tag("atom-1"`) && strings.Contains(str, "shard") {
 			assert.NotContains(t, str, `"/coder"`, "atom_tag value should be atom not string, got %q", str)
 			assert.NotContains(t, str, `"/shard"`, "dimension should be atom, got %q", str)
@@ -77,7 +68,7 @@ func TestBuildContextFacts_CompileShard(t *testing.T) {
 	// Verify current_context fact still present
 	hasCurrentContext := false
 	for _, f := range facts {
-		if str, ok := f.(string); ok && strings.Contains(str, "current_context") {
+		if str := factText(f); strings.Contains(str, "current_context") {
 			hasCurrentContext = true
 			break
 		}
@@ -92,10 +83,7 @@ func TestBuildContextFacts_CompileShard(t *testing.T) {
 	factsEmptyTags, err := s.buildContextFacts(cc, []*PromptAtom{atomEmpty}, nil)
 	require.NoError(t, err)
 	for _, f := range factsEmptyTags {
-		str, ok := f.(string)
-		if !ok {
-			continue
-		}
+		str := factText(f)
 		if strings.Contains(str, "atom_tag") && strings.Contains(str, "atom-empty") && (strings.Contains(str, "/shard,") || strings.Contains(str, "/shard_type,")) {
 			t.Fatalf("should not emit shard atom_tag for empty ShardTypes, got %q", str)
 		}
@@ -108,7 +96,7 @@ func TestBuildContextFacts_CompileShard(t *testing.T) {
 	factsEmpty, err := s.buildContextFacts(ccEmpty, nil, nil)
 	require.NoError(t, err)
 	for _, f := range factsEmpty {
-		if str, ok := f.(string); ok {
+		if str := factText(f); str != "" {
 			assert.NotContains(t, str, "compile_shard", "should not emit compile_shard when ShardType is empty")
 		}
 	}
@@ -120,7 +108,7 @@ func TestBuildContextFacts_CompileShard(t *testing.T) {
 	factsWS, err := s.buildContextFacts(ccWS, nil, nil)
 	require.NoError(t, err)
 	for _, f := range factsWS {
-		if str, ok := f.(string); ok {
+		if str := factText(f); str != "" {
 			assert.NotContains(t, str, "compile_shard", "should not emit compile_shard when ShardType is whitespace")
 		}
 	}
@@ -154,7 +142,7 @@ func TestBuildContextFacts_CompileShard(t *testing.T) {
 	factsSingleSlash, err := s.buildContextFacts(ccSingleSlash, nil, nil)
 	require.NoError(t, err)
 	for _, f := range factsSingleSlash {
-		if str, ok := f.(string); ok {
+		if str := factText(f); str != "" {
 			assert.NotContains(t, str, "compile_shard", "should not emit compile_shard when ShardType is \"/\"")
 		}
 	}
@@ -169,10 +157,7 @@ func TestBuildContextFacts_CompileShard(t *testing.T) {
 	hasPlainShard := false
 	hasPlainShardType := false
 	for _, f := range factsPlainAtom {
-		str, ok := f.(string)
-		if !ok {
-			continue
-		}
+		str := factText(f)
 		if str == `atom_tag("atom-plain", /shard, /coder)` {
 			hasPlainShard = true
 		}

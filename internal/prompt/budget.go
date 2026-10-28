@@ -378,9 +378,15 @@ func (m *TokenBudgetManager) SetReservedHeadroom(tokens int) {
 	m.headroomExplicit = true
 }
 
+// TokenCounter charges an atom rendered in a render mode. A compile passes
+// its RenderSession.Tokens, so the fitter charges the expanded fragment the
+// assembler will emit; tokenCountForMode charges the declared per-mode count.
+type TokenCounter func(atom *PromptAtom, mode string) int
+
 // Fit selects atoms that fit within the total budget.
 // Implements the core budget allocation algorithm with polymorphism (Standard -> Concise -> Min).
-func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*OrderedAtom, error) {
+// count charges each atom in each candidate render mode.
+func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int, count TokenCounter) ([]*OrderedAtom, error) {
 
 	timer := logging.StartTimer(logging.CategoryContext, "TokenBudgetManager.Fit")
 	defer timer.Stop()
@@ -479,9 +485,12 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 	var usedTokens int64 = 0
 	atomsIncluded := 0
 
-	// Helper to get token count for a mode. Shared with the assembler and the
-	// post-fit stats via tokenCountForMode so emitted text and accounting agree.
-	getTokenCount := tokenCountForMode
+	// The caller's counter, shared with the assembler and the post-fit stats
+	// so emitted text and accounting agree.
+	getTokenCount := count
+	if getTokenCount == nil {
+		getTokenCount = tokenCountForMode
+	}
 
 	// Iterate through sorted atoms in contiguous category chunks
 	for i := 0; i < len(sortedAtoms); {
@@ -1050,8 +1059,12 @@ func (m *TokenBudgetManager) ShedToFit(
 	atoms []*OrderedAtom,
 	prompt string,
 	budget int,
+	count TokenCounter,
 	assemble func([]*OrderedAtom) (string, error),
 ) ([]*OrderedAtom, string, int) {
+	if count == nil {
+		count = tokenCountForMode
+	}
 	used := EstimateTokens(prompt)
 	if budget <= 0 || used <= budget || assemble == nil {
 		return atoms, prompt, used
@@ -1104,7 +1117,7 @@ func (m *TokenBudgetManager) ShedToFit(
 			victim := shed[next]
 			next++
 			dropped[victim] = struct{}{}
-			freed += tokenCountForMode(victim.Atom, victim.RenderMode)
+			freed += count(victim.Atom, victim.RenderMode)
 		}
 
 		survivors := make([]*OrderedAtom, 0, len(atoms))

@@ -56,17 +56,13 @@ func TestJITPromptCompiler_RegisterDB_ClearsCache(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 
 	// Seed a fake cached result.
-	c.cacheMu.Lock()
-	c.cache["seed"] = c.cacheList.PushFront(&promptCacheEntry{key: "seed", result: &CompilationResult{}})
-	c.cacheMu.Unlock()
+	c.cache.Put("seed", &CompilationResult{})
 
 	dbPath := filepath.Join(tmp, "jit-cache-test.db")
 	err = c.RegisterDB("corpus", dbPath)
 	require.NoError(t, err)
 
-	c.cacheMu.Lock()
-	got := len(c.cache)
-	c.cacheMu.Unlock()
+	got := c.cache.Len()
 	assert.Equal(t, 0, got)
 }
 

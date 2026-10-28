@@ -7,6 +7,7 @@ import (
 	"iter"
 	"os"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1211,6 +1212,14 @@ func hasFileExtension(v string) bool {
 // PERSISTED to shard knowledge DBs before the upstream fix landed; new
 // emissions go through types.go and never reach here.
 func sanitizeFactForNumericPredicates(f Fact) Fact {
+	switch f.Predicate {
+	case "agenda_item", "prompt_atom", "atom_priority":
+		// Rewrite a private copy: the caller owns f.Args, and the prompt
+		// selector shares one immutable Args slice across concurrent compiles.
+		f.Args = slices.Clone(f.Args)
+	default:
+		return f
+	}
 	switch f.Predicate {
 	case "agenda_item":
 		// agenda_item(ItemID, Description, Priority, Status, Timestamp)

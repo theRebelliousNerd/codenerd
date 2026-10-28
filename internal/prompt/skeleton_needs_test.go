@@ -36,6 +36,8 @@ func (q *realKernelQuerier) AssertBatch(facts []any) error {
 		switch v := raw.(type) {
 		case core.Fact:
 			batch = append(batch, v)
+		case Fact:
+			batch = append(batch, core.Fact{Predicate: v.Predicate, Args: v.Args})
 		case string:
 			f, err := core.ParseFactString(strings.TrimSuffix(strings.TrimSpace(v), "."))
 			if err != nil {

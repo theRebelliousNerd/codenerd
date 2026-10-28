@@ -531,6 +531,13 @@ var CommandRegistry = []CommandInfo{
 		Category:    CategoryExpert,
 		ShowInHelp:  true,
 	},
+	{
+		Name:        "/trial-atom",
+		Description: "Approve, revoke or list bounded trials of quarantined evolved atoms",
+		Usage:       "/trial-atom <atom-id> [hours] [max-exposures] | revoke <atom-id> | list",
+		Category:    CategoryExpert,
+		ShowInHelp:  true,
+	},
 
 	// ==========================================================================
 	// SYSTEM COMMANDS - Configuration and administration

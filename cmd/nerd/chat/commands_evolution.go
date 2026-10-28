@@ -8,6 +8,7 @@
 //	/evolved-atoms   - List evolved atoms
 //	/promote-atom    - Promote pending atom to corpus
 //	/reject-atom     - Reject evolved atom
+//	/trial-atom      - Approve, revoke or list bounded trials of quarantined atoms
 //	/strategies      - Show strategy database
 package chat
 
@@ -73,9 +74,34 @@ func (m Model) renderEvolutionStats() string {
 	// Atom generation stats
 	sb.WriteString("### Atom Generation\n")
 	sb.WriteString(fmt.Sprintf("- **Atoms Generated**: %d\n", stats.TotalAtomsGenerated))
-	sb.WriteString(fmt.Sprintf("- **Pending Promotion**: %d\n", stats.AtomsPending))
+	sb.WriteString(fmt.Sprintf("- **Quarantined (awaiting review)**: %d\n", stats.AtomsPending))
+	sb.WriteString(fmt.Sprintf("- **Active Trials**: %d\n", stats.ActiveTrials))
 	sb.WriteString(fmt.Sprintf("- **Promoted to Corpus**: %d\n", stats.AtomsPromoted))
 	sb.WriteString(fmt.Sprintf("- **Rejected**: %d\n", stats.AtomsRejected))
+	sb.WriteString("\n")
+
+	// Evidence accounting
+	sb.WriteString("### Evidence\n")
+	sb.WriteString(fmt.Sprintf("- **Generation Claims**: %d completed, %d open, %d publish-failed\n",
+		stats.GenerationClaimsCompleted, stats.GenerationClaimsOpen, stats.GenerationClaimsFailed))
+	rec := stats.Recording
+	sb.WriteString(fmt.Sprintf("- **Recording**: %d accepted, %d persisted, %d duplicate, %d failed, %d rejected (full), %d rejected (closed), %d abandoned; queue %d/%d\n",
+		rec.Accepted, rec.Persisted, rec.Duplicates, rec.Failed, rec.RejectedFull, rec.RejectedClosed, rec.Abandoned, rec.Queued, rec.Capacity))
+	sb.WriteString("\n")
+
+	// Adaptation spend, disjoint from task cost
+	sb.WriteString("### Adaptation Spend\n")
+	if len(stats.Spend) == 0 {
+		sb.WriteString("- none recorded\n")
+	}
+	for _, spend := range stats.Spend {
+		sb.WriteString(fmt.Sprintf("- **%s**: %d calls (%d failed), %d unusable, %d discarded, %d publish-failed; %d B sent / %d B received; %s\n",
+			spend.Category, spend.Calls, spend.FailedCalls, spend.Unusable, spend.Discarded, spend.PublishFailed,
+			spend.PromptBytes, spend.ResponseBytes, (time.Duration(spend.DurationMs) * time.Millisecond).Round(time.Millisecond)))
+	}
+	if len(stats.Spend) > 0 {
+		sb.WriteString("- tokens: not reported by the evolver's model client (unknown, not estimated)\n")
+	}
 	sb.WriteString("\n")
 
 	// Strategy stats
@@ -116,7 +142,7 @@ func (m Model) renderEvolvedAtoms() string {
 	}
 
 	if len(pending) > 0 {
-		sb.WriteString("### Pending Promotion\n")
+		sb.WriteString("### Quarantined (never served outside an approved trial)\n")
 		for _, atom := range pending {
 			sb.WriteString(fmt.Sprintf("- **%s** (confidence: %.0f%%)\n", atom.Atom.ID, atom.Confidence*100))
 			sb.WriteString(fmt.Sprintf("  Source: %s | Uses: %d\n", atom.Source, atom.UsageCount))
@@ -140,6 +166,7 @@ func (m Model) renderEvolvedAtoms() string {
 	sb.WriteString("\nCommands:\n")
 	sb.WriteString("- `/promote-atom <id>` - Promote an atom to the corpus\n")
 	sb.WriteString("- `/reject-atom <id>` - Reject an evolved atom\n")
+	sb.WriteString("- `/trial-atom <id> [hours] [max-exposures]` - Approve a bounded trial of a quarantined atom\n")
 
 	return sb.String()
 }
@@ -229,5 +256,69 @@ func formatEvolutionResult(result *pe.EvolutionResult) string {
 		}
 	}
 
+	return sb.String()
+}
+
+// handleCmdTrialAtom approves, revokes or lists trials of quarantined evolved
+// atoms. A trial is the only way a quarantined candidate reaches a prompt:
+// the approval pins its exact version, an expiry and an exposure budget, and
+// the kernel derives admission from those facts. It grants no tool and no
+// permission.
+func (m Model) handleCmdTrialAtom(input string, parts []string) (tea.Model, tea.Cmd) {
+	m = m.addMessage(Message{Role: "assistant", Content: m.trialAtomCommand(parts), Time: time.Now()})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	return m, nil
+}
+
+func (m Model) trialAtomCommand(parts []string) string {
+	if m.promptEvolver == nil {
+		return "Prompt Evolution system not initialized."
+	}
+	cmd, err := pe.ParseTrialCommand(parts[1:])
+	if err != nil {
+		return err.Error()
+	}
+	switch cmd.Action {
+	case pe.TrialList:
+		return m.renderTrials()
+	case pe.TrialRevoke:
+		if err := m.promptEvolver.RevokeTrial(cmd.AtomID); err != nil {
+			return fmt.Sprintf("Failed to revoke trial: %v", err)
+		}
+		return fmt.Sprintf("Trial of `%s` revoked; it is quarantined again.", cmd.AtomID)
+	}
+
+	trial, err := m.promptEvolver.ApproveTrial(cmd.AtomID, cmd.TTL, cmd.MaxExposures)
+	if err != nil {
+		return fmt.Sprintf("Failed to approve trial: %v", err)
+	}
+	// The trial admits a candidate the compiler already has loaded; reload so
+	// a candidate generated since the last refresh is present to admit.
+	if err := m.refreshEvolvedAtomsInCompiler(); err != nil {
+		return fmt.Sprintf("Trial of `%s` approved, but JIT refresh failed: %v", cmd.AtomID, err)
+	}
+	return fmt.Sprintf("Trial of `%s` approved: version %s, until %s, at most %d exposures (%d so far). It stays quarantined; promote or reject it on the evidence.",
+		cmd.AtomID, trial.ShortVersion(), trial.ExpiresAt.Format(time.RFC3339), trial.MaxExposures, trial.Exposures)
+}
+
+// renderTrials lists every trial envelope.
+func (m Model) renderTrials() string {
+	trials, err := m.promptEvolver.Trials()
+	if err != nil {
+		return fmt.Sprintf("Failed to read trials: %v", err)
+	}
+	if len(trials) == 0 {
+		return "No trials. Approve one with `/trial-atom <atom-id>`."
+	}
+	var sb strings.Builder
+	sb.WriteString("## Prompt Candidate Trials\n\n")
+	now := time.Now()
+	for _, trial := range trials {
+		sb.WriteString(fmt.Sprintf("- **%s** [%s] version %s: %d/%d exposures, expires %s\n",
+			trial.AtomID, trial.State(now), trial.ShortVersion(), trial.Exposures, trial.MaxExposures,
+			trial.ExpiresAt.Format(time.RFC3339)))
+	}
 	return sb.String()
 }

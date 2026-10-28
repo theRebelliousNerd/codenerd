@@ -1,6 +1,7 @@
 package prompt_evolution
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 
 	"codenerd/internal/logging"
 	"codenerd/internal/sqlpragmas"
+	"codenerd/internal/store"
 
 	"github.com/google/uuid"
 )
@@ -58,6 +60,11 @@ func NewStrategyStore(nerdDir string) (*StrategyStore, error) {
 
 	logging.Autopoiesis("StrategyStore initialized: path=%s", storePath)
 	return ss, nil
+}
+
+// SourceGeneration identifies the strategy rows SelectStrategies can read.
+func (ss *StrategyStore) SourceGeneration(ctx context.Context) (string, error) {
+	return store.ReadSourceGeneration(ctx, ss.db, "strategies")
 }
 
 // ensureSchema creates the necessary tables.

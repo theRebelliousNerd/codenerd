@@ -94,7 +94,7 @@ func TestShedToFit(t *testing.T) {
 			}
 
 			initial := strings.Repeat("x", tt.promptSize*4)
-			kept, got, used := mgr.ShedToFit(tt.atoms, initial, tt.budget, assemble)
+			kept, got, used := mgr.ShedToFit(tt.atoms, initial, tt.budget, tokenCountForMode, assemble)
 
 			keptIDs := map[string]bool{}
 			for _, oa := range kept {
@@ -132,7 +132,7 @@ func TestShedToFit_AssemblyFailureKeepsOriginal(t *testing.T) {
 		mkAtom("exemplar", CategoryExemplar, 5000, false, 10),
 	}
 	original := strings.Repeat("x", 20000)
-	kept, got, _ := mgr.ShedToFit(atoms, original, 100, func([]*OrderedAtom) (string, error) {
+	kept, got, _ := mgr.ShedToFit(atoms, original, 100, tokenCountForMode, func([]*OrderedAtom) (string, error) {
 		return "", context.Canceled
 	})
 	if got != original {
@@ -190,7 +190,7 @@ func TestEnforceAssembledBudget_AdversarialInput(t *testing.T) {
 				t.Fatalf("test setup is not adversarial: %d tokens already fits %d", EstimateTokens(assembled), budget)
 			}
 
-			_, got, err := c.enforceAssembledBudget(tt.atoms, cc, assembled, budget)
+			_, got, err := c.enforceAssembledBudget(tt.atoms, cc, assembled, budget, c.budgetMgr, c.assembler.NewRenderSession(cc))
 			if tt.wantErr {
 				if err == nil || !strings.Contains(err.Error(), "mandatory skeleton") {
 					t.Fatalf("err = %v, want a refusal naming the mandatory skeleton", err)
@@ -234,7 +234,7 @@ func TestFit_SmallBudgetDoesNotOverAllocate(t *testing.T) {
 				atoms = append(atoms, mkAtom("a/"+string(cat), cat, 2000, false, 50))
 			}
 
-			fitted, err := mgr.Fit(atoms, budget)
+			fitted, err := mgr.Fit(atoms, budget, tokenCountForMode)
 			if err != nil {
 				t.Fatalf("Fit(%d): %v", budget, err)
 			}
@@ -372,7 +372,7 @@ func TestShedToFit_FinalPassDrainsAllOptionalAtoms(t *testing.T) {
 		return strings.Repeat("x", 40000), nil
 	}
 
-	kept, _, _ := mgr.ShedToFit(atoms, strings.Repeat("x", 40000), 1000, stuck)
+	kept, _, _ := mgr.ShedToFit(atoms, strings.Repeat("x", 40000), 1000, tokenCountForMode, stuck)
 
 	for _, oa := range kept {
 		if !oa.Atom.IsMandatory {

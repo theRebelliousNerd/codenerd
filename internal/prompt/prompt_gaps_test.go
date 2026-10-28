@@ -172,7 +172,7 @@ func TestTokenBudgetManager_NegativeTokenCounts(t *testing.T) {
 		{Atom: &PromptAtom{ID: "c", Category: CategoryContext, TokenCount: 50, Content: "normal"}, Score: 0.5},
 	}
 
-	result, err := mgr.Fit(atoms, 10000)
+	result, err := mgr.Fit(atoms, 10000, tokenCountForMode)
 	if err != nil {
 		t.Fatalf("Fit failed: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestTokenBudgetManager_MassiveTokenOverflow(t *testing.T) {
 	}
 
 	// Should not panic or overflow — budget is small so huge atoms get rejected
-	result, err := mgr.Fit(atoms, 10000)
+	result, err := mgr.Fit(atoms, 10000, tokenCountForMode)
 	if err != nil {
 		t.Fatalf("Fit failed: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestTokenBudgetManager_ConcurrentAccess(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for range 100 {
-			_, _ = mgr.Fit(atoms, 10000)
+			_, _ = mgr.Fit(atoms, 10000, tokenCountForMode)
 		}
 	}()
 

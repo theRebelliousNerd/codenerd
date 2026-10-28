@@ -144,7 +144,9 @@ func TestCompiler_RegisterDB_BadPaths(t *testing.T) {
 			t.Fatalf("insert prompt atoms: %v", err)
 		}
 
-		atoms, breakdown, err := dupCompiler.collectAtomsWithStats(context.Background(), NewCompilationContext())
+		cc := NewCompilationContext()
+		src := dupCompiler.snapshotSources(cc)
+		atoms, breakdown, err := dupCompiler.collectAtomsWithStats(context.Background(), cc, src, src.captureSourceVector(context.Background()), nil, nil)
 		if err != nil {
 			t.Fatalf("collectAtomsWithStats failed: %v", err)
 		}

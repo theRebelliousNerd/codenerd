@@ -167,40 +167,115 @@ func (a *FinalAssembler) SetSeparators(section, atom string) {
 
 // Assemble combines ordered atoms into a single prompt string.
 func (a *FinalAssembler) Assemble(atoms []*OrderedAtom, cc *CompilationContext) (string, error) {
-	// Snapshot config under read lock to avoid races with concurrent Set* calls
-	a.mu.RLock()
-	categoryOrder := make([]AtomCategory, len(a.categoryOrder))
-	copy(categoryOrder, a.categoryOrder)
-	addSectionHeaders := a.addSectionHeaders
-	sectionSeparator := a.sectionSeparator
-	atomSeparator := a.atomSeparator
-	a.mu.RUnlock()
-
-	return a.assembleWithConfig(atoms, cc, categoryOrder, addSectionHeaders, sectionSeparator, atomSeparator)
+	return a.NewRenderSession(cc).Assemble(atoms)
 }
 
-// assembleWithConfig runs assembly against an explicit snapshot of the
-// assembler's config, taken under the read lock, so a concurrent setter cannot
-// change the configuration halfway through one assembly.
-func (a *FinalAssembler) assembleWithConfig(
-	atoms []*OrderedAtom,
-	cc *CompilationContext,
-	categoryOrder []AtomCategory,
-	addSectionHeaders bool,
-	sectionSeparator string,
-	atomSeparator string,
-) (string, error) {
+// RenderSession renders atom fragments once for one compilation context and
+// assembles any subset of them.
+//
+// The budget fitter, the assembler and the shed-to-fit loop all need the same
+// rendered text. Before the session each of them re-expanded placeholders on
+// every pass -- per atom, then again over the whole joined prompt, then again
+// on every shed pass -- and the fitter charged the PRE-expansion size, so the
+// {{available_specialists}} roster was invisible to it. A session renders each
+// (atom, mode) fragment once, charges its actual size, and reuses it on every
+// reassembly.
+type RenderSession struct {
+	a                 *FinalAssembler
+	cc                *CompilationContext
+	categoryOrder     []AtomCategory
+	addSectionHeaders bool
+	sectionSeparator  string
+	atomSeparator     string
+	funcs             map[string]TemplateFunc
+
+	mu        sync.Mutex
+	values    map[string]string
+	fragments map[renderFragmentKey]string
+}
+
+type renderFragmentKey struct {
+	atom *PromptAtom
+	mode string
+}
+
+// NewRenderSession snapshots the assembler's configuration and template
+// functions, and resolves the specialist roster once, so every fragment and
+// every reassembly in the session sees one consistent context.
+func (a *FinalAssembler) NewRenderSession(cc *CompilationContext) *RenderSession {
+	a.mu.RLock()
+	session := &RenderSession{
+		a:                 a,
+		cc:                cc,
+		categoryOrder:     slices.Clone(a.categoryOrder),
+		addSectionHeaders: a.addSectionHeaders,
+		sectionSeparator:  a.sectionSeparator,
+		atomSeparator:     a.atomSeparator,
+		values:            make(map[string]string),
+		fragments:         make(map[renderFragmentKey]string),
+	}
+	a.mu.RUnlock()
+	session.funcs = a.templateEngine.snapshot()
+	if cc != nil && strings.TrimSpace(cc.AvailableSpecialists) == "" {
+		if err := InjectAvailableSpecialists(cc, ""); err != nil {
+			logging.Get(logging.CategoryJIT).Debug("Failed to inject available specialists: %v", err)
+		}
+	}
+	return session
+}
+
+// Fragment returns the rendered text of atom in mode: the render-mode variant
+// Fit selected, with its placeholders expanded once.
+func (s *RenderSession) Fragment(atom *PromptAtom, mode string) string {
+	if atom == nil {
+		return ""
+	}
+	key := renderFragmentKey{atom: atom, mode: mode}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if fragment, ok := s.fragments[key]; ok {
+		return fragment
+	}
+	content := contentForMode(atom, mode)
+	if s.cc != nil {
+		content = expandTemplate(content, func(name string) (string, bool) {
+			if value, ok := s.values[name]; ok {
+				return value, true
+			}
+			fn, ok := s.funcs[name]
+			if !ok {
+				return "", false
+			}
+			value := fn(s.cc)
+			s.values[name] = value
+			return value, true
+		})
+	}
+	s.fragments[key] = content
+	return content
+}
+
+// Tokens charges atom in mode at its rendered size. The declared per-mode
+// count is the floor: corpora declare sizes the estimator would undercount,
+// and the session must never charge less than the fitter used to.
+func (s *RenderSession) Tokens(atom *PromptAtom, mode string) int {
+	declared := tokenCountForMode(atom, mode)
+	if atom == nil {
+		return declared
+	}
+	if rendered := EstimateTokens(s.Fragment(atom, mode)); rendered > declared {
+		return rendered
+	}
+	return declared
+}
+
+// Assemble joins the rendered fragments of atoms in tier/category order.
+func (s *RenderSession) Assemble(atoms []*OrderedAtom) (string, error) {
 	timer := logging.StartTimer(logging.CategoryContext, "FinalAssembler.Assemble")
 	defer timer.Stop()
 
 	if len(atoms) == 0 {
 		return "", nil
-	}
-
-	if cc != nil && strings.TrimSpace(cc.AvailableSpecialists) == "" {
-		if err := InjectAvailableSpecialists(cc, ""); err != nil {
-			logging.Get(logging.CategoryJIT).Debug("Failed to inject available specialists: %v", err)
-		}
 	}
 
 	// Group atoms by assembly tier, then by category within the tier.
@@ -226,9 +301,8 @@ func (a *FinalAssembler) assembleWithConfig(
 		}
 	}
 
-	// Build a set for fast category membership check
-	catOrderSet := make(map[AtomCategory]struct{}, len(categoryOrder))
-	for _, c := range categoryOrder {
+	catOrderSet := make(map[AtomCategory]struct{}, len(s.categoryOrder))
+	for _, c := range s.categoryOrder {
 		catOrderSet[c] = struct{}{}
 	}
 
@@ -239,7 +313,7 @@ func (a *FinalAssembler) assembleWithConfig(
 	var sections []string
 	for _, byCategory := range byTier {
 		cats := make([]AtomCategory, 0, len(byCategory))
-		for _, cat := range categoryOrder {
+		for _, cat := range s.categoryOrder {
 			if len(byCategory[cat]) > 0 {
 				cats = append(cats, cat)
 			}
@@ -252,56 +326,31 @@ func (a *FinalAssembler) assembleWithConfig(
 		}
 		slices.Sort(unknownCats)
 		for _, cat := range append(cats, unknownCats...) {
-			section, err := a.assembleSectionWith(cat, byCategory[cat], cc, addSectionHeaders, atomSeparator)
-			if err != nil {
-				return "", fmt.Errorf("failed to assemble section %s: %w", cat, err)
-			}
-			if section != "" {
+			if section := s.section(cat, byCategory[cat]); section != "" {
 				sections = append(sections, section)
 			}
 		}
 	}
 
-	// Join sections
-	prompt := strings.Join(sections, sectionSeparator)
-
-	// Apply final template processing
-	if cc != nil {
-		prompt = a.templateEngine.Process(prompt, cc)
-	}
-
+	prompt := strings.Join(sections, s.sectionSeparator)
 	logging.Get(logging.CategoryContext).Debug(
 		"Assembled prompt: %d sections, %d chars, ~%d tokens",
 		len(sections), len(prompt), EstimateTokens(prompt),
 	)
-
 	return prompt, nil
 }
 
-// assembleSectionWith builds the content for a single category section
-// using explicitly provided config to avoid concurrent struct field reads.
-func (a *FinalAssembler) assembleSectionWith(
-	category AtomCategory,
-	atoms []*OrderedAtom,
-	cc *CompilationContext,
-	addHeaders bool,
-	atomSep string,
-) (string, error) {
+// section builds one category section from rendered fragments.
+func (s *RenderSession) section(category AtomCategory, atoms []*OrderedAtom) string {
 	if len(atoms) == 0 {
-		return "", nil
+		return ""
 	}
-
 	var parts []string
-
-	// Add section header if enabled
-	if addHeaders {
-		header := categoryHeader(category)
-		if header != "" {
+	if s.addSectionHeaders {
+		if header := categoryHeader(category); header != "" {
 			parts = append(parts, header)
 		}
 	}
-
-	// Add each atom's content
 	for _, oa := range atoms {
 		if oa == nil || oa.Atom == nil {
 			continue
@@ -310,17 +359,9 @@ func (a *FinalAssembler) assembleSectionWith(
 		// (concise/min under budget pressure). Emitting the full standard
 		// Content while Fit charged the smaller variant silently overflows the
 		// token budget and makes the flight-recorder manifest misreport.
-		content := contentForMode(oa.Atom, oa.RenderMode)
-
-		// Apply template processing to individual atoms
-		if cc != nil && strings.Contains(content, "{{") {
-			content = a.templateEngine.Process(content, cc)
-		}
-
-		parts = append(parts, content)
+		parts = append(parts, s.Fragment(oa.Atom, oa.RenderMode))
 	}
-
-	return strings.Join(parts, atomSep), nil
+	return strings.Join(parts, s.atomSeparator)
 }
 
 // categoryHeader returns a markdown header for a category.
@@ -492,27 +533,72 @@ func (te *TemplateEngine) RegisterFunction(name string, fn TemplateFunc) {
 	te.functions[name] = fn
 }
 
+// snapshot copies the registered functions under the read lock.
+func (te *TemplateEngine) snapshot() map[string]TemplateFunc {
+	te.mu.RLock()
+	defer te.mu.RUnlock()
+	funcs := make(map[string]TemplateFunc, len(te.functions))
+	maps.Copy(funcs, te.functions)
+	return funcs
+}
+
 // Process applies template substitutions to content.
 func (te *TemplateEngine) Process(content string, cc *CompilationContext) string {
 	if !strings.Contains(content, "{{") {
 		return content // Fast path: no templates
 	}
-
-	te.mu.RLock()
-	// Snapshot function map under lock to avoid holding it during execution
-	funcs := make(map[string]TemplateFunc, len(te.functions))
-	maps.Copy(funcs, te.functions)
-	te.mu.RUnlock()
-
-	result := content
-
-	// Process each registered function
-	for name, fn := range funcs {
-		placeholder := "{{" + name + "}}"
-		if strings.Contains(result, placeholder) {
-			result = strings.ReplaceAll(result, placeholder, fn(cc))
+	funcs := te.snapshot()
+	return expandTemplate(content, func(name string) (string, bool) {
+		fn, ok := funcs[name]
+		if !ok {
+			return "", false
 		}
-	}
+		return fn(cc), true
+	})
+}
 
-	return result
+// expandTemplate replaces each {{name}} in content, left to right, with
+// lookup(name). It is one pass over the SOURCE text: a substituted value is
+// data and is never scanned again, so a placeholder that arrives inside an
+// inserted value (an agent description in the specialist roster, say) stays
+// literal text instead of becoming an instruction. Unknown names are left as
+// written. The previous implementation iterated a map, so whether a
+// placeholder inside an inserted value expanded depended on map order, and
+// the assembler then re-expanded the whole joined prompt a second time.
+func expandTemplate(content string, lookup func(name string) (string, bool)) string {
+	if !strings.Contains(content, "{{") {
+		return content
+	}
+	var b strings.Builder
+	b.Grow(len(content))
+	rest := content
+	for {
+		open := strings.Index(rest, "{{")
+		if open < 0 {
+			b.WriteString(rest)
+			break
+		}
+		closing := strings.Index(rest[open+2:], "}}")
+		if closing < 0 {
+			b.WriteString(rest)
+			break
+		}
+		name := rest[open+2 : open+2+closing]
+		if strings.Contains(name, "{{") {
+			// "{{ ... {{name}}": the first opener is literal text; resume
+			// scanning at the inner one.
+			inner := open + 2 + strings.Index(name, "{{")
+			b.WriteString(rest[:inner])
+			rest = rest[inner:]
+			continue
+		}
+		b.WriteString(rest[:open])
+		if value, ok := lookup(name); ok {
+			b.WriteString(value)
+		} else {
+			b.WriteString(rest[open : open+2+closing+2])
+		}
+		rest = rest[open+2+closing+2:]
+	}
+	return b.String()
 }

@@ -472,3 +472,25 @@ Decl available_tool(Tool) bound [/string].
 # blocked_by_missing_tool(AtomID)
 # Atom is omitted because at least one required tool is absent.
 Decl blocked_by_missing_tool(AtomID) bound [/string].
+
+# -----------------------------------------------------------------------------
+# Prompt evolution trials (internal/autopoiesis/prompt_evolution)
+# -----------------------------------------------------------------------------
+# A generated prompt candidate is quarantined until reviewed. An operator may
+# approve a bounded trial of ONE exact candidate version; Go materializes the
+# envelope and the observed exposure count, the kernel decides admission
+# (policy/prompt_trials.mg), and the JIT compiler serves a quarantined
+# candidate only when prompt_trial_admitted names its version. A trial grants
+# no tool and no permission.
+
+# prompt_trial_envelope(AtomID, Version, ExpiresAt, MaxExposures)
+# Operator-approved trial: Version is EvolvedCandidateHash, ExpiresAt Unix seconds.
+Decl prompt_trial_envelope(AtomID, Version, ExpiresAt, MaxExposures) bound [/string, /string, /number, /number].
+
+# prompt_trial_exposures(AtomID, Count)
+# Recorded turns that carried the trial candidate's pinned version.
+Decl prompt_trial_exposures(AtomID, Count) bound [/string, /number].
+
+# prompt_trial_admitted(AtomID, Version)
+# Derived: the candidate version may enter a compile as a trial.
+Decl prompt_trial_admitted(AtomID, Version) bound [/string, /string].

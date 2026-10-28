@@ -97,15 +97,15 @@ func AssembleEmbeddedBaselinePrompt(cc *CompilationContext) (string, error) {
 		budget = DefaultCompilerConfig().DefaultTokenBudget
 	}
 
-	fitted, err := budgetMgr.Fit(ordered, budget)
+	session := NewFinalAssembler().NewRenderSession(cc)
+	fitted, err := budgetMgr.Fit(ordered, budget, session.Tokens)
 	if err != nil {
 		// Baseline should still return something even if budgeting fails.
 		logging.Get(logging.CategoryJIT).Warn("Baseline budget fit failed: %v (returning ordered atoms)", err)
 		fitted = ordered
 	}
 
-	assembler := NewFinalAssembler()
-	promptText, err := assembler.Assemble(fitted, cc)
+	promptText, err := session.Assemble(fitted)
 	if err != nil {
 		return "", fmt.Errorf("baseline assembly failed: %w", err)
 	}

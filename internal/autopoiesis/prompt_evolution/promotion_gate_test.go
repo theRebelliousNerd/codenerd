@@ -2,6 +2,7 @@ package prompt_evolution
 
 import (
 	nerdconfig "codenerd/internal/config"
+	"fmt"
 	"testing"
 	"time"
 
@@ -51,7 +52,7 @@ func TestRecordAtomUsage_WhenAutoPromoteDisabled_ShouldLeaveAtomPendingUntilOper
 	}
 
 	for i := 0; i < 10; i++ {
-		pe.RecordAtomUsage(ga.Atom.ID, true)
+		recordPassingUse(t, pe, ga.Atom.ID, i)
 	}
 
 	for _, a := range pe.GetPromotedAtoms() {
@@ -109,7 +110,7 @@ func TestRecordAtomUsage_WhenAutoPromoteEnabled_ShouldPromoteAtThreshold(t *test
 	}
 
 	for i := 0; i < 5; i++ {
-		pe.RecordAtomUsage(ga.Atom.ID, true)
+		recordPassingUse(t, pe, ga.Atom.ID, i)
 	}
 
 	for _, a := range pe.GetPromotedAtoms() {
@@ -118,4 +119,22 @@ func TestRecordAtomUsage_WhenAutoPromoteEnabled_ShouldPromoteAtThreshold(t *test
 		}
 	}
 	t.Error("AutoPromote=true did not promote an atom that cleared the threshold")
+}
+
+// recordPassingUse records one distinct verified turn that carried atomID.
+// Evidence enters only as identified events: there is no "count one more use"
+// call, because that is what made replays count twice.
+func recordPassingUse(t *testing.T, pe *PromptEvolver, atomID string, i int) {
+	t.Helper()
+	if err := pe.RecordExecution(&ExecutionRecord{
+		TaskID:          fmt.Sprintf("use-%s-%d", atomID, i),
+		SessionID:       "s",
+		ShardType:       "/coder",
+		Timestamp:       time.Unix(1700000000, int64(i)),
+		AtomIDs:         []string{atomID},
+		Verdict:         &JudgeVerdict{Verdict: "PASS"},
+		ExecutionResult: ExecutionResult{Success: true},
+	}); err != nil {
+		t.Fatalf("RecordExecution: %v", err)
+	}
 }

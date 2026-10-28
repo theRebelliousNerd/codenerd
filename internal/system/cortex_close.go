@@ -164,8 +164,17 @@ func (c *Cortex) Close() error {
 	// Before the JIT compiler: the evolver holds two SQLite handles under
 	// .nerd/ and a cycle may still be draining after stopMaintenanceSchedule
 	// returned on its timeout, which would keep those files locked on Windows.
+	//
+	// PromptEvolver.Close owns its ordering: it stops admission, cancels the
+	// running cycle, drains accepted turn records (bounded by its configured
+	// drain timeout, abandoned records reported as an error), joins the cycle,
+	// and only then closes its stores. The step timeout therefore covers the
+	// drain plus the ordinary step bound; if it still expires, the timeout is
+	// an incomplete-shutdown result and the evolver finishes its ordered close
+	// in the background -- no recorder can reach a closed store either way.
 	if c.PromptEvolver != nil {
-		if err := runCloseStep("PromptEvolver.Close", closeStepTimeout, c.PromptEvolver.Close); err != nil {
+		evolverCloseTimeout := c.PromptEvolver.DrainTimeout() + closeStepTimeout
+		if err := runCloseStep("PromptEvolver.Close", evolverCloseTimeout, c.PromptEvolver.Close); err != nil {
 			errs = append(errs, err)
 		}
 		c.PromptEvolver = nil

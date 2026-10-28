@@ -365,7 +365,7 @@ func TestTheAverageIsOverTheCompilesThatAreCounted(t *testing.T) {
 	// finishes inside one tick. time.Since then returns 0 honestly and the
 	// test failed on a platform difference rather than on a defect — which is
 	// precisely what that Windows job exists to find, so it found one of mine.
-	want := float64(atomic.LoadInt64(&compiler.compileNanos)) / 3 / float64(time.Millisecond)
+	want := float64(compiler.counters.compileNanos.Load()) / 3 / float64(time.Millisecond)
 	if stats.AverageTimeMs != want {
 		t.Errorf("AverageTimeMs = %v, want %v (accumulator over three compiles)", stats.AverageTimeMs, want)
 	}
@@ -382,7 +382,7 @@ func TestTheAverageIsTheAccumulatorOverTheCompileCount(t *testing.T) {
 	require.NoError(t, err)
 
 	// A duration no clock granularity can round away.
-	atomic.StoreInt64(&compiler.compileNanos, int64(50*time.Millisecond))
+	compiler.counters.compileNanos.Store(int64(50 * time.Millisecond))
 
 	stats := compiler.GetStats()
 	if stats.TotalCompilations != 1 {
@@ -399,7 +399,7 @@ func TestTheAverageIsTheAccumulatorOverTheCompileCount(t *testing.T) {
 			NewCompilationContext().WithTokenBudget(20000+i, 1000))
 		require.NoError(t, err)
 	}
-	atomic.StoreInt64(&compiler.compileNanos, int64(90*time.Millisecond))
+	compiler.counters.compileNanos.Store(int64(90 * time.Millisecond))
 
 	if got := compiler.GetStats().AverageTimeMs; got != 30 {
 		t.Errorf("AverageTimeMs = %v over three compiles of 90ms total, want 30", got)

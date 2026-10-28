@@ -4,10 +4,15 @@
 - Compiler shutdown must stop admission, cancel active compilation, join it, and
   close owned databases. Do not race WaitGroup admission against shutdown or
   replace joined cleanup with a timer that abandons live database handles.
-- Dynamic prompt cache identity must come from the same private kernel snapshot
-  used for selection and rendered injections. Acquire that scope before a cache
-  hit; missing or failed snapshots must not serve stale prompts. Shared work owns
-  its scope until completion, independently of any one caller's cancellation.
+- Dynamic prompt cache identity must come from the private kernel snapshot used
+  for selection and rendered injections, or from its memo keyed by a reusable
+  kernel identity (instance + generation, no external premises). A scope cloned
+  at another identity re-snapshots. Missing or failed snapshots must not serve
+  stale prompts. Shared work owns its scope until completion, independently of
+  any one caller's cancellation.
+- Every non-kernel source enters cache identity through the source vector
+  (`compiler_generation.go`). Publish only when the vector is fully tracked,
+  unchanged after collection, and no source degraded.
 - `atom_schema.go#AtomDefinition` and `ParsePromptAtomYAML` own the YAML contract for filesystem loading, embedding, synchronization, and validation.
 - Canonical agent selectors use `shard_types`. `agent_types`, legacy metadata, and nested `selectors` exist only as bounded, observable compatibility migrations scheduled for removal on 2027-01-01.
 - Built-in atoms under `atoms/` must parse without migrations. Unknown fields and invalid records fail the complete document; never log-and-skip a bad atom.

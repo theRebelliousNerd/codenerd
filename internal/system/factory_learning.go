@@ -103,7 +103,9 @@ func initLearningLoop(bctx *bootContext) error {
 	}
 
 	nerdDir := filepath.Join(bctx.workspace, ".nerd")
-	evolver, err := pe.NewPromptEvolver(nerdDir, judge, pe.DefaultEvolverConfig(), bctx.jitCompiler, bctx.appCfg.GetEffectiveJITConfig())
+	evolver, err := pe.NewPromptEvolver(nerdDir, judge,
+		pe.EvolverConfigFrom(bctx.appCfg.GetPromptEvolutionConfig()),
+		bctx.jitCompiler, bctx.appCfg.GetEffectiveJITConfig())
 	if err != nil {
 		logging.Get(logging.CategoryBoot).Warn(
 			"Prompt evolution unavailable in %s: %v; this session will not learn from its turns", nerdDir, err)
@@ -123,6 +125,10 @@ func initLearningLoop(bctx *bootContext) error {
 					"Failed to assert prompt_evolved for %s: %v", atomID, err)
 			}
 		})
+		// Approved trials of quarantined candidates become kernel facts; the
+		// kernel derives prompt_trial_admitted (policy/prompt_trials.mg) and
+		// the JIT compiler serves a quarantined candidate only on that.
+		evolver.SetTrialFactSink(trialFactSink(kernel))
 	}
 
 	// The read-back half of the loop. Without these two registrations the
@@ -166,6 +172,39 @@ func (bctx *bootContext) judgeClient() pe.LLMClient {
 	return bctx.llmClient
 }
 
+// trialPredicates are the Go-materialized inputs of trial admission.
+var trialPredicates = map[string]struct{}{
+	"prompt_trial_envelope":  {},
+	"prompt_trial_exposures": {},
+}
+
+// trialFactSink replaces the trial envelope facts with the live set. The
+// replacement is retract-then-assert: a compile that clones the kernel between
+// the two steps sees no envelope and admits no trial, which fails closed.
+func trialFactSink(kernel SystemKernel) pe.TrialFactSink {
+	return func(live []pe.TrialEnvelope) {
+		if err := kernel.RemoveFactsByPredicateSet(trialPredicates); err != nil {
+			logging.Get(logging.CategoryAutopoiesis).Warn("Failed to retract prompt trial facts: %v", err)
+			return
+		}
+		if len(live) == 0 {
+			return
+		}
+		facts := make([]core.Fact, 0, 2*len(live))
+		for _, trial := range live {
+			facts = append(facts,
+				core.Fact{Predicate: "prompt_trial_envelope",
+					Args: []any{trial.AtomID, trial.Version, trial.ExpiresAt.Unix(), int64(trial.MaxExposures)}},
+				core.Fact{Predicate: "prompt_trial_exposures",
+					Args: []any{trial.AtomID, int64(trial.Exposures)}},
+			)
+		}
+		if err := kernel.AssertBatch(facts); err != nil {
+			logging.Get(logging.CategoryAutopoiesis).Warn("Failed to assert prompt trial facts: %v", err)
+		}
+	}
+}
+
 // turnEvolutionRecorder translates a finished session turn into the execution
 // record the SPL loop consumes.
 //
@@ -184,9 +223,12 @@ func newTurnEvolutionRecorder(evolver *pe.PromptEvolver) *turnEvolutionRecorder 
 	return &turnEvolutionRecorder{evolver: evolver}
 }
 
-// RecordTurn implements session.TurnRecorder. It returns immediately; the
-// SQLite write happens on its own goroutine because this is called at the end
-// of every turn, on the turn's goroutine.
+// RecordTurn implements session.TurnRecorder. It returns immediately: the
+// record goes to the evolver's owned, bounded recording queue, which persists
+// it, credits its atoms and attributes its learned strategies (whose success
+// rates would otherwise stay at zero and leave SelectStrategies' ranking
+// arbitrary). It used to start a goroutine per turn that nothing bounded or
+// joined; a full queue now rejects the record visibly instead.
 func (r *turnEvolutionRecorder) RecordTurn(rec session.TurnRecord) {
 	if r == nil || r.evolver == nil {
 		return
@@ -195,18 +237,11 @@ func (r *turnEvolutionRecorder) RecordTurn(rec session.TurnRecord) {
 	if !ok {
 		return
 	}
-	go func() {
-		if err := r.evolver.RecordExecution(record); err != nil {
-			logging.Get(logging.CategoryAutopoiesis).Debug(
-				"Failed to record turn %d of session %s for evolution: %v",
-				rec.TurnNumber, rec.SessionID, err)
-		}
-		// Attribute the outcome to any learned strategy that was in this
-		// turn's prompt. Without this write-back every strategy keeps a
-		// success rate of zero forever and SelectStrategies' ranking is
-		// arbitrary — the playbook never learns which of its plays work.
-		r.evolver.RecordStrategyOutcome(record.TaskID, rec.AtomIDs, rec.Verified())
-	}()
+	if admission := r.evolver.SubmitExecution(record, true); admission != pe.RecordAccepted {
+		logging.Get(logging.CategoryAutopoiesis).Debug(
+			"Turn %d of session %s not recorded for evolution: %s",
+			rec.TurnNumber, rec.SessionID, admission)
+	}
 }
 
 // executionRecordFor maps one turn onto an ExecutionRecord, and decides

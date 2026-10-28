@@ -119,6 +119,12 @@ type RealKernel struct {
 	proofRecorder *provenance.MemoryRecorder
 
 	lastEvaluation EvaluationStats
+
+	// generation advances on every markDirtyLocked; instanceID is assigned on
+	// first use. Together they are the kernel's SnapshotIdentity (see
+	// kernel_generation.go). A clone starts at its own instance.
+	generation atomic.Uint64
+	instanceID atomic.Uint64
 }
 
 // EvaluationStats describes the cost of the most recent evaluate().

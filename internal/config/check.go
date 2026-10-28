@@ -369,6 +369,11 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		out = append(out, c.Retrieval.Check("retrieval")...)
 	}
 
+	// --- prompt_evolution ---
+	if c.PromptEvolution != nil {
+		out = append(out, c.PromptEvolution.Check("prompt_evolution")...)
+	}
+
 	// --- orient ---
 	// A nil block is the defaults; an explicit threshold out of range, or
 	// span cuts out of order, refuses the file.

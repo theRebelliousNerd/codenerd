@@ -66,15 +66,55 @@ func NewKernelAdapter(kernel core.Kernel) *KernelAdapter {
 
 type kernelCompilationScope struct {
 	*KernelAdapter
+	base prompt.KernelSnapshotIdentity
 }
 
-var _ prompt.KernelCompilationScope = (*kernelCompilationScope)(nil)
+var (
+	_ prompt.KernelCompilationScope   = (*kernelCompilationScope)(nil)
+	_ prompt.KernelScopeIdentity      = (*kernelCompilationScope)(nil)
+	_ prompt.KernelSnapshotIdentifier = (*KernelAdapter)(nil)
+)
+
+// BaseIdentity is the identity of the live-kernel state this scope cloned,
+// read under the same lock as the clone.
+func (s *kernelCompilationScope) BaseIdentity() (prompt.KernelSnapshotIdentity, bool) {
+	return s.base, true
+}
 
 func (s *kernelCompilationScope) Close() error {
 	// The scope owns an in-memory RealKernel clone. Dropping the final adapter
 	// reference discards every compile_context/selector fact in one operation.
 	s.KernelAdapter = nil
 	return nil
+}
+
+// liveRealKernel is the RealKernel a compilation scope snapshots.
+func (ka *KernelAdapter) liveRealKernel() *core.RealKernel {
+	if ka == nil || ka.kernel == nil {
+		return nil
+	}
+	switch kernel := ka.kernel.(type) {
+	case *core.RealKernel:
+		return kernel
+	case interface{ GetPrimaryRealKernel() *core.RealKernel }:
+		return kernel.GetPrimaryRealKernel()
+	}
+	return nil
+}
+
+func toPromptIdentity(id core.SnapshotIdentity) prompt.KernelSnapshotIdentity {
+	return prompt.KernelSnapshotIdentity{Instance: id.Instance, Generation: id.Generation, Reusable: id.Reusable}
+}
+
+// SnapshotIdentity names the live kernel's current state without cloning it,
+// so the prompt compiler can reuse a dynamic-snapshot preflight while the
+// kernel has not changed.
+func (ka *KernelAdapter) SnapshotIdentity() (prompt.KernelSnapshotIdentity, bool) {
+	live := ka.liveRealKernel()
+	if live == nil {
+		return prompt.KernelSnapshotIdentity{}, false
+	}
+	return toPromptIdentity(live.SnapshotIdentity()), true
 }
 
 // NewCompilationScope snapshots the production kernel for one JIT prompt
@@ -84,20 +124,14 @@ func (ka *KernelAdapter) NewCompilationScope() (prompt.KernelCompilationScope, e
 	if ka == nil || ka.kernel == nil {
 		return nil, fmt.Errorf("cannot create prompt compilation scope from nil kernel")
 	}
-
-	var live *core.RealKernel
-	switch kernel := ka.kernel.(type) {
-	case *core.RealKernel:
-		live = kernel
-	case interface{ GetPrimaryRealKernel() *core.RealKernel }:
-		live = kernel.GetPrimaryRealKernel()
-	}
+	live := ka.liveRealKernel()
 	if live == nil {
 		return nil, fmt.Errorf("kernel type %T does not expose a snapshot-capable RealKernel", ka.kernel)
 	}
-
+	clone, identity := live.CloneWithIdentity()
 	return &kernelCompilationScope{
-		KernelAdapter: NewKernelAdapter(live.Clone()),
+		KernelAdapter: NewKernelAdapter(clone),
+		base:          toPromptIdentity(identity),
 	}, nil
 }
 
@@ -123,6 +157,10 @@ func (ka *KernelAdapter) AssertBatch(facts []any) error {
 		switch v := f.(type) {
 		case core.Fact:
 			coreFacts = append(coreFacts, v)
+		case prompt.Fact:
+			// Typed selector facts: arguments are already the Go values the
+			// parser below would produce (string, int64, types.MangleAtom).
+			coreFacts = append(coreFacts, core.Fact{Predicate: v.Predicate, Args: v.Args})
 		case string:
 			// Parse string fact
 			// Mangle parser expects full clause syntax, typically ending with dot

@@ -1,6 +1,7 @@
 package prompt_evolution
 
 import (
+	"context"
 	"math"
 	"strings"
 
@@ -144,6 +145,16 @@ func strategyPriority(s *Strategy) int {
 	}
 	rate := math.Max(0, math.Min(1, s.SuccessRate))
 	return floor + int(math.Round(rate*float64(ceiling-floor)))
+}
+
+// SourceGeneration implements prompt.SourceGenerationReporter: it moves on
+// every write to the strategies table (creation, refinement, recorded
+// outcome), which is everything SelectStrategies ranks by.
+func (p *StrategyAtomProvider) SourceGeneration(ctx context.Context) (string, error) {
+	if p == nil || p.store == nil {
+		return "none", nil
+	}
+	return p.store.SourceGeneration(ctx)
 }
 
 // StrategyAtomProvider must satisfy the compiler's seam.

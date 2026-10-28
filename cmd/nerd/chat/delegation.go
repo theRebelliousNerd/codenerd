@@ -670,12 +670,12 @@ func (m Model) recordShardExecution(shardType, task, result string, err error, d
 		exec.GroundingSources = gp.GetLastGroundingSources()
 	}
 
-	// Record the execution asynchronously
-	go func() {
-		if recErr := m.promptEvolver.RecordExecution(exec); recErr != nil {
-			logging.Get(logging.CategoryAutopoiesis).Debug("Failed to record shard execution: %v", recErr)
-		}
-	}()
+	// Hand the record to the evolver's owned, bounded recording queue; a full
+	// or closed queue rejects it visibly rather than spawning an unjoined
+	// goroutine.
+	if admission := m.promptEvolver.SubmitExecution(exec, false); admission != prompt_evolution.RecordAccepted {
+		logging.Get(logging.CategoryAutopoiesis).Debug("Shard execution %s not recorded: %s", exec.TaskID, admission)
+	}
 }
 
 func (m Model) promptContextForExecution(shardType string) (*promptpkg.PromptManifest, []string) {
