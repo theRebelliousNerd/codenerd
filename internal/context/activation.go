@@ -308,7 +308,7 @@ func (ae *ActivationEngine) scoreFactsLocked(facts []core.Fact, currentIntent *c
 	scored := make([]ScoredFact, 0, len(facts))
 
 	for _, fact := range facts {
-		score := ae.computeScore(fact)
+		score := ae.computeScore(newFactView(fact))
 		scored = append(scored, ScoredFact{
 			Fact:               fact,
 			Score:              score.Total(),

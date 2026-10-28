@@ -219,7 +219,7 @@ func TestComputeRecencyScore(t *testing.T) {
 	recentFact := core.Fact{Predicate: "recent", Args: []any{"arg"}}
 	engine.factTimestamps[factKey(recentFact)] = time.Now()
 
-	score := engine.computeRecencyScore(recentFact)
+	score := engine.computeRecencyScore(newFactView(recentFact))
 	if score != 50.0 {
 		t.Errorf("Expected recency score of 50 for new fact, got %f", score)
 	}
@@ -228,14 +228,14 @@ func TestComputeRecencyScore(t *testing.T) {
 	oldFact := core.Fact{Predicate: "old", Args: []any{"arg"}}
 	engine.factTimestamps[factKey(oldFact)] = time.Now().Add(-1 * time.Hour)
 
-	oldScore := engine.computeRecencyScore(oldFact)
+	oldScore := engine.computeRecencyScore(newFactView(oldFact))
 	if oldScore != 0.0 {
 		t.Errorf("Expected recency score of 0 for old fact, got %f", oldScore)
 	}
 
 	// Fact with unknown timestamp
 	unknownFact := core.Fact{Predicate: "unknown", Args: []any{"arg"}}
-	unknownScore := engine.computeRecencyScore(unknownFact)
+	unknownScore := engine.computeRecencyScore(newFactView(unknownFact))
 	if unknownScore != 0.0 {
 		t.Errorf("Expected recency score of 0 for unknown fact, got %f", unknownScore)
 	}
@@ -254,11 +254,11 @@ func TestComputeRelevanceScoreWithIntent(t *testing.T) {
 
 	// Fact that matches intent target
 	matchingFact := core.Fact{Predicate: "file_content", Args: []any{"auth.go", "content"}}
-	matchScore := engine.computeRelevanceScore(matchingFact)
+	matchScore := engine.computeRelevanceScore(newFactView(matchingFact))
 
 	// Fact that doesn't match
 	nonMatchingFact := core.Fact{Predicate: "file_content", Args: []any{"other.go", "content"}}
-	nonMatchScore := engine.computeRelevanceScore(nonMatchingFact)
+	nonMatchScore := engine.computeRelevanceScore(newFactView(nonMatchingFact))
 
 	if matchScore <= nonMatchScore {
 		t.Errorf("Matching fact should have higher relevance score (%f vs %f)", matchScore, nonMatchScore)
@@ -271,7 +271,7 @@ func TestComputeCampaignScore(t *testing.T) {
 
 	// Without campaign context, score should be 0
 	fact := core.Fact{Predicate: "file_topology", Args: []any{"main.go"}}
-	score := engine.computeCampaignScore(fact)
+	score := engine.computeCampaignScore(newFactView(fact))
 	if score != 0.0 {
 		t.Errorf("Expected 0 campaign score without context, got %f", score)
 	}
@@ -286,7 +286,7 @@ func TestComputeCampaignScore(t *testing.T) {
 
 	// Fact related to campaign
 	campaignFact := core.Fact{Predicate: "campaign_task", Args: []any{"task1", "add_auth"}}
-	campaignScore := engine.computeCampaignScore(campaignFact)
+	campaignScore := engine.computeCampaignScore(newFactView(campaignFact))
 	if campaignScore <= 0 {
 		t.Errorf("Expected positive campaign score for campaign-related fact, got %f", campaignScore)
 	}
@@ -298,7 +298,7 @@ func TestComputeSessionScore(t *testing.T) {
 
 	// Fact not in session
 	nonSessionFact := core.Fact{Predicate: "old_fact", Args: []any{"arg"}}
-	nonSessionScore := engine.computeSessionScore(nonSessionFact)
+	nonSessionScore := engine.computeSessionScore(newFactView(nonSessionFact))
 	if nonSessionScore != 0.0 {
 		t.Errorf("Expected 0 session score for non-session fact, got %f", nonSessionScore)
 	}
@@ -307,7 +307,7 @@ func TestComputeSessionScore(t *testing.T) {
 	sessionFact := core.Fact{Predicate: "new_fact", Args: []any{"arg"}}
 	engine.RecordFactTimestamp(sessionFact)
 
-	sessionScore := engine.computeSessionScore(sessionFact)
+	sessionScore := engine.computeSessionScore(newFactView(sessionFact))
 	if sessionScore != 15.0 {
 		t.Errorf("Expected 15 session score for session fact, got %f", sessionScore)
 	}
@@ -566,7 +566,7 @@ func TestSetCorpusPriorities(t *testing.T) {
 
 	// Test that corpus priority is used
 	fact := core.Fact{Predicate: "corpus_predicate", Args: []any{"arg"}}
-	score := engine.computeBaseScore(fact)
+	score := engine.computeBaseScore(newFactView(fact))
 
 	if score != 95.0 {
 		t.Errorf("Expected base score 95 from corpus, got %f", score)
@@ -574,7 +574,7 @@ func TestSetCorpusPriorities(t *testing.T) {
 
 	// Test that corpus overrides config
 	intentFact := core.Fact{Predicate: "user_intent", Args: []any{"id", "/query", "/explain", "file", ""}}
-	intentScore := engine.computeBaseScore(intentFact)
+	intentScore := engine.computeBaseScore(newFactView(intentFact))
 
 	if intentScore != 100.0 {
 		t.Errorf("Expected base score 100 from corpus override, got %f", intentScore)
@@ -591,7 +591,7 @@ func TestCorpusPriorityFallback(t *testing.T) {
 
 	// Without setting corpus priorities, should use config
 	fact := core.Fact{Predicate: "config_predicate", Args: []any{"arg"}}
-	score := engine.computeBaseScore(fact)
+	score := engine.computeBaseScore(newFactView(fact))
 
 	if score != 85.0 {
 		t.Errorf("Expected base score 85 from config fallback, got %f", score)
@@ -599,7 +599,7 @@ func TestCorpusPriorityFallback(t *testing.T) {
 
 	// Unknown predicate should get default
 	unknownFact := core.Fact{Predicate: "unknown_predicate", Args: []any{"arg"}}
-	unknownScore := engine.computeBaseScore(unknownFact)
+	unknownScore := engine.computeBaseScore(newFactView(unknownFact))
 
 	if unknownScore != 50.0 {
 		t.Errorf("Expected default base score 50, got %f", unknownScore)
@@ -625,7 +625,7 @@ func TestLoadPrioritiesFromCorpus(t *testing.T) {
 
 	// Verify a known high-priority predicate
 	fact := core.Fact{Predicate: "user_intent", Args: []any{"id", "/query", "/explain", "file", ""}}
-	score := engine.computeBaseScore(fact)
+	score := engine.computeBaseScore(newFactView(fact))
 
 	if score < 90.0 {
 		t.Errorf("Expected user_intent to have high score from corpus, got %f", score)
@@ -688,7 +688,7 @@ func TestComputeIssueScore_WeightClamping(t *testing.T) {
 		Args:      []any{"exploit vulnerability"},
 	}
 
-	score := engine.computeIssueScore(fact)
+	score := engine.computeIssueScore(newFactView(fact))
 	// With clamped weight (1.0 * 50 = 50), plus possible predicate boost,
 	// the score should be at most 100.0 (the hard cap)
 	if score > 100.0 {
@@ -714,7 +714,7 @@ func TestComputeIssueScore_NegativeWeight(t *testing.T) {
 		Args:      []any{"negative keyword"},
 	}
 
-	score := engine.computeIssueScore(fact)
+	score := engine.computeIssueScore(newFactView(fact))
 	if score < 0 {
 		t.Errorf("negative weight should be clamped to 0, score=%f", score)
 	}

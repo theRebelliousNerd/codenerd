@@ -36,18 +36,32 @@ func (s *scoreComponents) Total() float64 {
 // C1+C4: ScoreFactsWithKernelOverride uses kernel-derived priorities when available.
 
 // computeScore calculates the activation score for a fact.
-func (ae *ActivationEngine) computeScore(fact core.Fact) scoreComponents {
+func (ae *ActivationEngine) computeScore(v factView) scoreComponents {
 	return scoreComponents{
-		base:          ae.computeBaseScore(fact),
-		recency:       ae.computeRecencyScore(fact),
-		relevance:     ae.computeRelevanceScore(fact),
-		dependency:    ae.computeDependencyScore(fact),
-		campaign:      ae.computeCampaignScore(fact),
-		session:       ae.computeSessionScore(fact),
-		issue:         ae.computeIssueScore(fact),
-		feedback:      ae.computeFeedbackScore(fact),
-		backReference: ae.computeBackReferenceScore(fact),
+		base:          ae.computeBaseScore(v),
+		recency:       ae.computeRecencyScore(v),
+		relevance:     ae.computeRelevanceScore(v),
+		dependency:    ae.computeDependencyScore(v),
+		campaign:      ae.computeCampaignScore(v),
+		session:       ae.computeSessionScore(v),
+		issue:         ae.computeIssueScore(v),
+		feedback:      ae.computeFeedbackScore(v),
+		backReference: ae.computeBackReferenceScore(v),
 	}
+}
+
+// factView is a fact rendered once for scoring. Every sub-score used to
+// render it again (up to eight String calls per fact, four lower-cased), on
+// every fact of every scoring pass.
+type factView struct {
+	fact  core.Fact
+	key   string // fact.String(), the activation engine's fact key
+	lower string // strings.ToLower(key), for case-insensitive matching
+}
+
+func newFactView(fact core.Fact) factView {
+	key := fact.String()
+	return factView{fact: fact, key: key, lower: strings.ToLower(key)}
 }
 
 // computeBaseScore returns the base priority score for a predicate.
@@ -56,7 +70,8 @@ func (ae *ActivationEngine) computeScore(fact core.Fact) scoreComponents {
 // 1. Corpus-based priorities (from predicate_corpus.db if loaded)
 // 2. Config-based priorities (hardcoded fallback in types.go)
 // 3. Default (50)
-func (ae *ActivationEngine) computeBaseScore(fact core.Fact) float64 {
+func (ae *ActivationEngine) computeBaseScore(v factView) float64 {
+	fact := v.fact
 	// Check corpus-based priorities first (single source of truth)
 	if ae.corpusPriorities != nil {
 		if priority, ok := ae.corpusPriorities[fact.Predicate]; ok {
@@ -72,8 +87,8 @@ func (ae *ActivationEngine) computeBaseScore(fact core.Fact) float64 {
 
 // computeRecencyScore applies recency bias to facts.
 // More recently added facts get higher scores.
-func (ae *ActivationEngine) computeRecencyScore(fact core.Fact) float64 {
-	key := factKey(fact)
+func (ae *ActivationEngine) computeRecencyScore(v factView) float64 {
+	key := v.key
 	timestamp, ok := ae.factTimestamps[key]
 	if !ok {
 		return 0.0 // Unknown timestamp
@@ -99,7 +114,8 @@ func (ae *ActivationEngine) computeRecencyScore(fact core.Fact) float64 {
 }
 
 // computeRelevanceScore scores based on relevance to current intent.
-func (ae *ActivationEngine) computeRelevanceScore(fact core.Fact) float64 {
+func (ae *ActivationEngine) computeRelevanceScore(v factView) float64 {
+	fact := v.fact
 	if ae.state.ActiveIntent == nil {
 		return 0.0
 	}
@@ -115,7 +131,7 @@ func (ae *ActivationEngine) computeRelevanceScore(fact core.Fact) float64 {
 	}
 
 	// Check if fact relates to the target
-	factStr := strings.ToLower(fact.String())
+	factStr := v.lower
 	if intentTarget != "" && strings.Contains(factStr, intentTarget) {
 		score += 40.0
 	}
@@ -222,8 +238,8 @@ func (ae *ActivationEngine) computeRelevanceScore(fact core.Fact) float64 {
 
 // computeDependencyScore applies spreading activation through the dependency graph.
 // Enhanced with bidirectional spreading and depth-limited traversal.
-func (ae *ActivationEngine) computeDependencyScore(fact core.Fact) float64 {
-	key := factKey(fact)
+func (ae *ActivationEngine) computeDependencyScore(v factView) float64 {
+	key := v.key
 	score := 0.0
 
 	// Forward dependencies (what I depend on)
@@ -243,7 +259,7 @@ func (ae *ActivationEngine) computeDependencyScore(fact core.Fact) float64 {
 
 	// Symbol graph spreading
 	// If this fact relates to a file that's in the focused paths
-	factStr := fact.String()
+	factStr := v.key
 	for _, focusPath := range ae.state.FocusedPaths {
 		if strings.Contains(factStr, focusPath) {
 			// Check if any symbols in this file are called by other symbols
@@ -265,13 +281,14 @@ func (ae *ActivationEngine) computeDependencyScore(fact core.Fact) float64 {
 
 // computeCampaignScore adds campaign-specific activation boost.
 // Facts related to the current phase/task get higher scores.
-func (ae *ActivationEngine) computeCampaignScore(fact core.Fact) float64 {
+func (ae *ActivationEngine) computeCampaignScore(v factView) float64 {
+	fact := v.fact
 	if ae.campaignContext == nil {
 		return 0.0
 	}
 
 	score := 0.0
-	factStr := strings.ToLower(fact.String())
+	factStr := v.lower
 
 	// Boost facts related to current campaign
 	if ae.campaignContext.CampaignID != "" {
@@ -330,8 +347,8 @@ func (ae *ActivationEngine) computeCampaignScore(fact core.Fact) float64 {
 }
 
 // computeSessionScore boosts facts that were added during the current session.
-func (ae *ActivationEngine) computeSessionScore(fact core.Fact) float64 {
-	key := factKey(fact)
+func (ae *ActivationEngine) computeSessionScore(v factView) float64 {
+	key := v.key
 
 	// Check if this fact was added during the current session
 	if ae.sessionFacts[key] {
@@ -344,13 +361,14 @@ func (ae *ActivationEngine) computeSessionScore(fact core.Fact) float64 {
 // computeIssueScore adds issue-driven activation boost.
 // Facts related to the issue keywords, mentioned files, or expected tests get higher scores.
 // This works with ANY issue source: GitHub, Jira, bug reports, or benchmarks.
-func (ae *ActivationEngine) computeIssueScore(fact core.Fact) float64 {
+func (ae *ActivationEngine) computeIssueScore(v factView) float64 {
+	fact := v.fact
 	if ae.issueContext == nil {
 		return 0.0
 	}
 
 	score := 0.0
-	factStr := strings.ToLower(fact.String())
+	factStr := v.lower
 
 	// Boost facts mentioning issue ID
 	if ae.issueContext.IssueID != "" {
@@ -451,7 +469,8 @@ func (ae *ActivationEngine) computeIssueScore(fact core.Fact) float64 {
 // computeFeedbackScore applies learned predicate usefulness from LLM feedback.
 // This implements the third feedback loop: LLM-driven context learning.
 // Score range: -20 (consistently noise) to +20 (consistently helpful)
-func (ae *ActivationEngine) computeFeedbackScore(fact core.Fact) float64 {
+func (ae *ActivationEngine) computeFeedbackScore(v factView) float64 {
+	fact := v.fact
 	if ae.feedbackStore == nil {
 		return 0.0 // No feedback store configured
 	}
@@ -476,13 +495,14 @@ func (ae *ActivationEngine) computeFeedbackScore(fact core.Fact) float64 {
 // computeBackReferenceScore adds back-reference activation boost.
 // Facts related to previously referenced turns get boosted when the user
 // asks follow-up questions like "What was the original error?"
-func (ae *ActivationEngine) computeBackReferenceScore(fact core.Fact) float64 {
+func (ae *ActivationEngine) computeBackReferenceScore(v factView) float64 {
+	fact := v.fact
 	if ae.backReferenceContext == nil {
 		return 0.0
 	}
 
 	score := 0.0
-	factStr := strings.ToLower(fact.String())
+	factStr := v.lower
 
 	// Primary boost: facts from referenced turns
 	// Check if fact's turn ID matches any referenced turn.
@@ -664,8 +684,8 @@ func (ae *ActivationEngine) ScoreFactsWithKernelOverride(facts []core.Fact, inte
 
 	scored := make([]ScoredFact, 0, len(facts))
 	for _, fact := range facts {
-		key := factKey(fact)
-		if kScore, ok := kernelScores[key]; ok {
+		v := newFactView(fact)
+		if kScore, ok := kernelScores[v.key]; ok {
 			// Kernel-derived score takes precedence over Go heuristic
 			scored = append(scored, ScoredFact{
 				Fact:  fact,
@@ -673,7 +693,7 @@ func (ae *ActivationEngine) ScoreFactsWithKernelOverride(facts []core.Fact, inte
 			})
 		} else {
 			// Go heuristic fallback for facts not covered by kernel derivation
-			components := ae.computeScore(fact)
+			components := ae.computeScore(v)
 			scored = append(scored, ScoredFact{
 				Fact:               fact,
 				Score:              components.Total(),
