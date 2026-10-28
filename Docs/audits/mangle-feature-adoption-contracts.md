@@ -218,3 +218,9 @@ The guiding principle: **use Mangle's stronger semantics where CodeNERD can pres
 - Rule-origin source locations in the envelope (the analyzed program carries no positions; `rule_source` text is emitted).
 - Temporal, deferred and merge evaluation: manifest states `not-wired`/`unverified`; generated-rule guidance forbids them.
 - Whole-harness token/false-completion evaluation (§8): needs live models.
+
+## As-built note (2026-10-28)
+
+- The 2026-10-27 section above stands: admission, generated-rule bounds, inclusion, proof envelope and manifest are built. Re-checked: all six pinned claims were real and are closed except the deferred items below.
+- New: `TestBootCorpusBoundsDisagreementsOnlyShrink` is the shadow analysis for strict bounds. It checks every boot clause alone and found 29 predicates whose rules contradict their Decls; the list can only shrink.
+- Left: enforcing strict bounds in `rebuildProgram` (needs those 29 repaired, several are upstream inference gaps on `:lt`/`fn:plus`); `internal/mangle.Engine` first-tuple admission (own producers, own migration); rule source locations.
