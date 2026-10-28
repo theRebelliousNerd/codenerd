@@ -16,12 +16,14 @@ import (
 // IsCompressionActive parity"). The chat layer has exactly three places that
 // hand conversation state to a model:
 //
-//	cmd/nerd/chat/process.go            perception input  — gated on IsCompressionActive
+//	cmd/nerd/chat/process.go            perception input  — raw history only
 //	cmd/nerd/chat/process.go            articulation input — gated on IsCompressionActive
 //	cmd/nerd/chat/model_session_context.go  shard SessionContext — compressed block only
 //
-// The first two choose between raw m.history and the compressor's recent
-// window; both consult IsCompressionActive, so parity holds today. The third
+// Perception renders no compressed history, so it gets the whole raw
+// conversation and selects its own bounded window (classification policy).
+// Articulation chooses between raw m.history and the compressor's recent
+// window plus the compressed block, gated on IsCompressionActive. The third
 // never touches m.history at all: shards get the compressed block as their
 // only history, which is why it is unconditional and correct.
 //

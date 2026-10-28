@@ -142,18 +142,14 @@ func (m Model) processInput(input string) tea.Cmd {
 			m.virtualStore.DisableBootGuard()
 		}
 
-		// Convert history to perception.ConversationTurn format
-		// Use ALL history until compression kicks in, then use recent window only
+		// Perception gets the whole conversation and selects from it once,
+		// under its own window and budget (classification.history_turn_window,
+		// history_char_budget), whose notice then counts everything it left
+		// out. Perception renders no compressed history, so cutting to the
+		// compressor's window here only removed turns, and the notice could
+		// not say so.
 		var historyForPerception []perception.ConversationTurn
-		var recentTurns []Message
-		if m.compressor != nil && m.compressor.IsCompressionActive() {
-			// Compression active: use recent window (compressed context handles the rest)
-			recentTurns = m.getRecentTurns(m.compressor.GetRecentTurnWindow())
-		} else {
-			// No compression yet: pass ALL history so LLM has full context
-			recentTurns = m.history
-		}
-		for _, msg := range recentTurns {
+		for _, msg := range m.history {
 			historyForPerception = append(historyForPerception, perception.ConversationTurn{
 				Role:    msg.Role,
 				Content: msg.Content,
@@ -907,11 +903,13 @@ func (m Model) processInput(input string) tea.Cmd {
 		var compressedCtx string
 		var recentTurnsForArticulation []Message
 		if m.compressor != nil && m.compressor.IsCompressionActive() {
-			// Compression active: use recent window + compressed context for older turns
-			if ctxStr, err := m.compressor.GetContextString(ctx); err == nil {
-				compressedCtx = ctxStr
-			}
+			// Compression active: use recent window + compressed context for
+			// older turns. When the compressed view cannot be built, the
+			// window still bounds the request, and the reply is told the
+			// older turns are not in it rather than left to assume they are.
 			recentTurnsForArticulation = m.getRecentTurns(m.compressor.GetRecentTurnWindow())
+			ctxStr, err := m.compressor.GetContextString(ctx)
+			compressedCtx = articulationHistoryView(ctxStr, err, len(m.history)-len(recentTurnsForArticulation))
 		} else {
 			// No compression yet: pass ALL history so LLM has full context
 			recentTurnsForArticulation = m.history

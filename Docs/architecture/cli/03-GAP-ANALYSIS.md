@@ -50,6 +50,14 @@ Embedding reembed must derive its full operation from commandContext(cmd), refus
 |---|---|---|---|---|---|---|---|
 | GAP-CLI-SLASH-PAYLOAD | Slash command payload integrity | `splitPayloadCommand`, `checkTextPayload`, `patchChunk`, `ingestPatchSubmission` (`cmd/nerd/chat/command_payload.go:31-105`); `handleSubmit` passes the untrimmed submission (`model_handlers.go:106-128`); `handleCommand` keeps raw for `/write`/`/append` (`commands.go:45`, `:146`, `:158`); `runApplyPatch` runs in the workspace and reports git/patch output (`helpers_files.go:71`). The bubbles v1 textarea still expands a typed or pasted tab to four spaces before submission (no public sanitizer option). | Required contract above | P1 | Implemented except tab transport through the textarea widget | bubbles textarea input layer | `cmd/nerd/chat/command_payload_test.go`: repeated spaces, JSON, trailing whitespace and multiline reach the file exactly through `handleSubmit`; tabs/CRLF exact at the dispatcher; control byte, empty and missing payload leave the file unchanged; append newline rule; line-by-line patch with context markers, blank context and trailing spaces applies in the workspace from another cwd; chunked and line-by-line ingestion agree. |
 
+## Required contract: Conversation history at the compression handoff
+
+Perception renders no compressed history, so it receives the whole conversation and its classification policy selects once (window, budget, and an omission notice that counts everything left out). Articulation, once compression is active, keeps the recent window; when the compressed view cannot be built, its compressed-history block states how many earlier messages are not in the context and why, instead of being silently empty.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-CLI-HISTORY-HANDOFF | Conversation history coverage at compression | `processInput` passes all of `m.history` to perception; `articulationHistoryView` builds the articulation block or the coverage statement (`cmd/nerd/chat/process.go`, `cmd/nerd/chat/history_view.go`). Turns answered on the perception fast path or delegated are still not fed to the compressor. | Required contract above | P2 | Implemented for H1/H2; H3 (route-independent recording) open | Compressor feed in `processInput` | `TestPerception_GetsTheWholeConversationOnceCompressionIsActive` (20 of 20 prior messages reach perception with an active compressor); `TestArticulationHistoryView_AFailedBuildIsStatedNotSilent`. |
+
 ## Required contract: Chat information read containment
 
 The legacy /fs_read information-gathering action must enforce the same canonical workspace containment as typed read_file, rejecting traversal, outside absolute paths and symlink escapes before reading or asserting file_content. In-root reads remain supported.

@@ -1,7 +1,7 @@
 ---
 doc-class: deep-dive
 subsystem: context-perception-cli
-implementation-status: proposed
+implementation-status: partially-implemented (see As-built status)
 last-verified: 2026-10-28
 verified-against: c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c
 main-compared-against: 356f65e0e6bb639adaa90ab36212daa714114871
@@ -254,3 +254,33 @@ The recommendation is an engineering inference from these foundations and the so
 [control-test]: https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/cmd/nerd/chat/process_control_roundtrip_test.go#L245-L277
 [long-test]: https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/context/long_session_test.go#L25-L100
 
+
+## As-built status
+
+Verified and built 2026-10-28 on `main` after `c28a1212`. The perception selection, articulation handoff and compressor feed were unchanged from the audited pins.
+
+### Claim ledger
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| H1: the host cuts perception history to the compressor window, but perception renders no compressed history | Real, fixed | `processInput` now passes all of `m.history` (`cmd/nerd/chat/process.go:152`); `BuildPrompt` still renders no `CompressedHistory` (`internal/perception/transducer_llm.go:349`) |
+| H1: the classification notice is computed on the cut slice and cannot count host-removed turns | Real, fixed by the above | `classificationHistoryBlock` now sees the whole conversation (`transducer_llm.go:458`) |
+| H1 qualification: equal default windows (5) give the same raw count | Confirmed | The fix changes what the notice can count and what a larger configured classification window can admit |
+| H2: articulation keeps the short window when `GetContextString` fails and says nothing | Real, fixed | `articulationHistoryView` returns the view, or a statement of how many earlier messages are missing and why (`cmd/nerd/chat/history_view.go`; call at `process.go:912`); the window still bounds the request |
+| H3: fast-path and delegated answers return before the compressor feed | Confirmed, left open | `responseMsg`/`assistantMsg` paths in `processInput` |
+| H3: compressed turns store atoms, not answer prose | Confirmed, intentional; left open | `internal/context/compressor` `processTurn` |
+| The parity test checks presence of a gate, not delivery | Confirmed; its comment corrected | `internal/context/chat_history_parity_test.go` (perception is now raw-only; the test still guards articulation) |
+
+### What was built
+
+- Rulings: (1) the classification policy owns perception's history selection, once; no compressed view is built for perception. (2) A failed articulation view keeps the bounded window and puts a factual coverage statement in the compressed-history block (data, not an instruction, so no prompt atom).
+- `cmd/nerd/chat/process.go` (two hunks), `cmd/nerd/chat/history_view.go`; spec `Docs/architecture/cli/03-GAP-ANALYSIS.md` `GAP-CLI-HISTORY-HANDOFF`.
+
+### Tests
+
+`cmd/nerd/chat/history_view_test.go`: with an active compressor (a loaded segment) and 20 prior messages, perception receives all 20 (it received 5 before); a failed view build yields the coverage statement with the count and reason, a built view is passed through, nothing omitted yields nothing. `internal/context` parity tests pass.
+
+### Left open
+
+- H3 route-independent, idempotent exchange recording with per-message coverage dispositions (HISTORY-VIEW-02/03): not built. It needs stable message identities through the fast, delegated and articulated routes and a decision on what a compressed turn preserves of answer prose.
+- No source-identity manifest per request (HISTORY-VIEW-01 beyond the failure statement) and no cost comparison (HISTORY-VIEW-04).
