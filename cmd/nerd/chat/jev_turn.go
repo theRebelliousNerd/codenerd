@@ -9,6 +9,7 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/retrieval"
 	"codenerd/internal/turnjudge"
 )
 
@@ -112,4 +113,23 @@ func (m Model) stopRequestedBackground() []backgroundJob {
 		return nil
 	}
 	return m.background.cancelAll()
+}
+
+// relevanceJudge is Jev's Tier 2 relevance judge, nil when Jev is off.
+func (m Model) relevanceJudge() retrieval.RelevanceJudge {
+	if m.jev == nil {
+		return nil
+	}
+	return turnjudge.RelevanceJudge{Asker: m.jev}
+}
+
+// relevanceDrop is the configured "no" threshold as a probability: a file
+// judged at or below it is left out of the context.
+func (m Model) relevanceDrop() float64 {
+	for _, p := range m.Config.TypeSafe.Params() {
+		if p.Key == "/jev_no_percent" {
+			return float64(p.Value) / 100
+		}
+	}
+	return 0
 }

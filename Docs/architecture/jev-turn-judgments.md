@@ -84,3 +84,29 @@ Unsettled cases worth watching:
 - `cmd/nerd/chat/journey_jev_test.go`: a misread go-ahead still approves, a
   disputed mutation asks first, an answered question unblocks yolo, stop
   cancels background work, and a failed call changes nothing.
+
+## Retrieval relevance (`internal/turnjudge/relevance.go`, `internal/retrieval/relevance.go`)
+
+When Jev is on, Tier 2 does not stop at the keyword ranking. Jev judges a pool
+six times the size of the tier: "Would reading this file help answer or carry
+out `request`?", one question per file, with the file's head. The pool goes out
+as parallel requests of 20 files each.
+
+- Tier 2 keeps the files in Jev's order, with the keyword score breaking ties.
+- A file at or below `judgment_no_percent` is left out.
+- A file you mentioned is never judged.
+- The verdicts reach the kernel as `context_relevance(File, Percent, Kept)`.
+- A failed judgment leaves the keyword ranking as it was.
+
+Live, on codeNERD's own repository, 2026-10-28:
+
+| Request | Keyword Tier 2 | Jev-judged Tier 2 |
+|---|---|---|
+| "why does the approval broker open a second request for a duplicate call" | a skill ledger, audit docs, `sparse.go`… | `approval/broker.go`, `session/human_approval.go`, `mcp/remote_approval_test.go`, `approval/request.go`… (120 judged, 98 dropped, 756 ms) |
+| "the footer does not wrap in the TUI" | 20 files, mostly agent and QA docs | `cmd/nerd/chat/view.go` |
+
+The probe also exposed a keyword bug. `ExtractKeywords` only took code syntax
+(capitalized symbols, `name(` calls, quoted identifiers), so a plain-English
+request searched for nothing. It now also takes prose identifiers
+(`renderFooter`, `work_mode`) and domain terms (lowercase content words of four
+letters or more), at the lowest weight.

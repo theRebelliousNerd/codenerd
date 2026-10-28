@@ -93,6 +93,12 @@ type SeedRequest struct {
 	// every turn and discarded it. It takes precedence over EmbeddingEngine.
 	SemanticSearcher *EmbeddingSemanticSearcher
 
+	// Relevance, when set, judges Tier 2's keyword candidates (relevance.go);
+	// RelevanceDrop is the probability at or below which a judged file is
+	// left out of the context.
+	Relevance     RelevanceJudge
+	RelevanceDrop float64
+
 	// Timeout bounds the whole pass. DefaultSeedTimeout when zero.
 	Timeout time.Duration
 
@@ -239,6 +245,8 @@ func SeedIssueFacts(ctx context.Context, sink FactSink, req SeedRequest) (*SeedR
 	} else if searcher := NewEmbeddingSemanticSearcher(req.EmbeddingEngine, workDir); searcher != nil {
 		cfg.Semantic = searcher
 	}
+	cfg.Relevance = req.Relevance
+	cfg.RelevanceDrop = req.RelevanceDrop
 	builder := NewTieredContextBuilder(cfg)
 
 	tc, err := builder.BuildContext(cctx, issueText)
@@ -454,6 +462,21 @@ func TieredContextFacts(issueID string, tc *TieredContext, workDir string) []typ
 				Args:      []any{types.MangleString(path), types.MangleString(keyword), counts[keyword]},
 			})
 		}
+	}
+
+	for _, j := range tc.Judged {
+		path := workspacePath(workDir, j.FilePath)
+		if path == "" {
+			continue
+		}
+		kept := types.MangleAtom("/false")
+		if j.Kept {
+			kept = types.MangleAtom("/true")
+		}
+		facts = append(facts, types.Fact{
+			Predicate: "context_relevance",
+			Args:      []any{types.MangleString(path), types.PercentFromRatio(j.Probability), kept},
+		})
 	}
 
 	facts = append(facts, types.Fact{

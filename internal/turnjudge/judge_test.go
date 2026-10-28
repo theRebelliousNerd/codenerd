@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"codenerd/internal/perception"
-	"codenerd/internal/typesafe"
 	"codenerd/internal/types"
+	"codenerd/internal/typesafe"
 )
 
 // fakeJev answers every noul question with the probability its name maps to

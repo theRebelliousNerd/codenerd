@@ -15,8 +15,8 @@ import (
 	"strings"
 
 	"codenerd/internal/perception"
-	"codenerd/internal/typesafe"
 	"codenerd/internal/types"
+	"codenerd/internal/typesafe"
 )
 
 // Turn is one prior turn of the conversation, whole.

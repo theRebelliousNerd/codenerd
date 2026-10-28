@@ -41,14 +41,19 @@ func TestExtractKeywords_WeightsAndOrder(t *testing.T) {
 		t.Fatalf("Weights[process] = %v, want %v", got, want)
 	}
 
-	if got, want := kw.Tertiary, []string{"specialVar"}; !reflect.DeepEqual(got, want) {
+	// The quoted identifier, then the domain terms of the prose ("panic",
+	// "calling"); the path's segments are not terms.
+	if got, want := kw.Tertiary, []string{"specialVar", "panic", "calling"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Tertiary = %#v, want %#v", got, want)
 	}
 	if got, want := kw.Weights["specialVar"], 0.5; got != want {
 		t.Fatalf("Weights[specialVar] = %v, want %v", got, want)
 	}
+	if got, want := kw.Weights["panic"], 0.4; got != want {
+		t.Fatalf("Weights[panic] = %v, want %v (domain terms weigh least)", got, want)
+	}
 
-	if got, want := kw.AllKeywords(), []string{"FooError", "do_thing", "process", "specialVar"}; !reflect.DeepEqual(got, want) {
+	if got, want := kw.AllKeywords(), []string{"FooError", "do_thing", "process", "specialVar", "panic", "calling"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("AllKeywords() = %#v, want %#v", got, want)
 	}
 }

@@ -91,9 +91,14 @@ func (m *Model) seedIssueFacts(ctx context.Context, intent perception.Intent, ra
 		// which case the seed keeps the heuristic Tier 4 fallback.
 		EmbeddingEngine:  m.embeddingEngine,
 		SemanticSearcher: m.semanticSearcher,
-		Timeout:          retrieval.DefaultSeedTimeout,
-		GlassBox:         bus,
-		TurnID:           m.turnCount,
+		// Jev, when configured, judges Tier 2's keyword candidates for
+		// relevance (turnjudge.RelevanceJudge); off, the keyword ranking
+		// stands.
+		Relevance:     m.relevanceJudge(),
+		RelevanceDrop: m.relevanceDrop(),
+		Timeout:       retrieval.DefaultSeedTimeout,
+		GlassBox:      bus,
+		TurnID:        m.turnCount,
 	}); err != nil {
 		logging.Context("[seedIssueFacts] retrieval seed failed: %v", err)
 	}
