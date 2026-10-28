@@ -185,3 +185,120 @@ These research IDs are local to this proposal, not declarations that the archite
 
 Before implementation, reconcile the owning session/tools/core specs without replacing protected guidance or changing permissions. The immediate useful outcome is accurate effect accounting—not stronger prose about accuracy.
 
+## Appendix: Same-revision validation settlement
+
+**Status:** source-inspected residual after the receipt implementation; no code, tests, model inference, training, or benchmarks were run. The traces and evaluations below are conditional deductions and proposed fixtures, not observed incidents.
+
+**Inspected pins:**
+
+- `main`: `356f65e0e6bb639adaa90ab36212daa714114871`
+- `feat/conversation-brief`: `c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c`
+- `codenerd-research-docs`: `1e1a893e7995c799b8b547c229a765ca4772a3c6`
+
+The relevant `tool_effects.go`, `tool_effects.mg`, `coder_safety.mg`, and receipt-test blobs are identical on the two implementation refs. This appendix supplements this audit rather than replacing its historical baseline or reopening its explicitly deferred replay and concurrent-writer work.
+
+### A. What this adds—and what it does not
+
+The main branch's [**As built** section, lines 189–205](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/Docs/audits/tool-effect-receipts-and-validation-completeness.md#L189-L205) correctly reports substantial implementation: failed writes remain accounted, output survives postcondition failure, typed validation distinguishes incomplete observations, and policy derives recovery. The original output-loss and missing-write-ledger findings should **not** be repeated as current defects.
+
+The remaining seam is narrower:
+
+> **A later successful validation of the same bytes does not settle an earlier incomplete receipt, because publishing that validation is conditional on observing another content change.**
+
+This is primarily a **liveness and evidence-conservation defect**, not a demonstrated false-success or authorization bypass. The executive conservatively withholds a completion claim, but it can continue withholding within the same turn after the relevant validator has actually measured the unchanged result successfully.
+
+The audit already explicitly defers durable replay/rendezvous and concurrent-writer attribution. This appendix does not repackage those deferred topics. It concerns the implemented, in-memory policy half of recovery: associating a later observation with the existing effect revision.
+
+### B. Exact conditional source trace
+
+Consider a normal authorized write turn without a caller-supplied acceptance contract:
+
+1. **First call changes a file.** A registered `write_file` writes valid JSON, for example `{"enabled":true}`, replacing different bytes. The ordinary handler does not require the new content to differ from existing content; it writes through `atomicfile.WriteFilePreservingMode`, records changed-source information, and returns success. [Handler, lines 336–365](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/tools/core/file_ops.go#L336-L365).
+
+2. **Its call-local deadline expires at the post-validation boundary while the parent turn remains live.** Session creates a separate bounded tool context, then uses it for execution and post-validation. [Tool context, lines 2617–2627](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/executor_tools.go#L2617-L2627), [post-validation, lines 2679–2686](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/executor_tools.go#L2679-L2686). The validator registry explicitly turns cancellation before a validator into `ValidationUnavailable`; summarization produces `ToolValidationIncomplete`. [Registry, lines 225–240](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/action_validator.go#L225-L240), [summary, lines 312–347](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/action_validator.go#L312-L347). Independently, each validator receives its own 30-second child context; an unclassified failed reading after that deadline is classified unavailable. [Validator deadline and classification, lines 244–293](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/action_validator.go#L244-L293). This alternative is conditional on the validator returning that failed, unclassified reading; it is not a claim that every validator honors the deadline or that a standard validator has been observed timing out.
+
+   These are possible orderings supported by production code, **not observed incidents or incidence estimates**. Whole-turn cancellation is not required: a child context can expire before its parent. The first trace needs only the tool-local deadline to expire after the handler writes and before a registry validation-boundary check.
+
+3. **The changed file receives an incomplete receipt.** `settleToolEffects` records the observed change and validation state. Policy derives `/inspect` for `/incomplete`. Automatic `/revalidate` is restricted to `/not_run` at round zero; it does not cover an incomplete validation. [Receipt settlement, lines 230–283](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/tool_effects.go#L230-L283), [recovery rules, lines 96–108](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/defaults/policy/tool_effects.mg#L96-L108).
+
+4. **A separately admitted later call writes exactly the same bytes and its validators complete successfully.** Give it a new call ID; no duplicate-identity or replay behavior is needed. All current gates must admit it. `executeToolCall` records the verified validation in the per-call log. However, the before/after content identities now match.
+
+5. **The successful observation is discarded at settlement.** `settleToolEffects` reads that validation, accounts the successful write, then returns at `if !changed` **before** `assertToolReceipt`, `assertToolValidation`, or appending `ToolReceipts`. [Lines 236–283](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/tool_effects.go#L236-L283). Merely removing this early return would be insufficient: `assertToolReceipt` skips unchanged effects, while the policy still joins validation by the original effect's call ID. [Lines 303–318](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/tool_effects.go#L303-L318).
+
+6. **The earlier incomplete receipt remains current.** Policy selects the latest **effect** per path, and the latest validation round for that effect's **call ID**. The second call contributes no newer effect or linked validation round. [Policy, lines 40–84](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/defaults/policy/tool_effects.mg#L40-L84). Closing supersession also does not retire the old receipt: it deliberately skips a path whose current digest equals the recorded `After` digest. [Supersession, lines 364–385](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/tool_effects.go#L364-L385).
+
+7. **Ordinary gate-based completion remains withheld for this turn.** `turn_verified`'s write arm excludes `turn_has_unmeasured_effect`; the missing-evidence projection names `/effect_unmeasured`. Green build/test evidence does not independently settle this tool-validation obligation. [Completion, lines 676–678](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/defaults/policy/coder_safety.mg#L676-L678), [missing evidence, lines 726–734](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/defaults/policy/coder_safety.mg#L726-L734).
+
+The example repeats a content-idempotent write only to expose the lost observation. It is **not** a recommendation to recover by rewriting files. Identical content does not imply no physical effect: an atomic replacement may still change metadata or trigger watchers.
+
+### C. Production reachability and limits
+
+The shared accounting wrapper is explicitly used for native and Piggyback calls; it invokes execution, then settlement before returning the result. [Main wrapper, lines 975–1045](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/executor_tools.go#L975-L1045), [feature wrapper](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/session/executor_tools.go#L980-L1050).
+
+For the feature TUI, the delegation helper uses `ExecuteObservedWithContext`; the task executor calls `ProcessWithIntent`, which enters `runToolLoop`. [TUI helper](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/cmd/nerd/chat/delegation.go#L61-L74), [task executor](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/session/task_executor.go#L352-L409), [loop entry](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/session/executor.go#L1321-L1327).
+
+This proves a reachable source path, not that a particular deployed run exhibited the schedule. A valid witness must establish actual tool availability and exact admission, not fabricate a call absent from the production catalog.
+
+**Counterexamples and boundaries:**
+
+- **The debt is turn-local, not a permanent cross-turn lock.** `checkHollowSuccess` reads and captures the turn's verdict before deferred `cleanupTurnFacts`. A fresh turn does not inherit this turn's receipt facts through this path. Starting another turn can therefore escape this particular stale obligation, although it does not recover the lost validation observation inside the original turn. [Closure and cleanup, lines 2164–2208](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/executor_tools.go#L2164-L2208).
+- A later verified write that actually changes the content can supersede the earlier effect. The existing repair test exercises that case. [Test, lines 145–185](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/tool_effects_test.go#L145-L185).
+- A handler failure after a change receives the existing immediate `/not_run` revalidation. That mechanism is real and must remain. [Test, lines 192–216](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/tool_effects_test.go#L192-L216).
+- A verified caller contract has a separate `turn_verified` arm. Therefore this receipt does **not universally prevent completion**. Do not manufacture or weaken acceptance contracts to escape it.
+- Optional `/unvalidated` outcomes are deliberately different from `/incomplete`; this appendix does not convert optional coverage into a mandatory failure.
+- Ordinary reading of the file is useful diagnosis, but the inspected producer path does not link that read to a new `turn_tool_validation` round.
+- A genuinely changed revision, different resource, different validator obligation, denied call, or incomplete recheck cannot settle the original obligation merely because it occurred later.
+
+The existing incomplete-validation test stops after confirming that `/inspect` and `turn_has_unmeasured_effect` arise. It does not exercise subsequent same-byte successful validation. [Test, lines 221–238](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/tool_effects_test.go#L221-L238). These tests were inspected, not run.
+
+### D. Proposed contract: validation progress need not require mutation
+
+Preserve the fail-closed rule. The correction is **not** to ignore incomplete receipts, clear them when the model says it inspected the file, or accept any later successful tool.
+
+A proposed host-owned settlement should:
+
+1. Identify the outstanding receipt, resources, recorded revisions, validator obligations, and owning turn.
+2. Require current authority for any validation/read operation and disclosure. Historical write permission is not new permission.
+3. Measure the same revision through the appropriate validators without rerunning the original effect.
+4. Append a new validation observation linked to the existing receipt and revision. Preserve the earlier incomplete observation.
+5. Let Mangle determine whether the new evidence settles the outstanding obligation.
+6. Keep changed, unreadable, canceled, unsupported, or mismatched state explicit. Do not turn uncertainty into a pass.
+7. Leave the write clock and effect count unchanged for validation-only recovery.
+8. Honor parent cancellation and the remaining task budget; do not detach recovery indefinitely.
+
+The currently documented per-call validation model matters: if one call changed multiple paths, measuring one path cannot certify all of them. A bounded first implementation can remeasure the complete original resource/obligation set rather than redesigning the entire model as per-resource receipts.
+
+Matching digests before and after a live validation is not by itself a proof against every intervening writer or ABA sequence. Prefer validators operating on a frozen verified input where possible; otherwise state the observation/ownership limitation. This appendix does not claim to solve the deferred CAS-attribution problem.
+
+### E. Alternatives and cost
+
+| Alternative | Benefit | Limitation |
+|---|---|---|
+| Keep current conservative result | No implementation cost; no new acceptance path | Truthful but potentially stale `/effect_unmeasured`; extra model/user work |
+| Carry an already-produced same-revision validation into the existing receipt | Smallest repair for the demonstrated lost observation | Needs explicit matching and complete obligation coverage; alone does not provide validation-only recovery |
+| Host-driven, policy-authorized revalidation of outstanding incomplete receipts | Settles evidence without rewriting files or asking the model to manufacture a change | Additional validator I/O/CPU, revision checks, cancellation and scheduling work |
+| Expose a narrowly typed revalidation operation | Explicit solver affordance | Catalog/JIT/admission surface and extra model round; must not become arbitrary execution |
+| Clear debt on any later successful call or green build | Cheap | **Reject:** unrelated success does not establish the missing validation |
+
+Measure separately: validator invocations, bytes read/hashed, host CPU, receipt/fact storage, model tokens, repeated writes, post-write gate reruns, elapsed recovery time, unresolved turns, and human interventions. A validation-only path can avoid rewrite and model-loop costs, but no savings are established here.
+
+For `B` bytes across the affected resource set, an additional whole-content hash is `O(B)` work; validator costs are separate. Avoid blindly revalidating every receipt every round. Index unresolved current obligations and derive eligibility from new state, remaining budget, and policy. Failed and blocked tasks belong in the evaluation denominator.
+
+### F. Primary foundations, used narrowly
+
+- [RFC 9110 §9.2.2](https://www.rfc-editor.org/rfc/rfc9110.html#section-9.2.2) distinguishes idempotent request semantics and limits automatic retry of non-idempotent operations. The useful analogy is that repairing evidence and repeating an effect are different operations—not that file tools inherit HTTP guarantees.
+- [RFC 9110 §13.1.1](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.1) binds a conditional request to a matching representation. This motivates explicit revision matching; it does not prove that CodeNERD's current path is atomic.
+- [Lee et al., *Implementing Linearizability at Large Scale and Low Latency*, SOSP 2015](https://web.stanford.edu/~ouster/cgi-bin/papers/rifl.pdf) separates returning a retained operation result from executing the operation again. Here that supports keeping effect replay outside observation repair. Its distributed-storage guarantees do not transfer to these tools merely by adding a validation record.
+
+### G. Proposed verification and exits—none executed
+
+1. **Core loss witness:** changed write → incomplete validation → separately admitted byte-identical write → verified validation. Assert the successful observation exists at the bridge, then inspect receipt facts and final missing evidence.
+2. **Preferred recovery:** changed write → incomplete validation → authorized validation-only recovery. Require unchanged bytes, one original effect dispatch, append-only observations, and settlement only after the correct validators complete.
+3. **Negative controls:** different path; different revision; missing validator; repeated incompleteness; definitive rejection; denied recovery; canceled parent; unreadable resource; stale policy/authority.
+4. **Multi-file case:** one original path remains unmeasured or rejected. Revalidating a sibling must not settle the entire call.
+5. **Existing behavior:** preserve immediate handler-failure revalidation, changed-byte repair, denied-call zero-effect behavior, optional-validator handling, turn-local cleanup, and the separate caller-contract route.
+6. **Production paths:** native and Piggyback, real catalog/admission, real kernel, normal task-executor entry with CodeDOM/world context enabled. Use deterministic barriers or a controlled clock for the deadline schedule, not flaky short sleeps.
+7. **Outcome:** a complete valid observation of the same revision can advance evidence without inventing another mutation; stale or incomplete observations cannot. Confirm the ordinary final verdict and user-visible explanation agree.
+8. **Comparative evaluation:** current baseline versus retained-observation settlement versus validation-only recovery, under identical acceptance and authority. Report correctness, unresolved results, recovery effort and total costs—not just local test success.
+
+**Bottom line:** the implemented receipt system correctly preserves failure evidence. Its next small refinement is to let **new validation evidence settle an existing unchanged revision within the owning turn**, without requiring another content mutation or weakening completion gates.
