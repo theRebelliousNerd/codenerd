@@ -8,6 +8,7 @@ import (
 
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
+	"codenerd/internal/types"
 
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
@@ -16,7 +17,11 @@ import (
 // AtomGenerator generates new prompt atoms from failure patterns.
 // This is the core of the prompt evolution system - learning from mistakes.
 type AtomGenerator struct {
-	llmClient     LLMClient
+	llmClient LLMClient
+	// rolePrompts compiles the generator's system prompts from the
+	// /prompt_atom_generator and /strategy_refiner role atoms
+	// (internal/prompt/atoms/autopoiesis/meta_atom_generator.yaml).
+	rolePrompts   types.RolePromptCompiler
 	strategyStore *StrategyStore
 
 	// pinScope is the granularity at which generated atoms are bound to the
@@ -27,7 +32,7 @@ type AtomGenerator struct {
 // NewAtomGeneratorWithPinScope creates a new atom generator with an explicit
 // pin scope. An unrecognized scope falls back to PinScopeModel (the default)
 // rather than silently generating atoms pinned more loosely than asked.
-func NewAtomGeneratorWithPinScope(llmClient LLMClient, strategyStore *StrategyStore, scope PinScope) *AtomGenerator {
+func NewAtomGeneratorWithPinScope(llmClient LLMClient, rolePrompts types.RolePromptCompiler, strategyStore *StrategyStore, scope PinScope) *AtomGenerator {
 	if !scope.Valid() {
 		logging.Get(logging.CategoryAutopoiesis).Warn(
 			"Unknown atom pin scope %q; falling back to %q", scope, DefaultPinScope)
@@ -35,6 +40,7 @@ func NewAtomGeneratorWithPinScope(llmClient LLMClient, strategyStore *StrategySt
 	}
 	return &AtomGenerator{
 		llmClient:     llmClient,
+		rolePrompts:   rolePrompts,
 		strategyStore: strategyStore,
 		pinScope:      scope,
 	}
@@ -98,9 +104,14 @@ func (ag *AtomGenerator) GenerateFromFailures(
 	// Build the meta-prompt
 	userPrompt := ag.buildMetaPrompt(failures, shardType, problemType, pin)
 
+	systemPrompt, err := ag.systemPrompt(ctx, "prompt_atom_generator")
+	if err != nil {
+		return nil, err
+	}
+
 	// Call LLM
 	llmTimer := logging.StartTimer(logging.CategoryAutopoiesis, "LLMAtomGeneration")
-	response, err := ag.llmClient.CompleteWithSystem(ctx, atomGenerationSystemPrompt, userPrompt)
+	response, err := ag.llmClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	llmTimer.Stop()
 
 	if err != nil {
@@ -319,8 +330,13 @@ func (ag *AtomGenerator) RefineStrategy(
 	// Build refinement prompt
 	userPrompt := ag.buildRefinementPrompt(strategy, recentOutcomes)
 
+	systemPrompt, err := ag.systemPrompt(ctx, "strategy_refiner")
+	if err != nil {
+		return nil, err
+	}
+
 	// Call LLM
-	response, err := ag.llmClient.CompleteWithSystem(ctx, strategyRefinementSystemPrompt, userPrompt)
+	response, err := ag.llmClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return nil, fmt.Errorf("strategy refinement failed: %w", err)
 	}
@@ -543,48 +559,13 @@ func computeHash(s string) string {
 	return fmt.Sprintf("%x", h)
 }
 
-// System prompts
-
-var atomGenerationSystemPrompt = `You are an expert at creating prompt atoms for an AI coding agent.
-
-Your task is to analyze failure patterns and create new prompt atoms that would prevent similar failures.
-
-## Atom Structure
-
-Each atom MUST follow this exact YAML structure:
-- id: "category/subcategory/descriptive_name"
-  category: "methodology|language|framework|domain|exemplar"
-  priority: 50-90
-  is_mandatory: false
-  languages: ["/go", "/python", etc.]  # optional, if language-specific
-  content: |
-    Clear, actionable instructions...
-
-## Guidelines
-
-1. **Be Specific**: Focus on the exact failure patterns observed
-2. **Be Actionable**: Use imperative mood ("Always check...", "Never assume...")
-3. **Be Concise**: Each atom should address one concern
-4. **Include Examples**: When helpful, show what to do and what to avoid
-5. **Use Appropriate Categories**:
-   - methodology: Problem-solving approaches
-   - language: Language-specific guidance
-   - framework: Framework-specific patterns
-   - domain: Project/domain context
-   - exemplar: Few-shot examples
-
-Output ONLY valid YAML, no other text.`
-
-var strategyRefinementSystemPrompt = `You are an expert at improving problem-solving strategies for an AI coding agent.
-
-Your task is to refine a strategy based on recent successes and failures.
-
-## Guidelines
-
-1. **Preserve What Works**: Keep elements that contributed to successes
-2. **Address Failures**: Add guidance to prevent observed failure patterns
-3. **Be Specific**: Include concrete steps and examples
-4. **Be Practical**: Focus on actionable guidance
-5. **Maintain Structure**: Keep a clear, numbered format
-
-Output the refined strategy content in a markdown code block.`
+// systemPrompt compiles role's system prompt with intent /judge, which keeps
+// worker intent atoms out; the role's atom supersedes the Piggyback protocol,
+// since Go parses the reply. No compiler, or a failed compile, is an error
+// wrapping types.ErrRolePromptUnavailable.
+func (ag *AtomGenerator) systemPrompt(ctx context.Context, role string) (string, error) {
+	if ag.rolePrompts == nil {
+		return "", fmt.Errorf("%w: no role prompt compiler for the %s", types.ErrRolePromptUnavailable, role)
+	}
+	return ag.rolePrompts.CompileRolePrompt(ctx, types.RolePromptRequest{Role: role, Intent: "judge"})
+}

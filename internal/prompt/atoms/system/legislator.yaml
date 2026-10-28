@@ -178,7 +178,7 @@
   is_mandatory: false
   shard_types: ["/legislator"]
   content: |
-    ## REASONING TRACE (Internal)
+    ## RULE VALIDATION CHECKS
 
     Before emitting the rule, verify:
     1. All variables are bound in positive body literals

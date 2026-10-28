@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -40,6 +42,9 @@ type ComplexityResult struct {
 // ComplexityAnalyzer determines task complexity from natural language
 type ComplexityAnalyzer struct {
 	client LLMClient
+	// rolePrompts compiles AnalyzeWithLLM's system prompt from the
+	// complexity_analyzer role atoms.
+	rolePrompts types.RolePromptCompiler
 }
 
 // LLMClient interface for LLM calls
@@ -51,6 +56,12 @@ type LLMClient interface {
 // NewComplexityAnalyzer creates a new analyzer
 func NewComplexityAnalyzer(client LLMClient) *ComplexityAnalyzer {
 	return &ComplexityAnalyzer{client: client}
+}
+
+// SetRolePrompts attaches the role prompt compiler AnalyzeWithLLM compiles
+// its system prompt with.
+func (ca *ComplexityAnalyzer) SetRolePrompts(roles types.RolePromptCompiler) {
+	ca.rolePrompts = roles
 }
 
 // Complexity indicators - patterns that suggest different complexity levels
@@ -245,22 +256,13 @@ func (ca *ComplexityAnalyzer) AnalyzeWithLLM(ctx context.Context, input string) 
 		return result, nil
 	}
 
-	// Use LLM for ambiguous cases
-	prompt := `Analyze this task for complexity. Return JSON only:
-{
-  "analysis_summary": "1-2 sentence rationale for the complexity choice",
-  "complexity": "simple|moderate|complex|epic",
-  "needs_campaign": true/false,
-  "needs_persistent": true/false,
-  "estimated_files": number,
-  "phases": ["phase1", "phase2"]
-}
-
-Task: "` + input + `"
-
-JSON only:`
-
-	resp, err := ca.client.Complete(ctx, prompt)
+	// Use LLM for ambiguous cases. No complexity_analyzer prompt is an error
+	// the caller reports, returned with the heuristic result.
+	systemPrompt, err := compileRolePrompt(ctx, ca.rolePrompts, roleComplexityAnalyzer)
+	if err != nil {
+		return result, err
+	}
+	resp, err := ca.client.CompleteWithSystem(ctx, systemPrompt, `Task: "`+input+`"`)
 	if err != nil {
 		return result, nil // Fall back to heuristic result
 	}

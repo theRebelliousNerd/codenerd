@@ -97,9 +97,13 @@ func (tg *ToolGenerator) GenerateTool(ctx context.Context, need *ToolNeed) (*Gen
 	}
 	logging.AutopoiesisDebug("Generated tool code: %d bytes", len(code))
 
-	// Generate test code (always succeeds - has internal fallbacks)
+	// Generate test code (a failed model reply falls back to template tests;
+	// a test writer prompt that cannot be compiled fails the generation)
 	logging.AutopoiesisDebug("Generating test code")
-	testCode, _ := tg.generateTestCode(ctx, need, code)
+	testCode, err := tg.generateTestCode(ctx, need, code)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate test code: %w", err)
+	}
 	logging.AutopoiesisDebug("Generated test code: %d bytes", len(testCode))
 
 	// Generate schema
@@ -182,8 +186,12 @@ func (tg *ToolGenerator) RegenerateWithFeedback(
 	}
 	logging.AutopoiesisDebug("Regenerated tool code: %d bytes", len(code))
 
-	// Generate test code (always succeeds - has internal fallbacks)
-	testCode, _ := tg.generateTestCode(ctx, enhancedNeed, code)
+	// Generate test code (a failed model reply falls back to template tests;
+	// a test writer prompt that cannot be compiled fails the regeneration)
+	testCode, err := tg.generateTestCode(ctx, enhancedNeed, code)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate test code: %w", err)
+	}
 
 	// Generate schema
 	schema := tg.generateSchema(enhancedNeed)
@@ -216,91 +224,16 @@ func (tg *ToolGenerator) RegenerateWithFeedback(
 	return tool, nil
 }
 
-// regenerateToolCodeWithFeedback uses LLM to regenerate code with safety violation feedback.
+// regenerateToolCodeWithFeedback regenerates code with safety violation
+// feedback. Its system prompt is the Ouroboros /refinement stage compiled
+// through the JIT assembler; without one it is an error, not other text.
 func (tg *ToolGenerator) regenerateToolCodeWithFeedback(
 	ctx context.Context,
 	need *ToolNeed,
 	previousCode string,
 	feedback string,
 ) (string, error) {
-	// Try JIT compilation for refinement stage
-	if tg.jitEnabled && tg.promptAssembler != nil && tg.promptAssembler.JITReady() {
-		return tg.regenerateToolCodeWithJIT(ctx, need, previousCode, feedback, "/refinement")
-	}
-
-	return tg.regenerateToolCodeWithFeedbackLegacy(ctx, need, previousCode, feedback)
-}
-
-func (tg *ToolGenerator) regenerateToolCodeWithFeedbackLegacy(
-	ctx context.Context,
-	need *ToolNeed,
-	previousCode string,
-	feedback string,
-) (string, error) {
-	// Fallback to legacy prompts
-	systemPrompt := `You are a Go code generator for the codeNERD agent system.
-Your previous code had safety violations. You must fix these issues.
-
-CRITICAL SAFETY REQUIREMENTS:
-- Do NOT use unsafe imports (os/exec, syscall, unsafe, plugin, runtime/cgo)
-- Do NOT use panic() - return errors instead
-- If using goroutines, always pass a cancelable context
-- Only use explicitly allowed packages (fmt, strings, bytes, context, encoding/*, errors, etc.)
-- Prefer error returns over panic
-- Use context.Context for cancellation
-
-Generate clean, idiomatic Go code that follows these conventions:
-- Use standard library where possible
-- Include proper error handling with error returns
-- Add clear comments
-- Make functions testable
-- Follow Go naming conventions
-
-The tool should be a standalone function that can be called by the agent.
-Include a Register function to add the tool to the tool registry.`
-
-	userPrompt := fmt.Sprintf(`Your previous code had safety violations that need to be fixed.
-
---- SAFETY VIOLATIONS ---
-%s
-
---- PREVIOUS CODE (DO NOT REPEAT THESE MISTAKES) ---
-%s
-
---- TOOL SPECIFICATIONS ---
-Tool Name: %s
-Purpose: %s
-Input Type: %s
-Output Type: %s
-
-Generate CORRECTED Go code that:
-1. Fixes ALL the safety violations listed above
-2. Uses only safe imports (no os/exec, syscall, unsafe, plugin)
-3. Returns errors instead of using panic()
-4. Passes context to goroutines for cancellation
-5. Is in package "tools"
-
-Generate complete, compilable, SAFE Go code:`,
-		feedback, previousCode,
-		need.Name, need.Purpose, need.InputType, need.OutputType)
-
-	code, err := tg.client.CompleteWithSystem(types.WithStructuredOutputOnly(ctx), systemPrompt, userPrompt)
-	if err != nil {
-		return "", err
-	}
-
-	// Extract code block from response
-	return extractCodeBlock(code, "go"), nil
-}
-
-// regenerateToolCodeWithJIT regenerates tool code using JIT-compiled prompts with feedback
-func (tg *ToolGenerator) regenerateToolCodeWithJIT(
-	ctx context.Context,
-	need *ToolNeed,
-	previousCode string,
-	feedback string,
-	stage string,
-) (string, error) {
+	const stage = "/refinement"
 	logging.AutopoiesisDebug("Regenerating tool code with JIT for stage=%s", stage)
 
 	// Build prompt context for this Ouroboros refinement stage
@@ -313,12 +246,9 @@ func (tg *ToolGenerator) regenerateToolCodeWithJIT(
 		"tool_purpose":    need.Purpose,
 	}
 
-	// Assemble system prompt using JIT compiler
-	systemPrompt, err := tg.promptAssembler.AssembleSystemPrompt(ctx, pc)
+	systemPrompt, err := assembleOuroborosPrompt(ctx, tg.promptAssembler, pc)
 	if err != nil {
-		logging.Get(logging.CategoryAutopoiesis).Warn("JIT assembly failed for refinement, falling back: %v", err)
-		// Fall back to legacy generation without re-entering the JIT path.
-		return tg.regenerateToolCodeWithFeedbackLegacy(ctx, need, previousCode, feedback)
+		return "", err
 	}
 
 	logging.AutopoiesisDebug("JIT-compiled refinement prompt: %d bytes", len(systemPrompt))
@@ -358,71 +288,8 @@ Generate complete, compilable, SAFE Go code:`,
 	return extractCodeBlock(code, "go"), nil
 }
 
-// generateToolCode uses LLM to generate the actual Go code
-func (tg *ToolGenerator) generateToolCode(ctx context.Context, need *ToolNeed) (string, error) {
-	// Try JIT compilation first if available
-	if tg.jitEnabled && tg.promptAssembler != nil && tg.promptAssembler.JITReady() {
-		return tg.generateToolCodeWithJIT(ctx, need, "/specification")
-	}
-
-	return tg.generateToolCodeLegacy(ctx, need)
-}
-
-func (tg *ToolGenerator) generateToolCodeLegacy(ctx context.Context, need *ToolNeed) (string, error) {
-	// Fallback to legacy prompts
-	systemPrompt := `You are a Go code generator for the codeNERD agent system.
-Generate clean, idiomatic Go code that follows these conventions:
-- Use standard library where possible
-- Include proper error handling
-- Add clear comments
-- Make functions testable
-- Follow Go naming conventions
-
-The tool should be a standalone function that can be called by the agent.
-Include a Register function to add the tool to the tool registry.`
-
-	// Build base user prompt
-	userPrompt := fmt.Sprintf(`Generate a Go tool with these specifications:
-
-Tool Name: %s
-Purpose: %s
-Input Type: %s
-Output Type: %s
-
-The tool should be in package "tools" and include:
-1. Main tool function: %s(ctx context.Context, input %s) (%s, error)
-2. Tool description constant (e.g., const ToolDescription%s = "...")
-
-IMPORTANT: Generate ONLY standalone code. Do NOT generate registration functions or reference any types like ToolRegistry or Tool that aren't defined in this file.`,
-		need.Name, need.Purpose, need.InputType, need.OutputType,
-		toCamelCase(need.Name), need.InputType, need.OutputType,
-		toPascalCase(need.Name))
-
-	// Inject learnings context if available
-	if tg.learningsContext != "" {
-		userPrompt += fmt.Sprintf(`
-
-LEARNINGS FROM PAST TOOL GENERATION:
-%s
-
-Apply these learnings to generate better code.`, tg.learningsContext)
-		logging.AutopoiesisDebug("Injected learnings into generation prompt")
-	}
-
-	userPrompt += "\n\nGenerate complete, compilable Go code:"
-
-	code, err := tg.client.CompleteWithSystem(types.WithStructuredOutputOnly(ctx), systemPrompt, userPrompt)
-	if err != nil {
-		return "", err
-	}
-
-	// Extract code block from response
-	return extractCodeBlock(code, "go"), nil
-}
-
-// generateToolCodeWithJIT generates tool code using JIT-compiled prompts
 // Every LLM call in this file returns raw Go inside a markdown fence, pulled out
-// by extractCodeBlock. None of them is a Piggyback envelope, so all five declare
+// by extractCodeBlock. None of them is a Piggyback envelope, so all three declare
 // types.WithStructuredOutputOnly.
 //
 // Without that declaration the client decides by searching the prompt for
@@ -434,7 +301,11 @@ Apply these learnings to generate better code.`, tg.learningsContext)
 // ouroboros_timeout. Observed live: "specification failed: failed to generate
 // tool code: context deadline exceeded" after 10 minutes.
 
-func (tg *ToolGenerator) generateToolCodeWithJIT(ctx context.Context, need *ToolNeed, stage string) (string, error) {
+// generateToolCode generates the tool's Go code. Its system prompt is the
+// Ouroboros /specification stage compiled through the JIT assembler; without
+// one it is an error, not other text.
+func (tg *ToolGenerator) generateToolCode(ctx context.Context, need *ToolNeed) (string, error) {
+	const stage = "/specification"
 	logging.AutopoiesisDebug("Generating tool code with JIT for stage=%s", stage)
 
 	// Build prompt context for this Ouroboros stage
@@ -449,12 +320,9 @@ func (tg *ToolGenerator) generateToolCodeWithJIT(ctx context.Context, need *Tool
 		"output_type":     need.OutputType,
 	}
 
-	// Assemble system prompt using JIT compiler
-	systemPrompt, err := tg.promptAssembler.AssembleSystemPrompt(ctx, pc)
+	systemPrompt, err := assembleOuroborosPrompt(ctx, tg.promptAssembler, pc)
 	if err != nil {
-		logging.Get(logging.CategoryAutopoiesis).Warn("JIT assembly failed, falling back: %v", err)
-		// Fall back to legacy generation without re-entering the JIT path.
-		return tg.generateToolCodeLegacy(ctx, need)
+		return "", err
 	}
 
 	logging.AutopoiesisDebug("JIT-compiled system prompt: %d bytes", len(systemPrompt))
@@ -498,21 +366,17 @@ Apply these learnings to generate better code.`, tg.learningsContext)
 	return extractCodeBlock(code, "go"), nil
 }
 
-// generateTestCode generates tests for the tool
+// generateTestCode generates tests for the tool. Its system prompt is the
+// tool_test_writer role's atoms; the message is the tool's code. A prompt
+// that cannot be compiled is an error; a failed or thin model reply falls
+// back to the template tests.
 func (tg *ToolGenerator) generateTestCode(ctx context.Context, need *ToolNeed, code string) (string, error) {
-	prompt := fmt.Sprintf(`Generate Go test code for this tool:
+	systemPrompt, err := compileRolePrompt(ctx, tg.rolePrompts, roleToolTestWriter)
+	if err != nil {
+		return "", err
+	}
 
-Tool Code:
-%s
-
-Generate comprehensive tests including:
-1. Happy path tests
-2. Error case tests
-3. Edge case tests
-
-Generate complete test file in package "tools":`, code)
-
-	testCode, err := tg.client.Complete(types.WithStructuredOutputOnly(ctx), prompt)
+	testCode, err := tg.client.CompleteWithSystem(types.WithStructuredOutputOnly(ctx), systemPrompt, "Tool Code:\n"+code)
 	if err != nil {
 		// Use comprehensive fallback test generation
 		return tg.generateFallbackTests(need, code), nil

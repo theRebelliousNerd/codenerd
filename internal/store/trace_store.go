@@ -23,7 +23,9 @@ type TraceStore struct {
 	dbPath string
 }
 
-// ReasoningTrace represents a captured LLM interaction for learning.
+// ReasoningTrace is the legacy storage name for an LLM interaction audit record.
+// It stores ordinary assistant output and call metadata, not native thinking
+// blocks or provider signatures.
 // Mirrors perception.ReasoningTrace to avoid import cycles.
 type ReasoningTrace struct {
 	ID                string    `json:"id"`
@@ -122,7 +124,7 @@ func (ts *TraceStore) ensureSchema() error {
 
 // ========== Write Operations (perception.TraceStore interface) ==========
 
-// StoreReasoningTrace persists a reasoning trace for later analysis.
+// StoreReasoningTrace persists an interaction audit record for later analysis.
 // This is called asynchronously by TracingLLMClient after each LLM interaction.
 //
 // Accepts *ReasoningTrace directly - the LocalStore wrapper handles reflection

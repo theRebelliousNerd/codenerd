@@ -293,7 +293,7 @@ func (c *AnthropicClient) completeText(ctx context.Context, req AnthropicRequest
 		return "", outputTruncated(ProviderAnthropic, req.Model, operation, resp.StopReason, result, req.MaxTokens, resp.Usage.OutputTokens)
 	}
 	if resp.StopReason == "refusal" {
-		return "", fmt.Errorf("Anthropic refused the request")
+		return "", &types.StreamError{Outcome: types.StreamRefused, Provider: string(ProviderAnthropic), Model: req.Model, Reason: resp.StopReason, Detail: "request declined by provider"}
 	}
 	if resp.StopReason != "end_turn" && resp.StopReason != "stop_sequence" {
 		return "", fmt.Errorf("Anthropic text completion ended with unexpected stop_reason %q", resp.StopReason)
@@ -371,7 +371,7 @@ func (c *AnthropicClient) completeTools(ctx context.Context, req AnthropicReques
 		return nil, outputTruncated(ProviderAnthropic, req.Model, operation, resp.StopReason, out.Text, req.MaxTokens, resp.Usage.OutputTokens)
 	}
 	if resp.StopReason == "refusal" {
-		return nil, fmt.Errorf("Anthropic refused the request")
+		return nil, &types.StreamError{Outcome: types.StreamRefused, Provider: string(ProviderAnthropic), Model: req.Model, Reason: resp.StopReason, Detail: "request declined by provider"}
 	}
 	switch resp.StopReason {
 	case "end_turn", "stop_sequence", "tool_use":

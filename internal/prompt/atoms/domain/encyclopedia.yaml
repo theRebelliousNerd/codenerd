@@ -53,7 +53,7 @@
     ### Non‑Negotiable Invariants
 
     - **Constitutional Safety**: any action must satisfy `permitted(ActionType, Target, Payload)` or it is denied.
-    - **Thought‑First Piggyback**: control_packet before surface_response.
+    - **Control-Packet Field Order**: control_packet before surface_response.
     - **One Source of Truth**: new LLM behaviors ship as atoms first (internal or project).
     - **Living Codebase Respect**: unused wiring is suspicious; investigate before removing.
 

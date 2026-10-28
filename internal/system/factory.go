@@ -1834,6 +1834,11 @@ func initIntelligenceLayer(bctx *bootContext) error {
 	if perception.SharedTaxonomy != nil {
 		perception.SharedTaxonomy.SetRolePrompts(bctx.rolePrompts)
 	}
+	// Autopoiesis analyzers, spec/test/profile writers, quality assessor and
+	// PanicMaker compile their system prompts from autopoiesis role atoms.
+	if bctx.poiesis != nil {
+		bctx.poiesis.SetRolePrompts(bctx.rolePrompts)
+	}
 	initMCPBridge(bctx)
 
 	if bctx.localDB != nil {

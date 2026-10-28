@@ -112,11 +112,12 @@ func TestToolGenerator_LLMTypeCoercion(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			client := &MockLLMClient{
-				CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
+				CompleteWithSystemFunc: func(ctx context.Context, _, prompt string) (string, error) {
 					return tc.response, nil
 				},
 			}
 			tg := NewToolGenerator(client, "/tmp/tools")
+			tg.SetRolePrompts(fixedRolePrompts{})
 
 			// Should not panic on any of these responses
 			need, err := tg.DetectToolNeed(context.Background(), "I need a tool to validate JSON", "")

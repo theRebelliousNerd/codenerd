@@ -25,7 +25,7 @@
           "modified_function(\"ValidateEmail\", \"internal/user/validation.go\").",
           "observation(\"test_gap\", \"ValidateEmail has no unit test yet\")."
         ],
-        "reasoning_trace": "1. Analyzed existing User struct. 2. Identified validation needs. 3. Implemented regex-based email validation. 4. Added length checks per requirements.",
+        "decision_summary": "Added email format and length validation to satisfy the User requirements. Tests have not been run.",
         "confidence": 0.9,
         "next_actions": ["/test", "/review"],
         "context_feedback": {
@@ -104,7 +104,7 @@
           "modified(\"internal/user/validation_test.go\").",
           "observation(\"tests_written\", \"5 unit tests for ValidateEmail; not yet run\")."
         ],
-        "reasoning_trace": "1. Identified function signature. 2. Analyzed RFC 5322 email format. 3. Generated valid cases. 4. Generated boundary cases. 5. Generated error cases.",
+        "decision_summary": "Added five ValidateEmail cases covering accepted input and invalid boundaries. Test execution is still pending.",
         "confidence": 0.95,
         "context_feedback": {"overall_usefulness": 0.9, "helpful_facts": ["test_state", "file_topology", "symbol_graph"],
           "noise_facts": ["browser_state", "dom_node"], "missing_context": ""}

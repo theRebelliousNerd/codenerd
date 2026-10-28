@@ -785,7 +785,7 @@ type GeminiResponseCandidate struct {
 type GeminiResponse struct {
 	Candidates    []GeminiResponseCandidate `json:"candidates"`
 	UsageMetadata geminiUsage               `json:"usageMetadata"`
-	// ThoughtSummary contains the model's reasoning process (when thinking is enabled)
+	// ThoughtSummary contains a provider-supplied summary, separate from task output.
 	ThoughtSummary string `json:"thoughtSummary,omitzero"`
 	// ThoughtSignature is an encrypted blob for multi-turn function calling (Gemini 3)
 	// Must be passed back in subsequent turns for the model to maintain reasoning context

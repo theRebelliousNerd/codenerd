@@ -68,7 +68,7 @@ func TestIsStructuredOutputOnly_LeavesConversationalShardsAlone(t *testing.T) {
 func TestFilterAtomsForStructuredOutput_RemovesBothProtocolFamilies(t *testing.T) {
 	atoms := []*PromptAtom{
 		{ID: "protocol/piggyback/envelope"},
-		{ID: "protocol/reasoning/trace"},
+		{ID: "protocol/decision_summary/trace"},
 		{ID: "campaign/taxonomist/output_protocol", Category: CategoryProtocol},
 		{ID: "campaign/taxonomist/reasoning_trace", Category: CategoryProtocol},
 		{ID: "safety/constitutional/default_deny", Category: CategorySafety},
@@ -89,7 +89,7 @@ func TestFilterAtomsForStructuredOutput_RemovesBothProtocolFamilies(t *testing.T
 	if strings.Contains(joined, "protocol/piggyback/") {
 		t.Error("a piggyback protocol atom survived into a structured-output compile")
 	}
-	if strings.Contains(joined, "protocol/reasoning/") {
+	if strings.Contains(joined, "protocol/decision_summary/") {
 		t.Error("a reasoning protocol atom survived into a structured-output compile")
 	}
 	if strings.Contains(joined, "campaign/taxonomist/output_protocol") {
@@ -111,7 +111,7 @@ func TestFilterAtomsForStructuredOutput_RemovesBothProtocolFamilies(t *testing.T
 func TestFilterAtomsForStructuredOutput_LeavesOtherShardsUntouched(t *testing.T) {
 	atoms := []*PromptAtom{
 		{ID: "protocol/piggyback/envelope"},
-		{ID: "protocol/reasoning/trace"},
+		{ID: "protocol/decision_summary/trace"},
 	}
 	cc := NewCompilationContext()
 	cc.ShardType = "/coder"
@@ -131,7 +131,7 @@ func TestFilterAtomsForStructuredOutput_PerceptionKeepsItsOwnerAndClosure(test *
 		{ID: "system/perception/precision", Category: CategoryMethodology},
 		{ID: "perception_understanding", Category: CategoryIntent},
 		{ID: "protocol/piggyback/envelope", Category: CategoryProtocol},
-		{ID: "protocol/reasoning/trace", Category: CategoryProtocol},
+		{ID: "protocol/decision_summary/trace", Category: CategoryProtocol},
 		{ID: "foreign/output_contract", Category: CategoryProtocol},
 		{ID: "perception/transducer/intent_library", Category: CategoryIdentity},
 		{ID: "dependent/legacy", Category: CategoryMethodology, DependsOn: []string{"perception/transducer/intent_library"}},
@@ -151,7 +151,7 @@ func TestFilterAtomsForStructuredOutput_PerceptionKeepsItsOwnerAndClosure(test *
 					test.Errorf("canonical perception support %q was removed", id)
 				}
 			}
-			for _, id := range []string{"protocol/piggyback/envelope", "protocol/reasoning/trace", "foreign/output_contract", "perception/transducer/intent_library", "dependent/direct", "dependent/transitive", "dependent/legacy"} {
+			for _, id := range []string{"protocol/piggyback/envelope", "protocol/decision_summary/trace", "foreign/output_contract", "perception/transducer/intent_library", "dependent/direct", "dependent/transitive", "dependent/legacy"} {
 				if ids[id] {
 					test.Errorf("incompatible instruction or dependent %q survived", id)
 				}

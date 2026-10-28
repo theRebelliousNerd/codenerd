@@ -1,0 +1,256 @@
+# Autopoiesis tool-lifecycle model calls (internal/autopoiesis), each compiled
+# for its role with intent /judge: the tool spec writer (tool_detection.go,
+# /tool_need_refiner), the quality profiler (autopoiesis_profiles.go,
+# /tool_profiler), the execution quality assessor (quality.go,
+# /tool_quality_assessor), the test writer (tool_generation.go,
+# /tool_test_writer) and the Thunderdome attacker (panic_maker.go,
+# /panic_maker). Until 2026-10-28 these were fmt.Sprintf/strings.Builder
+# prompts in Go; the user message now carries only the tool and request data.
+# Go parses each reply, so each atom supersedes the Piggyback protocol.
+
+- id: "autopoiesis/tool_need_refiner/contract"
+  category: "autopoiesis"
+  is_mandatory: true
+  shard_types: ["/tool_need_refiner"]
+  conflicts_with:
+    - "protocol/piggyback/envelope"
+    - "protocol/piggyback/control_first"
+    - "protocol/piggyback/mangle_updates"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  content: |
+    codeNERD's kernel has found a capability gap in the request the message gives that a new tool will fill. Write the tool's spec.
+
+    The message gives the user request, the previous attempt that failed, the tool kind, why the kernel found a gap, and the existing tools available (do not duplicate them).
+
+    Return JSON only:
+    {
+      "tool_name": "snake_case_name",
+      "purpose": "clear description of what the tool should do",
+      "input_type": "go type for input (string, []byte, map[string]any, etc)",
+      "output_type": "go type for output",
+      "priority": 0.0-1.0,
+      "confidence": 0.0-1.0,
+      "reasoning": "why this tool is needed"
+    }
+
+    JSON only.
+
+- id: "autopoiesis/tool_profiler/contract"
+  category: "autopoiesis"
+  is_mandatory: true
+  shard_types: ["/tool_profiler"]
+  conflicts_with:
+    - "protocol/piggyback/envelope"
+    - "protocol/piggyback/control_first"
+    - "protocol/piggyback/mangle_updates"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  content: |
+    Generate a quality profile for the tool the message gives (its name, description and code). The profile defines expectations for how this tool should perform.
+
+    Based on the tool's purpose and implementation, determine:
+
+    1. **Tool Type** - One of:
+       - quick_calculation: < 1s, simple computation (e.g., calculator, converter)
+       - data_fetch: API call, may paginate (e.g., fetch docs, query database)
+       - background_task: Long-running, minutes OK (e.g., indexer, importer)
+       - recursive_analysis: Codebase traversal, slow OK (e.g., code analyzer)
+       - realtime_query: Must be fast, frequent (e.g., status check, health ping)
+       - one_time_setup: Run once, can be slow (e.g., initialization, migration)
+       - batch_processor: Processes many items (e.g., bulk update, mass import)
+       - monitor: Called repeatedly for status (e.g., metrics collector)
+
+    2. **Performance Expectations**:
+       - expected_duration_min: Faster than this is suspicious (e.g., didn't do work)
+       - expected_duration_max: Slower than this is a problem
+       - acceptable_duration: Target duration for good performance
+       - timeout_duration: When to give up
+       - max_retries: How many retries are acceptable
+
+- id: "autopoiesis/tool_profiler/contract/expectations"
+  category: "autopoiesis"
+  is_mandatory: true
+  shard_types: ["/tool_profiler"]
+  depends_on: ["autopoiesis/tool_profiler/contract"]
+  content: |
+    3. **Output Expectations**:
+       - expected_min_size: Smaller output is suspicious
+       - expected_max_size: Larger might indicate issue
+       - expected_typical_size: Normal output size in bytes
+       - expected_format: json, text, csv, etc.
+       - expects_pagination: Should we paginate?
+       - required_fields: Fields that must be in output (for JSON)
+       - must_contain: Strings that must appear
+       - must_not_contain: Strings that indicate failure
+
+    4. **Usage Pattern**:
+       - frequency: once, occasional, frequent, constant
+       - is_idempotent: Same input = same output?
+       - has_side_effects: Modifies external state?
+       - depends_on_external: Needs external service?
+
+    5. **Caching**:
+       - cacheable: Can results be cached?
+       - cache_duration: How long to cache (e.g., "15m", "1h")
+       - cache_key: What makes cache key unique (e.g., "input_hash")
+
+- id: "autopoiesis/tool_profiler/contract/output_schema"
+  category: "autopoiesis"
+  is_mandatory: true
+  shard_types: ["/tool_profiler"]
+  depends_on: ["autopoiesis/tool_profiler/contract/expectations"]
+  content: |
+    Return JSON:
+    {
+      "analysis_summary": "1-2 sentence rationale for tool type and quality expectations",
+      "tool_type": "data_fetch",
+      "description": "Brief description of what tool does",
+      "performance": {
+        "expected_duration_min_ms": 100,
+        "expected_duration_max_ms": 30000,
+        "acceptable_duration_ms": 5000,
+        "timeout_duration_ms": 60000,
+        "max_retries": 3,
+        "expected_api_calls": 1,
+        "scales_with_input_size": false
+      },
+      "output": {
+        "expected_min_size": 100,
+        "expected_max_size": 1048576,
+        "expected_typical_size": 10240,
+        "expected_format": "json",
+        "expects_pagination": true,
+        "expected_pages": 5,
+        "required_fields": ["data", "status"],
+        "must_contain": [],
+        "must_not_contain": ["error", "failed"]
+      },
+      "usage_pattern": {
+        "frequency": "occasional",
+        "calls_per_session": 5,
+        "is_idempotent": true,
+        "has_side_effects": false,
+        "depends_on_external": true
+      },
+      "caching": {
+        "cacheable": true,
+        "cache_duration": "15m",
+        "cache_key": "input_url"
+      },
+      "custom_dimensions": [
+        {
+          "name": "items_fetched",
+          "description": "Number of items in response",
+          "expected_value": 100,
+          "tolerance": 50,
+          "weight": 0.3,
+          "extract_pattern": "\"count\":\\s*(\\d+)"
+        }
+      ]
+    }
+
+- id: "autopoiesis/tool_quality_assessor/contract"
+  category: "autopoiesis"
+  is_mandatory: true
+  shard_types: ["/tool_quality_assessor"]
+  conflicts_with:
+    - "protocol/piggyback/envelope"
+    - "protocol/piggyback/control_first"
+    - "protocol/piggyback/mangle_updates"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  content: |
+    Analyze the tool execution the message gives and assess its quality. The message gives the tool, its input and output, the duration, whether it succeeded, and the issues heuristics already detected.
+
+    Please provide:
+    1. Completeness score (0.0-1.0) - Did the tool fetch ALL available data?
+    2. Accuracy score (0.0-1.0) - Is the output correct and well-formed?
+    3. Additional issues not detected by heuristics
+    4. Specific improvement suggestions with code hints
+
+    Focus especially on:
+    - Pagination: Did it only get the first page when more were available?
+    - Limits: Did it use default limits instead of maximum?
+    - Error handling: Did it properly handle edge cases?
+
+    Return JSON:
+    {
+      "completeness": 0.0-1.0,
+      "accuracy": 0.0-1.0,
+      "relevance": 0.0-1.0,
+      "additional_issues": [{"type": "...", "description": "...", "severity": 0.0-1.0}],
+      "suggestions": [{"type": "...", "description": "...", "code_hint": "..."}],
+      "reasoning": "..."
+    }
+
+- id: "autopoiesis/tool_test_writer/contract"
+  category: "autopoiesis"
+  is_mandatory: true
+  shard_types: ["/tool_test_writer"]
+  conflicts_with:
+    - "protocol/piggyback/envelope"
+    - "protocol/piggyback/control_first"
+    - "protocol/piggyback/mangle_updates"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  content: |
+    Generate Go test code for the tool whose code the message gives.
+
+    Generate comprehensive tests including:
+    1. Happy path tests
+    2. Error case tests
+    3. Edge case tests
+
+    Generate a complete test file in package "tools".
+
+- id: "autopoiesis/panic_maker/contract"
+  category: "autopoiesis"
+  is_mandatory: true
+  shard_types: ["/panic_maker"]
+  conflicts_with:
+    - "protocol/piggyback/envelope"
+    - "protocol/piggyback/control_first"
+    - "protocol/piggyback/mangle_updates"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  content: |
+    # PanicMaker Attack Generation
+
+    You are the PanicMaker. Analyze the Go code the message gives and generate the number of specific attack vectors it asks for, designed to make it crash. Generate attacks only in the attack categories the message lists as enabled.
+
+    ## ANALYSIS STRATEGY:
+    1. Look for unchecked pointers - where can nil cause a panic?
+    2. Look for unbounded slice/map operations - where can allocation explode?
+    3. Look for channel operations - where can deadlock occur?
+    4. Look for input parsing - where are format assumptions violated?
+    5. Look for loops - where can iteration counts go infinite?
+
+    ## OUTPUT FORMAT:
+    Output ONLY a JSON array of attack vectors. No explanation, no markdown fences:
+    [
+      {
+        "name": "Nil Input",
+        "category": "nil_pointer",
+        "input": "",
+        "description": "Targets potential nil pointer dereference in main function",
+        "expected_failure": "panic"
+      }
+    ]
+
+    Generate attacks now. Be specific to THIS code, not generic fuzzing.

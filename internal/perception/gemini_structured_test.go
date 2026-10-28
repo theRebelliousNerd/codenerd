@@ -241,7 +241,7 @@ func TestContextFeedbackSchema(t *testing.T) {
 		"mangle_updates",
 		"memory_operations",
 		"self_correction",
-		"reasoning_trace",
+		"decision_summary",
 		"knowledge_requests",
 		"context_feedback",
 		"tool_requests",

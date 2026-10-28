@@ -2,6 +2,7 @@ package autopoiesis
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -46,15 +47,25 @@ func (s *scriptedLLM) record(prompt string) {
 	s.promptsSeen = append(s.promptsSeen, prompt)
 }
 
-// CompleteWithSystem serves the specification and refinement stages. The
-// refinement prompt is the one carrying safety feedback, which is how the test
-// proves the violations actually reached the model.
+// CompleteWithSystem serves every call, routed by the system prompt the
+// stand-in compilers give each one (stagePromptAssembler, fixedRolePrompts):
+// the PanicMaker, the test writer, and the specification and refinement
+// stages. The refinement prompt is the one carrying safety feedback, which is
+// how the test proves the violations actually reached the model.
 func (s *scriptedLLM) CompleteWithSystem(ctx context.Context, sys, user string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.record(user)
 
-	if strings.Contains(user, "Safety violations detected") || strings.Contains(sys, "SAFETY") {
+	switch {
+	case sys == "role prompt for "+rolePanicMaker:
+		s.attackCalls++
+		return s.attacksJSON, nil
+	case sys == "role prompt for "+roleToolTestWriter:
+		// A trivial always-passing test keeps the compiler's `go test ./...`
+		// gate meaningful without making the fixture flaky.
+		return "```go\npackage tools\n\nimport \"testing\"\n\nfunc TestGeneratedToolCompiles(t *testing.T) {\n\tif 1+1 != 2 {\n\t\tt.Fatal(\"arithmetic is broken\")\n\t}\n}\n```", nil
+	case strings.Contains(user, "Safety violations detected") || sys == "stage prompt /refinement":
 		s.regenCalls++
 		return "```go\n" + s.safeCode + "\n```", nil
 	}
@@ -62,18 +73,10 @@ func (s *scriptedLLM) CompleteWithSystem(ctx context.Context, sys, user string) 
 	return "```go\n" + s.unsafeCode + "\n```", nil
 }
 
+// Complete is never called: every autopoiesis call sends a compiled system
+// prompt.
 func (s *scriptedLLM) Complete(ctx context.Context, prompt string) (string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.record(prompt)
-
-	if strings.Contains(prompt, "PanicMaker Attack Generation") {
-		s.attackCalls++
-		return s.attacksJSON, nil
-	}
-	// Test-code generation. A trivial always-passing test keeps the compiler's
-	// `go test ./...` gate meaningful without making the fixture flaky.
-	return "```go\npackage tools\n\nimport \"testing\"\n\nfunc TestGeneratedToolCompiles(t *testing.T) {\n\tif 1+1 != 2 {\n\t\tt.Fatal(\"arithmetic is broken\")\n\t}\n}\n```", nil
+	return "", fmt.Errorf("unexpected Complete call without a system prompt: %.80q", prompt)
 }
 
 func (s *scriptedLLM) CompleteWithTools(ctx context.Context, sys, user string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
@@ -158,6 +161,8 @@ func TestOuroboros_WhenFirstProposalIsUnsafe_ShouldRegenerateAndSurviveThunderdo
 	cfg.WorkspaceRoot = ""
 
 	loop := NewOuroborosLoop(llm, cfg)
+	loop.SetPromptAssembler(stagePromptAssembler{})
+	loop.SetRolePrompts(fixedRolePrompts{})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
@@ -257,6 +262,8 @@ func TestOuroboros_WhenProposalNeverBecomesSafe_ShouldRejectWithoutRegistering(t
 	cfg.WorkspaceRoot = ""
 
 	loop := NewOuroborosLoop(llm, cfg)
+	loop.SetPromptAssembler(stagePromptAssembler{})
+	loop.SetRolePrompts(fixedRolePrompts{})
 
 	execCfg := DefaultExecuteConfig()
 	execCfg.Retry.RetryDelay = time.Millisecond

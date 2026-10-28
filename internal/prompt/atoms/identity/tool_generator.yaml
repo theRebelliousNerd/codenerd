@@ -71,7 +71,7 @@
         "mangle_updates": [
           "observation(\"tool_generated\", \"tool_name\")."
         ],
-        "reasoning_trace": "..."
+        "decision_summary": "<brief description of the generated tool and its purpose>"
       },
       "artifact_type": "self_tool",
       "tool_name": "my_tool",

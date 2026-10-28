@@ -7,16 +7,18 @@ import (
 	"strings"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
-// panicMakerIdentity would be loaded via JIT prompt system, but the key
-// identity is baked into the prompt construction below.
-
 // PanicMaker generates adversarial inputs designed to break generated tools.
-// It analyzes source code to find weak spots and crafts targeted attacks.
+// It analyzes source code to find weak spots and crafts targeted attacks. Its
+// system prompt is the panic_maker role's atoms
+// (internal/prompt/atoms/autopoiesis/tool_roles.yaml); the message carries
+// the attack count, the enabled categories and the code.
 type PanicMaker struct {
-	client LLMClient // Uses local LLMClient interface from complexity.go
-	config PanicMakerConfig
+	client      LLMClient // Uses local LLMClient interface from complexity.go
+	config      PanicMakerConfig
+	rolePrompts types.RolePromptCompiler
 }
 
 // PanicMakerConfig holds configuration for the PanicMaker.
@@ -75,19 +77,29 @@ func NewPanicMakerWithConfig(client LLMClient, config PanicMakerConfig) *PanicMa
 	}
 }
 
-// GenerateAttacks analyzes the tool code and generates targeted attack vectors.
+// SetRolePrompts attaches the role prompt compiler GenerateAttacks compiles
+// its system prompt with.
+func (p *PanicMaker) SetRolePrompts(roles types.RolePromptCompiler) {
+	p.rolePrompts = roles
+}
+
+// GenerateAttacks analyzes the tool code and generates targeted attack
+// vectors. No panic_maker prompt is an error.
 func (p *PanicMaker) GenerateAttacks(ctx context.Context, toolCode string) ([]AttackVector, error) {
 	timer := logging.StartTimer(logging.CategoryAutopoiesis, "PanicMaker.GenerateAttacks")
 	defer timer.Stop()
 
 	logging.Autopoiesis("PanicMaker analyzing code (%d bytes) to generate attacks", len(toolCode))
 
-	// Build the analysis prompt
-	prompt := p.buildAttackPrompt(toolCode)
+	systemPrompt, err := compileRolePrompt(ctx, p.rolePrompts, rolePanicMaker)
+	if err != nil {
+		return nil, err
+	}
+	userPrompt := p.buildAttackPrompt(toolCode)
 
 	// Query LLM for attack vectors
 	logging.AutopoiesisDebug("Sending attack generation prompt to LLM")
-	response, err := p.client.Complete(ctx, prompt)
+	response, err := p.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		logging.Get(logging.CategoryAutopoiesis).Error("PanicMaker LLM call failed: %v", err)
 		return nil, fmt.Errorf("failed to generate attacks: %w", err)
@@ -111,24 +123,13 @@ func (p *PanicMaker) GenerateAttacks(ctx context.Context, toolCode string) ([]At
 	return attacks, nil
 }
 
-// buildAttackPrompt constructs the prompt for attack generation.
+// buildAttackPrompt is the user message of attack generation: how many
+// attacks, which categories this configuration enables, and the code. The
+// instructions are the panic_maker role's atoms.
 func (p *PanicMaker) buildAttackPrompt(toolCode string) string {
 	var sb strings.Builder
 
-	sb.WriteString("# PanicMaker Attack Generation\n\n")
-	sb.WriteString("You are the PanicMaker. Analyze the following Go code and generate ")
-	sb.WriteString(fmt.Sprintf("%d specific attack vectors designed to make it crash.\n\n", p.config.MaxAttacks))
-
-	sb.WriteString("## TARGET CODE:\n```go\n")
-	sb.WriteString(toolCode)
-	sb.WriteString("\n```\n\n")
-
-	sb.WriteString("## ANALYSIS STRATEGY:\n")
-	sb.WriteString("1. Look for unchecked pointers - where can nil cause a panic?\n")
-	sb.WriteString("2. Look for unbounded slice/map operations - where can allocation explode?\n")
-	sb.WriteString("3. Look for channel operations - where can deadlock occur?\n")
-	sb.WriteString("4. Look for input parsing - where are format assumptions violated?\n")
-	sb.WriteString("5. Look for loops - where can iteration counts go infinite?\n\n")
+	sb.WriteString(fmt.Sprintf("Generate %d attack vectors.\n\n", p.config.MaxAttacks))
 
 	sb.WriteString("## ENABLED ATTACK CATEGORIES:\n")
 	sb.WriteString("- nil_pointer: Always enabled\n")
@@ -141,20 +142,9 @@ func (p *PanicMaker) buildAttackPrompt(toolCode string) string {
 	}
 	sb.WriteString("- format: Always enabled\n\n")
 
-	sb.WriteString("## OUTPUT FORMAT:\n")
-	sb.WriteString("Output ONLY a JSON array of attack vectors. No explanation, no markdown fences:\n")
-	sb.WriteString(`[
-  {
-    "name": "Nil Input",
-    "category": "nil_pointer",
-    "input": "",
-    "description": "Targets potential nil pointer dereference in main function",
-    "expected_failure": "panic"
-  }
-]`)
-	sb.WriteString("\n\n")
-
-	sb.WriteString("Generate attacks now. Be specific to THIS code, not generic fuzzing.\n")
+	sb.WriteString("## TARGET CODE:\n```go\n")
+	sb.WriteString(toolCode)
+	sb.WriteString("\n```\n")
 
 	return sb.String()
 }

@@ -3,11 +3,13 @@ package autopoiesis
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // toolIOType is the sole type the Ouroboros pipeline can compile and execute.
@@ -121,6 +123,11 @@ func (tg *ToolGenerator) DetectToolNeed(ctx context.Context, input string, faile
 	// Use LLM to refine the tool need
 	logging.Autopoiesis("Refining tool need with LLM for type=%s", toolType)
 	need, err := tg.refineToolNeedWithLLM(ctx, input, failedAttempt, toolType, triggers)
+	if errors.Is(err, types.ErrRolePromptUnavailable) {
+		// No spec writer prompt is a misconfigured session, not a model
+		// failure the heuristic need may stand in for.
+		return nil, err
+	}
 	if err != nil {
 		logging.Get(logging.CategoryAutopoiesis).Warn("LLM refinement failed: %v, using heuristic fallback", err)
 		// Fall back to heuristic-based need. Use the single string contract
@@ -157,31 +164,22 @@ func toolTypeByPattern(lower string) string {
 	return "utility"
 }
 
-// refineToolNeedWithLLM uses LLM to better understand the tool need
+// refineToolNeedWithLLM has the model write the tool's spec. Its system
+// prompt is the tool_need_refiner role's atoms; the message is the request
+// and what the kernel found.
 func (tg *ToolGenerator) refineToolNeedWithLLM(ctx context.Context, input, failedAttempt, toolType string, triggers []string) (*ToolNeed, error) {
-	prompt := fmt.Sprintf(`codeNERD's kernel has found a capability gap in this request that a new tool will fill. Write the tool's spec.
-
-User Request: %q
+	systemPrompt, err := compileRolePrompt(ctx, tg.rolePrompts, roleToolNeedRefiner)
+	if err != nil {
+		return nil, err
+	}
+	userPrompt := fmt.Sprintf(`User Request: %q
 Previous Attempt Failed: %q
 Tool Kind: %s
 Why the kernel found a gap: %v
 
-Existing tools available (do not duplicate them): %v
+Existing tools available (do not duplicate them): %v`, input, failedAttempt, toolType, triggers, tg.listExistingTools())
 
-Return JSON only:
-{
-  "tool_name": "snake_case_name",
-  "purpose": "clear description of what the tool should do",
-  "input_type": "go type for input (string, []byte, map[string]any, etc)",
-  "output_type": "go type for output",
-  "priority": 0.0-1.0,
-  "confidence": 0.0-1.0,
-  "reasoning": "why this tool is needed"
-}
-
-JSON only:`, input, failedAttempt, toolType, triggers, tg.listExistingTools())
-
-	resp, err := tg.client.Complete(ctx, prompt)
+	resp, err := tg.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return nil, err
 	}

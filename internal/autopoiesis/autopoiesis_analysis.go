@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"codenerd/internal/logging"
 )
 
 // =============================================================================
@@ -22,7 +24,7 @@ func (o *Orchestrator) Analyze(ctx context.Context, input string, target string)
 	if o.config.EnableLLM {
 		complexity, err := o.complexity.AnalyzeWithLLM(ctx, input)
 		if err != nil {
-			// Fall back to heuristic
+			logging.Get(logging.CategoryAutopoiesis).Warn("Complexity analysis kept the heuristic result: %v", err)
 			complexity = o.complexity.Analyze(ctx, input, target)
 		}
 		result.Complexity = complexity
@@ -51,6 +53,7 @@ func (o *Orchestrator) Analyze(ctx context.Context, input string, target string)
 	if o.config.EnableLLM {
 		persistence, err := o.persistence.AnalyzeWithLLM(ctx, input)
 		if err != nil {
+			logging.Get(logging.CategoryAutopoiesis).Warn("Persistence analysis kept the heuristic result: %v", err)
 			persistence = o.persistence.Analyze(ctx, input)
 		}
 		result.Persistence = persistence
@@ -65,6 +68,7 @@ func (o *Orchestrator) Analyze(ctx context.Context, input string, target string)
 		if need.Confidence >= o.config.MinConfidence {
 			spec, err := o.agentCreate.CreateFromNeed(ctx, need)
 			if err != nil {
+				logging.Get(logging.CategoryAutopoiesis).Warn("No %s agent suggested: %v", need.AgentType, err)
 				continue
 			}
 			result.SuggestedAgents = append(result.SuggestedAgents, *spec)

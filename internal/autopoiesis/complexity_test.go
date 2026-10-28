@@ -321,7 +321,7 @@ func TestComplexityAnalyzer_AnalyzeWithLLM_HighConfidence(t *testing.T) {
 func TestComplexityAnalyzer_AnalyzeWithLLM_Ambiguous(t *testing.T) {
 	// Set up mock to return LLM response
 	client := &MockLLMClient{
-		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
+		CompleteWithSystemFunc: func(ctx context.Context, _, prompt string) (string, error) {
 			return `{
 				"complexity": "complex",
 				"needs_campaign": true,
@@ -333,6 +333,7 @@ func TestComplexityAnalyzer_AnalyzeWithLLM_Ambiguous(t *testing.T) {
 		},
 	}
 	analyzer := NewComplexityAnalyzer(client)
+	analyzer.SetRolePrompts(fixedRolePrompts{})
 
 	// Ambiguous request (medium score)
 	result, err := analyzer.AnalyzeWithLLM(context.Background(),

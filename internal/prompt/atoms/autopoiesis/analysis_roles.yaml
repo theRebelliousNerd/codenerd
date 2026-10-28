@@ -1,0 +1,94 @@
+# Autopoiesis request analysis (internal/autopoiesis): the complexity analyzer
+# (complexity.go AnalyzeWithLLM, role /complexity_analyzer), the persistence
+# analyzer (persistence.go AnalyzeWithLLM, role /persistence_analyzer) and the
+# persistent agent's prompt writer (persistence.go generateSystemPrompt, role
+# /agent_prompt_writer), each compiled with intent /judge. Until 2026-10-28
+# these instructions were fmt.Sprintf prompts in Go; the user message now
+# carries only the request data. Go parses each reply, so each atom
+# supersedes the Piggyback protocol.
+
+- id: "autopoiesis/complexity_analyzer/contract"
+  category: "autopoiesis"
+  is_mandatory: true
+  shard_types: ["/complexity_analyzer"]
+  conflicts_with:
+    - "protocol/piggyback/envelope"
+    - "protocol/piggyback/control_first"
+    - "protocol/piggyback/mangle_updates"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  content: |
+    Analyze the task the message gives for complexity. Return JSON only:
+    {
+      "analysis_summary": "1-2 sentence rationale for the complexity choice",
+      "complexity": "simple|moderate|complex|epic",
+      "needs_campaign": true/false,
+      "needs_persistent": true/false,
+      "estimated_files": number,
+      "phases": ["phase1", "phase2"]
+    }
+
+    JSON only.
+
+- id: "autopoiesis/persistence_analyzer/contract"
+  category: "autopoiesis"
+  is_mandatory: true
+  shard_types: ["/persistence_analyzer"]
+  conflicts_with:
+    - "protocol/piggyback/envelope"
+    - "protocol/piggyback/control_first"
+    - "protocol/piggyback/mangle_updates"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  content: |
+    Analyze if the user request the message gives requires a PERSISTENT agent. The message also gives the heuristic analysis already made of it.
+
+    Persistent agents:
+    - Survive across sessions
+    - Learn from interactions over time
+    - Monitor for events/conditions
+    - React to triggers (commits, PRs, etc.)
+
+    Return JSON only:
+    {
+      "needs_persistent": true/false,
+      "agent_type": "type of agent needed",
+      "purpose": "what the agent should do",
+      "learning_goals": ["what to learn over time"],
+      "monitoring_scope": "what to monitor",
+      "schedule": "when to run (continuous, on-commit, daily, etc.)",
+      "confidence": 0.0-1.0,
+      "reasoning": "explanation"
+    }
+
+    JSON only.
+
+- id: "autopoiesis/agent_prompt_writer/contract"
+  category: "autopoiesis"
+  is_mandatory: true
+  shard_types: ["/agent_prompt_writer"]
+  conflicts_with:
+    - "protocol/piggyback/envelope"
+    - "protocol/piggyback/control_first"
+    - "protocol/piggyback/mangle_updates"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  content: |
+    Generate a system prompt for a persistent coding agent with the characteristics the message gives: its agent type, purpose, learning goals, monitoring scope and schedule.
+
+    The system prompt should:
+    1. Clearly define the agent's role and responsibilities
+    2. Specify how to handle different scenarios
+    3. Include guidelines for learning and adaptation
+    4. Define output format expectations
+
+    Generate a professional system prompt (no code blocks, just the prompt text).

@@ -359,27 +359,27 @@ func (o *Orchestrator) ExecuteAndEvaluate(ctx context.Context, toolName string, 
 }
 
 // =============================================================================
-// REASONING TRACE WRAPPERS
+// TOOL GENERATION AUDIT WRAPPERS
 // =============================================================================
-// These methods expose the trace system for capturing tool generation reasoning.
+// These methods expose the trace system for recording tool-generation inputs and outcomes.
 
-// StartToolTrace begins capturing reasoning for a tool generation
-func (o *Orchestrator) StartToolTrace(toolName string, need *ToolNeed, userRequest string) *ReasoningTrace {
+// StartToolTrace begins an audit record for a tool generation
+func (o *Orchestrator) StartToolTrace(toolName string, need *ToolNeed, userRequest string) *ToolGenerationRecord {
 	return o.traces.StartTrace(toolName, need, userRequest)
 }
 
 // RecordTracePrompt records the prompts sent to the LLM
-func (o *Orchestrator) RecordTracePrompt(trace *ReasoningTrace, systemPrompt, userPrompt string) {
+func (o *Orchestrator) RecordTracePrompt(trace *ToolGenerationRecord, systemPrompt, userPrompt string) {
 	o.traces.RecordPrompt(trace, systemPrompt, userPrompt)
 }
 
-// RecordTraceResponse records the LLM response and extracts reasoning
-func (o *Orchestrator) RecordTraceResponse(ctx context.Context, trace *ReasoningTrace, response string, tokensUsed int, duration time.Duration) {
+// RecordTraceResponse records token usage and duration without retaining response text
+func (o *Orchestrator) RecordTraceResponse(ctx context.Context, trace *ToolGenerationRecord, response string, tokensUsed int, duration time.Duration) {
 	o.traces.RecordResponse(ctx, trace, response, tokensUsed, duration)
 }
 
 // FinalizeTrace marks a generation trace as complete
-func (o *Orchestrator) FinalizeTrace(trace *ReasoningTrace, success bool, code string, failureReason string) {
+func (o *Orchestrator) FinalizeTrace(trace *ToolGenerationRecord, success bool, code string, failureReason string) {
 	o.traces.FinalizeTrace(trace, success, code, failureReason)
 }
 
@@ -388,13 +388,13 @@ func (o *Orchestrator) UpdateTraceWithFeedback(toolName string, quality float64,
 	o.traces.UpdateWithFeedback(toolName, quality, issues, notes)
 }
 
-// GetToolTraces retrieves all reasoning traces for a tool
-func (o *Orchestrator) GetToolTraces(toolName string) []*ReasoningTrace {
+// GetToolTraces retrieves all tool-generation records for a tool
+func (o *Orchestrator) GetToolTraces(toolName string) []*ToolGenerationRecord {
 	return o.traces.GetToolTraces(toolName)
 }
 
-// GetAllTraces returns all reasoning traces
-func (o *Orchestrator) GetAllTraces() []*ReasoningTrace {
+// GetAllTraces returns all tool-generation records
+func (o *Orchestrator) GetAllTraces() []*ToolGenerationRecord {
 	return o.traces.GetAllTraces()
 }
 
@@ -418,7 +418,7 @@ func (o *Orchestrator) ValidateLogging(code string) *LoggingValidation {
 	return o.logInjector.ValidateLogging(code)
 }
 
-// GenerateToolWithTracing generates a tool with full reasoning trace capture.
+// GenerateToolWithTracing generates a tool with tool-generation outcome auditing.
 //
 // Runs the audited Ouroboros pipeline, not a bare toolGen.GenerateTool. The
 // old body produced an unaudited, uncompiled tool object; anything that acted
@@ -427,7 +427,7 @@ func (o *Orchestrator) ValidateLogging(code string) *LoggingValidation {
 // only *validated* here, not injected, because the returned code has already
 // been committed and compiled — mutating it afterwards changed nothing on disk
 // and produced a trace that did not match the registered binary.
-func (o *Orchestrator) GenerateToolWithTracing(ctx context.Context, need *ToolNeed, userRequest string) (*GeneratedTool, *ReasoningTrace, error) {
+func (o *Orchestrator) GenerateToolWithTracing(ctx context.Context, need *ToolNeed, userRequest string) (*GeneratedTool, *ToolGenerationRecord, error) {
 	if need == nil {
 		return nil, nil, fmt.Errorf("tool need is nil")
 	}
@@ -455,8 +455,8 @@ func (o *Orchestrator) GenerateToolWithTracing(ctx context.Context, need *ToolNe
 	return tool, trace, nil
 }
 
-// ExecuteOuroborosLoopWithTracing runs the full loop with reasoning trace capture
-func (o *Orchestrator) ExecuteOuroborosLoopWithTracing(ctx context.Context, need *ToolNeed, userRequest string) (*LoopResult, *ReasoningTrace) {
+// ExecuteOuroborosLoopWithTracing runs the full loop with tool-generation outcome auditing
+func (o *Orchestrator) ExecuteOuroborosLoopWithTracing(ctx context.Context, need *ToolNeed, userRequest string) (*LoopResult, *ToolGenerationRecord) {
 	// Inject learnings from past tool generation into prompts
 	o.RefreshLearningsContext()
 

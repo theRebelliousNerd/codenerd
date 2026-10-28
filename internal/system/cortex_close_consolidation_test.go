@@ -41,6 +41,9 @@ func TestClosePerceptionLayer_DrainOutlivesTheStepTimeout(t *testing.T) {
 	}
 	critic := &gatedCritic{entered: make(chan struct{}, 1), release: make(chan struct{})}
 	engine.SetClient(critic)
+	// The critic compiles its system prompt from its role atoms before it
+	// calls the model, as in a booted session.
+	engine.SetRolePrompts(newBootRolePrompts(t))
 	previous := perception.SharedTaxonomy
 	perception.SharedTaxonomy = engine
 	t.Cleanup(func() {

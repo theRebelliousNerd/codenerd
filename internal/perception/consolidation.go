@@ -172,7 +172,7 @@ func (cw *ConsolidationWorker) Stats() ConsolidationStats {
 	return st
 }
 
-// Enqueue submits a history of reasoning traces to be evaluated asynchronously.
+// Enqueue submits a history of interaction audit records to be evaluated asynchronously.
 // It never blocks: a full queue or a closed worker rejects the history, and
 // the returned Admission says which.
 func (cw *ConsolidationWorker) Enqueue(traces []ReasoningTrace) Admission {

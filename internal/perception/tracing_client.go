@@ -13,7 +13,9 @@ import (
 	"codenerd/internal/types"
 )
 
-// ReasoningTrace captures a complete LLM interaction for learning and analysis.
+// ReasoningTrace is the legacy name for an LLM interaction audit record.
+// Response contains ordinary assistant output, not native thinking blocks or
+// provider signatures. Learning uses visible task results and user corrections.
 type ReasoningTrace struct {
 	ID            string `json:"id"`
 	ShardID       string `json:"shard_id"`
@@ -43,7 +45,7 @@ type ReasoningTrace struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// TraceStore defines the interface for storing reasoning traces.
+// TraceStore defines storage for interaction audit records.
 // This abstraction allows different storage backends.
 type TraceStore interface {
 	StoreReasoningTrace(trace *ReasoningTrace) error
@@ -325,7 +327,7 @@ func newReasoningTrace(tc traceContext, model, systemPrompt, userPrompt, respons
 		TaskContext:   tc.taskContext,
 		SystemPrompt:  systemPrompt,
 		UserPrompt:    userPrompt,
-		Response:      response,
+		Response:      visibleTaskOutput(response),
 		Model:         model,
 		TokensUsed:    tokensUsed,
 		DurationMs:    durationMs,
@@ -346,7 +348,7 @@ func storeTraceAsync(store TraceStore, trace *ReasoningTrace) {
 	}
 	go func() {
 		if storeErr := store.StoreReasoningTrace(trace); storeErr != nil {
-			logging.APIDebug("Failed to store reasoning trace: %v", storeErr)
+			logging.APIDebug("Failed to store interaction audit record: %v", storeErr)
 		}
 	}()
 }

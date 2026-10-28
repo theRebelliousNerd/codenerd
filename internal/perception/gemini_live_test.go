@@ -186,14 +186,14 @@ func TestGeminiLive_ChatArticulation_StreamingEnvelope(t *testing.T) {
 
 	systemPrompt := `You are codeNERD. Respond ONLY with a valid JSON envelope.
 
-Required JSON Schema (THOUGHT-FIRST ordering):
+Required JSON Schema (control-packet field order):
 {
   "control_packet": {
     "intent_classification": {"category": "/query", "verb": "/explain", "target": "string", "constraint": "none", "confidence": 1.0},
     "mangle_updates": [],
     "memory_operations": [],
     "self_correction": {"triggered": false, "hypothesis": ""},
-    "reasoning_trace": "internal notes",
+    "decision_summary": "Brief decision and supporting evidence",
     "knowledge_requests": [],
     "context_feedback": {"overall_usefulness": 1.0, "helpful_facts": [], "noise_facts": [], "missing_context": ""},
     "tool_requests": []

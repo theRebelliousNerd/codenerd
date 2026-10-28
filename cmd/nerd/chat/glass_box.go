@@ -304,7 +304,7 @@ func categoryDescription(c transparency.GlassBoxCategory) string {
 	case transparency.CategoryShard:
 		return "Shard spawn events, phase transitions"
 	case transparency.CategoryControl:
-		return "Control packets from LLM (reasoning trace, mangle updates)"
+		return "Control packets from LLM (decision summary, mangle updates)"
 	default:
 		return "Unknown category"
 	}

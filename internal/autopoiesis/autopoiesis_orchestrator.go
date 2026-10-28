@@ -42,12 +42,15 @@ type Orchestrator struct {
 	learnings *LearningStore    // Persist learnings
 	profiles  *ProfileStore     // Tool-specific quality profiles
 
-	// Reasoning Trace and Logging System
+	// Tool Generation Audit and Logging System
 	traces      *TraceCollector // Capture reasoning during generation
 	logInjector *LogInjector    // Inject mandatory logging into tools
 
 	// JIT Prompt Compilation (Phase 5) - using interfaces to avoid import cycles
 	promptAssembler PromptAssembler // JIT-aware prompt assembler
+	// rolePrompts compiles the system prompt of every autopoiesis model call
+	// that is not tool code generation (role_prompts.go).
+	rolePrompts types.RolePromptCompiler
 
 	// Gemini advanced features (nil if not Gemini or features unavailable)
 	grounding *research.GroundingHelper // Google Search / URL Context grounding
@@ -296,7 +299,7 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 		learnings: NewLearningStore(learningsDir),
 		profiles:  profileStore,
 
-		// Initialize reasoning trace and logging system
+		// Initialize tool-generation audit and logging system
 		traces:      NewTraceCollector(tracesDir, client),
 		logInjector: NewLogInjector(DefaultLoggingRequirements()),
 	}
@@ -343,11 +346,34 @@ func (o *Orchestrator) SetPromptAssembler(assembler PromptAssembler) {
 	defer o.mu.Unlock()
 	o.promptAssembler = assembler
 
-	// Wire the assembler to ToolGenerator and ToolRefiner
+	// Wire the assembler to both tool generators (the orchestrator's and the
+	// Ouroboros loop's) and the ToolRefiner
 	if assembler != nil {
 		o.toolGen.SetPromptAssembler(assembler)
 		o.refiner.SetPromptAssembler(assembler)
+		if loop, ok := o.ouroboros.(*OuroborosLoop); ok {
+			loop.SetPromptAssembler(assembler)
+		}
 		logging.Autopoiesis("JIT prompt compiler attached to autopoiesis orchestrator")
+	}
+}
+
+// SetRolePrompts attaches the role prompt compiler every autopoiesis model
+// call other than tool code generation compiles its system prompt with: the
+// complexity and persistence analyzers, the agent prompt writer, the tool
+// spec, test and profile writers, the quality assessor and the PanicMaker.
+// Without one those calls are errors wrapping types.ErrRolePromptUnavailable.
+func (o *Orchestrator) SetRolePrompts(roles types.RolePromptCompiler) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.rolePrompts = roles
+	o.complexity.SetRolePrompts(roles)
+	o.persistence.SetRolePrompts(roles)
+	o.agentCreate.SetRolePrompts(roles)
+	o.toolGen.SetRolePrompts(roles)
+	o.evaluator.SetRolePrompts(roles)
+	if loop, ok := o.ouroboros.(*OuroborosLoop); ok {
+		loop.SetRolePrompts(roles)
 	}
 }
 

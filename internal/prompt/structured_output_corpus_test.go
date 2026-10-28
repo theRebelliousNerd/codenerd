@@ -16,13 +16,14 @@ var envelopeMarkers = []string{
 	`"surface_response":`,
 	`"tool_requests":`,
 	`"reasoning_trace":`,
+	`"decision_summary":`,
 	`"knowledge_requests":`,
 	`"mangle_updates":`,
 }
 
 // filterAtomsForStructuredOutput drops atoms that impose a competing output
 // contract, but it recognizes them by identity — CategoryProtocol, or an ID
-// under protocol/piggyback/ or protocol/reasoning/. That is not the same thing
+// under protocol/piggyback/ or protocol/decision_summary/. That is not the same thing
 // as "contains an envelope".
 //
 // Live failure this test exists to prevent: campaign/planner/validation declared

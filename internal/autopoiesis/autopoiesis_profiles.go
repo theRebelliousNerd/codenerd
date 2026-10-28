@@ -163,109 +163,28 @@ func (o *Orchestrator) RecordGeneratedExecution(ctx context.Context, receipt typ
 	return o.RecordExecutionDurable(ctx, feedback)
 }
 
-// GenerateToolProfile uses LLM to generate a quality profile during tool creation
+// GenerateToolProfile uses LLM to generate a quality profile during tool
+// creation. Its system prompt is the tool_profiler role's atoms; the message
+// is the tool. No tool_profiler prompt is an error; a failed or unparseable
+// model reply yields the default profile.
 func (o *Orchestrator) GenerateToolProfile(ctx context.Context, toolName string, description string, toolCode string) (*ToolQualityProfile, error) {
-	prompt := fmt.Sprintf(`Generate a quality profile for this tool. The profile defines expectations for how this tool should perform.
-
-Tool Name: %s
+	o.mu.RLock()
+	roles := o.rolePrompts
+	o.mu.RUnlock()
+	systemPrompt, err := compileRolePrompt(ctx, roles, roleToolProfiler)
+	if err != nil {
+		return nil, err
+	}
+	userPrompt := fmt.Sprintf(`Tool Name: %s
 Description: %s
 Code (abbreviated):
-%s
-
-Based on the tool's purpose and implementation, determine:
-
-1. **Tool Type** - One of:
-   - quick_calculation: < 1s, simple computation (e.g., calculator, converter)
-   - data_fetch: API call, may paginate (e.g., fetch docs, query database)
-   - background_task: Long-running, minutes OK (e.g., indexer, importer)
-   - recursive_analysis: Codebase traversal, slow OK (e.g., code analyzer)
-   - realtime_query: Must be fast, frequent (e.g., status check, health ping)
-   - one_time_setup: Run once, can be slow (e.g., initialization, migration)
-   - batch_processor: Processes many items (e.g., bulk update, mass import)
-   - monitor: Called repeatedly for status (e.g., metrics collector)
-
-2. **Performance Expectations**:
-   - expected_duration_min: Faster than this is suspicious (e.g., didn't do work)
-   - expected_duration_max: Slower than this is a problem
-   - acceptable_duration: Target duration for good performance
-   - timeout_duration: When to give up
-   - max_retries: How many retries are acceptable
-
-3. **Output Expectations**:
-   - expected_min_size: Smaller output is suspicious
-   - expected_max_size: Larger might indicate issue
-   - expected_typical_size: Normal output size in bytes
-   - expected_format: json, text, csv, etc.
-   - expects_pagination: Should we paginate?
-   - required_fields: Fields that must be in output (for JSON)
-   - must_contain: Strings that must appear
-   - must_not_contain: Strings that indicate failure
-
-4. **Usage Pattern**:
-   - frequency: once, occasional, frequent, constant
-   - is_idempotent: Same input = same output?
-   - has_side_effects: Modifies external state?
-   - depends_on_external: Needs external service?
-
-5. **Caching**:
-   - cacheable: Can results be cached?
-   - cache_duration: How long to cache (e.g., "15m", "1h")
-   - cache_key: What makes cache key unique (e.g., "input_hash")
-
-Return JSON:
-{
-  "analysis_summary": "1-2 sentence rationale for tool type and quality expectations",
-  "tool_type": "data_fetch",
-  "description": "Brief description of what tool does",
-  "performance": {
-    "expected_duration_min_ms": 100,
-    "expected_duration_max_ms": 30000,
-    "acceptable_duration_ms": 5000,
-    "timeout_duration_ms": 60000,
-    "max_retries": 3,
-    "expected_api_calls": 1,
-    "scales_with_input_size": false
-  },
-  "output": {
-    "expected_min_size": 100,
-    "expected_max_size": 1048576,
-    "expected_typical_size": 10240,
-    "expected_format": "json",
-    "expects_pagination": true,
-    "expected_pages": 5,
-    "required_fields": ["data", "status"],
-    "must_contain": [],
-    "must_not_contain": ["error", "failed"]
-  },
-  "usage_pattern": {
-    "frequency": "occasional",
-    "calls_per_session": 5,
-    "is_idempotent": true,
-    "has_side_effects": false,
-    "depends_on_external": true
-  },
-  "caching": {
-    "cacheable": true,
-    "cache_duration": "15m",
-    "cache_key": "input_url"
-  },
-  "custom_dimensions": [
-    {
-      "name": "items_fetched",
-      "description": "Number of items in response",
-      "expected_value": 100,
-      "tolerance": 50,
-      "weight": 0.3,
-      "extract_pattern": "\"count\":\\s*(\\d+)"
-    }
-  ]
-}`,
+%s`,
 		toolName,
 		description,
 		types.ClampText(toolCode, 12000, toolName+" source"),
 	)
 
-	resp, err := o.client.Complete(ctx, prompt)
+	resp, err := o.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		// Return default profile on error
 		return GetDefaultProfile(toolName, ToolTypeDataFetch), nil
@@ -286,7 +205,7 @@ Return JSON:
 }
 
 // GenerateToolWithProfile generates a tool and its quality profile together
-func (o *Orchestrator) GenerateToolWithProfile(ctx context.Context, need *ToolNeed, userRequest string) (*GeneratedTool, *ToolQualityProfile, *ReasoningTrace, error) {
+func (o *Orchestrator) GenerateToolWithProfile(ctx context.Context, need *ToolNeed, userRequest string) (*GeneratedTool, *ToolQualityProfile, *ToolGenerationRecord, error) {
 	// Generate tool with tracing
 	tool, trace, err := o.GenerateToolWithTracing(ctx, need, userRequest)
 	if err != nil {
@@ -296,6 +215,7 @@ func (o *Orchestrator) GenerateToolWithProfile(ctx context.Context, need *ToolNe
 	// Generate quality profile for the tool
 	profile, profileErr := o.GenerateToolProfile(ctx, tool.Name, need.Purpose, tool.Code)
 	if profileErr != nil {
+		logging.Get(logging.CategoryAutopoiesis).Warn("Tool %s keeps the default quality profile: %v", tool.Name, profileErr)
 		// Non-fatal - use default profile
 		profile = GetDefaultProfile(tool.Name, ToolTypeDataFetch)
 	}

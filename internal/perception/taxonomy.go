@@ -157,7 +157,7 @@ func (t *TaxonomyEngine) HasWorkspace() bool {
 	return t.workspaceRoot != ""
 }
 
-// QueueForLearning enqueues the reasoning traces for background pattern
+// QueueForLearning enqueues interaction records for background vocabulary pattern
 // extraction and reports whether the history was accepted. A rejected history
 // is a lost learning opportunity, never a silent success.
 func (t *TaxonomyEngine) QueueForLearning(traces []ReasoningTrace) Admission {

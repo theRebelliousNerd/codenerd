@@ -27,7 +27,7 @@ func (c *recordingJudgeClient) CompleteWithSystem(_ context.Context, system, _ s
 
 // The judge's system prompt is its atom (eval/judge/task_evaluator), compiled
 // as a booted session compiles it (a kernel, the embedded corpus): the
-// evaluator's contract, and no Piggyback envelope or thought-first ordering --
+// evaluator's contract, and no Piggyback envelope or control-packet ordering --
 // its reply is one JSON verdict. Until 2026-09-23 the judge sent a Go copy of
 // the atom that had drifted from it.
 func TestTaskJudge_SendsTheCompiledEvaluatorAtom(t *testing.T) {
@@ -56,7 +56,7 @@ func TestTaskJudge_SendsTheCompiledEvaluatorAtom(t *testing.T) {
 	if !strings.Contains(client.system, "You are an expert evaluator for an AI coding agent.") {
 		t.Error("the judge's system prompt lacks the evaluator's contract")
 	}
-	for _, leaked := range []string{"OUTPUT PROTOCOL: PIGGYBACK ENVELOPE", "THOUGHT-FIRST ORDERING", "REASONING TRACE REQUIREMENTS"} {
+	for _, leaked := range []string{"OUTPUT PROTOCOL: PIGGYBACK ENVELOPE", "CONTROL-PACKET FIELD ORDER", "DECISION SUMMARY"} {
 		if strings.Contains(client.system, leaked) {
 			t.Errorf("the judge's system prompt carries %q, a contract its JSON verdict cannot keep", leaked)
 		}

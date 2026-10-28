@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -39,11 +41,20 @@ type PersistenceResult struct {
 // PersistenceAnalyzer determines if requests need persistent agents
 type PersistenceAnalyzer struct {
 	client LLMClient
+	// rolePrompts compiles AnalyzeWithLLM's system prompt from the
+	// persistence_analyzer role atoms.
+	rolePrompts types.RolePromptCompiler
 }
 
 // NewPersistenceAnalyzer creates a new persistence analyzer
 func NewPersistenceAnalyzer(client LLMClient) *PersistenceAnalyzer {
 	return &PersistenceAnalyzer{client: client}
+}
+
+// SetRolePrompts attaches the role prompt compiler AnalyzeWithLLM compiles
+// its system prompt with.
+func (pa *PersistenceAnalyzer) SetRolePrompts(roles types.RolePromptCompiler) {
+	pa.rolePrompts = roles
 }
 
 // Persistence indicators categorized by type
@@ -227,36 +238,19 @@ func (pa *PersistenceAnalyzer) AnalyzeWithLLM(ctx context.Context, input string)
 		return result, nil
 	}
 
-	// Use LLM for ambiguous cases
-	prompt := fmt.Sprintf(`Analyze if this user request requires a PERSISTENT agent.
-
-Persistent agents:
-- Survive across sessions
-- Learn from interactions over time
-- Monitor for events/conditions
-- React to triggers (commits, PRs, etc.)
-
-User Request: %q
+	// Use LLM for ambiguous cases. No persistence_analyzer prompt is an
+	// error the caller reports, returned with the heuristic result.
+	systemPrompt, err := compileRolePrompt(ctx, pa.rolePrompts, rolePersistenceAnalyzer)
+	if err != nil {
+		return result, err
+	}
+	userPrompt := fmt.Sprintf(`User Request: %q
 
 Heuristic Analysis:
 - Needs Persistent: %v
-- Reasons: %v
+- Reasons: %v`, input, result.NeedsPersistent, result.Reasons)
 
-Return JSON only:
-{
-  "needs_persistent": true/false,
-  "agent_type": "type of agent needed",
-  "purpose": "what the agent should do",
-  "learning_goals": ["what to learn over time"],
-  "monitoring_scope": "what to monitor",
-  "schedule": "when to run (continuous, on-commit, daily, etc.)",
-  "confidence": 0.0-1.0,
-  "reasoning": "explanation"
-}
-
-JSON only:`, input, result.NeedsPersistent, result.Reasons)
-
-	resp, err := pa.client.Complete(ctx, prompt)
+	resp, err := pa.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return result, nil // Fall back to heuristic result
 	}
@@ -345,6 +339,8 @@ type MemorySpec struct {
 type AgentCreator struct {
 	client    LLMClient
 	agentsDir string // Directory for agent definitions
+	// rolePrompts compiles the agent_prompt_writer's system prompt.
+	rolePrompts types.RolePromptCompiler
 }
 
 // NewAgentCreator creates a new agent creator
@@ -355,12 +351,20 @@ func NewAgentCreator(client LLMClient, agentsDir string) *AgentCreator {
 	}
 }
 
-// CreateFromNeed creates an agent spec from a persistence need
+// SetRolePrompts attaches the role prompt compiler the agent's system prompt
+// writer compiles its own system prompt with.
+func (ac *AgentCreator) SetRolePrompts(roles types.RolePromptCompiler) {
+	ac.rolePrompts = roles
+}
+
+// CreateFromNeed creates an agent spec from a persistence need. An agent
+// whose system prompt could not be written is not created: a one-line
+// stand-in persona would become the agent's identity atom unannounced.
 func (ac *AgentCreator) CreateFromNeed(ctx context.Context, need PersistenceNeed) (*AgentSpec, error) {
 	// Generate system prompt for the agent
 	systemPrompt, err := ac.generateSystemPrompt(ctx, need)
 	if err != nil {
-		systemPrompt = fmt.Sprintf("You are a %s agent. Your purpose: %s", need.AgentType, need.Purpose)
+		return nil, fmt.Errorf("write the %s agent's system prompt: %w", need.AgentType, err)
 	}
 
 	// Build triggers
@@ -390,26 +394,29 @@ func (ac *AgentCreator) CreateFromNeed(ctx context.Context, need PersistenceNeed
 	return spec, nil
 }
 
-// generateSystemPrompt creates a system prompt for the agent
+// generateSystemPrompt has the model write the agent's system prompt. Its own
+// system prompt is the agent_prompt_writer role's atoms; the message is the
+// agent's characteristics. An empty reply is an error.
 func (ac *AgentCreator) generateSystemPrompt(ctx context.Context, need PersistenceNeed) (string, error) {
-	prompt := fmt.Sprintf(`Generate a system prompt for a persistent coding agent with these characteristics:
-
-Agent Type: %s
+	writerPrompt, err := compileRolePrompt(ctx, ac.rolePrompts, roleAgentPromptWriter)
+	if err != nil {
+		return "", err
+	}
+	userPrompt := fmt.Sprintf(`Agent Type: %s
 Purpose: %s
 Learning Goals: %v
 Monitoring Scope: %s
-Schedule: %s
-
-The system prompt should:
-1. Clearly define the agent's role and responsibilities
-2. Specify how to handle different scenarios
-3. Include guidelines for learning and adaptation
-4. Define output format expectations
-
-Generate a professional system prompt (no code blocks, just the prompt text):`,
+Schedule: %s`,
 		need.AgentType, need.Purpose, need.LearningGoals, need.MonitoringScope, need.Schedule)
 
-	return ac.client.Complete(ctx, prompt)
+	written, err := ac.client.CompleteWithSystem(ctx, writerPrompt, userPrompt)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(written) == "" {
+		return "", fmt.Errorf("the model wrote an empty system prompt")
+	}
+	return written, nil
 }
 
 // =============================================================================

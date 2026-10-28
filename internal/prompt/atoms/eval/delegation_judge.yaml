@@ -21,10 +21,10 @@
   shard_types: ["/judge_implementation"]
   conflicts_with:
     - "protocol/piggyback/envelope"
-    - "protocol/piggyback/thought_first"
+    - "protocol/piggyback/control_first"
     - "protocol/piggyback/mangle_updates"
-    - "protocol/reasoning/requirements"
-    - "protocol/reasoning/format"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
     - "methodology/ooda/core"
     - "capability/tool_thinking"
     - "capability/codedom_safety"
@@ -52,10 +52,10 @@
   shard_types: ["/judge_review"]
   conflicts_with:
     - "protocol/piggyback/envelope"
-    - "protocol/piggyback/thought_first"
+    - "protocol/piggyback/control_first"
     - "protocol/piggyback/mangle_updates"
-    - "protocol/reasoning/requirements"
-    - "protocol/reasoning/format"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
     - "methodology/ooda/core"
     - "capability/tool_thinking"
     - "capability/codedom_safety"
@@ -85,10 +85,10 @@
   shard_types: ["/judge_implementation", "/judge_review"]
   conflicts_with:
     - "protocol/piggyback/envelope"
-    - "protocol/piggyback/thought_first"
+    - "protocol/piggyback/control_first"
     - "protocol/piggyback/mangle_updates"
-    - "protocol/reasoning/requirements"
-    - "protocol/reasoning/format"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
     - "methodology/ooda/core"
     - "capability/tool_thinking"
     - "capability/codedom_safety"

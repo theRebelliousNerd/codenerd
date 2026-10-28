@@ -57,8 +57,8 @@ func TestJudgeSystemPrompt_IsCompiledFromTheJudgesAtoms(t *testing.T) {
 			}
 			for _, leaked := range []string{
 				"OUTPUT PROTOCOL: PIGGYBACK ENVELOPE", // protocol/piggyback/envelope
-				"THOUGHT-FIRST ORDERING",              // protocol/piggyback/thought_first
-				"REASONING TRACE REQUIREMENTS",        // protocol/reasoning/requirements
+				"CONTROL-PACKET FIELD ORDER",          // protocol/piggyback/control_first
+				"DECISION SUMMARY",                    // protocol/decision_summary/requirements
 			} {
 				if strings.Contains(got, leaked) {
 					t.Errorf("the %s judge's prompt carries %q, a contract its JSON-only reply cannot keep", rubric, leaked)

@@ -161,7 +161,7 @@ func assertPerceptionSelection(test *testing.T, result *prompt.CompilationResult
 	ids := make(map[string]bool, len(result.IncludedAtoms))
 	for _, atom := range result.IncludedAtoms {
 		ids[atom.ID] = true
-		if strings.HasPrefix(atom.ID, "protocol/piggyback/") || strings.HasPrefix(atom.ID, "protocol/reasoning/") || strings.HasPrefix(atom.ID, "perception/transducer/") {
+		if strings.HasPrefix(atom.ID, "protocol/piggyback/") || strings.HasPrefix(atom.ID, "protocol/decision_summary/") || strings.HasPrefix(atom.ID, "perception/transducer/") {
 			test.Errorf("incompatible instruction %q reached perception", atom.ID)
 		}
 		if atom.Category == prompt.CategoryProtocol && atom.ID != "system/perception/output_format" {

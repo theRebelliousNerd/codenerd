@@ -261,7 +261,7 @@ func (t *TaxonomyEngine) LearnFromInteraction(ctx context.Context, history []Rea
 		trace := history[i]
 		transcript.WriteString(fmt.Sprintf("User: %s\nAgent Action: %s\nSuccess: %v\n---\n",
 			truncateForCritic(trace.UserPrompt, maxTraceFieldChars),
-			truncateForCritic(trace.Response, maxTraceFieldChars), trace.Success))
+			truncateForCritic(visibleTaskOutput(trace.Response), maxTraceFieldChars), trace.Success))
 	}
 
 	// 2. Ask the Critic to evaluate

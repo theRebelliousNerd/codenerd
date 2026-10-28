@@ -137,8 +137,8 @@ type LLMToolResponse struct {
 	StopReason string        `json:"stop_reason"` // "end_turn", "tool_use", etc.
 	Usage      UsageMetadata `json:"usage"`       // Token usage metrics
 
-	// Gemini Thinking Mode metadata (for learning and improvement)
-	// ThoughtSummary captures the model's reasoning process for post-hoc analysis
+	// Provider-supplied summary and continuity metadata
+	// ThoughtSummary is a provider-supplied summary; it is not input to task learning.
 	ThoughtSummary string `json:"thought_summary,omitempty"`
 	// ThoughtSignature is an encrypted blob for multi-turn function calling (Gemini 3)
 	// Must be passed back in subsequent turns for reasoning continuity
@@ -387,7 +387,7 @@ type InputWindowReporter interface {
 // 2. Learn from the model's decision-making process
 // 3. Generate better prompt atoms based on reasoning patterns
 type ThinkingProvider interface {
-	// GetLastThoughtSummary returns the model's reasoning process from the last call.
+	// GetLastThoughtSummary returns the provider-supplied summary from the last call.
 	// Returns empty string if thinking mode is disabled or client doesn't support it.
 	GetLastThoughtSummary() string
 

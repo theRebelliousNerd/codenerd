@@ -2,6 +2,7 @@ package prompt_evolution_test
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -48,7 +49,6 @@ func TestTaskJudge_IncludesFullRecord(t *testing.T) {
 
 	buildErr := strings.Repeat("E", 500) + "BUILD_TAIL_MARKER"
 	output := strings.Repeat("O", 2000) + "OUTPUT_TAIL_MARKER"
-	thought := strings.Repeat("T", 3000) + "THOUGHT_TAIL_MARKER"
 
 	exec := &pe.ExecutionRecord{
 		TaskID:       "full-record",
@@ -60,9 +60,13 @@ func TestTaskJudge_IncludesFullRecord(t *testing.T) {
 			BuildErrors: []string{buildErr},
 			Output:      output,
 		},
-		ThoughtSummary: thought,
 	}
 
+	// Legacy JSON may still carry this retired field. It must never become
+	// judge input, even when loading a previously serialized record.
+	if err := json.Unmarshal([]byte(`{"thought_summary":"PRIVATE_SUMMARY_MARKER"}`), exec); err != nil {
+		t.Fatal(err)
+	}
 	client := &capturingJudgeClient{}
 	judge := pe.NewTaskJudge(client, "test-model", stubJudgeCompiler{}, nerdconfig.DefaultJITConfig())
 	if _, err := judge.Evaluate(context.Background(), exec); err != nil {
@@ -77,7 +81,6 @@ func TestTaskJudge_IncludesFullRecord(t *testing.T) {
 		{"late action target visible", "internal/auth/late_fix_target.go"},
 		{"full build error", "BUILD_TAIL_MARKER"},
 		{"full output", "OUTPUT_TAIL_MARKER"},
-		{"full thought summary", "THOUGHT_TAIL_MARKER"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -85,6 +88,9 @@ func TestTaskJudge_IncludesFullRecord(t *testing.T) {
 				t.Errorf("judge prompt omits %q", tc.want)
 			}
 		})
+	}
+	if strings.Contains(client.user, "PRIVATE_SUMMARY_MARKER") || strings.Contains(client.user, "Model's Reasoning Process") {
+		t.Error("judge received provider thought text")
 	}
 	if strings.Contains(client.user, "... and ") {
 		t.Error("judge prompt cuts the action list with an unrecoverable '... and N more'")

@@ -1291,6 +1291,27 @@ func (o *OuroborosLoop) SetLearningsContext(ctx string) {
 	}
 }
 
+// SetPromptAssembler attaches the JIT prompt assembler the loop's own tool
+// generator compiles its Ouroboros stage prompts with. Until 2026-10-28 only
+// the orchestrator's generator got one, so every tool the loop generated ran
+// on the Go-text prompts the generator kept as a fallback.
+func (o *OuroborosLoop) SetPromptAssembler(assembler PromptAssembler) {
+	if o.toolGen != nil {
+		o.toolGen.SetPromptAssembler(assembler)
+	}
+}
+
+// SetRolePrompts attaches the role prompt compiler the loop's tool generator
+// (spec and test writers) and its PanicMaker compile their prompts with.
+func (o *OuroborosLoop) SetRolePrompts(roles types.RolePromptCompiler) {
+	if o.toolGen != nil {
+		o.toolGen.SetRolePrompts(roles)
+	}
+	if o.panicMaker != nil {
+		o.panicMaker.SetRolePrompts(roles)
+	}
+}
+
 // ToolInfo contains information about a registered tool
 type ToolInfo = types.ToolInfo
 

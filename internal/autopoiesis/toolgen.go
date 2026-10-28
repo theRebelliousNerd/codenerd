@@ -11,6 +11,7 @@ import (
 
 	"codenerd/internal/atomicfile"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -25,9 +26,11 @@ type ToolGenerator struct {
 	toolsDir      string // Directory where tools are stored
 	existingTools map[string]ToolSchema
 
-	// JIT prompt compilation support
+	// promptAssembler compiles the Ouroboros stage prompts tool code is
+	// generated under; rolePrompts compiles the spec writer's and the test
+	// writer's role prompts. Without them those calls are errors.
 	promptAssembler PromptAssembler
-	jitEnabled      bool
+	rolePrompts     types.RolePromptCompiler
 
 	// Learnings injection - aggregated patterns from past tool generation
 	learningsContext string
@@ -57,13 +60,19 @@ func (tg *ToolGenerator) SetLearningsContext(ctx string) {
 	}
 }
 
-// SetPromptAssembler attaches a JIT-aware prompt assembler to the tool generator
+// SetPromptAssembler attaches the JIT prompt assembler tool code is generated
+// and regenerated under.
 func (tg *ToolGenerator) SetPromptAssembler(assembler PromptAssembler) {
 	tg.promptAssembler = assembler
-	tg.jitEnabled = assembler != nil && assembler.JITReady()
-	if tg.jitEnabled {
+	if assembler != nil && assembler.JITReady() {
 		logging.Autopoiesis("JIT prompt compilation enabled for ToolGenerator")
 	}
+}
+
+// SetRolePrompts attaches the role prompt compiler the tool spec writer and
+// the test writer compile their system prompts with.
+func (tg *ToolGenerator) SetRolePrompts(roles types.RolePromptCompiler) {
+	tg.rolePrompts = roles
 }
 
 // WriteTool writes the generated tool to disk

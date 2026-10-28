@@ -96,6 +96,9 @@ type QualityEvaluator struct {
 	// outputJudge reads what a tool's output reports (Jev); nil when the
 	// autopoiesis checks are off, and the pattern rules decide.
 	outputJudge OutputJudge
+	// rolePrompts compiles EvaluateWithLLM's system prompt from the
+	// tool_quality_assessor role atoms.
+	rolePrompts types.RolePromptCompiler
 }
 
 // OutputJudge reads an execution's output (quality_jev.go).
@@ -127,6 +130,12 @@ func NewQualityEvaluator(client LLMClient, profileStore *ProfileStore) *QualityE
 		completenessHints: defaultCompletenessHints(),
 		profileStore:      profileStore,
 	}
+}
+
+// SetRolePrompts attaches the role prompt compiler EvaluateWithLLM compiles
+// its system prompt with.
+func (qe *QualityEvaluator) SetRolePrompts(roles types.RolePromptCompiler) {
+	qe.rolePrompts = roles
 }
 
 // SetOutputJudge sets Jev's reading of tool output; nil leaves the pattern
@@ -650,42 +659,26 @@ func (qe *QualityEvaluator) generateSuggestions(issues []QualityIssue, _ *Execut
 	return suggestions
 }
 
-// EvaluateWithLLM uses LLM for deeper quality assessment
+// EvaluateWithLLM uses LLM for deeper quality assessment. Its system prompt
+// is the tool_quality_assessor role's atoms; the message is the execution.
+// No tool_quality_assessor prompt is an error returned with the heuristic
+// assessment; a failed model call returns the heuristic assessment alone.
 func (qe *QualityEvaluator) EvaluateWithLLM(ctx context.Context, feedback *ExecutionFeedback) (*QualityAssessment, error) {
 	// First get heuristic assessment
 	assessment := qe.Evaluate(ctx, feedback)
 
 	// Then enhance with LLM analysis
-	prompt := fmt.Sprintf(`Analyze this tool execution and assess its quality.
-
-Tool: %s
+	systemPrompt, err := compileRolePrompt(ctx, qe.rolePrompts, roleToolQualityAssessor)
+	if err != nil {
+		return assessment, err
+	}
+	userPrompt := fmt.Sprintf(`Tool: %s
 Input: %s
-Output (truncated to 2000 chars): %s
+Output: %s
 Duration: %v
 Success: %v
 
-Existing issues detected: %v
-
-Please provide:
-1. Completeness score (0.0-1.0) - Did the tool fetch ALL available data?
-2. Accuracy score (0.0-1.0) - Is the output correct and well-formed?
-3. Additional issues not detected by heuristics
-4. Specific improvement suggestions with code hints
-
-Focus especially on:
-- Pagination: Did it only get the first page when more were available?
-- Limits: Did it use default limits instead of maximum?
-- Error handling: Did it properly handle edge cases?
-
-Return JSON:
-{
-  "completeness": 0.0-1.0,
-  "accuracy": 0.0-1.0,
-  "relevance": 0.0-1.0,
-  "additional_issues": [{"type": "...", "description": "...", "severity": 0.0-1.0}],
-  "suggestions": [{"type": "...", "description": "...", "code_hint": "..."}],
-  "reasoning": "..."
-}`,
+Existing issues detected: %v`,
 		feedback.ToolName,
 		types.ClampText(feedback.Input, 2000, "tool input"),
 		types.ClampText(feedback.Output, 8000, "tool output"),
@@ -694,7 +687,7 @@ Return JSON:
 		assessment.Issues,
 	)
 
-	resp, err := qe.client.Complete(ctx, prompt)
+	resp, err := qe.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return assessment, nil // Return heuristic assessment on LLM failure
 	}

@@ -120,8 +120,8 @@ func TestBuildPrompt_Bounds(t *testing.T) {
 			if !tt.skipCeiling && len(got) > ceiling {
 				t.Errorf("classification prompt is %d chars, want <= %d", len(got), ceiling)
 			}
-			if tt.skipCeiling && strings.Count(got, huge) != 2 {
-				t.Errorf("oversized turn was sliced: the full text appears %d times, want 2 (content and reasoning summary, both whole)", strings.Count(got, huge))
+			if tt.skipCeiling && strings.Count(got, huge) != 1 {
+				t.Errorf("oversized turn was sliced: the full text appears %d times, want 1 (visible content only, whole)", strings.Count(got, huge))
 			}
 			if tt.skipCeiling && (strings.Contains(got, "chars from prior turn") || strings.Contains(got, "chars from thought summary")) {
 				t.Error("the prior turn still carries a mid-text clamp marker")

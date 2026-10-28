@@ -9,6 +9,19 @@ living reference; this file is the package-level orientation.
 
 ## Overview
 
+Prompt-evolution feedback records task requests, actions, outcomes, source
+references, and usage counts. Provider thought summaries are neither persisted
+in new feedback rows nor supplied to the judge; legacy summary columns remain
+for schema compatibility and are excluded on read.
+
+Tool-generation auditing records requests, declared design metadata, usage,
+artifacts, and execution outcomes in `tool_generation_records.json`.
+`RecordResponse` retains token counts and elapsed time only; it does not store
+response text, extract intermediate thinking, or call a model to reconstruct it.
+Pre-change `reasoning_traces.json` files are left untouched and are not loaded
+into this collector. Interaction history elsewhere retains its existing SQL
+names for compatibility and stores ordinary assistant output and call metadata.
+
 The autopoiesis package implements self-creation capabilities - the ability for codeNERD to detect needs and generate new capabilities at runtime. Named after the biological concept of self-maintaining systems.
 
 ## Architecture
@@ -35,7 +48,7 @@ autopoiesis/
 ├── panic_maker.go          # Attack vector generation
 ├── checker.go              # Safety policy validation
 ├── profiles.go             # Tool quality profiles
-├── traces.go               # Reasoning trace capture
+├── traces.go               # Tool-generation outcome auditing
 └── prompt_evolution/       # System Prompt Learning (SPL)
     └── strategy_atoms.go   # Renders learned strategies as prompt atoms
 ```
@@ -172,7 +185,7 @@ Latency is recorded for rejected runs too.
 ├── .compiled/              # Compiled binaries
 ├── .learnings/             # Persisted learnings
 ├── .profiles/              # Quality profiles
-└── .traces/                # Reasoning traces
+└── .traces/                # Tool-generation audit records
 ```
 
 ## Testing

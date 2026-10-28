@@ -3,7 +3,7 @@ package prompt
 import "strings"
 
 // IsStructuredOutputOnly returns true when a shard's output is parsed by Go and
-// must therefore not carry the Piggyback envelope or reasoning-trace protocol.
+// must therefore not carry the Piggyback envelope or decision-summary protocol.
 //
 // Two mandatory output contracts in one prompt is not a style problem, it is a
 // silent failure. Observed live: the campaign Decomposer compiles as "planner",
@@ -37,7 +37,7 @@ func IsStructuredOutputOnly(shardType string) bool {
 // reply.
 //
 // The check is by CATEGORY, not by ID prefix. It used to match only
-// "protocol/piggyback/" and "protocol/reasoning/", which let
+// "protocol/piggyback/" and "protocol/decision_summary/", which let
 // campaign/taxonomist/output_protocol (since deleted) through: that atom was
 // gated shard_types: ["taxonomist", "planner"], so it landed in the
 // Decomposer's compile carrying "# OUTPUT PROTOCOL (PIGGYBACK ENVELOPE) — You
@@ -57,6 +57,7 @@ func imposesOutputContract(atom *PromptAtom) bool {
 		return true
 	}
 	return strings.HasPrefix(atom.ID, "protocol/piggyback/") ||
+		strings.HasPrefix(atom.ID, "protocol/decision_summary/") ||
 		strings.HasPrefix(atom.ID, "protocol/reasoning/")
 }
 

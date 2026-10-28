@@ -8,7 +8,7 @@
   shard_types: ["extractor"]
   campaign_phases: ["requirements", "northstar", "requirement_extraction"]
   depends_on: ["campaign/extractor/identity", "campaign/extractor/methodology"]
-  description: "Piggyback Protocol output format, thought-first ordering, and reasoning trace requirements for requirements extraction"
+  description: "Direct JSON output and source evidence for requirements extraction"
   conflicts_with:
     - "methodology/ooda/core"
     - "capability/tool_thinking"
@@ -21,7 +21,7 @@
     Your entire reply is ONE JSON object with a single key, "requirements".
 
     Do NOT wrap it in a "control_packet" envelope. Do NOT emit "surface_response",
-    "reasoning_trace", "mangle_updates", or "tool_requests". Your reply is parsed
+    "mangle_updates", or "tool_requests". Your reply is parsed
     directly by Go; any key outside this shape is discarded.
 
     "requirements" MUST be a populated array. An empty array means the extraction
@@ -39,11 +39,8 @@
       ]
     }
 
-    ## CRITICAL: THINK BEFORE YOU ANSWER
-
-    Complete the scan-and-atomize analysis before writing the array. That thinking
-    does not appear in the reply -- there is no reasoning_trace field and no
-    envelope to carry one.
+    Return only requirements supported by the supplied document. Include
+    their source references; omit commentary and intermediate analysis.
 
     Document Chunk follows.
 
@@ -56,7 +53,7 @@
   shard_types: ["extractor"]
   campaign_phases: ["requirements", "northstar", "requirement_extraction"]
   depends_on: ["campaign/extractor/identity", "campaign/extractor/methodology"]
-  description: "Piggyback Protocol output format, thought-first ordering, and reasoning trace requirements for requirements extraction: Extraction rigor"
+  description: "Direct JSON output and source evidence for requirements extraction: Extraction rigor"
   content: |
     // EXTRACTION RIGOR (INTERNAL -- DO NOT EMIT)
 

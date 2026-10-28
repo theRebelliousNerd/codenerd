@@ -4,7 +4,10 @@ package autopoiesis
 
 import (
 	"context"
+	"errors"
 	"testing"
+
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -338,6 +341,7 @@ func TestPersistenceAnalyzer_Analyze_NoMatch(t *testing.T) {
 func TestPersistenceAnalyzer_AnalyzeWithLLM_HighConfidence(t *testing.T) {
 	client := &MockLLMClient{}
 	analyzer := NewPersistenceAnalyzer(client)
+	analyzer.SetRolePrompts(fixedRolePrompts{})
 
 	// High confidence heuristic match should skip LLM
 	input := "Whenever I push code, automatically run all tests and alert me if anything fails"
@@ -355,7 +359,7 @@ func TestPersistenceAnalyzer_AnalyzeWithLLM_HighConfidence(t *testing.T) {
 func TestPersistenceAnalyzer_AnalyzeWithLLM_UsesLLM(t *testing.T) {
 	llmCalled := false
 	client := &MockLLMClient{
-		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
+		CompleteWithSystemFunc: func(ctx context.Context, _, prompt string) (string, error) {
 			llmCalled = true
 			return `{
 				"needs_persistent": true,
@@ -370,6 +374,7 @@ func TestPersistenceAnalyzer_AnalyzeWithLLM_UsesLLM(t *testing.T) {
 		},
 	}
 	analyzer := NewPersistenceAnalyzer(client)
+	analyzer.SetRolePrompts(fixedRolePrompts{})
 
 	// Ambiguous input that should trigger LLM analysis
 	input := "Help me track how the codebase evolves"
@@ -790,11 +795,12 @@ func TestNewAgentCreator(t *testing.T) {
 
 func TestAgentCreator_CreateFromNeed(t *testing.T) {
 	client := &MockLLMClient{
-		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
+		CompleteWithSystemFunc: func(ctx context.Context, _, prompt string) (string, error) {
 			return "You are a code monitoring agent that watches for code quality issues.", nil
 		},
 	}
 	creator := NewAgentCreator(client, "/tmp/agents")
+	creator.SetRolePrompts(fixedRolePrompts{})
 
 	need := PersistenceNeed{
 		AgentType:       "monitor",
@@ -835,11 +841,12 @@ func TestAgentCreator_CreateFromNeed(t *testing.T) {
 
 func TestAgentCreator_CreateFromNeed_NoLearningGoals(t *testing.T) {
 	client := &MockLLMClient{
-		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
+		CompleteWithSystemFunc: func(ctx context.Context, _, prompt string) (string, error) {
 			return "You are a simple monitoring agent.", nil
 		},
 	}
 	creator := NewAgentCreator(client, "/tmp/agents")
+	creator.SetRolePrompts(fixedRolePrompts{})
 
 	need := PersistenceNeed{
 		AgentType:     "alerter",
@@ -858,30 +865,33 @@ func TestAgentCreator_CreateFromNeed_NoLearningGoals(t *testing.T) {
 	}
 }
 
-func TestAgentCreator_CreateFromNeed_LLMFallback(t *testing.T) {
-	client := &MockLLMClient{
-		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
-			return "", context.DeadlineExceeded // Simulate LLM failure
+// An agent whose system prompt could not be written is not created: until
+// 2026-10-28 a failed writer call, or none at all, gave the agent the one-line
+// persona "You are a <type> agent. Your purpose: <purpose>" as its identity.
+func TestAgentCreator_CreateFromNeed_NoSystemPromptNoAgent(t *testing.T) {
+	need := PersistenceNeed{AgentType: "reviewer", Purpose: "Review code", Schedule: "on-pr"}
+
+	failing := NewAgentCreator(&MockLLMClient{
+		CompleteWithSystemFunc: func(context.Context, string, string) (string, error) {
+			return "", context.DeadlineExceeded
 		},
-	}
-	creator := NewAgentCreator(client, "/tmp/agents")
-
-	need := PersistenceNeed{
-		AgentType: "reviewer",
-		Purpose:   "Review code",
-		Schedule:  "on-pr",
+	}, "/tmp/agents")
+	failing.SetRolePrompts(fixedRolePrompts{})
+	if spec, err := failing.CreateFromNeed(context.Background(), need); err == nil || spec != nil {
+		t.Errorf("CreateFromNeed after a failed writer call = %+v, %v; want no agent and an error", spec, err)
 	}
 
-	spec, err := creator.CreateFromNeed(context.Background(), need)
-	if err != nil {
-		t.Fatalf("CreateFromNeed should not error on LLM failure: %v", err)
+	calls := 0
+	unwired := NewAgentCreator(&MockLLMClient{
+		CompleteWithSystemFunc: func(context.Context, string, string) (string, error) {
+			calls++
+			return "You are a reviewer.", nil
+		},
+	}, "/tmp/agents")
+	if _, err := unwired.CreateFromNeed(context.Background(), need); !errors.Is(err, types.ErrRolePromptUnavailable) {
+		t.Errorf("CreateFromNeed without a role prompt compiler error = %v, want ErrRolePromptUnavailable", err)
 	}
-
-	// Should fallback to basic system prompt
-	if spec.SystemPrompt == "" {
-		t.Error("Expected fallback SystemPrompt to be set")
-	}
-	if !contains([]string{spec.SystemPrompt}, "You are a reviewer agent") {
-		t.Logf("SystemPrompt: %s", spec.SystemPrompt)
+	if calls != 0 {
+		t.Errorf("the model was called %d times without a compiled writer prompt", calls)
 	}
 }

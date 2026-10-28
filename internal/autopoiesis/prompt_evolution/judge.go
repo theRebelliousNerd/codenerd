@@ -195,7 +195,7 @@ func (tj *TaskJudge) EvaluateBatch(ctx context.Context, execs []*ExecutionRecord
 // buildEvaluationPrompt constructs the prompt for evaluation.
 // The verdict decides which prompt atoms evolve, so the full execution
 // record is included without truncation: every action, the complete build
-// errors, output, and reasoning summary. Cutting a long run hides the late
+// errors, output, and source evidence. Cutting a long run hides the late
 // edits that usually fix or break the task.
 func (tj *TaskJudge) buildEvaluationPrompt(exec *ExecutionRecord) string {
 	var sb strings.Builder
@@ -246,13 +246,6 @@ func (tj *TaskJudge) buildEvaluationPrompt(exec *ExecutionRecord) string {
 	}
 	if exec.ThinkingTokens > 0 {
 		sb.WriteString(fmt.Sprintf("- **Thinking Tokens**: %d\n", exec.ThinkingTokens))
-	}
-
-	// Include model's reasoning process if available (for learning)
-	if exec.ThoughtSummary != "" {
-		sb.WriteString("\n## Model's Reasoning Process\n")
-		sb.WriteString(exec.ThoughtSummary)
-		sb.WriteString("\n")
 	}
 
 	// Include grounding sources if available

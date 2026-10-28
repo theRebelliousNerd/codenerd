@@ -28,7 +28,8 @@ var errFallbackNoClient = errors.New("fallback client has no primary or secondar
 // derives the wrong next_action (observed live: /analyze_code for a /fix
 // instruction), and the run reports success on work it never did.
 //
-// Failover fires on any primary error, including context cancellation (the
+// Refused, filtered, and truncated requests never fail over. Other primary
+// errors can fail over, including context cancellation (the
 // secondary then fails fast on the same context). Streaming fails over only
 // when the primary errors before emitting its first chunk: once content has
 // flowed to the consumer it cannot be un-emitted, so a late primary error is
@@ -100,7 +101,7 @@ var _ types.ModelIdentifier = (*FallbackClient)(nil)
 // useSecondary reports whether a failed primary call should be retried on the
 // secondary, logging the failover when it fires.
 func (c *FallbackClient) useSecondary(op string, primaryErr error) bool {
-	if c.secondary == nil {
+	if c.secondary == nil || !failoverable(primaryErr) {
 		return false
 	}
 	logging.Get(logging.CategoryPerception).Warn(
@@ -188,7 +189,7 @@ func (c *FallbackClient) relayStream(ctx context.Context, w *types.StreamWriter,
 	return types.RelayStream(ctx, w, content, nil, done)
 }
 
-// failoverable reports whether a pre-output stream failure may be retried on
+// failoverable reports whether a provider failure may be retried on
 // another model. Refused, filtered and truncated outcomes are answers about
 // this request; another provider would only be asked to evade them.
 func failoverable(err error) bool {

@@ -840,7 +840,7 @@ func TestE2E_SchedulerSession_Semantic_PiggybackFallback(t *testing.T) {
 	// with no continuation, and this client's one scripted answer -- which the
 	// mock repeats once its script runs out -- was enough.) The second answer
 	// is the model concluding.
-	envelope := `{"control_packet":{"reasoning_trace":"need tool data","tool_requests":[{"id":"req_1","tool_name":"mock_tool","tool_args":{},"purpose":"fallback probe","required":true}]},"surface_response":"using tools"}`
+	envelope := `{"control_packet":{"decision_summary":"need tool data","tool_requests":[{"id":"req_1","tool_name":"mock_tool","tool_args":{},"purpose":"fallback probe","required":true}]},"surface_response":"using tools"}`
 	conclusion := `{"control_packet":{"tool_requests":[]},"surface_response":"done with the tool data"}`
 	llm := &mockLLMClientWithControls{
 		isPiggyback: true,

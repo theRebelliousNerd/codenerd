@@ -1,0 +1,50 @@
+# Decision Summary Protocol Atoms
+# Concise explanations of outcomes and observable evidence.
+
+- id: "protocol/decision_summary/requirements"
+  category: "protocol"
+  subcategory: "decision_summary"
+  is_mandatory: true
+  content: |
+    ## DECISION SUMMARY
+
+    In control_packet.decision_summary, give one or two sentences stating the
+    decision or result and the relevant evidence. Use an empty string when a
+    summary adds nothing. There is no minimum word count.
+
+    This is a brief explanation for a developer. Do not disclose private
+    deliberation, intermediate thinking steps, or a transcript of your analysis.
+    Do not reconstruct a hidden thought process from an answer.
+
+    Reference source files, supplied facts, or tool results when relevant.
+    Distinguish planned actions from executed actions and verified outcomes.
+    State uncertainty or missing evidence plainly.
+
+- id: "protocol/decision_summary/format"
+  category: "protocol"
+  subcategory: "decision_summary"
+  is_mandatory: true
+  depends_on: ["protocol/decision_summary/requirements"]
+  content: |
+    ## SUMMARY FORMAT
+
+    Write a short explanation of the outcome, without a numbered analysis log.
+
+    Example:
+    "decision_summary": "Add a nil guard to validateToken because the caller
+    can supply an absent token. The change still needs a test run."
+
+    Include only claims supported by the supplied context or observed results.
+    A summary does not grant permission or prove that an action ran.
+
+- id: "protocol/decision_summary/verification"
+  category: "protocol"
+  subcategory: "decision_summary"
+  is_mandatory: false
+  depends_on: ["protocol/decision_summary/format"]
+  content: |
+    ## SUMMARY ACCURACY
+
+    Keep the summary consistent with the answer and available evidence.
+    Name material limitations, failures, or checks that have not been run.
+    Do not expand it into a record of intermediate deliberation.

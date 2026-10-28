@@ -31,7 +31,7 @@ func TestAnalyze_ToolNeed_AssertsMissingToolFor(t *testing.T) {
 	// Make DetectToolNeed succeed with a high-confidence need. The input must
 	// match shouldCheckToolNeed (missingCapabilityPatterns) so the branch is
 	// entered; "I need a tool to ..." does.
-	llm.CompleteFunc = func(ctx context.Context, prompt string) (string, error) {
+	llm.CompleteWithSystemFunc = func(ctx context.Context, _, prompt string) (string, error) {
 		return `{"needs_new_tool": true, "tool_name": "json_validator", "purpose": "Validate JSON input", "input_type": "string", "output_type": "bool", "priority": 0.9, "confidence": 0.9, "reasoning": "test"}`, nil
 	}
 

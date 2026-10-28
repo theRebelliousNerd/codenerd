@@ -299,6 +299,8 @@ func createTestOrchestrator(t *testing.T) (*Orchestrator, *MockKernelInterface, 
 
 	orch := NewOrchestrator(mockLLM, cfg)
 	orch.SetKernel(mockKernel)
+	orch.SetPromptAssembler(stagePromptAssembler{})
+	orch.SetRolePrompts(fixedRolePrompts{})
 
 	return orch, mockKernel, mockLLM
 }

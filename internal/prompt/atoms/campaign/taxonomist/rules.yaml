@@ -227,7 +227,7 @@
   is_mandatory: true
   shard_types: ["taxonomist", "planner"]
   campaign_phases: ["taxonomy", "planning"]
-  # Was reasoning_trace, a protocol atom: the planner (the only shard this
+  # Previously a protocol atom: the planner (the only shard this
   # family reaches) is structured-output, the selector drops protocol atoms
   # for it before dependencies resolve, and this mandatory atom was pruned
   # with its missing dependency on every planner compile.

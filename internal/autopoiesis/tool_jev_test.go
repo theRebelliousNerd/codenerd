@@ -89,6 +89,8 @@ func jevLoop(t *testing.T, llm LLMClient, jev *fakeToolJev, cfg *internalconfig.
 	oc := DefaultOuroborosConfig(t.TempDir())
 	oc.EnableThunderdome = false
 	loop := NewOuroborosLoop(llm, oc)
+	loop.SetPromptAssembler(stagePromptAssembler{})
+	loop.SetRolePrompts(fixedRolePrompts{})
 	loop.registry.mu.Lock()
 	loop.registry.tools["json_validator"] = &RuntimeTool{Name: "json_validator", Description: "Reports whether a JSON file is well-formed.", RegisteredAt: time.Now()}
 	loop.registry.mu.Unlock()

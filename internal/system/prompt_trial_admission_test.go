@@ -32,14 +32,21 @@ func TestPromptTrialAdmission_KernelDecidesAndExposureBudgetEndsIt(t *testing.T)
 	nerdDir := t.TempDir()
 
 	candidate := prompt.NewPromptAtom("evolved/trial_candidate", prompt.CategoryMethodology, "trial guidance")
+	// An evolved atom is pinned to the exact model and the source role it was
+	// learned on; one with no pin is quarantined at load.
 	candidate.ShardTypes = []string{"/coder"}
+	candidate.Providers = []string{"anthropic"}
+	candidate.Models = []string{"claude-opus-5-5"}
 	pendingDir := filepath.Join(nerdDir, "prompts", "evolved", "pending")
 	if err := os.MkdirAll(pendingDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	data, err := yaml.Marshal(struct {
-		Atom *prompt.PromptAtom `yaml:"atom"`
-	}{candidate})
+		Atom      *prompt.PromptAtom `yaml:"atom"`
+		ShardType string             `yaml:"shard_type"`
+		Provider  string             `yaml:"provider"`
+		Model     string             `yaml:"model"`
+	}{candidate, "/coder", "anthropic", "claude-opus-5-5"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,6 +84,8 @@ func TestPromptTrialAdmission_KernelDecidesAndExposureBudgetEndsIt(t *testing.T)
 		}
 		cc := prompt.NewCompilationContext()
 		cc.ShardType = "/coder"
+		cc.Provider = "anthropic"
+		cc.Model = "claude-opus-5-5"
 		var ids []string
 		for _, atom := range mgr.GetMatching(cc, admitted) {
 			ids = append(ids, atom.ID)

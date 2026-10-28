@@ -289,7 +289,7 @@ type ConversationTurn struct {
 	Role             string // "user" or "assistant"
 	Content          string
 	ThoughtSignature string // For multi-turn reasoning continuity
-	ThoughtSummary   string // Actual reasoning text used by the model
+	ThoughtSummary   string // Provider-supplied summary, separate from visible task output
 }
 
 // sanitizeFactArg strips control characters and caps length for user/LLM-derived

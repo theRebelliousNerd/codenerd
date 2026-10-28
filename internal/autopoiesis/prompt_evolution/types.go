@@ -141,9 +141,7 @@ type ExecutionRecord struct {
 	PromptManifest *prompt.PromptManifest `json:"prompt_manifest,omitzero"`
 	AtomIDs        []string               `json:"atom_ids,omitzero"` // Simplified list
 
-	// LLM Reasoning Metadata (Gemini 3+ Thinking Mode)
-	// These fields capture the model's reasoning process for learning and improvement
-	ThoughtSummary   string   `json:"thought_summary,omitzero"`   // Model's reasoning process summary
+	// Usage and source metadata. Provider thought text is excluded from learning.
 	ThinkingTokens   int      `json:"thinking_tokens,omitzero"`   // Tokens used for reasoning
 	GroundingSources []string `json:"grounding_sources,omitzero"` // URLs used to ground the response
 
@@ -247,7 +245,6 @@ const (
 	// failure observed on one snapshot is not evidence about another; the cost
 	// is that the atom retires with the snapshot it was learned on.
 	PinScopeModel PinScope = "model"
-
 
 	// PinScopeModelFamily pins to the provider and the model FAMILY, so an atom
 	// learned on claude-opus-4-20260501 also applies to a later snapshot of
@@ -382,11 +379,11 @@ type EvolutionStats struct {
 	// Atom Counts
 	TotalAtomsGenerated int `json:"total_atoms_generated"`
 	AtomsPending        int `json:"atoms_pending"`
+	AtomsPromoted       int `json:"atoms_promoted"`
+	AtomsRejected       int `json:"atoms_rejected"`
 	// AtomsUnpinned are stored atoms that could not be re-pinned to their
 	// recorded model and role; kept on disk, never selected.
 	AtomsUnpinned int `json:"atoms_unpinned"`
-	AtomsPromoted       int `json:"atoms_promoted"`
-	AtomsRejected       int `json:"atoms_rejected"`
 
 	// Strategy Counts
 	TotalStrategies        int     `json:"total_strategies"`

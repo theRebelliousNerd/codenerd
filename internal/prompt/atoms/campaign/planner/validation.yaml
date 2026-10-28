@@ -20,7 +20,7 @@
   shard_types: ["planner"]
   campaign_phases: ["planning", "validation"]
   depends_on: ["campaign/planner/identity", "campaign/planner/decomposition"]
-  description: "Hallucination prevention, Piggyback protocol, reasoning trace requirements, and self-correction"
+  description: "Hallucination prevention, Piggyback protocol, evidence requirements, and self-correction"
   content: |
     // =============================================================================
     // VII. OUTPUT PROTOCOL
@@ -30,7 +30,7 @@
     OUTPUT CONTRACT section.
 
     Do NOT wrap it in a "control_packet" envelope. Do NOT emit "tool_requests",
-    "knowledge_requests", "surface_response", "reasoning_trace", or
+    "knowledge_requests", "surface_response", additional commentary, or
     "self_correction". You are not holding a conversation; your reply is parsed
     directly into a plan, and any key outside the schema is discarded.
 
@@ -53,7 +53,7 @@
   shard_types: ["planner"]
   campaign_phases: ["planning", "validation"]
   depends_on: ["campaign/planner/identity", "campaign/planner/decomposition"]
-  description: "Hallucination prevention, Piggyback protocol, reasoning trace requirements, and self-correction: Hallucinations 1-2"
+  description: "Hallucination prevention, Piggyback protocol, evidence requirements, and self-correction: Hallucinations 1-2"
   content: |
     ## COMMON HALLUCINATIONS TO AVOID
 
@@ -78,7 +78,7 @@
   shard_types: ["planner"]
   campaign_phases: ["planning", "validation"]
   depends_on: ["campaign/planner/identity", "campaign/planner/decomposition"]
-  description: "Hallucination prevention, Piggyback protocol, reasoning trace requirements, and self-correction: Hallucinations 3-4"
+  description: "Hallucination prevention, Piggyback protocol, evidence requirements, and self-correction: Hallucinations 3-4"
   content: |
     ## COMMON HALLUCINATIONS TO AVOID
 
@@ -103,7 +103,7 @@
   shard_types: ["planner"]
   campaign_phases: ["planning", "validation"]
   depends_on: ["campaign/planner/identity", "campaign/planner/decomposition"]
-  description: "Hallucination prevention, Piggyback protocol, reasoning trace requirements, and self-correction: Planning rigor and self-correction"
+  description: "Hallucination prevention, Piggyback protocol, evidence requirements, and self-correction: Planning rigor and self-correction"
   content: |
     ## PLANNING RIGOR (INTERNAL -- DO NOT EMIT)
 

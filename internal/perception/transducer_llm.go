@@ -166,11 +166,7 @@ func (t *LLMTransducer) Understand(ctx context.Context, input string, history []
 		thinkingLog := ""
 		if tp, ok := t.client.(types.ThinkingProvider); ok && tp.IsThinkingEnabled() {
 			thinkingTokens := tp.GetLastThinkingTokens()
-			thoughtSummary := tp.GetLastThoughtSummary()
-			if len(thoughtSummary) > 200 {
-				thoughtSummary = thoughtSummary[:200] + "..."
-			}
-			thinkingLog = fmt.Sprintf(" thinkingTokens=%d thoughtPreview=%q", thinkingTokens, thoughtSummary)
+			thinkingLog = fmt.Sprintf(" thinkingTokens=%d", thinkingTokens)
 		}
 		logging.Perception("[Understand] LLM responded: %dms | responseLen=%d chars (~%d tok)%s",
 			llmDuration.Milliseconds(), len(response), len(response)/4, thinkingLog)
@@ -423,9 +419,6 @@ func (t *LLMTransducer) BuildPrompt(input string, history []ConversationTurn, se
 			sb.WriteString("\n\n")
 		}
 		for _, turn := range kept {
-			if turn.ThoughtSummary != "" {
-				sb.WriteString(fmt.Sprintf("**%s (Previous Thoughts)**:\n```\n%s\n```\n\n", turn.Role, turn.ThoughtSummary))
-			}
 			if turn.Content != "" {
 				sb.WriteString(fmt.Sprintf("**%s**: %s\n\n", turn.Role, turn.Content))
 			}
@@ -465,19 +458,19 @@ func classificationHistoryBlock(history []ConversationTurn) (kept []Conversation
 }
 
 // selectClassificationHistory keeps the newest prior turns that fit.
-// Empty turns (no content and no reasoning summary) are skipped and do not
-// consume the window. window <= 0 sends none. budget is bytes of content
-// plus reasoning summary. newestExceeds is set when the one turn that was
-// kept is itself over budget.
+// Empty visible turns are skipped and do not consume the window. window <= 0
+// sends none. The byte budget counts visible content only; provider summaries
+// are excluded. newestExceeds marks a retained turn that is itself over budget.
 func selectClassificationHistory(history []ConversationTurn, window, budget int) (kept []ConversationTurn, dropped, droppedChars, newestChars int, newestExceeds bool) {
 	if window <= 0 {
 		return nil, 0, 0, 0, false
 	}
 	var turns []ConversationTurn
 	for _, turn := range history {
-		if turn.Content == "" && turn.ThoughtSummary == "" {
+		if turn.Content == "" {
 			continue
 		}
+		turn.ThoughtSummary = "" // Provider summaries are not classification context.
 		turns = append(turns, turn)
 	}
 	if len(turns) == 0 {
@@ -490,7 +483,7 @@ func selectClassificationHistory(history []ConversationTurn, window, budget int)
 	sizes := make([]int, len(eligible))
 	total := 0
 	for i, turn := range eligible {
-		sizes[i] = len(turn.Content) + len(turn.ThoughtSummary)
+		sizes[i] = len(turn.Content)
 		total += sizes[i]
 	}
 	// Drop oldest until the remainder fits, but never the newest.
@@ -504,7 +497,7 @@ func selectClassificationHistory(history []ConversationTurn, window, budget int)
 	newestExceeds = newestChars > budget
 	for _, turn := range turns[:len(turns)-len(kept)] {
 		dropped++
-		droppedChars += len(turn.Content) + len(turn.ThoughtSummary)
+		droppedChars += len(turn.Content)
 	}
 	return kept, dropped, droppedChars, newestChars, newestExceeds
 }

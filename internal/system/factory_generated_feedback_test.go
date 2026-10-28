@@ -422,10 +422,21 @@ func (m *generatedRefinementLLM) CompleteWithSystem(ctx context.Context, _, _ st
 	return m.Complete(ctx, "")
 }
 
+// refinementStageAssembler compiles a fixed /refinement stage prompt:
+// refinement has no prompt but the one the JIT assembler compiles.
+type refinementStageAssembler struct{}
+
+func (refinementStageAssembler) AssembleSystemPrompt(context.Context, any) (string, error) {
+	return "refinement stage prompt", nil
+}
+
+func (refinementStageAssembler) JITReady() bool { return true }
+
 func TestGeneratedFactoryCortexCloseJoinsRefinement(t *testing.T) {
 	workspace := t.TempDir()
 	model := &generatedRefinementLLM{entered: make(chan struct{}), canceled: make(chan struct{}), release: make(chan struct{})}
 	orchestrator := autopoiesis.NewOrchestrator(model, autopoiesis.DefaultConfig(workspace))
+	orchestrator.SetPromptAssembler(refinementStageAssembler{})
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatal(err)

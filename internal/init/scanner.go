@@ -1059,7 +1059,7 @@ func (i *Initializer) createDirectoryStructure() (string, error) {
 		filepath.Join(toolsDir, ".compiled"),  // Compiled tool binaries
 		filepath.Join(toolsDir, ".learnings"), // Tool execution learnings
 		filepath.Join(toolsDir, ".profiles"),  // Tool quality profiles
-		filepath.Join(toolsDir, ".traces"),    // Reasoning traces for tool generation
+		filepath.Join(toolsDir, ".traces"),    // Tool-generation outcome audit records
 		filepath.Join(nerdDir, "agents"),      // Persistent agent definitions
 		filepath.Join(nerdDir, "campaigns"),   // Campaign checkpoints
 	}

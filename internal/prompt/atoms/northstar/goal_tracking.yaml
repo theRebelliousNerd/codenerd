@@ -96,4 +96,4 @@
     When actions serve conflicting goals:
     - Prioritize by goal priority
     - Seek user clarification if equal priority
-    - Document the conflict in reasoning trace
+    - Describe the observable constraint conflict in the answer

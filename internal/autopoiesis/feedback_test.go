@@ -4,6 +4,7 @@ package autopoiesis
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -13,6 +14,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -122,6 +125,7 @@ func TestToolRefiner_Refine(t *testing.T) {
 	}
 	toolGen := NewToolGenerator(client, "/tmp/tools")
 	refiner := NewToolRefiner(client, toolGen)
+	refiner.SetPromptAssembler(stagePromptAssembler{})
 
 	req := RefinementRequest{
 		ToolName:     "test_tool",
@@ -158,6 +162,7 @@ func TestToolRefiner_Refine_CodeBlockFallback(t *testing.T) {
 	}
 	toolGen := NewToolGenerator(client, "/tmp/tools")
 	refiner := NewToolRefiner(client, toolGen)
+	refiner.SetPromptAssembler(stagePromptAssembler{})
 
 	req := RefinementRequest{
 		ToolName:     "test_tool",
@@ -215,28 +220,37 @@ func TestBuildRefinementPrompt(t *testing.T) {
 	}
 }
 
-func TestToolRefiner_RefineWithJIT_FallbackDoesNotRecurse(t *testing.T) {
-	client := &MockLLMClient{
-		CompleteWithSystemFunc: func(ctx context.Context, system, user string) (string, error) {
-			return `{"improved_code":"package tools\n\nfunc improved() {}","changes":["fallback"],"expected_gain":0.2,"test_cases":["test"]}`, nil
-		},
-	}
-	toolGen := NewToolGenerator(client, "/tmp/tools")
-	refiner := NewToolRefiner(client, toolGen)
-	refiner.SetPromptAssembler(failingPromptAssembler{})
+// Refinement is sent under the /refinement stage prompt the JIT assembler
+// compiles, and nothing else. Until 2026-10-28 a failed assembly, or no
+// assembler, fell back to the Go constant refinementSystemPrompt.
+func TestToolRefiner_RefineWithoutCompiledPromptIsAnError(t *testing.T) {
+	for name, assembler := range map[string]PromptAssembler{
+		"failed assembly": failingPromptAssembler{},
+		"not JIT-ready":   notReadyPromptAssembler{},
+		"no assembler":    nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			client := &MockLLMClient{
+				CompleteWithSystemFunc: func(ctx context.Context, system, user string) (string, error) {
+					calls++
+					return `{"improved_code":"package tools","changes":["x"],"expected_gain":0.2,"test_cases":["t"]}`, nil
+				},
+			}
+			refiner := NewToolRefiner(client, NewToolGenerator(client, "/tmp/tools"))
+			refiner.SetPromptAssembler(assembler)
 
-	result, err := refiner.Refine(context.Background(), RefinementRequest{
-		ToolName:     "test_tool",
-		OriginalCode: "package tools\n\nfunc tool() {}",
-	})
-	if err != nil {
-		t.Fatalf("Refine error: %v", err)
-	}
-	if !result.Success {
-		t.Fatal("expected successful refinement")
-	}
-	if !strings.Contains(result.ImprovedCode, "func improved()") {
-		t.Fatalf("expected legacy fallback refinement result, got %q", result.ImprovedCode)
+			_, err := refiner.Refine(context.Background(), RefinementRequest{
+				ToolName:     "test_tool",
+				OriginalCode: "package tools\n\nfunc tool() {}",
+			})
+			if !errors.Is(err, types.ErrRolePromptUnavailable) {
+				t.Errorf("Refine error = %v, want ErrRolePromptUnavailable", err)
+			}
+			if calls != 0 {
+				t.Errorf("the model was called %d times without a compiled prompt", calls)
+			}
+		})
 	}
 }
 

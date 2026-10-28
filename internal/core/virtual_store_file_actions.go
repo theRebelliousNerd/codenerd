@@ -219,7 +219,7 @@ func (v *VirtualStore) handleWriteFile(ctx context.Context, req ActionRequest) (
 		return ActionResult{}, fmt.Errorf("write_file requires 'content' in payload")
 	}
 
-	// Extract code block from content (removes LLM reasoning traces and markdown fences).
+	// Extract code block from content (removes surrounding assistant commentary and markdown fences).
 	// asked is kept: the extractor slices a Go file from its package clause and
 	// drops a leading //go:build line, so the exclusion check has to see the
 	// bytes the caller asked for, not only what would land.

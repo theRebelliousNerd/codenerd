@@ -11,10 +11,10 @@
   # atoms (jit_compiler.mg mandatory_superseded).
   conflicts_with:
     - "protocol/piggyback/envelope"
-    - "protocol/piggyback/thought_first"
+    - "protocol/piggyback/control_first"
     - "protocol/piggyback/mangle_updates"
-    - "protocol/reasoning/requirements"
-    - "protocol/reasoning/format"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
     - "methodology/ooda/core"
     - "capability/tool_thinking"
     - "capability/codedom_safety"
@@ -50,10 +50,10 @@
   # atoms (jit_compiler.mg mandatory_superseded).
   conflicts_with:
     - "protocol/piggyback/envelope"
-    - "protocol/piggyback/thought_first"
+    - "protocol/piggyback/control_first"
     - "protocol/piggyback/mangle_updates"
-    - "protocol/reasoning/requirements"
-    - "protocol/reasoning/format"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
     - "methodology/ooda/core"
     - "capability/tool_thinking"
     - "capability/codedom_safety"
@@ -95,10 +95,10 @@
   # atoms (jit_compiler.mg mandatory_superseded).
   conflicts_with:
     - "protocol/piggyback/envelope"
-    - "protocol/piggyback/thought_first"
+    - "protocol/piggyback/control_first"
     - "protocol/piggyback/mangle_updates"
-    - "protocol/reasoning/requirements"
-    - "protocol/reasoning/format"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
     - "methodology/ooda/core"
     - "capability/tool_thinking"
     - "capability/codedom_safety"

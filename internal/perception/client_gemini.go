@@ -376,7 +376,7 @@ func (c *GeminiClient) GetLastThoughtSignature() string {
 // ThinkingProvider Interface Implementation
 // =============================================================================
 
-// GetLastThoughtSummary returns the model's reasoning process from the last call.
+// GetLastThoughtSummary returns the provider-supplied summary from the last call.
 // Used by SPL to understand WHY the model made certain decisions.
 func (c *GeminiClient) GetLastThoughtSummary() string {
 	return c.lastThoughtSummary

@@ -1,7 +1,7 @@
 // Package research provides research tools including Gemini thinking support.
 //
 // ThinkingHelper enables access to Gemini 3's thinking mode features:
-//   - Thought Summary: The model's reasoning process (for SPL learning)
+//   - Thought Summary: Provider-supplied summary, separate from task learning
 //   - Thought Signature: Encrypted blob for multi-turn function calling continuity
 //   - Thinking Tokens: Token count for budget monitoring
 //
@@ -76,7 +76,7 @@ func (h *ThinkingHelper) GetThinkingLevel() string {
 
 // CaptureThinkingMetadata captures thinking metadata after an LLM call.
 // Call this after Complete/CompleteWithSystem/CompleteWithTools to get:
-// - Thought summary (reasoning process)
+// - Provider-supplied summary (not prompt-evolution input)
 // - Thought signature (for multi-turn function calling)
 // - Thinking tokens used
 func (h *ThinkingHelper) CaptureThinkingMetadata() ThinkingMetadata {
@@ -146,8 +146,8 @@ func (h *ThinkingHelper) GetStats() ThinkingStats {
 
 // ThinkingMetadata contains metadata captured from a thinking-enabled response.
 type ThinkingMetadata struct {
-	// ThoughtSummary is the model's reasoning process (for SPL learning).
-	// May be empty if the model didn't produce thoughts for this response.
+	// ThoughtSummary is a provider-supplied summary for display.
+	// It is not supplied to the task or prompt-evolution learning pipelines.
 	ThoughtSummary string `json:"thought_summary,omitempty"`
 
 	// ThoughtSignature is an encrypted blob for multi-turn function calling.

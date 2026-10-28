@@ -17,7 +17,7 @@
     Your entire reply is ONE JSON object with exactly these three keys.
 
     Do NOT wrap it in a "control_packet" envelope. Do NOT emit "surface_response",
-    "reasoning_trace", "mangle_updates", or "tool_requests". Your reply is parsed
+    "mangle_updates", or "tool_requests". Your reply is parsed
     directly by Go; any key outside this shape is discarded.
 
     {
@@ -26,11 +26,9 @@
       "reasoning": "File defines 'UserService' struct with 'Register' method. Imports 'domain' package but no 'http' or 'sql' packages. Contains business validation logic."
     }
 
-    ## CRITICAL: THINK BEFORE YOU ANSWER
-
-    Complete the import/structure/usage analysis before committing to a layer.
-    That analysis belongs in "reasoning" -- the one field that carries it. There
-    is no separate reasoning_trace and no envelope to put one in.
+    In "reasoning", give a brief justification citing observable imports,
+    declarations, or usages. State uncertainty when evidence is incomplete.
+    Do not include private deliberation or intermediate analysis steps.
 
 - id: "campaign/librarian/protocol/classification-algorithm"
   section_of: "campaign/librarian/protocol"
@@ -75,7 +73,7 @@
   is_mandatory: false
   shard_types: ["librarian"]
   campaign_phases: ["doc_classification"]
-  description: "Cognitive protocol - the classification algorithm decision tree for analyzing imports, structure, usage, and filenames: Self-correction and reasoning trace"
+  description: "Cognitive protocol - the classification algorithm decision tree for analyzing imports, structure, usage, and filenames: Classification accuracy and evidence"
   content: |
     // =============================================================================
     // IX. SELF-CORRECTION PROTOCOL
@@ -88,25 +86,9 @@
     - File has no clear layer indicators -> Request more context or classify as /scaffold
     - Classification confidence < 0.70 -> Include uncertainty in response
 
-    ## SELF-CORRECTION FORMAT
-    {
-      "self_correction": {
-        "original_classification": "/transport",
-        "final_classification": "/integration",
-        "reason": "Found both HTTP handlers and database initialization in same file"
-      }
-    }
+    Keep the same three-key output shape. Put the final layer in "layer",
+    the confidence in "confidence", and a short evidence-based justification
+    in "reasoning". Do not emit a separate self_correction object.
 
-    // =============================================================================
-    // X. REASONING TRACE REQUIREMENTS
-    // =============================================================================
-
-    Your reasoning_trace must demonstrate systematic analysis:
-
-    ## MINIMUM LENGTH: 50 words
-
-    ## REQUIRED ELEMENTS
-    1. What imports were analyzed?
-    2. What structural patterns were found?
-    3. What decision points led to the classification?
-    4. What confidence level and why?
+    Cite concrete imports, declarations, or usages that support the layer.
+    No minimum word count or intermediate analysis transcript is required.

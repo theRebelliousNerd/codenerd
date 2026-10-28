@@ -90,10 +90,11 @@ type UserFeedback struct {
 
 // ToolRefiner generates improved tool versions based on feedback
 type ToolRefiner struct {
-	client          LLMClient
-	toolGen         *ToolGenerator
+	client  LLMClient
+	toolGen *ToolGenerator
+	// promptAssembler compiles the Ouroboros /refinement stage prompt Refine
+	// sends; without a JIT-ready one Refine is an error.
 	promptAssembler PromptAssembler
-	jitEnabled      bool
 }
 
 // RefinementRequest describes what needs to be improved
@@ -123,85 +124,15 @@ func NewToolRefiner(client LLMClient, toolGen *ToolGenerator) *ToolRefiner {
 	}
 }
 
-// Refine generates an improved version of a tool
+// Refine generates an improved version of a tool. Its system prompt is the
+// Ouroboros /refinement stage compiled through the JIT assembler; without one
+// it is an error wrapping types.ErrRolePromptUnavailable, not other text.
 func (tr *ToolRefiner) Refine(ctx context.Context, req RefinementRequest) (*RefinementResult, error) {
 	timer := logging.StartTimer(logging.CategoryAutopoiesis, "ToolRefiner.Refine")
 	defer timer.Stop()
 
 	logging.Autopoiesis("Refining tool: %s (%d feedback items, %d patterns)",
 		req.ToolName, len(req.Feedback), len(req.Patterns))
-
-	// Try JIT compilation first if available
-	if tr.jitEnabled && tr.promptAssembler != nil && tr.promptAssembler.JITReady() {
-		return tr.refineWithJIT(ctx, req)
-	}
-
-	return tr.refineLegacy(ctx, req)
-}
-
-func (tr *ToolRefiner) refineLegacy(ctx context.Context, req RefinementRequest) (*RefinementResult, error) {
-	// Fallback to legacy refinement
-	result := &RefinementResult{
-		Changes:   []string{},
-		TestCases: []string{},
-	}
-
-	// Build improvement prompt
-	prompt := tr.buildRefinementPrompt(req)
-	logging.AutopoiesisDebug("Built refinement prompt: %d chars", len(prompt))
-
-	logging.AutopoiesisDebug("Sending refinement request to LLM")
-	llmTimer := logging.StartTimer(logging.CategoryAutopoiesis, "LLMRefinement")
-	resp, err := tr.client.CompleteWithSystem(ctx, refinementSystemPrompt, prompt)
-	llmTimer.Stop()
-	if err != nil {
-		logging.Get(logging.CategoryAutopoiesis).Error("Refinement LLM call failed: %v", err)
-		return nil, fmt.Errorf("refinement failed: %w", err)
-	}
-	logging.AutopoiesisDebug("Received LLM response: %d chars", len(resp))
-
-	// Parse response
-	var refinement struct {
-		ImprovedCode string   `json:"improved_code"`
-		Changes      []string `json:"changes"`
-		ExpectedGain float64  `json:"expected_gain"`
-		TestCases    []string `json:"test_cases"`
-	}
-
-	jsonStr := extractJSON(resp)
-	if err := json.Unmarshal([]byte(jsonStr), &refinement); err != nil {
-		logging.AutopoiesisDebug("JSON parsing failed, trying code block extraction")
-		// Try to extract code block directly
-		code := extractCodeBlock(resp, "go")
-		if code != "" {
-			result.ImprovedCode = code
-			result.Success = true
-			result.Changes = []string{"LLM-generated improvements"}
-			logging.Autopoiesis("Tool refined via code block extraction: %s", req.ToolName)
-			return result, nil
-		}
-		logging.Get(logging.CategoryAutopoiesis).Error("Failed to parse refinement response: %v", err)
-		return nil, fmt.Errorf("failed to parse refinement: %w", err)
-	}
-
-	result.Success = true
-	result.ImprovedCode = refinement.ImprovedCode
-	result.Changes = refinement.Changes
-	result.ExpectedGain = refinement.ExpectedGain
-	result.TestCases = refinement.TestCases
-
-	logging.Autopoiesis("Tool refined successfully: %s (expectedGain=%.2f, changes=%d)",
-		req.ToolName, result.ExpectedGain, len(result.Changes))
-	for i, change := range result.Changes {
-		logging.AutopoiesisDebug("  Change %d: %s", i+1, change)
-	}
-
-	return result, nil
-}
-
-// refineWithJIT generates an improved version using JIT-compiled prompts
-func (tr *ToolRefiner) refineWithJIT(ctx context.Context, req RefinementRequest) (*RefinementResult, error) {
-	logging.AutopoiesisDebug("Refining tool with JIT: %s", req.ToolName)
 
 	result := &RefinementResult{
 		Changes:   []string{},
@@ -217,12 +148,9 @@ func (tr *ToolRefiner) refineWithJIT(ctx context.Context, req RefinementRequest)
 		"tool_name":       req.ToolName,
 	}
 
-	// Assemble system prompt using JIT compiler
-	systemPrompt, err := tr.promptAssembler.AssembleSystemPrompt(ctx, pc)
+	systemPrompt, err := assembleOuroborosPrompt(ctx, tr.promptAssembler, pc)
 	if err != nil {
-		logging.Get(logging.CategoryAutopoiesis).Warn("JIT assembly failed for refinement, falling back: %v", err)
-		// Fall back to legacy refinement without re-entering the JIT path.
-		return tr.refineLegacy(ctx, req)
+		return nil, err
 	}
 
 	logging.AutopoiesisDebug("JIT-compiled refinement system prompt: %d bytes", len(systemPrompt))
@@ -279,11 +207,11 @@ func (tr *ToolRefiner) refineWithJIT(ctx context.Context, req RefinementRequest)
 	return result, nil
 }
 
-// SetPromptAssembler attaches a JIT-aware prompt assembler to the tool refiner
+// SetPromptAssembler attaches the JIT prompt assembler Refine compiles its
+// system prompt with.
 func (tr *ToolRefiner) SetPromptAssembler(assembler PromptAssembler) {
 	tr.promptAssembler = assembler
-	tr.jitEnabled = assembler != nil && assembler.JITReady()
-	if tr.jitEnabled {
+	if assembler != nil && assembler.JITReady() {
 		logging.Autopoiesis("JIT prompt compilation enabled for ToolRefiner")
 	}
 }
@@ -345,19 +273,6 @@ Return JSON with:
 
 	return sb.String()
 }
-
-var refinementSystemPrompt = `You are an elite Go code optimizer. Improve reliability, safety, and completeness.
-
-Avoid domain assumptions. Do not add network retries/pagination unless the code clearly performs network I/O.
-
-Prioritize:
-1. NIL SAFETY - Check pointers/interfaces before dereference.
-2. RESOURCE SAFETY - Close files/streams/connections with defer.
-3. CONTEXT - Respect cancellation in loops/blocking operations.
-4. ERROR WRAPPING - Return descriptive errors using %w when appropriate.
-5. BOUNDS CHECKS - Prevent slice/map/index panics.
-
-Fix root causes without inventing unrelated features. Return clean, idiomatic Go.`
 
 // =============================================================================
 // LEARNING STORE - PERSIST LEARNINGS

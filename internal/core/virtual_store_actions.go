@@ -1191,7 +1191,7 @@ func (v *VirtualStore) GetStrategicSummary() string {
 	return result
 }
 
-// extractCodeBlockForFile extracts code from content that may contain LLM reasoning traces.
+// extractCodeBlockForFile extracts code from content that may contain surrounding assistant commentary.
 // It looks for code blocks matching the file extension's language.
 func extractCodeBlockForFile(content, path string) string {
 	ext := strings.TrimPrefix(filepath.Ext(path), ".")

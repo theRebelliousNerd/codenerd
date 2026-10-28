@@ -119,7 +119,7 @@ func (m *Model) renderSingleMessage(msg Message) string {
 			MarginTop(1)
 		rendered.WriteString(assistantStyle.Render(LabelAssistant) + "\n")
 
-		// Render reasoning trace if present
+		// Render the decision or provider summary if present
 		if msg.ThoughtSummary != "" {
 			thoughtStyle := m.styles.Text.Muted.Italic(true).Width(m.wrapWidth)
 			// Prefix with a thinking indicator, e.g., 🤔

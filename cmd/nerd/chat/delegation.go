@@ -622,8 +622,8 @@ func (m Model) sendObserverEvent(eventType shards.ObserverEventType, source, tar
 
 // recordShardExecution records a shard execution for prompt evolution learning.
 // This enables the System Prompt Learning (SPL) system to improve prompts over time.
-// It captures LLM thinking metadata (ThoughtSummary, ThinkingTokens) when available
-// for the LLM-as-Judge to evaluate reasoning quality.
+// It records observable task outcomes, grounding sources, and usage metadata
+// for the LLM-as-Judge to assess task quality.
 func (m Model) recordShardExecution(shardType, task, result string, err error, duration time.Duration) {
 	// The shard profile's enable_learning gates recording. It was collected
 	// by the wizard and persisted for months while every run was recorded
@@ -666,10 +666,8 @@ func (m Model) recordShardExecution(shardType, task, result string, err error, d
 		exec.Provider, exec.Model = mi.ModelIdentity()
 	}
 
-	// Extract thinking metadata if client supports it (Gemini 3 with Thinking Mode)
-	// This allows the LLM-as-Judge to evaluate the model's reasoning process
+	// Record token usage only; provider thought text is not learning material.
 	if tp, ok := m.client.(types.ThinkingProvider); ok {
-		exec.ThoughtSummary = tp.GetLastThoughtSummary()
 		exec.ThinkingTokens = tp.GetLastThinkingTokens()
 	}
 

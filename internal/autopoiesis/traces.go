@@ -1,11 +1,7 @@
 // Package autopoiesis implements self-modification capabilities for codeNERD.
-// This file implements reasoning trace capture and mandatory logging for tool generation.
-//
-// The goal is to capture the "why" behind tool creation so we can:
-// 1. Learn from successful tool generations
-// 2. Identify patterns in tool creation for optimization
-// 3. Debug why tools behave unexpectedly
-// 4. Build a knowledge base of tool generation best practices
+// Tool-generation audit records retain requests, declared decisions, costs,
+// generated artifacts, and execution outcomes. They do not reconstruct a model's
+// private deliberation or retain response bodies for that purpose.
 package autopoiesis
 
 import (
@@ -21,7 +17,6 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
-	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -36,32 +31,14 @@ var (
 	httpPattern         = regexp.MustCompile(`(http\.(Get|Post|Do)\([^)]+\))`)
 	forPattern          = regexp.MustCompile(`(for\s+[^{]+\{)\n`)
 	hasErrorPattern     = regexp.MustCompile(`if\s+err\s*!=\s*nil.*log\.`)
-	stepPattern         = regexp.MustCompile(`(?m)^(?:\d+\.|[-*])\s*(.+)$`)
-
-	assumptionPatterns = []*regexp.Regexp{
-		regexp.MustCompile(`(?i)assum(?:e|ing|ption)\s+(?:that\s+)?(.+?)(?:\.|$)`),
-		regexp.MustCompile(`(?i)expect(?:ing)?\s+(?:that\s+)?(.+?)(?:\.|$)`),
-		regexp.MustCompile(`(?i)presume\s+(?:that\s+)?(.+?)(?:\.|$)`),
-	}
-
-	alternativePatterns = []*regexp.Regexp{
-		regexp.MustCompile(`(?i)instead\s+of\s+(.+?),?\s+(?:I|we)\s+(.+?)(?:\.|$)`),
-		regexp.MustCompile(`(?i)rather\s+than\s+(.+?),?\s+(.+?)(?:\.|$)`),
-		regexp.MustCompile(`(?i)could\s+(?:also|alternatively)\s+(.+?)\s+but\s+(.+?)(?:\.|$)`),
-	}
-
-	decisionPatterns = []*regexp.Regexp{
-		regexp.MustCompile(`(?i)(?:decided|choosing|chose|will use)\s+(.+?)\s+(?:because|since|as)\s+(.+?)(?:\.|$)`),
-		regexp.MustCompile(`(?i)(?:for|using)\s+(.+?)\s+(?:because|since)\s+(.+?)(?:\.|$)`),
-	}
 )
 
 // =============================================================================
-// REASONING TRACE - CAPTURE THE "WHY" OF TOOL GENERATION
+// TOOL GENERATION AUDIT RECORDS
 // =============================================================================
 
-// ReasoningTrace captures the LLM's thought process during tool generation
-type ReasoningTrace struct {
+// ToolGenerationRecord captures declared inputs and observable tool-generation outcomes.
+type ToolGenerationRecord struct {
 	// Identity
 	TraceID     string    `json:"trace_id"`
 	ToolName    string    `json:"tool_name"`
@@ -76,13 +53,11 @@ type ReasoningTrace struct {
 	// LLM Interaction
 	SystemPrompt string `json:"system_prompt"` // System prompt used
 	UserPrompt   string `json:"user_prompt"`   // Full prompt sent to LLM
-	RawResponse  string `json:"raw_response"`  // Complete LLM response
 
-	// Extracted Reasoning
-	ChainOfThought []ThoughtStep `json:"chain_of_thought"` // Extracted reasoning steps
-	KeyDecisions   []Decision    `json:"key_decisions"`    // Major choices made
-	Assumptions    []string      `json:"assumptions"`      // Assumptions the LLM made
-	Alternatives   []Alternative `json:"alternatives"`     // Alternatives considered
+	// Explicit metadata supplied by the caller, never inferred from model prose.
+	DecisionSummary string     `json:"decision_summary,omitempty"`
+	KeyDecisions    []Decision `json:"key_decisions,omitempty"`
+	Assumptions     []string   `json:"assumptions,omitempty"`
 
 	// Generation Metadata
 	ModelUsed      string        `json:"model_used"`
@@ -101,66 +76,49 @@ type ReasoningTrace struct {
 	IssuesFound        []string `json:"issues_found,omitempty"`
 }
 
-// ThoughtStep represents a step in the LLM's reasoning
-type ThoughtStep struct {
-	Step        int    `json:"step"`
-	Description string `json:"description"`
-	Reasoning   string `json:"reasoning"`
-	Conclusion  string `json:"conclusion"`
-}
-
 // Decision represents a key decision made during generation
 type Decision struct {
-	Topic        string   `json:"topic"`        // e.g., "pagination_strategy"
-	Choice       string   `json:"choice"`       // What was chosen
-	Reasoning    string   `json:"reasoning"`    // Why
-	Alternatives []string `json:"alternatives"` // What else was considered
-}
-
-// Alternative represents an alternative approach that was considered
-type Alternative struct {
-	Approach    string `json:"approach"`
-	WhyRejected string `json:"why_rejected"`
+	Topic        string   `json:"topic"`                  // e.g., "pagination_strategy"
+	Choice       string   `json:"choice"`                 // What was chosen
+	Rationale    string   `json:"rationale"`              // Brief, externally assessable justification
+	Alternatives []string `json:"alternatives,omitempty"` // Explicitly documented design options
 }
 
 // =============================================================================
 // TRACE COLLECTOR - CAPTURE AND ANALYZE TRACES
 // =============================================================================
 
-// TraceCollector manages reasoning trace collection and analysis
+// TraceCollector manages tool-generation audit records and outcome statistics.
 type TraceCollector struct {
 	mu        sync.RWMutex
 	storePath string
-	traces    map[string]*ReasoningTrace // TraceID -> Trace
-	byTool    map[string][]string        // ToolName -> TraceIDs
-	client    LLMClient
+	traces    map[string]*ToolGenerationRecord // TraceID -> Trace
+	byTool    map[string][]string              // ToolName -> TraceIDs
 }
 
-// NewTraceCollector creates a new trace collector
-func NewTraceCollector(storePath string, client LLMClient) *TraceCollector {
+// NewTraceCollector creates a tool-generation audit collector. The client
+// parameter is retained for caller compatibility; collection makes no LLM calls.
+func NewTraceCollector(storePath string, _ LLMClient) *TraceCollector {
 	tc := &TraceCollector{
 		storePath: storePath,
-		traces:    make(map[string]*ReasoningTrace),
+		traces:    make(map[string]*ToolGenerationRecord),
 		byTool:    make(map[string][]string),
-		client:    client,
 	}
 	tc.load()
 	return tc
 }
 
-// StartTrace begins capturing a new reasoning trace
-func (tc *TraceCollector) StartTrace(toolName string, need *ToolNeed, userRequest string) *ReasoningTrace {
-	trace := &ReasoningTrace{
+// StartTrace begins a tool-generation audit record.
+func (tc *TraceCollector) StartTrace(toolName string, need *ToolNeed, userRequest string) *ToolGenerationRecord {
+	trace := &ToolGenerationRecord{
 		TraceID:         fmt.Sprintf("%s-%d", toolName, time.Now().UnixNano()),
 		ToolName:        toolName,
 		GeneratedAt:     time.Now(),
 		UserRequest:     userRequest,
 		DetectedNeed:    need,
 		ContextProvided: make(map[string]string),
-		ChainOfThought:  []ThoughtStep{},
 		KeyDecisions:    []Decision{},
 		Assumptions:     []string{},
-		Alternatives:    []Alternative{},
 	}
 
 	tc.mu.Lock()
@@ -172,86 +130,29 @@ func (tc *TraceCollector) StartTrace(toolName string, need *ToolNeed, userReques
 }
 
 // RecordPrompt captures the prompts sent to the LLM
-func (tc *TraceCollector) RecordPrompt(trace *ReasoningTrace, systemPrompt, userPrompt string) {
+func (tc *TraceCollector) RecordPrompt(trace *ToolGenerationRecord, systemPrompt, userPrompt string) {
 	trace.SystemPrompt = systemPrompt
 	trace.UserPrompt = userPrompt
 }
 
-// RecordResponse captures the LLM response and extracts reasoning
-func (tc *TraceCollector) RecordResponse(ctx context.Context, trace *ReasoningTrace, response string, tokensUsed int, duration time.Duration) {
-	trace.RawResponse = response
+// RecordResponse records usage metadata only. Response text is intentionally
+// ignored: audit collection must not infer or request intermediate deliberation.
+// The parameters remain for compatibility with generation callers.
+func (tc *TraceCollector) RecordResponse(_ context.Context, trace *ToolGenerationRecord, _ string, tokensUsed int, duration time.Duration) {
 	trace.TokensUsed = tokensUsed
 	trace.GenerationTime = duration
-
-	// Extract reasoning from response
-	tc.extractReasoning(ctx, trace, response)
-}
-
-// extractReasoning parses the LLM response to extract structured reasoning
-func (tc *TraceCollector) extractReasoning(ctx context.Context, trace *ReasoningTrace, response string) {
-	// Pattern-based extraction first
-	trace.ChainOfThought = extractThoughtSteps(response)
-	trace.Assumptions = extractAssumptions(response)
-	trace.Alternatives = extractAlternatives(response)
-	trace.KeyDecisions = extractDecisions(response)
-
-	// If pattern extraction found little, use LLM to extract reasoning
-	if len(trace.ChainOfThought) == 0 && tc.client != nil {
-		tc.extractReasoningWithLLM(ctx, trace, response)
-	}
-}
-
-// extractReasoningWithLLM uses LLM to extract structured reasoning from a response
-func (tc *TraceCollector) extractReasoningWithLLM(ctx context.Context, trace *ReasoningTrace, response string) {
-	prompt := fmt.Sprintf(`Analyze this tool generation response and extract the reasoning:
-
-Response:
-%s
-
-Extract and return JSON:
-{
-  "chain_of_thought": [{"step": 1, "description": "...", "reasoning": "...", "conclusion": "..."}],
-  "key_decisions": [{"topic": "...", "choice": "...", "reasoning": "...", "alternatives": ["..."]}],
-  "assumptions": ["assumption 1", "assumption 2"],
-  "alternatives_considered": [{"approach": "...", "why_rejected": "..."}]
-}
-
-JSON only:`, types.ClampText(response, 12000, "tool-generation response"))
-
-	resp, err := tc.client.Complete(ctx, prompt)
-	if err != nil {
-		return
-	}
-
-	var extracted struct {
-		ChainOfThought []ThoughtStep `json:"chain_of_thought"`
-		KeyDecisions   []Decision    `json:"key_decisions"`
-		Assumptions    []string      `json:"assumptions"`
-		Alternatives   []Alternative `json:"alternatives_considered"`
-	}
-
-	jsonStr := extractJSON(resp)
-	if err := json.Unmarshal([]byte(jsonStr), &extracted); err == nil {
-		if len(extracted.ChainOfThought) > 0 {
-			trace.ChainOfThought = extracted.ChainOfThought
-		}
-		if len(extracted.KeyDecisions) > 0 {
-			trace.KeyDecisions = extracted.KeyDecisions
-		}
-		if len(extracted.Assumptions) > 0 {
-			trace.Assumptions = extracted.Assumptions
-		}
-		if len(extracted.Alternatives) > 0 {
-			trace.Alternatives = extracted.Alternatives
-		}
-	}
 }
 
 // FinalizeTrace marks a trace as complete
-func (tc *TraceCollector) FinalizeTrace(trace *ReasoningTrace, success bool, code string, failureReason string) {
+func (tc *TraceCollector) FinalizeTrace(trace *ToolGenerationRecord, success bool, code string, failureReason string) {
 	trace.Success = success
 	trace.CodeGenerated = code
 	trace.FailureReason = failureReason
+	if success {
+		trace.DecisionSummary = "Tool generation completed successfully."
+	} else {
+		trace.DecisionSummary = "Tool generation failed. See failure_reason for the reported error."
+	}
 	tc.save()
 }
 
@@ -277,18 +178,18 @@ func (tc *TraceCollector) UpdateWithFeedback(toolName string, quality float64, i
 }
 
 // GetTrace retrieves a specific trace
-func (tc *TraceCollector) GetTrace(traceID string) *ReasoningTrace {
+func (tc *TraceCollector) GetTrace(traceID string) *ToolGenerationRecord {
 	tc.mu.RLock()
 	defer tc.mu.RUnlock()
 	return tc.traces[traceID]
 }
 
 // GetToolTraces retrieves all traces for a tool
-func (tc *TraceCollector) GetToolTraces(toolName string) []*ReasoningTrace {
+func (tc *TraceCollector) GetToolTraces(toolName string) []*ToolGenerationRecord {
 	tc.mu.RLock()
 	defer tc.mu.RUnlock()
 
-	traces := []*ReasoningTrace{}
+	traces := []*ToolGenerationRecord{}
 	for _, id := range tc.byTool[toolName] {
 		if trace, exists := tc.traces[id]; exists {
 			traces = append(traces, trace)
@@ -298,11 +199,11 @@ func (tc *TraceCollector) GetToolTraces(toolName string) []*ReasoningTrace {
 }
 
 // GetAllTraces returns all traces
-func (tc *TraceCollector) GetAllTraces() []*ReasoningTrace {
+func (tc *TraceCollector) GetAllTraces() []*ToolGenerationRecord {
 	tc.mu.RLock()
 	defer tc.mu.RUnlock()
 
-	traces := make([]*ReasoningTrace, 0, len(tc.traces))
+	traces := make([]*ToolGenerationRecord, 0, len(tc.traces))
 	for _, trace := range tc.traces {
 		traces = append(traces, trace)
 	}
@@ -380,7 +281,7 @@ type TypeAnalysis struct {
 // AnalyzeGenerations performs broad analysis across all tool generations
 func (tc *TraceCollector) AnalyzeGenerations(ctx context.Context) (*GenerationAudit, error) {
 	tc.mu.RLock()
-	traces := make([]*ReasoningTrace, 0, len(tc.traces))
+	traces := make([]*ToolGenerationRecord, 0, len(tc.traces))
 	for _, trace := range tc.traces {
 		traces = append(traces, trace)
 	}
@@ -471,7 +372,7 @@ func (tc *TraceCollector) AnalyzeGenerations(ctx context.Context) (*GenerationAu
 }
 
 // identifyOptimizations uses analysis to suggest improvements
-func (tc *TraceCollector) identifyOptimizations(_ context.Context, audit *GenerationAudit, _ []*ReasoningTrace) []OptimizationOpportunity {
+func (tc *TraceCollector) identifyOptimizations(_ context.Context, audit *GenerationAudit, _ []*ToolGenerationRecord) []OptimizationOpportunity {
 	opportunities := []OptimizationOpportunity{}
 
 	// Check for common issues that could be prevented
@@ -766,83 +667,6 @@ func hasTimingLogging(code string) bool {
 }
 
 // =============================================================================
-// REASONING EXTRACTION HELPERS
-// =============================================================================
-
-func extractThoughtSteps(response string) []ThoughtStep {
-	steps := []ThoughtStep{}
-
-	// Look for numbered steps or bullet points
-	matches := stepPattern.FindAllStringSubmatch(response, -1)
-
-	for i, match := range matches {
-		if len(match) > 1 {
-			steps = append(steps, ThoughtStep{
-				Step:        i + 1,
-				Description: strings.TrimSpace(match[1]),
-			})
-		}
-	}
-
-	return steps
-}
-
-func extractAssumptions(response string) []string {
-	assumptions := []string{}
-
-	// Look for assumption indicators
-	for _, pattern := range assumptionPatterns {
-		matches := pattern.FindAllStringSubmatch(response, -1)
-		for _, match := range matches {
-			if len(match) > 1 {
-				assumptions = append(assumptions, strings.TrimSpace(match[1]))
-			}
-		}
-	}
-
-	return assumptions
-}
-
-func extractAlternatives(response string) []Alternative {
-	alternatives := []Alternative{}
-
-	// Look for "instead of", "rather than", "could also"
-	for _, pattern := range alternativePatterns {
-		matches := pattern.FindAllStringSubmatch(response, -1)
-		for _, match := range matches {
-			if len(match) > 2 {
-				alternatives = append(alternatives, Alternative{
-					Approach:    strings.TrimSpace(match[1]),
-					WhyRejected: strings.TrimSpace(match[2]),
-				})
-			}
-		}
-	}
-
-	return alternatives
-}
-
-func extractDecisions(response string) []Decision {
-	decisions := []Decision{}
-
-	// Look for decision indicators
-	for _, pattern := range decisionPatterns {
-		matches := pattern.FindAllStringSubmatch(response, -1)
-		for _, match := range matches {
-			if len(match) > 2 {
-				decisions = append(decisions, Decision{
-					Topic:     "implementation",
-					Choice:    strings.TrimSpace(match[1]),
-					Reasoning: strings.TrimSpace(match[2]),
-				})
-			}
-		}
-	}
-
-	return decisions
-}
-
-// =============================================================================
 // ANALYSIS HELPERS
 // =============================================================================
 
@@ -903,7 +727,7 @@ func findCommonAssumptions(assumptionCounts map[string]int) []AssumptionPattern 
 	return patterns
 }
 
-func findCommonIssues(issueCounts map[string]int, traces []*ReasoningTrace) []IssuePattern {
+func findCommonIssues(issueCounts map[string]int, traces []*ToolGenerationRecord) []IssuePattern {
 	patterns := []IssuePattern{}
 
 	for issue, count := range issueCounts {
@@ -963,15 +787,15 @@ func inferToolType(toolName string) string {
 // =============================================================================
 
 func (tc *TraceCollector) load() {
-	path := filepath.Join(tc.storePath, "reasoning_traces.json")
+	path := filepath.Join(tc.storePath, "tool_generation_records.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return
 	}
 
 	var stored struct {
-		Traces map[string]*ReasoningTrace `json:"traces"`
-		ByTool map[string][]string        `json:"by_tool"`
+		Traces map[string]*ToolGenerationRecord `json:"traces"`
+		ByTool map[string][]string              `json:"by_tool"`
 	}
 
 	if err := json.Unmarshal(data, &stored); err == nil {
@@ -987,8 +811,8 @@ func (tc *TraceCollector) save() {
 
 	tc.mu.RLock()
 	stored := struct {
-		Traces map[string]*ReasoningTrace `json:"traces"`
-		ByTool map[string][]string        `json:"by_tool"`
+		Traces map[string]*ToolGenerationRecord `json:"traces"`
+		ByTool map[string][]string              `json:"by_tool"`
 	}{
 		Traces: tc.traces,
 		ByTool: tc.byTool,
@@ -1000,7 +824,7 @@ func (tc *TraceCollector) save() {
 		return
 	}
 
-	path := filepath.Join(tc.storePath, "reasoning_traces.json")
+	path := filepath.Join(tc.storePath, "tool_generation_records.json")
 	// Surface persistence failures instead of silently dropping the traces.
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		logging.AutopoiesisError("TraceCollector.save: write %s: %v", path, err)

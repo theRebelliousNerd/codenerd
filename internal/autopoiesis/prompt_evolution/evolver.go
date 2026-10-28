@@ -14,6 +14,8 @@ import (
 
 	nerdconfig "codenerd/internal/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/prompt"
+	"codenerd/internal/types"
 )
 
 // EvolverConfig configures the prompt evolution system.
@@ -327,9 +329,16 @@ func NewPromptEvolver(
 	// category, so the cost of learning is visible apart from task cost.
 	judge := NewTaskJudge(&meteredLLM{inner: llmClient, ledger: ledger, category: SpendJudge},
 		judgeModel, judgeCompiler, jit)
+	// The atom generator's two calls compile their role prompts with the
+	// judge's compiler and budget. Without a compiler they are errors at
+	// call time (types.ErrRolePromptUnavailable), never other text.
+	var generatorRoles types.RolePromptCompiler
+	if roles, rolesErr := prompt.NewRoleCompiler(judgeCompiler, jit); rolesErr == nil {
+		generatorRoles = roles
+	}
 	atomGenerator := NewAtomGeneratorWithPinScope(
 		&meteredLLM{inner: llmClient, ledger: ledger, category: SpendGenerate},
-		strategyStore, config.AtomPinScope)
+		generatorRoles, strategyStore, config.AtomPinScope)
 	classifier := NewProblemClassifier()
 
 	pe := &PromptEvolver{

@@ -140,12 +140,13 @@ func TestToolGap_KernelTruthTable(t *testing.T) {
 // DetectToolNeed asks the LLM for a spec only after the kernel derives a gap.
 func TestDetectToolNeed_LLMWritesTheSpecOnlyForAGap(t *testing.T) {
 	var llmCalls atomic.Int64
-	client := &MockLLMClient{CompleteFunc: func(context.Context, string) (string, error) {
+	client := &MockLLMClient{CompleteWithSystemFunc: func(context.Context, string, string) (string, error) {
 		llmCalls.Add(1)
 		return `{"tool_name": "avro_to_csv", "purpose": "convert Avro to CSV", "input_type": "string", "output_type": "string", "priority": 0.8, "confidence": 0.8, "reasoning": "no Avro reader"}`, nil
 	}}
 	o := toolNeedOrchestrator(t)
 	o.toolGen = NewToolGenerator(client, t.TempDir())
+	o.toolGen.SetRolePrompts(fixedRolePrompts{})
 	o.SetKernel(o.kernel)
 	c, _ := toolNeedJev(t, map[string]float64{learnjudge.AsksForTool: 0.05, learnjudge.NeedsMissingOp: 0.3}, 0)
 	o.SetJev(c, &internalconfig.TypeSafeConfig{})

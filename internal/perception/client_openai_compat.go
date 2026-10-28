@@ -722,7 +722,7 @@ func (c *OpenAICompatClient) CompleteWithSystem(ctx context.Context, systemPromp
 	// reasoning_content is deliberately NOT concatenated: callers parse Content
 	// as JSON for structured output, and prepending prose would break that.
 	if msg.ReasoningContent != "" {
-		logging.PerceptionDebug("[%s] reasoning trace: %d chars", c.vendor, len(msg.ReasoningContent))
+		logging.PerceptionDebug("[%s] provider reasoning content omitted from answer: %d chars", c.vendor, len(msg.ReasoningContent))
 	}
 
 	out := strings.TrimSpace(msg.Content)

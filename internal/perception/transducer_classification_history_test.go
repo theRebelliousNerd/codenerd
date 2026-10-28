@@ -33,10 +33,13 @@ func TestClassificationHistory_ShortTurnsAreWhole(t *testing.T) {
 		{Role: "user", Content: "rename it"},
 	}
 	got := classificationPrompt(history)
-	for _, want := range []string{"what does this do?", "it routes requests", "read the handler", "rename it"} {
+	for _, want := range []string{"what does this do?", "it routes requests", "rename it"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("prompt lost %q", want)
 		}
+	}
+	if strings.Contains(got, "read the handler") {
+		t.Error("provider summary leaked into classification history")
 	}
 	if types.IsClamped(got) {
 		t.Errorf("a window that fits announced a drop:\n%s", got)
@@ -118,13 +121,13 @@ func TestClassificationHistory_OversizedNewestTurnIsWhole(t *testing.T) {
 	if !strings.Contains(got, content) {
 		t.Error("the oversized content was sliced or dropped")
 	}
-	if !strings.Contains(got, thought) {
-		t.Error("the oversized reasoning summary was sliced or dropped")
+	if strings.Contains(got, thought) {
+		t.Error("provider summary leaked into classification history")
 	}
 	if strings.Contains(got, "OLDER-PLAIN") {
 		t.Error("an older turn was included beside a turn that already exceeds the budget")
 	}
-	newest := len(content) + len(thought)
+	newest := len(content)
 	want := fmt.Sprintf(
 		"the newest prior turn is %d chars, over classification.history_char_budget %d, and is included whole; 1 of 2 prior turns (%d chars) were left out",
 		newest, budget, len("OLDER-PLAIN"))

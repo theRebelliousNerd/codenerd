@@ -128,8 +128,9 @@ func TestGenerateToolProfile(t *testing.T) {
 
 	// Create Orchestrator manually with dependencies needed for GenerateToolProfile
 	orch := &Orchestrator{
-		profiles: pm,
-		client:   mockClient,
+		profiles:    pm,
+		client:      mockClient,
+		rolePrompts: fixedRolePrompts{},
 	}
 
 	// Test

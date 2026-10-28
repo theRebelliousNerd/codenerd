@@ -3,6 +3,7 @@ package prompt_evolution
 import (
 	nerdconfig "codenerd/internal/config"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -1308,7 +1309,6 @@ func TestFeedbackCollector_RoundTripsPromptContext(t *testing.T) {
 			},
 		},
 		AtomIDs:          []string{"atom/a", "atom/b"},
-		ThoughtSummary:   "Reason through the bug first.",
 		ThinkingTokens:   42,
 		GroundingSources: []string{"https://example.com/doc"},
 		ExecutionResult: ExecutionResult{
@@ -1335,8 +1335,8 @@ func TestFeedbackCollector_RoundTripsPromptContext(t *testing.T) {
 	if len(got.AtomIDs) != 2 || got.AtomIDs[0] != "atom/a" {
 		t.Fatalf("expected atom IDs to round-trip, got %v", got.AtomIDs)
 	}
-	if got.ThoughtSummary != exec.ThoughtSummary || got.ThinkingTokens != exec.ThinkingTokens {
-		t.Fatalf("expected thinking metadata to round-trip, got summary=%q tokens=%d", got.ThoughtSummary, got.ThinkingTokens)
+	if got.ThinkingTokens != exec.ThinkingTokens {
+		t.Fatalf("expected usage metadata to round-trip, got tokens=%d", got.ThinkingTokens)
 	}
 	if len(got.GroundingSources) != 1 || got.GroundingSources[0] != exec.GroundingSources[0] {
 		t.Fatalf("expected grounding sources to round-trip, got %v", got.GroundingSources)
@@ -1497,27 +1497,42 @@ func TestTaskJudge_ContextCancellation(t *testing.T) {
 	}
 }
 
-// newTestJudgeCompiler serves the judge's atom as the binary ships it, standing
-// in for the JIT compiler in tests about verdicts: these tests cannot build a
-// kernel-backed compiler (the kernel adapter lives in internal/system, which
-// imports this package). judge_prompt_test.go checks the real compile.
+// newTestJudgeCompiler serves the evolver's role atoms as the binary ships
+// them, one per role the compile asks for: the judge's (/prompt_judge) and
+// the atom generator's two (/prompt_atom_generator, /strategy_refiner). It
+// stands in for the JIT compiler: these tests cannot build a kernel-backed
+// compiler (the kernel adapter lives in internal/system, which imports this
+// package). judge_prompt_test.go and internal/system's
+// role_prompts_autopoiesis_test.go check the real compile.
 func newTestJudgeCompiler(t *testing.T) PromptCompiler {
 	t.Helper()
 	embedded, err := prompt.LoadEmbeddedCorpus()
 	if err != nil {
 		t.Fatalf("LoadEmbeddedCorpus: %v", err)
 	}
-	for _, atom := range embedded.All() {
-		if atom != nil && atom.ID == "eval/judge/task_evaluator" {
-			return shippedAtomCompiler{content: atom.Content}
-		}
+	atomByRole := map[string]string{
+		"/prompt_judge":          "eval/judge/task_evaluator",
+		"/prompt_atom_generator": "autopoiesis/meta/atom_generator",
+		"/strategy_refiner":      "autopoiesis/meta/strategy_refiner",
 	}
-	t.Fatal("the embedded corpus has no eval/judge/task_evaluator atom")
-	return nil
+	byRole := make(shippedAtomCompiler, len(atomByRole))
+	for role, id := range atomByRole {
+		atom, ok := embedded.Get(id)
+		if !ok {
+			t.Fatalf("the embedded corpus has no %s atom", id)
+		}
+		byRole[role] = atom.Content
+	}
+	return byRole
 }
 
-type shippedAtomCompiler struct{ content string }
+// shippedAtomCompiler compiles a role to its shipped atom's content.
+type shippedAtomCompiler map[string]string
 
-func (c shippedAtomCompiler) Compile(context.Context, *prompt.CompilationContext) (*prompt.CompilationResult, error) {
-	return &prompt.CompilationResult{Prompt: c.content}, nil
+func (c shippedAtomCompiler) Compile(_ context.Context, cc *prompt.CompilationContext) (*prompt.CompilationResult, error) {
+	content, ok := c[cc.ShardType]
+	if !ok {
+		return nil, fmt.Errorf("no shipped atom for role %s", cc.ShardType)
+	}
+	return &prompt.CompilationResult{Prompt: content}, nil
 }

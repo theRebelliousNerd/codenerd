@@ -68,20 +68,20 @@ func TestAtomCorpus_RoleDeclarationsAreScoped(t *testing.T) {
 // default: an atom belongs here only if every agent is wrong without it.
 func TestAtomCorpus_UnscopedMandatoryAtomsAreTheSharedSubstrate(t *testing.T) {
 	sharedSubstrate := map[string]bool{
-		"identity/base/core":                    true,
-		"safety/constitution/prime_directive":   true,
-		"safety/constitution/forbidden_actions": true,
-		"safety/constitution/dangerous_actions": true,
-		"safety/constitutional/core":            true,
-		"safety/constitutional/permissions":     true,
-		"protocol/piggyback/envelope":           true,
-		"protocol/piggyback/thought_first":      true,
-		"protocol/piggyback/mangle_updates":     true,
-		"protocol/reasoning/requirements":       true,
-		"protocol/reasoning/format":             true,
-		"methodology/ooda/core":                 true,
-		"capability/tool_thinking":              true,
-		"capability/codedom_safety":             true,
+		"identity/base/core":                     true,
+		"safety/constitution/prime_directive":    true,
+		"safety/constitution/forbidden_actions":  true,
+		"safety/constitution/dangerous_actions":  true,
+		"safety/constitutional/core":             true,
+		"safety/constitutional/permissions":      true,
+		"protocol/piggyback/envelope":            true,
+		"protocol/piggyback/control_first":       true,
+		"protocol/piggyback/mangle_updates":      true,
+		"protocol/decision_summary/requirements": true,
+		"protocol/decision_summary/format":       true,
+		"methodology/ooda/core":                  true,
+		"capability/tool_thinking":               true,
+		"capability/codedom_safety":              true,
 	}
 
 	corpus, err := LoadEmbeddedCorpus()

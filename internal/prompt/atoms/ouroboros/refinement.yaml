@@ -28,6 +28,33 @@
     - Missing error handling for edge cases
     - Not checking for completeness of results
 
+# The tool refiner's optimizer priorities (internal/autopoiesis/feedback.go,
+# ToolRefiner.Refine). Until 2026-10-28 this was refinementSystemPrompt, sent
+# only when the JIT assembler was unavailable; the refiner now compiles its
+# prompt through the assembler alone, so the priorities live here. It narrows
+# the focus areas above: pagination and retries apply to network I/O only.
+- id: "ouroboros/refinement/optimizer_priorities"
+  category: "ouroboros"
+  subcategory: "refinement"
+  is_mandatory: true
+  ouroboros_stages: ["/refinement"]
+  depends_on: ["ouroboros/refinement/feedback_analysis"]
+  content: |
+    ## Optimizer Priorities
+
+    You are an elite Go code optimizer. Improve reliability, safety, and completeness.
+
+    Avoid domain assumptions. Do not add network retries/pagination unless the code clearly performs network I/O.
+
+    Prioritize:
+    1. NIL SAFETY - Check pointers/interfaces before dereference.
+    2. RESOURCE SAFETY - Close files/streams/connections with defer.
+    3. CONTEXT - Respect cancellation in loops/blocking operations.
+    4. ERROR WRAPPING - Return descriptive errors using %w when appropriate.
+    5. BOUNDS CHECKS - Prevent slice/map/index panics.
+
+    Fix root causes without inventing unrelated features. Return clean, idiomatic Go.
+
 - id: "ouroboros/refinement/pattern_detection"
   category: "ouroboros"
   subcategory: "refinement"

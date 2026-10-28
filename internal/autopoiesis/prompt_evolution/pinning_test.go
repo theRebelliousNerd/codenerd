@@ -293,11 +293,11 @@ func TestNewAtomGeneratorDefaultsToExactModel(t *testing.T) {
 		t.Errorf("pinScope = %q, want %q", ag.pinScope, PinScopeModel)
 	}
 	// An unknown scope falls back to the default, never to a looser one.
-	if ag := NewAtomGeneratorWithPinScope(nil, nil, "bogus"); ag.pinScope != PinScopeModel {
+	if ag := NewAtomGeneratorWithPinScope(nil, nil, nil, "bogus"); ag.pinScope != PinScopeModel {
 		t.Errorf("pinScope = %q, want fallback %q", ag.pinScope, PinScopeModel)
 	}
 	// Family stays available when asked for.
-	if ag := NewAtomGeneratorWithPinScope(nil, nil, PinScopeModelFamily); ag.pinScope != PinScopeModelFamily {
+	if ag := NewAtomGeneratorWithPinScope(nil, nil, nil, PinScopeModelFamily); ag.pinScope != PinScopeModelFamily {
 		t.Errorf("explicit family scope lost: %q", ag.pinScope)
 	}
 }

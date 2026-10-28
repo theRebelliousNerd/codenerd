@@ -18,10 +18,12 @@ import (
 // executionRecordColumns is the column list every ExecutionRecord query
 // selects, in the exact order scanRecords expects. Kept in one place so that
 // adding a column cannot leave one of the four call sites behind -- a mismatch
-// here is a runtime scan error, not a compile error.
+// here is a runtime scan error, not a compile error. The retired summary
+// column is projected as NULL so historical provider thought text stays out
+// of learning records.
 const executionRecordColumns = `task_id, session_id, shard_id, shard_type, task_request, problem_type,
 		       actions_json, result_json, duration_ms, prompt_manifest_json, atom_ids_json,
-		       thought_summary, thinking_tokens, grounding_sources_json, verdict_json,
+		       NULL AS thought_summary, thinking_tokens, grounding_sources_json, verdict_json,
 		       provider, model, created_at, verdict_version`
 
 // FeedbackCollector records and manages execution feedback.
@@ -385,7 +387,7 @@ func (fc *FeedbackCollector) Record(exec *ExecutionRecord) (RecordOutcome, error
 		exec.TaskRequest, exec.ProblemType,
 		string(actionsJSON), string(resultJSON), exec.Duration.Milliseconds(),
 		string(manifestJSON), string(atomIDsJSON),
-		exec.ThoughtSummary, exec.ThinkingTokens, string(groundingJSON),
+		"", exec.ThinkingTokens, string(groundingJSON),
 		verdictJSON, exec.Provider, exec.Model, exec.Timestamp, payloadHash, verdictVersion,
 	)
 	if err != nil {
@@ -726,9 +728,6 @@ func (fc *FeedbackCollector) scanRecords(rows *sql.Rows) ([]*ExecutionRecord, er
 			if err := json.Unmarshal([]byte(atomIDsJSON), &rec.AtomIDs); err != nil {
 				logExecutionRecordDecodeFailure(rec.TaskID, "atom_ids", err)
 			}
-		}
-		if thoughtSummary.Valid {
-			rec.ThoughtSummary = thoughtSummary.String
 		}
 		if thinkingTokens.Valid {
 			rec.ThinkingTokens = int(thinkingTokens.Int64)

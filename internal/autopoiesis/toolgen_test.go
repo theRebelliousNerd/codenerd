@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"go.uber.org/goleak"
+
+	"codenerd/internal/types"
 )
 
 type failingPromptAssembler struct {
@@ -26,6 +28,32 @@ func (f failingPromptAssembler) AssembleSystemPrompt(ctx context.Context, pc any
 }
 
 func (f failingPromptAssembler) JITReady() bool { return true }
+
+// notReadyPromptAssembler is an assembler whose JIT compiler is off.
+type notReadyPromptAssembler struct{}
+
+func (notReadyPromptAssembler) AssembleSystemPrompt(context.Context, any) (string, error) {
+	return "never sent", nil
+}
+
+func (notReadyPromptAssembler) JITReady() bool { return false }
+
+// stagePromptAssembler compiles "stage prompt <ouroboros stage>".
+type stagePromptAssembler struct{}
+
+func (stagePromptAssembler) AssembleSystemPrompt(_ context.Context, pc any) (string, error) {
+	stage, _ := pc.(map[string]any)["ouroboros_stage"].(string)
+	return "stage prompt " + stage, nil
+}
+
+func (stagePromptAssembler) JITReady() bool { return true }
+
+// fixedRolePrompts compiles "role prompt for <role>" for every role.
+type fixedRolePrompts struct{}
+
+func (fixedRolePrompts) CompileRolePrompt(_ context.Context, req types.RolePromptRequest) (string, error) {
+	return "role prompt for " + req.Role, nil
+}
 
 func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m, goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"))
@@ -59,11 +87,12 @@ func TestNewToolGenerator(t *testing.T) {
 
 func TestDetectToolNeed_PatternMatching(t *testing.T) {
 	client := &MockLLMClient{
-		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
+		CompleteWithSystemFunc: func(ctx context.Context, _, prompt string) (string, error) {
 			return `{"needs_new_tool": true, "tool_name": "test_tool", "purpose": "Test purpose", "input_type": "string", "output_type": "string", "priority": 0.8, "confidence": 0.9, "reasoning": "Test reasoning"}`, nil
 		},
 	}
 	tg := NewToolGenerator(client, "/tmp/tools")
+	tg.SetRolePrompts(fixedRolePrompts{})
 
 	tests := []struct {
 		name        string
@@ -118,49 +147,62 @@ func TestDetectToolNeed_PatternMatching(t *testing.T) {
 	}
 }
 
-func TestToolGenerator_GenerateToolCode_JITFallbackDoesNotRecurse(t *testing.T) {
+// Tool code is generated under the Ouroboros stage prompts the JIT assembler
+// compiles, and nothing else: a failed assembly, or no JIT-ready assembler, is
+// an error wrapping types.ErrRolePromptUnavailable, and the model is never
+// called. Until 2026-10-28 both fell back to Go-text system prompts.
+func TestToolGenerator_CodeGenerationWithoutCompiledPromptIsAnError(t *testing.T) {
+	need := &ToolNeed{Name: "generated", Purpose: "Generate a helper", InputType: "string", OutputType: "string"}
+	for name, assembler := range map[string]PromptAssembler{
+		"failed assembly": failingPromptAssembler{err: errors.New("jit unavailable")},
+		"not JIT-ready":   notReadyPromptAssembler{},
+		"no assembler":    nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			client := &MockLLMClient{
+				CompleteWithSystemFunc: func(ctx context.Context, system, user string) (string, error) {
+					calls++
+					return "```go\npackage tools\n\nfunc generated() {}\n```", nil
+				},
+			}
+			tg := NewToolGenerator(client, "/tmp/tools")
+			tg.SetPromptAssembler(assembler)
+
+			if _, err := tg.generateToolCode(context.Background(), need); !errors.Is(err, types.ErrRolePromptUnavailable) {
+				t.Errorf("generateToolCode error = %v, want ErrRolePromptUnavailable", err)
+			}
+			if _, err := tg.regenerateToolCodeWithFeedback(context.Background(), need, "package tools\n\nfunc broken() {}", "fix it"); !errors.Is(err, types.ErrRolePromptUnavailable) {
+				t.Errorf("regenerateToolCodeWithFeedback error = %v, want ErrRolePromptUnavailable", err)
+			}
+			if calls != 0 {
+				t.Errorf("the model was called %d times without a compiled prompt", calls)
+			}
+		})
+	}
+}
+
+// The assembled stage prompt is the system prompt sent, for the stage asked.
+func TestToolGenerator_CodeGenerationSendsTheAssembledStagePrompt(t *testing.T) {
+	var systems []string
 	client := &MockLLMClient{
 		CompleteWithSystemFunc: func(ctx context.Context, system, user string) (string, error) {
+			systems = append(systems, system)
 			return "```go\npackage tools\n\nfunc generated() {}\n```", nil
 		},
 	}
 	tg := NewToolGenerator(client, "/tmp/tools")
-	tg.SetPromptAssembler(failingPromptAssembler{err: errors.New("jit unavailable")})
+	tg.SetPromptAssembler(stagePromptAssembler{})
+	need := &ToolNeed{Name: "generated", Purpose: "Generate a helper", InputType: "string", OutputType: "string"}
 
-	code, err := tg.generateToolCode(context.Background(), &ToolNeed{
-		Name:       "generated",
-		Purpose:    "Generate a helper",
-		InputType:  "string",
-		OutputType: "string",
-	})
-	if err != nil {
-		t.Fatalf("generateToolCode failed: %v", err)
+	if _, err := tg.generateToolCode(context.Background(), need); err != nil {
+		t.Fatalf("generateToolCode: %v", err)
 	}
-	if !strings.Contains(code, "func generated()") {
-		t.Fatalf("expected legacy fallback code, got %q", code)
+	if _, err := tg.regenerateToolCodeWithFeedback(context.Background(), need, "package tools", "fix it"); err != nil {
+		t.Fatalf("regenerateToolCodeWithFeedback: %v", err)
 	}
-}
-
-func TestToolGenerator_RegenerateWithFeedback_JITFallbackDoesNotRecurse(t *testing.T) {
-	client := &MockLLMClient{
-		CompleteWithSystemFunc: func(ctx context.Context, system, user string) (string, error) {
-			return "```go\npackage tools\n\nfunc regenerated() {}\n```", nil
-		},
-	}
-	tg := NewToolGenerator(client, "/tmp/tools")
-	tg.SetPromptAssembler(failingPromptAssembler{err: errors.New("jit unavailable")})
-
-	code, err := tg.regenerateToolCodeWithFeedback(context.Background(), &ToolNeed{
-		Name:       "regenerated",
-		Purpose:    "Regenerate a helper",
-		InputType:  "string",
-		OutputType: "string",
-	}, "package tools\n\nfunc broken() {}", "fix it")
-	if err != nil {
-		t.Fatalf("regenerateToolCodeWithFeedback failed: %v", err)
-	}
-	if !strings.Contains(code, "func regenerated()") {
-		t.Fatalf("expected legacy fallback code, got %q", code)
+	if want := []string{"stage prompt /specification", "stage prompt /refinement"}; !slices.Equal(systems, want) {
+		t.Errorf("system prompts sent = %q, want %q", systems, want)
 	}
 }
 

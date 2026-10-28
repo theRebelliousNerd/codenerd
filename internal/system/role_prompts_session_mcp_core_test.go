@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"codenerd/internal/config"
-	"codenerd/internal/core"
 	"codenerd/internal/prompt"
 	"codenerd/internal/types"
 )
@@ -19,26 +17,7 @@ import (
 // reply), and no worker intent atoms (a role compile is ~1.5k-2k tokens; one
 // without the judge intent took ~10k, measured 2026-10-28).
 func TestRolePrompts_SessionMCPCoreRolesCompileFromTheirAtoms(t *testing.T) {
-	kernel, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
-	embedded, err := prompt.LoadEmbeddedCorpus()
-	if err != nil {
-		t.Fatalf("LoadEmbeddedCorpus: %v", err)
-	}
-	compiler, err := prompt.NewJITPromptCompiler(
-		prompt.WithKernel(NewKernelAdapter(kernel)),
-		prompt.WithEmbeddedCorpus(embedded),
-	)
-	if err != nil {
-		t.Fatalf("NewJITPromptCompiler: %v", err)
-	}
-	t.Cleanup(func() { _ = compiler.Close() })
-	roles, err := prompt.NewRoleCompiler(compiler, config.DefaultJITConfig())
-	if err != nil {
-		t.Fatalf("NewRoleCompiler: %v", err)
-	}
+	roles := newBootRolePrompts(t)
 
 	for role, contract := range map[string][]string{
 		"build_critic": {

@@ -310,7 +310,7 @@ var hostWitnessPredicates = map[string]struct{}{
 	// Declared code families and their reviews (code_families.mg). A model
 	// that could write a family member, or a no-change decision, could
 	// dissolve the obligation its own change created.
-	"code_family": {}, "code_family_member": {}, "code_family_requirement": {}, "turn_family_no_change": {},
+	"code_family": {}, "code_family_member": {}, "code_family_requirement": {}, "code_family_member_unresolved": {}, "turn_family_no_change": {},
 	"turn_family_member_changed": {}, "turn_family_obligation": {}, "turn_family_member_settled": {},
 	"turn_family_open": {}, "turn_has_open_family_obligation": {},
 	// This turn's `go test -json` rows (session/turn_test_facts.go). A model

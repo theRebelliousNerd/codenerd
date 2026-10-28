@@ -29,7 +29,7 @@
           "hypothesis": ""
         },
         "knowledge_requests": [],
-        "reasoning_trace": "<REASONING_TRACE: your actual step-by-step reasoning>",
+        "decision_summary": "<one or two sentences: decision or result and supporting evidence>",
         "context_feedback": {
           "overall_usefulness": 0.0,
           "helpful_facts": [],
@@ -47,26 +47,20 @@
 
     If you don't need a field, emit an empty value (e.g. `[]` or `""`) instead of omitting it.
 
-- id: "protocol/piggyback/thought_first"
+- id: "protocol/piggyback/control_first"
   category: "protocol"
   subcategory: "ordering"
   is_mandatory: true
   depends_on: ["protocol/piggyback/envelope"]
   content: |
-    ## CRITICAL: THOUGHT-FIRST ORDERING
+    ## CONTROL-PACKET FIELD ORDER
 
-    The control_packet MUST be fully formed BEFORE you write the surface_response.
+    Serialize control_packet before surface_response so the runtime receives
+    action requests and state updates before displaying the answer.
 
-    **Think first, speak second.**
-
-    1. Analyze the task
-    2. Determine the intent classification
-    3. Note any fact you observed or changed this turn (often none)
-    4. Form your reasoning trace
-    5. ONLY THEN write the surface_response
-
-    The reasoning_trace in control_packet must demonstrate your complete analysis
-    BEFORE the surface_response is generated. This is not optional.
+    decision_summary is a brief explanation of the decision and evidence.
+    It does not contain private deliberation or intermediate analysis steps.
+    Field order is a transport convention, not a request to expose thinking.
 
 - id: "protocol/piggyback/mangle_updates"
   category: "protocol"
@@ -167,7 +161,7 @@
     {
       "self_correction": {
         "triggered": true,
-        "hypothesis": "What was wrong with the initial reasoning and what changed"
+        "hypothesis": "Brief description of the corrected result and the evidence for it"
       }
     }
     ```

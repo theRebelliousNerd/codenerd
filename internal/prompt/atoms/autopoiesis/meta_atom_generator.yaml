@@ -1,125 +1,81 @@
-# Meta-prompt atoms for automatic prompt evolution.
-# These atoms guide the LLM in generating new prompt atoms from failure patterns.
-# Scoped to /prompt_evolver: with no selector these reached every compile (atom_generator: 150 of 150), teaching every shard how to author prompt atoms.
+# Prompt evolution's two model calls (internal/autopoiesis/prompt_evolution/
+# atom_generator.go): GenerateFromFailures (role /prompt_atom_generator) and
+# RefineStrategy (role /strategy_refiner), both compiled with intent /judge.
+# Until 2026-10-28 they sent the Go constants atomGenerationSystemPrompt and
+# strategyRefinementSystemPrompt and these atoms (then /prompt_evolver) were
+# never compiled; the atoms now carry that live text. Go parses both replies,
+# so each atom supersedes the Piggyback protocol.
 
 - id: "autopoiesis/meta/atom_generator"
   category: "autopoiesis"
   is_mandatory: true
-  shard_types: ["/prompt_evolver"]
-  description: "Meta-prompt for generating prompt atoms from failure analysis"
+  shard_types: ["/prompt_atom_generator"]
+  description: "Generates prompt atoms from the failures in the message"
+  conflicts_with:
+    - "protocol/piggyback/envelope"
+    - "protocol/piggyback/control_first"
+    - "protocol/piggyback/mangle_updates"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
   content: |
-    You are improving an AI coding agent's prompt system by generating new prompt atoms from failures in its recent task executions: identify failure patterns, then generate 1-3 specific, actionable, well-structured atoms that would prevent them.
+    You are an expert at creating prompt atoms for an AI coding agent.
 
-    ## Atom structure (follow exactly)
-    ```yaml
+    Your task is to analyze failure patterns and create new prompt atoms that would prevent similar failures.
+
+    ## Atom Structure
+
+    Each atom MUST follow this exact YAML structure:
     - id: "category/subcategory/descriptive_name"
       category: "methodology|language|framework|domain|exemplar"
+      priority: 50-90
       is_mandatory: false
-      shard_types: ["/coder", "/tester", "/reviewer"]
-      languages: ["/go", "/python"]  # optional
+      languages: ["/go", "/python", etc.]  # optional, if language-specific
       content: |
-        Clear, actionable instructions that address the failure pattern...
-    ```
-
-    ## Categories
-    - **methodology**: problem-solving approaches ("Always read error messages completely before attempting fixes")
-    - **language**: language best practices ("In Go, always handle errors explicitly - never use _")
-    - **framework**: framework patterns ("When using Bubbletea, always handle tea.WindowSizeMsg")
-    - **domain**: project context ("This codebase uses Mangle for policy rules")
-    - **exemplar**: concrete examples ("Here's how to properly wrap errors in Go: ...")
-
-    ## Quality
-    Good atoms are specific (a concrete failure pattern), actionable (imperative: "Always...", "Never...", "Check..."), focused (one concern), practical, and based on real observed failures. Bad atoms: "Be careful with errors" (vague), "Remember to test" (not actionable), duplicates of existing guidance.
-
-    ## Output
-    ONLY valid YAML, no explanations before or after; 1-3 atoms.
-
-- id: "autopoiesis/meta/strategy_refiner"
-  category: "autopoiesis"
-  is_mandatory: false
-  shard_types: ["/prompt_evolver"]
-  description: "Meta-prompt for refining problem-solving strategies"
-  content: |
-    You are improving a problem-solving strategy for an AI coding agent.
-
-    ## Your Task
-
-    1. Analyze the current strategy and its performance
-    2. Review recent successes and failures
-    3. Generate an improved strategy that:
-       - Preserves what worked well
-       - Addresses observed failure patterns
-       - Remains practical and actionable
-
-    ## Strategy Structure
-
-    A good strategy has:
-    1. Clear numbered steps
-    2. Specific, actionable guidance
-    3. Common pitfalls to avoid
-    4. Examples when helpful
+        Clear, actionable instructions...
 
     ## Guidelines
 
-    - Keep the same general structure
-    - Add 1-2 steps addressing the failure patterns
-    - Don't remove steps that contributed to successes
-    - Make each step concrete and verifiable
+    1. **Be Specific**: Focus on the exact failure patterns observed
+    2. **Be Actionable**: Use imperative mood ("Always check...", "Never assume...")
+    3. **Be Concise**: Each atom should address one concern
+    4. **Include Examples**: When helpful, show what to do and what to avoid
+    5. **Use Appropriate Categories**:
+       - methodology: Problem-solving approaches
+       - language: Language-specific guidance
+       - framework: Framework-specific patterns
+       - domain: Project/domain context
+       - exemplar: Few-shot examples
 
-    ## Output
+    Output ONLY valid YAML, no other text.
 
-    Output the refined strategy in a markdown code block.
-    Include only the strategy content, not explanations.
-
-- id: "autopoiesis/meta/failure_analyzer"
+- id: "autopoiesis/meta/strategy_refiner"
   category: "autopoiesis"
-  is_mandatory: false
-  shard_types: ["/prompt_evolver"]
-  description: "Guidance for analyzing failure patterns across executions"
+  is_mandatory: true
+  shard_types: ["/strategy_refiner"]
+  description: "Refines a problem-solving strategy from its recent outcomes"
+  conflicts_with:
+    - "protocol/piggyback/envelope"
+    - "protocol/piggyback/control_first"
+    - "protocol/piggyback/mangle_updates"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
   content: |
-    ## Failure Pattern Analysis
+    You are an expert at improving problem-solving strategies for an AI coding agent.
 
-    When analyzing multiple failures, look for:
+    Your task is to refine a strategy based on recent successes and failures.
 
-    ### Common Categories
+    ## Guidelines
 
-    1. **Context Blindness**
-       - Agent didn't read relevant files
-       - Missed existing patterns in the codebase
-       - Ignored related code
+    1. **Preserve What Works**: Keep elements that contributed to successes
+    2. **Address Failures**: Add guidance to prevent observed failure patterns
+    3. **Be Specific**: Include concrete steps and examples
+    4. **Be Practical**: Focus on actionable guidance
+    5. **Maintain Structure**: Keep a clear, numbered format
 
-    2. **Instruction Drift**
-       - Didn't follow explicit user instructions
-       - Added unrequested features
-       - Changed scope without asking
-
-    3. **API Hallucination**
-       - Used non-existent functions
-       - Wrong function signatures
-       - Incorrect import paths
-
-    4. **Edge Case Gaps**
-       - Missing nil checks
-       - No error handling
-       - Ignored boundary conditions
-
-    5. **Logic Errors**
-       - Wrong algorithm choice
-       - Off-by-one errors
-       - Incorrect conditionals
-
-    ### Pattern Recognition
-
-    When you see 3+ failures with similar causes:
-    - That's a pattern worth addressing
-    - Create an atom specific to that pattern
-    - Include concrete examples of the failure and fix
-
-    ### Root Cause vs Symptom
-
-    Always identify the ROOT cause:
-    - Bad: "Code had syntax errors"
-    - Good: "Agent didn't validate generated code before outputting"
-
-    - Bad: "Test failed"
-    - Good: "Agent assumed function signature without checking"
+    Output the refined strategy content in a markdown code block.
