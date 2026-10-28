@@ -545,3 +545,65 @@ func TestKeyPool_ServerCachedContentPinsItsOwningCredential(t *testing.T) {
 		t.Fatalf("cached account resource moved between keys: %v", seen)
 	}
 }
+
+// Docs/audits/credential-pool-failure-scope-and-recovery.md: a 403 denies one
+// request (a guardrail block, a model the key may not use). It used to disable
+// the credential for the process and replay the request on every other key,
+// so a single blocked prompt emptied the pool for unrelated, permitted work.
+func TestKeyPool_A403DeniesTheRequestNotTheCredential(t *testing.T) {
+	var mu sync.Mutex
+	var messages []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/messages" {
+			poolReply(w, r, false)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		key := r.Header.Get("x-api-key")
+		mu.Lock()
+		messages = append(messages, key[len(key)-1:])
+		mu.Unlock()
+		if strings.Contains(string(body), "blocked-by-guardrail") {
+			w.WriteHeader(403)
+			io.WriteString(w, `{"error":{"type":"permission_error","message":"request blocked by a content filter"}}`)
+			return
+		}
+		poolReply(w, r, false)
+	}))
+	defer srv.Close()
+	client, err := NewClientFromConfig(testPoolConfig(t, srv.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = client.Complete(context.Background(), "blocked-by-guardrail")
+	if err == nil || !strings.Contains(err.Error(), "status 403") {
+		t.Fatalf("blocked request = %v, want the 403", err)
+	}
+	if errors.Is(err, context.Canceled) {
+		t.Fatalf("the denial reads as a caller cancellation: %v", err)
+	}
+	mu.Lock()
+	if len(messages) != 1 {
+		t.Fatalf("the blocked request reached the provider %d times (%v); no other credential may be asked to evade it", len(messages), messages)
+	}
+	denied := messages[0]
+	mu.Unlock()
+
+	for i := 0; i < 4; i++ {
+		if _, err := client.Complete(context.Background(), "a permitted request"); err != nil {
+			t.Fatalf("permitted request %d after the denial: %v", i, err)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	reused := 0
+	for _, k := range messages[1:] {
+		if k == denied {
+			reused++
+		}
+	}
+	if reused == 0 {
+		t.Fatalf("credential %q was never selected again after one denied request: %v", denied, messages)
+	}
+}

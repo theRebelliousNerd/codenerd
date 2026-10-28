@@ -98,8 +98,11 @@ be memoized within that credential's counter. Changing a referenced environment
 key changes the Cortex configuration identity instead of retaining stale
 clients. Restart the process when changing its environment.
 
-A failed call can try each credential at most once. Authentication failures
-(401/403) disable a credential for this process/pool configuration. Rate limits
+A failed call can try each credential at most once. An authentication failure
+(401) disables a credential for this process/pool configuration. A 403 is a
+denial of that request (a guardrail or moderation block, a model, resource or
+region the key may not use): the call fails, no other credential is tried, and
+the credential stays healthy for later requests. Rate limits
 and transient server failures apply shared cooldowns, honoring `Retry-After`.
 A canceled caller stops waiting; when all remaining credentials are cooling,
 selection waits within the caller's deadline (or a ten-minute call ceiling).

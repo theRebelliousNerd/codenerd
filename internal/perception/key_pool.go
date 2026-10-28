@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -96,12 +97,18 @@ func (p *providerKeyPool) selectKey(ctx context.Context, excluded map[int]bool, 
 	}
 }
 
+// release settles one attempt's lease and what its failure says about the
+// credential. Only a 401 says the credential itself is unusable; a 403 is a
+// denial of this request -- a guardrail or moderation block, a model,
+// resource or region the key may not use -- and says nothing about the
+// credential's next, differently shaped request, so it leaves health alone
+// (Docs/audits/credential-pool-failure-scope-and-recovery.md).
 func (p *providerKeyPool) release(i int, status int, after time.Duration) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.health[i].active--
 	switch {
-	case status == 401 || status == 403:
+	case status == 401:
 		p.health[i].disabled = true
 	case status == 429 || isTransientHTTPStatus(status):
 		if after <= 0 {
@@ -118,14 +125,34 @@ func (p *providerKeyPool) release(i int, status int, after time.Duration) {
 	}
 }
 
+// pooledCallError is a pooled attempt's failure as the caller sees it: the
+// provider, the credential's alias and the status, never the secret. The
+// adapter's own error stays reachable through errors.Is/As, so a typed
+// failure (a refusal, a truncation, the provider failure class) survives the
+// pool.
 type pooledCallError struct {
 	provider Provider
 	alias    string
 	status   int
+	cause    error
 }
 
 func (e *pooledCallError) Error() string {
-	return fmt.Sprintf("%s credential %q: provider request failed with status %d", e.provider, e.alias, e.status)
+	msg := fmt.Sprintf("%s credential %q: provider request failed with status %d", e.provider, e.alias, e.status)
+	if e.status == 403 {
+		msg += " (the request was denied; the credential stays in the pool and no other credential is tried)"
+	}
+	return msg
+}
+
+func (e *pooledCallError) Unwrap() error { return e.cause }
+
+// rotates reports whether a failure may move the same request to another
+// credential: the credential is invalid (401), rate-limited (429) or the
+// provider was transiently unavailable. A 403 never rotates: another key
+// would only be asked to evade the denial.
+func rotates(status int) bool {
+	return status == 401 || status == 429 || isTransientHTTPStatus(status)
 }
 
 type providerKeyRouter struct {
@@ -202,7 +229,13 @@ func (r *providerKeyRouter) finish(ctx context.Context, i int, attempt *keyPoolA
 	}
 	if status != 0 {
 		safe := &pooledCallError{provider: r.provider, alias: r.aliases[i], status: status}
-		return safe, r.pin() < 0 && (status == 401 || status == 403 || status == 429 || isTransientHTTPStatus(status))
+		// The transport cancels a failed attempt's own context to stop the
+		// adapter's retries; that cancellation is not the caller's and must
+		// not read as one.
+		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			safe.cause = err
+		}
+		return safe, r.pin() < 0 && rotates(status)
 	}
 	return err, false
 }

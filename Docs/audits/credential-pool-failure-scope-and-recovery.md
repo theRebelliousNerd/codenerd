@@ -1,7 +1,7 @@
 ---
 doc-class: deep-dive
 subsystem: perception
-implementation-status: planned
+implementation-status: partially-implemented (see As-built status)
 last-verified: 2026-10-28
 verified-against: 356f65e0e6bb639adaa90ab36212daa714114871
 verification-method: static-source-inspection
@@ -142,3 +142,29 @@ Acceptance requires both greater availability for **independently permitted** wo
 The smallest useful delivery is a provider-aware failure-scope descriptor plus policy that prevents request-specific 403s from globally disabling credentials or triggering alternate-key replay. Preserve true credential invalidation and the existing stream emission, metering, cancellation, and account-affinity boundaries. Broader quota-window recovery follows only after its provider-specific wire contract is independently pinned.
 
 This standalone proposal is a substantive extension of the stream audit's deferred candidate, not an assertion that the owning perception spec has adopted or implemented it.
+
+## As-built status
+
+Verified and built 2026-10-28 on main.
+
+### Claim ledger
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| Pool identity is provider plus key records; endpoint and model absent | Confirmed, kept: credential revocation (401) should be shared across models, as the doc itself argues | `key_pool.go:33` |
+| Every 401 or 403 permanently disables the credential | Real, fixed for 403. Before: `case status == 401 \|\| status == 403: disabled = true` (`key_pool.go:104`) | `release` disables on 401 only |
+| An unpinned 403 rotates to the next credential | Real, fixed. Before: `finish` returned retry for 403 (`key_pool.go:205`) | `rotates` (`key_pool.go`) excludes 403 |
+| `finish` replaces the adapter's error with a status-only error | Real, fixed: the sanitized message stays, the typed cause is reachable via `Unwrap`; an attempt-local cancellation is not exposed as the caller's | `pooledCallError.Unwrap`, `finish` |
+| Streaming pre-output 403 follows the same policy | Confirmed, fixed by the same `finish` | `Stream` calls `finish` |
+| The README documents 401/403 disabling | Confirmed; README updated to the new contract | `internal/perception/README.md` |
+| Budget windows, reset metadata, typed cause/scope descriptor | Not built: needs a pinned provider wire contract per provider; no body metadata is parsed |  |
+
+### What was built
+
+Ruling: every 403 is request-scoped. It fails the call with a typed, sanitized error, mutates no shared health and is never replayed on another credential. Only a 401 disables a credential. A key that is denied on every request (an account-level permission gate) now costs one denied call per request instead of being skipped; that is the conservative "unclassified 403" disposition the audit asks for, and it never routes around a provider restriction.
+
+Test: `TestKeyPool_A403DeniesTheRequestNotTheCredential` (one provider hit for the blocked request, the denied credential selected again for later permitted requests, the denial not readable as a cancellation). The existing 401 isolation, rate-limit cooldown and stream pre-emission tests still pass.
+
+### Left open
+
+The scoped failure descriptor (cause, scope, reset evidence) and provider-specific budget handling: no provider contract is pinned and no consumer reads a scope yet. Production-path fixtures beyond the pooled factory (broker, scheduler) were not added; the test drives `NewClientFromConfig`, which installs the broker.
