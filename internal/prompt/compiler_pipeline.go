@@ -307,8 +307,15 @@ func (c *JITPromptCompiler) compileMiss(ctx context.Context, in missInput) (any,
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("prompt compilation canceled during selection: %w", err)
 	}
-	// A selected head brings its sections; a lone section brings its head.
-	scored = expandSections(scored, candidates, cc)
+	// A selected head brings its sections; a lone section brings its head --
+	// each only when the kernel admitted it in this compile.
+	if len(scored) > 0 {
+		admitted, err := expansionAdmission(in.kernel)
+		if err != nil {
+			return nil, fmt.Errorf("read section admission: %w", err)
+		}
+		scored = expandSections(scored, candidates, admitted)
+	}
 	stats.SelectAtomsMs = time.Since(selectStart).Milliseconds()
 	stats.VectorQueryMs = vectorMs
 

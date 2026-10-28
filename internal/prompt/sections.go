@@ -19,8 +19,9 @@ import (
 //     scored just below the head so fitting admits them head-first and
 //     shedding removes the tail first. A section selected on its own (a
 //     vector hit) brings its head, or is dropped when the head is not
-//     eligible here. Sections inherit the head's admission: they carry the
-//     head's selectors, so a veto that binds the head binds them too.
+//     admissible here. Being a head's section is a request for admission,
+//     not admission: every atom expansion adds must be one the kernel
+//     admitted in this compile (expansionAdmission).
 //   - closeDependencies: after fitting and after post-render shedding, any
 //     optional atom whose prerequisite is gone is removed, transitively. A
 //     mandatory atom that would lose a prerequisite is an infeasible compile,
@@ -34,7 +35,7 @@ const sectionScoreStep = 1e-4
 
 // expandSections completes every selected head with its sections and every
 // selected section with its head.
-func expandSections(selected []*ScoredAtom, candidates []*PromptAtom, cc *CompilationContext) []*ScoredAtom {
+func expandSections(selected []*ScoredAtom, candidates []*PromptAtom, admitted func(*PromptAtom) bool) []*ScoredAtom {
 	byID := make(map[string]*PromptAtom, len(candidates))
 	sections := make(map[string][]*PromptAtom)
 	for _, a := range candidates {
@@ -64,7 +65,7 @@ func expandSections(selected []*ScoredAtom, candidates []*PromptAtom, cc *Compil
 		out = append(out, s)
 	}
 
-	eligible := func(a *PromptAtom) bool { return a != nil && (cc == nil || a.MatchesContext(cc)) }
+	eligible := func(a *PromptAtom) bool { return a != nil && admitted(a) }
 
 	// A section selected on its own brings its head, or goes.
 	kept := out[:0]
@@ -103,6 +104,64 @@ func expandSections(selected []*ScoredAtom, candidates []*PromptAtom, cc *Compil
 		}
 	}
 	return out
+}
+
+// expansionAdmission is the kernel's admission over this compile's
+// candidates, read from the scope selection just ran in: an atom expansion
+// may add is one the selector put before the kernel (it passed the tool,
+// world-state and output-mode filters, so its facts were asserted) and that
+// the kernel neither prohibited (context, explicit and conflict vetoes, a
+// prohibited prerequisite), suppressed nor superseded.
+//
+// Until 2026-10-28 expansion judged admission itself with MatchesContext, a
+// second matcher that ignored tool requirements and conflict vetoes and
+// treated a missing intent or language as a mismatch where the kernel does
+// not (Docs/audits/jit-dependency-closed-budgeting.md, post-implementation
+// refinement): it could add a section that needs an unavailable tool or that
+// a mandatory atom vetoes, and drop one the kernel admits.
+func expansionAdmission(kernel KernelQuerier) (func(*PromptAtom) bool, error) {
+	if kernel == nil {
+		return nil, fmt.Errorf("no kernel to read section admission from")
+	}
+	read := func(query string) (map[string]bool, error) {
+		rows, err := kernel.Query(query)
+		if err != nil {
+			return nil, fmt.Errorf("query %s: %w", query, err)
+		}
+		out := make(map[string]bool, len(rows))
+		for _, row := range rows {
+			if len(row.Args) == 0 {
+				continue
+			}
+			if id, err := extractStringArg(row.Args[0]); err == nil {
+				out[id] = true
+			}
+		}
+		return out, nil
+	}
+	asserted, err := read("atom(Atom)")
+	if err != nil {
+		return nil, err
+	}
+	var vetoed []map[string]bool
+	for _, q := range []string{"prohibited(Atom)", "suppressed(Atom)", "mandatory_superseded(Atom)"} {
+		set, err := read(q)
+		if err != nil {
+			return nil, err
+		}
+		vetoed = append(vetoed, set)
+	}
+	return func(a *PromptAtom) bool {
+		if !asserted[a.ID] {
+			return false
+		}
+		for _, set := range vetoed {
+			if set[a.ID] {
+				return false
+			}
+		}
+		return true
+	}, nil
 }
 
 // errInfeasibleClosure reports a mandatory atom whose prerequisite did not

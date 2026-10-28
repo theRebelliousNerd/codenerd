@@ -186,3 +186,31 @@ These are proposed local work items, not claims that the repository has adopted 
 
 - **Northstar derive.** The phase guard accepts the phase atom's own sections, so `TestPhasePromptFor_DeriveAtomsOnly` passes: the classify output protocol lives in sections and now ships with its head.
 - **Deferred:** closure-aware packing that admits a root only if its incremental closure fits (section 5.2), and prerequisite-before-dependent ordering across tiers (section 4). The current tiered order is kept for prefix caching.
+
+## Post-implementation refinement (research branch, 2026-10-28)
+
+The research branch (`codenerd-research-docs`) adds a refinement: `expandSections` judged admission with `MatchesContext`, so (A) it could add a section whose `requires_tools` are unavailable, (B) it could add a section a mandatory atom's `conflicts_with` prohibits, and (C) it dropped a section the kernel admits when the intent or language is empty (the kernel treats those dimensions as situational; `matchSelector` fails closed).
+
+## As-built status
+
+Re-verified 2026-10-28 on main (after `b1db6b1e`).
+
+### Claim ledger
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| Sectioned atoms, `expandSections`, post-fit and post-shed `closeDependencies`, `errInfeasibleClosure` | Confirmed built (As built above); re-measured: coder /fix go 35 atoms with 5 sections, reviewer 76/13, tester 48/4, researcher 27/2, the same section counts as the table | `internal/prompt/sections.go`; `compiler_render.go` |
+| Finding A: expansion ignores `requires_tools` | Real, fixed. Before: `eligible` was `a.MatchesContext(cc)` (`sections.go:67`), which checks no tools | `expansionAdmission` (`sections.go`) admits only atoms the selector asserted, and the selector asserts only tool-satisfied atoms (`filterSkeletonAtoms`/`filterFleshAtoms`) |
+| Finding B: expansion ignores a mandatory atom's conflict veto | Real, fixed | `expansionAdmission` excludes `prohibited`, `suppressed` and `mandatory_superseded` as the kernel derived them in the compile's own scope |
+| Finding C: an empty intent or language drops a section the kernel admits | Real, fixed | admission is the kernel's `blocked_by_context` (situational dimensions are permissive), not `matchSelector` |
+| Section 5.2 closure-aware packing; section 4 prerequisite-before-dependent ordering | Still deferred | Unchanged |
+
+### What was built
+
+Ruling: being a head's section is a request for admission, not admission. The kernel is the one admission policy: `expansionAdmission` reads, from the scope selection just ran in, which atoms were put before the kernel (`atom/1`) and which it vetoed (`prohibited/1`, `suppressed/1`, `mandatory_superseded/1`). `expandSections` takes that predicate instead of a `CompilationContext`; Go builds the head/section proposal, the kernel decides. A failed admission read fails the compile rather than expanding blind. No Mangle change: the predicates already existed.
+
+Tests: `TestExpandSections_KernelAdmissionGovernsSections` compiles a small corpus on a real kernel through the production pipeline: the control ships the section; A drops a tool-gated section until the tool is available; B drops a section a mandatory atom vetoes; C keeps a section whose intent selector meets an empty intent. A, B and C fail with the old matcher (checked by swapping it back).
+
+### Left open
+
+Moving the expansion itself into Mangle (the branch's preferred direction) was not done: the stratification of a recursive section rule against conflict resolution needs its own proof, and the kernel-read predicate already gives one admission policy. Closure-aware packing and cross-tier precedence remain deferred as before. `Docs/architecture/prompt/` was not updated here: another lane is editing it.

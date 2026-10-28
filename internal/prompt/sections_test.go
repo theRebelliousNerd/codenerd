@@ -13,6 +13,8 @@ func sectionAtom(id, head string, order int, mandatory bool) *PromptAtom {
 	return a
 }
 
+func admitAll(*PromptAtom) bool { return true }
+
 func ids(scored []*ScoredAtom) map[string]float64 {
 	out := map[string]float64{}
 	for _, s := range scored {
@@ -25,7 +27,7 @@ func TestExpandSections_HeadBringsOrderedSections(t *testing.T) {
 	head := sectionAtom("h", "", 0, false)
 	s1, s2 := sectionAtom("h/a", "h", 1, false), sectionAtom("h/b", "h", 2, false)
 	other := sectionAtom("x", "", 0, false)
-	got := ids(expandSections([]*ScoredAtom{{Atom: head, Combined: 0.8}, {Atom: other, Combined: 0.5}}, []*PromptAtom{head, s1, s2, other}, nil))
+	got := ids(expandSections([]*ScoredAtom{{Atom: head, Combined: 0.8}, {Atom: other, Combined: 0.5}}, []*PromptAtom{head, s1, s2, other}, admitAll))
 	if len(got) != 4 {
 		t.Fatalf("selected %v; want the head, both sections and x", got)
 	}
@@ -37,11 +39,11 @@ func TestExpandSections_HeadBringsOrderedSections(t *testing.T) {
 func TestExpandSections_LoneSectionBringsItsHeadOrGoes(t *testing.T) {
 	head := sectionAtom("h", "", 0, false)
 	sec := sectionAtom("h/a", "h", 1, false)
-	got := ids(expandSections([]*ScoredAtom{{Atom: sec, Combined: 0.6}}, []*PromptAtom{head, sec}, nil))
+	got := ids(expandSections([]*ScoredAtom{{Atom: sec, Combined: 0.6}}, []*PromptAtom{head, sec}, admitAll))
 	if _, ok := got["h"]; !ok {
 		t.Fatalf("selected %v; a section selected alone must bring its head", got)
 	}
-	got = ids(expandSections([]*ScoredAtom{{Atom: sec, Combined: 0.6}}, []*PromptAtom{sec}, nil))
+	got = ids(expandSections([]*ScoredAtom{{Atom: sec, Combined: 0.6}}, []*PromptAtom{sec}, admitAll))
 	if len(got) != 0 {
 		t.Fatalf("selected %v; a section whose head is not a candidate must go", got)
 	}
