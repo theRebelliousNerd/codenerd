@@ -84,7 +84,7 @@ func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd 
 		sessionCtx := m.buildSessionContext(ctx)
 
 		// Execute the shard with queue backpressure (user-initiated = high priority)
-		ret, err := m.spawnTaskWithContext(ctx, shardType, description, sessionCtx, types.PriorityHigh)
+		ret, err := m.spawnTaskWithContext(ctx, shardTypeToTaskRequest(shardType, description), sessionCtx, types.PriorityHigh)
 
 		// Inject result facts into kernel
 		m.injectShardResultFacts(shardType, description, ret, err)
@@ -99,7 +99,7 @@ func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd 
 		if err != nil {
 			return continuationDoneMsg{
 				stepCount:            m.continuationStep,
-				summary:              fmt.Sprintf("Step %d failed: %v", m.continuationStep, err),
+				summary:              fmt.Sprintf("Step %d failed: %v", m.continuationStep, withPartialState(err, ret)),
 				completedShardResult: payload,
 				outcome:              continuationFailed,
 			}

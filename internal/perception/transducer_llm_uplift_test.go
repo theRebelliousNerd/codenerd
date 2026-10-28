@@ -2,7 +2,7 @@ package perception
 
 import (
 	"context"
-	"math"
+	"errors"
 	"testing"
 
 	"codenerd/internal/core"
@@ -50,9 +50,9 @@ func TestUnderstand_DerivesRoutingFromMangle(t *testing.T) {
 	}
 	tr := NewLLMTransducer(&cannedJSONClient{response: upliftClassificationEnvelope},
 		NewRealKernelRouter(kernel), "system")
-	u, err := tr.Understand(context.Background(), "write docs for auth.go", nil, nil, nil, "")
-	if err != nil {
-		t.Fatalf("Understand: %v", err)
+	u, outcome := tr.Understand(context.Background(), "write docs for auth.go", nil, nil, nil, "")
+	if outcome.Failed() {
+		t.Fatalf("Understand: %+v", outcome)
 	}
 	if u.Routing == nil {
 		t.Fatal("Routing is nil with kernel wired")
@@ -93,8 +93,8 @@ func TestUnderstand_AssertsAndReplacesRoutingFacts(t *testing.T) {
 	tr := NewLLMTransducer(&cannedJSONClient{response: upliftClassificationEnvelope},
 		NewRealKernelRouter(kernel), "system")
 	ctx := context.Background()
-	if _, err := tr.Understand(ctx, "first", nil, nil, nil, ""); err != nil {
-		t.Fatalf("first Understand: %v", err)
+	if _, outcome := tr.Understand(ctx, "first", nil, nil, nil, ""); outcome.Failed() {
+		t.Fatalf("first Understand: %+v", outcome)
 	}
 	assertFactCount := func(pred string, want int) []core.Fact {
 		t.Helper()
@@ -120,8 +120,8 @@ func TestUnderstand_AssertsAndReplacesRoutingFacts(t *testing.T) {
 	  "surface_response": "Fixing."}`
 	tr2 := NewLLMTransducer(&cannedJSONClient{response: second},
 		NewRealKernelRouter(kernel), "system")
-	if _, err := tr2.Understand(ctx, "second", nil, nil, nil, ""); err != nil {
-		t.Fatalf("second Understand: %v", err)
+	if _, outcome := tr2.Understand(ctx, "second", nil, nil, nil, ""); outcome.Failed() {
+		t.Fatalf("second Understand: %+v", outcome)
 	}
 	// Replacement, not accumulation: still exactly one fact per predicate.
 	assertFactCount("current_understanding", 1)
@@ -141,9 +141,9 @@ func TestUnderstand_AssertsAndReplacesRoutingFacts(t *testing.T) {
 // through verbatim instead of failing the turn.
 func TestUnderstand_NoKernelUsesSuggestions(t *testing.T) {
 	tr := NewLLMTransducer(&cannedJSONClient{response: upliftClassificationEnvelope}, nil, "system")
-	u, err := tr.Understand(context.Background(), "write docs", nil, nil, nil, "")
-	if err != nil {
-		t.Fatalf("Understand: %v", err)
+	u, outcome := tr.Understand(context.Background(), "write docs", nil, nil, nil, "")
+	if outcome.Failed() {
+		t.Fatalf("Understand: %+v", outcome)
 	}
 	if u.Routing == nil {
 		t.Fatal("Routing is nil without kernel")
@@ -172,23 +172,24 @@ func TestParseResponse_EnvelopeWithoutPrimaryIntent(t *testing.T) {
 	}
 }
 
-// TestParseResponse_NullUnderstandingFallsThrough pins that a null
-// understanding value is not an envelope: it falls to the direct parse.
-func TestParseResponse_NullUnderstandingFallsThrough(t *testing.T) {
+// TestParseResponse_NullUnderstandingIsAnInvalidEnvelope pins that an
+// explicit "understanding" key names the envelope shape: a null value is a
+// malformed envelope, not a bare understanding (the bare decode would ignore
+// the key and return an all-zero understanding with a nil error).
+func TestParseResponse_NullUnderstandingIsAnInvalidEnvelope(t *testing.T) {
 	tr := &LLMTransducer{}
-	u, err := tr.parseResponse(`{"understanding": null, "surface_response": "hi"}`)
-	if err != nil {
-		t.Fatalf("parseResponse: %v", err)
-	}
-	if u.SurfaceResponse != "hi" {
-		t.Errorf("SurfaceResponse=%q, want %q", u.SurfaceResponse, "hi")
+	_, err := tr.parseResponse(`{"understanding": null, "surface_response": "hi"}`)
+	var ce *ClassificationError
+	if !errors.As(err, &ce) || ce.Stage != StageDecode {
+		t.Fatalf("parseResponse err = %v, want a decode-stage ClassificationError", err)
 	}
 }
 
-// TestNormalizeLLMFields_TrimsAndClamps pins model-output hygiene: padded
-// values trim (so routing lookups hit) and out-of-range confidence clamps
-// (downstream gates compare against 0..1 thresholds).
-func TestNormalizeLLMFields_TrimsAndClamps(t *testing.T) {
+// TestNormalizeLLMFields_TrimsAndConvertsPercent pins model-output hygiene:
+// padded values trim (so routing lookups hit) and the documented percentage
+// form of confidence converts (downstream gates compare against 0..1
+// thresholds). A value outside 0..100 is refused by admission, not clamped.
+func TestNormalizeLLMFields_TrimsAndConvertsPercent(t *testing.T) {
 	u := &Understanding{
 		SemanticType: "  Causation ", ActionType: " IMPLEMENT ", Domain: " Testing ",
 		Scope: Scope{Level: " File "}, SuggestedApproach: SuggestedApproach{Mode: " TDD "},
@@ -205,14 +206,13 @@ func TestNormalizeLLMFields_TrimsAndClamps(t *testing.T) {
 		in   float64
 		want float64
 	}{
-		{2.5, 1}, {85.0, 1}, {math.Inf(1), 1},
-		{-0.5, 0}, {math.Inf(-1), 0}, {math.NaN(), 0},
+		{85.0, 0.85}, {100, 1},
 		{0.7, 0.7}, {0, 0}, {1, 1},
 	} {
 		v := &Understanding{Confidence: c.in}
 		normalizeLLMFields(v)
 		if v.Confidence != c.want {
-			t.Errorf("clamp(%v)=%v, want %v", c.in, v.Confidence, c.want)
+			t.Errorf("normalize(%v)=%v, want %v", c.in, v.Confidence, c.want)
 		}
 	}
 }

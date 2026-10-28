@@ -81,7 +81,7 @@ Use these when classifying “why is chat slow?” — classification LLM vs pro
 | Symptom | Where to look |
 |---------|----------------|
 | Every turn slow | Understand COMPLETE bottleneck; classification model |
-| Always /explain | LLM FAILED logs; TransientFailure; parse FAILED previews |
+| Always /explain | LLM FAILED logs; `classification_outcome` row; parse FAILED previews |
 | No semantic matches | SharedSemanticClassifier=nil; embed engine warn |
 | Auth fails | Claude/Codex/xai probe logs; engine config |
 | Learning never sticks | Consolidation queue full warns; learned_taxonomy path |

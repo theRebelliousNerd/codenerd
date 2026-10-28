@@ -457,12 +457,13 @@ func (j *JITExecutor) executeAsyncInternal(ctx context.Context, req TaskRequest,
 	// policy derives a stall, never on a clock of the harness's own (the
 	// 30-minute shard ceiling was removed 2026-09-19).
 	spawnReq := SpawnRequest{
-		Name:           agentName(req.IntentVerb),
-		Task:           req.TaskText(),
-		Type:           SubAgentTypeEphemeral,
-		IntentVerb:     req.IntentVerb,
-		IntentTarget:   req.Target,
-		SessionContext: sessionCtx,
+		Name:             agentName(req.IntentVerb),
+		Task:             req.TaskText(),
+		Type:             SubAgentTypeEphemeral,
+		IntentVerb:       req.IntentVerb,
+		IntentTarget:     req.Target,
+		IntentConstraint: strings.TrimSpace(req.Constraint),
+		SessionContext:   sessionCtx,
 	}
 	// Spawner.Spawn() creates the agent. We must manually start it after tracking
 	// its ID to prevent a TOCTOU race where a very fast execution completes and

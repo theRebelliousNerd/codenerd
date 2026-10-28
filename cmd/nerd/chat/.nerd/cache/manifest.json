@@ -79,6 +79,22 @@
     "gen_ok": true,
     "gen_is_clock": true
   },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/background.go": {
+    "hash": "531f0689c498d9d0548523d2dd382b1ac29a0f9c8e11b962867144b3f4eaef2e",
+    "mod_time": 1793202757675497957,
+    "size": 8408,
+    "gen": 1793202757675497957,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/background_test.go": {
+    "hash": "6526aec53afc37a3c008dd1260e952089a51cf6a84fcde20aa46b76bb9f6b77c",
+    "mod_time": 1793180225049610793,
+    "size": 6077,
+    "gen": 1793180225049610793,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/boot_benchmark_test.go": {
     "hash": "7978c4e0f2e182a52094d6af80d8bffff669d4134aad31cc8bde6aa606375789",
     "mod_time": 1793170157487264593,
@@ -120,10 +136,10 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/campaign_control_test.go": {
-    "hash": "b3a7543edf95fe8bd08124ad4e2d16688ca599f7d3aff846f79c0a612c49cb1d",
-    "mod_time": 1793170157487264593,
-    "size": 9865,
-    "gen": 1793170157487264593,
+    "hash": "29760a471edfadb4984a9e3ef89b380383875978b2df7ce6fe7f613a5854dd64",
+    "mod_time": 1793173830513392197,
+    "size": 9946,
+    "gen": 1793173830513392197,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -192,10 +208,10 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/chat_read_boundary_test.go": {
-    "hash": "b4fe29723a3d0c17455e67352f876c8e5dd550090965e3d73f9c97c8b67465ba",
-    "mod_time": 1793170157487264593,
-    "size": 4761,
-    "gen": 1793170157487264593,
+    "hash": "5ae2c90e9ef81e03bb0c085570e84d2b126ddc58390a7ad0f0998cfaf686002c",
+    "mod_time": 1793176295601187035,
+    "size": 4764,
+    "gen": 1793176295601187035,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -204,6 +220,22 @@
     "mod_time": 1793170157487264593,
     "size": 6230,
     "gen": 1793170157487264593,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/classification_stop.go": {
+    "hash": "d173ee4aaa2c8535306cc8b4ca036d213930a17eaf5d2534fe36a266bc72e394",
+    "mod_time": 1793180848997934598,
+    "size": 2112,
+    "gen": 1793180848997934598,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/classification_stop_test.go": {
+    "hash": "0a13e22cf8f8196272a77f70173810a98c8809e465c5821b0756717d48d3a014",
+    "mod_time": 1793180881167756621,
+    "size": 10378,
+    "gen": 1793180881167756621,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -232,10 +264,10 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/command_categories.go": {
-    "hash": "a54d7ccce9451d3cfc513a443382bdce6e7974261f4801aba81e1305b546e140",
-    "mod_time": 1793170157488264600,
-    "size": 17528,
-    "gen": 1793170157488264600,
+    "hash": "95a256726002a7312265b0bd67462e7ae3905c2400a61fd43ec47d3db14c315f",
+    "mod_time": 1793180284604165469,
+    "size": 17984,
+    "gen": 1793180284604165469,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -256,10 +288,10 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/commands.go": {
-    "hash": "d3deeb5aa7855754fc236cc137e9517a97f7d791b0a8f23deb42f444aa950289",
-    "mod_time": 1793170157488264600,
-    "size": 9535,
-    "gen": 1793170157488264600,
+    "hash": "5a6d26748129302abe82fdaf77075d2f689d6a3661179ceb002566dbdb90e530",
+    "mod_time": 1793172570073996430,
+    "size": 9721,
+    "gen": 1793172570073996430,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -272,18 +304,18 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/commands_handlers.go": {
-    "hash": "bcad376a278fbecf1ec09620b44339757d086a819f09ab3a7d6c9af4708bc835",
-    "mod_time": 1793170157488264600,
-    "size": 32089,
-    "gen": 1793170157488264600,
+    "hash": "96722cdf4829766a3575e7080f3722aee6e5f04d3e88c0370c1e8cb4c63f811d",
+    "mod_time": 1793176383313340512,
+    "size": 32800,
+    "gen": 1793176383313340512,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/commands_handlers_analysis.go": {
-    "hash": "c7983ae2abaf50a6c49fe69536b92cdceb79fd8d8cdb822882979a96ee29078f",
-    "mod_time": 1793170157488264600,
-    "size": 21436,
-    "gen": 1793170157488264600,
+    "hash": "e9cfacc547aafea99b0c7e7253acc10f5ad9ddd74d5a5d84b149ffb1b1f26bf5",
+    "mod_time": 1793176249471405271,
+    "size": 21905,
+    "gen": 1793176249471405271,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -391,11 +423,27 @@
     "gen_ok": true,
     "gen_is_clock": true
   },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/control_outcome.go": {
+    "hash": "c909d5b365934938ca46f7f703aec8748686c22a99468a738e2ed04561d60c07",
+    "mod_time": 1793177075801661046,
+    "size": 2521,
+    "gen": 1793177075801661046,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/control_outcome_test.go": {
+    "hash": "a2fd3dd31dab63b63ef2b4790567c122f9343a2192354a3d0bc5de34aefd4ffe",
+    "mod_time": 1793177088098843318,
+    "size": 4728,
+    "gen": 1793177088098843318,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/delegation.go": {
-    "hash": "6f05c867676b5a490cc10c7557621b3ccf8041aac03723e597ce0c28a525ad59",
-    "mod_time": 1793170157490264615,
-    "size": 38539,
-    "gen": 1793170157490264615,
+    "hash": "e226ac5396dc5b1bd0d4055a97b85f7651e31eb2ed75f18ef2cb305d2b87d7ab",
+    "mod_time": 1793202731145000970,
+    "size": 38899,
+    "gen": 1793202731145000970,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -407,11 +455,43 @@
     "gen_ok": true,
     "gen_is_clock": true
   },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/delegation_constraint_test.go": {
+    "hash": "f55a1eea55c69ab2949f6c4d293881a514a14dc9419f3e9aad88e31f31957d5e",
+    "mod_time": 1793202984460450045,
+    "size": 3490,
+    "gen": 1793202984460450045,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/delegation_decision_test.go": {
     "hash": "d7daf9bb422c5fe3b47195717dcaed67e3ac610e9b8fefcaec74f6ff39ebab9a",
     "mod_time": 1793170157490264615,
     "size": 7263,
     "gen": 1793170157490264615,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/delegation_failure.go": {
+    "hash": "04a218edf55b430b85842120faa73275d970fa62a589b51efc7964dbda53d0c7",
+    "mod_time": 1793179736142215172,
+    "size": 1899,
+    "gen": 1793179736142215172,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/delegation_failure_journey_test.go": {
+    "hash": "bcb9bd2bdaaa25736850fac0eddae2acebe5ffd1f433bdf48915fb14f467d7ae",
+    "mod_time": 1793180098171224526,
+    "size": 2346,
+    "gen": 1793180098171224526,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/delegation_failure_test.go": {
+    "hash": "ebcf6f34ad86623f472755822ba3a6b7c26cd86a86cdfdfa6bf86f39b1a28987",
+    "mod_time": 1793179719391942673,
+    "size": 2201,
+    "gen": 1793179719391942673,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -432,26 +512,34 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/delegation_multistep.go": {
-    "hash": "1a317de8d0b5736e7974ac33e5e87665c72577dfca214cd21ba7452898c43982",
-    "mod_time": 1793170157490264615,
-    "size": 9366,
-    "gen": 1793170157490264615,
+    "hash": "6cc36cf9809ea77b11916312a0a7b19b074febd16e529514435704c95bc6b65c",
+    "mod_time": 1793202731143967795,
+    "size": 10862,
+    "gen": 1793202731143967795,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/delegation_multistep_test.go": {
+    "hash": "e65a8952d817bd975fe58555dff83911357bd65d6a7a24cf953c6d0aa2d53a2f",
+    "mod_time": 1793178902738138041,
+    "size": 1481,
+    "gen": 1793178902738138041,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/delegation_routing.go": {
-    "hash": "7c1257f1177f74f7c53d51fdbdd81f3df4b9d4ec6311fbf8152d88276c11e9ea",
-    "mod_time": 1793170157490264615,
-    "size": 11670,
-    "gen": 1793170157490264615,
+    "hash": "be9fbef17c8f5b362a04b6e053108214f705757d4da675eb88b401d1ee0ef4ec",
+    "mod_time": 1793202731145600018,
+    "size": 15721,
+    "gen": 1793202731145600018,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/delegation_routing_resolve_test.go": {
-    "hash": "a7f95dc652dcad03170f9d9cfe6a43a5812c61a90aa1efecfd1e4b87abb06d8c",
-    "mod_time": 1793170157490264615,
-    "size": 1208,
-    "gen": 1793170157490264615,
+    "hash": "f65ca1abb6ae120a7a7b880e6fd79d728b5428c1ba60512b382e5a38b5bc3b58",
+    "mod_time": 1793178841119705263,
+    "size": 2619,
+    "gen": 1793178841119705263,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -544,18 +632,18 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/helpers_articulation.go": {
-    "hash": "3b9ef6fb8066c92016252723dda10c0dc1339c09da2e72df6a4bbb077c733465",
-    "mod_time": 1793170157491264623,
-    "size": 17973,
-    "gen": 1793170157491264623,
+    "hash": "42875db7ce888777d3cba7ae765ae509f77b31e156730e97c6de125d34649d4c",
+    "mod_time": 1793176948391186186,
+    "size": 18863,
+    "gen": 1793176948391186186,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/helpers_files.go": {
-    "hash": "269bfb5c8399ddf0caa5554ad65962f0e23d4f76f174c23d1698828dd5cfb841",
-    "mod_time": 1793170157491264623,
-    "size": 8940,
-    "gen": 1793170157491264623,
+    "hash": "d203ad3603e6185d76ab32bee6fbc9c2e6613f80eca3057b7840b7ee08e388b8",
+    "mod_time": 1793176202912008262,
+    "size": 8537,
+    "gen": 1793176202912008262,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -568,10 +656,10 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/helpers_test.go": {
-    "hash": "fd48969b4b5e979a966b84c667a5881b23e8aba06760d2922536775467256857",
-    "mod_time": 1793170496556468748,
-    "size": 42802,
-    "gen": 1793170496556468748,
+    "hash": "3841601ad4b320beb757e7266f7e9511b1fef5d1bd67a350bbfd95ecac529343",
+    "mod_time": 1793178794256264582,
+    "size": 42571,
+    "gen": 1793178794263264648,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -607,6 +695,38 @@
     "gen_ok": true,
     "gen_is_clock": true
   },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/jev_turn.go": {
+    "hash": "cb5eb61de4b3f4cd0d494e7579f6ae5ab48b2806486f1d08aa69062d22882b93",
+    "mod_time": 1793178338249448216,
+    "size": 7072,
+    "gen": 1793178338249448216,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/journey_conversation_test.go": {
+    "hash": "d3facd7067fbd03fd5abcbdb262ae6713b66c7454ced93bdd64bd94f6aaaa507",
+    "mod_time": 1793174961766061977,
+    "size": 11123,
+    "gen": 1793174961766061977,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/journey_jev_test.go": {
+    "hash": "5f127cd3225d67c22e4e6310ba46c63b605e2c56b329b89ae3ea2bcce6749fc0",
+    "mod_time": 1793178928831454594,
+    "size": 11550,
+    "gen": 1793178928831454594,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/journey_side_turn_test.go": {
+    "hash": "abfc01b5f96f4f50201173f731b6608466892d38d6a2198494afb3b3e482ad63",
+    "mod_time": 1793177560431403940,
+    "size": 5146,
+    "gen": 1793177560439404000,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/knowledge_format.go": {
     "hash": "cbda8b7c852794bb8ece8d3086e92b71866aa3da740c55c2b5e24a194e5e9847",
     "mod_time": 1793170157492264630,
@@ -639,6 +759,14 @@
     "gen_ok": true,
     "gen_is_clock": true
   },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/learning_candidate_stage_test.go": {
+    "hash": "3b0621e4238c6827067e0977b7c1ed8b108be19c02b074600bba7f6ff8eed75d",
+    "mod_time": 1793180100409243916,
+    "size": 913,
+    "gen": 1793180100409243916,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/live_integration_test.go": {
     "hash": "8a4a2bcbf4a6501d4bd75c23b31f4b794c008fa9ff0c97741e0a8699a39f2d4a",
     "mod_time": 1793170157492264630,
@@ -664,18 +792,18 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/model_handlers.go": {
-    "hash": "f1dfcd2134d0dd3830d001ed27c685468485210401cb05683dda6a26f58ea373",
-    "mod_time": 1793171117648855711,
-    "size": 24666,
-    "gen": 1793171117648855711,
+    "hash": "25193a79e87b7c8ee81f94148ed4eea43e1a51db7f2c94573c5f065775b9d679",
+    "mod_time": 1793180100395002322,
+    "size": 25784,
+    "gen": 1793180100395002322,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/model_helpers.go": {
-    "hash": "749b74320d57d2c1f608f0c64abe98bbd7d69183f366c36ca210ffe20d69daa5",
-    "mod_time": 1793170489751488565,
-    "size": 17300,
-    "gen": 1793170489751488565,
+    "hash": "0a5cf5e4aab5bf5970359bbb1ea07e6b0c761de81611670fe04c21a925fc046f",
+    "mod_time": 1793178920118448129,
+    "size": 17208,
+    "gen": 1793178920118448129,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -688,18 +816,18 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/model_key_handler.go": {
-    "hash": "a5dfc5d378e461a4e1aba5900c4513f112b66a7b52dd670753e3859f4604cffe",
-    "mod_time": 1793171117649400828,
-    "size": 12494,
-    "gen": 1793171117649400828,
+    "hash": "c447895a00772a9086fbfa1c458f3e4307de30b70835d1b5b692ba0aaa047db1",
+    "mod_time": 1793177453871796189,
+    "size": 12810,
+    "gen": 1793177453871796189,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/model_lifecycle.go": {
-    "hash": "74a38a36e17e20671f0138a0ab295616b06392bdd928fe5e50ca84db14d1f3cd",
-    "mod_time": 1793170157493264638,
-    "size": 11790,
-    "gen": 1793170157493264638,
+    "hash": "b9339e762ada8fa680e537a0e53131172e94bdb7bec953de4b803e06cd44b47e",
+    "mod_time": 1793176162566356694,
+    "size": 11987,
+    "gen": 1793176162566356694,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -712,18 +840,18 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/model_types.go": {
-    "hash": "0a4215e85737ae75c2013d48c6dcea78f2b933abaf0f56729b754bb47a8f1db9",
-    "mod_time": 1793171220700681275,
-    "size": 33079,
-    "gen": 1793171220700681275,
+    "hash": "25c9058b7e142b3d12bafafc3ab2f81b9aa02509cd8a4da1b59a7994248c336f",
+    "mod_time": 1793180290013886705,
+    "size": 33577,
+    "gen": 1793180290013886705,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/model_update.go": {
-    "hash": "2986c5775a58a7fc509e52a172e585c116512c117bf1946942d73d82ed31fb63",
-    "mod_time": 1793171117649640810,
-    "size": 37370,
-    "gen": 1793171117649640810,
+    "hash": "407f0287ed6b02649002304c12752df8a3a18a6b51ed13cd56b24a32318584c5",
+    "mod_time": 1793177453874385676,
+    "size": 38565,
+    "gen": 1793177453874385676,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -736,10 +864,10 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/multistep_corpus.go": {
-    "hash": "ea659851fbde9f24132c5d3212826caf8f2712c4a1ae06ec4dd14b939ca37ddb",
-    "mod_time": 1793170157494264645,
-    "size": 30358,
-    "gen": 1793170157494264645,
+    "hash": "b31d8bffedd87bc26647887eccb87f7430a3cd8dd03c56e10d19f7e78b3ae1dd",
+    "mod_time": 1793202731143554176,
+    "size": 30451,
+    "gen": 1793202731143554176,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -767,11 +895,27 @@
     "gen_ok": true,
     "gen_is_clock": true
   },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/northstar_edit.go": {
+    "hash": "f9da52a56a59c8e93e4c3c83c3c06e7f63806db7f6b861eb3b6f0ce5f958b23e",
+    "mod_time": 1793176338114228830,
+    "size": 8647,
+    "gen": 1793176338114228830,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/northstar_edit_test.go": {
+    "hash": "cbc8f75494872bb8b5fcc16d036167c79d4265a5493235e079938b3a05169785",
+    "mod_time": 1793176666880220556,
+    "size": 16847,
+    "gen": 1793176666880668019,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/northstar_llm.go": {
-    "hash": "3dc7bcec912babba215df2bde852e24118c827f7d4c3df9750c8fa32d8633f19",
-    "mod_time": 1793170157494264645,
-    "size": 4443,
-    "gen": 1793170157494264645,
+    "hash": "0b5e6b2da15eb472a31eace32bf70fe5aa4612b2b2ece393f9258dcff09dfd3a",
+    "mod_time": 1793176419066953156,
+    "size": 4592,
+    "gen": 1793176419066953156,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -784,50 +928,50 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/northstar_llm_test.go": {
-    "hash": "21ac2ae163d563789c057e0e74a31d0b0053aeef95410d298fac257eb535f622",
-    "mod_time": 1793170157494264645,
-    "size": 5403,
-    "gen": 1793170157494264645,
+    "hash": "75b8e05b9bcbf3bd584c906d70515b3f0bac1e3b867173bbd02a762547ec9a2f",
+    "mod_time": 1793176523813953301,
+    "size": 6993,
+    "gen": 1793176523813953301,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/northstar_navigation.go": {
-    "hash": "4df9dda51701df6fd82fc5053b9735016979935c8ca5095039f4541dc159f8c8",
-    "mod_time": 1793170157494264645,
-    "size": 8104,
-    "gen": 1793170157494264645,
+    "hash": "8f8c1b4315255e8915b19daa6f9431e02771e307744032e58fde092f666eeb70",
+    "mod_time": 1793176419066641760,
+    "size": 8115,
+    "gen": 1793176419066641760,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/northstar_persistence.go": {
-    "hash": "978db675371c178a1786a310fc59e5fbe9b3d96d624040c592fbbc81fdfba47d",
-    "mod_time": 1793170157495264653,
-    "size": 15032,
-    "gen": 1793170157495264653,
+    "hash": "52ec4f0d0bd363b2ff2898f981726aee04c274e0a698fd3f5d17704888b6919d",
+    "mod_time": 1793176419067337370,
+    "size": 7905,
+    "gen": 1793176419067337370,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/northstar_persistence_test.go": {
-    "hash": "2ec2873a10f60d274bdb9199a2f67e682864e315b64570a5ceabaf2da314c6c8",
-    "mod_time": 1793170157495264653,
-    "size": 3931,
-    "gen": 1793170157495264653,
+    "hash": "11a75f13ff84e0582c1b050939082b3e152e3527933cbed4cf4e4f1dcf865a31",
+    "mod_time": 1793176523813792237,
+    "size": 1412,
+    "gen": 1793176523813792237,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/northstar_types.go": {
-    "hash": "cd89f54c2e6e680d0c65dd2930c7914571809a53827d617d4f98ef364efdd6e4",
-    "mod_time": 1793170157495264653,
-    "size": 6313,
-    "gen": 1793170157495264653,
+    "hash": "d097acf15bdf9c5357bda2e87b732e89aa3be1166f249968a2d662e6a577dfe3",
+    "mod_time": 1793176365600431879,
+    "size": 4535,
+    "gen": 1793176365600431879,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/northstar_types_test.go": {
-    "hash": "59c2be1c16bf3b5ef9147c4e59f743eedfca25785a0444b0d26cf41d8f9df47b",
-    "mod_time": 1793170157495264653,
-    "size": 1707,
-    "gen": 1793170157495264653,
+    "hash": "aecd1a11ef612b3465874eaa2ee1f0ca5c1c31692810a670051f2b04eecd934c",
+    "mod_time": 1793176523813866718,
+    "size": 395,
+    "gen": 1793176523813866718,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -848,10 +992,10 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/northstar_wizard.go": {
-    "hash": "79b63fff3cac2c7a9478acc8d444a954b383b462fa67587cdb05666f4ae229c7",
-    "mod_time": 1793170157495264653,
-    "size": 24610,
-    "gen": 1793170157495264653,
+    "hash": "4b9c121b913388702d426e623b2c43963887c5490af7082470996098cb9a7764",
+    "mod_time": 1793176383314176346,
+    "size": 24642,
+    "gen": 1793176383314176346,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -860,6 +1004,14 @@
     "mod_time": 1793170157495264653,
     "size": 11075,
     "gen": 1793170157495264653,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/one_line_test.go": {
+    "hash": "dac6593b189313c7766fd91bc534bbfccbe85aa6c71a0c496258dbc887390142",
+    "mod_time": 1793173622481223719,
+    "size": 512,
+    "gen": 1793173622481223719,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -872,10 +1024,10 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/operation_context_test.go": {
-    "hash": "1325225affcdaf3e5e1b44a2c45e8f1d5c76d0b303a9ad8ce88cc6556256564d",
-    "mod_time": 1793170157495264653,
-    "size": 1210,
-    "gen": 1793170157495264653,
+    "hash": "9b410516f658f5a9a884f789a91a6205c6aae41ed50540befea002029ad97c68",
+    "mod_time": 1793179446575015881,
+    "size": 1465,
+    "gen": 1793179446575015881,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -920,10 +1072,10 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/process.go": {
-    "hash": "8aee403f2ab8b0fdb765dda512bfa1d26d4dfa983e34e996e7f10fd6f12909fc",
-    "mod_time": 1793170157496264660,
-    "size": 48278,
-    "gen": 1793170157496264660,
+    "hash": "46f79f59f0effa2fe20a55ddb5736c26f3e1b70064197a072edb1a89620994c7",
+    "mod_time": 1793202757680497994,
+    "size": 52718,
+    "gen": 1793202757680497994,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -936,10 +1088,10 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/process_continuation.go": {
-    "hash": "9c4608a020a4560c8dcffd3f40219390cfb21df5f407a05fed91b26a19b59b9d",
-    "mod_time": 1793170157496264660,
-    "size": 15678,
-    "gen": 1793170157496264660,
+    "hash": "b82e1e85604299f77cbc063156aedb88de2a1589027e50a3941bfd71e993b78b",
+    "mod_time": 1793202731147047163,
+    "size": 15446,
+    "gen": 1793202731147047163,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -952,18 +1104,18 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/process_dream.go": {
-    "hash": "5db18f8258a076f6987b4046d0557971cbeec53b09b7ab5096d9c56a48f49b3c",
-    "mod_time": 1793170157496264660,
-    "size": 25925,
-    "gen": 1793170157496264660,
+    "hash": "6da5a35e5c9233eeb8d4211c165eef52746d4710984c82fe80fdfd40499fd30a",
+    "mod_time": 1793202731147434553,
+    "size": 25938,
+    "gen": 1793202731147434553,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/process_dream_delegation.go": {
-    "hash": "cb818351c8b7e1cd643bbe455fc7c889019c9cf02e2c9334502fee7768cb3895",
-    "mod_time": 1793170157496264660,
-    "size": 17611,
-    "gen": 1793170157496264660,
+    "hash": "de0d2b0df0977f1bddf0cd4e27d6f7fd6372a92f79abf71797f278c11beebc80",
+    "mod_time": 1793202731146872565,
+    "size": 18000,
+    "gen": 1793202731146872565,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -984,34 +1136,34 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/process_helpers.go": {
-    "hash": "baf756a3078951e86bb3cb4dd7d78a94450ba1c24d13f1334cf93379240d89d2",
-    "mod_time": 1793170157497264668,
-    "size": 6226,
-    "gen": 1793170157497264668,
+    "hash": "a81876463c3fafc7f0c3d6ecce03c25d61b40176424fcd51c4ac685db2c05724",
+    "mod_time": 1793176980639561690,
+    "size": 7174,
+    "gen": 1793176980639561690,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/process_knowledge.go": {
-    "hash": "1a99811b08cd2036277b6acb3d49a1e4b0ef6e344c57461058b6ba5d7002f59e",
-    "mod_time": 1793170157497264668,
-    "size": 9027,
-    "gen": 1793170157497264668,
+    "hash": "38680206f990cf4602a77711f6f9533522873bb2983a17562b6a6c2fed2e3aa5",
+    "mod_time": 1793202739403641907,
+    "size": 9087,
+    "gen": 1793202739403641907,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/process_noshim_test.go": {
-    "hash": "b79a2a636da280d2ab73fbdc7f9d61dcc3557359ac67d7856b9a6723acfc887b",
-    "mod_time": 1793170157497264668,
-    "size": 2103,
-    "gen": 1793170157497264668,
+    "hash": "e1939fa4aad22007248d8b08d816ab80ad8de89691351cc3ffa6d72ec932b07d",
+    "mod_time": 1793177301618800008,
+    "size": 2142,
+    "gen": 1793177301618800008,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/process_seed.go": {
-    "hash": "3440df005fc466184e3ebb5b6e49a06037e409fbdc16e4112854c7a04c615256",
-    "mod_time": 1793170690605772241,
-    "size": 6916,
-    "gen": 1793170690605772241,
+    "hash": "32b65f360f978fcb559aa58db92726f560980b15717dfd119afdf17bab4825ee",
+    "mod_time": 1793178110967694181,
+    "size": 7294,
+    "gen": 1793178110967694181,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -1055,6 +1207,14 @@
     "gen_ok": true,
     "gen_is_clock": true
   },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/restriction_routing_test.go": {
+    "hash": "fd9f8420423989721b56d8248ef81129d0465f8bc56c82c761493b710912fcf9",
+    "mod_time": 1793176916827552211,
+    "size": 3788,
+    "gen": 1793176916827552211,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/review_aggregator.go": {
     "hash": "a5c0bf2f027eb408b72c665abcbcf67b433d94c3d2e08873525ed4152bfc4bbb",
     "mod_time": 1793170157497264668,
@@ -1088,10 +1248,10 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/routing_performance_contract_e2e_test.go": {
-    "hash": "5fb971ebaebbec92d939e6218e90884cc7fdd6d3959e21075e91e2bedb971b23",
-    "mod_time": 1793170157498264675,
-    "size": 3738,
-    "gen": 1793170157498264675,
+    "hash": "1d5dd7b2200ab5192d29a836aacb2bfb4e8664c0eca2da51ff8c6204a82aaa0b",
+    "mod_time": 1793180881167619442,
+    "size": 4090,
+    "gen": 1793180881167619442,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -1112,26 +1272,42 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/self_debug.go": {
-    "hash": "5ac2480b3a929b82c39eb131226c2eae468e52e283a57e958c834d2f2e856ca8",
-    "mod_time": 1793171220703374048,
-    "size": 18956,
-    "gen": 1793171220703374048,
+    "hash": "3943666f09004619b22eacebae2aefbe5b47eddb618e611f3b56f8332827a722",
+    "mod_time": 1793180276487218689,
+    "size": 20897,
+    "gen": 1793180276487218689,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/self_debug_kernel_test.go": {
+    "hash": "0b6514e658e1d11c34506f29992e2e73cc54e7153219ecd268fe3b810b794447",
+    "mod_time": 1793174211854126392,
+    "size": 5659,
+    "gen": 1793174211854126392,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/self_debug_test.go": {
-    "hash": "4c3c4f9643c4b1d1d941da798698b172cce9089be4c7cbc75275ac568e63285e",
-    "mod_time": 1793171220701169315,
-    "size": 11414,
-    "gen": 1793171220701169315,
+    "hash": "409dc046c844b7f05ce8a206de0eb4d03c43e102dda2e60eecaea7f77459d2c4",
+    "mod_time": 1793180284603148643,
+    "size": 11538,
+    "gen": 1793180284603148643,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/self_diagnosis.go": {
+    "hash": "d9b5de5e59558810ab7b18e0993a057de264a59916bbd991cd2bd9d955c007b0",
+    "mod_time": 1793178998500027344,
+    "size": 5231,
+    "gen": 1793178998500027344,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/session.go": {
-    "hash": "537e259f2c2a89b6671e4275cd0242b397ebbc2d4a2bd75dc04484c8fa210cf9",
-    "mod_time": 1793171220701034611,
-    "size": 7600,
-    "gen": 1793171220701034611,
+    "hash": "5582dba1db1a27398c6e13c4436983f10f292f82515fd4a0eed045003bdfd5f9",
+    "mod_time": 1793180276485660863,
+    "size": 7893,
+    "gen": 1793180276485660863,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -1239,6 +1415,14 @@
     "gen_ok": true,
     "gen_is_clock": true
   },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/side_turn.go": {
+    "hash": "d124405c4d0dfb2921a21102448b4e4cfc0856cb6dddca15bbd958daf098f417",
+    "mod_time": 1793180432459505162,
+    "size": 8765,
+    "gen": 1793180432459505162,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/specialist_policy_test.go": {
     "hash": "02153dbe5f8f46859c392d564541a487e170a58a044e51ef9b6b2a3277fa7891",
     "mod_time": 1793170157499264683,
@@ -1304,10 +1488,10 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/testutil_test.go": {
-    "hash": "c090ec644c4b976731bc8108fc982e68b9c39c69b1bada19c13cf1bd90c013c5",
-    "mod_time": 1793171185306354162,
-    "size": 29360,
-    "gen": 1793171185306354162,
+    "hash": "fe2aefd5114bc983c1f57894667e317c2b494e6009c5aec26731bc5013080ded",
+    "mod_time": 1793177453875746889,
+    "size": 29441,
+    "gen": 1793177453875746889,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -1324,6 +1508,38 @@
     "mod_time": 1793170157501264698,
     "size": 31103,
     "gen": 1793170157501264698,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/turn_evidence.go": {
+    "hash": "86193c1ec926edf1522cab310ce6f70af935c2582ed0eb41012a8241d695eb37",
+    "mod_time": 1793176202911836538,
+    "size": 6933,
+    "gen": 1793176202911836538,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/turn_evidence_test.go": {
+    "hash": "f6a98d2b13517e89a512ecaaf624bdb1dde8b992979f89ec07657d28fdab9d1c",
+    "mod_time": 1793176354145347257,
+    "size": 10870,
+    "gen": 1793176354145347257,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/turn_results.go": {
+    "hash": "cca97b1b4b1ac1197aade012d40ec19ad9e66216c622a82cac9f9f5229405081",
+    "mod_time": 1793176146022582592,
+    "size": 3167,
+    "gen": 1793176146022582592,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/turn_results_test.go": {
+    "hash": "3aeecee026b7ff8e7d2b7f5f0293a987bee611f6591ba360f8e0ef47dd805cba",
+    "mod_time": 1793176285657841320,
+    "size": 4279,
+    "gen": 1793176285657841320,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -1376,10 +1592,10 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/view.go": {
-    "hash": "d8f208f42d13d68873ec52a22e741eb4ddc476148f1661a5767f5d82763fdc85",
-    "mod_time": 1793171117649269490,
-    "size": 24529,
-    "gen": 1793171117649269490,
+    "hash": "834e6733a4f668627585140ce169410756961467a8d64a1e02b710e670a3c19e",
+    "mod_time": 1793177453874785559,
+    "size": 24672,
+    "gen": 1793177453874785559,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -1415,11 +1631,35 @@
     "gen_ok": true,
     "gen_is_clock": true
   },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/work_admission_test.go": {
+    "hash": "66d014df4b7461016bd568f75a968c8d2caef92632ce29f8d9f3db287b5ec7d5",
+    "mod_time": 1793172197964989464,
+    "size": 5876,
+    "gen": 1793172197964989464,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/work_hold.go": {
+    "hash": "8e89aa534095d7404ef946416525d33e178d52ccdf42cfc950003b2e13f6563b",
+    "mod_time": 1793178978556833442,
+    "size": 5791,
+    "gen": 1793178978556833442,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/work_hold_input_test.go": {
+    "hash": "98800ea847b808231084b52f93c82b8ad988a7dc7dc37dc87dd2e67510969a4b",
+    "mod_time": 1793179861230664087,
+    "size": 997,
+    "gen": 1793179861230664087,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/work_mode.go": {
-    "hash": "27f8ff4dee386101d873ced5940599bfb33acc2d3e335b8beea4a181fc94e784",
-    "mod_time": 1793171139900237393,
-    "size": 1654,
-    "gen": 1793171139900237393,
+    "hash": "c31086681c123b41669a8ba14a10187714fb9956ab80b6616853d4286af29cce",
+    "mod_time": 1793180290003886619,
+    "size": 1645,
+    "gen": 1793180290003886619,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -1432,18 +1672,18 @@
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/yolo.go": {
-    "hash": "f4dcdf9a1fbc9fe198754a9a825f969793e76a25edcf33622fb87f0ab026f7f9",
-    "mod_time": 1793171149937464309,
-    "size": 3004,
-    "gen": 1793171149937464309,
+    "hash": "6849c33b6b7c363102fff6b72f2ae77e781bed63816754cbe7d018b5dd5fbff2",
+    "mod_time": 1793171582847719491,
+    "size": 2201,
+    "gen": 1793171582847719491,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/home/rebelliousnerd/codeProjects/codenerd-brief/cmd/nerd/chat/yolo_flag_test.go": {
-    "hash": "a263590326027d04b26efa7539227c056d739568fca123964a0514eb40e6661e",
-    "mod_time": 1793171185307055754,
-    "size": 2653,
-    "gen": 1793171185307055754,
+    "hash": "b88f17f449fe3758acbb0d3fc2c26c18be238e6117c396c5e60925517f472a2c",
+    "mod_time": 1793180276493177767,
+    "size": 2439,
+    "gen": 1793180276493177767,
     "gen_ok": true,
     "gen_is_clock": true
   },

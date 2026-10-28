@@ -26,10 +26,14 @@ import (
 
 // backgroundJob is one shard task running off the turn.
 type backgroundJob struct {
-	ID      string
-	Shard   string
-	Task    string
-	Started time.Time
+	ID    string
+	Shard string
+	Task  string
+	// Target and Constraint are the routed intent's, passed to the executor
+	// as fields (intentTaskRequest); a self-diagnosis job has neither.
+	Target     string
+	Constraint string
+	Started    time.Time
 	// FollowUp, when set, is submitted as a turn of its own once the job
 	// succeeds, with the result appended: the next step of a chain (a self
 	// diagnosis proposes its fix). The work mode decides whether it runs.
@@ -120,6 +124,18 @@ type backgroundDoneMsg struct {
 	Err     error
 }
 
+// backgroundTask is the task of a read-only delegation. A /test query ("run
+// the tests and tell me what fails") runs the suite: formatShardTask turns a
+// /test with a named target into write_tests, which creates files, and the
+// background lane starts nothing that writes (and, as a /query, is never
+// held by the work mode).
+func (m Model) backgroundTask(intent perception.Intent) string {
+	if intent.Verb == "/test" {
+		return withTaskConstraint("run_tests", intent.Constraint)
+	}
+	return m.formatShardTaskWithContext(intent.Verb, intent.Target, intent.Constraint, m.workspace, m.lastShardResult)
+}
+
 // backgroundStartSurface is the main agent's reply plus what went to the
 // background, so the user knows the conversation is open.
 func backgroundStartSurface(response string, job backgroundJob) string {
@@ -143,11 +159,16 @@ func (m Model) startBackground(job backgroundJob, input string) tea.Cmd {
 	m.background.add(job, cancel)
 	m.assertBackgroundJob(job, "/running")
 	return func() tea.Msg {
-		ret, err := m.spawnTaskWithContext(ctx, job.Shard, job.Task, m.buildSessionContext(ctx), types.PriorityNormal)
+		req := shardTypeToTaskRequest(job.Shard, job.Task)
+		req.Target, req.Constraint = job.Target, job.Constraint
+		ret, err := m.spawnTaskWithContext(ctx, req, m.buildSessionContext(ctx), types.PriorityNormal)
 		result := ret.Output
 		var facts []core.Fact
 		if m.shardMgr != nil {
 			facts = m.shardMgr.ResultToFacts(job.ID, job.Shard, job.Task, result, err)
+		}
+		if err != nil {
+			err = withPartialState(err, ret)
 		}
 		done := backgroundDoneMsg{Job: job, Result: result, Facts: facts, Err: err}
 		if err == nil {
@@ -228,16 +249,4 @@ func (m Model) backgroundFooter() string {
 // they are shown (formatInterpretedResult), in the foreground or not.
 func interpretsOutput(shard string) bool {
 	return shard == "reviewer" || shard == "tester"
-}
-
-// backgroundTask is the task of a read-only delegation. A /test query ("run
-// the tests and tell me what fails") runs the suite: formatShardTask turns a
-// /test with a named target into write_tests, which creates files, and the
-// background lane starts nothing that writes (and, as a /query, is never
-// held by the work mode).
-func (m Model) backgroundTask(intent perception.Intent) string {
-	if intent.Verb == "/test" {
-		return withTaskConstraint("run_tests", intent.Constraint)
-	}
-	return m.formatShardTaskWithContext(intent.Verb, intent.Target, intent.Constraint, m.workspace, m.lastShardResult)
 }

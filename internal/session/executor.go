@@ -950,6 +950,12 @@ type ExecutionResult struct {
 	// Duration is how long the execution took.
 	Duration time.Duration
 
+	// ToolErrors are the tool failures the working loop recorded, in order.
+	// On a turn that ended in an error they are evidence about it; on one
+	// that recovered they are history, and only the closing evidence says
+	// whether Error should carry them (surfaceToolErrors).
+	ToolErrors []string
+
 	// Error is set if execution failed.
 	Error error
 
@@ -1082,7 +1088,13 @@ func embeddedBaselineCompilation(
 //     retracted afterwards) instead of /current_intent. SubAgents share the
 //     session kernel; writing /current_intent from a concurrent task would
 //     clobber the interactive turn's routing facts mid-flight.
-func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *perception.Intent) (*ExecutionResult, error) {
+//
+// Once the turn is admitted (it has a result) every exit is settled against
+// the values it actually returns: the audit record and the prompt co-use
+// feedback read turnResult and turnErr, never a local that a return statement
+// does not assign. A hard error from the working loop returns the result that
+// holds the work already measured together with the error (settleTurn).
+func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *perception.Intent) (turnResult *ExecutionResult, turnErr error) {
 	start := time.Now()
 	logging.Session("Processing input: %d chars (preset_intent=%v)", len(input), preset != nil)
 
@@ -1119,10 +1131,11 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	}
 	logging.Audit().TurnStart(auditSessionID, auditTurnNum, len(input))
 	// TurnEnd is deferred so every exit path (including early errors after this
-	// point) emits a matching session_event. Success is derived from result.Error
-	// at defer time; for early returns that bypass result, success remains false.
+	// point) emits a matching session_event. Success is what the caller is
+	// told: no returned error and no error on the result. Reading the local
+	// result alone called an early `return nil, err` a success.
 	defer func() {
-		success := result != nil && result.Error == nil
+		success := turnSucceeded(turnResult, turnErr)
 		// hollow-success and tool-error cases already surface via result.Error
 		logging.Audit().TurnEnd(auditSessionID, auditTurnNum, time.Since(start).Milliseconds(), success)
 	}()
@@ -1158,7 +1171,7 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	coUseTurnID := usage.TurnIDFromContext(ctx)
 	defer func() {
 		outcome := prompt.OutcomeSuccess
-		if result == nil || result.Error != nil {
+		if !turnSucceeded(turnResult, turnErr) {
 			outcome = prompt.OutcomeFailure
 		}
 		prompt.CoUse().Settle(coUseTurnID, outcome)
@@ -1234,6 +1247,13 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// check and the persona edits. Asserted before the compile so the prompt
 	// and the tool loop read the same turn. A precompiled config is not
 	// re-derived; the facts still stand so the /check gate can see the check.
+	//
+	// This is the turn's first owned assertion, so its retirement is installed
+	// first: any exit below -- a baseline that does not fit, a loop that
+	// failed -- retracts exactly what the turn recorded. The ordinary close
+	// retracts them earlier, after reading the verdict; retracting twice is
+	// retracting nothing.
+	defer e.cleanupTurnFacts()
 	e.prepareTurnCatalog(ctx, result, intent.Verb)
 	ctx = withCatalogTurn(ctx, result.turnAtom())
 	// Told to the kernel before the catalog is narrowed and before any call is
@@ -1321,9 +1341,18 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// 5+6. LLM ↔ tools loop. The model may request tools, we execute them, then
 	// feed the results back as a new turn — repeated until the model returns a
 	// final answer with no tool calls, or we hit the iteration cap.
+	closure := turnClosure{
+		input:         input,
+		intent:        intent,
+		compileResult: compileResult,
+		usageBefore:   usageBefore,
+		start:         start,
+	}
 	llmResponse, toolErrs, err := e.runToolLoop(ctx, systemPrompt, input, EffectiveAgentRuntimeConfig, compilationCtx, result)
 	if err != nil {
-		return nil, wrapToolLoopError(err)
+		// The loop failed after it began: what it measured is on result, and
+		// the turn is settled with that evidence, not discarded with the error.
+		return e.settleTurn(ctx, closure, result, llmResponse, toolErrs, wrapToolLoopError(err))
 	}
 
 	// 7. Articulate response — process Piggyback control packet (best-effort)
@@ -1332,68 +1361,7 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	if result.StepReport != "" {
 		result.Response = strings.TrimSpace(result.Response) + "\n\n" + result.StepReport
 	}
-	result.Duration = time.Since(start)
-
-	// Surface unrecovered tool failures as the execution error. See
-	// surfaceToolErrors: whether a mid-turn tool error survived is decided by
-	// the closing evidence, not by the shape of the final response. This
-	// executor measured the run, so the read asks it directly.
-	e.surfaceToolErrors(result, toolErrs)
-
-	// Close the turn on every path: checkHollowSuccess asserts the turn's
-	// evidence, reads the kernel's verdict once and retracts the per-turn
-	// facts. Until 2026-09-18 it sat behind `if result.Error == nil`, so a
-	// turn whose tool error survived never had its verdict captured and never
-	// had the facts its tool loop asserted (created_source) retracted -- one
-	// errored turn could raise "new source was created without a test file"
-	// against every later turn (REVIEW-wave1 F5 / open item 7).
-	//
-	// Block hollow success: mutation intents that require real side effects
-	// must not report completion when the model only returned planning prose
-	// (or only non-mutating tools). Dream/shadow runs skip this gate. A real
-	// error already on the result outranks the hollow reason.
-	//
-	// Hollow failures are hard errors (non-nil return) so CLI one-shots exit
-	// non-zero. Other soft tool failures stay on result.Error with a nil
-	// return for interactive chat compatibility; TaskExecutor still surfaces
-	// result.Error for SpawnTask callers.
-	e.closeAcceptanceEvidence(ctx, result)
-	e.auditFinalReport(ctx, input, result)
-	hollowErr := e.checkHollowSuccess(result)
-	if result.Error == nil && hollowErr != nil {
-		result.Error = hollowErr
-	}
-	// The closing evidence sentence comes LAST, because it is a function of
-	// the verdict checkHollowSuccess just captured. Written before it (where
-	// it used to live) the only thing it could say was "unverified", and it
-	// said so on every write turn regardless of what the gates measured.
-	e.appendEvidenceSummary(result)
-
-	// Update conversation history
-	e.appendToHistory(perception.ConversationTurn{
-		Role:    "user",
-		Content: input,
-	})
-	e.appendToHistory(perception.ConversationTurn{
-		Role:             "assistant",
-		Content:          result.Response,
-		ThoughtSummary:   llmResponse.ThoughtSummary,
-		ThoughtSignature: llmResponse.ThoughtSignature,
-	})
-
-	// Dispatch asynchronous learning over the conversation WINDOW, not this
-	// turn alone. See criticWindow for why one trace could never work.
-	e.queueTaxonomyLearning(result, toolErrs)
-
-	// Persist session turn for cross-session continuity
-	e.persistTurn(ctx, input, intent, result, turnTelemetry{compileResult: compileResult, usageBefore: usageBefore})
-
-	logging.Session("Execution complete: %d tool calls, %v duration", result.ToolCallsExecuted, result.Duration)
-
-	if result.Error != nil && isHollowSuccessError(result.Error) {
-		return result, result.Error
-	}
-	return result, nil
+	return e.settleTurn(ctx, closure, result, llmResponse, toolErrs, nil)
 }
 
 // observe uses the transducer to convert natural language to intent.
@@ -1408,7 +1376,19 @@ func (e *Executor) observe(ctx context.Context, input string) (perception.Intent
 	if transducer == nil {
 		return perception.Intent{}, fmt.Errorf("cannot perceive intent %q: no transducer configured", input)
 	}
-	return transducer.ParseIntentWithContext(ctx, input, history)
+	intent, err := transducer.ParseIntentWithContext(ctx, input, history)
+	if err != nil {
+		return intent, err
+	}
+	// A classification no model completed is not the user's request: the
+	// compatibility /explain a failed one leaves behind must not enter retrieval,
+	// catalog selection and the working loop as if it were read. The kernel
+	// derives the disposition from the typed outcome (perception_outcome.mg) and
+	// the turn ends with it; a delegated task's preset never comes through here.
+	if err := perception.AdmitClassification(e.kernel, "/current_intent", intent); err != nil {
+		return intent, err
+	}
+	return intent, nil
 }
 
 // buildCompilationContext creates a CompilationContext from the current state.

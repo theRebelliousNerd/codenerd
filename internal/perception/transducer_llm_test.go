@@ -482,9 +482,9 @@ func TestTransducer_Concurrency(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			_, err := transducer.Understand(context.Background(), fmt.Sprintf("concurrent query %d", id), nil, nil, nil, "")
-			if err != nil {
-				t.Errorf("Concurrent Understand failed in goroutine %d: %v", id, err)
+			_, outcome := transducer.Understand(context.Background(), fmt.Sprintf("concurrent query %d", id), nil, nil, nil, "")
+			if outcome.Failed() {
+				t.Errorf("Concurrent Understand failed in goroutine %d: %+v", id, outcome)
 			}
 		}(i)
 	}

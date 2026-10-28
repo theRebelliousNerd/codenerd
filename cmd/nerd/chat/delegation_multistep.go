@@ -157,7 +157,7 @@ func multiStepSignals(input string, intent perception.Intent) []string {
 // the request is about, its verb picks the pair, and its constraint (the
 // limits and acceptance the user stated) rides the first step.
 func anchorVerbPairToIntent(steps []TaskStep, pattern *MultiStepPattern, intent perception.Intent, workspace string) []TaskStep {
-	if pattern == nil || pattern.Decomposer != "verb_pair_chain" || len(steps) != 2 {
+	if pattern == nil || pattern.Decomposer != "verb_pair_chain" || len(steps) != len(verbPair{}) {
 		return steps
 	}
 	target := strings.TrimSpace(intent.Target)
@@ -166,7 +166,9 @@ func anchorVerbPairToIntent(steps []TaskStep, pattern *MultiStepPattern, intent 
 	}
 	for _, pair := range pattern.VerbPairs {
 		if pair[0] == intent.Verb {
-			steps[0].Verb, steps[1].Verb = pair[0], pair[1]
+			for i, verb := range pair {
+				steps[i].Verb = verb
+			}
 			break
 		}
 	}

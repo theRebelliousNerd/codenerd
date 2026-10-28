@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 	"time"
@@ -25,6 +25,11 @@ type LLMTransducer struct {
 	client LLMClient
 	kernel RoutingKernel
 	prompt string
+	// thinking is whether the client runs with thinking enabled. A thinking
+	// model gets the thinking system prompt and, when the client enforces
+	// schemas, a schema-enforced attempt first (methodPlan). It is read from
+	// the client once, so every public entry point classifies one way.
+	thinking bool
 }
 
 // RoutingKernel is the interface for querying routing rules from Mangle.
@@ -64,16 +69,23 @@ type RoutingMatch struct {
 
 // NewLLMTransducer creates a new LLM-first transducer.
 func NewLLMTransducer(client LLMClient, kernel RoutingKernel, prompt string) *LLMTransducer {
+	thinking := false
+	if tp, ok := client.(ThinkingProvider); ok {
+		thinking = tp.IsThinkingEnabled()
+	}
 	return &LLMTransducer{
-		client: client,
-		kernel: kernel,
-		prompt: prompt,
+		client:   client,
+		kernel:   kernel,
+		prompt:   prompt,
+		thinking: thinking,
 	}
 }
 
 // Understand uses the LLM to interpret user intent.
-// This is the primary (and only) classification path.
-func (t *LLMTransducer) Understand(ctx context.Context, input string, history []ConversationTurn, semanticMatches []SemanticMatch, sessionCtx *types.SessionContext, strategicContext string) (*Understanding, error) {
+// This is the primary (and only) classification path: ParseIntent,
+// ParseIntentWithContext and ParseIntentWithGCD all end here. It returns the
+// admitted Understanding, or nil with the outcome that says why there is none.
+func (t *LLMTransducer) Understand(ctx context.Context, input string, history []ConversationTurn, semanticMatches []SemanticMatch, sessionCtx *types.SessionContext, strategicContext string) (*Understanding, ClassificationOutcome) {
 	// Attribute this call and everything under it to perception. The purpose
 	// travels on the context, so it survives into the client wrapper without
 	// any call site in between having to know the broker exists.
@@ -122,42 +134,73 @@ func (t *LLMTransducer) Understand(ctx context.Context, input string, history []
 		totalTokenEst,
 		len(input), historyChars, semanticChars, ambientChars, len(strategicContext))
 
-	// 2. Call LLM for classification
-	llmStart := time.Now()
-	logging.Perception("[Understand] calling LLM CompleteWithSystem (~%d tok)...", totalTokenEst)
-	response, err := t.client.CompleteWithSystem(ctx, t.prompt, fullPrompt)
-	llmDuration := time.Since(llmStart)
-	if err != nil {
-		logging.Perception("[Understand] LLM FAILED after %dms: %v | was sending ~%d tokens to %s",
-			llmDuration.Milliseconds(), err, totalTokenEst, clientType)
-		return nil, fmt.Errorf("LLM classification failed: %w", err)
-	}
-	// Extract thinking metrics if available (need full types.ThinkingProvider for post-call metrics)
-	thinkingLog := ""
-	if tp, ok := t.client.(types.ThinkingProvider); ok && tp.IsThinkingEnabled() {
-		thinkingTokens := tp.GetLastThinkingTokens()
-		thoughtSummary := tp.GetLastThoughtSummary()
-		if len(thoughtSummary) > 200 {
-			thoughtSummary = thoughtSummary[:200] + "..."
+	// 2. Call the model and read its answer, by the methods this client
+	// supports (methodPlan).
+	plan := t.methodPlan()
+	var (
+		understanding *Understanding
+		outcome       ClassificationOutcome
+		llmDuration   time.Duration
+		parseStart    time.Time
+	)
+	for i, method := range plan {
+		llmStart := time.Now()
+		logging.Perception("[Understand] calling LLM method=%s attempt=%d/%d (~%d tok)...", method, i+1, len(plan), totalTokenEst)
+		response, err := t.send(ctx, method, fullPrompt)
+		llmDuration = time.Since(llmStart)
+		if err != nil {
+			logging.Perception("[Understand] LLM FAILED after %dms: %v | method=%s was sending ~%d tokens to %s",
+				llmDuration.Milliseconds(), err, method, totalTokenEst, clientType)
+			// Only a client that says it cannot enforce a schema moves a
+			// schema attempt to the free-form one. Every other call failure is
+			// terminal: an authentication failure, a cancellation, an outage or
+			// a rate limit does not change when the same request is sent a
+			// second way, and a second send would only spend the budget again.
+			if method == MethodSchema && errors.Is(err, core.ErrSchemaNotSupported) && i+1 < len(plan) {
+				logging.Perception("[Understand] client does not enforce schemas; falling back to the free-form completion")
+				continue
+			}
+			return nil, FailedOutcome(err, method, i+1)
 		}
-		thinkingLog = fmt.Sprintf(" thinkingTokens=%d thoughtPreview=%q", thinkingTokens, thoughtSummary)
-	}
-	logging.Perception("[Understand] LLM responded: %dms | responseLen=%d chars (~%d tok)%s",
-		llmDuration.Milliseconds(), len(response), len(response)/4, thinkingLog)
-	logging.PerceptionDebug("Raw LLM Response: %s", response)
+		// Extract thinking metrics if available (need full types.ThinkingProvider for post-call metrics)
+		thinkingLog := ""
+		if tp, ok := t.client.(types.ThinkingProvider); ok && tp.IsThinkingEnabled() {
+			thinkingTokens := tp.GetLastThinkingTokens()
+			thoughtSummary := tp.GetLastThoughtSummary()
+			if len(thoughtSummary) > 200 {
+				thoughtSummary = thoughtSummary[:200] + "..."
+			}
+			thinkingLog = fmt.Sprintf(" thinkingTokens=%d thoughtPreview=%q", thinkingTokens, thoughtSummary)
+		}
+		logging.Perception("[Understand] LLM responded: %dms | responseLen=%d chars (~%d tok)%s",
+			llmDuration.Milliseconds(), len(response), len(response)/4, thinkingLog)
+		logging.PerceptionDebug("Raw LLM Response: %s", response)
 
-	// 3. Parse the response
-	parseStart := time.Now()
-	understanding, err := t.parseResponse(response)
-	if err != nil {
-		// Log the actual response that failed to parse so we can diagnose format issues
-		respPreview := response
-		if len(respPreview) > 500 {
-			respPreview = respPreview[:500] + "..."
+		// 3. Parse the response
+		parseStart = time.Now()
+		parsed, parseErr := t.parseResponse(response)
+		if parseErr != nil {
+			// Log the actual response that failed to parse so we can diagnose format issues
+			respPreview := response
+			if len(respPreview) > 500 {
+				respPreview = respPreview[:500] + "..."
+			}
+			logging.Perception("[Understand] parse FAILED after %dms: %v | method=%s responsePreview=%q",
+				time.Since(parseStart).Milliseconds(), parseErr, method, respPreview)
+			// A schema answer that is not a classification is a different
+			// request away from a readable one: the free-form completion is
+			// the next method. The last method's unreadable answer ends it.
+			if i+1 < len(plan) {
+				continue
+			}
+			return nil, FailedOutcome(parseErr, method, i+1)
 		}
-		logging.Perception("[Understand] parse FAILED after %dms: %v | responsePreview=%q",
-			time.Since(parseStart).Milliseconds(), err, respPreview)
-		return nil, fmt.Errorf("failed to parse LLM response: %w", err)
+		understanding = parsed
+		outcome = admittedOutcome(method, i+1)
+		break
+	}
+	if understanding == nil {
+		return nil, FailedOutcome(errors.New("no classification method ran"), "", 0)
 	}
 	// Log the full understanding - every field matters for debugging
 	logging.Perception("[Understand] parsed: %dms | intent=%q semantic=%s action=%s domain=%s confidence=%.2f | scope={level=%s target=%q file=%q symbol=%q} | signals={question=%v hypothetical=%v multi_step=%v negated=%v confirm=%v urgency=%s} | constraints=%v | suggested={mode=%s shard=%s support=%v tools=%v context=%v}",
@@ -196,7 +239,52 @@ func (t *LLMTransducer) Understand(ctx context.Context, input string, history []
 		time.Since(routeStart).Milliseconds(),
 		identifyBottleneck(time.Since(promptStart).Milliseconds()-llmDuration.Milliseconds(), llmDuration.Milliseconds(), time.Since(parseStart).Milliseconds()))
 
-	return understanding, nil
+	return understanding, outcome
+}
+
+// thinkingSystemWrapper is prepended to the classification prompt for a client
+// with thinking enabled: the model reasons first, and the JSON object is the
+// last thing it writes, which is the shape parseResponse reads.
+const thinkingSystemWrapper = `
+IMPORTANT: You are a model with "Thinking" capabilities enabled.
+1. You MUST first think about the user's request, analyzing the nuance, intent, and constraints.
+2. Your output MUST contain your thoughts followed by the valid JSON object.
+3. The JSON object must be the LAST thing you output.
+4. Do NOT output markdown code blocks for the JSON (e.g. no triple backticks). Just the raw JSON object at the end.
+
+`
+
+// methodPlan is the ordered list of model operations this client supports for
+// one classification. It is the single place capability decides the method, so
+// every public entry point (ParseIntent, the history-aware method, the GCD
+// adaptation) classifies the same way for the same client. A thinking client
+// that enforces schemas tries the schema operation first and the free-form one
+// only if the client reports it cannot enforce a schema or the schema answer
+// is not a classification; every other client has one operation.
+func (t *LLMTransducer) methodPlan() []ClassificationMethod {
+	if !t.thinking {
+		return []ClassificationMethod{MethodGeneric}
+	}
+	if sc, ok := t.client.(schemaCapableClient); ok && sc.SchemaCapable() {
+		return []ClassificationMethod{MethodSchema, MethodFreeForm}
+	}
+	return []ClassificationMethod{MethodFreeForm}
+}
+
+// send runs one model operation of the plan.
+func (t *LLMTransducer) send(ctx context.Context, method ClassificationMethod, userPrompt string) (string, error) {
+	switch method {
+	case MethodSchema:
+		sc, ok := t.client.(schemaCapableClient)
+		if !ok {
+			return "", core.ErrSchemaNotSupported
+		}
+		return sc.CompleteWithSchema(ctx, thinkingSystemWrapper+t.prompt, userPrompt, understandingSchema)
+	case MethodFreeForm:
+		return t.client.CompleteWithSystem(ctx, thinkingSystemWrapper+t.prompt, userPrompt)
+	default:
+		return t.client.CompleteWithSystem(ctx, t.prompt, userPrompt)
+	}
 }
 
 // identifyBottleneck returns a human-readable label for which phase is the slowest.
@@ -436,46 +524,6 @@ func classificationHistoryNotice(dropped, eligible, droppedChars, newestChars, b
 		fmt.Sprintf("prior turns (%d chars) left out of classification; the session still holds them", droppedChars), "")
 }
 
-// parseResponse extracts Understanding from LLM JSON response.
-func (t *LLMTransducer) parseResponse(response string) (*Understanding, error) {
-	// Try to extract JSON from response (may have markdown wrapper)
-	jsonStr := ExtractCleanJSON(response)
-	if jsonStr == "" {
-		return nil, fmt.Errorf("no JSON found in response")
-	}
-
-	// Try envelope first, then direct Understanding.
-	// Go's json.Unmarshal is lenient: it succeeds even when the JSON has no
-	// "understanding" key, leaving envelope.Understanding zero-valued. We must
-	// detect that case and fall through to the direct parse path. Detection is
-	// by key presence, not by PrimaryIntent content: an envelope whose model
-	// omitted the one-word summary is still an envelope, and falling through
-	// would re-parse it as a bare Understanding and zero every field.
-	var envelope UnderstandingEnvelope
-	var probe struct {
-		Understanding json.RawMessage `json:"understanding"`
-	}
-	if err := json.Unmarshal([]byte(jsonStr), &envelope); err == nil {
-		if perr := json.Unmarshal([]byte(jsonStr), &probe); perr == nil && isJSONObject(probe.Understanding) {
-			// Valid envelope with an understanding object
-			envelope.Understanding.SurfaceResponse = envelope.SurfaceResponse
-			if envelope.Brief != nil {
-				envelope.Understanding.Brief = envelope.Brief
-			}
-			normalizeLLMFields(&envelope.Understanding)
-			return &envelope.Understanding, nil
-		}
-	}
-
-	// Try parsing as just Understanding (no envelope wrapper)
-	var understanding Understanding
-	if err := json.Unmarshal([]byte(jsonStr), &understanding); err != nil {
-		return nil, fmt.Errorf("JSON parse failed: %w", err)
-	}
-	normalizeLLMFields(&understanding)
-	return &understanding, nil
-}
-
 // normalizeLLMFields normalizes LLM-generated field values to lowercase
 // so they match the Mangle routing vocabulary. LLMs may return mixed-case
 // values like "Code_Generation" when the vocabulary expects "code_generation".
@@ -492,12 +540,11 @@ func normalizeLLMFields(u *Understanding) {
 	if u.SuggestedApproach.Mode != "" {
 		u.SuggestedApproach.Mode = strings.ToLower(strings.TrimSpace(u.SuggestedApproach.Mode))
 	}
-	// Clamp confidence: the model sometimes returns percentages (85.0),
-	// negatives, or NaN. Downstream gates compare against 0..1 thresholds.
-	if math.IsNaN(u.Confidence) || u.Confidence < 0 {
-		u.Confidence = 0
-	} else if u.Confidence > 1 {
-		u.Confidence = 1
+	// A confidence written as a percentage (85) is converted, not clamped:
+	// clamping 85 to 1 would turn a modest reading into maximal certainty.
+	// admitUnderstanding has already refused values outside 0..100.
+	if u.Confidence > 1 {
+		u.Confidence /= 100
 	}
 }
 

@@ -273,6 +273,12 @@ func (m Model) processInput(input string) tea.Cmd {
 					warnings = append(warnings, fmt.Sprintf("[Kernel] failed to assert user_intent: %v", err))
 				}
 				_ = m.kernel.Assert(core.Fact{Predicate: "processed_intent", Args: []any{intentID}})
+				// The firewall publishes what happened when a model read this turn;
+				// the direct transducer path does it here, so both paths give the
+				// kernel the same outcome (policy/perception_outcome.mg).
+				if err := perception.PublishClassificationOutcome(m.kernel, intentID, intent.Outcome); err != nil {
+					warnings = append(warnings, fmt.Sprintf("[Kernel] failed to publish the classification outcome: %v", err))
+				}
 
 				// Glass Box: Emit kernel event
 				if m.glassBoxEventBus != nil && m.glassBoxEnabled {
@@ -319,6 +325,13 @@ func (m Model) processInput(input string) tea.Cmd {
 				Details:   "Kernel routing arbitration (route_decision/2, policy/routing_arbitration.mg)",
 				TurnID:    m.turnCount,
 			})
+		}
+
+		// A turn no model read ends with the kernel's notice for its cause, before
+		// any lane acts on the compatibility intent a failed classification
+		// leaves behind. Held work's go-ahead keeps its precedence in the policy.
+		if reply, stopped := m.classificationStop(intent, warnings); stopped {
+			return reply
 		}
 
 		// Work the work mode holds (route_decision(/hold)): state it and keep
@@ -494,10 +507,12 @@ func (m Model) processInput(input string) tea.Cmd {
 			// answers now and stays open; the result arrives as its own message.
 			if route.Background {
 				job := backgroundJob{
-					ID:      fmt.Sprintf("%s-bg-%d", shardType, time.Now().UnixNano()),
-					Shard:   shardType,
-					Task:    m.backgroundTask(intent),
-					Started: time.Now(),
+					ID:         fmt.Sprintf("%s-bg-%d", shardType, time.Now().UnixNano()),
+					Shard:      shardType,
+					Task:       m.backgroundTask(intent),
+					Target:     intent.Target,
+					Constraint: taskConstraint(intent.Constraint),
+					Started:    time.Now(),
 				}
 				if route.SelfDiagnosis {
 					diag, ok, reason := m.selfDiagnosisJob(ctx, shardType)
@@ -543,6 +558,8 @@ func (m Model) processInput(input string) tea.Cmd {
 				result, verdict, verifyErr := m.verifier.VerifyWithRetry(ctx, verification.Delegation{
 					Task:        task,
 					Persona:     shardType,
+					Target:      intent.Target,
+					Constraint:  taskConstraint(intent.Constraint),
 					MaxAttempts: m.shardMaxRetries(shardType),
 					Config:      m.Config.GetDelegationConfig(),
 					// The blackboard and priority the unverified path uses.
@@ -573,7 +590,7 @@ func (m Model) processInput(input string) tea.Cmd {
 							ShardResult: srPayload,
 						}
 					}
-					return errorMsg(fmt.Errorf("verified execution failed: %w", verifyErr))
+					return errorMsg(failedVerifiedDelegation("verified execution failed", verifyErr))
 				}
 				if verdict == nil || !verdict.Accepted {
 					response := formatUnverifiedDelegationResponse(intent, shardType, "the verifier returned no successful verdict", true)
@@ -603,7 +620,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				})
 			}
 
-			ret, spawnErr := m.spawnTaskWithContext(ctx, shardType, task, sessionCtx, types.PriorityHigh)
+			ret, spawnErr := m.spawnTaskWithContext(ctx, intentTaskRequest(shardType, task, intent), sessionCtx, types.PriorityHigh)
 			result := ret.Output
 
 			// Glass Box: Emit shard completion event
@@ -653,7 +670,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 
 			if spawnErr != nil {
-				return errorMsg(fmt.Errorf("shard delegation failed: %w", spawnErr))
+				return errorMsg(failedDelegation("shard delegation failed", spawnErr, ret))
 			}
 
 			// 1.6.1 AUTO-INTERPRETATION: For Reviewer/Tester shards, explain the findings

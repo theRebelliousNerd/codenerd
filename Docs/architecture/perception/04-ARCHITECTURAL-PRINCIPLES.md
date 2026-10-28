@@ -19,7 +19,7 @@ Intent classification expects `UnderstandingEnvelope` / `Understanding` JSON. Re
 
 ### P4 — Graceful degradation, honest signalling
 
-Optional subsystems (embeddings, semantic store) may fail open. LLM outages must not be labelled as user ambiguity (`TransientFailure` / `ErrLLMUnavailable`). Prefer degraded Intent + nil error where the call contract requires it.
+Optional subsystems (embeddings, semantic store) may fail open. LLM outages must not be labelled as user ambiguity (`Intent.Outcome` / `classification_outcome`). Prefer degraded Intent + nil error where the call contract requires it.
 
 ### P5 — Config is boss
 

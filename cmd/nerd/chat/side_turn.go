@@ -172,9 +172,20 @@ func (m Model) sideTurn(input string) tea.Cmd {
 		}
 		m.recordBrief(intent.Brief)
 		action := m.decideSideTurn(ctx, intent, judged)
-		return sideTurnMsg{Input: input, Reply: strings.TrimSpace(intent.Response), Action: action}
+		reply := strings.TrimSpace(intent.Response)
+		// A message no model read is answered with the kernel's notice for the
+		// cause, not the compatibility response (perception_outcome.mg).
+		if stop, _ := perception.ClassificationStopFor(m.kernel, sideTurnIntentID, intent); stop != nil {
+			reply = stop.Notice
+		}
+		return sideTurnMsg{Input: input, Reply: reply, Action: action}
 	}
 }
+
+// sideTurnIntentID names the side turn's classification outcome
+// (classification_outcome, policy/perception_outcome.mg). The running turn's
+// outcome is under /current_intent and is left alone.
+const sideTurnIntentID = "/side_turn"
 
 // sideTurnPredicates are the side turn's own facts, replaced each side turn.
 var sideTurnPredicates = []string{"side_turn_intent", "side_turn_judgment"}
@@ -190,6 +201,12 @@ func (m Model) decideSideTurn(ctx context.Context, intent perception.Intent, jud
 	log := logging.Get(logging.CategoryKernel)
 	for _, p := range sideTurnPredicates {
 		_ = m.kernel.Retract(p)
+	}
+	// What happened when a model read the message, under the side turn's own id
+	// so the running turn's row stands.
+	if err := perception.PublishClassificationOutcome(m.kernel, sideTurnIntentID, intent.Outcome); err != nil {
+		log.Error("side turn: publish classification outcome: %v", err)
+		return converse
 	}
 	facts := []core.Fact{{Predicate: "side_turn_intent", Args: []any{types.MangleAtom(intent.Category), types.MangleAtom(intent.Verb)}}}
 	if judged != nil {
@@ -224,7 +241,17 @@ func (m Model) decideSideTurn(ctx context.Context, intent perception.Intent, jud
 // applySideTurn shows the side turn's reply and acts on the kernel's verdict.
 func (m Model) applySideTurn(msg sideTurnMsg) Model {
 	if msg.Err != nil {
-		return m.pushAssistantMsg("I couldn't read that while the work runs (" + msg.Err.Error() + "); it is queued for when the work finishes.")
+		// A transducer that errors instead of degrading: say why without the
+		// provider's body, and keep the promise the message makes. The input
+		// is queued unless the read was canceled -- a shutdown is not a
+		// request to retry.
+		outcome := perception.FailedOutcome(msg.Err, "", 0)
+		note := "I couldn't read that while the work runs (" + outcome.SafeMessage() + ")."
+		if outcome.Disposition == perception.ClassificationCanceled {
+			return m.pushAssistantMsg(note)
+		}
+		m.turn.enqueue(msg.Input)
+		return m.pushAssistantMsg(note + " It is queued for when the work finishes.")
 	}
 	reply := msg.Reply
 	switch msg.Action {

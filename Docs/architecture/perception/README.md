@@ -53,8 +53,10 @@ production code.”
 4. The core kernel decides what may happen. The “do not edit” constraint is not
    merely trusted as prose; downstream permission policy must deny mutations.
 5. If the model has a durable transient failure, the adapter preserves its
-   nil-error compatibility contract but sets `TransientFailure`, allowing the
-   session firewall to explain the outage instead of treating it as ambiguity.
+   nil-error compatibility contract but carries a typed `Intent.Outcome`; the
+   firewall publishes it as `classification_outcome` and the kernel derives the
+   notice and disposition (retry, blocker, canceled) instead of treating the
+   failure as ambiguity.
 
 `VERIFIED CURRENT` — hostile fact arguments are exercised by
 `internal/perception/break_test.go#TestBreak_SanitizeFactArg_MangleInjection`;

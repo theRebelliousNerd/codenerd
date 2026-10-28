@@ -34,6 +34,7 @@ var EphemeralPredicates = map[string]bool{
 	"clarification_need":       true,
 	"user_input_string":        true,
 	"intent_unknown":           true,
+	"classification_outcome":   true,
 	"intent_unmapped":          true,
 	"no_action_reason":         true,
 	"learning_candidate":       true,

@@ -302,4 +302,4 @@ func TestE2E_Perception_Adversarial_InputTruncation(t *testing.T) {
 
 // TODO: State Conflicts
 // - Concurrent Perception: The `UnderstandingTransducer` holds state (e.g., `lastUnderstanding`). If two requests are processed concurrently using the same transducer instance (which shouldn't happen by design, but might in a bug), does `GetLastUnderstanding()` return the wrong state?
-// - Transient Failure State Conflict: The `TransientFailure` boolean on the `Intent` struct. What happens if the system is rapidly oscillating between available and unavailable? Does the fallback logic correctly handle a transient failure followed immediately by a malformed response?
+// - Transient Failure State Conflict: The typed `Outcome` on the `Intent` struct. What happens if the system is rapidly oscillating between available and unavailable? Does the fallback logic correctly handle a transient failure followed immediately by a malformed response?

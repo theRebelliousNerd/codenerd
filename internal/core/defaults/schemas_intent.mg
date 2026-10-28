@@ -84,7 +84,8 @@ Decl ambiguity_flag(MissingParam, ContextClue, Hypothesis) bound [/string, /stri
 # =============================================================================
 
 # intent_unknown(Input, Reason)
-# Reason: /llm_failed, /heuristic_low, /no_verb_match
+# Reason: /heuristic_low, /no_verb_match. A classification that failed is not an
+# unknown intent: it is a classification_outcome (policy/perception_outcome.mg).
 Decl intent_unknown(INPUT, REASON) bound [/string, /name].
 
 # intent_unmapped(Verb, Reason)

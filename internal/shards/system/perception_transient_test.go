@@ -29,59 +29,132 @@ func reasonAsserted(t *testing.T, kernel *core.RealKernel, reason string) bool {
 	return false
 }
 
-// TestPerception_TransientLLMFailure_EmitsLLMUnavailable proves Layer 2 end to
-// end at the firewall: when classification fails with the ErrLLMUnavailable
-// sentinel (the 503 case), the firewall must assert intent_unknown(_, /llm_unavailable)
-// rather than the misleading /heuristic_low (user-ambiguity) reason that the live
-// bug produced. The transducer swallows the error into a degraded /explain intent
-// with a nil error, so parseFailed is false and the TransientFailure flag is the
-// only carrier of the signal.
-func TestPerception_TransientLLMFailure_EmitsLLMUnavailable(t *testing.T) {
+// outcomeRow returns the classification_outcome row published for the turn, as
+// "disposition/stage/class", or "" when none is.
+func outcomeRow(t *testing.T, kernel *core.RealKernel) string {
+	t.Helper()
+	facts, err := kernel.Query("classification_outcome")
+	if err != nil {
+		t.Fatalf("Query(classification_outcome) error = %v", err)
+	}
+	if len(facts) == 0 {
+		return ""
+	}
+	if len(facts) != 1 || len(facts[0].Args) != 5 {
+		t.Fatalf("classification_outcome = %v, want one 5-ary row", facts)
+	}
+	a := facts[0].Args
+	return fmt.Sprintf("%v/%v/%v", a[1], strings.TrimPrefix(fmt.Sprint(a[2]), "/"), strings.TrimPrefix(fmt.Sprint(a[3]), "/"))
+}
+
+// stopFor returns the kernel's classification_stop action and notice.
+func stopFor(t *testing.T, kernel *core.RealKernel) (string, string) {
+	t.Helper()
+	facts, err := kernel.Query("classification_stop")
+	if err != nil {
+		t.Fatalf("Query(classification_stop) error = %v", err)
+	}
+	if len(facts) == 0 {
+		return "", ""
+	}
+	if len(facts) != 1 || len(facts[0].Args) != 3 {
+		t.Fatalf("classification_stop = %v, want one row", facts)
+	}
+	return fmt.Sprintf("%v", facts[0].Args[1]), fmt.Sprintf("%v", facts[0].Args[2])
+}
+
+func perceiveWith(t *testing.T, client stubLLMClient, input string) (*core.RealKernel, perception.Intent) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
 	}
-
-	// Mirror the production wrapping chain: retries wrap the sentinel; Understand
-	// re-wraps with "LLM classification failed: %w"; errors.Is must still hold.
-	transientErr := fmt.Errorf("max retries exceeded: %w", perception.ErrLLMUnavailable)
-
 	shard := NewPerceptionFirewallShard()
 	shard.SetParentKernel(kernel)
-	shard.SetLLMClient(stubLLMClient{err: transientErr})
-
-	intent, err := shard.Perceive(ctx, "what is the jit system?", nil)
+	shard.SetLLMClient(client)
+	intent, err := shard.Perceive(ctx, input, nil)
 	if err != nil {
 		t.Fatalf("Perceive error = %v", err)
 	}
-	// Degraded fallback verb.
+	return kernel, intent
+}
+
+// TestPerception_TransientLLMFailure_PublishesTheOutage proves the outage case
+// end to end at the firewall: when classification fails with the
+// ErrLLMUnavailable sentinel (the 503 case), the firewall publishes a
+// retryable provider_failed outcome and the kernel derives the honest notice,
+// never the /heuristic_low (user-ambiguity) reason the live bug produced. The
+// transducer swallows the error into a degraded /explain intent with a
+// nil error, so the typed Outcome is the only carrier of the cause.
+func TestPerception_TransientLLMFailure_PublishesTheOutage(t *testing.T) {
+	// Mirror the production wrapping chain: retries wrap the sentinel; the
+	// classifier keeps its class through every %w layer.
+	transientErr := fmt.Errorf("max retries exceeded: %w", perception.ErrLLMUnavailable)
+	kernel, intent := perceiveWith(t, stubLLMClient{err: transientErr}, "what is the jit system?")
+
 	if intent.Verb != "/explain" {
 		t.Fatalf("intent.Verb = %s, want /explain", intent.Verb)
 	}
-
-	if !reasonAsserted(t, kernel, "/llm_unavailable") {
-		t.Fatalf("intent_unknown(_, /llm_unavailable) not asserted on a transient model outage")
+	if got := outcomeRow(t, kernel); got != "/provider_failed/transport/transient" {
+		t.Fatalf("classification_outcome = %q, want /provider_failed/transport/transient", got)
+	}
+	action, notice := stopFor(t, kernel)
+	if action != "/retry" || !strings.Contains(notice, "couldn't reach the language model") {
+		t.Fatalf("classification_stop = %q %q, want /retry with the outage notice", action, notice)
 	}
 	// Distinguishability: it must NOT have been laundered into user-ambiguity.
 	if reasonAsserted(t, kernel, "/heuristic_low") {
 		t.Fatalf("transient outage wrongly reported as /heuristic_low (user ambiguity)")
 	}
-
-	// Close the loop: the honest clarification message must actually be DERIVED in
-	// the kernel from the /llm_unavailable reason. This is the text the live chat
-	// path surfaces (via shouldClarifyFromKernel querying clarification_question),
-	// so asserting it here proves deliverable (b) reaches the user and documents
-	// the canonical wording (clarification.mg is the single source of truth).
-	const wantSubstr = "couldn't reach the language model"
-	if !clarificationDerived(t, kernel, wantSubstr) {
-		t.Fatalf("clarification_question with %q not derived for /llm_unavailable", wantSubstr)
-	}
-	// And it must NOT blame the user's phrasing.
 	if clarificationDerived(t, kernel, "I'm not confident I understood") {
 		t.Fatalf("transient outage produced a user-ambiguity clarification message")
+	}
+	if facts, _ := kernel.Query("ambiguity_flag"); len(facts) != 0 {
+		t.Fatalf("a failed classification raised ambiguity_flag: %v", facts)
+	}
+}
+
+// TestPerception_NonTransientFailures_AreTypedAndDistinct pins each cause the
+// compatibility intent used to flatten to /heuristic_low: an authentication
+// failure and a rejected request are blockers, an unreadable answer is a
+// retry, and a canceled call is its own outcome with no semantic question.
+func TestPerception_NonTransientFailures_AreTypedAndDistinct(t *testing.T) {
+	cases := []struct {
+		name       string
+		client     stubLLMClient
+		wantRow    string
+		wantAction string
+		wantNotice string
+	}{
+		{"authentication", stubLLMClient{err: fmt.Errorf("API request failed with status 401: bad key")},
+			"/provider_failed/transport/auth", "/blocker", "rejected the configured credentials"},
+		{"rejected request", stubLLMClient{err: fmt.Errorf("API request failed with status 422: nope")},
+			"/provider_failed/transport/invalid_request", "/blocker", "rejected the request"},
+		{"rate limited", stubLLMClient{err: fmt.Errorf("rate limit exceeded (429)")},
+			"/provider_failed/transport/rate_limited", "/retry", "rate limiting"},
+		{"unreadable answer", stubLLMClient{response: "I could not decide."},
+			"/invalid_response/output/none", "/retry", "could not be understood"},
+		{"envelope with a mistyped field", stubLLMClient{response: `{"understanding":{"semantic_type":"location","action_type":["investigate"],"confidence":0.9}}`},
+			"/invalid_response/decode/none", "/retry", "could not be understood"},
+		{"canceled", stubLLMClient{err: context.Canceled},
+			"/canceled/transport/canceled", "/canceled", "canceled before it finished"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			kernel, _ := perceiveWith(t, tc.client, "investigate why the parser ignores this file")
+			if got := outcomeRow(t, kernel); got != tc.wantRow {
+				t.Fatalf("classification_outcome = %q, want %q", got, tc.wantRow)
+			}
+			action, notice := stopFor(t, kernel)
+			if action != tc.wantAction || !strings.Contains(notice, tc.wantNotice) {
+				t.Fatalf("classification_stop = %q %q, want %s containing %q", action, notice, tc.wantAction, tc.wantNotice)
+			}
+			if reasonAsserted(t, kernel, "/heuristic_low") {
+				t.Fatal("a failed classification was reported as user ambiguity")
+			}
+		})
 	}
 }
 
@@ -132,7 +205,10 @@ func TestPerception_LowConfidence_EmitsHeuristicLow(t *testing.T) {
 	if !reasonAsserted(t, kernel, "/heuristic_low") {
 		t.Fatalf("intent_unknown(_, /heuristic_low) not asserted on a low-confidence parse")
 	}
-	if reasonAsserted(t, kernel, "/llm_unavailable") {
-		t.Fatalf("low-confidence parse wrongly reported as /llm_unavailable")
+	if got := outcomeRow(t, kernel); got != "/admitted/none/none" {
+		t.Fatalf("classification_outcome = %q, want an admitted outcome for a read but uncertain request", got)
+	}
+	if action, _ := stopFor(t, kernel); action != "" {
+		t.Fatalf("an uncertain reading was stopped as a classification failure: %q", action)
 	}
 }

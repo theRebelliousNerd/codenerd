@@ -33,7 +33,7 @@
 
 **Question:** Should `ParseIntentWithContext` start returning errors for non-degradable failures, or keep nil-error forever for chat stability?
 
-**Current:** Explicit degraded Intent + nil error; TransientFailure as side channel.
+**Current:** Explicit degraded Intent + nil error; the typed cause rides on `Intent.Outcome` and the kernel derives the disposition (2026-10-28, `Docs/audits/perception-classification-outcomes-and-recovery.md`). The error return itself is unchanged: callers migrate to the outcome first.
 
 ## Q6 — Provider capability discovery
 

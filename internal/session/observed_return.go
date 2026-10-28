@@ -134,6 +134,14 @@ func observedReturn(agent, task string, res *ExecutionResult) observation.Return
 	if d := strings.TrimSpace(res.StaticDiagnostics); d != "" {
 		out.Notes = append(out.Notes, "static analysis reported: "+firstLine(d))
 	}
+	// The tool failures of a turn that ended in an error are part of why it
+	// did. A turn that recovered owes none of them to its parent: the closing
+	// evidence already answered them.
+	if res.Error != nil {
+		for _, failure := range res.ToolErrors {
+			out.Notes = append(out.Notes, "tool call failed: "+failure)
+		}
+	}
 	return out
 }
 

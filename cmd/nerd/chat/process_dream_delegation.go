@@ -259,7 +259,7 @@ func (m Model) executeDelegateTaskFallback(ctx context.Context, input string, in
 		}
 
 		sessionCtx := m.buildSessionContext(ctx)
-		ret, spawnErr := m.spawnTaskWithContext(ctx, shardType, task, sessionCtx, types.PriorityHigh)
+		ret, spawnErr := m.spawnTaskWithContext(ctx, shardTypeToTaskRequest(shardType, task), sessionCtx, types.PriorityHigh)
 		result := ret.Output
 		payload := m.buildShardResultPayload(shardType, task, result, spawnErr)
 		if payload != nil && m.kernel != nil && len(payload.Facts) > 0 {
@@ -267,7 +267,7 @@ func (m Model) executeDelegateTaskFallback(ctx context.Context, input string, in
 		}
 
 		if spawnErr != nil {
-			return errorMsg(fmt.Errorf("shard delegation failed: %w", spawnErr))
+			return errorMsg(failedDelegation("shard delegation failed", spawnErr, ret))
 		}
 
 		surface := m.formatDelegationOutput(ctx, input, shardType, task, result)

@@ -48,8 +48,11 @@ type MultiStepPattern struct {
 	Priority   int              // Higher = matched first
 	Decomposer string           // Which decomposition strategy to use
 	Examples   []string         // Example user inputs
-	VerbPairs  [][2]string      // Common verb combinations [verb1, verb2]
+	VerbPairs  []verbPair       // Common verb combinations [verb1, verb2]
 }
+
+// verbPair is two verbs a verb_pair_chain decomposes into, one step each.
+type verbPair = [2]string
 
 // =============================================================================
 // PATTERN CATEGORIES
@@ -188,7 +191,7 @@ var MultiStepCorpus = []MultiStepPattern{
 		Keywords: []string{"review and fix", "check and fix", "find and fix", "audit and fix"},
 		Relation: RelationSequential,
 		Priority: 92,
-		VerbPairs: [][2]string{
+		VerbPairs: []verbPair{
 			{"/review", "/fix"},
 			{"/analyze", "/fix"},
 			{"/security", "/fix"},
@@ -210,7 +213,7 @@ var MultiStepCorpus = []MultiStepPattern{
 		Keywords: []string{"create and test", "implement and test", "add and test", "build and test"},
 		Relation: RelationSequential,
 		Priority: 90,
-		VerbPairs: [][2]string{
+		VerbPairs: []verbPair{
 			{"/create", "/test"},
 			{"/fix", "/test"},
 			{"/refactor", "/test"},
@@ -232,7 +235,7 @@ var MultiStepCorpus = []MultiStepPattern{
 		Keywords: []string{"fix and verify", "change and test", "update and check", "fix and run tests"},
 		Relation: RelationSequential,
 		Priority: 88,
-		VerbPairs: [][2]string{
+		VerbPairs: []verbPair{
 			{"/fix", "/test"},
 			{"/refactor", "/test"},
 			{"/create", "/test"},
@@ -254,7 +257,7 @@ var MultiStepCorpus = []MultiStepPattern{
 		Keywords: []string{"research and implement", "figure out and", "learn how to and", "understand and then"},
 		Relation: RelationSequential,
 		Priority: 85,
-		VerbPairs: [][2]string{
+		VerbPairs: []verbPair{
 			{"/research", "/create"},
 			{"/research", "/fix"},
 			{"/explore", "/create"},
@@ -276,7 +279,7 @@ var MultiStepCorpus = []MultiStepPattern{
 		Keywords: []string{"analyze and optimize", "profile and improve", "find bottlenecks and fix"},
 		Relation: RelationSequential,
 		Priority: 85,
-		VerbPairs: [][2]string{
+		VerbPairs: []verbPair{
 			{"/analyze", "/refactor"},
 			{"/analyze", "/fix"},
 		},
@@ -297,7 +300,7 @@ var MultiStepCorpus = []MultiStepPattern{
 		Keywords: []string{"security scan and fix", "audit and fix", "find vulnerabilities and fix"},
 		Relation: RelationSequential,
 		Priority: 93,
-		VerbPairs: [][2]string{
+		VerbPairs: []verbPair{
 			{"/security", "/fix"},
 		},
 		Decomposer: "verb_pair_chain",
@@ -317,7 +320,7 @@ var MultiStepCorpus = []MultiStepPattern{
 		Keywords: []string{"and update docs", "and document", "and add comments"},
 		Relation: RelationSequential,
 		Priority: 80,
-		VerbPairs: [][2]string{
+		VerbPairs: []verbPair{
 			{"/refactor", "/document"},
 			{"/create", "/document"},
 			{"/fix", "/document"},
@@ -344,7 +347,7 @@ var MultiStepCorpus = []MultiStepPattern{
 		Keywords: []string{"write tests first", "tdd", "test-driven", "tests then implement"},
 		Relation: RelationSequential,
 		Priority: 88,
-		VerbPairs: [][2]string{
+		VerbPairs: []verbPair{
 			{"/test", "/create"},
 		},
 		Decomposer: "verb_pair_chain",
@@ -624,7 +627,7 @@ var MultiStepCorpus = []MultiStepPattern{
 		Keywords: []string{"commit and push", "add and commit", "stage and commit and push"},
 		Relation: RelationSequential,
 		Priority: 85,
-		VerbPairs: [][2]string{
+		VerbPairs: []verbPair{
 			{"/git", "/git"},
 		},
 		Decomposer: "git_workflow",

@@ -17,7 +17,7 @@
 | `FocusResolution.ToFact` | `transducer.go` | `focus_resolution` fact |
 | `NewUnderstandingTransducer` | `understanding_adapter.go` | Canonical constructor |
 | `UnderstandingTransducer` | `understanding_adapter.go` | Implementation |
-| `GeminiThinkingTransducer` | `transducer_gemini.go` | Thinking specialization |
+| `ClassificationOutcome` | `classification_outcome.go` | Typed result of one classification (`Intent.Outcome`) |
 | `LLMTransducer` | `transducer_llm.go` | Understand + route |
 | `NewLLMTransducer` | `transducer_llm.go` | Constructor |
 | `ExtractCleanJSON` | `transducer_llm.go` | JSON extraction utility |
@@ -121,7 +121,7 @@ Exact exported names: see `xaioauth/client.go`, `store.go`, `auth_device.go`, `p
 
 ## Important behavioral contracts
 
-1. **`ParseIntentWithContext` error contract:** often returns `(degradedIntent, nil)` on LLM failure. Check `TransientFailure` and `Response`.  
+1. **`ParseIntentWithContext` error contract:** often returns `(degradedIntent, nil)` on LLM failure. Check `Intent.Outcome` (disposition, stage, provider failure class, method) and `Response`; the kernel derives the disposition (`policy/perception_outcome.mg`).  
 2. **Classification client nil:** not an error — use main client.  
 3. **Semantic Classify empty:** not fatal.  
 4. **`LLMClient` minimal surface:** tools/streaming require concrete type or richer interface.

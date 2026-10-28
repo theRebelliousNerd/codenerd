@@ -44,16 +44,10 @@ clarification_question(/current_intent, Question) :-
     Question = "I don't recognize that action. What would you like me to do?",
     !yolo_mode().
 
-# /llm_unavailable: the model was transiently unreachable (a 503/5xx that
-# survived retries). This is an infrastructure hiccup, NOT user ambiguity, so
-# the message must not imply the user was unclear.
-clarification_question(/current_intent, "I couldn't reach the language model just now - it may be briefly overloaded. Please try again in a moment.") :-
-    intent_unknown(_, /llm_unavailable).
-
-# /llm_failed: the model call failed for a non-transient reason. Still not the
-# user's fault, so avoid blaming their phrasing; invite a retry.
-clarification_question(/current_intent, "Something went wrong on my end while processing that. Please try again.") :-
-    intent_unknown(_, /llm_failed).
+# A model that could not be reached, rejected the request, or answered
+# unreadably is not user ambiguity and is not an intent_unknown reason: the
+# classification outcome (perception_outcome.mg) carries the cause and its
+# notice. intent_unknown stays for a request that WAS read and is unclear.
 
 clarification_question(/current_intent, "I'm not confident I understood correctly. Could you clarify?") :-
     intent_unknown(_, /heuristic_low),

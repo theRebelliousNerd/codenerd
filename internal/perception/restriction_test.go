@@ -132,11 +132,10 @@ func TestUnderstandingToIntent_CarriesTheRestriction(t *testing.T) {
 // The Gemini transducer converts through the same function; it must not be a
 // second path that drops the limit.
 func TestGeminiTransducer_CarriesTheRestriction(t *testing.T) {
-	base := NewUnderstandingTransducer(nil).(*UnderstandingTransducer)
-	g := NewGeminiThinkingTransducer(base)
+	g := NewUnderstandingTransducer(&textGeminiClient{response: geminiSchemaEnvelope}).(*UnderstandingTransducer)
 	ctx := context.Background()
 	g.initialize(ctx)
-	intent := g.finishUnderstanding(ctx, hypotheticalModify())
+	intent := g.understandingToIntent(hypotheticalModify())
 	if !intent.Restriction.Has(RestrictHypothetical) || !intent.Restriction.Has(RestrictConfirmFirst) {
 		t.Fatalf("Gemini path dropped the limit: %v", intent.Restriction.Kinds())
 	}

@@ -356,6 +356,13 @@ type SpawnRequest struct {
 	// without inferring it from the task text.
 	IntentTarget string
 
+	// IntentConstraint is the routing layer's requirement for the task (a
+	// must / must-not rule), carried structurally beside the task text so the
+	// preset intent the subagent runs under holds it as the inline topology's
+	// does: retrieval and prompt assembly read intent.Constraint, and text
+	// alone leaves them blind to it.
+	IntentConstraint string
+
 	// Timeout is a caller's own limit on the subagent's execution. Zero means
 	// none: the subagent runs under the caller's context and stops when the
 	// working policy derives a stall.
@@ -414,6 +421,7 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 		EffectiveAgentRuntimeConfig: EffectiveAgentRuntimeConfig,
 		IntentVerb:                  req.IntentVerb,
 		IntentTarget:                req.IntentTarget,
+		IntentConstraint:            req.IntentConstraint,
 		Timeout:                     req.Timeout,
 		SessionContext:              req.SessionContext,
 	}

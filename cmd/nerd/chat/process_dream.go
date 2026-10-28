@@ -270,7 +270,7 @@ Format your response as a structured analysis.`
 			DreamMode: true,
 		}
 		// Dream mode = low priority (background speculation)
-		ret, err := m.spawnTaskWithContext(consultCtx, name, prompt, dreamCtx, types.PriorityLow)
+		ret, err := m.spawnTaskWithContext(consultCtx, shardTypeToTaskRequest(name, prompt), dreamCtx, types.PriorityLow)
 		result := ret.Output
 
 		consultation := DreamConsultation{
@@ -719,7 +719,9 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 				i+1, strings.TrimPrefix(step.Verb, "/"), step.Target, step.ShardType))
 
 			if step.ShardType != "" {
-				ret, err := m.spawnTaskWithContext(ctx, step.ShardType, step.Task, nil, types.PriorityNormal)
+				req := shardTypeToTaskRequest(step.ShardType, step.Task)
+				req.Target = step.Target
+				ret, err := m.spawnTaskWithContext(ctx, req, nil, types.PriorityNormal)
 				result := ret.Output
 
 				// CRITICAL FIX: Inject multi-step shard results as facts
@@ -730,7 +732,7 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 				}
 
 				if err != nil {
-					results = append(results, fmt.Sprintf("**Status**: Failed\n**Error**: %v\n", err))
+					results = append(results, fmt.Sprintf("**Status**: Failed\n**Error**: %v\n", withPartialState(err, ret)))
 					// Don't continue to dependent steps if this fails
 					continue
 				}
