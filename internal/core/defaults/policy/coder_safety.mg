@@ -559,13 +559,67 @@ turn_test_after(Turn, S, C) :-
 turn_test_after_seq(Turn, S) :- turn_test_after(Turn, S, _).
 turn_last_test_run(Turn, M) :-
     turn_test_after_seq(Turn, S) |> do fn:group_by(Turn), let M = fn:max(S).
-turn_gate(Turn, /test_run, /passing) :-
+# The test process the model (or a tool) started after the last write, last
+# one deciding. It is the whole /test_run gate for a workspace that declares
+# no applicable test check, and one input among others for one that does.
+Decl turn_selected_run(Turn, Verdict) bound [/name, /name].
+turn_selected_run(Turn, /passing) :-
     turn_last_test_run(Turn, M),
     turn_test_after(Turn, M, 0).
-turn_gate(Turn, /test_run, /failing) :-
+turn_selected_run(Turn, /failing) :-
     turn_last_test_run(Turn, M),
     turn_test_after(Turn, M, C),
     C != 0 .
+
+# The workspace's test plan (session/workspace_test_plan.go). The host plans
+# the checks the workspace declares for what this turn wrote -- one obligation
+# per gate and node, plus one per written language no declared check covers --
+# runs them, and records each outcome on the turn's clock. Discovery that
+# cannot run a check still plans it, so availability never shrinks what is
+# owed. Outcome is /passed, /failed, /unavailable (the program is missing or
+# will not start), /indeterminate (stopped before a verdict), /no_tests (it ran
+# and collected nothing) or /uncovered (no declared check exists for the
+# language). The latest outcome after the last write is the obligation's state;
+# a write puts every earlier outcome behind it.
+Decl turn_test_obligation(Turn, Ob) bound [/name, /string].
+Decl turn_test_obligation_run(Turn, Ob, Seq, Outcome) bound [/name, /string, /number, /name].
+Decl turn_ob_after(Turn, Ob, Seq, Outcome) bound [/name, /string, /number, /name].
+Decl turn_ob_after_seq(Turn, Ob, Seq) bound [/name, /string, /number].
+Decl turn_ob_last(Turn, Ob, Seq) bound [/name, /string, /number].
+Decl turn_ob_state(Turn, Ob, Outcome) bound [/name, /string, /name].
+Decl turn_has_test_plan(Turn) bound [/name].
+Decl turn_test_ob_met(Turn, Ob) bound [/name, /string].
+Decl turn_test_ob_unmet(Turn, Ob) bound [/name, /string].
+Decl turn_has_test_ob_unmet(Turn) bound [/name].
+Decl turn_test_plan_red(Turn) bound [/name].
+
+turn_has_test_plan(Turn) :- turn_test_obligation(Turn, _).
+turn_ob_after(Turn, Ob, S, O) :-
+    turn_test_obligation_run(Turn, Ob, S, O),
+    turn_last_write(Turn, W),
+    S > W.
+turn_ob_after_seq(Turn, Ob, S) :- turn_ob_after(Turn, Ob, S, _).
+turn_ob_last(Turn, Ob, M) :-
+    turn_ob_after_seq(Turn, Ob, S) |> do fn:group_by(Turn, Ob), let M = fn:max(S).
+turn_ob_state(Turn, Ob, O) :- turn_ob_last(Turn, Ob, M), turn_ob_after(Turn, Ob, M, O).
+
+# Only a check that executed tests and passed meets its obligation. A check
+# that collected none, and a language no declared check covers, leave the
+# obligation to a passing test process the turn started after its last write:
+# the only evidence there is, and nothing else clears them. A failed,
+# unavailable or stopped check is cleared only by its own later outcome.
+turn_test_ob_met(Turn, Ob) :- turn_ob_state(Turn, Ob, /passed).
+turn_test_ob_met(Turn, Ob) :- turn_ob_state(Turn, Ob, /no_tests), turn_selected_run(Turn, /passing).
+turn_test_ob_met(Turn, Ob) :- turn_ob_state(Turn, Ob, /uncovered), turn_selected_run(Turn, /passing).
+turn_test_ob_unmet(Turn, Ob) :- turn_test_obligation(Turn, Ob), !turn_test_ob_met(Turn, Ob).
+turn_has_test_ob_unmet(Turn) :- turn_test_ob_unmet(Turn, _).
+turn_test_plan_red(Turn) :- turn_test_obligation(Turn, Ob), turn_ob_state(Turn, Ob, /failed).
+turn_test_plan_red(Turn) :- turn_has_test_plan(Turn), turn_selected_run(Turn, /failing).
+
+turn_gate(Turn, /test_run, /passing) :- turn_selected_run(Turn, /passing), !turn_has_test_plan(Turn).
+turn_gate(Turn, /test_run, /failing) :- turn_selected_run(Turn, /failing), !turn_has_test_plan(Turn).
+turn_gate(Turn, /test_run, /passing) :- turn_has_test_plan(Turn), !turn_has_test_ob_unmet(Turn), !turn_test_plan_red(Turn).
+turn_gate(Turn, /test_run, /failing) :- turn_test_plan_red(Turn).
 editing_persona(/coder).
 editing_persona(/tester).
 # Owed exactly when this turn's catalog offered run_check and the turn wrote:
@@ -712,6 +766,13 @@ turn_missing_evidence(Turn, /tests_not_green) :- turn_unverified(Turn), turn_unm
 turn_missing_evidence(Turn, /tests_not_green) :- turn_unverified(Turn), turn_red_gate(Turn, /test).
 turn_missing_evidence(Turn, /test_run_not_green) :- turn_unverified(Turn), turn_unmet_gate(Turn, /test_run).
 turn_missing_evidence(Turn, /test_run_not_green) :- turn_unverified(Turn), turn_red_gate(Turn, /test_run).
+# Why the plan is unmet, when it is not a red suite: a declared check that
+# could not run, or that ran and collected no test, is named as that and not as
+# a failure.
+turn_missing_evidence(Turn, /test_run_unavailable) :- turn_unverified(Turn), turn_test_ob_unmet(Turn, Ob), turn_ob_state(Turn, Ob, /unavailable).
+turn_missing_evidence(Turn, /test_run_unavailable) :- turn_unverified(Turn), turn_test_ob_unmet(Turn, Ob), turn_ob_state(Turn, Ob, /indeterminate).
+turn_missing_evidence(Turn, /test_run_no_tests) :- turn_unverified(Turn), turn_test_ob_unmet(Turn, Ob), turn_ob_state(Turn, Ob, /no_tests).
+turn_missing_evidence(Turn, /test_run_no_tests) :- turn_unverified(Turn), turn_test_ob_unmet(Turn, Ob), turn_ob_state(Turn, Ob, /uncovered).
 turn_missing_evidence(Turn, /check_not_green) :- turn_unverified(Turn), turn_unmet_gate(Turn, /check).
 turn_missing_evidence(Turn, /check_not_green) :- turn_unverified(Turn), turn_red_gate(Turn, /check).
 turn_missing_evidence(Turn, /tests_not_written) :- turn_unverified(Turn), turn_has_untested(Turn).

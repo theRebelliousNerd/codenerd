@@ -58,3 +58,42 @@ func TestCodeFamilies_PolicyDerivesAndSettlesReviews(t *testing.T) {
 		t.Fatalf("a recorded no-change decision did not settle the review: %v", rows)
 	}
 }
+
+// A declared member that resolves to nothing is named to the model as a broken
+// contract, but only in a turn that changed a member of that family.
+func TestCodeFamilies_UnresolvedMemberIsNamedWhenTheFamilyIsTouched(t *testing.T) {
+	k, err := NewRealKernel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn := types.MangleAtom("/turn_family_unresolved")
+	ms := func(v string) types.MangleString { return types.MangleString(v) }
+	base := []Fact{
+		{Predicate: "code_family", Args: []any{ms("retry")}},
+		{Predicate: "code_family_member", Args: []any{ms("retry"), ms("fn:a.Retry")}},
+		{Predicate: "code_family_member", Args: []any{ms("retry"), ms("fn:b.Gone")}},
+		{Predicate: "code_family_requirement", Args: []any{ms("retry"), ms("honor cancellation")}},
+		{Predicate: "code_family_member_unresolved", Args: []any{ms("retry"), ms("fn:b.Gone"), ms("names no Go function or method in the workspace")}},
+	}
+	if err := k.LoadFacts(base); err != nil {
+		t.Fatal(err)
+	}
+	named := func() bool {
+		ctx, _ := k.Query("injectable_context")
+		for _, f := range ctx {
+			if s := types.ExtractString(f.Args[1]); strings.Contains(s, "fn:b.Gone") && strings.Contains(s, "needs repair") {
+				return true
+			}
+		}
+		return false
+	}
+	if named() {
+		t.Fatal("a broken contract was announced in a turn that touched no member of the family")
+	}
+	if err := k.Assert(Fact{Predicate: "turn_changed_element", Args: []any{turn, ms("fn:a.Retry")}}); err != nil {
+		t.Fatal(err)
+	}
+	if !named() {
+		t.Fatal("changing a member must name the unresolved peer as a contract to repair")
+	}
+}

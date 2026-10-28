@@ -36,7 +36,8 @@ type Document struct {
 // Family is one reviewed contract.
 type Family struct {
 	ID string `json:"family_id"`
-	// Members are CodeDOM element refs (fn:pkg.Name, method:pkg.Type.Name).
+	// Members are code_element refs: fn:<pkg>.<Name> for a Go function and
+	// fn:<pkg>.<Type>.<Name> for a method, spelled from the package clause.
 	Members []string `json:"members"`
 	// SharedRequirements are what every member must keep satisfying; each is
 	// one review obligation per peer when a member changes.
@@ -139,4 +140,52 @@ func Facts(families []Family) []types.Fact {
 }
 
 // Predicates are the base predicates Facts produces, for retract-and-replace.
-var Predicates = []string{"code_family", "code_family_member", "code_family_requirement"}
+var Predicates = []string{"code_family", "code_family_member", "code_family_requirement", "code_family_member_unresolved"}
+
+// Unresolved is a declared member that does not name exactly one element.
+type Unresolved struct {
+	Family string
+	Ref    string
+	Why    string
+}
+
+// Resolve checks every fn: member against refs, the workspace's Go function
+// refs and the files declaring each (world.StructureIndex.ElementRefs). A
+// member that names nothing, or names functions in several files, is
+// returned rather than left to derive no obligation: a peer that cannot be
+// found is a broken contract, not a peer that needs no review. Members of
+// other kinds are not Go functions and are not checked here.
+func Resolve(families []Family, refs map[string][]string) []Unresolved {
+	var out []Unresolved
+	for _, f := range families {
+		for _, m := range f.Members {
+			m = strings.TrimSpace(m)
+			if !strings.HasPrefix(m, "fn:") {
+				continue
+			}
+			switch files := refs[m]; {
+			case len(files) == 0:
+				out = append(out, Unresolved{Family: strings.TrimSpace(f.ID), Ref: m, Why: "names no Go function or method in the workspace"})
+			case len(files) > 1:
+				out = append(out, Unresolved{Family: strings.TrimSpace(f.ID), Ref: m, Why: fmt.Sprintf("is ambiguous: %d files declare it", len(files))})
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Family != out[j].Family {
+			return out[i].Family < out[j].Family
+		}
+		return out[i].Ref < out[j].Ref
+	})
+	return out
+}
+
+// UnresolvedFacts projects Resolve's result as code_family_member_unresolved
+// rows (policy/code_families.mg).
+func UnresolvedFacts(unresolved []Unresolved) []types.Fact {
+	out := make([]types.Fact, 0, len(unresolved))
+	for _, u := range unresolved {
+		out = append(out, types.Fact{Predicate: "code_family_member_unresolved", Args: []any{types.MangleString(u.Family), types.MangleString(u.Ref), types.MangleString(u.Why)}})
+	}
+	return out
+}

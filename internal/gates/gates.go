@@ -76,6 +76,12 @@ type Gate struct {
 	// OKExitCodes are the exit codes that mean pass. Empty means only 0.
 	// pytest exits 5 when it collected no tests, which is not a failure.
 	OKExitCodes []int
+	// NoTestsExitCodes are the passing exits that mean the command ran and
+	// found nothing to execute (pytest's 5). The gate did not fail, but it
+	// measured no test either, so its pass is not coverage of what it was
+	// pointed at. Set only where the detector knows the runner's meaning of
+	// the exit; a project's own ok_exit_codes are a declared pass and stay one.
+	NoTestsExitCodes []int
 	// Env are extra variables the command needs (nerd.md commands.env).
 	Env map[string]string
 }
@@ -86,6 +92,19 @@ func (g Gate) Passed(exitCode int) bool {
 		return exitCode == 0
 	}
 	for _, c := range g.OKExitCodes {
+		if c == exitCode {
+			return true
+		}
+	}
+	return false
+}
+
+// NoTests reports whether exitCode is a pass that executed no test.
+func (g Gate) NoTests(exitCode int) bool {
+	if !g.Passed(exitCode) {
+		return false
+	}
+	for _, c := range g.NoTestsExitCodes {
 		if c == exitCode {
 			return true
 		}

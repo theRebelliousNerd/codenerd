@@ -9,7 +9,7 @@ import (
 
 	"codenerd/internal/gates"
 	"codenerd/internal/logging"
-	"codenerd/internal/tools"
+	"codenerd/internal/types"
 )
 
 // Languages by the extension of a written file, as internal/gates names them.
@@ -22,19 +22,24 @@ var writtenLanguage = map[string]string{
 	".mjs": "js/ts", ".cjs": "js/ts", ".mts": "js/ts", ".cts": "js/ts",
 }
 
-// workspaceTestRun runs the workspace's own test gates over what this turn
+// workspaceTestRun plans the workspace's own test checks over what this turn
 // wrote -- nerd.md's, else what pyproject.toml, package.json or Cargo.toml
-// offer (internal/gates) -- and records the run as the turn's test run, the
-// /test_run gate's evidence. It reports whether the workspace had a runnable
-// test gate for the written files.
+// offer (internal/gates) -- runs them, and records every outcome as the turn's
+// test plan, which the /test_run gate is derived from. It reports whether the
+// workspace declared a test check for the written files.
 //
 // Until this, a write the Go gates do not check was settled by whatever test
 // process the model chose to start after it: any passing test counted,
 // including one that never loaded the file. When the workspace says how it
-// tests the file's language, the executor runs that, over the directories
-// the turn wrote. Go writes keep their own gates; a workspace with no test gate
-// for the language, or whose toolchain is missing, leaves the run to the model
-// as before -- and no run leaves the turn unverified, never passed.
+// tests the file's language, the executor owes that, over the directories the
+// turn wrote. Go writes keep their own gates; a workspace with no test gate
+// for the language leaves the run to the model as before -- and no run leaves
+// the turn unverified, never passed.
+//
+// A check that cannot run is still owed and is recorded as unavailable; one
+// that fails stays failed whatever a later check does; one that collects no
+// test is recorded as that (workspace_test_plan.go). Nothing here ends the
+// round early: every outcome reaches the kernel, and the policy decides.
 func (e *Executor) workspaceTestRun(ctx context.Context, result *ExecutionResult) (bool, string) {
 	ws := e.workspaceForVerification()
 	if ws == "" || result == nil {
@@ -49,14 +54,22 @@ func (e *Executor) workspaceTestRun(ctx context.Context, result *ExecutionResult
 		logging.Get(logging.CategorySession).Warn("workspace test gates unavailable: %v", err)
 		return false, ""
 	}
-	var run []gates.Gate
-	for _, g := range set.Gates {
-		if g.Kind == gates.Test && g.Language != "go" && (g.Language == "" || langs[g.Language]) {
-			run = append(run, g)
-		}
-	}
-	if len(run) == 0 {
+	plan := buildTestPlan(set, langs, dirs)
+	if len(plan.checks) == 0 {
 		return false, ""
+	}
+	return true, e.runTestPlan(ctx, ws, result, plan)
+}
+
+// runTestPlan publishes the plan's obligations, measures each and records its
+// outcome. A canceled context leaves the rest indeterminate, never skipped.
+func (e *Executor) runTestPlan(ctx context.Context, ws string, result *ExecutionResult, plan testPlan) string {
+	turn := result.turnAtom()
+	for _, c := range plan.checks {
+		if e.kernel == nil {
+			break
+		}
+		e.assertTurnFact(types.Fact{Predicate: "turn_test_obligation", Args: []any{turn, types.MangleString(c.ID)}})
 	}
 
 	// No wall clock unless a budget is set (verify_outcome.go): zero is
@@ -67,42 +80,76 @@ func (e *Executor) workspaceTestRun(ctx context.Context, result *ExecutionResult
 		defer cancel()
 	}
 	var outputs []string
-	verdict := tools.TestRun{ExitCode: 0}
-	for _, g := range run {
-		nodes := []string{""}
-		if g.Scope == gates.ScopeNode {
-			nodes = dirs
-		}
-		for _, node := range nodes {
-			res := gates.Run(ctx, ws, g, node)
-			outputs = append(outputs, "$ "+strings.Join(res.Argv, " ")+"\n"+res.Output)
-			switch {
-			case res.Unverified():
-				// A gate that produced no verdict decides nothing; the turn is
-				// left to the model's own run, as with no gate at all.
-				logging.Get(logging.CategorySession).Warn("workspace test gate %s gave no verdict: %v", g.ID, res.Err)
-				return false, ""
-			case !res.Passed && verdict.ExitCode == 0:
-				verdict = tools.TestRun{Argv: res.Argv, ExitCode: failingExit(res.ExitCode)}
-			case verdict.ExitCode == 0:
-				verdict.Argv = res.Argv
-			}
-		}
+	for _, c := range plan.checks {
+		run := e.runPlannedCheck(ctx, ws, result, c)
+		outputs = append(outputs, "$ "+strings.Join(run.Argv, " ")+"\n"+run.text())
+		e.noteObligation(result, run)
 	}
-	result.TestRunSinceLastWrite = &verdict
-	// The pointer is the shortfall text. The /test_run rule reads the seq.
-	e.noteTestRun(result, verdict.ExitCode)
-	return true, strings.Join(outputs, "\n")
+	return strings.Join(outputs, "\n")
 }
 
-// failingExit is a failed gate's exit code as a test run's: a gate may treat
-// a non-zero exit as a pass (pytest's 5, no tests collected), so a failure is
-// whatever the gate said failed, and never 0.
-func failingExit(code int) int {
-	if code == 0 {
-		return -1
+// plannedRun is one planned check's measured outcome and the output behind it.
+type plannedRun struct {
+	obligationRun
+	output string
+}
+
+func (r plannedRun) text() string {
+	switch {
+	case r.output != "":
+		return r.output
+	case r.Reused:
+		return "(satisfied by the identical test process this turn already ran)"
+	case r.Reason != "":
+		return "(not run: " + r.Reason + ")"
 	}
-	return code
+	return ""
+}
+
+// runPlannedCheck measures one obligation: an uncovered language is recorded
+// as such, a check that cannot run as unavailable, an identical process the
+// turn already ran is reused, and anything else is executed.
+func (e *Executor) runPlannedCheck(ctx context.Context, ws string, result *ExecutionResult, c plannedCheck) plannedRun {
+	out := plannedRun{obligationRun: obligationRun{ID: c.ID, Argv: c.Argv}}
+	switch {
+	case c.Language != "":
+		out.Outcome = outcomeUncovered
+	case c.Unavailable != "":
+		out.Outcome, out.Reason = outcomeUnavailable, c.Unavailable
+	case ctx.Err() != nil:
+		out.Outcome, out.Reason = outcomeIndeterminate, "stopped: "+ctx.Err().Error()
+	default:
+		if r, ok := matchingReceipt(result, c.Argv); ok {
+			out.Outcome, out.Exit, out.Reused = classifyExit(c.Gate, r.Run.ExitCode), r.Run.ExitCode, true
+			return out
+		}
+		res := gates.Run(ctx, ws, c.Gate, c.Node)
+		out.Argv, out.Exit, out.output = res.Argv, res.ExitCode, res.Output
+		out.Outcome, out.Reason = classifyRun(ctx, c.Gate, res)
+		if res.Unverified() {
+			logging.Get(logging.CategorySession).Warn("workspace test gate %s gave no verdict: %v", c.Gate.ID, res.Err)
+		}
+	}
+	return out
+}
+
+// noteObligation records an obligation's outcome on the turn's clock and in
+// the host's plan record.
+func (e *Executor) noteObligation(result *ExecutionResult, run plannedRun) {
+	result.gateSeq++
+	if e.kernel != nil {
+		e.assertTurnFact(types.Fact{
+			Predicate: "turn_test_obligation_run",
+			Args:      []any{result.turnAtom(), types.MangleString(run.ID), int64(result.gateSeq), types.MangleAtom(string(run.Outcome))},
+		})
+	}
+	for i := range result.testPlan {
+		if result.testPlan[i].ID == run.ID {
+			result.testPlan[i] = run.obligationRun
+			return
+		}
+	}
+	result.testPlan = append(result.testPlan, run.obligationRun)
 }
 
 // writtenNonGo returns the languages and the workspace-relative directories of

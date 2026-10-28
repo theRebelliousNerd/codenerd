@@ -162,3 +162,9 @@ The CodeNERD-specific refinement is to connect clone intent, canonical element r
   - multi-batch staging.
 
   Completion is closed over the declared family only.
+
+## Status note (2026-10-28)
+
+Fixed: a declared `fn:` member that names no Go function, or several, is checked at boot against the structure index (`StructureIndex.ElementRefs`, `codefamily.Resolve`), asserted as `code_family_member_unresolved`, and named to the model as a contract to repair when a sibling member changes (`policy/code_families.mg`, `system/code_families_boot.go`).
+Ruled out: replacing CodeDOM or a copy-sync rule (audit's own decision); similarity as family membership.
+Left: member revisions with a compare-and-swap completion vector, per-member verification evidence, candidate discovery from near-duplicate signals and multi-batch staging (none has a consumer yet); non-Go members are not resolved.

@@ -137,7 +137,7 @@ func detect(root string) []Gate {
 			Gate{ID: "python:compile", Kind: Build, Argv: []string{py, "-m", "compileall", "-q", NodeToken}, Scope: ScopeNode, Language: "python", Source: "detected: " + marker},
 			// Exit 5 is pytest's "no tests collected": a node without tests
 			// has not failed its tests.
-			Gate{ID: "python:pytest", Kind: Test, Argv: []string{py, "-m", "pytest", "-q", NodeToken}, Scope: ScopeNode, Language: "python", Source: "detected: " + marker, OKExitCodes: []int{0, 5}},
+			Gate{ID: "python:pytest", Kind: Test, Argv: []string{py, "-m", "pytest", "-q", NodeToken}, Scope: ScopeNode, Language: "python", Source: "detected: " + marker, OKExitCodes: []int{0, 5}, NoTestsExitCodes: []int{5}},
 		)
 	}
 	if exists(root, "package.json") {

@@ -39,3 +39,26 @@ func TestLoad_MissingFileIsNoFamilies(t *testing.T) {
 		t.Fatalf("Load = %v, %v; want no families and no error", fams, err)
 	}
 }
+
+func TestResolve_NamesMissingAndAmbiguousMembersOnly(t *testing.T) {
+	families := []Family{{
+		ID:                 "retry",
+		Members:            []string{"fn:a.Retry", "fn:b.Gone", "fn:c.Dup", "py:mod.retry"},
+		SharedRequirements: []string{"bounded"},
+	}}
+	refs := map[string][]string{
+		"fn:a.Retry": {"a/retry.go"},
+		"fn:c.Dup":   {"c1/dup.go", "c2/dup.go"},
+	}
+	got := Resolve(families, refs)
+	if len(got) != 2 || got[0].Ref != "fn:b.Gone" || got[1].Ref != "fn:c.Dup" {
+		t.Fatalf("Resolve = %+v; want the missing and the ambiguous fn: member, not the resolved one or the non-Go ref", got)
+	}
+	if !strings.Contains(got[1].Why, "2 files") {
+		t.Errorf("ambiguity reason %q", got[1].Why)
+	}
+	facts := UnresolvedFacts(got)
+	if len(facts) != 2 || facts[0].Predicate != "code_family_member_unresolved" {
+		t.Errorf("facts %+v", facts)
+	}
+}

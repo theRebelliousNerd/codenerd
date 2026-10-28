@@ -167,7 +167,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// Declared code families and the turn's no-change decisions
 				// (code_families.mg) join turn_changed_element here, and
 				// turn_verified negates the open reviews they derive.
-				"code_family", "code_family_member", "code_family_requirement", "turn_family_no_change",
+				"code_family", "code_family_member", "code_family_requirement", "code_family_member_unresolved", "turn_family_no_change",
 				// The edit sites a brief names, beside turn_verb:
 				// turn_needs_step_plan (turn_steps.mg) joins the two.
 				"turn_brief_site",
@@ -205,6 +205,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"turn_test_failed_before", "turn_test_measured",
 				"turn_importer_failed_before", "turn_importer_failing_test", "turn_importer_measured",
 				"turn_write_seq", "turn_test_run",
+				"turn_test_obligation", "turn_test_obligation_run",
 				"turn_vet_ran", "turn_vet_finding", "turn_vet_before",
 				"turn_removed_test_ran", "turn_removed_test",
 				// The critic's on-change findings, triaged by the same

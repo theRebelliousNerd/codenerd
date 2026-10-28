@@ -364,7 +364,7 @@ func verdictSentence(result *ExecutionResult) string {
 	}
 	switch result.TurnOutcome {
 	case "/done":
-		return "Verified by evidence: the build and the tests were both measured green after the final edit."
+		return doneSentence(result)
 	case "/hollow":
 		return "Not verified: the turn claimed work it has no evidence for."
 	case "/failed":
@@ -397,4 +397,44 @@ func nameForeignBuild(clause string, result *ExecutionResult) string {
 	slices.Sort(pkgs)
 	pkgs = slices.Compact(pkgs)
 	return strings.Replace(clause, base, base+": "+strings.Join(pkgs, ", "), 1)
+}
+
+// owedGateNames spell the gates the corpus can owe, in the order the closing
+// sentence names what was measured.
+var owedGateNames = []struct{ gate, name string }{
+	{"/build", "the build"},
+	{"/test", "the tests"},
+	{"/test_run", "the workspace's test run"},
+	{"/pinned", "the check that the tests pin the change"},
+	{"/check", "the campaign acceptance check"},
+	{"/test_retention", "the check that no test was removed"},
+}
+
+// doneSentence says what a /done turn was measured on: the gates the corpus
+// derived it owed, each green after the final edit. A turn that owed none (a
+// document, say) is not said to have been built or tested.
+func doneSentence(result *ExecutionResult) string {
+	var names []string
+	for _, g := range owedGateNames {
+		if slices.Contains(result.OwedGates, g.gate) {
+			names = append(names, g.name)
+		}
+	}
+	for _, gate := range result.OwedGates {
+		if !slices.ContainsFunc(owedGateNames, func(g struct{ gate, name string }) bool { return g.gate == gate }) {
+			names = append(names, "the "+strings.TrimPrefix(gate, "/")+" gate")
+		}
+	}
+	switch len(names) {
+	case 0:
+		return "Done: nothing this turn wrote owes a build or a test (documentation); none was run, so none is claimed."
+	case 1:
+		return "Verified by evidence: " + names[0] + " was measured green after the final edit."
+	case 2:
+		if names[0] == "the build" && names[1] == "the tests" {
+			return "Verified by evidence: the build and the tests were both measured green after the final edit."
+		}
+	}
+	return "Verified by evidence: " + strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1] +
+		" were each measured green after the final edit."
 }

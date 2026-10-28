@@ -863,6 +863,18 @@ type ExecutionResult struct {
 	// testRunSequenced is set once a test run is on that clock, so a run the
 	// tool loop recorded is not asserted again from the pointer.
 	testRunSequenced bool
+	// lastWriteSeq is the clock value of this turn's latest successful
+	// write. A test process counts toward an obligation only with a later seq.
+	lastWriteSeq int
+	// testReceipts are the test processes the tool layer recorded this turn,
+	// each with its clock value and argv (the kernel keeps only seq and exit).
+	// A planned workspace check an identical process already satisfied is not
+	// run a second time (workspace_test_plan.go).
+	testReceipts []sequencedTestRun
+	// testPlan is the latest outcome of each obligation of the workspace's
+	// test plan, in plan order; the host's record behind the turn_test_obligation
+	// facts, kept to word the shortfall the model is sent back with.
+	testPlan []obligationRun
 	// checkDeclared is set once turn_declared_check is asserted for this turn.
 	checkDeclared bool
 
@@ -966,6 +978,12 @@ type ExecutionResult struct {
 	// /change_unwitnessed atom: the changed elements no passing test
 	// executed, every one of them. The closing sentence names them all.
 	UnwitnessedElements []string
+
+	// OwedGates are the gates the corpus derived this turn owed
+	// (turn_owes_gate: /build, /test, /test_run, ...). On a /done turn each of
+	// them is met, so the closing sentence names these and nothing else as
+	// measured; an empty list is a turn that owed no gate at all.
+	OwedGates []string
 }
 
 // Process handles user input through the clean loop.
@@ -2871,6 +2889,9 @@ type turnVerdict struct {
 	// /change_unwitnessed atom: the changed elements no passing test
 	// executed. Empty unless that atom holds.
 	Unwitnessed []string
+
+	// Owed are the gates the corpus derived the turn owed (turn_owes_gate).
+	Owed []string
 }
 
 // consumeTurnDoneSignal is THE read of the turn's verdict from the kernel.
@@ -2932,6 +2953,21 @@ func (e *Executor) consumeTurnDoneSignal(turn types.MangleAtom, verb string) tur
 
 	v.Unwitnessed = e.turnUnwitnessedRefs(turn)
 
+	if owedFacts, oerr := e.turnRows("turn_owes_gate", turn); oerr != nil {
+		logging.Get(logging.CategorySession).Debug("turn verdict: turn_owes_gate query failed: %v", oerr)
+	} else {
+		seenGate := map[string]bool{}
+		for _, f := range owedFacts {
+			if len(f.Args) >= 2 {
+				if gate := types.ExtractString(f.Args[1]); gate != "" && !seenGate[gate] {
+					seenGate[gate] = true
+					v.Owed = append(v.Owed, gate)
+				}
+			}
+		}
+		sort.Strings(v.Owed)
+	}
+
 	logging.Get(logging.CategorySession).Debug("turn verdict for %s (%s): done=%t build_failed=%t missing=%v", verb, turn, v.Done, v.BuildFailed, v.Missing)
 	return v
 }
@@ -2958,6 +2994,10 @@ func missingEvidenceSentence(atom string) string {
 		return "go vet reports problems this turn introduced"
 	case "/test_run_not_green":
 		return "no test run passed after this turn's last write"
+	case "/test_run_unavailable":
+		return "a test check the workspace declares could not run, so what it covers was not tested"
+	case "/test_run_no_tests":
+		return "the workspace's test check collected no test for what this turn wrote, or no check covers a language it wrote"
 	case "/check_not_green":
 		return "the campaign acceptance check did not pass after this turn's last write"
 	case "/change_not_pinned":

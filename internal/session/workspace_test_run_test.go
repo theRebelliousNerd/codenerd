@@ -82,8 +82,9 @@ func TestWorkspaceTestRun_TheWorkspacesGateDecidesANonGoWrite(t *testing.T) {
 	}
 }
 
-// Go writes keep the Go gates; a language the workspace has no test gate for,
-// or a gate whose program is missing, leaves the run to the model as before.
+// Go writes keep the Go gates; a language the workspace has no test gate for
+// leaves the run to the model as before. (A declared gate whose program is
+// missing is not left: it is owed and recorded unavailable.)
 func TestWorkspaceTestRun_LeavesWhatItCannotDecide(t *testing.T) {
 	bin := checkGate(t)
 	for name, tc := range map[string]struct {
@@ -96,10 +97,6 @@ func TestWorkspaceTestRun_LeavesWhatItCannotDecide(t *testing.T) {
 		},
 		"no gate for the language": {
 			gate:    "  - id: check\n    kind: test\n    run: npx vitest run {node}\n    scope: node\n",
-			written: []string{"svc/app.py"},
-		},
-		"toolchain missing": {
-			gate:    "  - id: check\n    kind: test\n    run: definitely-not-a-test-runner {node}\n    scope: node\n",
 			written: []string{"svc/app.py"},
 		},
 	} {

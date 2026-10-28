@@ -349,6 +349,14 @@ var hostWitnessPredicates = map[string]struct{}{
 	"turn_last_write":  {},
 	"turn_check_after": {}, "turn_check_after_seq": {}, "turn_last_check": {},
 	"turn_test_after": {}, "turn_test_after_seq": {}, "turn_last_test_run": {},
+	// The workspace's test plan and what is derived from it (coder_safety.mg).
+	// A model that could write an obligation's outcome could mint a pass for a
+	// check that never ran; one that could omit an obligation could shrink what
+	// the turn owes.
+	"turn_test_obligation": {}, "turn_test_obligation_run": {}, "turn_selected_run": {},
+	"turn_ob_after": {}, "turn_ob_after_seq": {}, "turn_ob_last": {}, "turn_ob_state": {},
+	"turn_has_test_plan": {}, "turn_test_ob_met": {}, "turn_test_ob_unmet": {},
+	"turn_has_test_ob_unmet": {}, "turn_test_plan_red": {},
 	"turn_vet_ran": {}, "turn_vet_finding": {}, "turn_vet_before": {},
 	"turn_vet_before_key": {}, "turn_vet_new": {}, "turn_has_vet_new": {},
 	// Measurements the /build gate is derived from (coder_safety.mg), and

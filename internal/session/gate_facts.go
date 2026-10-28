@@ -660,6 +660,7 @@ func (e *Executor) noteWrite(result *ExecutionResult) {
 		return
 	}
 	result.gateSeq++
+	result.lastWriteSeq = result.gateSeq
 	result.writeSequenced = true
 	e.assertTurnFact(types.Fact{
 		Predicate: "turn_write_seq",
@@ -668,15 +669,16 @@ func (e *Executor) noteWrite(result *ExecutionResult) {
 }
 
 // noteTestRun records one test process on the same clock.
-func (e *Executor) noteTestRun(result *ExecutionResult, exitCode int) {
+func (e *Executor) noteTestRun(result *ExecutionResult, run tools.TestRun) {
 	if e == nil || e.kernel == nil || result == nil {
 		return
 	}
 	result.gateSeq++
 	result.testRunSequenced = true
+	result.testReceipts = append(result.testReceipts, sequencedTestRun{Seq: result.gateSeq, Run: run})
 	e.assertTurnFact(types.Fact{
 		Predicate: "turn_test_run",
-		Args:      []any{result.turnAtom(), int64(result.gateSeq), int64(exitCode)},
+		Args:      []any{result.turnAtom(), int64(result.gateSeq), int64(run.ExitCode)},
 	})
 }
 
@@ -721,6 +723,7 @@ func (e *Executor) ensureWriteSequenced(turn types.MangleAtom, result *Execution
 		return
 	}
 	result.gateSeq++
+	result.lastWriteSeq = result.gateSeq
 	result.writeSequenced = true
 	e.assertTurnFact(types.Fact{
 		Predicate: "turn_write_seq",
@@ -736,6 +739,7 @@ func (e *Executor) ensurePointerTestRun(turn types.MangleAtom, result *Execution
 	}
 	result.gateSeq++
 	result.testRunSequenced = true
+	result.testReceipts = append(result.testReceipts, sequencedTestRun{Seq: result.gateSeq, Run: *result.TestRunSinceLastWrite})
 	e.assertTurnFact(types.Fact{
 		Predicate: "turn_test_run",
 		Args:      []any{turn, int64(result.gateSeq), int64(result.TestRunSinceLastWrite.ExitCode)},

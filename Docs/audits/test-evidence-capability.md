@@ -308,3 +308,8 @@ Gate/node receipts can be bounded metadata with full output behind recoverable h
 Regression-test-selection research supports retaining dependency evidence when choosing fewer tests; it does not justify accepting any passing subset. Ekstazi's dynamic file-dependency approach is a relevant precedent, not a performance guarantee for CodeNERD's polyglot runtime. [Primary paper](https://mir.cs.illinois.edu/marinov/publications/GligoricETAL15PracticalRTS.pdf).
 
 **Checkable exit:** every applicable required verification obligation has an explicit current disposition, unrelated success cannot erase missing or failed evidence, and the final report claims only measurements the host actually possesses.
+
+## As-built note (2026-10-28)
+
+Built: package-qualified identity (earlier as-built, re-verified: `TestPartitionPreExisting_SameNameInAnotherPackageIsNew`, `TestTestGate_SameNameInAnotherPackageIsCharged`) and W1-W4: the `/test_run` gate is derived per obligation (`turn_test_obligation*`, `workspace_test_plan.go`, `coder_safety.mg`); an unrelated or stopped run no longer replaces a declared check, an unavailable check stays owed, failures survive later unavailability, pytest exit 5 is `/no_tests` (not coverage), an uncovered written language stays open, and the `/done` sentence names only the gates owed. Tests: `workspace_test_plan_test.go`, `gates/no_tests_test.go`.
+Ruled out: nothing; every W1-W4 witness was real in source. Left: the causal check for an identical package+test failing with a different defect needs evidence beyond identity; reuse matches exact argv only (no dependency-based selection); cost measurements not run.

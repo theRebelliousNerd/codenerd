@@ -1027,7 +1027,7 @@ func (e *Executor) executeAndRecordToolCall(
 		// one whose seq is after the last write. A call that also writes
 		// records the run first, so the run's seq is the earlier one.
 		for _, run := range runs {
-			e.noteTestRun(result, run.ExitCode)
+			e.noteTestRun(result, run)
 		}
 	}
 	// A run_check is an acceptance command the tool layer started and
