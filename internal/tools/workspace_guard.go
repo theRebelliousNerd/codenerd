@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -120,6 +121,19 @@ func normalizeSeparators(p string) string {
 	return strings.ReplaceAll(p, "\\", "/")
 }
 
+// isDrivePath reports a slash-normalized Windows drive path: a letter, a
+// colon, then a separator or nothing ("C:/x", "C:").
+func isDrivePath(slashed string) bool {
+	if len(slashed) < 2 || slashed[1] != ':' {
+		return false
+	}
+	c := slashed[0]
+	if !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z') {
+		return false
+	}
+	return len(slashed) == 2 || slashed[2] == '/'
+}
+
 // containedIn reports whether path (already absolute and cleaned) is root
 // itself or lives beneath it.
 //
@@ -177,6 +191,16 @@ func ResolveWorkspacePath(ctx context.Context, root, p string) (string, error) {
 	// path would be joined onto the workspace root and silently accepted.
 	if !filepath.IsAbs(slashed) && strings.HasPrefix(slashed, "/") {
 		return "", fmt.Errorf("%w: %q is rooted at the filesystem root, not the workspace", ErrPathOutsideWorkspace, p)
+	}
+	// Off Windows a drive path (C:/x, C:\x) is not absolute to filepath, so it
+	// was joined onto the root as a directory literally named "C:" and
+	// accepted: run_build reported "no supported project verification runner
+	// in <root>/C:/CodeProjects/codeNERD" for a working_dir the model copied
+	// out of a Windows-era prompt (problems log 2026-10-28). It names a file
+	// on another host, so it is refused, saying where the workspace is.
+	if runtime.GOOS != "windows" && isDrivePath(slashed) {
+		return "", fmt.Errorf("%w: %q is a Windows drive path and this host is %s; name it relative to the workspace root %s",
+			ErrPathOutsideWorkspace, p, runtime.GOOS, absRoot)
 	}
 	var absPath string
 	if filepath.IsAbs(slashed) {

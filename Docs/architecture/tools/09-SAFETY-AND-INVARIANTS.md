@@ -37,6 +37,7 @@ Tools alone are **not** sufficient for constitutional safety.
 | git pathspec inside workspace | `git_diff`, `git_log` | Enforced |
 | Symlink escape rejection | `tools.ResolveWorkspacePath`; directory walks skip symlinks | Enforced |
 | Separator normalization before the gate | `tools.normalizeSeparators` | Enforced |
+| A drive path (`C:/x`, `C:\x`, `C:`) off Windows is refused, naming the workspace root, not joined onto it as a directory named `C:` | `tools.ResolveWorkspacePath` (`isDrivePath`); `run_build`/`run_tests` `working_dir` reaches it through `ResolveWorkspaceDir` | Enforced (2026-10-28) |
 | Boundary-aware root prefix (`/ws-evil` is not inside `/ws`) | `tools.containedIn` | Enforced |
 | Tool outside capability envelope refused | `Registry.SetAllowlist` | Enforced |
 | No directory delete via delete_file | `executeDeleteFile` | Enforced |

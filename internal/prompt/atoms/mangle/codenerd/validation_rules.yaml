@@ -11,7 +11,7 @@
   content: |
     # Mangle Validation Rules for codeNERD
 
-    Critical validation rules to prevent the Top 30 common errors AI coding agents make when writing Mangle code. Based on C:\CodeProjects\codeNERD\internal\mangle\claude.md.
+    Critical validation rules to prevent the Top 30 common errors AI coding agents make when writing Mangle code. Based on internal/mangle/claude.md.
 
     ## Overview
 

@@ -48,16 +48,27 @@ func TestResolveWorkspacePath_WhenWindowsAbsolutePathOnPosix_ShouldRefuse(t *tes
 	t.Parallel()
 	root := t.TempDir()
 
-	// `C:\Users\victim\.ssh\id_rsa` is not absolute to a POSIX filepath, so
-	// without separator normalization it was joined onto the root as a single
-	// filename and accepted.
-	got, err := ResolveWorkspacePath(context.Background(), root, `C:\Users\victim\.ssh\id_rsa`)
-	if err == nil {
-		// It may resolve inside the root as C:/Users/... which is contained and
-		// therefore harmless, but it must never keep the raw backslash form.
-		if strings.Contains(got, `\`) {
-			t.Fatalf("path kept unnormalized backslashes: %q", got)
+	// A drive path is not absolute to a POSIX filepath, so it was joined onto
+	// the root (`<root>/C:/...`) and accepted: run_build then looked for a
+	// project in a directory that names a file on another host (problems log
+	// 2026-10-28, working_dir C:/CodeProjects/codeNERD). Both separator
+	// spellings and a bare drive are refused, naming the workspace root.
+	for _, p := range []string{`C:\Users\victim\.ssh\id_rsa`, "C:/CodeProjects/codeNERD", "c:", "D:\\"} {
+		got, err := ResolveWorkspacePath(context.Background(), root, p)
+		if !errors.Is(err, ErrPathOutsideWorkspace) {
+			t.Fatalf("%q resolved to %q (err %v), want ErrPathOutsideWorkspace", p, got, err)
 		}
+		if !strings.Contains(err.Error(), "drive path") {
+			t.Fatalf("%q: refusal %q does not say it is a drive path", p, err)
+		}
+	}
+	// A colon later in a name is an ordinary POSIX filename.
+	if _, err := ResolveWorkspacePath(context.Background(), root, "notes:v2.txt"); err != nil {
+		t.Fatalf("a filename with a colon was refused: %v", err)
+	}
+	// ResolveWorkspaceDir, which run_build's working_dir goes through, refuses too.
+	if _, err := ResolveWorkspaceDir(context.Background(), root, "C:/CodeProjects/codeNERD"); !errors.Is(err, ErrPathOutsideWorkspace) {
+		t.Fatalf("ResolveWorkspaceDir accepted a drive path: %v", err)
 	}
 }
 
