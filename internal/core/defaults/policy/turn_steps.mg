@@ -77,6 +77,7 @@ Decl step_has_no_change(Turn, Step) bound [/name, /number].
 Decl step_has_cover(Turn, Step) bound [/name, /number].
 Decl step_unresolved(Turn, Step, File) bound [/name, /number, /string].
 Decl step_reverted(Turn, Step, File) bound [/name, /number, /string].
+Decl step_plan_remaining(Turn, Step, File) bound [/name, /number, /string].
 Decl step_next_action(Turn, Step, Action) bound [/name, /number, /name].
 Decl turn_has_step(Turn) bound [/name].
 Decl turn_has_unresolved_step(Turn) bound [/name].
@@ -121,6 +122,9 @@ step_reverted(Turn, Step, File) :-
 turn_has_step(Turn) :- step_execution(Turn, _, _, _, _).
 turn_has_unresolved_step(Turn) :- step_unresolved(Turn, _, _).
 turn_has_unresolved_step(Turn) :- step_reverted(Turn, _, _).
+# A planned step past session.step_plan_max_steps is not run by this task and
+# stays owed: the bounded prefix is never the whole plan's /complete.
+turn_has_unresolved_step(Turn) :- step_plan_remaining(Turn, _, _).
 
 # One incomplete rule. step_reverted joins the same projection an unresolved
 # step does, so a reverted edit blocks /complete the way a step that never

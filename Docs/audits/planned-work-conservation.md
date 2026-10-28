@@ -1,7 +1,7 @@
 ---
 doc-class: deep-dive
 subsystem: session
-implementation-status: planned
+implementation-status: partially-implemented (see As-built status)
 last-verified: 2026-10-28
 verified-against: c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c
 main-compared-against: 356f65e0e6bb639adaa90ab36212daa714114871
@@ -174,3 +174,35 @@ Bounded windowing and obligation ledgers are established ideas, including the re
 Follow the repository's [architecture documentation standard](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/Docs/journeys/09-architecture-doc-standard.md): specify the session capability and checkable exit first; implementation and test results must be recorded separately. A proposed gap row should name plan-admission completeness, not reuse the already-implemented final-file-state wiring row.
 
 **Checkable exit:** a planner answer with more valid authorized steps than the active cap cannot silently become a complete smaller plan. It is explicitly refused or retains the unexecuted suffix with one owner and an incomplete disposition; no completed effect is replayed merely to repair the ledger. Current capability, permission, deadline, cancellation, post-edit and whole-task acceptance gates remain in force.
+
+## As-built status
+
+Verified and built 2026-10-28 on `main` after `c28a1212`. The parser, anchor, report and policy were unchanged from the audited pins.
+
+### Claim ledger
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| `parseWorkSteps` breaks at `maxSteps` and returns only the prefix, with no overflow signal | Real, fixed | It now keeps every valid distinct step and marks those past the bound `Beyond` (`internal/session/work_steps.go:107`; `splitPlan` `:77`) |
+| `planTurnSteps` returns the slice; the planner's text is local | Real, fixed | It returns the whole plan and logs the overflow; the one-pass threshold counts runnable steps only |
+| The anchor says the task runs as `len(steps)` steps | Real, fixed | `workStepAnchor` states how many steps lie beyond and that they are not to be made here (`:300`) |
+| The report counts and lists only the prefix | Real, fixed | `workStepReport` counts the whole plan and lists each remaining step (`:635`) |
+| Policy has no fact for the truncated suffix; `/complete` derives from recorded rows only | Real, fixed | `step_plan_remaining/3` declared and joined into `turn_has_unresolved_step` (`turn_steps.mg:80`, `:127`); asserted before any step runs (`work_steps.go:852`); named in the incomplete error (`derivedStepOutcome`, `:571`) |
+| The existing parser test asserts the cap and nothing else | Confirmed, rewritten | `TestParseWorkSteps` now asserts the bound runnable and the 5 past it kept |
+| Per-file coverage and model-authored no-change evidence are intentional limits | Confirmed, unchanged | `turn_steps.mg` coverage rules; `noChangeEvidence` |
+| `GAP-SESSION-STEP-NET-STATE` row is stale | Confirmed stale; not reconciled here | Host measurement exists (`assertPlannedStepFileNet`) |
+
+### What was built
+
+- Ruling: variant A with the remainder retained in the turn, not a refusal. The window runs (useful work), the verdict is `/incomplete` while any step past the bound is owed, and the error and report name each remaining step so the caller and the user see exactly what is left. No cross-task windowing.
+- `internal/session/work_steps.go`, `internal/core/defaults/policy/turn_steps.mg`; spec `Docs/architecture/session/03-GAP-ANALYSIS.md` `GAP-SESSION-STEP-PLAN-OVERFLOW`.
+
+### Tests
+
+`internal/session/work_steps_test.go`: `TestRunToolLoop_PlannedSteps_StepsBeyondTheBoundStayOwed` (bound 2, three steps: two edit, the third is not run, `ErrStepsIncomplete` names it, report and anchor state the remainder); `TestParseWorkSteps` (bound kept, 5 beyond retained). The other planned-step tests pass unchanged.
+
+### Left open
+
+- Retained windows that run the remainder in a later task (variant B) and cross-task ownership: not built; the remainder exists only in this turn's facts, report and error.
+- A plan larger than the planner's own output limit cannot be counted beyond what the planner wrote.
+- A new `Decl` was added: the predicate corpus (`internal/core/defaults/predicate_corpus.db`) needs the shared rebuild.

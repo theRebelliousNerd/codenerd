@@ -167,8 +167,10 @@ func TestParseWorkSteps(t *testing.T) {
 	for i := 0; i < defaultSessionPolicy.StepPlanMaxSteps+5; i++ {
 		many.WriteString("STEP f" + strings.Repeat("x", i) + ".go :: change\n")
 	}
-	if n := len(parseWorkSteps("", many.String(), defaultSessionPolicy.StepPlanMaxSteps)); n != defaultSessionPolicy.StepPlanMaxSteps {
-		t.Errorf("unbounded plan parsed to %d steps, want the cap %d", n, defaultSessionPolicy.StepPlanMaxSteps)
+	all := parseWorkSteps("", many.String(), defaultSessionPolicy.StepPlanMaxSteps)
+	run, beyond := splitPlan(all)
+	if len(run) != defaultSessionPolicy.StepPlanMaxSteps || len(beyond) != 5 {
+		t.Errorf("unbounded plan: %d run, %d beyond; want the cap %d run and the 5 past it kept as remaining", len(run), len(beyond), defaultSessionPolicy.StepPlanMaxSteps)
 	}
 }
 
@@ -235,6 +237,43 @@ func TestRunToolLoop_PlannedSteps_RunsEachStepAsItsOwnPass(t *testing.T) {
 	}
 	if n := commitRetryAnchors(client.anchors); n != 0 {
 		t.Fatalf("commit-regime retries = %d, want none when every step wrote; anchors: %q", n, client.anchors)
+	}
+}
+
+// A plan with more steps than session.step_plan_max_steps runs the first
+// ones and keeps the rest owed: every step that ran edited, and the task is
+// still incomplete, with the step it did not run named.
+func TestRunToolLoop_PlannedSteps_StepsBeyondTheBoundStayOwed(t *testing.T) {
+	_, writeTool := registerStepTools(t)
+	plan := "STEP a.txt :: create it with the greeting\nSTEP b.txt :: create it with the farewell\nSTEP a.go :: add the package clause\n"
+	client := newStepScriptProvider(plan, map[string][]types.ToolCall{
+		"a.txt": {{ID: "w-a", Name: writeTool, Input: map[string]any{"path": "a.txt", "content": "hello"}}},
+		"b.txt": {{ID: "w-b", Name: writeTool, Input: map[string]any{"path": "b.txt", "content": "bye"}}},
+		"a.go":  {{ID: "w-g", Name: writeTool, Input: map[string]any{"path": "a.go", "content": "package a"}}},
+	})
+	e := newPlannedStepsExecutor(t, client)
+	e.config.StepPlanMaxSteps = 2
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
+
+	_, _, err := e.runToolLoop(context.Background(), "system", "create a.txt, b.txt and a.go",
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{writeTool}},
+		&prompt.CompilationContext{ShardID: "probe"}, result)
+	if !errors.Is(err, ErrStepsIncomplete) {
+		t.Fatalf("err = %v, want ErrStepsIncomplete: the bounded prefix is not the whole plan; report:\n%s", err, result.StepReport)
+	}
+	if !strings.Contains(err.Error(), "[3] a.go (not run: beyond the step bound)") {
+		t.Fatalf("err = %v, want the remaining step named", err)
+	}
+	if result.WriteToolEffects != 2 || client.played["a.go"] != 0 {
+		t.Fatalf("writes = %d, a.go passes = %d: the step past the bound ran", result.WriteToolEffects, client.played["a.go"])
+	}
+	for _, want := range []string{"Planned steps: 3, edited: 2. Run by this task: 2; remaining beyond the step bound: 1.", "[3] a.go :: add the package clause — not run: beyond the step bound, remaining"} {
+		if !strings.Contains(result.StepReport, want) {
+			t.Fatalf("report lacks %q:\n%s", want, result.StepReport)
+		}
+	}
+	if !anyContains(client.anchors, "this turn is step 1 of 2") || !anyContains(client.anchors, "1 more step(s) than one task runs") {
+		t.Fatalf("anchors = %q", client.anchors)
 	}
 }
 
@@ -397,10 +436,10 @@ func TestNoChangeEvidence(t *testing.T) {
 func TestWorkStepAnchor_NoChangeOfferedOnlyOnRetry(t *testing.T) {
 	task := "fix it"
 	steps := []workStep{{File: "a.txt", Change: "move tests only if needed"}}
-	if got := workStepAnchor(task, steps, 0, true); !strings.Contains(got, "NO CHANGE NEEDED:") {
+	if got := workStepAnchor(task, steps, nil, 0, true); !strings.Contains(got, "NO CHANGE NEEDED:") {
 		t.Fatalf("retry anchor = %q, want it to offer NO CHANGE NEEDED", got)
 	}
-	if got := workStepAnchor(task, steps, 0, false); strings.Contains(got, "NO CHANGE NEEDED:") {
+	if got := workStepAnchor(task, steps, nil, 0, false); strings.Contains(got, "NO CHANGE NEEDED:") {
 		t.Fatalf("first-pass anchor = %q, want no NO CHANGE NEEDED offer", got)
 	}
 }
@@ -746,7 +785,7 @@ func TestWorkStepReport_ListsEveryStep(t *testing.T) {
 		{File: "b.go", Change: "call it", Edited: false, Calls: 9, Note: "task unresolved: read_only_stall"},
 		{File: "a.go", Change: "add the import", Edited: false, Calls: 2, CoveredBy: 1},
 	}
-	got := workStepReport(steps)
+	got := workStepReport(steps, nil)
 	for _, want := range []string{
 		"Planned steps: 3, edited: 1.",
 		"[1] a.go :: add the field — edited (3 tool call(s)): Added the field.",

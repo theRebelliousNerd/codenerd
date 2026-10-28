@@ -67,6 +67,22 @@ type workStep struct {
 	// the step's change is already in place or its condition does not hold;
 	// empty unless the step made no edit.
 	NoChange string
+	// Beyond marks a planned step past session.step_plan_max_steps: this
+	// task does not run it, and it stays owed (step_plan_remaining), so the
+	// steps that did run are never reported as the whole plan.
+	Beyond bool
+}
+
+// splitPlan separates the steps this task runs from those beyond its bound.
+func splitPlan(plan []workStep) (run, beyond []workStep) {
+	for _, s := range plan {
+		if s.Beyond {
+			beyond = append(beyond, s)
+		} else {
+			run = append(run, s)
+		}
+	}
+	return run, beyond
 }
 
 // toolLoopPass is how one pass of the tool loop is run. verify runs the
@@ -83,11 +99,13 @@ type toolLoopPass struct {
 // path and a change is not a step, and neither is a verification (a path
 // that is a directory on disk when workspace is known, or a change that is
 // the task's verify command: the executive runs verification itself).
-// Paths that do not exist yet (new files) stay. Duplicates collapse; the
-// count is bounded by maxSteps (session.step_plan_max_steps): a task that
-// divides into more is not one turn's work, and the executive runs the first
-// steps and reports.
+// Paths that do not exist yet (new files) stay. Duplicates collapse. The
+// steps this task runs are bounded by maxSteps (session.step_plan_max_steps):
+// a task that divides into more is not one turn's work, so the executive runs
+// the first maxSteps and the rest come back marked Beyond -- kept, not cut,
+// so they stay owed and the verdict cannot call the bounded prefix complete.
 func parseWorkSteps(workspace, text string, maxSteps int) []workStep {
+	runnable := 0
 	var steps []workStep
 	seen := map[string]bool{}
 	for _, line := range strings.Split(text, "\n") {
@@ -114,9 +132,9 @@ func parseWorkSteps(workspace, text string, maxSteps int) []workStep {
 			continue
 		}
 		seen[key] = true
-		steps = append(steps, workStep{File: file, Change: change})
-		if len(steps) == maxSteps {
-			break
+		steps = append(steps, workStep{File: file, Change: change, Beyond: runnable >= maxSteps})
+		if runnable < maxSteps {
+			runnable++
 		}
 	}
 	return steps
@@ -218,15 +236,19 @@ func (e *Executor) planTurnSteps(ctx context.Context, client types.LLMClient, ta
 		return nil
 	}
 	steps := parseWorkSteps(e.workspaceForVerification(), text, maxSteps)
-	if len(steps) < 2 {
-		logging.SessionDebug("Step planning found %d step(s); the task runs as one pass", len(steps))
+	run, beyond := splitPlan(steps)
+	if len(run) < 2 {
+		logging.SessionDebug("Step planning found %d step(s); the task runs as one pass", len(run))
 		return nil
 	}
-	names := make([]string, 0, len(steps))
-	for _, s := range steps {
+	names := make([]string, 0, len(run))
+	for _, s := range run {
 		names = append(names, s.File)
 	}
-	logging.Session("Executive runs the task as %d planned step(s): %s", len(steps), strings.Join(names, ", "))
+	logging.Session("Executive runs the task as %d planned step(s): %s", len(run), strings.Join(names, ", "))
+	if len(beyond) > 0 {
+		logging.Get(logging.CategorySession).Warn("The plan has %d more step(s) than session.step_plan_max_steps (%d); they are reported as remaining", len(beyond), maxSteps)
+	}
 	return steps
 }
 
@@ -275,11 +297,14 @@ func noChangeEvidence(note string) string {
 // task, so nothing the brief said is lost, then the executive's note of
 // where this pass sits in the plan and what it must do. retry is the second
 // pass of a step whose first made no edit.
-func workStepAnchor(task string, steps []workStep, current int, retry bool) string {
+func workStepAnchor(task string, steps, beyond []workStep, current int, retry bool) string {
 	var b strings.Builder
 	b.WriteString(strings.TrimSpace(task))
 	b.WriteString("\n\n[executive] This task runs as ")
 	fmt.Fprintf(&b, "%d steps, one at a time; this turn is step %d of %d.\n", len(steps), current+1, len(steps))
+	if len(beyond) > 0 {
+		fmt.Fprintf(&b, "The plan has %d more step(s) than one task runs; they are reported as remaining, so do not make them here.\n", len(beyond))
+	}
 	for i := 0; i < current; i++ {
 		status := "made no edit"
 		if steps[i].Edited {
@@ -543,6 +568,25 @@ func (e *Executor) derivedStepOutcome(turn types.MangleAtom, steps []workStep) (
 			reason string
 		}{n: n, file: types.ExtractString(file), reason: "edit was reverted"})
 	}
+	remaining, err := e.kernel.Query("step_plan_remaining")
+	if err != nil {
+		return "", nil, fmt.Errorf("step_plan_remaining: %w", err)
+	}
+	for _, f := range remaining {
+		if factTurn(f) != string(turn) {
+			continue
+		}
+		n, ok := factNumber(f, 1)
+		file, fileOK := nthArg(f.Args, 2)
+		if !ok || !fileOK {
+			continue
+		}
+		gaps = append(gaps, struct {
+			n      int64
+			file   string
+			reason string
+		}{n: n, file: types.ExtractString(file), reason: "not run: beyond the step bound"})
+	}
 	sort.Slice(gaps, func(i, j int) bool { return gaps[i].n < gaps[j].n })
 	for _, g := range gaps {
 		missing = append(missing, fmt.Sprintf("[%d] %s (%s)", g.n, g.file, g.reason))
@@ -588,7 +632,7 @@ func (e *Executor) finalizedStepOutcome(turn types.MangleAtom, steps []workStep,
 
 // workStepReport is the ledger the turn surfaces: every step, whether it
 // edited, and the model's closing word on it.
-func workStepReport(steps []workStep) string {
+func workStepReport(steps, beyond []workStep) string {
 	var b strings.Builder
 	edited := 0
 	for _, s := range steps {
@@ -596,7 +640,10 @@ func workStepReport(steps []workStep) string {
 			edited++
 		}
 	}
-	fmt.Fprintf(&b, "Planned steps: %d, edited: %d.", len(steps), edited)
+	fmt.Fprintf(&b, "Planned steps: %d, edited: %d.", len(steps)+len(beyond), edited)
+	if len(beyond) > 0 {
+		fmt.Fprintf(&b, " Run by this task: %d; remaining beyond the step bound: %d.", len(steps), len(beyond))
+	}
 	for i, s := range steps {
 		status := "no edit"
 		switch {
@@ -617,6 +664,9 @@ func workStepReport(steps []workStep) string {
 		} else if note := strings.TrimSpace(s.Note); note != "" {
 			fmt.Fprintf(&b, ": %s", firstLine(note))
 		}
+	}
+	for i, s := range beyond {
+		fmt.Fprintf(&b, "\n[%d] %s :: %s — not run: beyond the step bound, remaining", len(steps)+i+1, s.File, s.Change)
 	}
 	return b.String()
 }
@@ -794,11 +844,21 @@ func (e *Executor) runPlannedSteps(
 		return nil, nil, errors.New("planned steps need a kernel; the retry and the verdict are derived")
 	}
 	turn := result.turnAtom()
+	steps, beyond := splitPlan(steps)
+	// The steps past the bound are owed before any step runs: the verdict
+	// joins them (turn_steps.mg), so the steps that run cannot be reported
+	// as the whole plan.
+	for i, s := range beyond {
+		if !e.assertTurnFact(types.Fact{Predicate: "step_plan_remaining", Args: []any{turn, int64(len(steps) + i + 1), s.File}}) {
+			result.StepReport = workStepReport(steps, beyond)
+			return nil, nil, fmt.Errorf("step %d (%s): the remaining step could not be recorded", len(steps)+i+1, s.File)
+		}
+	}
 	var toolErrs []string
 	var last *types.LLMToolResponse
 	for i := range steps {
 		if ctx.Err() != nil {
-			result.StepReport = workStepReport(steps)
+			result.StepReport = workStepReport(steps, beyond)
 			return last, toolErrs, ctx.Err()
 		}
 		step := &steps[i]
@@ -813,11 +873,11 @@ func (e *Executor) runPlannedSteps(
 		// none of the /mangle corpus in it. Both passes of the step share it.
 		stepPrompt := e.stepSystemPrompt(ctx, systemPrompt, &stepCtx, cfg)
 
-		resp, errs, err := e.runToolLoopPass(ctx, stepPrompt, workStepAnchor(task, steps, i, false), cfg, &stepCtx, result, toolLoopPass{})
+		resp, errs, err := e.runToolLoopPass(ctx, stepPrompt, workStepAnchor(task, steps, beyond, i, false), cfg, &stepCtx, result, toolLoopPass{})
 		toolErrs = append(toolErrs, errs...)
 		if err != nil {
 			if ctx.Err() != nil {
-				result.StepReport = workStepReport(steps)
+				result.StepReport = workStepReport(steps, beyond)
 				return last, toolErrs, err
 			}
 			step.Note = err.Error()
@@ -825,27 +885,27 @@ func (e *Executor) runPlannedSteps(
 		}
 		passCalls := result.ToolCallsExecuted - callsBefore
 		if recErr := e.recordStepPass(turn, stepNum, step.File, result.WriteToolEffects-writesBefore, passCalls); recErr != nil {
-			result.StepReport = workStepReport(steps)
+			result.StepReport = workStepReport(steps, beyond)
 			return last, toolErrs, fmt.Errorf("step %d (%s): %w", stepNum, step.File, recErr)
 		}
 		retry, askErr := e.stepCommitRetry(turn, stepNum)
 		if askErr != nil {
-			result.StepReport = workStepReport(steps)
+			result.StepReport = workStepReport(steps, beyond)
 			return last, toolErrs, fmt.Errorf("step %d (%s): %w", stepNum, step.File, askErr)
 		}
 		if retry {
 			if !e.assertTurnFact(types.Fact{Predicate: "step_retried", Args: []any{turn, int64(stepNum)}}) {
-				result.StepReport = workStepReport(steps)
+				result.StepReport = workStepReport(steps, beyond)
 				return last, toolErrs, fmt.Errorf("step %d (%s): the commit retry could not be recorded", stepNum, step.File)
 			}
 			logging.Get(logging.CategorySession).Warn(
 				"Step %d/%d (%s) made no edit in %d tool call(s); one more pass with reading closed",
 				stepNum, len(steps), step.File, passCalls)
-			retried, retryErrs, retryErr := e.runToolLoopPass(ctx, stepPrompt, workStepAnchor(task, steps, i, true), cfg, &stepCtx, result, toolLoopPass{regime: commitRegime})
+			retried, retryErrs, retryErr := e.runToolLoopPass(ctx, stepPrompt, workStepAnchor(task, steps, beyond, i, true), cfg, &stepCtx, result, toolLoopPass{regime: commitRegime})
 			toolErrs = append(toolErrs, retryErrs...)
 			if retryErr != nil {
 				if ctx.Err() != nil {
-					result.StepReport = workStepReport(steps)
+					result.StepReport = workStepReport(steps, beyond)
 					return last, toolErrs, retryErr
 				}
 				step.Note = retryErr.Error()
@@ -855,7 +915,7 @@ func (e *Executor) runPlannedSteps(
 				resp = retried
 			}
 			if recErr := e.recordStepPass(turn, stepNum, step.File, result.WriteToolEffects-writesBefore, result.ToolCallsExecuted-callsBefore); recErr != nil {
-				result.StepReport = workStepReport(steps)
+				result.StepReport = workStepReport(steps, beyond)
 				return last, toolErrs, fmt.Errorf("step %d (%s): %w", stepNum, step.File, recErr)
 			}
 		}
@@ -875,14 +935,14 @@ func (e *Executor) runPlannedSteps(
 		if !step.Edited {
 			step.NoChange = noChangeEvidence(step.Note)
 			if step.NoChange != "" && !e.assertTurnFact(types.Fact{Predicate: "step_no_change_evidence", Args: []any{turn, int64(stepNum), types.MangleString(step.NoChange)}}) {
-				result.StepReport = workStepReport(steps)
+				result.StepReport = workStepReport(steps, beyond)
 				return last, toolErrs, fmt.Errorf("step %d (%s): the no-change evidence could not be recorded", stepNum, step.File)
 			}
 		}
 		logging.Session("Step %d/%d %s: edited=%v, %d tool call(s)", stepNum, len(steps), step.File, step.Edited, step.Calls)
 	}
 	if last == nil {
-		last = &types.LLMToolResponse{Text: workStepReport(steps)}
+		last = &types.LLMToolResponse{Text: workStepReport(steps, beyond)}
 	}
 
 	// One gate for the whole task, inside a working loop so a repair round
@@ -892,7 +952,7 @@ func (e *Executor) runPlannedSteps(
 	gateCtx, closeWorking, workingErr := e.beginWorkingLoop(ctx, client, task, compilationCtx)
 	if workingErr != nil {
 		_, _, outcomeErr := e.finalizedStepOutcome(turn, steps, result)
-		result.StepReport = workStepReport(steps)
+		result.StepReport = workStepReport(steps, beyond)
 		if outcomeErr != nil {
 			return last, toolErrs, errors.Join(workingErr, outcomeErr)
 		}
@@ -906,7 +966,7 @@ func (e *Executor) runPlannedSteps(
 		gateCtx, trp, systemPrompt, history, last, e.buildToolDefinitions(cfg), cfg, result)
 	toolErrs = append(toolErrs, verifyErrs...)
 	verdict, missing, outcomeErr := e.finalizedStepOutcome(turn, steps, result)
-	result.StepReport = workStepReport(steps)
+	result.StepReport = workStepReport(steps, beyond)
 	if verified == nil && last != nil {
 		verified = last
 	}
@@ -918,7 +978,7 @@ func (e *Executor) runPlannedSteps(
 	}
 	if verdict == "/incomplete" {
 		return verified, toolErrs, fmt.Errorf("%w: %d of %d step(s) remain unresolved (%s)\n%s",
-			ErrStepsIncomplete, len(missing), len(steps), strings.Join(missing, ", "), result.StepReport)
+			ErrStepsIncomplete, len(missing), len(steps)+len(beyond), strings.Join(missing, ", "), result.StepReport)
 	}
 	if verdict != "/complete" {
 		return verified, toolErrs, fmt.Errorf("step policy derived no verdict for the %d planned step(s)\n%s", len(steps), result.StepReport)
