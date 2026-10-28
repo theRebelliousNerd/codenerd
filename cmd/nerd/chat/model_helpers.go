@@ -283,6 +283,28 @@ func isDreamExecutionTrigger(input string) bool {
 	})
 }
 
+// learningConfirmationAnswer reads the answer to "Should I learn it?". A
+// chosen option carries its command (/learn_yes, /learn_no), and the command
+// decides: the No option's label "No, do not learn this (/learn_no)" also
+// reads as affirmative ("learn this"), and until 2026-10-28 that learned the
+// mapping the user refused. Free text is read by the yes/no readers; an
+// answer that reads as both, or as neither, is a refusal: nothing is learned
+// without a clear yes.
+func learningConfirmationAnswer(response string) (confirmed, rejected bool) {
+	lower := strings.ToLower(response)
+	switch {
+	case strings.Contains(lower, "/learn_no"):
+		return false, true
+	case strings.Contains(lower, "/learn_yes"):
+		return true, false
+	}
+	yes, no := isAffirmativeResponse(response), isNegativeResponse(response)
+	if yes && !no {
+		return true, false
+	}
+	return false, true
+}
+
 func isAffirmativeResponse(input string) bool {
 	lower := strings.ToLower(strings.TrimSpace(input))
 	if lower == "" {

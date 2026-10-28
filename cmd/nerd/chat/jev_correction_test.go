@@ -186,3 +186,24 @@ func TestLastExchange(t *testing.T) {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+// The chosen option's command decides a learning confirmation: the No option's
+// label also contains "learn this", which reads as a yes.
+func TestLearningConfirmationAnswer(t *testing.T) {
+	cases := []struct {
+		in      string
+		yes, no bool
+	}{
+		{"No, do not learn this (/learn_no)", false, true},
+		{"Yes, learn this mapping (/learn_yes)", true, false},
+		{"yes", true, false},
+		{"no", false, true},
+		{"learn this but do not keep it", false, true},
+		{"hmm", false, true},
+	}
+	for _, tc := range cases {
+		if yes, no := learningConfirmationAnswer(tc.in); yes != tc.yes || no != tc.no {
+			t.Errorf("learningConfirmationAnswer(%q) = %v,%v, want %v,%v", tc.in, yes, no, tc.yes, tc.no)
+		}
+	}
+}

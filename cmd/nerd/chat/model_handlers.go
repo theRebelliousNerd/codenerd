@@ -488,11 +488,7 @@ func (m Model) processClarificationResponse(response string, pendingIntent *perc
 		}
 
 		if candidate, ok := m.loadLearningConfirmationCandidate(); ok {
-			confirmed := isAffirmativeResponse(response)
-			rejected := isNegativeResponse(response)
-			if !confirmed && !rejected {
-				rejected = true
-			}
+			confirmed, _ := learningConfirmationAnswer(response)
 			if confirmed {
 				outcome, err := m.confirmLearningCandidate(candidate)
 				if err != nil {
