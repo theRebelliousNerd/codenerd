@@ -217,3 +217,30 @@ These local research IDs do not assert adoption or replace the owning world/tool
 | STRUCT-EVIDENCE-05 | Demonstrated complete-system value | Paired task study reports accuracy, actionable abstention, failures, full tokens/compute, and human repair; retain the simpler design when additional mechanisms do not earn their cost. |
 
 Before implementation, reconcile the world and tools specifications with these findings, preserve already-correct freshness and permission controls, and choose the narrowest mechanism that establishes the required evidence. The first improvement is straightforward: stop turning an inability to observe into a claim that nothing is there.
+
+## As built (2026-10-27)
+
+Each finding was first reproduced by a failing test through the registered tools (unreadable caller directory let `delete_element` delete a used declaration and `callers_of` answer absence; repoint rewrote `lib.Bu1ld` measured as `lib.Build`; a user added after discovery survived a delete; paging had no source identity), then fixed.
+
+**Implemented**
+
+- **Envelope.** `codedom.Observation` (`internal/tools/codedom/observation.go`): `Generation`, `Index`, `Deficits`, `Complete()`. Every `StructureProvider` method returns it instead of a stats string; `world.observation` (`structure_provider.go`) builds it from `StructureStats.Generation`/`Deficits` (`internal/world/structure_refresh.go`).
+- **S1.** `StructureIndex.refreshLocked` (moved to `structure_refresh.go`): an unlistable directory, stat failure, hash-read failure or parse-read failure is a `StructDeficit`; covered entries are kept as last observed (`deficitSet.covers`), never deleted. Genuine `ErrNotExist`, membership and secret exclusions still remove. The parse reads once through `structReadFile` and verifies the bytes against the stamped hash; a mismatch indexes the bytes read with no stamp so the next refresh re-observes. `StructureStats.scoped` keeps only deficits intersecting a path-scoped query (`FindSymbol`, `Outline`, `FindText`). `pageRequest.render` never prints absence prose or "complete" for an incomplete observation and names the deficits.
+- **S2.** `StructureIndex.Uses` (`structure_queries.go`): unreadable or unparsable candidates are deficits; a candidate whose digest moved since the refresh is observed again (`usesAttempts` = 3), then reported. `usesOutside` returns the observation; `executeDeleteElement` and `executeRepoint` refuse an incomplete one via `unresolvedUses` before any write.
+- **S3.** `StructUse`/`StructureUse` carry `Digest` (hex SHA-256 of raw bytes) and `Text`; `verifyUseSource` (`use_evidence.go`) refuses a plan whose file digest or span text differs. `commitFiles(ctx, planned, reads...)` re-establishes `readDependency`s under `commitMu` before the optimistic byte check: `usesUnchanged` (delete, repoint, delete-with-replace), `declarationStands` (repoint destination), `scriptSitesUnchanged` (script rename).
+- **S4.** `offset` is replaced by `cursor` (`g<gen>.q<query digest>.o<row>`) on all eight paginated structural tools. A cursor for another query, a malformed cursor, or one from another generation is refused (`stale cursor`) with a restart instruction.
+- JIT atom `capability/structure_queries/caller-marks-and-search-gate` explains the incomplete footer and cursor; seed reconciled. World gap rows `GAP-WORLD-STRUCTURE-REVISION` (stale) and `GAP-WORLD-STRUCTURE-EVIDENCE` updated.
+
+**Ruled differently**
+
+- Stale continuation is rejected, not served from retained results: no retention memory and no authorization replay; pages are rare at 150 rows.
+- The read set is the re-observed use set itself, not a workspace epoch: an unrelated edit elsewhere does not invalidate a repoint. The re-observation re-enumerates the candidate domain, so a newly importing user is caught.
+- A hash-read failure became a per-file deficit instead of failing every query; absence claims stay closed because the observation is incomplete.
+- `usesAttempts` and `deficitsShown` are fixed protocol bounds like `structurePageSize`, not config tunables.
+
+**Deferred**
+
+- Mangle-derived obligations (§7.2: Go facts, Mangle decides sufficiency): no policy rule consumes coverage today; the host refuses at the only destructive consumers. Emitting facts without a consumer would be unwired.
+- Secret-path exclusions are not yet reported as domain exclusions to `Uses`; a use inside a secret file stays invisible, as before.
+- Writers outside codedom are not serialized by `commitMu`; the dependency check narrows, but does not close, that window. No atomicity is claimed.
+- Type-aware escalation (variant D), the paired task study (STRUCT-EVIDENCE-05) and scale/latency measurement need live models or benchmarks.
