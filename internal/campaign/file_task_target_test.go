@@ -188,6 +188,7 @@ func TestFileTask_DirectoryStatIsNotSuccess(t *testing.T) {
 // dispatched as a file task with nowhere to write.
 func TestRetype_PathlessFileModifyToResearch(t *testing.T) {
 	d := NewDecomposer(&MockKernel{}, &mockLLMClient{}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 	campaign := d.buildCampaign("/campaign_test", DecomposeRequest{
 		Goal:          "test",
 		CampaignType:  CampaignTypeCustom,

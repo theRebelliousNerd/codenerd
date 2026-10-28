@@ -337,22 +337,15 @@ func (o *Orchestrator) runAssaultStage(
 		// in checkpoint.go); no substring matching here. Missing or malformed
 		// verdict fails closed.
 		verdictKey := strings.TrimPrefix(target, "/")
-		var nemesisPrompt strings.Builder
-		nemesisPrompt.WriteString(fmt.Sprintf("review:%s\n\n", filepath.Join(o.workspace, filepath.FromSlash(dir))))
-		nemesisPrompt.WriteString("Attempt to break the implementation: find vulnerabilities, logic errors, and unhandled edge cases.\n")
-		nemesisPrompt.WriteString("\nYour response MUST be a JSON control-packet carrying exactly one checkpoint_verdict/4 fact in control_packet.mangle_updates:\n")
-		nemesisPrompt.WriteString("checkpoint_verdict(\"PhaseKey\", Verdict, \"reason\", Confidence).\n")
-		nemesisPrompt.WriteString(fmt.Sprintf("PhaseKey must be exactly %q. ", verdictKey))
-		nemesisPrompt.WriteString("Verdict must be /pass (survived the gauntlet, no exploitable weaknesses found) or /fail (gauntlet broke the implementation). Reason is a short human-readable justification. Confidence is an integer percent 0-100.\n")
-		nemesisPrompt.WriteString("The atom must end with a period; it is asserted into the kernel as a fact.\n")
-		nemesisPrompt.WriteString("Example: {\"control_packet\": {\"mangle_updates\": [\"checkpoint_verdict(\\\"my-phase\\\", /pass, \\\"no weaknesses found\\\", 95).\"]}, \"surface_response\": \"...\"}.\n")
-		nemesisPrompt.WriteString("Free-text PASS/FAIL is not accepted; only checkpoint_verdict/4 decides.")
-		taskStr := nemesisPrompt.String()
+		// The gauntlet contract is the campaign/checkpoint/nemesis atom,
+		// live in this turn through CheckpointNemesisPromptPhase.
+		taskStr := fmt.Sprintf("review:%s\n\n", filepath.Join(o.workspace, filepath.FromSlash(dir))) +
+			checkpointTask(nil, target, verdictKey)
 		// A stale verdict for this key must not pre-approve the stage.
 		if o.kernel != nil {
 			_ = o.kernel.RetractFact(core.Fact{Predicate: "checkpoint_verdict", Args: []any{verdictKey}})
 		}
-		result, err := o.spawnTask(ctx, nil, "nemesis", taskStr)
+		result, err := o.spawnTask(withPromptPhase(ctx, CheckpointNemesisPromptPhase), nil, "nemesis", taskStr)
 		content := "nemesis review\n\n" + taskStr + "\n\n" + result
 		if err != nil {
 			content += "\n\nERROR: " + err.Error()
@@ -639,44 +632,18 @@ func (o *Orchestrator) llmAssaultRemediationPlan(ctx context.Context, cfg Assaul
 		return nil
 	}
 
-	promptProvider := o.promptProvider
-	if promptProvider == nil {
-		promptProvider = NewStaticPromptProvider()
+	assaultPrompt, err := rolePrompt(ctx, o.promptProvider, RoleAssault, o.campaign.ID, o.planningClient)
+	if err != nil {
+		logging.Get(logging.CategoryCampaign).Warn("Assault triage has no remediation plan from the model: %v", err)
+		return nil
 	}
 
-	assaultPrompt, err := promptProvider.GetPrompt(ctx, RoleAssault, o.campaign.ID, o.planningClient)
-	if err != nil || strings.TrimSpace(assaultPrompt) == "" {
-		assaultPrompt = AssaultLogic
-	}
-
-	userPrompt := fmt.Sprintf(`ASSAULT RESULTS SUMMARY:
-%s
-
-Generate a remediation plan as JSON.
-
-Constraints:
-- Create at most %d remediation tasks.
-- Prefer shard tasks (shard=coder) that reference concrete artifact paths (logs/results).
-- If you need a missing capability (e.g., fuzz harness), emit a /tool_create task.
-
-Output ONLY valid JSON:
-{
-  "summary": "string",
-  "recommended_tasks": [
-    {
-      "type": "/shard_task|/tool_create",
-      "priority": "/critical|/high|/normal|/low",
-      "description": "string",
-      "shard": "coder|tester|reviewer|nemesis|researcher",
-      "shard_input": "string",
-      "artifacts": ["path1","path2"]
-    }
-  ]
-}
-`, summary, cfg.MaxRemediationTasks)
+	// The assault role's atoms carry the instructions and the reply schema;
+	// this is the data they work from.
+	userPrompt := fmt.Sprintf("ASSAULT RESULTS SUMMARY:\n%s\n\nMaximum remediation tasks: %d\n", summary, cfg.MaxRemediationTasks)
 
 	// Reply is unmarshalled directly; no Piggyback envelope schema.
-	resp, err := o.planningClient.Complete(types.WithStructuredOutputOnly(ctx), assaultPrompt+"\n\n"+userPrompt)
+	resp, err := o.planningClient.CompleteWithSystem(types.WithStructuredOutputOnly(ctx), assaultPrompt, userPrompt)
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Warn("Assault triage LLM call failed: %v", err)
 		return nil

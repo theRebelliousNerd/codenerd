@@ -3,8 +3,11 @@
   subcategory: "librarian"
   is_mandatory: true
   shard_types: ["librarian"]
-  campaign_phases: ["taxonomy"]
-  operational_modes: ["classification"]
+  campaign_phases: ["doc_classification"]
+  conflicts_with:
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
   description: "Cognitive protocol - the classification algorithm decision tree for analyzing imports, structure, usage, and filenames"
   content: |
     // =============================================================================
@@ -36,8 +39,7 @@
   subcategory: "librarian"
   is_mandatory: false
   shard_types: ["librarian"]
-  campaign_phases: ["taxonomy"]
-  operational_modes: ["classification"]
+  campaign_phases: ["doc_classification"]
   description: "Cognitive protocol - the classification algorithm decision tree for analyzing imports, structure, usage, and filenames: Classification algorithm"
   content: |
     // =============================================================================
@@ -72,8 +74,7 @@
   subcategory: "librarian"
   is_mandatory: false
   shard_types: ["librarian"]
-  campaign_phases: ["taxonomy"]
-  operational_modes: ["classification"]
+  campaign_phases: ["doc_classification"]
   description: "Cognitive protocol - the classification algorithm decision tree for analyzing imports, structure, usage, and filenames: Self-correction and reasoning trace"
   content: |
     // =============================================================================

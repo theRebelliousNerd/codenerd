@@ -18,6 +18,8 @@ import (
 type ContextPager struct {
 	kernel    core.Kernel
 	llmClient perception.LLMClient
+	// prompts compiles the phase-summary role's system prompt; guarded by mu.
+	prompts PromptProvider
 
 	// Context window budget (approximate token counts)
 	totalBudget     int // Total tokens available
@@ -55,6 +57,15 @@ func NewContextPager(kernel core.Kernel, llmClient perception.LLMClient, initial
 	logging.CampaignDebug("ContextPager budget allocation: total=%d, core=%d, phase=%d, history=%d, working=%d, prefetch=%d",
 		cp.totalBudget, cp.coreReserve, cp.phaseReserve, cp.historyReserve, cp.workingReserve, cp.prefetchReserve)
 	return cp
+}
+
+// SetPromptProvider sets the provider that compiles the phase-summary role's
+// system prompt. Without one a phase is compressed to its task list, with no
+// model call.
+func (cp *ContextPager) SetPromptProvider(provider PromptProvider) {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+	cp.prompts = provider
 }
 
 // SetBudget updates the total token budget.
@@ -246,23 +257,24 @@ func (cp *ContextPager) CompressPhase(ctx context.Context, phase *Phase) (string
 	var summary string
 	if len(accomplishments) > 0 {
 		logging.CampaignDebug("Requesting LLM summary for phase compression")
-		prompt := fmt.Sprintf(`Summarize what was accomplished in this phase (max 100 words):
-
-Phase: %s
-Completed Tasks:
-%s
-
-Summary:`, phase.Name, strings.Join(accomplishments, "\n"))
-
+		cp.mu.RLock()
+		prompts := cp.prompts
+		cp.mu.RUnlock()
 		var resp string
 		var err error
-		if cp.llmClient != nil {
-			resp, err = cp.llmClient.Complete(ctx, prompt)
-		} else {
+		if cp.llmClient == nil {
 			err = fmt.Errorf("LLM client is nil")
+		} else {
+			var systemPrompt string
+			systemPrompt, err = rolePrompt(ctx, prompts, RolePhaseSummary, phase.CampaignID, cp.llmClient)
+			if err == nil {
+				// The reply is the summary itself, stored as written.
+				resp, err = cp.llmClient.CompleteWithSystem(types.WithStructuredOutputOnly(ctx), systemPrompt,
+					fmt.Sprintf("Phase: %s\nCompleted Tasks:\n%s", phase.Name, strings.Join(accomplishments, "\n")))
+			}
 		}
 		if err != nil {
-			logging.CampaignDebug("LLM summary failed, using fallback: %v", err)
+			logging.CampaignWarn("Phase %s summarized as its task list: the summary model call failed: %v", phase.ID, err)
 			// Fallback to simple summary
 			summary = fmt.Sprintf("Phase '%s' completed. %d tasks done: %s", phase.Name, len(accomplishments), strings.Join(accomplishments[:min(3, len(accomplishments))], "; "))
 		} else {

@@ -6,9 +6,13 @@
   # envelope to request tools, and this atom forbids the envelope. Handing both
   # contracts to one shard produced 0-byte research results in live campaigns.
   shard_types: ["extractor"]
-  campaign_phases: ["requirements", "northstar"]
+  campaign_phases: ["requirements", "northstar", "requirement_extraction"]
   depends_on: ["campaign/extractor/identity", "campaign/extractor/methodology"]
   description: "Piggyback Protocol output format, thought-first ordering, and reasoning trace requirements for requirements extraction"
+  conflicts_with:
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
   content: |
     // =============================================================================
     // OUTPUT PROTOCOL
@@ -50,7 +54,7 @@
   subcategory: "extractor"
   is_mandatory: false
   shard_types: ["extractor"]
-  campaign_phases: ["requirements", "northstar"]
+  campaign_phases: ["requirements", "northstar", "requirement_extraction"]
   depends_on: ["campaign/extractor/identity", "campaign/extractor/methodology"]
   description: "Piggyback Protocol output format, thought-first ordering, and reasoning trace requirements for requirements extraction: Extraction rigor"
   content: |

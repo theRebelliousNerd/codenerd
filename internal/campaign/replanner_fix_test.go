@@ -65,6 +65,7 @@ func TestReplanForNewRequirement_DuplicateSuppression(t *testing.T) {
 					return `{"new_tasks": [{"phase_order": 0, "description": "` + tc.newDesc + `", "type": "/file_create", "priority": "/high"}], "modified_tasks": [], "summary": "ok"}`, nil
 				},
 			}, "")
+			r.SetPromptProvider(testPromptProvider{})
 			if err := r.ReplanForNewRequirement(context.Background(), campaign, "new requirement"); err != nil {
 				t.Fatalf("ReplanForNewRequirement failed: %v", err)
 			}
@@ -109,6 +110,7 @@ func TestReplanForNewRequirement_ContextFromMapping(t *testing.T) {
 			return `{"new_tasks": [{"phase_order": 0, "description": "Synthesize auth report", "type": "/document", "priority": "/high", "depends_on": ["Research auth design"]}], "modified_tasks": [], "summary": "ok"}`, nil
 		},
 	}, "")
+	r.SetPromptProvider(testPromptProvider{})
 	if err := r.ReplanForNewRequirement(context.Background(), campaign, "need synthesis"); err != nil {
 		t.Fatalf("ReplanForNewRequirement failed: %v", err)
 	}
@@ -148,6 +150,7 @@ func TestReplanForNewRequirement_ContextFromMapping(t *testing.T) {
 			return `{"new_tasks": [{"phase_order": 0, "description": "Implement auth", "type": "/file_create", "priority": "/high"}], "modified_tasks": [], "summary": "ok"}`, nil
 		},
 	}, "")
+	r2.SetPromptProvider(testPromptProvider{})
 	if err := r2.ReplanForNewRequirement(context.Background(), campaign2, "need impl"); err != nil {
 		t.Fatalf("ReplanForNewRequirement failed: %v", err)
 	}
@@ -182,6 +185,7 @@ func TestReplanForNewRequirement_ContextFromViaID(t *testing.T) {
 			return `{"new_tasks": [{"phase_order": 0, "description": "Synthesize report", "type": "/document", "priority": "/high", "context_from": ["/task_test_0_0"]}], "modified_tasks": [], "summary": "ok"}`, nil
 		},
 	}, "")
+	r.SetPromptProvider(testPromptProvider{})
 	if err := r.ReplanForNewRequirement(context.Background(), campaign, "need synthesis"); err != nil {
 		t.Fatalf("ReplanForNewRequirement failed: %v", err)
 	}
@@ -242,6 +246,7 @@ func TestRefineNextPhase_DuplicateSuppression(t *testing.T) {
 					return `{"tasks": [{"task_id": "", "description": "` + tc.newDesc + `", "type": "/file_create", "artifacts": ["payment.go"], "priority": "/high", "action": "add"}], "summary": "ok"}`, nil
 				},
 			}, "")
+			r.SetPromptProvider(testPromptProvider{})
 			if err := r.RefineNextPhase(context.Background(), campaign, completed, nil); err != nil {
 				t.Fatalf("RefineNextPhase failed: %v", err)
 			}
@@ -275,6 +280,7 @@ func TestRefineNextPhase_DuplicateViaUpdateFallback(t *testing.T) {
 			return `{"tasks": [{"task_id": "nonexistent", "description": "Implement payment flow", "type": "/file_create", "artifacts": ["payment.go"], "priority": "/high", "action": "update"}], "summary": "ok"}`, nil
 		},
 	}, "")
+	r.SetPromptProvider(testPromptProvider{})
 	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0], nil); err != nil {
 		t.Fatalf("RefineNextPhase failed: %v", err)
 	}
@@ -310,6 +316,7 @@ func TestRefineNextPhase_ContextFromMapping(t *testing.T) {
 			return `{"tasks": [{"task_id": "", "description": "Synthesize payment report", "type": "/document", "artifacts": ["report.md"], "priority": "/high", "action": "add", "depends_on": ["Research payment design"]}], "summary": "ok"}`, nil
 		},
 	}, "")
+	r.SetPromptProvider(testPromptProvider{})
 	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0], nil); err != nil {
 		t.Fatalf("RefineNextPhase failed: %v", err)
 	}
@@ -340,6 +347,7 @@ func TestRefineNextPhase_ContextFromMapping(t *testing.T) {
 			return `{"tasks": [{"task_id": "", "description": "Implement payment flow", "type": "/file_create", "artifacts": ["payment.go"], "priority": "/high", "action": "add"}], "summary": "ok"}`, nil
 		},
 	}, "")
+	r2.SetPromptProvider(testPromptProvider{})
 	if err := r2.RefineNextPhase(context.Background(), campaign2, &campaign2.Phases[0], nil); err != nil {
 		t.Fatalf("RefineNextPhase failed: %v", err)
 	}
@@ -369,6 +377,7 @@ func TestRefineNextPhase_PerPhaseDuplicateIsolation(t *testing.T) {
 			return `{"tasks": [{"task_id": "", "description": "Implement payment flow", "type": "/file_create", "artifacts": ["payment.go"], "priority": "/high", "action": "add"}], "summary": "ok"}`, nil
 		},
 	}, "")
+	r.SetPromptProvider(testPromptProvider{})
 	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0], nil); err != nil {
 		t.Fatalf("RefineNextPhase failed: %v", err)
 	}

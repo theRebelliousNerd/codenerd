@@ -159,16 +159,6 @@ func TestArchitectPersonaSurvivesEverySeam(t *testing.T) {
 		}
 	})
 
-	t.Run("shard-translator fallback", func(t *testing.T) {
-		// process_dream_delegation.go's fallback returns the persona alone.
-		got := withArchitectPersona("")
-		assertPersonaLeads(t, got)
-		if got != architectPersona {
-			t.Fatalf("translator fallback system prompt changed: want the persona alone (%d bytes), got %d bytes",
-				len(architectPersona), len(got))
-		}
-	})
-
 	t.Run("empty and whitespace base both yield the persona alone", func(t *testing.T) {
 		for _, base := range []string{"", "   ", "\n\n", "\t\n "} {
 			if got := withArchitectPersona(base); got != architectPersona {

@@ -1,10 +1,9 @@
 - id: "campaign/librarian/edge_cases"
   category: "campaign"
   subcategory: "librarian"
-  is_mandatory: false
+  is_mandatory: true
   shard_types: ["librarian"]
-  campaign_phases: ["taxonomy"]
-  operational_modes: ["classification"]
+  campaign_phases: ["doc_classification"]
   description: "Edge case handbook and framework-specific heuristics for Gin, Echo, GORM, Cobra, middleware, utils, and config structs"
   content: |
     // =============================================================================
@@ -23,10 +22,9 @@
   section_order: 1
   category: "campaign"
   subcategory: "librarian"
-  is_mandatory: false
+  is_mandatory: true
   shard_types: ["librarian"]
-  campaign_phases: ["taxonomy"]
-  operational_modes: ["classification"]
+  campaign_phases: ["doc_classification"]
   description: "Edge case handbook and framework-specific heuristics for Gin, Echo, GORM, Cobra, middleware, utils, and config structs: GIN WEB FRAMEWORK"
   content: |
     ### GIN WEB FRAMEWORK
@@ -48,3 +46,24 @@
 
     - 'cobra.Command' -> **/transport** (Command Line Interface is a transport).
     - 'cmd/root.go' -> **/transport** or **/integration**.
+
+- id: "campaign/librarian/edge_cases/utilities-manifesto"
+  section_of: "campaign/librarian/edge_cases"
+  section_order: 2
+  category: "campaign"
+  subcategory: "librarian"
+  is_mandatory: true
+  shard_types: ["librarian"]
+  campaign_phases: ["doc_classification"]
+  description: "Edge case handbook and framework-specific heuristics for Gin, Echo, GORM, Cobra, middleware, utils, and config structs: the Librarian's manifesto on utilities"
+  content: |
+    // =============================================================================
+    // VI. THE LIBRARIAN'S MANIFESTO ON "UTILITIES"
+    // =============================================================================
+    "Utility" is a weak word. It hides the truth.
+    1.  Is it a "Business Utility"? (e.g., 'CalculateTaxRate') -> **/service**.
+    2.  Is it a "Language Utility"? (e.g., 'StringReverse') -> **/domain_core** (Shared Kernel).
+    3.  Is it a "Framework Utility"? (e.g., 'RespondJSON') -> **/transport**.
+    4.  Is it a "Deploy Utility"? (e.g., 'MyHealthCheck') -> **/scaffold**.
+
+    Classify specific utilities based on *usage context*, not the folder name 'utils'.

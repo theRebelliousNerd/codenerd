@@ -44,6 +44,7 @@ func TestRefineNextPhase_RetargetsATaskFromWhatTheResearchFound(t *testing.T) {
 			return `{"tasks": [{"task_id": "/task_fix", "action": "update", "write_set": ["cmd/nerd/cmd_mangle_check.go"]}], "summary": "retargeted"}`, nil
 		},
 	}, ws)
+	r.SetPromptProvider(testPromptProvider{})
 	results := func(id string) (string, bool) {
 		if id == "/task_research" {
 			return finding, true
@@ -55,7 +56,9 @@ func TestRefineNextPhase_RetargetsATaskFromWhatTheResearchFound(t *testing.T) {
 		t.Fatalf("RefineNextPhase: %v", err)
 	}
 
-	for _, want := range []string{finding, "[/task_fix]", "internal/cli/check-mangle.go (ABSENT)", `"write_set"`} {
+	// The reply schema's write_set is the replanner's atom
+	// (campaign/replanning/output), compiled into the system prompt.
+	for _, want := range []string{finding, "[/task_fix]", "internal/cli/check-mangle.go (ABSENT)"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("the refinement was not shown %q", want)
 		}

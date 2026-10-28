@@ -2,21 +2,24 @@ package campaign
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"codenerd/internal/perception"
+	"codenerd/internal/prompt"
+	"codenerd/internal/types"
 )
 
-// Every campaign role must be served by prompt atoms, not by prompts.go.
+// Every campaign role's prompt lives in prompt atoms: there is no Go copy to
+// fall back to. A role whose family has no atoms compiles to the shared
+// substrate alone and produces a reply that looks normal and answers nothing.
 //
-// prompts.go is ~1000 lines of frozen prompt with no view of the campaign it is
-// serving. The JIT path assembles internal/prompt/atoms/campaign/* against the
-// live campaign's facts and token budget. Both paths exist, and the failure
-// mode is silent: a role whose atoms were never written falls back to the
-// frozen text and produces a plan that looks completely normal.
-//
-// This reads the atom corpus and fails if a role has no atoms behind it.
+// This reads the atom corpus and fails if a role has no atoms behind it;
+// TestCampaignRolePrompts_AreCompiledFromTheirAtoms (campaign_test) compiles
+// each role and checks its atoms reach the prompt.
 func TestCampaignRoles_HaveAtomCoverage(t *testing.T) {
 	atomsDir := filepath.Join(repoRoot(t), "internal", "prompt", "atoms", "campaign")
 	if _, err := os.Stat(atomsDir); err != nil {
@@ -31,10 +34,10 @@ func TestCampaignRoles_HaveAtomCoverage(t *testing.T) {
 		t.Fatalf("found only %d atom ids under %s; the scan is broken, not the corpus", len(corpus), atomsDir)
 	}
 
-	for _, role := range AllCampaignRoles() {
+	for _, role := range CampaignRoles() {
 		family := CampaignRoleAtomFamily(role)
 		if family == "" {
-			t.Errorf("role %s has no atom family; add it to CampaignRoleAtomFamily", role)
+			t.Errorf("role %s has no atom family", role)
 			continue
 		}
 		count := 0
@@ -44,46 +47,65 @@ func TestCampaignRoles_HaveAtomCoverage(t *testing.T) {
 			}
 		}
 		if count == 0 {
-			t.Errorf("role %s claims atom family %q but no atom in the corpus carries that prefix. "+
-				"Every request for this role silently falls back to the frozen prompt in prompts.go.",
-				role, family)
+			t.Errorf("role %s claims atom family %q but no atom in the corpus carries that prefix; "+
+				"its prompt would carry nothing of its own", role, family)
 		}
 	}
 }
 
-// The static provider must announce itself. A campaign planned from the frozen
-// prompt is indistinguishable in its output from one planned by the JIT path,
-// so the only way an operator learns which happened is if the fallback says so.
-func TestStaticPromptProvider_ShouldStillServeEveryRole(t *testing.T) {
-	provider := NewStaticPromptProvider()
-	for _, role := range AllCampaignRoles() {
-		prompt, err := provider.GetPrompt(context.Background(), role, "/campaign_x", nil)
-		if err != nil {
-			t.Errorf("role %s: %v", role, err)
-			continue
+// Every role names its family, its phase and its shard type, and the shard
+// type is one whose reply is parsed by Go: a Piggyback envelope around a
+// campaign reply is a second, competing output contract
+// (prompt.IsStructuredOutputOnly).
+func TestCampaignRoles_AreFullySpecified(t *testing.T) {
+	phases := map[string]CampaignRole{}
+	for _, role := range CampaignRoles() {
+		if CampaignRoleAtomFamily(role) == "" || GetCampaignPhaseForRole(role) == "" || GetShardTypeForRole(role) == "" {
+			t.Errorf("role %s: family %q, phase %q, shard %q; each must be named",
+				role, CampaignRoleAtomFamily(role), GetCampaignPhaseForRole(role), GetShardTypeForRole(role))
 		}
-		if strings.TrimSpace(prompt) == "" {
-			t.Errorf("role %s produced an empty fallback prompt; the fallback exists precisely so this never happens", role)
+		if !prompt.IsStructuredOutputOnly(GetShardTypeForRole(role)) {
+			t.Errorf("role %s compiles as shard %q, which keeps the Piggyback envelope", role, GetShardTypeForRole(role))
 		}
+		// A phase is the regime that selects a role's atoms; two roles on one
+		// phase would each compile the other's contract.
+		if other, dup := phases[GetCampaignPhaseForRole(role)]; dup {
+			t.Errorf("roles %s and %s share campaign phase %s", other, role, GetCampaignPhaseForRole(role))
+		}
+		phases[GetCampaignPhaseForRole(role)] = role
 	}
-
-	// An unknown role must not return an empty string either.
-	generic, err := provider.GetPrompt(context.Background(), CampaignRole("nonsense"), "/campaign_x", nil)
-	if err != nil {
-		t.Fatalf("unknown role returned an error: %v", err)
-	}
-	if strings.TrimSpace(generic) == "" {
-		t.Error("unknown role produced an empty prompt")
+	if GetCampaignPhaseForRole(CampaignRole("nope")) != "" || GetShardTypeForRole(CampaignRole("nope")) != "" {
+		t.Error("an unknown role resolved to a phase or a shard type")
 	}
 }
 
-// CampaignRoleAtomFamily must cover every declared role, so adding a role
-// forces a decision about where its prompt content lives.
-func TestCampaignRoleAtomFamily_CoversEveryRole(t *testing.T) {
-	for _, role := range AllCampaignRoles() {
-		if CampaignRoleAtomFamily(role) == "" {
-			t.Errorf("role %s has no atom family mapping", role)
-		}
+type stubPromptProvider struct {
+	prompt string
+	err    error
+}
+
+func (s stubPromptProvider) GetPrompt(context.Context, CampaignRole, string, perception.LLMClient) (string, error) {
+	return s.prompt, s.err
+}
+
+// Without a provider, after a failed compile, or with an empty compile, a
+// campaign model call has no prompt to send and says so.
+func TestRolePrompt_UnavailableIsAnError(t *testing.T) {
+	for name, provider := range map[string]PromptProvider{
+		"no provider":   nil,
+		"compile error": stubPromptProvider{err: errors.New("compile failed")},
+		"empty compile": stubPromptProvider{prompt: "  \n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := rolePrompt(context.Background(), provider, RolePlanner, "/c", nil)
+			if !errors.Is(err, types.ErrRolePromptUnavailable) || got != "" {
+				t.Fatalf("rolePrompt = %q, %v; want types.ErrRolePromptUnavailable", got, err)
+			}
+		})
+	}
+	got, err := rolePrompt(context.Background(), stubPromptProvider{prompt: "compiled"}, RolePlanner, "/c", nil)
+	if err != nil || got != "compiled" {
+		t.Fatalf("rolePrompt = %q, %v; want the provider's prompt", got, err)
 	}
 }
 
@@ -117,13 +139,4 @@ func loadCampaignAtomIDs(dir string) ([]string, error) {
 		return nil
 	})
 	return ids, err
-}
-
-// AllCampaignRoles lists every role the provider serves, so the tests above can
-// require each one to have an atom family and a static fallback.
-func AllCampaignRoles() []CampaignRole {
-	return []CampaignRole{
-		RoleLibrarian, RoleExtractor, RoleTaxonomy,
-		RolePlanner, RoleReplanner, RoleAnalysis, RoleAssault,
-	}
 }

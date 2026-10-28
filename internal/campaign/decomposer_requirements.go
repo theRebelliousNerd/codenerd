@@ -120,20 +120,13 @@ func (d *Decomposer) extractRequirementsSmart(ctx context.Context, campaignID, g
 
 	snippetsStr := sb.String()
 
-	// Exactly one LLM synthesis call for the whole goal.
-	prompt := fmt.Sprintf(`Goal: %s
-Given the retrieved snippets, extract discrete requirements directly relevant to the goal as JSON (at most 20):
-{
-  "requirements": [
-    {"description": "...", "priority": "/critical|/high|/normal|/low", "source": "path"}
-  ]
-}
-Return only requirements directly relevant to the goal. No duplicates. Return JSON only.
-
-Snippets:
-%s`, goal, snippetsStr)
-
-	resp, err := d.completeWithGrounding(ctx, prompt)
+	// Exactly one LLM synthesis call for the whole goal. The extractor role's
+	// atoms carry the instructions and the reply schema; this is the data.
+	systemPrompt, err := rolePrompt(ctx, d.promptProvider, RoleExtractor, campaignID, d.llmClient)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := d.completeWithGrounding(ctx, systemPrompt, fmt.Sprintf("Goal: %s\n\nSnippets:\n%s", goal, snippetsStr))
 	if err != nil {
 		logging.CampaignDebug("LLM extraction failed: %v", err)
 		return nil, nil

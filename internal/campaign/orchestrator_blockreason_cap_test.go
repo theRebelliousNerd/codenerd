@@ -96,6 +96,7 @@ func TestAttemptCap_TriggersReplanBeforeBlock(t *testing.T) {
 			return `{"success": true, "change_summary": "attempt-cap replan ok", "retry_tasks": [], "skip_tasks": [], "add_tasks": [{"phase_id": "/phase_failure_policy", "description": "Add follow-up fix for attempt-cap failure", "type": "/file_modify", "priority": "/high", "before_task": ""}], "modify_dependencies": []}`, nil
 		},
 	}, "")
+	orch.replanner.SetPromptProvider(testPromptProvider{})
 
 	live := failTask(orch, "/task_mutate_1", errors.New("attempt-cap failure"))
 	if got := replanCalls.Load(); got != 1 {

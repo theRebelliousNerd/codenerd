@@ -20,7 +20,8 @@ import (
 )
 
 // tierLLM is one configured LLM slot in a routing test. It counts every call
-// it serves; complete answers Complete and system answers CompleteWithSystem.
+// it serves; complete answers Complete, and CompleteWithSystem when system is
+// unset.
 type tierLLM struct {
 	calls    atomic.Int32
 	complete func(prompt string) string
@@ -37,10 +38,14 @@ func (c *tierLLM) Complete(_ context.Context, prompt string) (string, error) {
 
 func (c *tierLLM) CompleteWithSystem(_ context.Context, systemPrompt, userPrompt string) (string, error) {
 	c.calls.Add(1)
-	if c.system == nil {
+	switch {
+	case c.system != nil:
+		return c.system(systemPrompt, userPrompt), nil
+	case c.complete != nil:
+		return c.complete(systemPrompt + "\n\n" + userPrompt), nil
+	default:
 		return "", nil
 	}
-	return c.system(systemPrompt, userPrompt), nil
 }
 
 func (c *tierLLM) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan types.StreamResult) {
@@ -89,6 +94,7 @@ func newTierOrchestrator(t *testing.T, kernel core.Kernel, execution, planning p
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)
 	}
+	orch.SetPromptProvider(testPromptProvider{})
 	t.Cleanup(func() {
 		if err := orch.Close(); err != nil {
 			t.Errorf("Close: %v", err)
@@ -115,7 +121,7 @@ type promptRecord struct {
 	servedBy perception.LLMClient
 }
 
-// recordingPromptProvider records every GetPrompt and serves the static
+// recordingPromptProvider records every GetPrompt and serves a stand-in
 // prompt, so the components it is wired into behave as in production.
 type recordingPromptProvider struct {
 	mu      sync.Mutex
@@ -126,7 +132,7 @@ func (p *recordingPromptProvider) GetPrompt(_ context.Context, role CampaignRole
 	p.mu.Lock()
 	p.records = append(p.records, promptRecord{role: role, servedBy: servedBy})
 	p.mu.Unlock()
-	return getStaticPrompt(role), nil
+	return testPromptProvider{}.GetPrompt(context.Background(), role, "", servedBy)
 }
 
 func (p *recordingPromptProvider) servedBy(role CampaignRole) []perception.LLMClient {
@@ -421,8 +427,9 @@ func TestJITPromptProvider_CompilesForTheServingModel(t *testing.T) {
 	}
 }
 
-// No assembler means no JIT provider, so each role keeps its static prompt.
-func TestNewJITPromptProvider_NilAssemblerLeavesTheStaticFallback(t *testing.T) {
+// No assembler means no JIT provider: each role reports its prompt
+// unavailable rather than reaching a model.
+func TestNewJITPromptProvider_NilAssemblerIsNoProvider(t *testing.T) {
 	if provider := NewJITPromptProvider(nil); provider != nil {
 		t.Fatalf("NewJITPromptProvider(nil) = %T, want nil", provider)
 	}

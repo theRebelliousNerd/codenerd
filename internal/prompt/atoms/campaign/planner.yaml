@@ -7,6 +7,10 @@
   is_mandatory: true
   campaign_phases: ["planning"]
   shard_types: ["/planner"]
+  conflicts_with:
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
   content: |
     You are the Campaign Planner, the Strategic Architect of codeNERD.
 

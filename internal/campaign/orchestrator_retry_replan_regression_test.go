@@ -35,6 +35,7 @@ func TestHandleTaskFailure_RetryableDoesNotReplanNorDuplicate(t *testing.T) {
 			return `{"success": true, "change_summary": "duplicate", "retry_tasks": [], "skip_tasks": [], "add_tasks": [{"phase_id": "/phase_failure_policy", "description": "Modify source file", "type": "/file_modify", "priority": "/high", "before_task": ""}], "modify_dependencies": []}`, nil
 		},
 	}, "")
+	orch.replanner.SetPromptProvider(testPromptProvider{})
 	beforeTasks := len(orch.campaign.Phases[0].Tasks)
 	beforeRevision := orch.campaign.RevisionNumber
 
@@ -78,6 +79,7 @@ func TestHandleTaskFailure_TerminalCanStillReplan(t *testing.T) {
 			return `{"success": true, "change_summary": "terminal replan ok", "retry_tasks": [], "skip_tasks": [], "add_tasks": [{"phase_id": "/phase_failure_policy", "description": "Add follow-up fix for terminal failure", "type": "/file_modify", "priority": "/high", "before_task": ""}], "modify_dependencies": []}`, nil
 		},
 	}, "")
+	orch.replanner.SetPromptProvider(testPromptProvider{})
 	beforeTasks := len(orch.campaign.Phases[0].Tasks)
 
 	live := failTask(orch, "/task_mutate_1", errors.New("terminal logic failure"))

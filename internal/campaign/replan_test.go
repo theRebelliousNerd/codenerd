@@ -16,6 +16,7 @@ import (
 
 func TestReplanner_NilDependencies(t *testing.T) {
 	r := NewReplanner(nil, nil, "")
+	r.SetPromptProvider(testPromptProvider{})
 
 	// Replan
 	err := r.Replan(context.Background(), &Campaign{ID: "c1"}, "t1")
@@ -38,6 +39,7 @@ func TestReplanner_NilDependencies(t *testing.T) {
 
 func TestReplan_EmptyCampaignID(t *testing.T) {
 	r := NewReplanner(&MockKernel{}, &MockLLMClient{}, "")
+	r.SetPromptProvider(testPromptProvider{})
 	err := r.Replan(context.Background(), &Campaign{ID: ""}, "t1")
 	if err == nil || !strings.Contains(err.Error(), "invalid campaign ID") {
 		t.Errorf("Expected invalid campaign ID error, got %v", err)
@@ -50,6 +52,7 @@ func TestReplan_WhitespaceFailedTaskID(t *testing.T) {
 			return `{"success": true, "change_summary": "ok", "retry_tasks": [], "skip_tasks": [], "add_tasks": [], "modify_dependencies": []}`, nil
 		},
 	}, "")
+	r.SetPromptProvider(testPromptProvider{})
 	campaign := &Campaign{
 		ID: "/c1",
 		Phases: []Phase{{
@@ -78,6 +81,7 @@ func TestReplan_EmptyLLMResponse(t *testing.T) {
 				return resp, nil
 			},
 		}, "")
+		r.SetPromptProvider(testPromptProvider{})
 
 		err := r.Replan(context.Background(), campaign, "/t1")
 		// Should not panic, should return unmarshal error or false success
@@ -91,6 +95,7 @@ func TestReplan_EmptyLLMResponse(t *testing.T) {
 
 func TestReplan_EmptyTaskAttemptError(t *testing.T) {
 	r := NewReplanner(&MockKernel{}, &MockLLMClient{}, "")
+	r.SetPromptProvider(testPromptProvider{})
 	campaign := &Campaign{
 		ID: "/c1",
 		Phases: []Phase{{
@@ -125,6 +130,7 @@ func TestReplan_InvalidEnumCoercionToMangle(t *testing.T) {
 			return `{"success": true, "change_summary": "ok", "retry_tasks": [], "skip_tasks": [], "add_tasks": [{"phase_id": "/p1", "description": "d", "type": "UNKNOWN_TYPE", "priority": "URGENT", "before_task": ""}], "modify_dependencies": []}`, nil
 		},
 	}, "")
+	r.SetPromptProvider(testPromptProvider{})
 	campaign := &Campaign{
 		ID:     "/c1",
 		Phases: []Phase{{ID: "/p1", Category: "implementation", Tasks: []Task{{ID: "/t1", Status: TaskFailed}}}},
@@ -154,6 +160,7 @@ func TestReplan_MalformedTaskActionStrings(t *testing.T) {
 			return `{"tasks": [{"task_id": "/t1", "description": "d", "type": "/file_modify", "artifacts": ["sample.go"], "priority": "/high", "action": "DELETE_IT"}], "summary": "ok"}`, nil
 		},
 	}, "")
+	r.SetPromptProvider(testPromptProvider{})
 	campaign := &Campaign{
 		ID: "/c1",
 		Phases: []Phase{
@@ -184,6 +191,7 @@ func TestReplan_DuplicateTaskIDsInAddedTasks(t *testing.T) {
 			], "summary": "ok"}`, nil
 		},
 	}, "")
+	r.SetPromptProvider(testPromptProvider{})
 	campaign := &Campaign{
 		ID: "/c1",
 		Phases: []Phase{
@@ -216,6 +224,7 @@ func TestReplan_CircularDependencyInjection(t *testing.T) {
 			return `{"success": true, "change_summary": "ok", "modify_dependencies": [{"task_id": "/t1", "remove_deps": [], "add_deps": ["/t2"]}, {"task_id": "/t2", "remove_deps": [], "add_deps": ["/t1"]}]}`, nil
 		},
 	}, "")
+	r.SetPromptProvider(testPromptProvider{})
 
 	campaign := &Campaign{
 		ID: "/c1",
@@ -265,6 +274,7 @@ func TestReplan_PromptInjectionInErrors(t *testing.T) {
 			return `{"success": true, "change_summary": "ok"}`, nil
 		},
 	}, "")
+	r.SetPromptProvider(testPromptProvider{})
 
 	campaign := &Campaign{
 		ID: "/c1",
@@ -316,6 +326,7 @@ func TestReplan_MassiveTaskGeneration(t *testing.T) {
 			return massiveJSON, nil
 		},
 	}, "")
+	r.SetPromptProvider(testPromptProvider{})
 
 	campaign := &Campaign{
 		ID:     "/c1",
@@ -342,6 +353,7 @@ func TestReplan_ConcurrentReplans(t *testing.T) {
 			return `{"success": true, "change_summary": "ok", "retry_tasks": [], "skip_tasks": [], "add_tasks": [{"phase_id": "/p1", "description": "d", "type": "/file_modify", "artifacts": ["sample.go"], "priority": "/high", "before_task": ""}], "modify_dependencies": []}`, nil
 		},
 	}, "")
+	r.SetPromptProvider(testPromptProvider{})
 
 	campaign := &Campaign{
 		ID:     "/c1",
@@ -380,6 +392,7 @@ func TestReplanForNewRequirement_KernelFailureRollback(t *testing.T) {
 			return `{"new_tasks": [{"phase_order": 0, "description": "d", "type": "/file_modify", "artifacts": ["sample.go"], "priority": "/high"}], "modified_tasks": [], "summary": "ok"}`, nil
 		},
 	}, "")
+	r.SetPromptProvider(testPromptProvider{})
 
 	campaign := &Campaign{
 		ID:     "/c1",
@@ -413,6 +426,7 @@ func TestReplan_KernelTransactionFailureStateReversibility(t *testing.T) {
 			return `{"success": true, "change_summary": "ok", "retry_tasks": [{"task_id": "/t1", "new_approach": "new approach"}]}`, nil
 		},
 	}, "")
+	r.SetPromptProvider(testPromptProvider{})
 
 	campaign := &Campaign{
 		ID:     "/c1",
@@ -438,6 +452,7 @@ func TestReplan_GhostFactsInKernel(t *testing.T) {
 			return `{"success": true, "change_summary": "ok", "retry_tasks": [{"task_id": "/t1", "new_approach": "new approach"}]}`, nil
 		},
 	}, "")
+	r.SetPromptProvider(testPromptProvider{})
 
 	campaign := &Campaign{
 		ID:     "/c1",
@@ -476,13 +491,14 @@ func TestReplanner_RecursionFix(t *testing.T) {
 	// Create replanner with nil kernel (not needed for this test)
 	// We pass the mock as the LLMClient
 	r := NewReplanner(nil, mockLLM, "")
+	r.SetPromptProvider(testPromptProvider{})
 
 	// Context
 	ctx := context.Background()
 
 	// Execution
 	// This should NOT panic with stack overflow
-	resp, err := r.completeWithGrounding(ctx, "Test prompt")
+	resp, err := r.completeWithGrounding(ctx, "Test system", "Test prompt")
 
 	// Verification
 	if err != nil {
@@ -503,10 +519,12 @@ func TestReplanner_RecursionFix_ErrorPropagates(t *testing.T) {
 	}
 
 	r := NewReplanner(nil, mockLLM, "")
+
+	r.SetPromptProvider(testPromptProvider{})
 	ctx := context.Background()
 
 	// Execution
-	_, err := r.completeWithGrounding(ctx, "Test prompt")
+	_, err := r.completeWithGrounding(ctx, "Test system", "Test prompt")
 
 	// Verification
 	if err != expectedErr {
@@ -516,6 +534,7 @@ func TestReplanner_RecursionFix_ErrorPropagates(t *testing.T) {
 
 func TestReplan_NilCampaign(t *testing.T) {
 	r := NewReplanner(&MockKernel{}, &MockLLMClient{}, "")
+	r.SetPromptProvider(testPromptProvider{})
 
 	err := r.Replan(context.Background(), nil, "")
 	if !errors.Is(err, ErrNilCampaign) {
@@ -525,6 +544,7 @@ func TestReplan_NilCampaign(t *testing.T) {
 
 func TestReplanForNewRequirement_EmptyRequirement(t *testing.T) {
 	r := NewReplanner(&MockKernel{}, &MockLLMClient{}, "")
+	r.SetPromptProvider(testPromptProvider{})
 
 	err := r.ReplanForNewRequirement(context.Background(), &Campaign{ID: "/campaign_test"}, "   ")
 	if !errors.Is(err, ErrEmptyRequirement) {
@@ -550,6 +570,7 @@ func TestReplanForNewRequirement_InvalidEnumsNormalized(t *testing.T) {
 			}`, nil
 		},
 	}, "")
+	r.SetPromptProvider(testPromptProvider{})
 
 	campaign := &Campaign{
 		ID:              "/campaign_test",
@@ -602,6 +623,7 @@ func TestReplan_RollsBackOnKernelLoadFailure(t *testing.T) {
 			}`, nil
 		},
 	}, "")
+	r.SetPromptProvider(testPromptProvider{})
 
 	campaign := &Campaign{
 		ID:             "/campaign_test",
@@ -644,6 +666,7 @@ func TestReplan_RollsBackOnKernelLoadFailure(t *testing.T) {
 
 func TestBuildReplanContext_TruncatesLargeHistory(t *testing.T) {
 	r := NewReplanner(&MockKernel{}, &MockLLMClient{}, "")
+	r.SetPromptProvider(testPromptProvider{})
 	campaign := &Campaign{
 		ID:              "/campaign_test",
 		Title:           "Very Large Campaign",

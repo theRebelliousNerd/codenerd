@@ -158,7 +158,7 @@ func TestRunShardValidationCheckpoint_TheVerdictIsKeyedByPhaseID(t *testing.T) {
 		if passed != tc.pass {
 			t.Errorf("verdict keyed %q: passed = %v, want %v (%s)", tc.key, passed, tc.pass, details)
 		}
-		if !strings.Contains(prompt, `PhaseKey must be exactly "phase_7b_3"`) {
+		if !strings.Contains(prompt, `Verdict key: "phase_7b_3"`) {
 			t.Errorf("the reviewer was not told the phase key:\n%s", prompt)
 		}
 	}

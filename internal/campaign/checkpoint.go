@@ -70,6 +70,49 @@ func (cr *CheckpointRunner) spawnTask(ctx context.Context, intent string, task s
 	return cr.taskExecutor.Execute(ctx, req)
 }
 
+// CheckpointReviewPromptPhase and CheckpointNemesisPromptPhase are the JIT
+// campaign_phase values that select the checkpoint verdict contracts
+// (internal/prompt/atoms/campaign/checkpoint_verdict.yaml) in the reviewer's
+// and the nemesis's turn. The task carries the phase as data; the atom
+// carries what to judge and the checkpoint_verdict/4 reply. The two sides
+// name the same phase and cannot import each other.
+const (
+	CheckpointReviewPromptPhase  = "/checkpoint_review"
+	CheckpointNemesisPromptPhase = "/checkpoint_nemesis"
+)
+
+// checkpointTask is a checkpoint turn's task: the phase's name, its
+// objectives and completed tasks, the target under attack when there is one,
+// and the key its checkpoint_verdict/4 must carry.
+func checkpointTask(phase *Phase, target, key string) string {
+	var b strings.Builder
+	if phase != nil {
+		fmt.Fprintf(&b, "Phase: %s\n", phase.Name)
+	}
+	if target != "" {
+		fmt.Fprintf(&b, "Target: %s\n", target)
+	}
+	fmt.Fprintf(&b, "Verdict key: %q\n", key)
+	if phase == nil {
+		return b.String()
+	}
+	b.WriteString("\nObjectives:\n")
+	for _, obj := range phase.Objectives {
+		fmt.Fprintf(&b, "- %s\n", obj.Description)
+	}
+	b.WriteString("\nCompleted Tasks:\n")
+	for _, task := range phase.Tasks {
+		if task.Status != TaskCompleted {
+			continue
+		}
+		fmt.Fprintf(&b, "- [DONE] %s\n", task.Description)
+		if len(task.Artifacts) > 0 {
+			fmt.Fprintf(&b, "  Artifacts: %v\n", task.Artifacts)
+		}
+	}
+	return b.String()
+}
+
 // Run executes a checkpoint based on the verification method.
 func (cr *CheckpointRunner) Run(ctx context.Context, phase *Phase, method VerificationMethod) (passed bool, details string, err error) {
 	phaseName := ""
@@ -277,34 +320,11 @@ func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, ph
 
 	logging.Campaign("runShardValidationCheckpoint: spawning reviewer shard for phase=%s", phase.Name)
 
-	// Build a review prompt based on phase objectives and completed tasks
-	var reviewPrompt strings.Builder
-	reviewPrompt.WriteString("Review the following phase completion for quality and correctness:\n\n")
-	reviewPrompt.WriteString(fmt.Sprintf("Phase: %s\n\n", phase.Name))
-
-	reviewPrompt.WriteString("Objectives:\n")
-	for _, obj := range phase.Objectives {
-		reviewPrompt.WriteString(fmt.Sprintf("- %s\n", obj.Description))
-	}
-
-	reviewPrompt.WriteString("\nCompleted Tasks:\n")
-	for _, task := range phase.Tasks {
-		if task.Status == TaskCompleted {
-			reviewPrompt.WriteString(fmt.Sprintf("- [DONE] %s\n", task.Description))
-			if len(task.Artifacts) > 0 {
-				reviewPrompt.WriteString(fmt.Sprintf("  Artifacts: %v\n", task.Artifacts))
-			}
-		}
-	}
-
+	// The task is the phase as data; the review contract is the
+	// campaign/checkpoint/review atom, live in this turn's compile through
+	// CheckpointReviewPromptPhase.
 	key := verdictKey(phase)
-	reviewPrompt.WriteString("\nYour response MUST be a JSON control-packet carrying exactly one checkpoint_verdict/4 fact in control_packet.mangle_updates:\n")
-	reviewPrompt.WriteString("checkpoint_verdict(\"PhaseKey\", Verdict, \"reason\", Confidence).\n")
-	reviewPrompt.WriteString(fmt.Sprintf("PhaseKey must be exactly %q. ", key))
-	reviewPrompt.WriteString("Verdict must be /pass (objectives met) or /fail (objectives not met). Reason is a short human-readable justification. Confidence is an integer percent 0-100.\n")
-	reviewPrompt.WriteString("The atom must end with a period; it is asserted into the kernel as a fact.\n")
-	reviewPrompt.WriteString("Example: {\"control_packet\": {\"mangle_updates\": [\"checkpoint_verdict(\\\"my-phase\\\", /pass, \\\"all objectives met\\\", 95).\"]}, \"surface_response\": \"...\"}.\n")
-	reviewPrompt.WriteString("Free-text PASS/FAIL is not accepted; only checkpoint_verdict/4 decides.")
+	task := checkpointTask(phase, "", key)
 
 	// Retract any pre-existing verdict for this phase before spawning the
 	// reviewer so a task shard cannot pre-approve its own phase. Best effort.
@@ -313,8 +333,7 @@ func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, ph
 		logging.CampaignDebug("runShardValidationCheckpoint: retracted stale checkpoint_verdict for phase=%s before spawn", key)
 	}
 
-	// Spawn reviewer intent
-	result, err := cr.spawnTask(ctx, "/review", reviewPrompt.String())
+	result, err := cr.spawnTask(withPromptPhase(ctx, CheckpointReviewPromptPhase), "/review", task)
 	if err != nil {
 		logging.CampaignError("runShardValidationCheckpoint: reviewer shard failed for phase=%s: %v", phase.Name, err)
 		return false, fmt.Sprintf("Reviewer shard failed: %v", err), err
@@ -394,34 +413,10 @@ func (cr *CheckpointRunner) runNemesisGauntletCheckpoint(ctx context.Context, ph
 		}
 	}
 
-	var nemesisPrompt strings.Builder
-	nemesisPrompt.WriteString("Perform an adversarial review of the following phase and target:\n\n")
-	nemesisPrompt.WriteString(fmt.Sprintf("Phase: %s\n", phaseName))
-	nemesisPrompt.WriteString(fmt.Sprintf("Target: %s\n\n", target))
-	if phase != nil {
-		nemesisPrompt.WriteString("Objectives:\n")
-		for _, obj := range phase.Objectives {
-			nemesisPrompt.WriteString(fmt.Sprintf("- %s\n", obj.Description))
-		}
-		nemesisPrompt.WriteString("\nCompleted Tasks:\n")
-		for _, task := range phase.Tasks {
-			if task.Status == TaskCompleted {
-				nemesisPrompt.WriteString(fmt.Sprintf("- [DONE] %s\n", task.Description))
-				if len(task.Artifacts) > 0 {
-					nemesisPrompt.WriteString(fmt.Sprintf("  Artifacts: %v\n", task.Artifacts))
-				}
-			}
-		}
-		nemesisPrompt.WriteString("\n")
-	}
-	nemesisPrompt.WriteString("Attempt to break the implementation: find vulnerabilities, logic errors, and unhandled edge cases.\n")
-	nemesisPrompt.WriteString("\nYour response MUST be a JSON control-packet carrying exactly one checkpoint_verdict/4 fact in control_packet.mangle_updates:\n")
-	nemesisPrompt.WriteString("checkpoint_verdict(\"PhaseKey\", Verdict, \"reason\", Confidence).\n")
-	nemesisPrompt.WriteString(fmt.Sprintf("PhaseKey must be exactly %q. ", key))
-	nemesisPrompt.WriteString("Verdict must be /pass (survived the gauntlet, no exploitable weaknesses found) or /fail (gauntlet broke the implementation). Reason is a short human-readable justification. Confidence is an integer percent 0-100.\n")
-	nemesisPrompt.WriteString("The atom must end with a period; it is asserted into the kernel as a fact.\n")
-	nemesisPrompt.WriteString("Example: {\"control_packet\": {\"mangle_updates\": [\"checkpoint_verdict(\\\"my-phase\\\", /pass, \\\"no weaknesses found\\\", 95).\"]}, \"surface_response\": \"...\"}.\n")
-	nemesisPrompt.WriteString("Free-text PASS/FAIL is not accepted; only checkpoint_verdict/4 decides.")
+	// The task is the phase and target as data; the gauntlet contract is the
+	// campaign/checkpoint/nemesis atom, live in this turn's compile through
+	// CheckpointNemesisPromptPhase.
+	task := checkpointTask(phase, target, key)
 
 	// Retract any pre-existing verdict for this phase before spawning the
 	// nemesis so a task shard cannot pre-approve its own phase. Best effort.
@@ -431,7 +426,7 @@ func (cr *CheckpointRunner) runNemesisGauntletCheckpoint(ctx context.Context, ph
 	}
 
 	logging.CampaignDebug("runNemesisGauntletCheckpoint: target=%s", target)
-	result, err := cr.spawnTask(ctx, "/nemesis", nemesisPrompt.String())
+	result, err := cr.spawnTask(withPromptPhase(ctx, CheckpointNemesisPromptPhase), "/nemesis", task)
 	if err != nil {
 		logging.CampaignError("runNemesisGauntletCheckpoint: nemesis shard failed for phase=%s: %v", phaseName, err)
 		return false, fmt.Sprintf("Nemesis shard failed: %v", err), err

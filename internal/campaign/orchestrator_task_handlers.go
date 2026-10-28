@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"cmp"
+	"codenerd/internal/sessionlog"
 	"context"
 	"encoding/json"
 	"errors"
@@ -164,6 +165,7 @@ func (o *Orchestrator) executeTask(ctx context.Context, task *Task) (any, error)
 	if err := validateTaskEffect(task); err != nil {
 		return nil, err
 	}
+	ctx = sessionlog.WithTask(ctx, task.ID)
 	logging.CampaignDebug("Executing task %s with type %s, shard=%s", task.ID, task.Type, task.Shard)
 
 	// Update task status
@@ -716,13 +718,13 @@ func (o *Orchestrator) executeFileTaskFallback(ctx context.Context, task *Task, 
 	if upstream != "" {
 		taskBlock = taskBlock + "\n\n" + upstream
 	}
-	prompt := fmt.Sprintf(`Generate the following file:
-Task: %s
-Target Path: %s
-
-Output ONLY the file content, no explanation or markdown fences:`, taskBlock, targetPath)
-
-	content, err := o.llmClient.Complete(ctx, prompt)
+	systemPrompt, err := rolePrompt(ctx, o.promptProvider, RoleDocumentWriter, o.campaign.ID, o.llmClient)
+	if err != nil {
+		return nil, fail(fmt.Errorf("generate %s: %w", targetPath, err))
+	}
+	// The reply is the file itself, written as it comes back.
+	content, err := o.llmClient.CompleteWithSystem(types.WithStructuredOutputOnly(ctx), systemPrompt,
+		fmt.Sprintf("Task: %s\nTarget Path: %s", taskBlock, targetPath))
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("LLM file generation failed for task %s: %v", task.ID, err)
 		return nil, fail(fmt.Errorf("generate %s: %w", targetPath, err))

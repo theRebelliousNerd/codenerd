@@ -26,7 +26,7 @@ type Replanner struct {
 	mu             sync.Mutex
 	kernel         core.Kernel
 	llmClient      perception.LLMClient
-	promptProvider PromptProvider // Optional JIT prompt provider
+	promptProvider PromptProvider // compiles every role's system prompt; nil fails each model call
 	workspace      string         // Campaign workspace for filesystem-backed type defenses (see applyTaskTypeDefenses)
 
 	// Gemini grounding (nil if the client cannot ground)
@@ -69,10 +69,9 @@ func (r *Replanner) SetContextLimits(p config.CampaignPolicy) {
 // access and still applies.
 func NewReplanner(kernel core.Kernel, llmClient perception.LLMClient, workspace string) *Replanner {
 	r := &Replanner{
-		kernel:         kernel,
-		llmClient:      llmClient,
-		promptProvider: NewStaticPromptProvider(), // Default to static prompts
-		workspace:      workspace,
+		kernel:    kernel,
+		llmClient: llmClient,
+		workspace: workspace,
 	}
 	// The config's defaults until the orchestrator sets the user's
 	// (SetContextLimits): one source for both.
@@ -92,23 +91,20 @@ func NewReplanner(kernel core.Kernel, llmClient perception.LLMClient, workspace 
 	return r
 }
 
-// SetPromptProvider sets the PromptProvider for JIT-compiled prompts.
-// This allows using JIT-compiled prompts from the articulation package.
-// If not set, static prompts will be used.
+// SetPromptProvider sets the provider that compiles the replanner's role
+// prompts (phase refinement, a new requirement, failure fixes). Without one
+// every replanning model call reports types.ErrRolePromptUnavailable.
 func (r *Replanner) SetPromptProvider(provider PromptProvider) {
-	if provider == nil {
-		r.promptProvider = NewStaticPromptProvider()
-		return
-	}
-
 	r.promptProvider = provider
 }
 
-// completeWithGrounding performs an LLM completion with grounding if available.
-// Falls back to standard Complete if grounding is not available.
-func (r *Replanner) completeWithGrounding(ctx context.Context, prompt string) (string, error) {
+// completeWithGrounding sends a role's system prompt and its data, grounded
+// when the client can ground. The reply is unmarshalled directly, so it is
+// never constrained to the Piggyback envelope.
+func (r *Replanner) completeWithGrounding(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	ctx = types.WithStructuredOutputOnly(ctx)
 	if r.grounding != nil && r.grounding.IsGroundingAvailable() {
-		response, sources, err := r.grounding.CompleteWithGrounding(ctx, prompt)
+		response, sources, err := r.grounding.CompleteWithSystemAndGrounding(ctx, systemPrompt, userPrompt)
 		if err != nil {
 			return "", err
 		}
@@ -117,12 +113,10 @@ func (r *Replanner) completeWithGrounding(ctx context.Context, prompt string) (s
 		}
 		return response, nil
 	}
-	// Fall back to standard completion
 	if r.llmClient == nil {
 		return "", fmt.Errorf("%w: replanner requires llm client", ErrNilDependency)
 	}
-	// Reply is unmarshalled directly; no Piggyback envelope schema.
-	return r.llmClient.Complete(types.WithStructuredOutputOnly(ctx), prompt)
+	return r.llmClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 }
 
 // ReplanReason represents why a replan was triggered.
@@ -288,34 +282,18 @@ func (r *Replanner) ReplanForNewRequirement(ctx context.Context, campaign *Campa
 	defer r.mu.Unlock()
 
 	// 2. Ask LLM to incorporate new requirement
-	prompt := fmt.Sprintf(`A campaign is in progress and a new requirement has been added.
+	systemPrompt, err := rolePrompt(ctx, r.promptProvider, RoleRequirementReplan, campaign.ID, r.llmClient)
+	if err != nil {
+		return err
+	}
+	userPrompt := fmt.Sprintf("Current Campaign: %s\nCurrent Phase: %d of %d\nCompleted Tasks: %d of %d\n\nNew Requirement: %s\n",
+		campaign.Title, campaign.CompletedPhases, campaign.TotalPhases, campaign.CompletedTasks, campaign.TotalTasks, requirement)
 
-Current Campaign: %s
-Current Phase: %d of %d
-Completed Tasks: %d of %d
-
-New Requirement: %s
-
-Determine what new tasks need to be added and which phase they belong to.
-Output JSON:
-{
-  "new_tasks": [
-    {"phase_order": 0, "description": "...", "type": "/file_create|/file_modify|/test_write", "priority": "/high"}
-  ],
-  "modified_tasks": [
-    {"task_id": "existing_id", "new_description": "...", "reason": "..."}
-  ],
-  "summary": "Brief explanation of changes"
-}
-
-JSON only:`, campaign.Title, campaign.CompletedPhases, campaign.TotalPhases, campaign.CompletedTasks, campaign.TotalTasks, requirement)
-
-	resp, err := r.completeWithGrounding(ctx, prompt)
+	resp, err := r.completeWithGrounding(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return err
 	}
 
-	// 3. Parse and apply changes
 	// 3. Parse and apply changes
 	resp = cleanJSONResponse(resp)
 	var changes struct {
@@ -537,33 +515,20 @@ func (r *Replanner) RefineNextPhase(ctx context.Context, campaign *Campaign, com
 		}
 	}
 
-	// Get Replanner prompt (JIT or static)
-	replannerPrompt, err := r.promptProvider.GetPrompt(ctx, RoleReplanner, campaign.ID, r.llmClient)
+	systemPrompt, err := rolePrompt(ctx, r.promptProvider, RoleReplanner, campaign.ID, r.llmClient)
 	if err != nil {
-		logging.Get(logging.CategoryCampaign).Warn("Failed to get Replanner prompt, using fallback: %v", err)
-		replannerPrompt = ReplannerLogic
+		return err
 	}
-
-	prompt := fmt.Sprintf(`%s
-
-Campaign Goal: %s
+	userPrompt := fmt.Sprintf(`Campaign Goal: %s
 Completed Phase: %s (order %d)
 Completed Tasks:
 %s
 
 Upcoming Phase: %s (order %d)
 Current Tasks:
-%s
+%s`, campaign.Goal, completedPhase.Name, completedPhase.Order, completedTasksSummary.String(), nextPhase.Name, nextPhase.Order, upcomingTasks.String())
 
-Return JSON only:
-{
-  "tasks": [
-    {"task_id": "existing-id or empty for new", "description": "...", "type": "/file_modify|/file_create|/test_run|/research|/verify|/document|/refactor|/integrate", "priority": "/high|/normal|/low|/critical", "action": "update|add|remove", "write_set": ["workspace-relative path the task changes", "..."]}
-  ],
-  "summary": "one-line change summary"
-}`, replannerPrompt, campaign.Goal, completedPhase.Name, completedPhase.Order, completedTasksSummary.String(), nextPhase.Name, nextPhase.Order, upcomingTasks.String())
-
-	resp, err := r.completeWithGrounding(ctx, prompt)
+	resp, err := r.completeWithGrounding(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return err
 	}
@@ -976,9 +941,12 @@ func (r *Replanner) buildReplanContext(campaign *Campaign, failedTasks, blockedT
 
 // proposeReplans asks LLM to propose fixes for the campaign.
 func (r *Replanner) proposeReplans(ctx context.Context, campaign *Campaign, context string, scopeTaskID string) (*ReplanResult, error) {
-	// Include campaign metadata for better LLM context
-	prompt := fmt.Sprintf(`A campaign needs replanning. Analyze the issues and propose fixes.
-Scope: %s
+	systemPrompt, err := rolePrompt(ctx, r.promptProvider, RoleFailureReplan, campaign.ID, r.llmClient)
+	if err != nil {
+		return nil, err
+	}
+	// Campaign metadata gives the model the campaign the failures belong to.
+	userPrompt := fmt.Sprintf(`Scope: %s
 
 Campaign Metadata:
 Campaign: %s (ID: %s)
@@ -986,38 +954,13 @@ Goal: %s
 Phases: %d, Completed Tasks: %d/%d
 
 Current State:
-%s
-
-For each failed/blocked task, determine:
-1. Should we retry with modified approach?
-2. Should we skip this task?
-3. Should we add prerequisite tasks?
-4. Should we modify dependencies?
-
-Output JSON:
-{
-  "success": true,
-  "change_summary": "Brief description of changes",
-  "retry_tasks": [
-    {"task_id": "...", "new_approach": "Modified description/approach"}
-  ],
-  "skip_tasks": ["task_id1", "task_id2"],
-  "add_tasks": [
-    {"phase_id": "...", "description": "...", "type": "/file_create", "priority": "/high", "before_task": "task_id"}
-  ],
-  "modify_dependencies": [
-    {"task_id": "...", "remove_deps": ["dep_id"], "add_deps": ["dep_id"]}
-  ]
-}
-
-	JSON only:`,
+%s`,
 		scopeTaskID,
 		campaign.Title, campaign.ID, campaign.Goal,
-
 		len(campaign.Phases), campaign.CompletedTasks, campaign.TotalTasks,
 		context)
 
-	resp, err := r.completeWithGrounding(ctx, prompt)
+	resp, err := r.completeWithGrounding(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return nil, err
 	}

@@ -25,7 +25,7 @@ type Decomposer struct {
 	kernel         core.Kernel
 	llmClient      perception.LLMClient
 	workspace      string
-	promptProvider PromptProvider // Optional JIT prompt provider
+	promptProvider PromptProvider // compiles every role's system prompt; nil fails each model call
 	shardLister    ShardLister    // Optional shard discovery for shard-aware planning
 
 	// Intelligence integration (Step 0): its report goes into the planner's
@@ -44,10 +44,9 @@ func NewDecomposer(kernel core.Kernel, llmClient perception.LLMClient, workspace
 	logging.CampaignDebug("Creating new Decomposer for workspace: %s", workspace)
 
 	d := &Decomposer{
-		kernel:         kernel,
-		llmClient:      llmClient,
-		workspace:      workspace,
-		promptProvider: NewStaticPromptProvider(), // Default to static prompts
+		kernel:    kernel,
+		llmClient: llmClient,
+		workspace: workspace,
 	}
 
 	// Ground planning calls in Google Search when the client can.
@@ -62,17 +61,11 @@ func NewDecomposer(kernel core.Kernel, llmClient perception.LLMClient, workspace
 	return d
 }
 
-// SetPromptProvider sets the PromptProvider for JIT-compiled prompts.
-// This allows using JIT-compiled prompts from the articulation package.
-// If not set, static prompts will be used.
+// SetPromptProvider sets the provider that compiles the decomposer's role
+// prompts (librarian, extractor, planner, plan retry and revision). Without
+// one every planning model call reports types.ErrRolePromptUnavailable.
 func (d *Decomposer) SetPromptProvider(provider PromptProvider) {
-	if provider == nil {
-		d.promptProvider = NewStaticPromptProvider()
-		return
-	}
-
 	d.promptProvider = provider
-	logging.CampaignDebug("Decomposer configured with custom prompt provider")
 }
 
 // SetShardLister sets the shard discovery interface for shard-aware planning.
@@ -93,11 +86,13 @@ func (d *Decomposer) SetIntelligenceGatherer(gatherer *IntelligenceGatherer) {
 	}
 }
 
-// completeWithGrounding performs an LLM completion with grounding if available.
-// Falls back to standard Complete if grounding is not available.
-func (d *Decomposer) completeWithGrounding(ctx context.Context, prompt string) (string, error) {
+// completeWithGrounding sends a role's system prompt and its data, grounded
+// when the client can ground. The reply is unmarshalled directly, so it is
+// never constrained to the Piggyback envelope.
+func (d *Decomposer) completeWithGrounding(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	ctx = types.WithStructuredOutputOnly(ctx)
 	if d.grounding != nil && d.grounding.IsGroundingAvailable() {
-		response, sources, err := d.grounding.CompleteWithGrounding(ctx, prompt)
+		response, sources, err := d.grounding.CompleteWithSystemAndGrounding(ctx, systemPrompt, userPrompt)
 		if err != nil {
 			return "", err
 		}
@@ -106,12 +101,10 @@ func (d *Decomposer) completeWithGrounding(ctx context.Context, prompt string) (
 		}
 		return response, nil
 	}
-	// Fall back to standard completion
 	if d.llmClient == nil {
 		return "", fmt.Errorf("%w: decomposer requires llm client", ErrNilDependency)
 	}
-	// Reply is unmarshalled directly; no Piggyback envelope schema.
-	return d.llmClient.Complete(types.WithStructuredOutputOnly(ctx), prompt)
+	return d.llmClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 }
 
 // DecomposeRequest represents a request to create a campaign.

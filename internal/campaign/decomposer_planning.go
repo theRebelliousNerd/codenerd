@@ -38,12 +38,7 @@ func (d *Decomposer) completePlanWithSchemaOrFallback(ctx context.Context, syste
 		logging.CampaignDebug("Schema-constrained plan call failed, falling back to non-schema call: %v", err)
 	}
 
-	if systemClient, ok := d.llmClient.(interface {
-		CompleteWithSystem(ctx context.Context, system, user string) (string, error)
-	}); ok {
-		return systemClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
-	}
-	return d.llmClient.Complete(ctx, systemPrompt+"\n\n"+userPrompt)
+	return d.llmClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 }
 
 // parseRawPlanResponse extracts a plan from the model's reply.
@@ -205,10 +200,13 @@ func (d *Decomposer) buildPlanProposalContext(ctx context.Context, campaignID st
 	return contextBuilder.String()
 }
 
-func (d *Decomposer) executePlanProposalWithRetry(ctx context.Context, req DecomposeRequest, contextPreview string, userPrompt string, systemPrompt string) (*RawPlan, error) {
-	logging.CampaignDebug("Sending plan proposal request to LLM (prompt length=%d)", len(userPrompt))
+// executePlanProposalWithRetry asks for the plan with the planner's system
+// prompt and the planning context as the user message, and once more with the
+// plan_retry role's prompt when the reply is not a plan.
+func (d *Decomposer) executePlanProposalWithRetry(ctx context.Context, campaignID string, req DecomposeRequest, planningContext string, systemPrompt string) (*RawPlan, error) {
+	logging.CampaignDebug("Sending plan proposal request to LLM (prompt length=%d)", len(planningContext))
 
-	resp, llmErr := d.completePlanWithSchemaOrFallback(ctx, systemPrompt, userPrompt)
+	resp, llmErr := d.completePlanWithSchemaOrFallback(ctx, systemPrompt, planningContext)
 	if llmErr != nil {
 		logging.Get(logging.CategoryCampaign).Error("LLM plan proposal failed: %v", llmErr)
 		return nil, llmErr
@@ -222,42 +220,16 @@ func (d *Decomposer) executePlanProposalWithRetry(ctx context.Context, req Decom
 		logging.CampaignDebug("Raw response (first 500 bytes; whole in _llm_io.log): %s", types.Ellipsize(resp, 500))
 		logging.Get(logging.CategoryCampaign).Error("Failed to parse plan JSON: %v", parseErr)
 
-		// Retry with stronger enforcement
+		// Retry with stronger enforcement: the plan_retry role's atoms carry
+		// the correction and a populated example; the retry gets the same
+		// context the first attempt had, because a retry told less than the
+		// original is a worse question, not a cheaper one.
 		logging.Campaign("Retrying plan proposal with JSON enforcement")
-		// The retry gets the same context the first attempt had: a retry
-		// told less than the original is a worse question, not a cheaper one.
-		// The example must show phases POPULATED. This retry prompt used to
-		// print `"phases": []` as the "required structure", so a model that had
-		// just failed to produce phases was handed an example with none in it
-		// and obligingly returned none again.
-		retryPrompt := fmt.Sprintf(`Your previous response could not be used as a plan. Output ONLY a JSON object.
-
-Do NOT wrap it in "control_packet". Do NOT include "tool_requests" or
-"surface_response". "phases" must contain at least one real phase.
-
-Required structure:
-{
-  "title": "REPLACE_WITH_ACTUAL_CAMPAIGN_TITLE",
-  "confidence": 0.9,
-  "phases": [
-    {
-      "name": "REPLACE_WITH_PHASE_NAME",
-      "order": 0,
-      "category": "/scaffold",
-      "description": "REPLACE_WITH_WHAT_THIS_PHASE_ACCOMPLISHES",
-      "tasks": [
-        {"description": "REPLACE_WITH_A_SPECIFIC_ACTIONABLE_TASK", "type": "/file_create", "order": 0}
-      ]
-    }
-  ]
-}
-
-Goal: %s
-Context: %s
-
-Output ONLY the JSON:`, req.Goal, contextPreview)
-
-		retrySystemPrompt := "You output ONLY valid JSON matching the campaign plan schema."
+		retrySystemPrompt, err := rolePrompt(ctx, d.promptProvider, RolePlanRetry, campaignID, d.llmClient)
+		if err != nil {
+			return nil, fmt.Errorf("retry failed: %w", err)
+		}
+		retryPrompt := fmt.Sprintf("Goal: %s\nContext: %s", req.Goal, planningContext)
 		resp, llmErr = d.completePlanWithSchemaOrFallback(ctx, retrySystemPrompt, retryPrompt)
 		if llmErr != nil {
 			return nil, fmt.Errorf("retry failed: %w", llmErr)
@@ -291,34 +263,15 @@ func (d *Decomposer) llmProposePlan(ctx context.Context, campaignID string, req 
 	logging.CampaignDebug("Context: files=%d, requirements=%d, hints=%d",
 		len(files), len(requirements), len(req.UserHints))
 
+	// The planner role's atoms are the system prompt, schema included; the
+	// user message is the planning context alone.
+	systemPrompt, err := rolePrompt(ctx, d.promptProvider, RolePlanner, campaignID, d.llmClient)
+	if err != nil {
+		return nil, err
+	}
 	contextStr := d.buildPlanProposalContext(ctx, campaignID, req, kbPath, files, requirements)
 
-	// Get Planner prompt (JIT or static)
-	plannerPrompt, err := d.promptProvider.GetPrompt(ctx, RolePlanner, campaignID, d.llmClient)
-	if err != nil {
-		logging.CampaignDebug("Failed to get Planner prompt, using fallback: %v", err)
-		plannerPrompt = PlannerLogic
-	}
-
-	// System prompt with JSON enforcement.
-	systemPrompt := `You are a Campaign Planner. Output only a valid JSON object representing the campaign plan.
-
-CRITICAL: Your response MUST be valid JSON matching this schema:
-{
-  "title": "Campaign Title",
-  "confidence": 0.9,
-  "phases": [{"name": "Phase 1", "order": 0, "category": "/scaffold", "description": "...", "tasks": [...]}]
-}
-
-Do NOT use markdown. Do NOT include text outside the JSON object.`
-
-	userPrompt := fmt.Sprintf(`%s
-
-%s
-
-Output the JSON plan now:`, plannerPrompt, contextStr)
-
-	return d.executePlanProposalWithRetry(ctx, req, contextStr, userPrompt, systemPrompt)
+	return d.executePlanProposalWithRetry(ctx, campaignID, req, contextStr, systemPrompt)
 }
 
 func (d *Decomposer) normalizeRawPlanFromLLM(plan *RawPlan, req DecomposeRequest) (*RawPlan, error) {
@@ -716,23 +669,15 @@ func (d *Decomposer) refinePlan(ctx context.Context, plan *RawPlan, issues []Pla
 	// Serialize current plan
 	planJSON, _ := json.MarshalIndent(plan, "", "  ")
 
-	prompt := fmt.Sprintf(`The following plan has validation issues that need to be fixed:
-
-CURRENT PLAN:
-%s
-
-ISSUES:
-%s
-
-Please fix these issues and output the corrected plan as JSON.
-- For circular dependencies: adjust phase order or dependencies
-- For unreachable tasks: add missing task definitions or fix dependency references
-
-Output ONLY valid JSON with the same structure as the input:`, string(planJSON), issuesSummary.String())
+	systemPrompt, err := rolePrompt(ctx, d.promptProvider, RolePlanRevision, "", d.llmClient)
+	if err != nil {
+		return nil, err
+	}
+	userPrompt := fmt.Sprintf("CURRENT PLAN:\n%s\n\nISSUES:\n%s", string(planJSON), issuesSummary.String())
 
 	logging.CampaignDebug("Sending refinement request to LLM")
 	// Use grounding for plan refinement (may benefit from up-to-date best practices)
-	resp, err := d.completeWithGrounding(ctx, prompt)
+	resp, err := d.completeWithGrounding(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("LLM refinement failed: %v", err)
 		return nil, err

@@ -5,7 +5,7 @@
   category: "identity"
   subcategory: "extractor"
   is_mandatory: true
-  campaign_phases: ["extraction", "planning"]
+  campaign_phases: ["extraction", "planning", "requirement_extraction"]
   shard_types: ["/extractor"]
   content: |
     You are the Requirements Analyst, the Extractor Shard of codeNERD.
@@ -21,7 +21,7 @@
   category: "knowledge"
   subcategory: "requirements"
   is_mandatory: true
-  campaign_phases: ["extraction", "planning"]
+  campaign_phases: ["extraction", "planning", "requirement_extraction"]
   shard_types: ["/extractor"]
   depends_on: ["campaign/extractor/identity"]
   content: |

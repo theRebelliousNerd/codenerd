@@ -96,8 +96,8 @@ func TestGetCampaignPhaseAndShardForRole(t *testing.T) {
 	if GetCampaignPhaseForRole(RoleLibrarian) != "/doc_classification" {
 		t.Error("librarian role -> /doc_classification phase")
 	}
-	if GetCampaignPhaseForRole(CampaignRole("nope")) != "/active" {
-		t.Error("unknown role -> /active default")
+	if GetCampaignPhaseForRole(CampaignRole("nope")) != "" {
+		t.Error("unknown role -> no phase")
 	}
 
 	if GetShardTypeForRole(RoleAssault) != "analyzer" {

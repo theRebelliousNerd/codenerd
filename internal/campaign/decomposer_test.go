@@ -107,6 +107,8 @@ func TestNewDecomposer(t *testing.T) {
 	workspace := "/tmp/test"
 
 	d := NewDecomposer(mockKernel, mockClient, workspace)
+
+	d.SetPromptProvider(testPromptProvider{})
 	if d == nil {
 		t.Fatal("NewDecomposer returned nil")
 	}
@@ -185,6 +187,7 @@ func TestDecomposer_ClassifyDocument_Trivial(t *testing.T) {
 func TestSeedDocFactsScalesLayerConfidence(t *testing.T) {
 	kernel := &MockKernel{}
 	d := NewDecomposer(kernel, nil, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 	d.seedDocFacts("/campaign_test", "repair campaign startup", []FileMetadata{{
 		Path:            "spec.md",
 		Type:            "/spec",
@@ -230,6 +233,7 @@ func TestClassifyDocumentsDerivesBoundedStageContext(t *testing.T) {
 			return `{"layer":"/implementation","confidence":0.82,"reasoning":"test"}`, nil
 		},
 	}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 
 	got := d.classifyDocuments(context.Background(), []FileMetadata{{Path: docPath}})
 	if !sawDeadline {
@@ -257,6 +261,7 @@ func TestClassifyDocumentsCancellationStopsBeforeNextFile(t *testing.T) {
 			return "", ctx.Err()
 		},
 	}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan []FileMetadata, 1)
@@ -295,6 +300,7 @@ func TestDecomposer_Decompose_ValidationFailure(t *testing.T) {
 	mockKernel := &core.RealKernel{}
 	mockClient := &mockLLMClient{}
 	d := NewDecomposer(mockKernel, mockClient, "/tmp/workspace")
+	d.SetPromptProvider(testPromptProvider{})
 
 	// Verify decomposer was created
 	if d == nil {
@@ -313,6 +319,7 @@ func TestDecomposer_Decompose_ValidationFailure(t *testing.T) {
 
 func TestDecompose_NilKernel_ReturnsError(t *testing.T) {
 	d := NewDecomposer(nil, &mockLLMClient{}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 
 	_, err := d.Decompose(context.Background(), DecomposeRequest{
 		Goal:         "Harden campaign planning",
@@ -325,6 +332,7 @@ func TestDecompose_NilKernel_ReturnsError(t *testing.T) {
 
 func TestDecompose_NilLLM_ReturnsError(t *testing.T) {
 	d := NewDecomposer(&MockKernel{}, nil, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 
 	_, err := d.Decompose(context.Background(), DecomposeRequest{
 		Goal:         "Harden campaign planning",
@@ -337,6 +345,7 @@ func TestDecompose_NilLLM_ReturnsError(t *testing.T) {
 
 func TestDecompose_EmptyGoal_ReturnsError(t *testing.T) {
 	d := NewDecomposer(&MockKernel{}, &mockLLMClient{}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 
 	_, err := d.Decompose(context.Background(), DecomposeRequest{
 		Goal:         "   ",
@@ -362,6 +371,7 @@ func TestBuildCampaign_NormalizesEnumsAndJailsPaths(t *testing.T) {
 		t.Fatalf("setup: write %s: %v", safePath, err)
 	}
 	d := NewDecomposer(kernel, &mockLLMClient{}, workspace)
+	d.SetPromptProvider(testPromptProvider{})
 
 	campaign := d.buildCampaign("/campaign_test", DecomposeRequest{
 		Goal:          "Stabilize campaign planning",
@@ -442,7 +452,7 @@ func TestLLMProposePlan_UsesSchemaCapableClient(t *testing.T) {
 	d := &Decomposer{
 		llmClient:      client,
 		workspace:      t.TempDir(),
-		promptProvider: NewStaticPromptProvider(),
+		promptProvider: testPromptProvider{},
 	}
 
 	plan, err := d.llmProposePlan(context.Background(), "/campaign_test", DecomposeRequest{
@@ -478,7 +488,7 @@ func TestLLMProposePlan_SchemaFailureFallsBack(t *testing.T) {
 	d := &Decomposer{
 		llmClient:      client,
 		workspace:      t.TempDir(),
-		promptProvider: NewStaticPromptProvider(),
+		promptProvider: testPromptProvider{},
 	}
 
 	plan, err := d.llmProposePlan(context.Background(), "/campaign_test", DecomposeRequest{
@@ -514,7 +524,7 @@ func TestLLMProposePlan_MalformedThenRetrySucceeds(t *testing.T) {
 	d := &Decomposer{
 		llmClient:      client,
 		workspace:      t.TempDir(),
-		promptProvider: NewStaticPromptProvider(),
+		promptProvider: testPromptProvider{},
 	}
 
 	plan, err := d.llmProposePlan(context.Background(), "/campaign_test", DecomposeRequest{
@@ -542,7 +552,7 @@ func TestLLMProposePlan_MalformedAfterRetryFails(t *testing.T) {
 	d := &Decomposer{
 		llmClient:      client,
 		workspace:      t.TempDir(),
-		promptProvider: NewStaticPromptProvider(),
+		promptProvider: testPromptProvider{},
 	}
 
 	_, err := d.llmProposePlan(context.Background(), "/campaign_test", DecomposeRequest{
@@ -559,6 +569,7 @@ func TestLLMProposePlan_MalformedAfterRetryFails(t *testing.T) {
 func TestBuildCampaign_ResearchContextInheritsDependsOn(t *testing.T) {
 	kernel := &MockKernel{}
 	d := NewDecomposer(kernel, &mockLLMClient{}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 	campaign := d.buildCampaign("/campaign_46015b77", DecomposeRequest{
 		Goal:          "test research handoff",
 		CampaignType:  CampaignTypeCustom,
@@ -594,6 +605,7 @@ func TestBuildCampaign_ResearchContextInheritsDependsOn(t *testing.T) {
 func TestBuildCampaign_ExplicitContextPreservedWithoutDuplicates(t *testing.T) {
 	kernel := &MockKernel{}
 	d := NewDecomposer(kernel, &mockLLMClient{}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 	campaign := d.buildCampaign("/campaign_test_dup", DecomposeRequest{
 		Goal:          "dup",
 		CampaignType:  CampaignTypeCustom,
@@ -623,6 +635,7 @@ func TestBuildCampaign_ExplicitContextPreservedWithoutDuplicates(t *testing.T) {
 func TestBuildCampaign_NonResearchDependencyNotInjected(t *testing.T) {
 	kernel := &MockKernel{}
 	d := NewDecomposer(kernel, &mockLLMClient{}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 	campaign := d.buildCampaign("/campaign_test_nonresearch", DecomposeRequest{
 		Goal:          "non-research",
 		CampaignType:  CampaignTypeCustom,
@@ -649,6 +662,7 @@ func TestBuildCampaign_NonResearchDependencyNotInjected(t *testing.T) {
 func TestBuildCampaign_InvalidForwardDependencyNotInjected(t *testing.T) {
 	kernel := &MockKernel{}
 	d := NewDecomposer(kernel, &mockLLMClient{}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 	// invalid index, self-reference, and forward reference must not become context
 	campaign := d.buildCampaign("/campaign_test_invalid", DecomposeRequest{
 		Goal:          "invalid",
@@ -711,7 +725,7 @@ func TestLLMProposePlan_EmptyPhasesFallsBackToScaffold(t *testing.T) {
 	d := &Decomposer{
 		llmClient:      client,
 		workspace:      t.TempDir(),
-		promptProvider: NewStaticPromptProvider(),
+		promptProvider: testPromptProvider{},
 	}
 
 	plan, err := d.llmProposePlan(context.Background(), "/campaign_test", DecomposeRequest{
@@ -770,6 +784,7 @@ func TestDecompose_LLMTotalFailure(t *testing.T) {
 			return "", errors.New("simulated LLM timeout")
 		},
 	}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 
 	_, err := d.Decompose(context.Background(), DecomposeRequest{
 		Goal:         "Valid goal",
@@ -851,7 +866,7 @@ func TestRefinePlan_Success(t *testing.T) {
 	}
 	d := &Decomposer{
 		llmClient:      client,
-		promptProvider: NewStaticPromptProvider(),
+		promptProvider: testPromptProvider{},
 	}
 
 	originalPlan := &RawPlan{Title: "Original Plan"}
@@ -873,6 +888,7 @@ func TestRefinePlan_Success(t *testing.T) {
 
 func TestIngestSourceDocuments_Cancellation(t *testing.T) {
 	d := NewDecomposer(&MockKernel{}, &mockLLMClient{}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "f1.txt"), []byte("data"), 0644)
@@ -918,6 +934,8 @@ func TestRefinePlan_TxCommitFail(t *testing.T) {
 
 	d := NewDecomposer(mockKernel, client, t.TempDir())
 
+	d.SetPromptProvider(testPromptProvider{})
+
 	_, err := d.Decompose(context.Background(), DecomposeRequest{
 		Goal:         "Test tx commit fail",
 		CampaignType: CampaignTypeCustom,
@@ -940,6 +958,7 @@ func TestDecompose_EmptySourcePaths(t *testing.T) {
 			return sampleRawPlanJSON("Empty Source Plan"), nil
 		},
 	}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 
 	cases := []struct {
 		name  string
@@ -991,6 +1010,7 @@ func TestDecompose_SetIntelligenceGatherer_NilDereference(t *testing.T) {
 			return sampleRawPlanJSON("Nil Intel Setter"), nil
 		},
 	}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 
 	// Explicitly set a nil gatherer; the guard at the Step 0 call site must
 	// short-circuit instead of dereferencing.
@@ -1020,6 +1040,7 @@ func TestDecompose_ZeroContextBudget(t *testing.T) {
 			return sampleRawPlanJSON("Zero Budget Plan"), nil
 		},
 	}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 
 	_, err := d.Decompose(context.Background(), DecomposeRequest{
 		Goal:          "Zero budget",
@@ -1037,6 +1058,7 @@ func TestDecompose_NilIntelligence(t *testing.T) {
 			return sampleRawPlanJSON("Nil Intel Plan"), nil
 		},
 	}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 
 	d.SetIntelligenceGatherer(nil)
 
@@ -1060,6 +1082,7 @@ func TestDecompose_JSONTypeCoercion(t *testing.T) {
 		},
 	}
 	d := NewDecomposer(&MockKernel{}, client, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 
 	_, err := d.Decompose(context.Background(), DecomposeRequest{
 		Goal:         "Test type coercion",
@@ -1081,6 +1104,7 @@ func TestDecompose_MangleFactSanitization(t *testing.T) {
 			return sampleRawPlanJSON("Plan"), nil
 		},
 	}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 
 	goalWithIllegalChars := "Fix bugs ) . \" \\ ' , ! [] {}"
 	_, err := d.Decompose(context.Background(), DecomposeRequest{
@@ -1113,6 +1137,7 @@ func TestDecompose_MassiveGoal(t *testing.T) {
 			return sampleRawPlanJSON("Massive Goal Plan"), nil
 		},
 	}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 
 	massiveGoal := strings.Repeat("A", 10*1024*1024)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -1151,6 +1176,7 @@ func TestDecompose_HugeSourcePaths(t *testing.T) {
 			return sampleRawPlanJSON("Huge Paths Plan"), nil
 		},
 	}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 
 	paths := make([]string, 10000)
 	for i := range 10000 {
@@ -1185,6 +1211,7 @@ func TestDecompose_DeepNestedJSON(t *testing.T) {
 		},
 	}
 	d := NewDecomposer(&MockKernel{}, client, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 
 	_, _ = d.Decompose(context.Background(), DecomposeRequest{
 		Goal:         "Test deep JSON",
@@ -1202,6 +1229,7 @@ func TestDecompose_ContextBudgetExceeded(t *testing.T) {
 			return sampleRawPlanJSON("Small Budget Plan"), nil
 		},
 	}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 
 	_, err := d.Decompose(context.Background(), DecomposeRequest{
 		Goal:          "Small budget",
@@ -1224,6 +1252,7 @@ func TestDecompose_ContextCancelledDuringLLM(t *testing.T) {
 			return "", c.Err()
 		},
 	}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 
 	_, err := d.Decompose(ctx, DecomposeRequest{
 		Goal:         "Test context cancellation",
@@ -1242,6 +1271,7 @@ func TestDecompose_FileDeletedDuringIngest(t *testing.T) {
 			return sampleRawPlanJSON("Plan"), nil
 		},
 	}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "temp.txt")
@@ -1257,6 +1287,7 @@ func TestDecompose_FileDeletedDuringIngest(t *testing.T) {
 
 func TestDecompose_SpecialInfiniteFiles(t *testing.T) {
 	d := NewDecomposer(&MockKernel{}, &mockLLMClient{}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 
 	meta := []FileMetadata{
 		{
@@ -1284,6 +1315,7 @@ func TestDecompose_ConcurrentDecompose(t *testing.T) {
 			return sampleRawPlanJSON("Concurrent Plan"), nil
 		},
 	}, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 
 	count := 10
 	errCh := make(chan error, count)

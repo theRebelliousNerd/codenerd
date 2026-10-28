@@ -26,7 +26,8 @@ type jitPromptProvider struct {
 }
 
 // NewJITPromptProvider adapts assembler to PromptProvider. It returns nil when
-// there is no assembler, which leaves each role on its static fallback.
+// there is no assembler; every campaign role then reports
+// types.ErrRolePromptUnavailable instead of reaching a model.
 func NewJITPromptProvider(assembler *articulation.PromptAssembler) PromptProvider {
 	if assembler == nil {
 		return nil
@@ -39,6 +40,9 @@ func NewJITPromptProvider(assembler *articulation.PromptAssembler) PromptProvide
 // client does not report is left unset, so those atoms sit out rather than
 // match a model that never sees them.
 func (p *jitPromptProvider) GetPrompt(ctx context.Context, role CampaignRole, campaignID string, servedBy perception.LLMClient) (string, error) {
+	if _, ok := campaignRoleSpecs[role]; !ok {
+		return "", fmt.Errorf("unknown campaign role %q", role)
+	}
 	sessionCtx := &types.SessionContext{
 		CampaignActive: true,
 		CampaignPhase:  GetCampaignPhaseForRole(role),
@@ -57,6 +61,7 @@ func (p *jitPromptProvider) GetPrompt(ctx context.Context, role CampaignRole, ca
 		ShardType:  GetShardTypeForRole(role),
 		CampaignID: campaignID,
 		SessionCtx: sessionCtx,
+		UserIntent: &types.StructuredIntent{Verb: campaignPromptIntent},
 	})
 }
 

@@ -51,6 +51,7 @@ func TestExtractRequirementsSmartBatchesDiscoveryQuestions(t *testing.T) {
 	}}
 	kernel := &MockKernel{Facts: []core.Fact{{Predicate: "is_relevant", Args: []any{docPath}}}}
 	d := NewDecomposer(kernel, client, t.TempDir())
+	d.SetPromptProvider(testPromptProvider{})
 
 	requirements, err := d.extractRequirementsSmart(ctx, "/campaign_batch", "immutable pre-task workspace ownership baseline", dbPath, []FileMetadata{{Path: docPath}})
 	if err != nil {

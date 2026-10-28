@@ -8,6 +8,7 @@ import (
 	"codenerd/internal/workspace"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -137,6 +138,11 @@ func (d *Decomposer) classifyDocuments(ctx context.Context, files []FileMetadata
 				logging.Campaign("Document classification stopped: classified=%d/%d duration=%s err=%v", classifiedCount, total, time.Since(started), stageErr)
 				return files
 			}
+			if errors.Is(err, types.ErrRolePromptUnavailable) {
+				// No file can be classified without the librarian's prompt.
+				logging.CampaignWarn("Document classification stopped: %v", err)
+				return files
+			}
 			logging.CampaignDebug("Classification failed for %s: %v", files[i].Path, err)
 			continue
 		}
@@ -238,27 +244,18 @@ func (d *Decomposer) classifyDocument(ctx context.Context, filename, content str
 		return DocClassification{Layer: "/scaffold", Confidence: 0.5, Reasoning: "defaulted (trivial content)"}, nil
 	}
 
-	// Get prompt (JIT or static)
-	basePrompt, err := d.promptProvider.GetPrompt(ctx, RoleLibrarian, "", d.llmClient)
+	systemPrompt, err := rolePrompt(ctx, d.promptProvider, RoleLibrarian, "", d.llmClient)
 	if err != nil {
-		logging.CampaignDebug("Failed to get Librarian prompt, using fallback: %v", err)
-		basePrompt = LibrarianLogic
+		return defaultClass, err
 	}
 
-	prompt := fmt.Sprintf(`%s
-
-FILE: %s
-CONTENT START:
-%s
-CONTENT END
-
-Return JSON only: {"layer": "/string", "confidence": 0.0-1.0, "reasoning": "brief"}`,
-		// Classifying a layer needs the document's framing, not every line:
-		// head and tail with a marker naming the cut, never a silent prefix.
-		basePrompt, filename, types.ClampText(trimmed, 4000, filename))
+	// Classifying a layer needs the document's framing, not every line:
+	// head and tail with a marker naming the cut, never a silent prefix.
+	userPrompt := fmt.Sprintf("FILE: %s\nCONTENT START:\n%s\nCONTENT END\n",
+		filename, types.ClampText(trimmed, 4000, filename))
 
 	// Reply is unmarshalled directly; no Piggyback envelope schema.
-	resp, err := d.llmClient.Complete(types.WithStructuredOutputOnly(ctx), prompt)
+	resp, err := d.llmClient.CompleteWithSystem(types.WithStructuredOutputOnly(ctx), systemPrompt, userPrompt)
 	if err != nil {
 		return defaultClass, err
 	}

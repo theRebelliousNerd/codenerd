@@ -58,7 +58,6 @@ func NewOrchestrator(cfg OrchestratorConfig) (*Orchestrator, error) {
 		taskResultOrder: make([]string, 0),
 		config:          cfg,
 		policy:          policy,
-		promptProvider:  NewStaticPromptProvider(),
 		// Every door's tasks get their specialist's knowledge: the provider
 		// needs only the workspace, so no caller has to remember it.
 		specialistKnowledgeProvider: NewLocalSpecialistKnowledgeProvider(cfg.Workspace),
@@ -186,18 +185,19 @@ func validateOrchestratorConfig(cfg OrchestratorConfig) error {
 	return nil
 }
 
-// SetPromptProvider wires a PromptProvider into the orchestrator's planning components.
-// This enables JIT-compiled prompts for decomposition and replanning.
+// SetPromptProvider wires the provider that compiles every campaign role's
+// system prompt into the orchestrator and its components. Until it is set,
+// each campaign model call reports types.ErrRolePromptUnavailable.
 func (o *Orchestrator) SetPromptProvider(provider PromptProvider) {
-	if provider == nil {
-		return
-	}
 	o.promptProvider = provider
 	if o.decomposer != nil {
 		o.decomposer.SetPromptProvider(provider)
 	}
 	if o.replanner != nil {
 		o.replanner.SetPromptProvider(provider)
+	}
+	if o.contextPager != nil {
+		o.contextPager.SetPromptProvider(provider)
 	}
 }
 

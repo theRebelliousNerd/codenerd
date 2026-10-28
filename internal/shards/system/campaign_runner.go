@@ -62,8 +62,9 @@ type CampaignRunnerShard struct {
 	// planningLLM serves the supervised campaigns' planning (replanning,
 	// rolling-wave refinement, assault remediation planning); the shard's own
 	// LLMClient serves their execution-side calls. prompts compiles their
-	// planning prompts from the JIT corpus for that client's model; nil leaves
-	// the static fallback. Both are set by the boot closure (SetPlanning).
+	// planning prompts from the JIT corpus for that client's model; nil makes
+	// each planning call report its prompt unavailable. Both are set by the
+	// boot closure (SetPlanning).
 	planningLLM types.LLMClient
 	prompts     campaign.PromptProvider
 

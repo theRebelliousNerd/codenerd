@@ -225,8 +225,23 @@ func (m *MockLLMClient) Complete(ctx context.Context, prompt string) (string, er
 	return "ok", nil
 }
 
+// CompleteWithSystem answers through CompleteFunc, given the system prompt
+// and the user message joined, so a test scripting Complete scripts both
+// shapes of call.
 func (m *MockLLMClient) CompleteWithSystem(ctx context.Context, sys, user string) (string, error) {
+	if m.CompleteFunc != nil {
+		return m.CompleteFunc(ctx, sys+"\n\n"+user)
+	}
 	return "ok", nil
+}
+
+// testPromptProvider serves every campaign role a stand-in system prompt that
+// names the role, so a test drives the campaign components without compiling
+// atoms (campaign_role_prompts_test.go compiles the real ones).
+type testPromptProvider struct{}
+
+func (testPromptProvider) GetPrompt(_ context.Context, role CampaignRole, _ string, _ perception.LLMClient) (string, error) {
+	return "campaign role " + string(role) + " system prompt", nil
 }
 
 func (m *MockLLMClient) CompleteWithTools(ctx context.Context, sys, user string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {

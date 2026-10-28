@@ -3,7 +3,7 @@
   subcategory: "extractor"
   is_mandatory: true
   shard_types: ["extractor", "researcher"]
-  campaign_phases: ["requirements", "northstar"]
+  campaign_phases: ["requirements", "northstar", "requirement_extraction"]
   depends_on: ["campaign/extractor/identity"]
   description: "Extraction protocol, deduplication, atomization rules, and ambiguity handling for requirements extraction"
   content: |

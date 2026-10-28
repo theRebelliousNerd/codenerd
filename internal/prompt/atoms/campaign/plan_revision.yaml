@@ -1,0 +1,26 @@
+# Plan revision role (campaign.RolePlanRevision): shard /planner, phase
+# /plan_revision. refinePlan (internal/campaign/decomposer_planning.go) sends
+# this system prompt when a proposed plan fails validation; the user message
+# is only the CURRENT PLAN (JSON) and its ISSUES. The reply is unmarshalled
+# into RawPlan. Until 2026-10-28 this text was a Go string literal.
+
+- id: "campaign/plan_revision/contract"
+  category: "campaign"
+  subcategory: "plan_revision"
+  is_mandatory: true
+  shard_types: ["/planner"]
+  campaign_phases: ["/plan_revision"]
+  conflicts_with:
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  content: |
+    ## Campaign plan revision
+
+    The CURRENT PLAN that follows has validation issues that need to be fixed; the ISSUES follow it.
+
+    Fix these issues and output the corrected plan as JSON.
+    - For circular dependencies: adjust phase order or dependencies
+    - For unreachable tasks: add missing task definitions or fix dependency references
+
+    Output ONLY valid JSON with the same structure as the input plan.

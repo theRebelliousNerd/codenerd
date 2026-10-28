@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"codenerd/internal/articulation"
-	"codenerd/internal/campaign"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
@@ -312,7 +311,11 @@ func (m Model) formatDelegationOutput(ctx context.Context, input, shardType, tas
 %s`, header, shardType, task, result)
 }
 
-func (m Model) buildShardInterpretationPrompt(ctx context.Context, input, shardType, task, result string) (string, string) {
+// buildShardInterpretationPrompt is the translator's system prompt, compiled
+// from its atoms, and the user message carrying the shard's output. Without a
+// compiler, or when the compile fails, the translation cannot be asked:
+// types.ErrRolePromptUnavailable.
+func (m Model) buildShardInterpretationPrompt(ctx context.Context, input, shardType, task, result string) (string, string, error) {
 	userPrompt := fmt.Sprintf(`USER REQUEST (ANSWER THIS):
 %s
 
@@ -330,51 +333,37 @@ OUTPUT:
 %s
 `, input, shardType, task, result)
 
-	if m.jitCompiler != nil {
-		semanticQuery := fmt.Sprintf("Translate %s shard output into actionable summary", normalizeShardType(shardType))
-		// Derive the JIT budget from the user's actual context-window config
-		// instead of hardcoding 12000/2000. Earlier the hardcode produced
-		// AvailableTokens=10000 — too small to seat all mandatory atoms on
-		// a model like Gemini 3.5-flash (1M context, 65K output reserve),
-		// so mandatory atoms in late categories were being dropped at the
-		// "exceeds total budget" check (.nerd/logs/2026-05-28_context.log:138-186).
-		tokenBudget, reservedTokens := translatorJITBudget(m.Config)
-		cc := prompt.NewCompilationContext().
-			WithOperationalMode("/active").
-			WithIntent("/translate", "").
-			WithShard("/analysis_translator", "analysis_translator", "Analysis Translator").
-			WithTokenBudget(tokenBudget, reservedTokens).
-			WithSemanticQuery(semanticQuery, 8)
-
-		// AvailableTools stays empty on purpose: the translator never calls
-		// tools -- interpretShardOutput sends this prompt through
-		// CompleteWithSystem and publishes the answer as user-facing prose -- so
-		// tool-gated atoms would teach tool syntax to a prompt that cannot act
-		// on it. The empty catalog here is deliberate, not an omission.
-
-		if res, err := m.jitCompiler.Compile(ctx, cc); err == nil && res != nil && strings.TrimSpace(res.Prompt) != "" {
-			return res.Prompt, userPrompt
-		}
+	if m.jitCompiler == nil {
+		return "", "", fmt.Errorf("%w: shard output translator: no JIT compiler", types.ErrRolePromptUnavailable)
 	}
+	semanticQuery := fmt.Sprintf("Translate %s shard output into actionable summary", normalizeShardType(shardType))
+	// Derive the JIT budget from the user's actual context-window config
+	// instead of hardcoding 12000/2000. Earlier the hardcode produced
+	// AvailableTokens=10000 — too small to seat all mandatory atoms on
+	// a model like Gemini 3.5-flash (1M context, 65K output reserve),
+	// so mandatory atoms in late categories were being dropped at the
+	// "exceeds total budget" check (.nerd/logs/2026-05-28_context.log:138-186).
+	tokenBudget, reservedTokens := translatorJITBudget(m.Config)
+	cc := prompt.NewCompilationContext().
+		WithOperationalMode("/active").
+		WithIntent("/translate", "").
+		WithShard("/analysis_translator", "analysis_translator", "Analysis Translator").
+		WithTokenBudget(tokenBudget, reservedTokens).
+		WithSemanticQuery(semanticQuery, 8)
 
-	fallbackPrompt := fmt.Sprintf(`%s
-
-%s`, campaign.AnalysisLogic, userPrompt)
-	// Behaviour unchanged: withArchitectPersona("") is the persona alone, byte
-	// for byte, which is what this fallback has always returned. It is routed
-	// through the one seam so a future edit to persona delivery cannot miss this
-	// call site.
-	//
-	// OPEN QUESTION FOR THE ARCHITECT, deliberately not answered here: this text
-	// is what the user reads in chat as the shard's answer
-	// (formatInterpretedResult below tucks the raw output into a <details>), yet
-	// the persona reaches it only when the JIT compile above does NOT happen. On
-	// the success path at :413 the system prompt is the /analysis_translator
-	// prompt and the architect's voice is absent. So his voice appears on this
-	// surface only when the JIT fails, which is backwards. Changing it means
-	// deciding whether a translator should have a persona at all; that is his
-	// call, not this seam's.
-	return withArchitectPersona(""), fallbackPrompt
+	// AvailableTools stays empty on purpose: the translator never calls
+	// tools -- interpretShardOutput sends this prompt through
+	// CompleteWithSystem and publishes the answer as user-facing prose -- so
+	// tool-gated atoms would teach tool syntax to a prompt that cannot act
+	// on it. The empty catalog here is deliberate, not an omission.
+	res, err := m.jitCompiler.Compile(ctx, cc)
+	if err != nil {
+		return "", "", fmt.Errorf("%w: shard output translator: %w", types.ErrRolePromptUnavailable, err)
+	}
+	if res == nil || strings.TrimSpace(res.Prompt) == "" {
+		return "", "", fmt.Errorf("%w: shard output translator compiled empty", types.ErrRolePromptUnavailable)
+	}
+	return res.Prompt, userPrompt, nil
 }
 
 // translatorJITBudget derives (TokenBudget, ReservedTokens) for the
@@ -423,7 +412,10 @@ func (m Model) interpretShardOutput(ctx context.Context, input, shardType, task,
 	// Rephrasing a shard's output for the user is articulation: its spend was
 	// booked as unattributed until it was tagged here.
 	ctx = broker.WithPurpose(ctx, broker.PurposeArticulation)
-	systemPrompt, userPrompt := m.buildShardInterpretationPrompt(ctx, input, shardType, task, result)
+	systemPrompt, userPrompt, err := m.buildShardInterpretationPrompt(ctx, input, shardType, task, result)
+	if err != nil {
+		return "", err
+	}
 	interpResp, err := m.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return "", err

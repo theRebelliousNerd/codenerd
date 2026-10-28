@@ -71,6 +71,7 @@
     **Anti-Patterns**:
     - Business logic in a Makefile (Shell scripts doing too much).
     - Database connection strings hardcoded in configuration loaders.
+    - "Golden Files" for testing often reside here or in /integration, but are classified as /scaffold if they are build artifacts.
 
 - id: "methodology/librarian/layers/layer-2-domain-core"
   section_of: "methodology/librarian/layers"
@@ -95,8 +96,8 @@
     - Definitions: "type User struct", "type UserRepository interface", "var ErrInvalidInput"
     - NO "sql.DB", NO "http.Request", NO "json.Marshal" (usually).
     **Anti-Patterns**:
-    - A Domain Entity with a 'Save()' method (Active Record pattern is forbidden).
-    - Importing "gorm" or "sqlx" tags in domain structs (leaky abstraction).
+    - A Domain Entity with a 'Save()' method (Active Record pattern is forbidden; use Repository pattern).
+    - Importing "gorm" or "sqlx" tags in domain structs (leaky abstraction, though tolerated in some pragmatic codebases, strictly penalize here if pure).
 
 - id: "methodology/librarian/layers/layer-3-data-layer"
   section_of: "methodology/librarian/layers"
@@ -121,7 +122,7 @@
     - SQL Queries: "SELECT * FROM", "INSERT INTO", "UPDATE"
     **Anti-Patterns**:
     - HTTP logic in a repository.
-    - Returning 'sql.Rows' directly to the service layer.
+    - Returning 'sql.Rows' directly to the service layer (must map to Domain Entities first).
 
 - id: "methodology/librarian/layers/layer-4-service"
   section_of: "methodology/librarian/layers"
@@ -147,7 +148,7 @@
     - Logic: "if user.Balance < amount { return ErrInsufficientFunds }"
     **Anti-Patterns**:
     - Direct SQL queries in a service method.
-    - Reading "r.FormValue" in a service method.
+    - Reading "r.FormValue" in a service method (Context coupling).
 
 - id: "methodology/librarian/layers/layer-5-transport"
   section_of: "methodology/librarian/layers"
@@ -171,7 +172,7 @@
     - Functions: "HandleLogin", "ServeHTTP", "ExecuteCommand"
     - Variables: "mux", "router", "endpoint"
     **Anti-Patterns**:
-    - Business logic in a handler.
+    - Business logic in a handler (e.g., calculating tax inside the HTTP handler).
     - Direct database access from a handler.
 
 - id: "methodology/librarian/layers/layer-6-integration"

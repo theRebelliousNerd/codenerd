@@ -116,13 +116,12 @@ func TestChatCompilationContext_FailClosedWithoutKernel(t *testing.T) {
 func TestTranslatorPrompt_CompilesAgainstEmptyCatalog(t *testing.T) {
 	m := newChatModelWithCompiler(t, "what is the main issue?", "/review")
 
-	systemPrompt, _ := m.buildShardInterpretationPrompt(
+	systemPrompt, _, err := m.buildShardInterpretationPrompt(
 		context.Background(),
 		"what is the main issue?", "reviewer", "review foo.go",
 		"found 3 issues: an unchecked error, a data race, a typo")
-	if strings.HasPrefix(systemPrompt, personaAlone()) {
-		t.Fatal("the translator fell back to the persona; the test cannot " +
-			"observe the JIT catalog it compiled against")
+	if err != nil {
+		t.Fatalf("buildShardInterpretationPrompt: %v", err)
 	}
 	if strings.Contains(systemPrompt, "Refs Name Code") {
 		t.Fatal("the translator prompt carries capability/codedom_core, which " +
@@ -139,7 +138,6 @@ func TestTranslatorPrompt_CompilesAgainstEmptyCatalog(t *testing.T) {
 		WithShard("/analysis_translator", "analysis_translator", "Analysis Translator").
 		WithTokenBudget(tokenBudget, reservedTokens).
 		WithSemanticQuery("Translate reviewer shard output into actionable summary", 8)
-	var err error
 	if cc.AvailableTools, err = prompt.DeriveTurnTools(m.kernel, "/fix"); err != nil {
 		t.Fatalf("DeriveTurnTools(/fix): %v", err)
 	}

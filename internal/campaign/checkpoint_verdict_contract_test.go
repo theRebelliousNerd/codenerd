@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"codenerd/internal/session"
+	"codenerd/internal/types"
 	"context"
 	"os"
 	"strings"
@@ -35,96 +36,63 @@ func TestParseCheckpointVerdictAtom_AcceptsTrailingPeriod(t *testing.T) {
 	}
 }
 
-// TestCheckpointPrompts_VerdictExampleEndsWithPeriod captures the prompts
-// handed to the reviewer/nemesis shards and asserts the example atom carries
-// the required trailing period, plus the explicit period sentence. It also
-// asserts the assault_tasks.go prompt site carries the same contract.
-func TestCheckpointPrompts_VerdictExampleEndsWithPeriod(t *testing.T) {
-	capturePrompt := func(t *testing.T, run func(exec *MockTaskExecutor, cr *CheckpointRunner)) string {
+// TestCheckpointTasks_CarryTheVerdictKeyAndThePromptPhase captures the turns
+// handed to the reviewer and nemesis shards: each task carries the phase and
+// its verdict key as data, and each turn's context carries the checkpoint
+// prompt phase that compiles the checkpoint_verdict/4 contract into the
+// shard's system prompt (TestCheckpointVerdictContracts_ReachOnlyTheCheckpointTurn
+// compiles it). No contract text is left in the task.
+func TestCheckpointTasks_CarryTheVerdictKeyAndThePromptPhase(t *testing.T) {
+	capture := func(t *testing.T, run func(cr *CheckpointRunner)) (string, string) {
 		t.Helper()
-		var captured string
+		var task, phase string
 		exec := &MockTaskExecutor{
 			ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
-				captured = req.Task
+				task = req.Task
+				if sc := types.GetSessionContext(ctx); sc != nil && sc.CampaignActive {
+					phase = sc.CampaignPhase
+				}
 				return "plain prose, no verdict", nil
 			},
 		}
-		cr := NewCheckpointRunner(nil, exec, t.TempDir(), &MockKernel{})
-		run(exec, cr)
-		if captured == "" {
-			t.Fatal("expected task executor to capture a prompt, got empty")
+		run(NewCheckpointRunner(nil, exec, t.TempDir(), &MockKernel{}))
+		if task == "" {
+			t.Fatal("expected task executor to capture a task, got empty")
 		}
-		return captured
+		return task, phase
 	}
 
-	shardPrompt := capturePrompt(t, func(exec *MockTaskExecutor, cr *CheckpointRunner) {
-		_, _, _ = cr.runShardValidationCheckpoint(context.Background(), &Phase{Name: "P"})
-	})
-	if !strings.Contains(shardPrompt, `checkpoint_verdict(\"my-phase\", /pass, \"all objectives met\", 95).`) {
-		t.Errorf("shard-validation prompt example must end with period; got:\n%s", shardPrompt)
-	}
-	if !strings.Contains(shardPrompt, "The atom must end with a period; it is asserted into the kernel as a fact.") {
-		t.Errorf("shard-validation prompt must state the period contract; got:\n%s", shardPrompt)
-	}
-	if !strings.Contains(shardPrompt, "Free-text PASS/FAIL is not accepted") {
-		t.Errorf("shard-validation prompt must keep the free-text sentence; got:\n%s", shardPrompt)
+	for name, tc := range map[string]struct {
+		run   func(cr *CheckpointRunner)
+		phase string
+	}{
+		"review": {func(cr *CheckpointRunner) {
+			_, _, _ = cr.runShardValidationCheckpoint(context.Background(), &Phase{ID: "/phase_p", Name: "P"})
+		}, CheckpointReviewPromptPhase},
+		"nemesis": {func(cr *CheckpointRunner) {
+			_, _, _ = cr.runNemesisGauntletCheckpoint(context.Background(), &Phase{ID: "/phase_p", Name: "P"})
+		}, CheckpointNemesisPromptPhase},
+	} {
+		t.Run(name, func(t *testing.T) {
+			task, phase := capture(t, tc.run)
+			if phase != tc.phase {
+				t.Errorf("the %s turn compiled under campaign phase %q, want %q", name, phase, tc.phase)
+			}
+			if !strings.Contains(task, `Verdict key: "phase_p"`) || !strings.Contains(task, "Phase: P") {
+				t.Errorf("the %s task does not name its phase and verdict key:\n%s", name, task)
+			}
+			if strings.Contains(task, "checkpoint_verdict") {
+				t.Errorf("the %s task carries contract text; the contract is the atom's:\n%s", name, task)
+			}
+		})
 	}
 
-	nemesisPrompt := capturePrompt(t, func(exec *MockTaskExecutor, cr *CheckpointRunner) {
-		_, _, _ = cr.runNemesisGauntletCheckpoint(context.Background(), &Phase{Name: "P"})
-	})
-	if !strings.Contains(nemesisPrompt, `checkpoint_verdict(\"my-phase\", /pass, \"no weaknesses found\", 95).`) {
-		t.Errorf("nemesis prompt example must end with period; got:\n%s", nemesisPrompt)
-	}
-	if !strings.Contains(nemesisPrompt, "The atom must end with a period; it is asserted into the kernel as a fact.") {
-		t.Errorf("nemesis prompt must state the period contract; got:\n%s", nemesisPrompt)
-	}
-	if !strings.Contains(nemesisPrompt, "Free-text PASS/FAIL is not accepted") {
-		t.Errorf("nemesis prompt must keep the free-text sentence; got:\n%s", nemesisPrompt)
-	}
-
-	// assault_tasks.go builds its nemesis prompt inline in runAssaultStage;
-	// assert the file carries the same contract so the third site cannot drift.
+	// assault_tasks.go spawns its nemesis stage on the same phase.
 	raw, err := os.ReadFile("assault_tasks.go")
 	if err != nil {
 		t.Fatalf("read assault_tasks.go: %v", err)
 	}
-	src := string(raw)
-	if !strings.Contains(src, "no weaknesses found") || !strings.Contains(src, "95).") {
-		t.Error("assault_tasks.go prompt example must end with period (95).")
-	}
-	if !strings.Contains(src, "The atom must end with a period; it is asserted into the kernel as a fact.") {
-		t.Error("assault_tasks.go prompt must state the period contract.")
-	}
-}
-
-// TestShardValidationCheckpoint_RetractsStaleVerdictBeforeSpawn ensures a
-// verdict asserted earlier in the phase cannot pre-approve the checkpoint:
-// the runner retracts any existing checkpoint_verdict for the phase before
-// spawning the reviewer, so prose-only review must fail closed.
-func TestShardValidationCheckpoint_RetractsStaleVerdictBeforeSpawn(t *testing.T) {
-	kernel := policyKernel(t, nil)
-	if err := kernel.Assert(verdictFact("P", "/pass", "stale", 99)); err != nil {
-		t.Fatal(err)
-	}
-	exec := &MockTaskExecutor{
-		ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
-			return "plain prose, no verdict", nil
-		},
-	}
-	cr := NewCheckpointRunner(nil, exec, t.TempDir(), kernel)
-	passed, details, err := cr.runShardValidationCheckpoint(context.Background(), &Phase{Name: "P"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if passed {
-		t.Fatalf("expected FAIL when only a stale pre-spawn verdict exists (it must be retracted); got PASS details=%q", details)
-	}
-	lower := strings.ToLower(details)
-	if !strings.Contains(lower, "could not be determined") {
-		t.Errorf("fail-closed details should say verdict could not be determined; got %q", details)
-	}
-	if !strings.Contains(details, "control packet carried no checkpoint_verdict/4 for this phase") {
-		t.Errorf("fail-closed details should distinguish kernel-never-received; got %q", details)
+	if !strings.Contains(string(raw), "withPromptPhase(ctx, CheckpointNemesisPromptPhase)") {
+		t.Error("assault_tasks.go's nemesis stage does not compile under CheckpointNemesisPromptPhase")
 	}
 }

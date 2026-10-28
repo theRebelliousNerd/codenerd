@@ -21,12 +21,14 @@ func TestNewContextPager(t *testing.T) {
 
 	// Test default budget
 	cp := NewContextPager(kernel, llm, 0)
+	cp.SetPromptProvider(testPromptProvider{})
 	if cp.totalBudget != 200000 {
 		t.Errorf("expected default budget 200000, got %d", cp.totalBudget)
 	}
 
 	// Test custom budget
 	cp2 := NewContextPager(kernel, llm, 100000)
+	cp2.SetPromptProvider(testPromptProvider{})
 	if cp2.totalBudget != 100000 {
 		t.Errorf("expected custom budget 100000, got %d", cp2.totalBudget)
 	}
@@ -45,6 +47,7 @@ func TestNewContextPager(t *testing.T) {
 // TODO: TEST_GAP: Area 2 - State Conflicts - SetBudget called concurrently when usedTokens already exceeds the newly set totalBudget limit.
 func TestSetBudget(t *testing.T) {
 	cp := NewContextPager(&MockKernel{}, &MockLLMClient{}, 100000)
+	cp.SetPromptProvider(testPromptProvider{})
 	cp.SetBudget(50000)
 
 	if cp.totalBudget != 50000 {
@@ -63,6 +66,7 @@ func TestActivatePhase(t *testing.T) {
 	kernel := &MockKernel{}
 	llm := &MockLLMClient{}
 	cp := NewContextPager(kernel, llm, 100000)
+	cp.SetPromptProvider(testPromptProvider{})
 	ctx := context.Background()
 
 	// 1. Setup Phase and Context Profile
@@ -180,6 +184,7 @@ func TestActivatePhase_NilTasks(t *testing.T) {
 	kernel := &MockKernel{}
 	llm := &MockLLMClient{}
 	cp := NewContextPager(kernel, llm, 100000)
+	cp.SetPromptProvider(testPromptProvider{})
 	ctx := context.Background()
 
 	// Setup phase with nil Tasks slice
@@ -209,6 +214,7 @@ func TestCompressPhase(t *testing.T) {
 		},
 	}
 	cp := NewContextPager(kernel, llm, 100000)
+	cp.SetPromptProvider(testPromptProvider{})
 	ctx := context.Background()
 
 	phaseID := "phase1"
@@ -316,6 +322,7 @@ func TestCompressPhase_MassiveAccomplishments(t *testing.T) {
 		},
 	}
 	cp := NewContextPager(kernel, llm, 100000)
+	cp.SetPromptProvider(testPromptProvider{})
 	ctx := context.Background()
 
 	phaseID := "phase_massive"
@@ -378,6 +385,7 @@ func TestCompressPhase_MassiveAccomplishments(t *testing.T) {
 func TestPrefetchNextTasks(t *testing.T) {
 	kernel := &MockKernel{}
 	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
+	cp.SetPromptProvider(testPromptProvider{})
 	ctx := context.Background()
 
 	tasks := []Task{
@@ -426,6 +434,7 @@ func TestPrefetchNextTasks(t *testing.T) {
 func TestContextPager_ResetFailure(t *testing.T) {
 	kernel := &MockKernel{RetractErr: fmt.Errorf("transaction commit failed")}
 	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
+	cp.SetPromptProvider(testPromptProvider{})
 
 	kernel.Assert(core.Fact{Predicate: "activation", Args: []any{"file1.go", 100}})
 
@@ -441,6 +450,7 @@ func TestContextPager_ResetFailure(t *testing.T) {
 func TestContextPager_NilLLMClient(t *testing.T) {
 	kernel := &MockKernel{}
 	cp := NewContextPager(kernel, nil, 100000)
+	cp.SetPromptProvider(testPromptProvider{})
 
 	phase := &Phase{
 		ID:    "phase1",
@@ -460,6 +470,7 @@ func TestContextPager_NilLLMClient(t *testing.T) {
 func TestContextPager_MalformedProfileID(t *testing.T) {
 	kernel := &MockKernel{}
 	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
+	cp.SetPromptProvider(testPromptProvider{})
 
 	// Extremely long ID
 	longID := strings.Repeat("A", 10000)
@@ -495,6 +506,7 @@ func TestContextPager_MalformedProfileID(t *testing.T) {
 func TestContextPager_GetUsageConcurrent(t *testing.T) {
 	kernel := &ThreadSafeMockKernel{}
 	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
+	cp.SetPromptProvider(testPromptProvider{})
 
 	phase := &Phase{
 		ID:    "test-phase",
@@ -527,6 +539,7 @@ func TestContextPager_GetUsageConcurrent(t *testing.T) {
 func TestGetContextProfile_Malformed(t *testing.T) {
 	kernel := &MockKernel{}
 	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
+	cp.SetPromptProvider(testPromptProvider{})
 
 	// Inject malformed profiles
 	// 1. Not enough arguments
@@ -628,6 +641,7 @@ func (m *ThreadSafeMockKernel) Assert(fact core.Fact) error {
 func TestActivatePhase_Concurrent(t *testing.T) {
 	kernel := &ThreadSafeMockKernel{}
 	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
+	cp.SetPromptProvider(testPromptProvider{})
 	ctx := context.Background()
 
 	phase := &Phase{
@@ -700,6 +714,7 @@ func TestActivatePhase_NilPhase(t *testing.T) {
 	kernel := &MockKernel{}
 	llm := &MockLLMClient{}
 	cp := NewContextPager(kernel, llm, 100000)
+	cp.SetPromptProvider(testPromptProvider{})
 	ctx := context.Background()
 
 	err := cp.ActivatePhase(ctx, nil)
@@ -725,6 +740,7 @@ func TestCompressPhase_EmptyAccomplishments(t *testing.T) {
 		},
 	}
 	cp := NewContextPager(kernel, llm, 100000)
+	cp.SetPromptProvider(testPromptProvider{})
 	ctx := context.Background()
 
 	phaseID := "phase_empty"
@@ -766,6 +782,7 @@ func TestActivatePhase_ExtremeTaskCount(t *testing.T) {
 	kernel := &MockKernel{}
 	llm := &MockLLMClient{}
 	cp := NewContextPager(kernel, llm, 1000000)
+	cp.SetPromptProvider(testPromptProvider{})
 
 	// Set a reasonable timeout for 10k tasks
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -831,6 +848,7 @@ func TestCompressPhase_MassiveOutput(t *testing.T) {
 		},
 	}
 	cp := NewContextPager(kernel, llm, 100000)
+	cp.SetPromptProvider(testPromptProvider{})
 	ctx := context.Background()
 
 	phaseID := "phase_massive"
@@ -892,6 +910,7 @@ func TestActivatePhase_TasksWithNilArtifacts(t *testing.T) {
 	kernel := &MockKernel{}
 	llm := &MockLLMClient{}
 	cp := NewContextPager(kernel, llm, 100000)
+	cp.SetPromptProvider(testPromptProvider{})
 	ctx := context.Background()
 
 	phase := &Phase{
@@ -925,6 +944,7 @@ func TestActivatePhase_TasksWithNilArtifacts(t *testing.T) {
 func TestScopedDocsForPhase_PerformanceExtremes(t *testing.T) {
 	kernel := &MockKernel{}
 	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
+	cp.SetPromptProvider(testPromptProvider{})
 
 	numFacts := 1000000
 	kernel.Facts = make([]core.Fact, 0, numFacts+2)
@@ -974,6 +994,7 @@ func TestActivatePhase_ExtremeArtifacts(t *testing.T) {
 	kernel := &MockKernel{}
 	llm := &MockLLMClient{}
 	cp := NewContextPager(kernel, llm, 3000000)
+	cp.SetPromptProvider(testPromptProvider{})
 	ctx := context.Background()
 
 	// Create a phase with 100,000 artifacts
@@ -1024,6 +1045,7 @@ func TestActivatePhase_ExtremeArtifacts(t *testing.T) {
 func TestScopedDocsForPhase_TypeCoercion(t *testing.T) {
 	kernel := &MockKernel{}
 	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
+	cp.SetPromptProvider(testPromptProvider{})
 
 	// Inject scoped docs facts with non-string arguments
 	// 1. Int as phase, string as doc
@@ -1114,6 +1136,7 @@ func TestScopedDocsForPhase_TypeCoercion(t *testing.T) {
 func TestActivatePhase_MalformedPhaseID(t *testing.T) {
 	kernel := &MockKernel{}
 	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
+	cp.SetPromptProvider(testPromptProvider{})
 	ctx := context.Background()
 
 	malformedID := "invalid phase id !@#$%\n^&*()"
@@ -1156,6 +1179,7 @@ func TestActivatePhase_DoubleActivation(t *testing.T) {
 	kernel := &MockKernel{}
 	llm := &MockLLMClient{}
 	cp := NewContextPager(kernel, llm, 100000)
+	cp.SetPromptProvider(testPromptProvider{})
 	ctx := context.Background()
 
 	// 1. Setup Phase and Context Profile

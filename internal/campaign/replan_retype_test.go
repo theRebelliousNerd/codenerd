@@ -70,6 +70,7 @@ func TestReplanRefineRetypesPathlessDocument(t *testing.T) {
 			return `{"tasks": [{"task_id": "", "description": "Assemble short ranked risk report from Phase 3 correctness and safety findings", "type": "/document", "priority": "/high", "action": "add"}], "summary": "refine"}`, nil
 		},
 	}, t.TempDir())
+	r.SetPromptProvider(testPromptProvider{})
 	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0], nil); err == nil {
 		t.Fatal("pathless document refinement must fail")
 	}
@@ -103,6 +104,7 @@ func TestReplanDedupeDropsSuffixedRestatement(t *testing.T) {
 			return `{"tasks": [{"task_id": "", "description": "Research correctness in internal/retrieval", "type": "/research", "priority": "/high", "action": "add"}], "summary": "refine"}`, nil
 		},
 	}, t.TempDir())
+	r.SetPromptProvider(testPromptProvider{})
 	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0], nil); err != nil {
 		t.Fatalf("RefineNextPhase failed: %v", err)
 	}
@@ -139,6 +141,7 @@ func TestReplanDedupeKeepsDistinctTasks(t *testing.T) {
 			return `{"tasks": [{"task_id": "", "description": "Draft release notes in docs/notes.md", "type": "/document", "priority": "/high", "action": "add"}], "summary": "refine"}`, nil
 		},
 	}, t.TempDir())
+	r.SetPromptProvider(testPromptProvider{})
 	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0], nil); err != nil {
 		t.Fatalf("RefineNextPhase failed: %v", err)
 	}
@@ -157,6 +160,7 @@ func TestReplanDedupeKeepsDistinctTasks(t *testing.T) {
 func TestDefenseDecomposerPlanTimeRetypeStillApplies(t *testing.T) {
 	workspace := t.TempDir()
 	d := NewDecomposer(&MockKernel{}, &MockLLMClient{}, workspace)
+	d.SetPromptProvider(testPromptProvider{})
 	campaign := d.buildCampaign("/campaign_retype_defense", DecomposeRequest{
 		Goal:          "Stabilize campaign planning",
 		CampaignType:  CampaignTypeCustom,

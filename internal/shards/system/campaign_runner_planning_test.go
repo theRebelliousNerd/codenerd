@@ -62,7 +62,7 @@ func TestCampaignRunner_ResumedCampaignsPlanOnThePlanningClient(t *testing.T) {
 	prompts := shard.prompts
 	shard.mu.RUnlock()
 	if prompts != nil {
-		t.Fatalf("no assembler must leave the static fallback, got %T", prompts)
+		t.Fatalf("no assembler must leave no prompt provider, got %T", prompts)
 	}
 }
 

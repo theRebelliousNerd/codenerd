@@ -1,0 +1,21 @@
+# Phase summary role (campaign.RolePhaseSummary): shard /analyzer, phase
+# /phase_summary. ContextPager.CompressPhase (internal/campaign/
+# context_pager.go) sends this system prompt when a phase completes; the user
+# message is only the phase and its completed tasks, and the reply is stored
+# as the phase's summary. Until 2026-10-28 this text was a Go string literal.
+
+- id: "campaign/phase_summary/contract"
+  category: "campaign"
+  subcategory: "phase_summary"
+  is_mandatory: true
+  shard_types: ["/analyzer"]
+  campaign_phases: ["/phase_summary"]
+  conflicts_with:
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  content: |
+    ## Campaign phase summary
+
+    Summarize what was accomplished in the phase that follows (max 100 words), from its completed tasks.
+    Reply with the summary alone.

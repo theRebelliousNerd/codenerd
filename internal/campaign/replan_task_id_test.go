@@ -32,6 +32,7 @@ func TestRefineNextPhase_UpdateMatchesAnIDReturnedWithoutItsSlash(t *testing.T) 
 			], "summary": "sharpened"}`, nil
 		},
 	}, "")
+	r.SetPromptProvider(testPromptProvider{})
 	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0], nil); err != nil {
 		t.Fatalf("RefineNextPhase: %v", err)
 	}
@@ -71,6 +72,7 @@ func TestRefineNextPhase_RemoveAndAddSpellTaskIDsCanonically(t *testing.T) {
 			], "summary": "swapped"}`, nil
 		},
 	}, "")
+	r.SetPromptProvider(testPromptProvider{})
 	if err := r.RefineNextPhase(context.Background(), campaign, &campaign.Phases[0], nil); err != nil {
 		t.Fatalf("RefineNextPhase: %v", err)
 	}
