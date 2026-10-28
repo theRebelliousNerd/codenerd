@@ -568,17 +568,6 @@ func (d *Decomposer) linkRequirementsToTasks(requirements []Requirement, campaig
 	logging.CampaignDebug("Requirement linking complete: %d links created", linkedCount)
 }
 
-func limitString(s string, max int) string {
-	if max <= 0 {
-		return ""
-	}
-	runes := []rune(s)
-	if len(runes) <= max {
-		return s
-	}
-	return string(runes[:max])
-}
-
 // cleanJSONResponse extracts JSON from LLM response that may contain reasoning traces.
 // It looks for JSON objects/arrays in the response, handling markdown fences and preamble text.
 func cleanJSONResponse(resp string) string {

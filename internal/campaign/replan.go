@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // Replanner handles campaign replanning when things go wrong.
@@ -150,16 +151,23 @@ type ReplanResult struct {
 	NewPhases []Phase
 }
 
+// truncateForPrompt fits one replan context field into maxLen bytes, the
+// replan's per-field and total budgets (replanContextLimits). The cut is on a
+// rune boundary and the marker inside the bound says how much was dropped.
 func truncateForPrompt(text string, maxLen int) string {
 	text = strings.TrimSpace(text)
 	if maxLen <= 0 || len(text) <= maxLen {
 		return text
 	}
-	suffix := "... [truncated]"
-	if maxLen <= len(suffix) {
-		return text[:maxLen]
+	marker := fmt.Sprintf(" [truncated %d of %d bytes]", len(text), len(text))
+	if maxLen <= len(marker) {
+		return types.Ellipsize(text, maxLen)
 	}
-	return text[:maxLen-len(suffix)] + suffix
+	keep := maxLen - len(marker)
+	for keep > 0 && !utf8.RuneStart(text[keep]) {
+		keep--
+	}
+	return text[:keep] + fmt.Sprintf(" [truncated %d of %d bytes]", len(text)-keep, len(text))
 }
 
 func appendReplanContextLine(sb *strings.Builder, line string, limit int) bool {

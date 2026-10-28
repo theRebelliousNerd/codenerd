@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"bytes"
+	"codenerd/internal/types"
 	"context"
 	"errors"
 	"fmt"
@@ -173,11 +174,9 @@ func (g recurseGit) attemptDiff(ctx context.Context, paths []string, limit int) 
 		}
 		fmt.Fprintf(&b, "new file %s:\n%s\n", p, data)
 	}
-	out := b.String()
-	if len(out) > limit {
-		out = out[:limit] + "\n... (truncated)"
-	}
-	return out
+	// Head and tail with the marker: the last hunk is as much the change as
+	// the first.
+	return types.ClampText(b.String(), limit, "working-tree diff")
 }
 
 // revert puts paths back as HEAD has them: a tracked path is checked out, a

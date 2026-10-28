@@ -23,6 +23,7 @@ import (
 	"codenerd/internal/tactile"
 	"codenerd/internal/testoutput"
 	"codenerd/internal/tools"
+	"codenerd/internal/types"
 	internaltypes "codenerd/internal/types"
 	"crypto/sha256"
 )
@@ -966,11 +967,10 @@ func testFailureSummary(target, runErr, output string) string {
 	} else {
 		fmt.Fprintf(&sb, "%s (output did not parse as test results)", runErr)
 	}
+	// Head and tail, line-snapped, with the marker: test output ends with
+	// the failing package list and the verdict, which a head-only cut drops.
 	const maxRaw = 4000
-	raw := strings.TrimSpace(output)
-	if len(raw) > maxRaw {
-		raw = raw[:maxRaw] + "\n... (raw output truncated)"
-	}
+	raw := types.ClampText(strings.TrimSpace(output), maxRaw, "test output")
 	if raw != "" {
 		sb.WriteString("\n" + raw)
 	}
@@ -990,10 +990,7 @@ func firstFailureDetail(output string) string {
 		for j := i - 1; j >= 0 && j >= i-10; j-- {
 			trimmed := strings.TrimSpace(lines[j])
 			if strings.Contains(trimmed, "_test.go:") {
-				if len(trimmed) > 200 {
-					trimmed = trimmed[:200] + "..."
-				}
-				return trimmed
+				return types.ClampInline(trimmed, 400, "failure line")
 			}
 			if strings.HasPrefix(trimmed, "=== RUN") || strings.HasPrefix(trimmed, "--- ") {
 				break

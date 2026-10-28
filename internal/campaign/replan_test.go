@@ -674,7 +674,7 @@ func TestBuildReplanContext_TruncatesLargeHistory(t *testing.T) {
 	if got := strings.Count(contextText, "Attempt "); got != r.limits.attempts {
 		t.Fatalf("attempt count in context = %d, want %d (campaign.replan_context_attempts)", got, r.limits.attempts)
 	}
-	if !strings.Contains(contextText, "[truncated]") {
+	if !strings.Contains(contextText, "[truncated ") {
 		t.Fatalf("expected truncated marker in context, got %q", contextText)
 	}
 }

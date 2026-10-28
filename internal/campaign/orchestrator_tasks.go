@@ -707,10 +707,9 @@ func (o *Orchestrator) applyLearnings(ctx context.Context, task *Task, result an
 	resultContext := ""
 	if result != nil {
 		if data, err := json.Marshal(result); err == nil {
-			resultContext = string(data)
-			if len(resultContext) > 500 {
-				resultContext = resultContext[:500] + "..."
-			}
+			// The fact-argument bound, with its marker: a 500-byte cut of
+			// JSON was not JSON and said nothing about what was dropped.
+			resultContext = types.TruncateFactText(string(data))
 		}
 	}
 

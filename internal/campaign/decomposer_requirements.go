@@ -92,8 +92,12 @@ func (d *Decomposer) extractRequirementsSmart(ctx context.Context, campaignID, g
 		uniqueEntries = uniqueEntries[:maxSnippets]
 	}
 
+	// Whole snippets, in rank order, until the next would not fit; the
+	// synthesis call is told how many were left out. Only a first snippet
+	// that alone exceeds the bound is shortened, head and tail with a marker
+	// naming the cut, never a silent prefix.
 	var sb strings.Builder
-	chars := 0
+	chars, included := 0, 0
 	for _, e := range uniqueEntries {
 		path := ""
 		if p, ok := e.Metadata["path"].(string); ok {
@@ -101,25 +105,20 @@ func (d *Decomposer) extractRequirementsSmart(ctx context.Context, campaignID, g
 		}
 		chunk := fmt.Sprintf("PATH: %s\n%s\n---\n", path, e.Content)
 		if chars+len(chunk) > maxContextChars {
-			if chars == 0 {
-				avail := maxContextChars - len(fmt.Sprintf("PATH: %s\n\n---\n", path))
-				if avail > 0 && avail < len(e.Content) {
-					chunk = fmt.Sprintf("PATH: %s\n%s\n---\n", path, e.Content[:avail])
-				} else {
-					break
-				}
-			} else {
+			if chars != 0 {
 				break
 			}
+			chunk = fmt.Sprintf("PATH: %s\n%s\n---\n", path, types.ClampText(e.Content, maxContextChars-len(path)-64, path))
 		}
 		sb.WriteString(chunk)
 		chars += len(chunk)
+		included++
+	}
+	if rest := len(uniqueEntries) - included; rest > 0 {
+		sb.WriteString(types.TruncationNotice(included, len(uniqueEntries), "snippets") + "\n")
 	}
 
 	snippetsStr := sb.String()
-	if len(snippetsStr) > maxContextChars {
-		snippetsStr = snippetsStr[:maxContextChars]
-	}
 
 	// Exactly one LLM synthesis call for the whole goal.
 	prompt := fmt.Sprintf(`Goal: %s

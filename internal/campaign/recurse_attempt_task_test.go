@@ -98,7 +98,7 @@ func TestRecurseImproveTask_CarriesTheNumbersAndNotTheInstructions(t *testing.T)
 		"lines: 10",
 		"coverage: 12.34%",
 		"Cycle 6, reverted: no metric moved",
-		"\n... (truncated)",
+		"[codenerd: truncated",
 	} {
 		if !strings.Contains(task, want) {
 			t.Errorf("stabilize task missing %q\n%s", want, task)

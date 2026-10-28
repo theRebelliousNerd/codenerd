@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
@@ -122,13 +123,23 @@ func (p *LocalSpecialistKnowledgeProvider) GetRelevantKnowledge(ctx context.Cont
 
 // extractKeyConcept extracts a key concept from a task description.
 func extractKeyConcept(task string) string {
-	// Simple extraction: use first 50 chars or first sentence
-	if len(task) > 50 {
-		task = task[:50]
-	}
-	// Remove newlines
+	// The first sentence, or the first words up to 50 bytes: a search
+	// concept cut mid-word matches nothing.
 	task = strings.ReplaceAll(task, "\n", " ")
-	return task
+	if i := strings.IndexAny(task, ".!?"); i > 0 {
+		task = task[:i]
+	}
+	if len(task) > 50 {
+		cut := strings.LastIndexByte(task[:50], ' ')
+		if cut <= 0 {
+			cut = 50
+			for cut > 0 && !utf8.RuneStart(task[cut]) {
+				cut--
+			}
+		}
+		task = task[:cut]
+	}
+	return strings.TrimSpace(task)
 }
 
 // FormatSpecialistKnowledge formats knowledge atoms for injection into task context.
@@ -150,12 +161,9 @@ func FormatSpecialistKnowledge(atoms []KnowledgeAtom) string {
 		sb.WriteString(fmt.Sprintf("\nFrom %s:\n", specialist))
 		for i, atom := range specialistAtoms {
 			sb.WriteString(fmt.Sprintf("%d. ", i+1))
-			// Truncate long content
-			content := atom.Content
-			if len(content) > 500 {
-				content = content[:500] + "..."
-			}
-			sb.WriteString(content)
+			// Whole: the atom count is already bounded by the retrieval
+			// limit, and half a knowledge atom is a different claim.
+			sb.WriteString(atom.Content)
 			if atom.Source != "" {
 				sb.WriteString(fmt.Sprintf(" (source: %s)", atom.Source))
 			}

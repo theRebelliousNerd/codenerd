@@ -253,7 +253,9 @@ CONTENT START:
 CONTENT END
 
 Return JSON only: {"layer": "/string", "confidence": 0.0-1.0, "reasoning": "brief"}`,
-		basePrompt, filename, limitString(trimmed, 2000))
+		// Classifying a layer needs the document's framing, not every line:
+		// head and tail with a marker naming the cut, never a silent prefix.
+		basePrompt, filename, types.ClampText(trimmed, 4000, filename))
 
 	// Reply is unmarshalled directly; no Piggyback envelope schema.
 	resp, err := d.llmClient.Complete(types.WithStructuredOutputOnly(ctx), prompt)

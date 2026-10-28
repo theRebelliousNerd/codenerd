@@ -169,7 +169,7 @@ func writePriorAttempts(b *strings.Builder, prior []PriorAttempt) {
 		fmt.Fprintf(b, "\nCycle %d, reverted: %s\n", p.Cycle, p.Why)
 		tried := p.Tried
 		if len(tried) > budget {
-			tried = tried[:budget] + "\n... (truncated)"
+			tried = types.ClampText(tried, budget, fmt.Sprintf("cycle %d diff", p.Cycle))
 		}
 		budget -= len(tried)
 		if strings.TrimSpace(tried) != "" {

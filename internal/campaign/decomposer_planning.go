@@ -219,18 +219,13 @@ func (d *Decomposer) executePlanProposalWithRetry(ctx context.Context, req Decom
 	plan, parseErr := parseRawPlanResponse(resp)
 	if parseErr != nil {
 		// Log the raw response for debugging
-		rawPreview := resp
-		if len(rawPreview) > 500 {
-			rawPreview = rawPreview[:500]
-		}
-		logging.CampaignDebug("Raw response (first 500 chars): %s", rawPreview)
+		logging.CampaignDebug("Raw response (first 500 bytes; whole in _llm_io.log): %s", types.Ellipsize(resp, 500))
 		logging.Get(logging.CategoryCampaign).Error("Failed to parse plan JSON: %v", parseErr)
 
 		// Retry with stronger enforcement
 		logging.Campaign("Retrying plan proposal with JSON enforcement")
-		if len(contextPreview) > 2000 {
-			contextPreview = contextPreview[:2000]
-		}
+		// The retry gets the same context the first attempt had: a retry
+		// told less than the original is a worse question, not a cheaper one.
 		// The example must show phases POPULATED. This retry prompt used to
 		// print `"phases": []` as the "required structure", so a model that had
 		// just failed to produce phases was handed an example with none in it
@@ -269,11 +264,7 @@ Output ONLY the JSON:`, req.Goal, contextPreview)
 		}
 		plan, retryErr := parseRawPlanResponse(resp)
 		if retryErr != nil {
-			retryPreview := resp
-			if len(retryPreview) > 500 {
-				retryPreview = retryPreview[:500]
-			}
-			logging.CampaignDebug("Retry raw response (first 500 chars): %s", retryPreview)
+			logging.CampaignDebug("Retry raw response (first 500 bytes; whole in _llm_io.log): %s", types.Ellipsize(resp, 500))
 
 			// A well-formed answer with no phases degrades to the scaffold,
 			// which is now loud (WARN + Degraded + CLI banner) so the user can
@@ -343,7 +334,7 @@ func (d *Decomposer) normalizeRawPlanFromLLM(plan *RawPlan, req DecomposeRequest
 		} else if idx := strings.Index(title, ":"); idx > 0 && idx < 60 {
 			title = title[:idx]
 		} else if len(title) > 60 {
-			title = title[:60]
+			title = types.Ellipsize(title, 60)
 		}
 		plan.Title = strings.TrimSpace(title)
 		logging.Campaign("Fixed placeholder title to: %s", plan.Title)
@@ -370,10 +361,9 @@ func (d *Decomposer) normalizeRawPlanFromLLM(plan *RawPlan, req DecomposeRequest
 				"three-task scaffold that cannot satisfy the goal. Check the planner response in _llm_io.log "+
 				"for an output-contract mismatch. Goal: %.120s", req.Goal)
 		plan.Degraded = true
+		// The whole goal: these descriptions are what the scaffold's tasks
+		// execute, and a goal cut at 100 bytes is a different goal.
 		goalPreview := req.Goal
-		if len(goalPreview) > 100 {
-			goalPreview = goalPreview[:100] + "..."
-		}
 		plan.Phases = []RawPhase{
 			{
 				Name:        "Research & Planning",

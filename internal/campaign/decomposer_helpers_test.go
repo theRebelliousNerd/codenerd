@@ -5,22 +5,6 @@ import (
 	"testing"
 )
 
-func TestLimitString(t *testing.T) {
-	if got := limitString("hello", 3); got != "hel" {
-		t.Errorf("limitString(hello,3)=%q, want hel", got)
-	}
-	if got := limitString("hi", 10); got != "hi" {
-		t.Errorf("limitString(hi,10)=%q, want hi", got)
-	}
-	if got := limitString("anything", 0); got != "" {
-		t.Errorf("limitString(_,0)=%q, want empty", got)
-	}
-	// Rune-aware (multibyte not split mid-rune).
-	if got := limitString("héllo", 2); got != "hé" {
-		t.Errorf("limitString(héllo,2)=%q, want hé", got)
-	}
-}
-
 func TestDeriveTagsFromPath(t *testing.T) {
 	tags := deriveTagsFromPath("src/auth-service/login.go")
 	for _, want := range []string{"login", "service", "auth"} {
