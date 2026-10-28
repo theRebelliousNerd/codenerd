@@ -2,6 +2,7 @@ package autopoiesis
 
 import (
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -46,26 +47,30 @@ func TestNormalizePercent_AllBands(t *testing.T) {
 	}
 }
 
-// --- normalizeCapabilityName ---
+// --- known-issue names ---
 
-func TestNormalizeCapabilityName_AllCases(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"", "/unknown"},
-		{"  ", "/unknown"},
-		{"/already_prefixed", "/already_prefixed"},
-		{"tool_name", "/tool_name"},
-		{" spaces ", "/spaces"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			got := normalizeCapabilityName(tt.input)
-			if got != tt.want {
-				t.Errorf("normalizeCapabilityName(%q) = %q, want %q", tt.input, got, tt.want)
+// tool_known_issue is rendered into learned.mg text. The old
+// normalizeCapabilityName only prefixed a slash, so an issue type with a space
+// or capital letter became a token that does not parse and broke the whole
+// file at the next boot. types.Atom always yields a valid name.
+func TestGenerateMangleFacts_IssueTypeIsAValidName(t *testing.T) {
+	store := NewLearningStore(t.TempDir())
+	store.RecordLearning("t", &ExecutionFeedback{
+		ToolName: "t",
+		Success:  true,
+		Quality:  &QualityAssessment{Score: 0.5, Issues: []QualityIssue{{Type: IssueType("Slow Path")}}},
+	}, nil)
+	var found bool
+	for _, fact := range store.GenerateMangleFacts() {
+		if strings.HasPrefix(fact, "tool_known_issue(") {
+			found = true
+			if !strings.HasSuffix(fact, ", /slow_path).") {
+				t.Errorf("issue type not rendered as a valid name: %s", fact)
 			}
-		})
+		}
+	}
+	if !found {
+		t.Fatal("no tool_known_issue fact rendered")
 	}
 }
 

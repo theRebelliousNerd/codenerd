@@ -393,14 +393,32 @@ func (sm *ShardManager) ToFacts() []types.Fact {
 	defer sm.mu.RUnlock()
 	facts := make([]types.Fact, 0)
 
+	// shard_profile(AgentName, Type, KnowledgePath) is declared
+	// [/string, /name, /string]. This producer used to emit two arguments, a
+	// shard_profile/2 nothing declares, so every rule reading
+	// shard_profile(Name, /specialist, _) (campaign_rules.mg, policy/shards.mg)
+	// had never seen a profile.
 	for name, cfg := range sm.profiles {
 		facts = append(facts, types.Fact{
 			Predicate: "shard_profile",
-			Args:      []any{name, string(cfg.Type)},
+			Args:      []any{name, profileKind(cfg.Type), cfg.KnowledgePath},
 		})
 	}
 
 	return facts
+}
+
+// profileKind is a profile's kind in the shard_profile vocabulary. A Type B
+// (persistent, or its alias user) shard is the specialist the campaign and
+// shard policies select by /specialist; the other lifecycles keep their own
+// name.
+func profileKind(t types.ShardType) types.MangleAtom {
+	switch t {
+	case types.ShardTypePersistent, types.ShardTypeUser:
+		return types.MangleAtom("/specialist")
+	default:
+		return types.Atom(string(t))
+	}
 }
 
 func (sm *ShardManager) CheckReviewNeedsValidation(reviewID string) bool {

@@ -30,16 +30,16 @@ func buildFileTopologyFact(fsPath, factPath string, info os.FileInfo) core.Fact 
 	data, _ := os.ReadFile(fsPath)
 	hash := sha256.Sum256(data)
 	lang := detectLanguage(factPath)
-	isTest := "/false"
+	isTest := core.MangleAtom("/false")
 	if isTestFile(factPath) {
-		isTest = "/true"
+		isTest = core.MangleAtom("/true")
 	}
 	return core.Fact{
 		Predicate: "file_topology",
 		Args: []any{
 			factPath,
 			hex.EncodeToString(hash[:]),
-			"/" + lang,
+			types.Atom(lang),
 			info.ModTime().Unix(),
 			isTest,
 		},

@@ -110,7 +110,7 @@ func staticCandidateFacts(atom *PromptAtom) []any {
 	id := atom.ID
 	facts := []any{
 		Fact{Predicate: "atom", Args: []any{id}},
-		Fact{Predicate: "atom_category", Args: []any{id, string(atom.Category)}},
+		Fact{Predicate: "atom_category", Args: []any{id, candidateCategoryName(atom)}},
 		Fact{Predicate: "atom_priority", Args: []any{id, int64(atom.Priority)}},
 	}
 

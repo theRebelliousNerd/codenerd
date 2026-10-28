@@ -265,11 +265,20 @@ func integralNumber(pred string, j int, c ast.Constant) (ast.Constant, error) {
 // check is the verdict: some alternative must accept every argument. It
 // returns the first failing argument of each alternative, so a one-tuple Decl
 // reads "arg 1 declared /number, got ...".
+//
+// An alternative that accepts every argument exactly wins over one that needs
+// the bare-string /name tolerance. compile_context(Dimension, Value) is
+// declared [/name, /name] or [/name, /string]; checking alternatives in order
+// let the first one accept a string Value leniently and reported a defect for a
+// fact the second alternative declares exactly. When only tolerated
+// alternatives remain, every tolerated argument is reported, not just the last.
 func (pa *predAdmission) check(atom ast.Atom, raw []any) error {
 	var reasons []string
+	var tolerated []int
+	toleratedFound := false
 	for alt, handles := range pa.handles {
 		failed := -1
-		lenient := -1
+		var lenient []int
 		for j, h := range handles {
 			c, ok := atom.Args[j].(ast.Constant)
 			if !ok {
@@ -280,19 +289,28 @@ func (pa *predAdmission) check(atom ast.Atom, raw []any) error {
 				continue
 			}
 			if bareStringInNameSlot(pa.bounds[alt][j], c, raw, j) {
-				lenient = j
+				lenient = append(lenient, j)
 				continue
 			}
 			failed = j
 			break
 		}
 		if failed < 0 {
-			if lenient >= 0 {
-				noteLenientName(pa.sym, lenient)
+			if len(lenient) == 0 {
+				return nil
 			}
-			return nil
+			if !toleratedFound {
+				tolerated, toleratedFound = lenient, true
+			}
+			continue
 		}
 		reasons = append(reasons, fmt.Sprintf("arg %d declared %v, got %v", failed, pa.bounds[alt][failed], atom.Args[failed]))
+	}
+	if toleratedFound {
+		for _, j := range tolerated {
+			noteLenientName(pa.sym, j)
+		}
+		return nil
 	}
 	if len(reasons) == 1 {
 		return fmt.Errorf("type error asserting %s: %s", atom.Predicate.Symbol, reasons[0])
@@ -322,9 +340,12 @@ func bareStringInNameSlot(bound ast.BaseTerm, c ast.Constant, raw []any, j int) 
 	return false
 }
 
+func lenientKey(pred string, arity, j int) string {
+	return fmt.Sprintf("%s/%d#%d", pred, arity, j)
+}
+
 func noteLenientName(sym ast.PredicateSym, j int) {
-	key := fmt.Sprintf("%s/%d#%d", sym.Symbol, sym.Arity, j)
-	if _, seen := lenientNameWarnings.LoadOrStore(key, struct{}{}); seen {
+	if _, seen := lenientNameWarnings.LoadOrStore(lenientKey(sym.Symbol, sym.Arity, j), struct{}{}); seen {
 		return
 	}
 	logging.Get(logging.CategoryKernel).Warn(

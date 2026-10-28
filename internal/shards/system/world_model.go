@@ -426,7 +426,7 @@ func (w *WorldModelIngestorShard) performFullScan(ctx context.Context) error {
 			Args: []any{
 				normalizedPath,
 				fileInfo.Hash,
-				fileInfo.Language,
+				types.Atom(fileInfo.Language), // declared /name: rules match /go, /mangle
 				fileInfo.LastModified.Unix(),
 				fileInfo.IsTestFile,
 			},
@@ -532,7 +532,7 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 			Args: []any{
 				normalizedPath,
 				fileInfo.Hash,
-				fileInfo.Language,
+				types.Atom(fileInfo.Language), // declared /name: rules match /go, /mangle
 				fileInfo.LastModified.Unix(),
 				fileInfo.IsTestFile,
 			},

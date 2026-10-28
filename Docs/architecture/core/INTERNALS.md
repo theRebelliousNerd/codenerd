@@ -20,6 +20,47 @@ are to `internal/core/kernel_facts.go`, `kernel_eval.go`, `kernel_query.go`,
    Facts live in a `newFactStore` map (`kernel_facts.go:89-113`) of `Fact`
    values (`kernel_facts.go:28-38`).
 
+## Typed admission and the /name tolerance (kernel_fact_decl.go)
+
+As built 2026-10-28.
+
+- Every asserted fact is admitted against its Decl's bound alternatives by
+  `predAdmission.check` (`kernel_fact_decl.go:275`). An alternative that
+  accepts every argument exactly wins over one that needs the bare-string
+  /name tolerance (`bareStringInNameSlot`, `kernel_fact_decl.go:329`), so
+  `compile_context(/dim, "value")` is admitted by its `[/name, /string]`
+  alternative without a defect report. When only the tolerance admits a fact,
+  every tolerated argument is reported once per process (`noteLenientName`,
+  `kernel_fact_decl.go:347`), not just the last one.
+- The tolerance report is a producer defect: the value lands as a string no
+  /name rule matches. `TestFactNameSlotProducersPassNames`
+  (`internal/core/fact_name_slot_sweep_test.go`) type-checks the whole module
+  and finds every `types.Fact` / `prompt.Fact` literal passing a string-typed
+  value into a slot the production corpus declares /name only. It is a ratchet
+  over `nameSlotStringBaseline` (per file, predicate and argument): a new site
+  fails, and a fixed site must lower its count.
+- Producers fixed from the 2026-10-28 dogfood log: `tool_capability`
+  (`tool_registry.go` collectToolFacts, `internal/autopoiesis` via
+  `types.Atom`), `atom_category` (`internal/prompt/selector_facts.go`),
+  `file_topology` Language (`internal/shards/system/world_model.go`,
+  `cmd/nerd/chat/helpers.go`), and `shard_executed` / `last_shard_execution` /
+  `recent_shard_context` / `active_shard` ShardType (`shards.shardTypeName`,
+  `internal/core/shards/manager_spawn.go:137`). `shard_profile` is emitted at
+  its declared arity 3 with the profile kind (`/specialist` for a persistent
+  shard; `shards.profileKind`, `internal/core/shards/manager.go:415`). The chat
+  host asserts the declared `self_correction(Hypothesis, At)`
+  (`cmd/nerd/chat/process.go:1229`) instead of the undeclared
+  `self_correction_hypothesis/1`.
+
+## Candidate rule pre-check (kernel_policy.go)
+
+- `HotLoadRule` and `HotLoadLearnedRule` refuse a negated atom with a
+  wildcard argument (`!active_shard(_, T)`) before the sandbox compile.
+  `checkUnsafeNegation` (`kernel_policy.go:29`) reads the parsed clauses: only
+  an `ast.Variable` named `_` in a `NegAtom` counts. The regex it replaced took
+  the underscore of a name constant (`!executive_processed_intent(/current_intent)`)
+  for a wildcard. A rule that does not parse is left to the sandbox compiler.
+
 ## Rebuild and eval order (kernel_eval.go)
 
 1. `rebuildProgram` (`kernel_eval.go:61-156`) concatenates schemas, policy,

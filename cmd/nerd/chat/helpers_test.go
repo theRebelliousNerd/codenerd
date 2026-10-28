@@ -3,6 +3,7 @@ package chat
 import (
 	pe "codenerd/internal/autopoiesis/prompt_evolution"
 	"codenerd/internal/campaign"
+	"codenerd/internal/core"
 	"codenerd/internal/perception"
 	"codenerd/internal/transparency"
 	"crypto/sha256"
@@ -163,11 +164,11 @@ func TestBuildFileTopologyFact(t *testing.T) {
 		t.Fatalf("hash arg = %v, want %s", fact.Args[1], hex.EncodeToString(wantHash[:]))
 	}
 
-	if got, ok := fact.Args[2].(string); !ok || got != "/go" {
+	if got, ok := fact.Args[2].(core.MangleAtom); !ok || got != "/go" {
 		t.Fatalf("lang arg = %v, want %q", fact.Args[2], "/go")
 	}
 
-	if got, ok := fact.Args[4].(string); !ok || got != "/true" {
+	if got, ok := fact.Args[4].(core.MangleAtom); !ok || got != "/true" {
 		t.Fatalf("test flag arg = %v, want %q", fact.Args[4], "/true")
 	}
 

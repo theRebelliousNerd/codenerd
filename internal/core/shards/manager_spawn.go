@@ -131,6 +131,16 @@ func normalizeShardTypeName(typeName string) string {
 	return typeName
 }
 
+// shardTypeName is a shard type as the /name every ShardType slot declares
+// (active_shard, shard_executed, last_shard_execution, recent_shard_context):
+// "coder" and "/coder" are both /coder. An empty type is /unknown, not "/".
+func shardTypeName(typeName string) types.MangleAtom {
+	if n := normalizeShardTypeName(typeName); n != "" {
+		return types.MangleAtom("/" + n)
+	}
+	return types.Atom("")
+}
+
 func (sm *ShardManager) Spawn(ctx context.Context, typeName, task string) (string, error) {
 	logging.Shards("Spawn: synchronous spawn of %s shard for task", typeName)
 	return sm.SpawnWithPriority(ctx, typeName, task, nil, types.PriorityNormal)
@@ -315,7 +325,7 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		}
 	}
 
-	shardTypeAtom := "/" + typeName
+	shardTypeAtom := shardTypeName(typeName)
 	if sm.kernel != nil {
 		// Handle kernel assertion errors
 		if err := sm.kernel.Assert(types.Fact{
@@ -678,15 +688,19 @@ func (sm *ShardManager) DisableSystemShard(name string) {
 func (sm *ShardManager) ResultToFacts(shardID, shardType, task, result string, err error) []types.Fact {
 	facts := make([]types.Fact, 0, 5)
 	timestamp := time.Now().Unix()
+	// ShardType is declared /name in shard_executed, last_shard_execution and
+	// recent_shard_context; the bare string "coder" was stored as a string no
+	// /coder rule could match.
+	kind := shardTypeName(shardType)
 
 	facts = append(facts, types.Fact{
 		Predicate: "shard_executed",
-		Args:      []any{shardID, shardType, task, timestamp},
+		Args:      []any{shardID, kind, task, timestamp},
 	})
 
 	facts = append(facts, types.Fact{
 		Predicate: "last_shard_execution",
-		Args:      []any{shardID, shardType, task},
+		Args:      []any{shardID, kind, task},
 	})
 
 	if err != nil {
@@ -716,7 +730,7 @@ func (sm *ShardManager) ResultToFacts(shardID, shardType, task, result string, e
 		summary := sm.extractSummary(shardType, result)
 		facts = append(facts, types.Fact{
 			Predicate: "recent_shard_context",
-			Args:      []any{shardType, task, summary, timestamp},
+			Args:      []any{kind, task, summary, timestamp},
 		})
 	}
 

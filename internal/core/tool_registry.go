@@ -350,8 +350,11 @@ func (tr *ToolRegistry) UnregisterTool(name string) error {
 func collectToolFacts(tool *Tool) []Fact {
 	facts := []Fact{
 		{
+			// ShardAffinity and Capability are declared /name; a bare
+			// "validation" was stored as a string tool_routing.mg's
+			// tool_capability(ToolName, Cap) joins could never match.
 			Predicate: "registered_tool",
-			Args:      []any{tool.Name, tool.Command, tool.ShardAffinity},
+			Args:      []any{tool.Name, tool.Command, types.Atom(tool.ShardAffinity)},
 		},
 		{
 			// tool_registered Decl (schemas_tools.mg:14) binds RegisteredAt as
@@ -371,7 +374,7 @@ func collectToolFacts(tool *Tool) []Fact {
 	for _, cap := range tool.Capabilities {
 		facts = append(facts, Fact{
 			Predicate: "tool_capability",
-			Args:      []any{tool.Name, cap},
+			Args:      []any{tool.Name, types.Atom(cap)},
 		})
 	}
 

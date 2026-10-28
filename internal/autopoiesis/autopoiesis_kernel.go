@@ -52,7 +52,7 @@ func (o *Orchestrator) syncExistingToolsToKernel() {
 
 		allFacts = append(allFacts, types.Fact{Predicate: "tool_registered", Args: []any{tool.Name, timestamp}})
 		allFacts = append(allFacts, types.Fact{Predicate: "tool_hash", Args: []any{tool.Name, tool.Hash}})
-		allFacts = append(allFacts, types.Fact{Predicate: "tool_capability", Args: []any{tool.Name, normalizeCapabilityName(tool.Name)}})
+		allFacts = append(allFacts, types.Fact{Predicate: "tool_capability", Args: []any{tool.Name, types.Atom(tool.Name)}})
 		if tool.Description != "" {
 			allFacts = append(allFacts, types.Fact{Predicate: "tool_description", Args: []any{tool.Name, tool.Description}})
 		}
@@ -241,7 +241,7 @@ func (o *Orchestrator) assertToolRegistered(tool *RuntimeTool) {
 
 	// tool_capability(ToolName, Capability)
 	// Generated tools commonly use their tool name as the capability they satisfy.
-	_ = o.assertToKernel("tool_capability", tool.Name, normalizeCapabilityName(tool.Name))
+	_ = o.assertToKernel("tool_capability", tool.Name, types.Atom(tool.Name))
 
 	// tool_description(ToolName, Description) - for LLM tool discovery
 	if tool.Description != "" {
@@ -285,8 +285,8 @@ func (o *Orchestrator) assertToolLearning(toolName string, executions int, succe
 
 // assertToolKnownIssue asserts tool_known_issue fact to kernel.
 func (o *Orchestrator) assertToolKnownIssue(toolName string, issueType string) {
-	// tool_known_issue(ToolName, IssueType) - use name constant format
-	_ = o.assertToKernel("tool_known_issue", toolName, "/"+issueType)
+	// tool_known_issue(ToolName, IssueType): IssueType is declared /name.
+	_ = o.assertToKernel("tool_known_issue", toolName, types.Atom(issueType))
 }
 
 // assertAgentCreated asserts facts about the created agent to the kernel
@@ -368,17 +368,6 @@ func (o *Orchestrator) SyncLearningsToKernel() {
 // failure. PercentFromRatio saturates at 100 instead of reinterpreting.
 func normalizePercent(v float64) int64 {
 	return types.PercentFromRatio(v)
-}
-
-func normalizeCapabilityName(raw string) string {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return "/unknown"
-	}
-	if strings.HasPrefix(trimmed, "/") {
-		return trimmed
-	}
-	return "/" + trimmed
 }
 
 // =============================================================================

@@ -665,7 +665,7 @@ func (ls *LearningStore) GenerateMangleFacts() []string {
 
 		for _, issue := range l.KnownIssues {
 			facts = append(facts, fmt.Sprintf(`tool_known_issue(%q, %s).`,
-				l.ToolName, normalizeCapabilityName(string(issue))))
+				l.ToolName, types.Atom(string(issue))))
 		}
 	}
 	return facts
