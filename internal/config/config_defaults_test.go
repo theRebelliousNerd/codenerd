@@ -34,6 +34,8 @@ func TestValidateCoreLimits(t *testing.T) {
 		{"zero shards", func(c *CoreLimits) { c.MaxConcurrentShards = 0 }},
 		{"low facts", func(c *CoreLimits) { c.MaxFactsInKernel = 10 }},
 		{"low derived", func(c *CoreLimits) { c.MaxDerivedFactsLimit = 10 }},
+		{"gc percent too low", func(c *CoreLimits) { c.GCPercent = 10 }},
+		{"gc percent too high", func(c *CoreLimits) { c.GCPercent = 5000 }},
 	}
 	for _, tc := range bad {
 		t.Run(tc.name, func(t *testing.T) {

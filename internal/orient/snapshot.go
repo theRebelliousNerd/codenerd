@@ -19,6 +19,8 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/embedding"
 	"codenerd/internal/types"
+
+	"golang.org/x/sync/singleflight"
 )
 
 // Snapshot contains measurements, never cached executive judgments.
@@ -380,6 +382,27 @@ func (r *RefreshResult) Apply(kernel types.KernelTransactor) error {
 // stale, and replaces affected measurements. It never opens answers.json.
 // An incremental scan can call this same API before consuming orientation.
 func Refresh(ctx context.Context, root string, emb embedding.EmbeddingEngine) (*RefreshResult, error) {
+	// Concurrent refreshes of one workspace with one engine share a single
+	// run. A domain cortex boots its seven kernel shards at once and each
+	// boot refreshes orientation; run apart they queued on snapshotMu and
+	// each repeated the git and document reads the first had just done.
+	key := root + "\x00"
+	if emb != nil {
+		key += emb.Name()
+	}
+	v, err, _ := refreshFlight.Do(key, func() (any, error) {
+		return refresh(ctx, root, emb)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.(*RefreshResult), nil
+}
+
+// refreshFlight coalesces concurrent Refresh calls (see Refresh).
+var refreshFlight singleflight.Group
+
+func refresh(ctx context.Context, root string, emb embedding.EmbeddingEngine) (*RefreshResult, error) {
 	snapshotMu.Lock()
 	defer snapshotMu.Unlock()
 	root, err := absPath(root)

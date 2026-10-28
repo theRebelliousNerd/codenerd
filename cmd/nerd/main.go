@@ -110,6 +110,9 @@ Architecture: Logic determines Reality; the Model merely describes it.
 Run without arguments to start the interactive chat interface.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		cmd.SilenceUsage = true
+		if err := startCPUProfile(); err != nil {
+			return err
+		}
 		// Interactive chat builds its own zap logger and UI. File logging
 		// still runs below: this is the first moment --workspace has been
 		// parsed, and a removed logging key has to stop the process before
@@ -153,6 +156,7 @@ Run without arguments to start the interactive chat interface.`,
 		return nil
 	},
 	PersistentPostRun: func(cmd *cobra.Command, args []string) {
+		stopCPUProfile()
 		if logger != nil {
 			_ = logger.Sync()
 		}
@@ -207,6 +211,7 @@ func init() {
 
 	// System shard controls
 	rootCmd.PersistentFlags().StringSliceVar(&disableSystemShards, "disable-system-shard", nil, "Disable a Type 1 system shard by name")
+	rootCmd.PersistentFlags().StringVar(&cpuProfilePath, "cpuprofile", "", "Write a pprof CPU profile of the command to this file (go tool pprof)")
 
 	// Interactive mode flag for direct action commands
 	// Enables multi-turn feedback loops with refine/redo/approve meta-commands

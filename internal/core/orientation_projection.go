@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"sync"
+
+	"golang.org/x/sync/singleflight"
 )
 
 // orientationProjectionCache memoizes parsing a projection file that does not
@@ -69,6 +71,28 @@ func loadOrientationProjection(path string) (string, []Fact, error) {
 		}
 		orientationProjectionCacheMu.Unlock()
 	}
+	// The seven shards of a domain cortex boot at once and all miss together:
+	// one parse serves them (measured 2026-10-27: seven concurrent parses of
+	// the same projection, 7.9 s of CPU). Each caller gets its own clone.
+	v, err, _ := orientationProjectionFlight.Do(path, func() (any, error) {
+		decls, facts, err := parseOrientationProjection(path, before, statErr)
+		if err != nil {
+			return nil, err
+		}
+		return orientationProjectionCacheEntry{decls: decls, facts: facts}, nil
+	})
+	if err != nil {
+		return "", nil, err
+	}
+	entry := v.(orientationProjectionCacheEntry)
+	return entry.decls, cloneOrientationFacts(entry.facts), nil
+}
+
+// orientationProjectionFlight coalesces concurrent parses of one projection.
+var orientationProjectionFlight singleflight.Group
+
+// parseOrientationProjection reads and parses the projection and remembers it.
+func parseOrientationProjection(path string, before os.FileInfo, statErr error) (string, []Fact, error) {
 	body, err := os.ReadFile(path)
 	if err != nil {
 		return "", nil, err

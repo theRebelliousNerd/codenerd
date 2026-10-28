@@ -763,6 +763,9 @@ func validateExplicitCoreLimits(data []byte, cfg *UserConfig) error {
 	if !present["max_total_memory_mb"] {
 		merged.MaxTotalMemoryMB = def.MaxTotalMemoryMB
 	}
+	if !present["gc_percent"] {
+		merged.GCPercent = def.GCPercent
+	}
 	if !present["max_concurrent_shards"] {
 		merged.MaxConcurrentShards = def.MaxConcurrentShards
 	}
@@ -1438,6 +1441,9 @@ func (c *UserConfig) GetCoreLimits() CoreLimits {
 	limits := *c.CoreLimits
 	if limits.MaxTotalMemoryMB == 0 {
 		limits.MaxTotalMemoryMB = def.MaxTotalMemoryMB
+	}
+	if limits.GCPercent == 0 {
+		limits.GCPercent = def.GCPercent
 	}
 	if limits.MaxConcurrentShards == 0 {
 		limits.MaxConcurrentShards = def.MaxConcurrentShards

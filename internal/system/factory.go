@@ -1027,6 +1027,8 @@ func initCoreComponents(bctx *bootContext) error {
 	core.ConfigureFactLimits(bootLimits.MaxFactsInKernel, bootLimits.MaxDerivedFactsLimit)
 	// Before any store opens: pragmas are applied at open, sized by the class.
 	configureSQLPragmas(bootLimits.SQLHostClass)
+	// Before the kernels allocate: GC target and soft memory limit.
+	configureGoRuntime(bootLimits)
 	bctx.jitCfg = appCfg.GetEffectiveJITConfig()
 
 	// LLM API scheduler policy is fully driven by config.json (api_scheduler +
@@ -1338,12 +1340,26 @@ func NewDomainCortex(workspace string) (*core.CortexKernel, error) {
 		return nil, fmt.Errorf("configure shared kernel predicates: %w", err)
 	}
 
-	for _, scfg := range shardConfigs {
-		shard, err := core.NewKernelShard(scfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create shard %s: %w", scfg.Domain, err)
+	// Each shard is an independent kernel that parses the schemas, policy and
+	// workspace projections on its own, so the seven are built concurrently
+	// (measured 2026-10-27: 4.9 s of a 28.6 s boot built one at a time).
+	// Registration stays in config order.
+	built := make([]*core.KernelShard, len(shardConfigs))
+	buildErrs := make([]error, len(shardConfigs))
+	var wg sync.WaitGroup
+	for i, scfg := range shardConfigs {
+		wg.Add(1)
+		go func(i int, scfg core.KernelShardConfig) {
+			defer wg.Done()
+			built[i], buildErrs[i] = core.NewKernelShard(scfg)
+		}(i, scfg)
+	}
+	wg.Wait()
+	for i, scfg := range shardConfigs {
+		if buildErrs[i] != nil {
+			return nil, fmt.Errorf("failed to create shard %s: %w", scfg.Domain, buildErrs[i])
 		}
-		if err := cortex.RegisterShard(shard); err != nil {
+		if err := cortex.RegisterShard(built[i]); err != nil {
 			return nil, fmt.Errorf("failed to register shard %s: %w", scfg.Domain, err)
 		}
 	}

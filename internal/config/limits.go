@@ -9,7 +9,14 @@ import (
 
 // CoreLimits enforces system-wide resource constraints.
 type CoreLimits struct {
-	MaxTotalMemoryMB      int `yaml:"max_total_memory_mb" json:"max_total_memory_mb"`           // Total RAM limit
+	MaxTotalMemoryMB int `yaml:"max_total_memory_mb" json:"max_total_memory_mb"` // Total RAM limit; also the Go runtime's soft memory limit
+	// GCPercent is the Go garbage collector's target (GOGC): collect when the
+	// heap has grown this many percent over the live heap. The runtime's 100
+	// spent 57% of a boot's CPU in GC (measured 2026-10-27); 200 halves the
+	// collections, and max_total_memory_mb, applied as the soft memory limit,
+	// makes the collector work harder near that ceiling instead of growing past
+	// it. The GOGC environment variable, when set, wins.
+	GCPercent             int `yaml:"gc_percent" json:"gc_percent"`
 	MaxConcurrentShards   int `yaml:"max_concurrent_shards" json:"max_concurrent_shards"`       // Max parallel shards
 	MaxConcurrentAPICalls int `yaml:"max_concurrent_api_calls" json:"max_concurrent_api_calls"` // Max simultaneous LLM API calls
 	MaxFactsInKernel      int `yaml:"max_facts_in_kernel" json:"max_facts_in_kernel"`           // EDB size limit
@@ -101,6 +108,9 @@ func (c *CoreLimits) ValidateCoreLimits() error {
 	if c.MaxConcurrentShards < 1 {
 		return fmt.Errorf("max_concurrent_shards must be >= 1")
 	}
+	if c.GCPercent != 0 && (c.GCPercent < 25 || c.GCPercent > 2000) {
+		return fmt.Errorf("gc_percent must be between 25 and 2000 (0 or absent for the default)")
+	}
 	if c.MaxFactsInKernel < 1000 {
 		return fmt.Errorf("max_facts_in_kernel must be >= 1000")
 	}
@@ -119,6 +129,7 @@ func (c *CoreLimits) ValidateCoreLimits() error {
 func DefaultCoreLimits() *CoreLimits {
 	return &CoreLimits{
 		MaxTotalMemoryMB:      12288,
+		GCPercent:             200,
 		MaxConcurrentShards:   12,
 		MaxConcurrentAPICalls: 5,
 		MaxFactsInKernel:      2000000,
