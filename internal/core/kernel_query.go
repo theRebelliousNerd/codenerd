@@ -60,6 +60,9 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 		logging.Get(logging.CategoryKernel).Error("Query: %v", err)
 		return nil, err
 	}
+	if err := k.readableLocked(); err != nil {
+		return nil, err
+	}
 
 	queryPattern := parseQueryPatternDetails(predicate)
 	predicateName, hasPattern := queryPattern.predicate, queryPattern.hasPattern
@@ -213,6 +216,9 @@ func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error 
 		logging.Get(logging.CategoryKernel).Error("QueryCallback: %v", err)
 		return err
 	}
+	if err := k.readableLocked(); err != nil {
+		return err
+	}
 
 	queryPattern := parseQueryPatternDetails(predicate)
 	predicateName, hasPattern := queryPattern.predicate, queryPattern.hasPattern
@@ -357,6 +363,9 @@ func (k *RealKernel) QueryAll() (map[string][]Fact, error) {
 	if !k.initialized {
 		err := fmt.Errorf("kernel not initialized")
 		logging.Get(logging.CategoryKernel).Error("QueryAll: %v", err)
+		return nil, err
+	}
+	if err := k.readableLocked(); err != nil {
 		return nil, err
 	}
 

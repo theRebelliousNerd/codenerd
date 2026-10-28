@@ -138,6 +138,13 @@ type RealKernel struct {
 
 	lastEvaluation EvaluationStats
 
+	// evalErr is the failure of the latest evaluation, nil once one succeeds.
+	// A failed in-place cone leaves k.store half rebuilt, and a failed full
+	// evaluation leaves the previous (stale) store; neither is a fixpoint, so
+	// readers refuse the store while this is set (kernel_eval_failure.go).
+	// Guarded by mu.
+	evalErr error
+
 	// generation advances on every markDirtyLocked; instanceID is assigned on
 	// first use. Together they are the kernel's SnapshotIdentity (see
 	// kernel_generation.go). A clone starts at its own instance.
@@ -231,7 +238,7 @@ var defaultSchemaFiles = []string{
 	"schemas_misc.mg",             // Northstar, Continuation Protocol, Benchmarks
 	"schemas_codedom.mg",          // Code DOM & Interactive Elements
 	"schemas_codedom_polyglot.mg", // Polyglot Language Facts (Go, Python, TS, Rust)
-	"schemas_testing.mg",          // Verification, Reasoning Traces, Pytest
+	"schemas_testing.mg",          // Verification, Interaction Audit Records, Pytest
 	"schemas_campaign.mg",         // Campaign Orchestration
 	"schemas_intelligence.mg",     // Campaign Intelligence & Context
 	"schemas_tools.mg",            // Ouroboros, Tool Learning, Routing

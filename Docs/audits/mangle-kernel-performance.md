@@ -234,3 +234,9 @@ These are proposed checks, none executed here:
 The inspected concurrency test checks completion without panic/deadlock and ignores query results/errors; it does not establish this invariant. Existing cone tests establish successful cone/full equivalence, not failed publication. [Concurrency test lines 143–195](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_query_gaps_test.go#L143-L195); [cone tests](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_eval_cone_test.go)
 
 Measure total dirty-read latency, lock wait/hold, reader retries, fallback time, EDB/IDB peak memory, and repeated deterministic-failure behavior—not just successful engine duration. An error latch must not create an unbounded busy retry loop; a copy-on-write design must include its allocation and reclamation cost. End-to-end evaluation should report correctness/error visibility and model retries per correctly completed task, not claim token savings merely because failed reasoning returned fewer facts.
+
+## As-built note (2026-10-28)
+
+- Sections 3-7 (retraction plans, EDB buckets and cone plans, evaluation attribution, simple clone stores by measurement) were already built in `00690ca2`; sections 6 (upstream index) and the overlay option are ruled out here: upstream code, and no measured need.
+- Failure atomicity is real and fixed: a failed evaluation (cone then full fallback) now latches `evalErr` and raises `factsDirty` (`kernel_eval_failure.go`); Query, QueryCallback, QueryAll and Explain refuse the store under the read lock, and a clone does not inherit it. Tests: `kernel_eval_failure_test.go`.
+- Left: Dreamer's direct `kernel.store` projections read without the check (its evaluation path already fails closed); the dirty-read cost measurements were not run.

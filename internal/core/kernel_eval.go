@@ -240,7 +240,8 @@ func (k *RealKernel) rebuildProgram() error {
 // evaluator must remove every IDB fact before re-evaluating.
 //
 // Caller must hold k.mu, or the kernel must not be shared yet (boot).
-func (k *RealKernel) evaluate() error {
+func (k *RealKernel) evaluate() (err error) {
+	defer func() { k.settleEvaluationLocked(err) }()
 	started := time.Now()
 	stats := EvaluationStats{InputFacts: len(k.facts)}
 	defer func() { stats.Duration = time.Since(started); k.lastEvaluation = stats }()
@@ -479,6 +480,7 @@ func (k *RealKernel) clearFactsLocked() {
 	k.factIndex = newEDBIndex()
 	k.store = factstore.NewSimpleInMemoryStore()
 	k.initialized = false
+	k.evalErr = nil // the store is new, there is no failed evaluation to answer for
 	// factsDirty stays as-is (Clear does not set dirty): the !initialized
 	// state alone drives the next read to re-evaluate via ensureEvaluated.
 }
@@ -560,7 +562,7 @@ func (k *RealKernel) cloneLocked() *RealKernel {
 	// this every clone paid a full fixpoint: a dream safety check, which
 	// stages one action's projected facts on a clone and asks panic_state,
 	// cost ~2.5 s per gated action (measured 2026-10-27, 102 s over 50).
-	if k.initialized && k.store != nil && !k.factsDirty.Load() && !k.dirtyAll &&
+	if k.initialized && k.store != nil && k.evalErr == nil && !k.factsDirty.Load() && !k.dirtyAll &&
 		len(k.dirtyPreds) == 0 && !k.policyDirty && !k.atomCacheStale {
 		// The copy is a simple store even when the parent's is indexed:
 		// rebuilding argument indexes per clone cost more than the joins it

@@ -97,6 +97,9 @@ func (k *RealKernel) explainLocked(goalStr string, opts ExplainOptions) ([]*prov
 	if k.store == nil {
 		return nil, fmt.Errorf("Explain: kernel store not initialized")
 	}
+	if err := k.readableLocked(); err != nil {
+		return nil, err
+	}
 
 	// Parse the goal. The provenance API wants an ast.Atom, not a Fact —
 	// the Mangle parser handles the round-trip for us via parse.Unit.
