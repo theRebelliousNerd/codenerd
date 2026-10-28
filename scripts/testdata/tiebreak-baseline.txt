@@ -9,3 +9,4 @@
 #
 # Regenerate: go run ./cmd/tools/audit_tiebreak -update
 # Format: package<TAB>function<TAB>range key
+internal/orient	measureTreatmentCensus	range i
