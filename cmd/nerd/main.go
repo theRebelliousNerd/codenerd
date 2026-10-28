@@ -95,6 +95,11 @@ var campaignRetryFailed bool
 // campaign whose ID contains this substring instead of the default pick.
 var campaignResumeID string
 
+// campaignAdoptSnapshot backs --adopt-snapshot on `nerd campaign resume`: the
+// operator admits a snapshot its journal does not vouch for as a new
+// provenance boundary. The kernel still decides (campaign_rules.mg Section 14).
+var campaignAdoptSnapshot bool
+
 // rootCmd represents the base command
 var rootCmd = &cobra.Command{
 	Use:   "nerd",
@@ -244,6 +249,7 @@ func init() {
 	campaignStartCmd.Flags().String("accept", "", "Acceptance command, run in the workspace once every phase is done: exit 0 is the only pass, a failure appends a remediation phase with the command's output as its task, and the campaign cannot complete until it passes. Split on whitespace into an argv (no shell, no quoting); the binary must be in execution.allowed_binaries")
 	campaignResumeCmd.Flags().BoolVar(&campaignRetryFailed, "retry-failed", false, "Also resume a failed campaign that has no recorded block reason")
 	campaignResumeCmd.Flags().StringVar(&campaignResumeID, "campaign", "", "Resume the campaign whose ID contains this text (default: newest paused, then active, then blocked)")
+	campaignResumeCmd.Flags().BoolVar(&campaignAdoptSnapshot, "adopt-snapshot", false, "Admit a snapshot the campaign journal does not vouch for (recovery class /conflict_or_corruption) as a new provenance boundary")
 	campaignCmd.AddCommand(
 		campaignStartCmd,
 		campaignStatusCmd,

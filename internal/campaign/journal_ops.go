@@ -1,7 +1,6 @@
 package campaign
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -21,9 +20,12 @@ import (
 // the tail was truncated by a crash, or whether the JSON on disk is the one the
 // journal says it wrote.
 //
-// These functions are read-only on purpose. recoverJournalSequence already
-// repairs a corrupt tail when a campaign loads; a repair tool that runs outside
-// that path would be a second, subtly different truncation policy.
+// These functions are read-only on purpose. Recovery admission
+// (ResumeCampaign) preserves and repairs a corrupt tail when a campaign
+// resumes; a repair tool that runs outside that path would be a second, subtly
+// different truncation policy. They read the journal with the same scanner
+// and classify with the same InspectCampaignRecovery that resume uses, so
+// verify, replay and resume agree on which generation is admissible.
 
 // JournalEventKind values that carry the snapshot protocol.
 const (
@@ -59,6 +61,11 @@ type JournalVerification struct {
 	ActualSnapshotChecksum   string `json:"actual_snapshot_checksum,omitzero"`
 	SnapshotMatches          bool   `json:"snapshot_matches"`
 
+	// Recovery is what resume would observe: the same classification
+	// ResumeCampaign hands the kernel.
+	Recovery       RecoveryClass `json:"recovery"`
+	RecoveryDetail string        `json:"recovery_detail"`
+
 	Problems []JournalProblem `json:"problems,omitzero"`
 	Healthy  bool             `json:"healthy"`
 }
@@ -81,6 +88,8 @@ type JournalReplay struct {
 	Steps      []JournalReplayStep `json:"steps"`
 	Truncated  bool                `json:"truncated,omitzero"`
 	FinalState *JournalReplayStep  `json:"final_state,omitzero"`
+	// Recovery is the class resume would observe for the current snapshot.
+	Recovery RecoveryClass `json:"recovery"`
 }
 
 func campaignJournalPath(workspace, campaignID string) string {
@@ -129,83 +138,6 @@ func ListCampaignJournals(workspace string) ([]string, error) {
 	return ids, nil
 }
 
-// readJournalEvents decodes the journal, reporting defects instead of stopping
-// at the first one. Unlike recoverJournalSequence it never writes.
-func readJournalEvents(path, campaignID string) ([]campaignJournalEvent, []JournalProblem, int, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, nil, 0, fmt.Errorf("open journal: %w", err)
-	}
-	defer f.Close()
-
-	var (
-		events   []campaignJournalEvent
-		problems []JournalProblem
-		lastSeq  uint64
-		lineNo   int
-	)
-
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
-	for scanner.Scan() {
-		lineNo++
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
-		var ev campaignJournalEvent
-		if uerr := json.Unmarshal([]byte(line), &ev); uerr != nil {
-			problems = append(problems, JournalProblem{
-				Line: lineNo, Kind: "unparsable",
-				Detail: "line is not a JSON journal event; everything after it is unrecoverable",
-			})
-			break
-		}
-		// The event carries the campaign's atom ("/campaign_x"); the caller
-		// names it by its file stem or a trimmed flag ("campaign_x"). Both
-		// are one campaign when their filesystem identities agree.
-		if campaignID != "" && sanitizeCampaignID(ev.CampaignID) != sanitizeCampaignID(campaignID) {
-			problems = append(problems, JournalProblem{
-				Line: lineNo, Seq: ev.Seq, Kind: "wrong_campaign",
-				Detail: fmt.Sprintf("event belongs to %s, not %s", ev.CampaignID, campaignID),
-			})
-			break
-		}
-		if ev.Seq != lastSeq+1 {
-			problems = append(problems, JournalProblem{
-				Line: lineNo, Seq: ev.Seq, Kind: "sequence_gap",
-				Detail: fmt.Sprintf("expected seq %d, found %d; events were lost or reordered", lastSeq+1, ev.Seq),
-			})
-			break
-		}
-		expected := checksumJournalEvent(campaignJournalEvent{
-			Seq:              ev.Seq,
-			TimestampUnix:    ev.TimestampUnix,
-			EventType:        ev.EventType,
-			CampaignID:       ev.CampaignID,
-			Payload:          ev.Payload,
-			SnapshotChecksum: ev.SnapshotChecksum,
-		})
-		if ev.Checksum != expected {
-			problems = append(problems, JournalProblem{
-				Line: lineNo, Seq: ev.Seq, Kind: "checksum_mismatch",
-				Detail: "event content does not match its recorded checksum; the record was altered or truncated mid-write",
-			})
-			break
-		}
-
-		events = append(events, ev)
-		lastSeq = ev.Seq
-	}
-	if serr := scanner.Err(); serr != nil {
-		problems = append(problems, JournalProblem{
-			Line: lineNo, Kind: "read_error", Detail: serr.Error(),
-		})
-	}
-	return events, problems, lineNo, nil
-}
-
 // VerifyCampaignJournal checks a campaign's journal and the snapshot it claims
 // to have written.
 func VerifyCampaignJournal(workspace, campaignID string) (*JournalVerification, error) {
@@ -222,13 +154,14 @@ func VerifyCampaignJournal(workspace, campaignID string) (*JournalVerification, 
 		SnapshotPath: snapshotPath,
 	}
 
-	events, problems, lines, err := readJournalEvents(journalPath, campaignID)
+	scan, err := scanJournal(journalPath, campaignID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open journal: %w", err)
 	}
-	v.TotalLines = lines
+	events := scan.events
+	v.TotalLines = scan.totalLines
 	v.ValidEvents = len(events)
-	v.Problems = problems
+	v.Problems = scan.problems
 	if len(events) > 0 {
 		v.FirstSeq = events[0].Seq
 		v.LastSeq = events[len(events)-1].Seq
@@ -236,9 +169,12 @@ func VerifyCampaignJournal(workspace, campaignID string) (*JournalVerification, 
 
 	// Pair snapshot_write_requested with its commit. An unpaired request at the
 	// tail is exactly what a crash between temp-write and rename leaves behind.
+	// A recovery admission accounts for whatever it found dangling.
 	pending := 0
 	for _, ev := range events {
 		switch ev.EventType {
+		case JournalEventRecoveryAdmitted:
+			pending = 0
 		case JournalEventSnapshotRequested:
 			pending++
 		case JournalEventSnapshotCommitted:
@@ -278,8 +214,10 @@ func VerifyCampaignJournal(workspace, campaignID string) (*JournalVerification, 
 		})
 	}
 
-	// An uncommitted tail write is survivable — the previous snapshot is still
-	// the valid one — so it is reported without failing the verification.
+	// An uncommitted tail write is survivable when recovery can classify it,
+	// so it is reported without failing the verification.
+	rec := InspectCampaignRecovery(workspace, campaignID)
+	v.Recovery, v.RecoveryDetail = rec.Class, rec.Detail
 	v.Healthy = len(v.Problems) == 0
 	return v, nil
 }
@@ -298,12 +236,17 @@ func ReplayCampaignJournal(workspace, campaignID string, limit int) (*JournalRep
 		return nil, fmt.Errorf("campaign id is required")
 	}
 
-	events, problems, _, err := readJournalEvents(campaignJournalPath(workspace, campaignID), campaignID)
+	scan, err := scanJournal(campaignJournalPath(workspace, campaignID), campaignID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open journal: %w", err)
 	}
+	events := scan.events
 
-	replay := &JournalReplay{CampaignID: campaignID, Truncated: len(problems) > 0}
+	replay := &JournalReplay{
+		CampaignID: campaignID,
+		Truncated:  len(scan.problems) > 0,
+		Recovery:   InspectCampaignRecovery(workspace, campaignID).Class,
+	}
 
 	committed := make(map[uint64]bool, len(events))
 	var lastRequestSeq uint64
@@ -368,9 +311,10 @@ func RenderJournalVerification(v *JournalVerification) string {
 	sb.WriteString(fmt.Sprintf("  events         : %d valid of %d lines (seq %d..%d)\n",
 		v.ValidEvents, v.TotalLines, v.FirstSeq, v.LastSeq))
 	sb.WriteString(fmt.Sprintf("  snapshot match : %v\n", v.SnapshotMatches))
+	sb.WriteString(fmt.Sprintf("  recovery       : %s (%s)\n", v.Recovery, v.RecoveryDetail))
 	if v.UncommittedWrites > 0 {
 		sb.WriteString(fmt.Sprintf("  uncommitted    : %d write(s) requested but never committed\n", v.UncommittedWrites))
-		sb.WriteString("                   (one at the tail is a crash between temp write and rename; the previous snapshot is still valid)\n")
+		sb.WriteString("                   (the recovery class above says which generation resume admits)\n")
 	}
 	if len(v.Problems) == 0 {
 		return sb.String()
@@ -406,7 +350,23 @@ func RenderJournalReplay(r *JournalReplay) string {
 			s.CompletedTasks, s.TotalTasks, s.Committed))
 	}
 	if r.FinalState != nil && !r.FinalState.Committed {
-		sb.WriteString("\n  The last recorded write never committed. Resume will fall back to the previous snapshot.\n")
+		sb.WriteString("\n  The last recorded write never committed. " + recoveryOutlook(r.Recovery) + "\n")
 	}
 	return sb.String()
+}
+
+// recoveryOutlook says what resume does with a campaign of class c. It used to
+// promise a fallback to the previous snapshot unconditionally, which is wrong
+// when the new bytes were already renamed into place.
+func recoveryOutlook(c RecoveryClass) string {
+	switch c {
+	case RecoveryPreparedSnapshot:
+		return "Its bytes landed: resume admits that newer snapshot and records the missing commit."
+	case RecoveryPreviousGeneration:
+		return "It never published: resume admits the previous committed snapshot."
+	case RecoveryCommittedMatch:
+		return "A later commit superseded it; resume admits the committed snapshot."
+	default:
+		return fmt.Sprintf("Resume refuses this campaign (%s) until the snapshot is reconciled; see `nerd campaign journal verify`.", c)
+	}
 }

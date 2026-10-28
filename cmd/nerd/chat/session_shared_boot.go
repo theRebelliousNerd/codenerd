@@ -7,12 +7,14 @@ import (
 	"time"
 
 	"codenerd/internal/config"
+	"codenerd/internal/consultation"
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/northstar"
 	"codenerd/internal/perception"
 	"codenerd/internal/retrieval"
+	"codenerd/internal/session"
 	"codenerd/internal/shards"
 	shardsystem "codenerd/internal/shards/system"
 	"codenerd/internal/store"
@@ -280,7 +282,7 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 	}
 
 	logStep("Setting up consultation protocol...")
-	consultationMgr := shards.NewConsultationManager(&taskExecutorConsultationSpawner{taskExecutor})
+	consultationMgr := consultation.New(session.TaskConsultationSpawner{Executor: taskExecutor})
 
 	fmt.Printf("\r\033[K[boot] Complete! (%.1fs)\n", time.Since(bootStart).Seconds())
 	return bootCompleteMsg{

@@ -231,7 +231,9 @@ func TestRecoverJournalSequence_TruncatesInvalidTail(t *testing.T) {
 		t.Fatalf("write journal seed failed: %v", err)
 	}
 
-	orch.recoverJournalSequence(campaignID)
+	if _, _, err := orch.recoverJournalLocked(campaignID); err != nil {
+		t.Fatalf("recoverJournalLocked: %v", err)
+	}
 	if got := orch.journalSeq.Load(); got != 2 {
 		t.Fatalf("expected recovered sequence 2, got %d", got)
 	}
@@ -1116,7 +1118,6 @@ func (o *Orchestrator) computeCampaignRiskDecision() *CampaignRiskDecision {
 	}
 	return buildCampaignRiskDecision(o.campaign, o.config, o.riskGateState, collectCampaignRiskPaths(o.campaign), nil)
 }
-
 
 // TODO: TEST_GAP: [Null/Undefined/Empty] Verify expandSnapshotPaths behavior when called with an array containing only empty strings (e.g., []string{""}).
 // TODO: TEST_GAP: [Type Coercion] Verify expandSnapshotPaths handles path traversal attempts gracefully without resolving outside the workspace (e.g., "../../../etc/passwd").

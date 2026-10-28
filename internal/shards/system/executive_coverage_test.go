@@ -454,52 +454,6 @@ func TestCampaignRunnerShard_SetWorkspaceRoot_ShouldSetWorkspace(t *testing.T) {
 	}
 }
 
-func TestParseCampaignRunnerConsultationConfidence_WhenValid_ShouldParse(t *testing.T) {
-	tests := []struct {
-		name   string
-		advice string
-		want   float64
-	}{
-		{"percentage", "CONFIDENCE: 85%", 0.85},
-		{"raw number", "CONFIDENCE: 90", 0.9},
-		{"decimal", "CONFIDENCE: 0.75", 0.75},
-		{"multiline", "ADVICE: do stuff\nCONFIDENCE: 70\nCAVEATS: none", 0.7},
-		{"no confidence", "just advice", 0.7}, // default
-		{"lowercase", "confidence: 85%", 0.85},
-		{"with spaces", "CONFIDENCE:  95 ", 0.95},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := parseCampaignRunnerConsultationConfidence(tt.advice)
-			if got != tt.want {
-				t.Errorf("parseCampaignRunnerConsultationConfidence(%q) = %v, want %v", tt.advice, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestBuildCampaignRunnerConsultationPrompt_ShouldContainQuestion(t *testing.T) {
-	prompt := buildCampaignRunnerConsultationPrompt("Is this approach safe?", "We're refactoring auth")
-	if !containsAll(prompt, "Is this approach safe?", "We're refactoring auth", "CONSULTATION REQUEST") {
-		t.Errorf("prompt missing expected content: %q", prompt)
-	}
-}
-
-func TestBuildCampaignRunnerConsultationPrompt_WhenNoContext_ShouldExcludeContext(t *testing.T) {
-	prompt := buildCampaignRunnerConsultationPrompt("question", "")
-	if !containsAll(prompt, "question", "CONSULTATION REQUEST") {
-		t.Errorf("prompt missing expected content: %q", prompt)
-	}
-}
-
-func TestBuildCampaignRunnerConsultationPrompt_WhenNoQuestion_ShouldExcludeQuestion(t *testing.T) {
-	prompt := buildCampaignRunnerConsultationPrompt("", "context only")
-	if !containsAll(prompt, "CONSULTATION REQUEST", "context only") {
-		t.Errorf("prompt missing expected content: %q", prompt)
-	}
-}
-
 // ─── Mangle Repair ───────────────────────────────────────────────────────────
 
 func TestMangleRepairShard_NewMangleRepairShard_ShouldHaveDefaults(t *testing.T) {

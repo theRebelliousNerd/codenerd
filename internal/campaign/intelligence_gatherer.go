@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"codenerd/internal/autopoiesis"
+	"codenerd/internal/consultation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mcp"
@@ -23,36 +24,12 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// =============================================================================
-// CONSULTATION TYPES (local copies to avoid import cycle with shards package)
-// =============================================================================
-
-// ConsultationProvider abstracts shard consultation capabilities.
-// Implemented by shards.ConsultationManager.
+// ConsultationProvider is specialist consultation as campaigns consume it:
+// one typed Entry per requested specialist, so a failed advisor never erases
+// another's answer. Implemented by consultation.Manager, the one engine every
+// production door constructs.
 type ConsultationProvider interface {
-	RequestBatchConsultation(ctx context.Context, request BatchConsultRequest) ([]ConsultationResponse, error)
-}
-
-// BatchConsultRequest represents a request for batch consultation.
-type BatchConsultRequest struct {
-	Topic      string
-	Question   string
-	Context    string
-	TargetSpec []string
-}
-
-// ConsultationResponse represents advice from a shard.
-type ConsultationResponse struct {
-	RequestID    string
-	FromSpec     string
-	ToSpec       string
-	Advice       string
-	Confidence   float64
-	References   []string
-	Caveats      []string
-	Metadata     map[string]string
-	ResponseTime time.Time
-	Duration     time.Duration
+	RequestBatchConsultation(ctx context.Context, request consultation.BatchRequest) consultation.Batch
 }
 
 // =============================================================================
@@ -174,8 +151,8 @@ type IntelligenceReport struct {
 	ReusablePatterns  []string           `json:"reusable_patterns"`
 
 	// Shard Consultation: Expert advice
-	ShardAdvice     []ConsultationResponse `json:"shard_advice"`
-	AdvisorySummary string                 `json:"advisory_summary"`
+	ShardAdvice     []consultation.Response `json:"shard_advice"`
+	AdvisorySummary string                  `json:"advisory_summary"`
 
 	// Test Coverage: Current state
 	TestCoverage   map[string]float64 `json:"test_coverage"`

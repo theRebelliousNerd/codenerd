@@ -141,7 +141,7 @@ func formatIntelligenceContext(intel *IntelligenceReport) string {
 		sb.WriteString("## EXPERT RECOMMENDATIONS\n")
 		for _, sa := range intel.ShardAdvice {
 			if sa.Confidence >= 0.6 {
-				sb.WriteString(fmt.Sprintf("### %s (%.0f%% confidence)\n%s\n\n", sa.FromSpec, sa.Confidence*100, sa.Advice))
+				sb.WriteString(fmt.Sprintf("### %s (%.0f%% confidence)\n%s\n\n", sa.Specialist, sa.Confidence*100, sa.Advice))
 			}
 		}
 	}

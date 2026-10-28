@@ -5,6 +5,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"codenerd/internal/consultation"
 )
 
 // countingConsultation is a fake ConsultationProvider that counts calls.
@@ -12,11 +14,9 @@ type countingConsultation struct {
 	calls atomic.Int32
 }
 
-func (f *countingConsultation) RequestBatchConsultation(_ context.Context, _ BatchConsultRequest) ([]ConsultationResponse, error) {
+func (f *countingConsultation) RequestBatchConsultation(_ context.Context, _ consultation.BatchRequest) consultation.Batch {
 	f.calls.Add(1)
-	return []ConsultationResponse{
-		{FromSpec: "coder", Advice: "test advice", Confidence: 0.9},
-	}, nil
+	return consultation.Batch{Entries: []consultation.Entry{succeeded("coder", "test advice", 0.9)}}
 }
 
 func (f *countingConsultation) count() int {

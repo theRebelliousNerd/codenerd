@@ -428,6 +428,26 @@ func (j *JITExecutor) SpawnConsultation(ctx context.Context, specialistName, tas
 	return observed.Output, err
 }
 
+// TaskConsultationSpawner runs consultations on any TaskExecutor
+// (consultation.Spawner). Chat and `nerd campaign` each carried a copy of this
+// adapter, and the chat copy sent the bare specialist name as the intent verb
+// while the CLI copy sent "/consult/<name>"; both doors now route identically.
+type TaskConsultationSpawner struct {
+	Executor TaskExecutor
+}
+
+// SpawnConsultation runs the consultation as "/consult/<name>" and returns the
+// specialist's reply text.
+func (s TaskConsultationSpawner) SpawnConsultation(ctx context.Context, specialistName, task string) (string, error) {
+	if s.Executor == nil {
+		return "", fmt.Errorf("task executor not available")
+	}
+	return s.Executor.Execute(ctx, TaskRequest{
+		IntentVerb: "/consult/" + strings.ToLower(strings.TrimSpace(specialistName)),
+		Task:       task,
+	})
+}
+
 // executeAsyncInternal is an internal helper to spawn subagent with context.
 func (j *JITExecutor) executeAsyncInternal(ctx context.Context, req TaskRequest, sessionCtx *types.SessionContext) (string, error) {
 	logging.Session("JITExecutor.ExecuteAsync: intent=%s", req.IntentVerb)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"codenerd/internal/campaign"
+	"codenerd/internal/consultation"
 	"codenerd/internal/core"
 	"codenerd/internal/types"
 )
@@ -72,21 +73,63 @@ func (slowFirstSpawner) SpawnConsultation(ctx context.Context, specialistName, t
 }
 
 func TestBatchConsultation_RequestedOrder(t *testing.T) {
-	m := newCampaignRunnerConsultationManager(slowFirstSpawner{})
-	responses, err := m.RequestBatchConsultation(context.Background(), campaign.BatchConsultRequest{
-		Question:   "q",
-		TargetSpec: []string{"slow", "fast-a", "fast-b"},
+	m := consultation.New(slowFirstSpawner{})
+	batch := m.RequestBatchConsultation(context.Background(), consultation.BatchRequest{
+		Question:    "q",
+		Specialists: []string{"slow", "fast-a", "fast-b"},
 	})
-	if err != nil {
+	if err := batch.Err(); err != nil {
 		t.Fatalf("batch failed: %v", err)
 	}
+	responses := batch.Succeeded()
 	if len(responses) != 3 {
 		t.Fatalf("got %d responses, want 3", len(responses))
 	}
 	for i, want := range []string{"slow", "fast-a", "fast-b"} {
-		if responses[i].FromSpec != want {
-			t.Fatalf("position %d = %s, want %s (full: %v)", i, responses[i].FromSpec, want, responses)
+		if responses[i].Specialist != want {
+			t.Fatalf("position %d = %s, want %s (full: %v)", i, responses[i].Specialist, want, responses)
 		}
+	}
+}
+
+// rejectAndTimeoutSpawner is the one-rejection-plus-one-timeout fixture: the
+// coder rejects, the tester never answers inside the deadline, the others
+// approve.
+type rejectAndTimeoutSpawner struct{}
+
+func (rejectAndTimeoutSpawner) SpawnConsultation(ctx context.Context, spec, _ string) (string, error) {
+	switch spec {
+	case "coder":
+		return "VOTE: REJECT\nCONFIDENCE: 90\nREASONING:\nthe write sets collide", nil
+	case "tester":
+		<-ctx.Done()
+		return "", ctx.Err()
+	}
+	return "VOTE: APPROVE\nCONFIDENCE: 80\nREASONING:\nfine", nil
+}
+
+// The supervised-campaign door used to log a failed advisor and return the
+// survivors with a nil error, so a panel missing its tester looked complete.
+// Through the engine and board this door now constructs, the rejection is
+// kept, the timeout is a named missing review, and nothing is approved.
+func TestCampaignRunnerDoor_RejectionSurvivesTimeout(t *testing.T) {
+	board := campaign.NewShardAdvisoryBoard(consultation.New(rejectAndTimeoutSpawner{}))
+	cfg := campaign.DefaultAdvisoryConfig()
+	cfg.ConsultTimeout = 50 * time.Millisecond
+	board.WithConfig(cfg)
+	responses, err := board.ConsultAdvisors(context.Background(), campaign.AdvisoryRequest{CampaignID: "/c", Goal: "g"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := board.SynthesizeVotes(responses)
+	if s.Approved || !s.Incomplete {
+		t.Fatalf("approved=%v incomplete=%v, want an incomplete, unapproved panel", s.Approved, s.Incomplete)
+	}
+	if len(s.BlockingConcerns) != 1 || s.BlockingConcerns[0].Advisor != "coder" || s.BlockingConcerns[0].Severity != "blocking" {
+		t.Fatalf("blocking concerns = %+v, want the coder's rejection", s.BlockingConcerns)
+	}
+	if len(s.Missing) != 1 || s.Missing[0].Advisor != "tester" {
+		t.Fatalf("missing = %+v, want tester", s.Missing)
 	}
 }
 

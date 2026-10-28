@@ -38,7 +38,9 @@ func TestOrchestratorJournal_Gaps(t *testing.T) {
 		}
 		size1 := fileInfo1.Size()
 
-		o.recoverJournalSequence("limit-test-campaign")
+		if _, _, err := o.recoverJournalLocked("limit-test-campaign"); err != nil {
+			t.Fatalf("recoverJournalLocked: %v", err)
+		}
 
 		fileInfo2, err := os.Stat(path)
 		if err != nil {
@@ -63,10 +65,9 @@ func TestOrchestratorJournal_Gaps(t *testing.T) {
 	// TODO: TEST_GAP: [Null/Undefined/Empty] Verify journalPath handles an empty CampaignID ("") gracefully without polluting the root campaigns directory.
 	// TODO: TEST_GAP: [Type Coercion] Verify appendJournalEventLocked handles unmarshalable payload types (e.g., cyclic structs, math.NaN()) and returns the specific marshal error safely.
 	// TODO: TEST_GAP: [Type Coercion] Verify checksumJournalEvent handles completely invalid or binary SnapshotChecksum data without breaking hex assumptions or string length assumptions downstream.
-	// TODO: TEST_GAP: [User Request Extremes] Verify recoverJournalSequence handles a 50GB journal file without causing OOM, ensuring it does not allocate memory proportional to the file size.
+	// TODO: TEST_GAP: [User Request Extremes] Verify recoverJournalLocked handles a 50GB journal file without causing OOM, ensuring it does not allocate memory proportional to the file size.
 	// TODO: TEST_GAP: [User Request Extremes] Verify appendJournalEventLocked handles a 100MB string payload without causing significant GC pauses or memory duplication during serialization.
-	// TODO: TEST_GAP: [State Conflicts] Verify writeCampaignSnapshotAtomic fallback mechanism (`writeJournalLinesAtomic` retry logic) works correctly if os.Rename fails due to concurrent access or file locking.
-	// TODO: TEST_GAP: [State Conflicts] Verify that two concurrent calls to appendJournalEventLocked from different goroutines (or processes) do not interleave bytes (requires file-level flock testing, not just mutex).
+	// REMEDIATED: TEST_GAP: cross-process interleaving: one orchestrator per campaign holds the campaigns/<id>.owner lock (campaign_owner.go); see TestCampaignOwnership_SecondPublisherRefused.
 	// REMEDIATED: TEST_GAP: Sequence Mismatch Truncation Test. Verify that if line N is corrupt, recovery correctly preserves 0..N-1 and safely overwrites the corrupt line.
 }
 
@@ -275,7 +276,9 @@ func TestOrchestratorJournal_SequenceMismatchTruncation(t *testing.T) {
 	}
 
 	// Trigger recovery
-	orch.recoverJournalSequence(orch.campaign.ID)
+	if _, _, err := orch.recoverJournalLocked(orch.campaign.ID); err != nil {
+		t.Fatalf("recoverJournalLocked: %v", err)
+	}
 
 	// Verify the sequence is rolled back to 2
 	if seq := orch.journalSeq.Load(); seq != 2 {
@@ -346,7 +349,9 @@ func TestOrchestratorJournal_CorruptLineTruncation(t *testing.T) {
 	}
 
 	// Trigger recovery
-	orch.recoverJournalSequence(orch.campaign.ID)
+	if _, _, err := orch.recoverJournalLocked(orch.campaign.ID); err != nil {
+		t.Fatalf("recoverJournalLocked: %v", err)
+	}
 
 	// Verify the sequence is rolled back to 2
 	if seq := orch.journalSeq.Load(); seq != 2 {

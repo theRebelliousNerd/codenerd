@@ -82,7 +82,12 @@ func (m Model) handleCampaignRequirementMsg(msg campaignRequirementMsg) Model {
 // and the user's campaign policy. Start, assault and recurse all build through
 // here. The caller owns the orchestrator and closes it.
 func (m Model) newCampaignOrchestrator(progressChan chan campaign.Progress, eventChan chan campaign.OrchestratorEvent, promptProvider campaign.PromptProvider) (*campaign.Orchestrator, error) {
-	consultationProvider := newCampaignConsultationProvider(m.consultationMgr)
+	// A nil manager must stay a nil interface: a typed nil would read as
+	// configured and every consult would fail instead of being skipped.
+	var consultationProvider campaign.ConsultationProvider
+	if m.consultationMgr != nil {
+		consultationProvider = m.consultationMgr
+	}
 	// Holographic provider: rich codebase context for intelligence gathering.
 	var holographic *world.HolographicProvider
 	if m.kernel != nil {

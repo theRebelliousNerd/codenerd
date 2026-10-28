@@ -119,3 +119,51 @@ Measure acknowledged-generation loss, unclassified recovery, duplicate task effe
 | GAP-CAMPAIGN-RECOVERY-EVIDENCE | Failed repair is surfaced; damaged suffix retained or explicit retention failure reported; verify/replay/resume agree on the selected generation. |
 
 Acceptance requires later authorized implementation and fault-injection evidence. This document provides neither an executed test result nor a claim that CodeNERD is currently lossless across crashes.
+
+## As built (2026-10-27)
+
+All four buildable gaps are implemented. The one production resume door is `ResumeCampaign`; the CLI and the system campaign runner both go through it.
+
+**Implemented**
+
+- **One admission door.** `internal/campaign/recovery_admission.go:ResumeCampaign` runs these steps in order:
+  1. Takes the owner lock.
+  2. Classifies the durable state with `inspectCampaignRecovery`, which is read-only and returns a `RecoveryReport`.
+  3. Asserts `campaign_recovery_class` (and `campaign_recovery_adopt`) and reads the kernel's `campaign_recovery_admitted` / `campaign_recovery_refused` (`campaign_rules.mg` Section 14, declarations in `schemas_campaign.mg`).
+  4. Preserves and repairs a damaged journal.
+  5. Restores an interrupted replacement candidate (`<id>.json.tmp-*` / `.prev-*`).
+  6. Re-verifies the checksum and hydrates the kernel.
+  7. Journals `recovery_admitted` and publishes a fresh committed generation.
+
+  Nothing is written or hydrated before the kernel admits. All six classes from the proposal exist (`RecoveryClass`). `/storage_unreadable` is never admitted. A conflict is admitted only as `/operator_adopted`, via the new `nerd campaign resume --adopt-snapshot` flag.
+- **Single publisher.**
+  - `cmd/nerd/cmd_campaign.go:runCampaignResume` only discovers candidates; `writeCampaignJSON` is deleted, so the CLI never writes the snapshot.
+  - `loadResumeCandidates` also finds journaled campaigns whose snapshot exists only as a replacement leftover.
+  - `internal/campaign/campaign_owner.go` adds a cross-process `flock`/`LockFileEx` on `campaigns/<id>.owner`. `SetCampaign` and `ResumeCampaign` take it and `Close` releases it.
+  - `SetCampaign` refuses an ID that already has a journal.
+  - `LoadCampaign` is deleted; `internal/shards/system/campaign_runner.go:startCampaign` uses `ResumeCampaign` and never adopts.
+- **Uncertain append.** In `orchestrator_journal.go:appendJournalEventLocked`:
+  - The sequence advances only after the write and sync succeed, so an open failure consumes nothing.
+  - A failed write, file sync or directory sync sets `journalUncertain`. The next append first runs `reconcileJournalLocked`: re-scan, preserve and cut the torn tail, re-sync, adopt whatever landed.
+- **Recovery evidence.**
+  - `scanJournal` (`bufio.Reader`, no line cap; a final line without a newline is `torn_record`) replaces both `recoverJournalSequence`'s loop and `readJournalEvents`.
+  - `repairJournalLocked` copies the original durably to `<journal>.damaged-<nanos>` before the atomic rewrite. The in-place `O_TRUNC` fallback is gone, and repair errors are returned instead of discarded.
+  - `VerifyCampaignJournal` and `ReplayCampaignJournal` report the same `RecoveryClass`. The replay no longer promises an unconditional fallback to the previous snapshot (`recoveryOutlook`).
+
+**Rulings**
+
+- **Storage design:** keep the existing snapshot and journal. A checksum relation stands in for an explicit generation/parent record; the journal sequence is the generation number.
+- **Normalizing after admission:** every admission republishes through `saveCampaign`. The `recovery_admitted` event records why first, so verify treats the dangling requests it found as resolved.
+- **Status:** admission does not change status. `Run` publishes active when work actually starts, and `PrepareResume` still re-arms failed campaigns. The CLI's early paused-to-active write was redundant.
+- **Durable vs applied watermarks:** enforced by ordering (admit, then hydrate, then publish), not by separate D/K fields. A kernel rejection leaves the orchestrator with no campaign and disk untouched.
+- **No Go mirror of the admission rules:** if neither verdict derives, the resume is refused.
+
+**Deferred**
+
+- **Kernel halting of dispatch on storage uncertainty.** Today further appends are refused and `EventSnapshotWriteFailed` is emitted, but no policy rule halts dispatch yet. That needs a new `campaign_blocked` reason and a stall policy, which is out of this lane's scope.
+- **Retention cap on `.damaged-*` copies.** They are kept until an operator removes them, and a full disk refuses the repair.
+- **Effect-receipt join.**
+- **Fault-injection runs on real filesystems and platforms.** The deterministic seams are covered by tests.
+- **A system-runner door test.** Booting `startCampaign` needs a full shard stack; the door is covered by the shared `ResumeCampaign` tests plus the build.
+
+**Tests:** `internal/campaign/recovery_admission_test.go` covers committed, prepared, previous, the conflict refusal and its adoption, unreadable storage, legacy import, replacement leftovers, the damaged-journal preservation, the owner lock, the `SetCampaign` refusal, the open failure and the torn write. `cmd/nerd/cmd_campaign_resume_select_test.go` covers the single-door AST check and leftover discovery.

@@ -1022,5 +1022,52 @@ campaign_risk_preflight_blocked(CampaignID) :-
     campaign_risk_block(CampaignID, _, _).
 
 # =============================================================================
+# SECTION 14: RECOVERY ADMISSION (which durable generation may resume)
+# =============================================================================
+# Go observes storage; the kernel decides. internal/campaign/recovery_admission.go
+# compares the snapshot (or a replacement candidate left by an interrupted
+# rename) with the journal's last requested and last committed checksums and
+# asserts ONE campaign_recovery_class. Parsing as JSON is not a verdict: only a
+# provenance derived here lets a resume hydrate the kernel or schedule work.
+#
+# Provenance names how the generation earned trust:
+#   /committed               the journal's last commit vouches for these bytes
+#   /reconciled_publication  a verified snapshot was renamed into place but the
+#                            process died before its commit record
+#   /previous_generation     the last requested write never published; the
+#                            previous committed generation is intact
+#   /legacy_import           no journal ever existed: a new provenance boundary,
+#                            not manufactured prior verification
+#   /operator_adopted        the operator explicitly adopted a snapshot the
+#                            journal does not vouch for (--adopt-snapshot)
+# /storage_unreadable is never admitted, adoption or not: nothing was observed.
+
+campaign_recovery_admitted(CampaignID, /committed) :-
+    campaign_recovery_class(CampaignID, /committed_match).
+
+campaign_recovery_admitted(CampaignID, /reconciled_publication) :-
+    campaign_recovery_class(CampaignID, /prepared_snapshot_present).
+
+campaign_recovery_admitted(CampaignID, /previous_generation) :-
+    campaign_recovery_class(CampaignID, /previous_generation_present).
+
+campaign_recovery_admitted(CampaignID, /legacy_import) :-
+    campaign_recovery_class(CampaignID, /legacy_unjournaled).
+
+campaign_recovery_admitted(CampaignID, /operator_adopted) :-
+    campaign_recovery_class(CampaignID, /conflict_or_corruption),
+    campaign_recovery_adopt(CampaignID).
+
+# Fully-bound helper for safe negation (see campaign_risk_blocked_gate).
+campaign_recovery_decided(CampaignID) :-
+    campaign_recovery_admitted(CampaignID, _).
+
+# Every observed class no admission rule claimed is refused, by name, so Go can
+# tell "refused" apart from "rules not loaded" (neither predicate derives).
+campaign_recovery_refused(CampaignID, Class) :-
+    campaign_recovery_class(CampaignID, Class),
+    !campaign_recovery_decided(CampaignID).
+
+# =============================================================================
 # END OF CAMPAIGN RULES
 # =============================================================================

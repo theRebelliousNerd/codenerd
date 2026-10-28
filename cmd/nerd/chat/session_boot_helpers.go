@@ -44,22 +44,6 @@ func (s *taskExecutorObserverSpawner) SpawnObserver(ctx context.Context, observe
 	return s.executor.Execute(ctx, req)
 }
 
-// taskExecutorConsultationSpawner adapts TaskExecutor to ConsultationSpawner interface.
-type taskExecutorConsultationSpawner struct {
-	executor session.TaskExecutor
-}
-
-func (s *taskExecutorConsultationSpawner) SpawnConsultation(ctx context.Context, specialistName, task string) (string, error) {
-	if s.executor == nil {
-		return "", fmt.Errorf("task executor not available")
-	}
-	req := session.TaskRequest{
-		IntentVerb: specialistName,
-		Task:       task,
-	}
-	return s.executor.Execute(ctx, req)
-}
-
 // northstarHandlerAdapter adapts northstar.BackgroundEventHandler to shards.NorthstarHandler interface.
 type northstarHandlerAdapter struct {
 	handler *northstar.BackgroundEventHandler

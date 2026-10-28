@@ -13,14 +13,13 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"codenerd/internal/articulation"
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
+	"codenerd/internal/consultation"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/northstar"
@@ -278,8 +277,15 @@ func (s *CampaignRunnerShard) startCampaign(ctx context.Context, campaignID, wor
 		orch.SetPromptProvider(prompts)
 	}
 
-	if err := orch.LoadCampaign(campaignID); err != nil {
-		logging.Get(logging.CategorySystemShards).Error("[CampaignRunner] Failed to load campaign %s: %v", campaignID, err)
+	// The same admission every resume door uses: the generation must be one
+	// the journal vouches for (or a provenance the kernel admits), and another
+	// owner — a CLI resume, the chat — keeps it. This automated door never
+	// adopts a snapshot the journal does not vouch for; only an operator can.
+	if report, err := orch.ResumeCampaign(campaignID, campaign.AdmissionPolicy{}); err != nil {
+		logging.Get(logging.CategorySystemShards).Error("[CampaignRunner] Campaign %s not admitted: %v", campaignID, err)
+		if report != nil {
+			logging.SystemShardsDebug("[CampaignRunner] %s", campaign.RenderRecoveryReport(report))
+		}
 		// The orchestrator owns its northstar observer: a retry every few
 		// seconds that dropped it unclosed leaked one guardian per attempt.
 		_ = orch.Close()
@@ -337,9 +343,9 @@ func (s *CampaignRunnerShard) orchestratorConfig(workspace string, shardMgr *cor
 		})
 	}
 	worldScanner := world.NewScanner()
-	consultationMgr := newCampaignRunnerConsultationManager(
-		&campaignRunnerShardManagerConsultationSpawner{shardMgr: shardMgr},
-	)
+	// The same consultation engine every door uses: a failed advisor is a
+	// typed missing review, not a silently shorter panel.
+	consultationMgr := consultation.New(&campaignRunnerShardManagerConsultationSpawner{shardMgr: shardMgr})
 	holographic := world.NewHolographicProvider(s.Kernel, workspace)
 	intelligenceGatherer := campaign.NewIntelligenceGatherer(
 		workspace,
@@ -437,10 +443,8 @@ func (s *CampaignRunnerShard) findLatestRunnableCampaign(workspace string) (*cam
 	return best.campaign, nil
 }
 
-type campaignRunnerConsultationSpawner interface {
-	SpawnConsultation(ctx context.Context, specialistName, task string) (string, error)
-}
-
+// campaignRunnerShardManagerConsultationSpawner runs a supervised campaign's
+// consultations on the shard manager.
 type campaignRunnerShardManagerConsultationSpawner struct {
 	shardMgr *coreshards.ShardManager
 }
@@ -450,138 +454,4 @@ func (s *campaignRunnerShardManagerConsultationSpawner) SpawnConsultation(ctx co
 		return "", fmt.Errorf("shard manager not available")
 	}
 	return s.shardMgr.Spawn(ctx, specialistName, task)
-}
-
-// campaignRunnerConsultationManager is a lightweight local consultation manager for system shards.
-// It mirrors the campaign-facing RequestBatchConsultation API without importing internal/shards
-// to avoid package cycles (internal/shards already imports internal/shards/system).
-type campaignRunnerConsultationManager struct {
-	spawner campaignRunnerConsultationSpawner
-}
-
-func newCampaignRunnerConsultationManager(spawner campaignRunnerConsultationSpawner) *campaignRunnerConsultationManager {
-	return &campaignRunnerConsultationManager{spawner: spawner}
-}
-
-func (m *campaignRunnerConsultationManager) RequestBatchConsultation(ctx context.Context, request campaign.BatchConsultRequest) ([]campaign.ConsultationResponse, error) {
-	if m == nil || m.spawner == nil {
-		return nil, fmt.Errorf("consultation spawner not configured")
-	}
-
-	targets := request.TargetSpec
-	if len(targets) == 0 {
-		targets = []string{"coder", "tester", "reviewer", "researcher"}
-	}
-
-	question := strings.TrimSpace(request.Question)
-	if topic := strings.TrimSpace(request.Topic); topic != "" {
-		if question == "" {
-			question = topic
-		} else {
-			question = "[" + topic + "] " + question
-		}
-	}
-
-	var (
-		mu        sync.Mutex
-		wg        sync.WaitGroup
-		responses = make([]campaign.ConsultationResponse, 0, len(targets))
-	)
-
-	for _, specialist := range targets {
-		spec := specialist
-		if strings.TrimSpace(spec) == "" {
-			continue
-		}
-
-		wg.Go(func() {
-
-			start := time.Now()
-			result, err := m.spawner.SpawnConsultation(ctx, spec, buildCampaignRunnerConsultationPrompt(question, request.Context))
-			if err != nil {
-				logging.SystemShardsDebug("[CampaignRunner] Consultation with %s failed: %v", spec, err)
-				return
-			}
-
-			confidence := parseCampaignRunnerConsultationConfidence(result)
-			resp := campaign.ConsultationResponse{
-				RequestID:    fmt.Sprintf("consult-%s-%d", spec, start.UnixNano()),
-				FromSpec:     spec,
-				ToSpec:       "system",
-				Advice:       strings.TrimSpace(result),
-				Confidence:   confidence,
-				Metadata:     map[string]string{"source": "campaign_runner"},
-				ResponseTime: time.Now(),
-				Duration:     time.Since(start),
-			}
-
-			mu.Lock()
-			responses = append(responses, resp)
-			mu.Unlock()
-		})
-	}
-
-	wg.Wait()
-	// Restore requested order: goroutines complete randomly, and both
-	// consumers render responses in slice order into reports. This mirrors
-	// the shards-level batch contract (requested order, failures joined).
-	rank := make(map[string]int, len(targets))
-	for i, spec := range targets {
-		if _, seen := rank[spec]; !seen {
-			rank[spec] = i
-		}
-	}
-	sort.SliceStable(responses, func(i, j int) bool {
-		return rank[responses[i].FromSpec] < rank[responses[j].FromSpec]
-	})
-	return responses, nil
-}
-
-func buildCampaignRunnerConsultationPrompt(question, consultContext string) string {
-	var sb strings.Builder
-	sb.WriteString("CONSULTATION REQUEST\n\n")
-	if question != "" {
-		sb.WriteString("Question: ")
-		sb.WriteString(question)
-		sb.WriteString("\n\n")
-	}
-	if strings.TrimSpace(consultContext) != "" {
-		sb.WriteString("Context:\n")
-		sb.WriteString(strings.TrimSpace(consultContext))
-		sb.WriteString("\n\n")
-	}
-	sb.WriteString("Please provide:\n")
-	sb.WriteString("ADVICE: [main guidance]\n")
-	sb.WriteString("CONFIDENCE: [0-100]\n")
-	sb.WriteString("CAVEATS: [important caveats]\n")
-	return sb.String()
-}
-
-func parseCampaignRunnerConsultationConfidence(advice string) float64 {
-	for line := range strings.SplitSeq(advice, "\n") {
-		trimmed := strings.TrimSpace(line)
-		upper := strings.ToUpper(trimmed)
-		if !strings.HasPrefix(upper, "CONFIDENCE:") {
-			continue
-		}
-
-		value := strings.TrimSpace(trimmed[len("CONFIDENCE:"):])
-		value = strings.TrimSuffix(value, "%")
-		n, err := strconv.ParseFloat(value, 64)
-		if err != nil {
-			break
-		}
-		if n > 1 {
-			n = n / 100.0
-		}
-		if n < 0 {
-			return 0
-		}
-		if n > 1 {
-			return 1
-		}
-		return n
-	}
-
-	return 0.7
 }

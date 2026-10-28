@@ -32,7 +32,8 @@ pass through VirtualStore / `permitted(...)`. Campaign types are `/greenfield`,
 
 ```
 orchestrator.go / orchestrator_types.go   # Orchestrator, OrchestratorConfig, events
-orchestrator_lifecycle.go                 # NewOrchestrator, LoadCampaign (:69), SetCampaign (:105), saveCampaign (:132), resetInProgress (:168)
+orchestrator_lifecycle.go                 # SetCampaign (new campaigns only), saveCampaign, persistCampaign, resetInProgress
+recovery_admission.go / campaign_owner.go # ResumeCampaign: owner lock, generation classification, kernel-derived admission
 orchestrator_execution.go                 # Run (:14), risk preflight gate (:37), sweepUndeclaredRootWrites (:198)
 orchestrator_control.go                   # Pause/Resume/Stop, GetProgress
 orchestrator_phases.go / orchestrator_tasks.go / orchestrator_task_handlers.go
@@ -60,8 +61,8 @@ checkpoints fail closed (see INTERNALS.md).
 
 ## Running a campaign
 
-Build with `NewOrchestrator`, attach a campaign with `LoadCampaign` or
-`SetCampaign`, call `Run`. `Run` gates on the risk preflight before any task
+Build with `NewOrchestrator`, attach a new campaign with `SetCampaign` or admit a persisted one with
+`ResumeCampaign` (campaign_rules.mg Section 14), call `Run`. `Run` gates on the risk preflight before any task
 executes (`internal/campaign/orchestrator_execution.go:37`); a hard finding
 aborts with `*RiskBlockedError` (`internal/campaign/risk_gate_contract.go:89`).
 Resume re-arms checkpoints on phases left `/unverified`

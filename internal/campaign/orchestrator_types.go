@@ -96,8 +96,18 @@ type Orchestrator struct {
 	// Deterministic write-set locking for mutating tasks.
 	writeSetLocks *writeSetLockManager
 
-	// Durable journal sequence for event-before-ack persistence.
+	// Durable journal sequence for event-before-ack persistence. It advances
+	// only after an append is written and synced.
 	journalSeq atomic.Uint64
+	// journalUncertain is set when an append failed after it may have written
+	// bytes (write or sync error). No further append runs until
+	// reconcileJournalLocked has re-read the journal and re-synced it. Guarded
+	// by mu, like every journal append.
+	journalUncertain bool
+
+	// owner is the cross-process ownership lock of the campaign this
+	// orchestrator publishes (campaign_owner.go). Released by Close.
+	owner *campaignOwnerLock
 
 	// Cached campaign risk decision for deterministic auto-wiring.
 	riskDecision *CampaignRiskDecision

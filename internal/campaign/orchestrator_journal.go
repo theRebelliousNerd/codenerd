@@ -2,11 +2,13 @@ package campaign
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -30,12 +32,28 @@ func (o *Orchestrator) journalPath(campaignID string) string {
 	return filepath.Join(o.nerdDir, "campaigns", campaignID+".journal.jsonl")
 }
 
+// appendJournalEventLocked appends one durable journal record. The caller
+// holds o.mu.
+//
+// The sequence advances only once the record is written and synced. An append
+// that fails before any byte could land (marshal, open) consumes nothing, so a
+// later success cannot leave a gap that makes recovery discard every record
+// after it. An append that fails after it may have written (write, file sync,
+// directory sync) is not "absent": its bytes may be on disk, torn or whole. It
+// marks the journal uncertain, and the next append first reconciles — re-reads
+// the journal, preserves and cuts a torn tail, adopts a record that did land,
+// and re-syncs — instead of guessing by decrementing or retrying blind.
 func (o *Orchestrator) appendJournalEventLocked(eventType string, payload any, snapshotChecksum string) error {
 	if o.campaign == nil {
 		return nil
 	}
+	if o.journalUncertain {
+		if err := o.reconcileJournalLocked(); err != nil {
+			return fmt.Errorf("journal append refused: an earlier append's durability is unresolved: %w", err)
+		}
+	}
 	campaignID := o.campaign.ID
-	seq := o.journalSeq.Add(1)
+	seq := o.journalSeq.Load() + 1
 
 	var rawPayload json.RawMessage
 	if payload != nil {
@@ -66,21 +84,60 @@ func (o *Orchestrator) appendJournalEventLocked(eventType string, payload any, s
 		return fmt.Errorf("create journal dir: %w", err)
 	}
 
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	f, err := osOpenJournal(path)
 	if err != nil {
 		return fmt.Errorf("open journal file: %w", err)
 	}
 	defer f.Close()
 
-	if _, err := f.Write(append(line, '\n')); err != nil {
-		return fmt.Errorf("write journal event: %w", err)
+	// From here a failure may have left bytes behind.
+	if _, err := osWriteJournal(f, append(line, '\n')); err != nil {
+		o.journalUncertain = true
+		return fmt.Errorf("write journal event %d: %w", seq, err)
 	}
 	if err := f.Sync(); err != nil {
-		return fmt.Errorf("sync journal event: %w", err)
+		o.journalUncertain = true
+		return fmt.Errorf("sync journal event %d: %w", seq, err)
 	}
 	if err := syncDirIfSupported(filepath.Dir(path)); err != nil {
-		return fmt.Errorf("sync journal dir: %w", err)
+		o.journalUncertain = true
+		return fmt.Errorf("sync journal dir after event %d: %w", seq, err)
 	}
+	o.journalSeq.Store(seq)
+	return nil
+}
+
+// osOpenJournal and osWriteJournal are seams for the uncertain-append window:
+// a test can only reach "the write failed after some bytes landed" by making
+// the write itself fail.
+var (
+	osOpenJournal = func(path string) (*os.File, error) {
+		return os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	}
+	osWriteJournal = func(f *os.File, b []byte) (int, error) { return f.Write(b) }
+)
+
+// reconcileJournalLocked resolves an uncertain append. It re-reads the
+// journal, preserves and removes a damaged tail (a torn record), re-syncs what
+// remains, and only then lets the sequence continue from the last valid
+// record. A record the failed append did land is adopted, not rewritten. On
+// any error the journal stays uncertain and appends stay refused. The caller
+// holds o.mu.
+func (o *Orchestrator) reconcileJournalLocked() error {
+	path := o.journalPath(o.campaign.ID)
+	scan, err := scanJournal(path, o.campaign.ID)
+	if err != nil {
+		return fmt.Errorf("reconcile journal: %w", err)
+	}
+	if scan.damaged {
+		if _, err := o.repairJournalLocked(path, scan); err != nil {
+			return fmt.Errorf("reconcile journal: %w", err)
+		}
+	} else if err := syncPath(path); err != nil {
+		return fmt.Errorf("reconcile journal: re-sync: %w", err)
+	}
+	o.journalSeq.Store(scan.lastSeq())
+	o.journalUncertain = false
 	return nil
 }
 
@@ -154,49 +211,86 @@ func (o *Orchestrator) writeCampaignSnapshotAtomic(path string, data []byte) err
 	return nil
 }
 
-func (o *Orchestrator) recoverJournalSequence(campaignID string) {
-	path := o.journalPath(campaignID)
-	o.journalSeq.Store(0)
+// journalScan is one read of a campaign journal: the valid prefix (events and
+// their raw lines) and the defect, if any, that ended it.
+type journalScan struct {
+	events     []campaignJournalEvent
+	lines      [][]byte
+	problems   []JournalProblem
+	totalLines int
+	// damaged reports that a defect in the bytes (not an I/O error) ended the
+	// valid prefix: an unparsable or torn record, a wrong campaign, a sequence
+	// gap or a checksum mismatch. Everything after it is not trusted.
+	damaged bool
+}
 
+func (s journalScan) lastSeq() uint64 {
+	if len(s.events) == 0 {
+		return 0
+	}
+	return s.events[len(s.events)-1].Seq
+}
+
+// scanJournal reads the journal at path and validates it record by record. It
+// never writes. The error is an I/O failure (os.IsNotExist when there is no
+// journal); defects in the content are problems on the scan. A final record
+// without its newline is torn: the append that wrote it never completed, so
+// its readable bytes are not evidence that it was made durable.
+//
+// It reads with bufio.Reader, so a record has no length cap, but it holds the
+// valid prefix in memory: O(journal bytes) at recovery.
+func scanJournal(path, campaignID string) (journalScan, error) {
+	var scan journalScan
 	f, err := os.Open(path)
 	if err != nil {
-		return
+		return scan, err
 	}
-	// Deferred close — earlier the close was only reached on the happy
-	// path after all the break-on-error edges; deferring makes the
-	// recovery code safe against future refactors that add early returns.
-	defer func() { _ = f.Close() }()
+	defer f.Close()
 
-	validLines := make([]string, 0)
 	var lastSeq uint64
-	needsTruncate := false
-
 	reader := bufio.NewReader(f)
 	for {
-		rawLine, err := reader.ReadString('\n')
-		line := strings.TrimSpace(rawLine)
-
-		if err != nil && line == "" {
+		raw, rerr := reader.ReadBytes('\n')
+		if rerr != nil && rerr != io.EOF {
+			return scan, fmt.Errorf("read journal: %w", rerr)
+		}
+		if len(raw) == 0 && rerr == io.EOF {
 			break
 		}
-
-		if line == "" {
+		scan.totalLines++
+		line := bytes.TrimSpace(raw)
+		if len(line) == 0 {
+			if rerr == io.EOF {
+				break
+			}
 			continue
 		}
-		var ev campaignJournalEvent
-		if err := json.Unmarshal([]byte(line), &ev); err != nil {
-			needsTruncate = true
+		fail := func(seq uint64, kind, detail string) {
+			scan.problems = append(scan.problems, JournalProblem{Line: scan.totalLines, Seq: seq, Kind: kind, Detail: detail})
+			scan.damaged = true
+		}
+		if rerr == io.EOF {
+			fail(0, "torn_record", "the last record has no newline: the append that wrote it never completed")
 			break
 		}
-		if ev.CampaignID != campaignID {
-			needsTruncate = true
+
+		var ev campaignJournalEvent
+		if uerr := json.Unmarshal(line, &ev); uerr != nil {
+			fail(0, "unparsable", "line is not a JSON journal event; everything after it is unrecoverable")
+			break
+		}
+		// The event carries the campaign's atom ("/campaign_x"); the caller
+		// names it by its file stem or a trimmed flag ("campaign_x"). Both
+		// are one campaign when their filesystem identities agree.
+		if campaignID != "" && sanitizeCampaignID(ev.CampaignID) != sanitizeCampaignID(campaignID) {
+			fail(ev.Seq, "wrong_campaign", fmt.Sprintf("event belongs to %s, not %s", ev.CampaignID, campaignID))
 			break
 		}
 		if ev.Seq != lastSeq+1 {
-			needsTruncate = true
+			fail(ev.Seq, "sequence_gap", fmt.Sprintf("expected seq %d, found %d; events were lost or reordered", lastSeq+1, ev.Seq))
 			break
 		}
-		expectedChecksum := checksumJournalEvent(campaignJournalEvent{
+		expected := checksumJournalEvent(campaignJournalEvent{
 			Seq:              ev.Seq,
 			TimestampUnix:    ev.TimestampUnix,
 			EventType:        ev.EventType,
@@ -204,44 +298,82 @@ func (o *Orchestrator) recoverJournalSequence(campaignID string) {
 			Payload:          ev.Payload,
 			SnapshotChecksum: ev.SnapshotChecksum,
 		})
-		if ev.Checksum != expectedChecksum {
-			needsTruncate = true
+		if ev.Checksum != expected {
+			fail(ev.Seq, "checksum_mismatch", "event content does not match its recorded checksum; the record was altered or truncated mid-write")
 			break
 		}
-		validLines = append(validLines, line)
+		scan.events = append(scan.events, ev)
+		scan.lines = append(scan.lines, append([]byte(nil), line...))
 		lastSeq = ev.Seq
-
-		if err != nil {
-			break
-		}
 	}
-
-	if needsTruncate {
-		_ = o.writeJournalLinesAtomic(path, validLines)
-	}
-	o.journalSeq.Store(lastSeq)
+	return scan, nil
 }
 
-func (o *Orchestrator) writeJournalLinesAtomic(path string, lines []string) error {
+// recoverJournalLocked loads the journal sequence of campaignID for an
+// orchestrator about to publish it, repairing a damaged tail without losing
+// it. No journal is sequence 0. It returns the scan and, when it repaired,
+// where the damaged original was preserved. The caller holds o.mu.
+func (o *Orchestrator) recoverJournalLocked(campaignID string) (journalScan, string, error) {
+	path := o.journalPath(campaignID)
+	o.journalSeq.Store(0)
+	o.journalUncertain = false
+	scan, err := scanJournal(path, campaignID)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return scan, "", nil
+		}
+		return scan, "", fmt.Errorf("read campaign journal: %w", err)
+	}
+	preserved := ""
+	if scan.damaged {
+		if preserved, err = o.repairJournalLocked(path, scan); err != nil {
+			return scan, "", err
+		}
+	}
+	o.journalSeq.Store(scan.lastSeq())
+	return scan, preserved, nil
+}
+
+// repairJournalLocked cuts a damaged journal back to its valid prefix. The
+// original bytes are first copied, durably, to <journal>.damaged-<nanos>: the
+// damaged suffix is the only record of what the failed writes were, and a
+// repair that cannot keep it does not run. The rewrite is the atomic
+// temp-and-rename replacement; there is no in-place O_TRUNC fallback, because
+// an interrupted truncate-and-rewrite can destroy the valid prefix too. It
+// returns the preserved copy's path. Preserved copies are kept until an
+// operator removes them; a full disk refuses the repair instead of dropping
+// the evidence.
+func (o *Orchestrator) repairJournalLocked(path string, scan journalScan) (string, error) {
+	original, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("journal repair: read original: %w", err)
+	}
+	preserved := path + ".damaged-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	if err := o.writeCampaignSnapshotAtomic(preserved, original); err != nil {
+		return "", fmt.Errorf("journal repair refused: could not preserve the damaged journal at %s: %w", preserved, err)
+	}
 	var data []byte
-	if len(lines) > 0 {
-		data = append(data, []byte(strings.Join(lines, "\n"))...)
+	for _, line := range scan.lines {
+		data = append(data, line...)
 		data = append(data, '\n')
 	}
-	if err := o.writeCampaignSnapshotAtomic(path, data); err == nil {
-		return nil
+	if err := o.writeCampaignSnapshotAtomic(path, data); err != nil {
+		return preserved, fmt.Errorf("journal repair: rewrite valid prefix (damaged original kept at %s): %w", preserved, err)
 	}
+	return preserved, nil
+}
 
-	// Recovery fallback: rewrite in place if atomic replacement is unavailable.
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+// syncPath fsyncs an existing file and its directory.
+func syncPath(path string) error {
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	if _, err := f.Write(data); err != nil {
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
 		return err
 	}
-	if err := f.Sync(); err != nil {
+	if err := f.Close(); err != nil {
 		return err
 	}
 	return syncDirIfSupported(filepath.Dir(path))
