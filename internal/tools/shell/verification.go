@@ -165,10 +165,7 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 				} else if runErr != nil {
 					code = -1
 				}
-				if runCtx.Err() != nil {
-					runErr = runCtx.Err()
-				}
-				return string(out), code, runErr
+				return string(out), code, verificationRunError(runCtx, runErr, code, buildArgv[0], seconds)
 			}
 			reported := append(append(append([]string{}, argv...), "-o", "<discarded-temp-dir>"), packages...)
 			out, code, runErr := run(append(append(append([]string{}, argv...), "-o", tmpDir), packages...))
@@ -239,10 +236,23 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 		ExitCode  int      `json:"exit_code"`
 		Output    string   `json:"output"`
 	}{argv, dir, scope, code, string(out)})
+	return string(data), verificationRunError(runCtx, runErr, code, argv[0], seconds)
+}
+
+// verificationRunError is a runner's error as the model should read it. The
+// tool's own deadline or a cancel is the context's error. A process that ended
+// on a signal with the context still live was stopped from outside the tool:
+// exec reports only "signal: terminated", which read as the suite's verdict
+// and sent a repair round after a failure no test had reported (problems log
+// 2026-10-28, a `go test ./...` terminated after 233 s of its 600 s).
+func verificationRunError(runCtx context.Context, runErr error, code int, runner string, seconds int) error {
 	if runCtx.Err() != nil {
-		runErr = runCtx.Err()
+		return runCtx.Err()
 	}
-	return string(data), runErr
+	if runErr != nil && code < 0 {
+		return fmt.Errorf("%s was stopped from outside this tool (%w) before its %ds timeout; it reached no verdict and is not a test or build result -- run it again", runner, runErr, seconds)
+	}
+	return runErr
 }
 
 // writtenTestScope returns the packages a test call with no packages should

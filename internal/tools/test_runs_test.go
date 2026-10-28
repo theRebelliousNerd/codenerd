@@ -18,6 +18,12 @@ func TestRecordTestRun_RecordsOnlyIntoALog(t *testing.T) {
 	if len(got) != 1 || got[0].ExitCode != 1 || got[0].Argv[1] != "test" {
 		t.Fatalf("runs = %+v, want the one recorded run", got)
 	}
+	// A process that did not exit (ExitCode -1: killed by a signal) reached
+	// no verdict and is not a test run.
+	RecordTestRun(ctx, TestRun{Argv: []string{"go", "test", "./..."}, ExitCode: -1})
+	if got := runs(); len(got) != 1 {
+		t.Fatalf("a killed run was recorded: %+v", got)
+	}
 	// What the log returns is a copy: a caller cannot rewrite the record.
 	got[0].ExitCode = 0
 	if runs()[0].ExitCode != 1 {

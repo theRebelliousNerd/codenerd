@@ -35,10 +35,20 @@ func WithTestRunLog(ctx context.Context) (context.Context, func() []TestRun) {
 	}
 }
 
-// RecordTestRun records that a test command was started, where the process is
-// started -- never where tests are only selected, listed or planned. Without a
-// log in the context it records nothing.
+// RecordTestRun records a test command the tool layer ran to an exit, where
+// the process is started -- never where tests are only selected, listed or
+// planned. Without a log in the context it records nothing.
+//
+// A negative ExitCode is a process that did not exit: killed by a signal (a
+// timeout's SIGKILL, or a SIGTERM from outside codeNERD) or never reported.
+// It ran no suite to a verdict, so it is not recorded. It used to be, as a
+// failing run: a `go test ./...` terminated after 233 s became "`go test
+// -count=1 ./...` exited -1", and the /test_run round sent the model to fix
+// code for a failure no test had reported (problems log 2026-10-28).
 func RecordTestRun(ctx context.Context, run TestRun) {
+	if run.ExitCode < 0 {
+		return
+	}
 	log, ok := ctx.Value(testRunLogKey{}).(*testRunLog)
 	if !ok {
 		return

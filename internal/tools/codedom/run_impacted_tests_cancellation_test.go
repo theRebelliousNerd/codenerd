@@ -212,7 +212,7 @@ func writeImpactedNativeFixture(test *testing.T, fixture impactedNativeFixture) 
 	}
 }
 
-func assertImpactedInvocation(test *testing.T, fixture impactedNativeFixture, runs []tools.TestRun, verbose bool) {
+func assertImpactedInvocation(test *testing.T, fixture impactedNativeFixture, runs []tools.TestRun, verbose, reachedVerdict bool) {
 	test.Helper()
 	encoded, err := os.ReadFile(fixture.ReceiptPath)
 	if err != nil {
@@ -241,6 +241,14 @@ func assertImpactedInvocation(test *testing.T, fixture impactedNativeFixture, ru
 		if receipt.Environment[key] != expected {
 			test.Errorf("native environment %s = %q, want %q", key, receipt.Environment[key], expected)
 		}
+	}
+	if !reachedVerdict {
+		// A canceled run, or one whose output could not be collected, reached
+		// no verdict; tools.RecordTestRun keeps no receipt for it.
+		if len(runs) != 0 {
+			test.Fatalf("a run with no verdict left execution receipts %+v", runs)
+		}
+		return
 	}
 	if len(runs) != 1 {
 		test.Fatalf("execution receipts = %+v, want exactly one", runs)
@@ -273,7 +281,7 @@ func TestRunGoTestsNativeResults(test *testing.T) {
 			if mode == "nonzero" && err == nil {
 				test.Fatal("native nonzero exit returned success")
 			}
-			assertImpactedInvocation(test, fixture, runs(), true)
+			assertImpactedInvocation(test, fixture, runs(), true, true)
 			expectedExitCode := 0
 			if mode == "nonzero" {
 				expectedExitCode = 23
@@ -403,10 +411,7 @@ func TestRunGoTestsNativeTreeCancellation(test *testing.T) {
 			if elapsed := time.Since(startedCollection); elapsed > processutil.PipeWaitDelay+5*time.Second {
 				test.Errorf("pipe collection exceeded bound: %v", elapsed)
 			}
-			assertImpactedInvocation(test, fixture, runs(), false)
-			if runs()[0].ExitCode == 0 {
-				test.Fatalf("%s left a passing verification receipt: %+v", mode, runs())
-			}
+			assertImpactedInvocation(test, fixture, runs(), false, false)
 			for _, expectedOutput := range []string{"impacted runner stdout preserved", "impacted runner stderr preserved", "impacted descendant stdout preserved", "impacted descendant stderr preserved"} {
 				if !strings.Contains(result.output, expectedOutput) {
 					test.Errorf("retained-pipe output lost %q: %s", expectedOutput, result.output)

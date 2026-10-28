@@ -452,6 +452,8 @@ func runGoTests(ctx context.Context, projectRoot string, packages []string, time
 	if cmd.ProcessState != nil {
 		exitCode := cmd.ProcessState.ExitCode()
 		if err != nil && exitCode == 0 {
+			// Canceled, or the output could not be collected: no verdict,
+			// so no receipt (RecordTestRun keeps none for a negative code).
 			exitCode = -1
 		}
 		tools.RecordTestRun(ctx, tools.TestRun{Argv: cmd.Args, ExitCode: exitCode})

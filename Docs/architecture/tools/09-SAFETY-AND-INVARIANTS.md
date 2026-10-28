@@ -43,6 +43,8 @@ Tools alone are **not** sufficient for constitutional safety.
 | No directory delete via delete_file | `executeDeleteFile` | Enforced |
 | run_command argv split not via shell | shellquote | Enforced |
 | Command timeout | WithTimeout | Enforced |
+| A test process that did not exit (negative exit code: a timeout's SIGKILL, a cancel, an outside SIGTERM) leaves no test-run receipt; only a run that exited is evidence for the `/test_run` gate | `tools.RecordTestRun` | Enforced (2026-10-28) |
+| `run_build`/`run_tests` stopped by a signal while their own deadline is live say so ("stopped from outside this tool ... no verdict"), not bare `signal: terminated` | `shell.verificationRunError` | Enforced (2026-10-28) |
 | Output truncation shell 50k | executeRunCommand | Enforced |
 | web_fetch body 2MB / length cap | web_fetch | Enforced |
 | web_search max_results ≤ 30 | web_search | Enforced |
