@@ -34,15 +34,7 @@ func (m Model) applyMemoryOperations(ops []articulation.MemoryOperation) memoryO
 	if len(ops) == 0 {
 		return out
 	}
-	var kernel ctxcompress.MemoryKernel
-	if m.kernel != nil {
-		kernel = m.kernel
-	}
-	var store ctxcompress.MemoryStore
-	if m.localDB != nil {
-		store = m.localDB
-	}
-	for i, d := range ctxcompress.ApplyMemoryOperations(kernel, store, ops) {
+	for i, d := range ctxcompress.ApplyMemoryOperations(m.memoryKernel(), m.memoryStore(), ops) {
 		if d.Took() {
 			out.applied = append(out.applied, ops[i])
 			continue
@@ -51,6 +43,23 @@ func (m Model) applyMemoryOperations(ops []articulation.MemoryOperation) memoryO
 		out.warnings = append(out.warnings, d.Notice())
 	}
 	return out
+}
+
+// memoryKernel and memoryStore are the two halves a memory operation lands in,
+// or nil interfaces: a nil pointer in an interface is not a nil interface, and
+// the operation reports the missing half instead of calling through it.
+func (m Model) memoryKernel() ctxcompress.MemoryKernel {
+	if k, ok := m.kernel.(ctxcompress.MemoryKernel); ok && m.kernel != nil {
+		return k
+	}
+	return nil
+}
+
+func (m Model) memoryStore() ctxcompress.MemoryStore {
+	if m.localDB != nil {
+		return m.localDB
+	}
+	return nil
 }
 
 // compressionControlPacket is the sanitized packet the compressor records for

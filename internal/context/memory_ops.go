@@ -37,7 +37,12 @@ type MemoryStore interface {
 // thing was remembered, and a write that failed with nobody informed means the
 // next session simply does not know.
 //
-// "forget" drops the session note under the key, and nothing else. It used to
+// "forget" drops the session note under the key, and nothing else, unless the
+// host marked the operation as the person's own instruction
+// (Domain == MemoryDomainUserMemory, which only the perception adapter sets and
+// no model envelope can): then it removes the one saved preference the words
+// resolve to (memory_forget.go). Either way the disposition's Receipt names the
+// domain addressed. It used to
 // call Retract(key), which removes every fact of the predicate the key names:
 // model-authored control data deleting whatever executive state it chose to
 // name -- a user_intent, a security_violation, a pending_action -- through a
@@ -80,15 +85,11 @@ func ApplyMemoryOperation(kernel MemoryKernel, store MemoryStore, op articulatio
 			return fail(articulation.StageFailed, "the preference was not persisted: "+err.Error())
 		}
 	case "forget":
-		logging.ContextDebug("Memory op: forget key=%s", op.Key)
-		if kernel == nil {
-			logging.Get(logging.CategoryContext).Warn("Memory op forget FAILED, no kernel attached: key=%s", op.Key)
-			return fail(articulation.StageFailed, "there is no kernel attached")
+		logging.ContextDebug("Memory op: forget key=%s domain=%q", op.Key, op.Domain)
+		if op.Domain == articulation.MemoryDomainUserMemory {
+			return forgetUserMemory(kernel, store, op, d)
 		}
-		if err := kernel.RetractFact(types.Fact{Predicate: sessionNotePredicate, Args: []any{op.Key}}); err != nil {
-			logging.Get(logging.CategoryContext).Warn("Memory op forget could not drop the session note: key=%s: %v", op.Key, err)
-			return fail(articulation.StageFailed, "the session note was not dropped: "+err.Error())
-		}
+		return forgetSessionNote(kernel, op, d)
 	case "store_vector":
 		logging.ContextDebug("Memory op: store_vector key=%s", op.Key)
 		if store == nil {
