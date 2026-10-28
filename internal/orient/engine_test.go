@@ -23,7 +23,7 @@ func TestEngine_ParamsMatchRequired(t *testing.T) {
 		}
 		got[types.ExtractString(f.Args[1])] = true
 	}
-	for _, p := range config.DefaultOrientConfig().Params() {
+	for _, p := range engineParams(config.DefaultOrientConfig()) {
 		if !got[p.Key] {
 			t.Errorf("param %s is not config_param_required", p.Key)
 		}
@@ -36,8 +36,8 @@ func TestEngine_ParamsMatchRequired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(held) != len(config.DefaultOrientConfig().Params()) {
-		t.Fatalf("config_param rows %d, want %d", len(held), len(config.DefaultOrientConfig().Params()))
+	if len(held) != len(engineParams(config.DefaultOrientConfig())) {
+		t.Fatalf("config_param rows %d, want %d", len(held), len(engineParams(config.DefaultOrientConfig())))
 	}
 	missing, err := e.Query("config_param_missing")
 	if err != nil {

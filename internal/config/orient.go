@@ -113,6 +113,9 @@ type OrientConfig struct {
 	// such reply used to abort the whole classification. After the last
 	// attempt a classification batch is recorded unread and the rest go on.
 	DeriveAttempts int `json:"derive_attempts,omitempty"`
+	// Treatment is the semantic-treatment census bounds, thresholds and
+	// operator overrides (orient_treatment.go). Nil is the defaults.
+	Treatment *OrientTreatmentConfig `json:"treatment,omitempty"`
 }
 
 // LoadOrientConfig reads only the target workspace's orientation section.
@@ -435,6 +438,9 @@ func (c OrientConfig) Check(prefix string) []Problem {
 	rangeOf("middle_span_permille", c.MiddleSpanPermille, 1, 999, "the middle slice of a single-era span")
 	rangeOf("derive_request_bytes", c.DeriveRequestBytes, 256, 1<<20, "a request must fit framing, carry-forward context and document bytes")
 	rangeOf("derive_attempts", c.DeriveAttempts, 1, 10, "each attempt is one model request for the same exchange")
+	if c.Treatment != nil {
+		out = append(out, c.Treatment.Check(prefix+".treatment")...)
+	}
 	if c.OriginSpanPermille < c.EarlySpanPermille && c.EarlySpanPermille < c.MiddleSpanPermille && c.MiddleSpanPermille < 1000 {
 		return out
 	}
@@ -448,10 +454,11 @@ func (c OrientConfig) Check(prefix string) []Problem {
 	return out
 }
 
-// orientRequestBounds are the orient fields Go reads as request bounds. They
-// are checked like every orient key but are not policy thresholds, so Params
-// leaves them out and no config_param_required row names them.
-var orientRequestBounds = map[string]bool{"DeriveRequestBytes": true, "DeriveAttempts": true}
+// orientRequestBounds are the orient fields that are not Params rows: Go's
+// request bounds, and the treatment section, whose own Params carry its
+// thresholds. They are checked like every orient key, and no
+// config_param_required(/orient, Key) row names them.
+var orientRequestBounds = map[string]bool{"DeriveRequestBytes": true, "DeriveAttempts": true, "Treatment": true}
 
 // Params are the orient thresholds the policy reads, as config_param rows.
 // The keys are declared config_param_required(/orient, Key) beside the rules.

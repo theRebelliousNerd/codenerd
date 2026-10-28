@@ -133,6 +133,10 @@ type ScanResult struct {
 	// ProjectLanguage is the majority language of the scanned snapshot, also
 	// emitted as a project_language fact in Facts.
 	ProjectLanguage string
+
+	// TreatmentShadow is the work orientation's treatment would have skipped.
+	// Shadow only: Facts are the same with or without it.
+	TreatmentShadow *TreatmentShadow
 }
 
 // ToFacts returns all facts from the scan result.
@@ -198,6 +202,7 @@ func (s *Scanner) prepareDirectoryScan(ctx context.Context, root string, options
 
 	logging.World("Starting directory scan: %s", root)
 	timer := logging.StartTimer(logging.CategoryWorld, "ScanDirectory")
+	shadow := newTreatmentShadow(mem)
 
 	cache := NewFileCache(root)
 	if cache.Entries == nil {
@@ -319,8 +324,10 @@ func (s *Scanner) prepareDirectoryScan(ctx context.Context, root string, options
 			return ctx.Err()
 		}
 
+		decision := shadow.decide(canonicalScanPath(root, path))
 		processFile := func() {
 			fileStart := time.Now()
+			bodyReads := 0
 
 			// "Hash-Thrashing" Fix: Use Cache
 			var hash string
@@ -421,6 +428,7 @@ func (s *Scanner) prepareDirectoryScan(ctx context.Context, root string, options
 			// file-import test_depends_on rule stays dead. Non-test files get both
 			// from ParseGo, spelled identically.
 			if isTest && lang == "go" {
+				bodyReads++
 				if content, err := os.ReadFile(path); err == nil {
 					additionalFacts = append(additionalFacts, goTestFileHeaderFacts(canonical, content)...)
 				} else {
@@ -434,6 +442,7 @@ func (s *Scanner) prepareDirectoryScan(ctx context.Context, root string, options
 				parser := s.parserPool.Get().(*TreeSitterParser)
 				defer s.parserPool.Put(parser) // Return it when done
 
+				bodyReads++
 				content, err := os.ReadFile(path)
 				if err == nil {
 					parseStart := time.Now()
@@ -486,6 +495,7 @@ func (s *Scanner) prepareDirectoryScan(ctx context.Context, root string, options
 				logging.WorldDebug("Skipping fast AST parse for large file: %s (%d bytes)", filepath.Base(path), info.Size())
 			}
 
+			shadow.record(decision, info.Size(), !cacheHit, bodyReads)
 			// OPTIMIZATION: Send to channel instead of locking mutex
 			fileResults <- fileScanResult{
 				fact:            fact,
@@ -541,6 +551,7 @@ func (s *Scanner) prepareDirectoryScan(ctx context.Context, root string, options
 		})
 	}
 	result.Facts = append(result.Facts, detectEntryPoints(result.Facts)...)
+	result.TreatmentShadow = shadow.finish()
 
 	elapsed := timer.Stop()
 	logging.World("Directory scan completed: %d files, %d dirs, %d skipped dirs, cache hits=%d misses=%d, %d facts generated in %v",

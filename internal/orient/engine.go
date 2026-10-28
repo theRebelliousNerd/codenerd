@@ -49,7 +49,13 @@ func NewEngine(cfg *config.OrientConfig) (*Engine, error) {
 		}
 		return nil, fmt.Errorf("orient config: %s", strings.Join(parts, "; "))
 	}
-	return newEngine(cfg.Params())
+	return newEngine(engineParams(*cfg))
+}
+
+// engineParams are every config_param row the embedded program requires:
+// the orient thresholds and the treatment thresholds.
+func engineParams(cfg config.OrientConfig) []config.Param {
+	return append(cfg.Params(), cfg.TreatmentPolicy().Params()...)
 }
 
 // newEngine is the load path with the threshold rows supplied by the
@@ -118,23 +124,11 @@ type freshnessDecision struct {
 }
 
 func evaluateFreshness(ctx context.Context, baseline, observed []types.Fact) (*freshnessDecision, error) {
-	src, err := fs.ReadFile(policyFiles, "freshness.mg")
-	if err != nil {
-		return nil, fmt.Errorf("orient freshness rules: %w", err)
-	}
-	mcfg := mangle.DefaultConfig()
-	mcfg.AutoEval = false
-	mcfg.FactLimit = 0
-	mcfg.DerivedFactsLimit = 0
-	raw, err := mangle.NewEngine(mcfg, nil)
+	e, err := isolatedEngine("freshness.mg")
 	if err != nil {
 		return nil, err
 	}
-	e := &Engine{eng: raw}
 	defer e.Close()
-	if err := raw.LoadSchemaString(string(src)); err != nil {
-		return nil, err
-	}
 	if err := e.Assert(baseline); err != nil {
 		return nil, err
 	}
@@ -155,6 +149,34 @@ func evaluateFreshness(ctx context.Context, baseline, observed []types.Fact) (*f
 		return nil, err
 	}
 	return out, nil
+}
+
+// isolatedEngine loads only the named embedded rule files, in order, for a
+// decision that needs a slice of the program rather than the whole
+// orientation fixpoint. Each file must carry the declarations it uses.
+func isolatedEngine(files ...string) (*Engine, error) {
+	var b strings.Builder
+	for _, name := range files {
+		body, err := fs.ReadFile(policyFiles, name)
+		if err != nil {
+			return nil, fmt.Errorf("orient rules %s: %w", name, err)
+		}
+		b.Write(body)
+		b.WriteString("\n")
+	}
+	mcfg := mangle.DefaultConfig()
+	mcfg.AutoEval = false
+	mcfg.FactLimit = 0
+	mcfg.DerivedFactsLimit = 0
+	raw, err := mangle.NewEngine(mcfg, nil)
+	if err != nil {
+		return nil, err
+	}
+	if err := raw.LoadSchemaString(b.String()); err != nil {
+		_ = raw.Close()
+		return nil, err
+	}
+	return &Engine{eng: raw}, nil
 }
 
 // policySource is schema.mg, then every other embedded .mg in name order.

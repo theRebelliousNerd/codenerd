@@ -355,6 +355,8 @@ type RefreshResult struct {
 	Refreshed bool
 	Added     []types.Fact
 	Removed   []types.Fact
+	// Treatment is the membership.json refresh that accompanied this one.
+	Treatment TreatmentRefresh
 }
 
 // Apply publishes only the changed public projection in one kernel transaction.
@@ -392,7 +394,16 @@ func Refresh(ctx context.Context, root string, emb embedding.EmbeddingEngine) (*
 		key += emb.Name()
 	}
 	v, err, _ := refreshFlight.Do(key, func() (any, error) {
-		return refresh(ctx, root, emb)
+		res, err := refresh(ctx, root, emb)
+		if err != nil {
+			return nil, err
+		}
+		// Treatment follows membership, not HEAD or documents, so it is
+		// brought current on every refresh, including a cached one.
+		if res.Treatment, err = refreshTreatment(ctx, root); err != nil {
+			return nil, fmt.Errorf("orientation treatment: %w", err)
+		}
+		return res, nil
 	})
 	if err != nil {
 		return nil, err

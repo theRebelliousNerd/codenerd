@@ -412,10 +412,11 @@ func runScanWithKernelFactory(cmd *cobra.Command, args []string, newKernel func(
 	scanner := world.NewScanner()
 
 	// Scan workspace
-	facts, err := scanner.ScanWorkspaceCtx(ctx, cwd)
+	result, err := scanner.ScanDirectory(ctx, cwd)
 	if err != nil {
 		return fmt.Errorf("scan failed: %w", err)
 	}
+	facts := result.Facts
 
 	// This full kernel boot is a deliberate validation gate. The scanner's
 	// durable DB cache is the preferred boot source, so it must never be
@@ -495,8 +496,34 @@ func runScanWithKernelFactory(cmd *cobra.Command, args []string, newKernel func(
 			fmt.Printf("     %-12s: %d\n", lang, count)
 		}
 	}
+	printTreatmentShadow(result.TreatmentShadow)
 
 	return nil
+}
+
+// printTreatmentShadow reports what orientation's semantic treatment would
+// have skipped. Shadow only: the scan above hashed and parsed everything.
+func printTreatmentShadow(sh *world.TreatmentShadow) {
+	if sh == nil {
+		return
+	}
+	switch {
+	case sh.Unavailable != "":
+		fmt.Printf("\n   Treatment shadow: artifact refused (%s)\n", sh.Unavailable)
+		return
+	case !sh.Active:
+		return
+	}
+	stale := ""
+	if !sh.Current {
+		stale = ", artifact is from an earlier member generation"
+	}
+	fmt.Printf("\n   Treatment shadow (not enforced%s):\n", stale)
+	fmt.Printf("     would skip %d files, %d bytes, %d hashes, %d body reads; %d files under conflicted scopes kept\n",
+		sh.Files, sh.Bytes, sh.Hashes, sh.BodyReads, sh.ConflictedFiles)
+	for _, d := range sh.Dirs {
+		fmt.Printf("     %-40s %-18s %-20s %6d files %10d bytes\n", d.Dir, d.Treatment, d.Authority, d.Files, d.Bytes)
+	}
 }
 
 func commandOperationContext(cmd *cobra.Command) (context.Context, func()) {

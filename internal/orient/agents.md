@@ -6,3 +6,4 @@
 - History refresh uses a disjoint commit range and day witnesses; rewind, rename or missing witnesses require a whole-history pass.
 - Replace changed roles/themes, preserve unchanged classifications, and expose pending transduction. Never rewrite orientation answers.
 - Source review and authored tests are not runtime evidence. Acceptance requires the normal init/boot paths and the incremental-scan hook.
+- Treatment: Go takes a bounded census of `Membership.Files` (stats, extension mix, budgeted header reads); treatment.mg derives `tree_treatment`. Refresh writes membership.json when the member generation or policy digest moves. Inference never derives `/exclude`.

@@ -14,7 +14,7 @@ import (
 
 // Run evaluates the same embedded program used by init over caller measurements.
 func Run(ctx context.Context, facts []types.Fact) (*Outcome, error) {
-	params := config.DefaultOrientConfig().Params()
+	params := engineParams(config.DefaultOrientConfig())
 	overridden := map[string]bool{}
 	for _, fact := range facts {
 		if fact.Predicate == "config_param" && len(fact.Args) == 2 {
