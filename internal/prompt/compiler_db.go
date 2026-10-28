@@ -1,12 +1,10 @@
 package prompt
 
 import (
-	"container/list"
 	"context"
 	"database/sql"
 	"fmt"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"codenerd/internal/logging"
@@ -135,20 +133,6 @@ func (c *JITPromptCompiler) appendTag(atom *PromptAtom, dim, tag string) {
 	}
 }
 
-func (c *JITPromptCompiler) clearPromptCache(reason string) {
-	c.cacheMu.Lock()
-	c.cache = make(map[string]*list.Element)
-	c.cacheList.Init()
-	c.cacheMu.Unlock()
-
-	atomic.StoreInt64(&c.cacheHits, 0)
-	atomic.StoreInt64(&c.cacheMiss, 0)
-
-	if reason != "" {
-		logging.Get(logging.CategoryJIT).Info("Cleared prompt cache: %s", reason)
-	}
-}
-
 // RegisterDB registers a named database with the JIT compiler.
 // Known names:
 //   - "corpus": Sets the project-level corpus database (embedded atoms synced to SQLite)
@@ -181,6 +165,7 @@ func (c *JITPromptCompiler) RegisterDB(name, dbPath string) error {
 	case "corpus", "project":
 		// Close existing project DB if any
 		if c.projectDB != nil {
+			c.catalog.forgetHandle(c.projectDB)
 			c.projectDB.Close()
 		}
 		c.projectDB = db
@@ -189,6 +174,7 @@ func (c *JITPromptCompiler) RegisterDB(name, dbPath string) error {
 		// Treat unknown names as shard IDs for flexibility
 		c.shardMu.Lock()
 		if previous := c.shardDBs[shardDBKey(name)]; previous != nil && previous != db {
+			c.catalog.forgetHandle(previous)
 			_ = previous.Close()
 		}
 		c.shardDBs[shardDBKey(name)] = db
@@ -196,6 +182,7 @@ func (c *JITPromptCompiler) RegisterDB(name, dbPath string) error {
 		logging.Get(logging.CategoryContext).Info("Registered database %s: %s", name, dbPath)
 	}
 
+	c.bumpSourceEpoch()
 	c.clearPromptCache("database registration updated")
 	return nil
 }
@@ -228,10 +215,12 @@ func (c *JITPromptCompiler) RegisterShardDB(shardID string, db *sql.DB) {
 	}
 	c.shardMu.Lock()
 	if previous := c.shardDBs[shardDBKey(shardID)]; previous != nil && previous != db {
+		c.catalog.forgetHandle(previous)
 		_ = previous.Close()
 	}
 	c.shardDBs[shardDBKey(shardID)] = db
 	c.shardMu.Unlock()
+	c.bumpSourceEpoch()
 	c.clearPromptCache(fmt.Sprintf("shard database registered: %s", shardID))
 }
 
@@ -243,7 +232,9 @@ func (c *JITPromptCompiler) UnregisterShardDB(shardID string) {
 	db, ok := c.shardDBs[shardDBKey(shardID)]
 	delete(c.shardDBs, shardDBKey(shardID))
 	c.shardMu.Unlock()
+	c.bumpSourceEpoch()
 	if ok && db != nil {
+		c.catalog.forgetHandle(db)
 		if err := db.Close(); err != nil {
 			logging.Get(logging.CategoryContext).Warn("Failed to close unregistered shard DB %s: %v", shardID, err)
 		}
@@ -312,15 +303,17 @@ func (c *JITPromptCompiler) SetConfig(config CompilerConfig) {
 // knowledge atoms with embeddings for context-aware prompt assembly.
 func (c *JITPromptCompiler) SetLocalDB(db *store.LocalStore) {
 	c.dbMu.Lock()
-	defer c.dbMu.Unlock()
 	c.localDB = db
+	c.dbMu.Unlock()
+	c.bumpSourceEpoch()
 }
 
 // SetLearningStore sets the LearningStore for recalling learned intents.
 func (c *JITPromptCompiler) SetLearningStore(ls *store.LearningStore) {
 	c.dbMu.Lock()
-	defer c.dbMu.Unlock()
 	c.learningStore = ls
+	c.dbMu.Unlock()
+	c.bumpSourceEpoch()
 }
 
 // collectKnowledgeAtoms queries project knowledge plus the selected expert's
@@ -332,30 +325,25 @@ func (c *JITPromptCompiler) SetLearningStore(ls *store.LearningStore) {
 // consulted. Missing knowledge reads as missing (nil); nothing is fabricated.
 func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *CompilationContext) []*PromptAtom {
 	config, _, _ := c.configSnapshot()
-	return c.collectKnowledgeAtomsWithConfig(ctx, cc, config)
+	return c.collectKnowledgeAtomsFrom(ctx, cc, config, c.snapshotSources(cc), nil)
 }
 
-func (c *JITPromptCompiler) collectKnowledgeAtomsWithConfig(ctx context.Context, cc *CompilationContext, config CompilerConfig) []*PromptAtom {
+// collectKnowledgeAtomsFrom searches the knowledge handles captured in src.
+// A lookup that errors or times out (as opposed to finding nothing) marks
+// the compile degraded.
+func (c *JITPromptCompiler) collectKnowledgeAtomsFrom(ctx context.Context, cc *CompilationContext, config CompilerConfig, src compileSources, degraded *degradation) []*PromptAtom {
 	if cc == nil {
 		return nil
 	}
-	c.dbMu.RLock()
-	db := c.localDB
-	c.dbMu.RUnlock()
+	db := src.localDB
 
 	timeout := config.KnowledgeSearchTimeout
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
 
-	var shardDB *sql.DB
-	var hasShard bool
-	if cc.ShardID != "" {
-		shardDB, hasShard = c.LookupShardDB(cc.ShardID)
-		if hasShard && shardDB == nil {
-			hasShard = false
-		}
-	}
+	shardDB := src.shardDB
+	hasShard := shardDB != nil
 	if db == nil && !hasShard {
 		return nil
 	}
@@ -372,8 +360,8 @@ func (c *JITPromptCompiler) collectKnowledgeAtomsWithConfig(ctx context.Context,
 	// retrieval. Search the selected expert first so a slow project embedding
 	// cannot consume its entire deadline before the expert is consulted.
 	expertQuery := strings.TrimSpace(cc.SemanticQuery + " " + query)
-	expertAtoms := collectExpertKnowledgeAtoms(searchCtx, cc, shardDB, hasShard, expertQuery)
-	projectAtoms := c.collectProjectKnowledgeAtoms(searchCtx, db, query)
+	expertAtoms := collectExpertKnowledgeAtoms(searchCtx, cc, shardDB, hasShard, expertQuery, degraded)
+	projectAtoms := c.collectProjectKnowledgeAtoms(searchCtx, db, query, degraded)
 	if len(projectAtoms) == 0 && len(expertAtoms) == 0 {
 		return nil
 	}
@@ -399,23 +387,31 @@ func (c *JITPromptCompiler) collectKnowledgeAtomsWithConfig(ctx context.Context,
 // collectProjectKnowledgeAtoms searches existing project knowledge.
 // Semantic search runs first; when it yields nothing (for example no
 // embedding engine) a bounded lexical search covers the same table.
-func (c *JITPromptCompiler) collectProjectKnowledgeAtoms(ctx context.Context, db *store.LocalStore, query string) []store.KnowledgeAtom {
+func (c *JITPromptCompiler) collectProjectKnowledgeAtoms(ctx context.Context, db *store.LocalStore, query string, degraded *degradation) []store.KnowledgeAtom {
 	if db == nil {
 		return nil
 	}
 	if ctx.Err() != nil {
+		degraded.add("knowledge")
 		return nil
 	}
 	atoms, err := db.SearchKnowledgeAtomsSemantic(ctx, query, 5)
+	if err != nil {
+		// No embedding engine answers (nil, nil); an error is a real failure
+		// of the healthy path, even when the lexical fallback below succeeds.
+		degraded.add("knowledge")
+	}
 	if err == nil && len(atoms) > 0 {
 		return atoms
 	}
 	if ctx.Err() != nil {
+		degraded.add("knowledge")
 		return nil
 	}
 	lex, lerr := db.SearchKnowledgeAtomsLexical(ctx, query, 5)
 	if lerr != nil || len(lex) == 0 {
 		if lerr != nil {
+			degraded.add("knowledge")
 			logging.Get(logging.CategoryJIT).Debug("Project knowledge lookup failed: %v", lerr)
 		}
 		return nil
@@ -426,16 +422,18 @@ func (c *JITPromptCompiler) collectProjectKnowledgeAtoms(ctx context.Context, db
 // collectExpertKnowledgeAtoms searches only the selected expert's registered
 // DB via its shared handle. It never iterates sibling experts, never opens a
 // new store, and never closes a DB owned by the shard registry.
-func collectExpertKnowledgeAtoms(ctx context.Context, cc *CompilationContext, shardDB *sql.DB, hasShard bool, query string) []store.KnowledgeAtom {
+func collectExpertKnowledgeAtoms(ctx context.Context, cc *CompilationContext, shardDB *sql.DB, hasShard bool, query string, degraded *degradation) []store.KnowledgeAtom {
 	if !hasShard || shardDB == nil || cc == nil {
 		return nil
 	}
 	if ctx.Err() != nil {
+		degraded.add("expert-knowledge")
 		return nil
 	}
 	atoms, err := store.SearchKnowledgeAtomsLexicalDB(ctx, shardDB, query, 5)
 	if err != nil || len(atoms) == 0 {
 		if err != nil {
+			degraded.add("expert-knowledge")
 			logging.Get(logging.CategoryJIT).Debug("Expert knowledge lookup failed for %s: %v", cc.ShardID, err)
 		}
 		return nil
@@ -486,13 +484,13 @@ func appendKnowledgePromptAtoms(dst []*PromptAtom, seen map[string]struct{}, ato
 // collectLearningAtoms queries the LearningStore for relevant past learnings.
 func (c *JITPromptCompiler) collectLearningAtoms(ctx context.Context, cc *CompilationContext) []*PromptAtom {
 	config, _, _ := c.configSnapshot()
-	return c.collectLearningAtomsWithConfig(ctx, cc, config)
+	return c.collectLearningAtomsFrom(ctx, cc, config, c.snapshotSources(cc), nil)
 }
 
-func (c *JITPromptCompiler) collectLearningAtomsWithConfig(ctx context.Context, cc *CompilationContext, config CompilerConfig) []*PromptAtom {
-	c.dbMu.RLock()
-	ls := c.learningStore
-	c.dbMu.RUnlock()
+// collectLearningAtomsFrom recalls from the learning store captured in src.
+// Recall errors (not empty recalls) mark the compile degraded.
+func (c *JITPromptCompiler) collectLearningAtomsFrom(ctx context.Context, cc *CompilationContext, config CompilerConfig, src compileSources, degraded *degradation) []*PromptAtom {
+	ls := src.learning
 
 	timeout := config.VectorSearchTimeout
 
@@ -517,16 +515,19 @@ func (c *JITPromptCompiler) collectLearningAtomsWithConfig(ctx context.Context, 
 	lexicalQuery := strings.TrimSpace(cc.IntentTarget + " " + cc.SemanticQuery + " " + query)
 	lexical, lexErr := ls.RecallLearningsLexicalContext(searchCtx, lexicalQuery, 5)
 	if lexErr != nil {
+		degraded.add("learning")
 		logging.Get(logging.CategoryJIT).Debug("Lexical learning atom search failed: %v", lexErr)
 	}
 	var semantic []store.LearningRecallHit
-	if c.vectorSearcher != nil {
-		if queryEmbedding, err := c.vectorSearcher.EmbedQuery(searchCtx, query); err == nil {
+	if src.vectorSearcher != nil {
+		if queryEmbedding, err := src.vectorSearcher.EmbedQuery(searchCtx, query); err == nil {
 			semantic, err = ls.RecallLearningsByEmbeddingContext(searchCtx, queryEmbedding, 5)
 			if err != nil {
+				degraded.add("learning")
 				logging.Get(logging.CategoryJIT).Debug("Semantic learning atom search failed, falling back to lexical: %v", err)
 			}
 		} else {
+			degraded.add("learning")
 			logging.Get(logging.CategoryJIT).Debug("Failed to embed query for learning atom search: %v", err)
 		}
 	}
@@ -541,6 +542,7 @@ func (c *JITPromptCompiler) collectLearningAtomsWithConfig(ctx context.Context, 
 	for _, hit := range hits {
 		body, err := ls.RecallLearningContentContext(searchCtx, hit)
 		if err != nil {
+			degraded.add("learning")
 			logging.Get(logging.CategoryJIT).Debug("Learning content unavailable: %v", err)
 			continue
 		}

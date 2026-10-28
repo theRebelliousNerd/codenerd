@@ -2,7 +2,6 @@ package prompt
 
 import (
 	"context"
-	"database/sql"
 
 	"codenerd/internal/logging"
 )
@@ -16,23 +15,20 @@ type sourceBreakdown struct {
 	strategy int
 }
 
-// collectAtomsWithStats gathers atoms and tracks source breakdown.
-func (c *JITPromptCompiler) collectAtomsWithStats(ctx context.Context, cc *CompilationContext) ([]*PromptAtom, sourceBreakdown, error) {
+// collectAtomsWithStats gathers atoms and tracks source breakdown. It reads
+// only the handles in src, the same ones the source vector was captured
+// from; database atoms come from the typed catalog when their generation is
+// current, and a failed optional source marks the compile degraded.
+func (c *JITPromptCompiler) collectAtomsWithStats(
+	ctx context.Context,
+	cc *CompilationContext,
+	src compileSources,
+	vector sourceVector,
+	pending *pendingCatalogs,
+	degraded *degradation,
+) ([]*PromptAtom, sourceBreakdown, error) {
 	var breakdown sourceBreakdown
-
-	// Bolt: acquire locks only long enough to copy shared pointers. Database
-	// queries must not hold compiler locks.
-	c.dbMu.RLock()
-	embeddedCorpus := c.embeddedCorpus
-	projectDB := c.projectDB
-	c.dbMu.RUnlock()
-
-	var shardDB *sql.DB
-	if cc.ShardID != "" {
-		c.shardMu.RLock()
-		shardDB = c.shardDBs[shardDBKey(cc.ShardID)]
-		c.shardMu.RUnlock()
-	}
+	embeddedCorpus := src.embedded
 
 	// Earlier sources are authoritative. In particular, the embedded corpus is
 	// the canonical source for built-in atoms; the project database may contain
@@ -75,20 +71,24 @@ func (c *JITPromptCompiler) collectAtomsWithStats(ctx context.Context, cc *Compi
 	}
 
 	// 2. Project database: adds project-only atoms, never stale built-in copies.
-	if projectDB != nil {
-		projectAtoms, err := c.loadAtomsFromDB(ctx, projectDB)
+	if src.projectDB != nil {
+		projectAtoms, err := c.loadCatalogAtoms(ctx, "project", src.projectDB, vector.parts["project"], pending)
 		if err != nil {
 			logging.Get(logging.CategoryJIT).Warn("Failed to load project atoms: %v", err)
+			degraded.add("project")
 		} else {
 			breakdown.project, _ = appendSource("project", projectAtoms)
 		}
 	}
 
-	// 3. Shard-specific database: adds scoped atoms with unique IDs.
-	if shardDB != nil {
-		shardAtoms, err := c.loadAtomsFromDB(ctx, shardDB)
+	// 3. Selected expert database: adds scoped atoms with unique IDs. Only the
+	// selected expert is read, and only its generation is in the vector.
+	if src.shardDB != nil {
+		source := "expert:" + src.shardKey
+		shardAtoms, err := c.loadCatalogAtoms(ctx, source, src.shardDB, vector.parts[source], pending)
 		if err != nil {
 			logging.Get(logging.CategoryJIT).Warn("Failed to load shard atoms: %v", err)
+			degraded.add(source)
 		} else {
 			breakdown.shard, _ = appendSource("shard", shardAtoms)
 		}

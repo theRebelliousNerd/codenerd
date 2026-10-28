@@ -748,7 +748,7 @@ func TestDependencyResolver_Resolve_ConcurrentBudgetManager(t *testing.T) {
 		for i := 0; i < 50; i++ {
 			// Thread A: BudgetManager runs on `resolved2`, truncating the shared PromptAtoms
 			// It will mutate atom.Content internally
-			_, _ = budgetMgr.Fit(resolved2, 15)
+			_, _ = budgetMgr.Fit(resolved2, 15, tokenCountForMode)
 		}
 	}()
 

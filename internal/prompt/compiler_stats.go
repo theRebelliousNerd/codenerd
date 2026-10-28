@@ -106,6 +106,22 @@ type CompilationStats struct {
 	// CacheKey is the cache key used (for debugging)
 	CacheKey string
 
+	// --- Preflight & publication ---
+	// PreflightMs is the time spent before the cache could be consulted:
+	// kernel snapshot (or its memo), specialist roster, source capture.
+	PreflightMs int64
+
+	// PreflightReused reports that the dynamic kernel snapshot came from the
+	// identity memo rather than a fresh clone.
+	PreflightReused bool
+
+	// DegradedSources names optional sources that failed during collection.
+	DegradedSources []string
+
+	// Uncacheable is why this result was not published to the cache; empty
+	// when it was.
+	Uncacheable string
+
 	// --- Context Info (for correlation) ---
 	// ShardID is the shard this compilation was for
 	ShardID string
@@ -169,6 +185,10 @@ func (s *CompilationStats) ToLogFields() map[string]any {
 		"shard_id":         s.ShardID,
 		"operational_mode": s.OperationalMode,
 		"intent_verb":      s.IntentVerb,
+		"preflight_ms":     s.PreflightMs,
+		"preflight_reused": s.PreflightReused,
+		"degraded_sources": s.DegradedSources,
+		"uncacheable":      s.Uncacheable,
 	}
 }
 
@@ -536,6 +556,57 @@ type CompilerStats struct {
 
 	// AverageTimeMs is the mean wall time of those compiles.
 	AverageTimeMs float64
+
+	// The cost of the calls that did NOT compile, reported separately so a
+	// fast cache cannot hide an expensive preflight. Hits, joiners and
+	// uncacheable compiles are lifetime counts; Preflights counts every call
+	// that reached the cache lookup, AveragePreflightMs is their mean, and
+	// PreflightReuses are the ones whose kernel snapshot came from the
+	// identity memo (no clone).
+	CacheHits          int64
+	Joiners            int64
+	Preflights         int64
+	PreflightReuses    int64
+	AveragePreflightMs float64
+	CatalogReuses      int64
+	// Uncacheable compiles ran but were not published: a source had no
+	// readable generation, degraded, or changed while the compile ran.
+	Uncacheable int64
+	Degraded    int64
+	SourceChurn int64
+}
+
+// compilerCounters are the compiler's lifetime metrics. cacheHits and
+// cacheMisses describe the current cache and reset with it; everything else
+// is lifetime.
+type compilerCounters struct {
+	cacheHits       atomic.Int64
+	cacheMisses     atomic.Int64
+	lifetimeHits    atomic.Int64
+	compiles        atomic.Int64
+	compileNanos    atomic.Int64
+	joiners         atomic.Int64
+	preflights      atomic.Int64
+	preflightNanos  atomic.Int64
+	preflightReuses atomic.Int64
+	catalogReuses   atomic.Int64
+	uncacheable     atomic.Int64
+	degraded        atomic.Int64
+	sourceChurn     atomic.Int64
+}
+
+func (cs *compilerCounters) recordPreflight(d time.Duration) {
+	cs.preflights.Add(1)
+	cs.preflightNanos.Add(int64(d))
+}
+
+func (cs *compilerCounters) resetCacheCounters() {
+	cs.lifetimeHits.Add(cs.cacheHits.Swap(0))
+	cs.cacheMisses.Store(0)
+}
+
+func logPromptCacheCleared(reason string) {
+	logging.Get(logging.CategoryJIT).Info("Cleared prompt cache: %s", reason)
 }
 
 // GetStats returns current compiler statistics.
@@ -544,14 +615,25 @@ func (c *JITPromptCompiler) GetStats() CompilerStats {
 	shardCount := len(c.shardDBs)
 	c.shardMu.RUnlock()
 
-	compiles := c.totalCompilations.Load()
+	counters := &c.counters
+	compiles := counters.compiles.Load()
 	stats := CompilerStats{
 		ShardDBCount:      shardCount,
 		TotalCompilations: compiles,
+		CacheHits:         counters.lifetimeHits.Load() + counters.cacheHits.Load(),
+		Joiners:           counters.joiners.Load(),
+		Preflights:        counters.preflights.Load(),
+		PreflightReuses:   counters.preflightReuses.Load(),
+		CatalogReuses:     counters.catalogReuses.Load(),
+		Uncacheable:       counters.uncacheable.Load(),
+		Degraded:          counters.degraded.Load(),
+		SourceChurn:       counters.sourceChurn.Load(),
 	}
 	if compiles > 0 {
-		nanos := atomic.LoadInt64(&c.compileNanos)
-		stats.AverageTimeMs = float64(nanos) / float64(compiles) / float64(time.Millisecond)
+		stats.AverageTimeMs = float64(counters.compileNanos.Load()) / float64(compiles) / float64(time.Millisecond)
+	}
+	if stats.Preflights > 0 {
+		stats.AveragePreflightMs = float64(counters.preflightNanos.Load()) / float64(stats.Preflights) / float64(time.Millisecond)
 	}
 
 	c.dbMu.RLock()

@@ -17,8 +17,14 @@ import "codenerd/internal/logging"
 // to the token budget by exactly the same scoring the other four sources go
 // through — a strategy earns its place or gets dropped like anything else.
 //
+// The provider also reports a source generation: strategies are refined and
+// re-ranked by recorded outcomes without any registration, so the compiler
+// needs a token that moves whenever StrategyAtoms could answer differently
+// for the same context.
+//
 // Implemented by prompt_evolution.StrategyAtomProvider.
 type StrategyProvider interface {
+	SourceGenerationReporter
 	StrategyAtoms(cc *CompilationContext) []*PromptAtom
 }
 
@@ -28,6 +34,7 @@ type StrategyProvider interface {
 func (c *JITPromptCompiler) RegisterStrategyProvider(p StrategyProvider) {
 	c.dbMu.Lock()
 	defer c.dbMu.Unlock()
+	defer c.bumpSourceEpoch()
 
 	c.strategyProvider = p
 	if p == nil {

@@ -1,6 +1,8 @@
 package prompt
 
 import (
+	"context"
+	"strconv"
 	"testing"
 )
 
@@ -16,6 +18,10 @@ func (f *fakeStrategyProvider) StrategyAtoms(cc *CompilationContext) []*PromptAt
 		panic("provider exploded")
 	}
 	return f.atoms
+}
+
+func (f *fakeStrategyProvider) SourceGeneration(context.Context) (string, error) {
+	return strconv.Itoa(len(f.atoms)), nil
 }
 
 func TestCollectStrategyAtoms_NoProviderIsNoSource(t *testing.T) {

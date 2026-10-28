@@ -158,7 +158,7 @@ func TestTokenBudgetManager_Fit(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mgr := NewTokenBudgetManager()
 
-			result, err := mgr.Fit(tt.atoms, tt.budget)
+			result, err := mgr.Fit(tt.atoms, tt.budget, tokenCountForMode)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -192,7 +192,7 @@ func TestTokenBudgetManager_FitMandatory(t *testing.T) {
 		// Set low headroom for this test
 		mgr.SetReservedHeadroom(100)
 
-		result, err := mgr.Fit(atoms, 500) // 500 - 100 = 400 available
+		result, err := mgr.Fit(atoms, 500, tokenCountForMode) // 500 - 100 = 400 available
 
 		require.NoError(t, err)
 
@@ -214,7 +214,7 @@ func TestTokenBudgetManager_FitMandatory(t *testing.T) {
 		mgr := NewTokenBudgetManager()
 		mgr.SetReservedHeadroom(0)
 
-		result, err := mgr.Fit(atoms, 10000)
+		result, err := mgr.Fit(atoms, 10000, tokenCountForMode)
 
 		require.NoError(t, err)
 		require.Len(t, result, 1)
@@ -242,7 +242,7 @@ func TestTokenBudgetManager_FitHigherScoresPreferred(t *testing.T) {
 			Priority:    PriorityMandatory,
 		})
 
-		result, err := mgr.Fit(atoms, 3000)
+		result, err := mgr.Fit(atoms, 3000, tokenCountForMode)
 
 		require.NoError(t, err)
 
@@ -270,7 +270,7 @@ func TestTokenBudgetManager_FitFillsRemainingBudget(t *testing.T) {
 		mgr := NewTokenBudgetManager()
 		mgr.SetReservedHeadroom(0)
 
-		result, err := mgr.Fit(atoms, 10000)
+		result, err := mgr.Fit(atoms, 10000, tokenCountForMode)
 
 		require.NoError(t, err)
 
@@ -291,7 +291,7 @@ func TestTokenBudgetManager_AllocationStrategies(t *testing.T) {
 		mgr.SetStrategy(StrategyProportional)
 		mgr.SetReservedHeadroom(0)
 
-		result, err := mgr.Fit(atoms, 5000)
+		result, err := mgr.Fit(atoms, 5000, tokenCountForMode)
 
 		require.NoError(t, err)
 		assert.NotEmpty(t, result)
@@ -302,7 +302,7 @@ func TestTokenBudgetManager_AllocationStrategies(t *testing.T) {
 		mgr.SetStrategy(StrategyPriorityFirst)
 		mgr.SetReservedHeadroom(0)
 
-		result, err := mgr.Fit(atoms, 5000)
+		result, err := mgr.Fit(atoms, 5000, tokenCountForMode)
 
 		require.NoError(t, err)
 		assert.NotEmpty(t, result)
@@ -313,7 +313,7 @@ func TestTokenBudgetManager_AllocationStrategies(t *testing.T) {
 		mgr.SetStrategy(StrategyBalanced)
 		mgr.SetReservedHeadroom(0)
 
-		result, err := mgr.Fit(atoms, 5000)
+		result, err := mgr.Fit(atoms, 5000, tokenCountForMode)
 
 		require.NoError(t, err)
 		assert.NotEmpty(t, result)
@@ -435,7 +435,7 @@ func BenchmarkFit_SmallSet(b *testing.B) {
 	b.ResetTimer()
 
 	for b.Loop() {
-		_, _ = mgr.Fit(atoms, 10000)
+		_, _ = mgr.Fit(atoms, 10000, tokenCountForMode)
 	}
 }
 
@@ -454,7 +454,7 @@ func BenchmarkFit_MediumSet(b *testing.B) {
 	b.ResetTimer()
 
 	for b.Loop() {
-		_, _ = mgr.Fit(atoms, 50000)
+		_, _ = mgr.Fit(atoms, 50000, tokenCountForMode)
 	}
 }
 
@@ -473,7 +473,7 @@ func BenchmarkFit_LargeSet(b *testing.B) {
 	b.ResetTimer()
 
 	for b.Loop() {
-		_, _ = mgr.Fit(atoms, 100000)
+		_, _ = mgr.Fit(atoms, 100000, tokenCountForMode)
 	}
 }
 
@@ -534,7 +534,7 @@ func TestTokenBudgetManager_Fit_Extremes(t *testing.T) {
 		mgr.SetReservedHeadroom(0)
 
 		// Should not panic and should return a non-error result.
-		result, err := mgr.Fit(atoms, 1000000)
+		result, err := mgr.Fit(atoms, 1000000, tokenCountForMode)
 		require.NoError(t, err)
 		// Result is capped by maxAtomsLimit (5000) inside Fit.
 		assert.LessOrEqual(t, len(result), 5000)
@@ -547,7 +547,7 @@ func TestTokenBudgetManager_Fit_Extremes(t *testing.T) {
 		mgr := NewTokenBudgetManager()
 		mgr.SetReservedHeadroom(0)
 
-		_, err := mgr.Fit(atoms, 0)
+		_, err := mgr.Fit(atoms, 0, tokenCountForMode)
 		require.Error(t, err)
 	})
 
@@ -558,10 +558,10 @@ func TestTokenBudgetManager_Fit_Extremes(t *testing.T) {
 		mgr := NewTokenBudgetManager()
 		mgr.SetReservedHeadroom(0)
 
-		_, err := mgr.Fit(atoms, -1)
+		_, err := mgr.Fit(atoms, -1, tokenCountForMode)
 		require.Error(t, err)
 
-		_, err2 := mgr.Fit(atoms, math.MinInt32)
+		_, err2 := mgr.Fit(atoms, math.MinInt32, tokenCountForMode)
 		require.Error(t, err2)
 	})
 
@@ -572,7 +572,7 @@ func TestTokenBudgetManager_Fit_Extremes(t *testing.T) {
 		mgr := NewTokenBudgetManager()
 		mgr.SetReservedHeadroom(500)
 
-		_, err := mgr.Fit(atoms, 500)
+		_, err := mgr.Fit(atoms, 500, tokenCountForMode)
 		require.Error(t, err)
 	})
 
@@ -594,7 +594,7 @@ func TestTokenBudgetManager_Fit_Extremes(t *testing.T) {
 		mgr.SetReservedHeadroom(0)
 
 		// Should not panic / loop forever; either fit small, or skip both.
-		result, err := mgr.Fit(atoms, 10000)
+		result, err := mgr.Fit(atoms, 10000, tokenCountForMode)
 		require.NoError(t, err)
 		// The huge atom must not be wrongly included via overflow.
 		for _, oa := range result {
@@ -650,7 +650,7 @@ func TestTokenBudgetManager_Fit_MandatoryOverflow(t *testing.T) {
 		mgr := NewTokenBudgetManager()
 		mgr.SetReservedHeadroom(0)
 
-		result, err := mgr.Fit(atoms, 8000)
+		result, err := mgr.Fit(atoms, 8000, tokenCountForMode)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "mandatory skeleton")
 		assert.Contains(t, err.Error(), "huge-mandatory")
@@ -671,7 +671,7 @@ func TestTokenBudgetManager_Fit_MandatoryOverflow(t *testing.T) {
 		mgr.SetReservedHeadroom(0)
 
 		// Must not panic or wrap; the atom cannot fit, so the fit is refused.
-		_, err := mgr.Fit(atoms, 10000)
+		_, err := mgr.Fit(atoms, 10000, tokenCountForMode)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "max-int")
 	})
@@ -703,7 +703,7 @@ func TestTokenBudgetManager_Fit_MandatoryOverflow(t *testing.T) {
 
 		// Budget allows two but not three: the third is mandatory, so two is
 		// not an answer.
-		_, err := mgr.Fit(atoms, 11000)
+		_, err := mgr.Fit(atoms, 11000, tokenCountForMode)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "m3")
 	})
@@ -723,7 +723,7 @@ func TestTokenBudgetManager_Fit_MandatoryOverflow(t *testing.T) {
 		mgr := NewTokenBudgetManager()
 		mgr.SetReservedHeadroom(0)
 
-		result, err := mgr.Fit(atoms, 2000)
+		result, err := mgr.Fit(atoms, 2000, tokenCountForMode)
 		require.NoError(t, err)
 		require.Len(t, result, 1)
 		assert.Equal(t, "concise", result[0].RenderMode, "the whole concise rendering fits; nothing is cut")
@@ -749,7 +749,7 @@ func TestTokenBudgetManager_Fit_InvalidData(t *testing.T) {
 	}
 
 	// Make sure total budget > reserved headroom (500)
-	fitted, err := manager.Fit(atoms, 1000)
+	fitted, err := manager.Fit(atoms, 1000, tokenCountForMode)
 	require.NoError(t, err)
 
 	// Ensure no nil pointers were appended and negative token counts were defaulted to 0
@@ -885,7 +885,7 @@ func TestShedToFit_UnbudgetedShedsBeforeConditional(t *testing.T) {
 	}
 	full, err := assemble(atoms)
 	require.NoError(t, err)
-	survivors, _, used := NewTokenBudgetManager().ShedToFit(atoms, full, 500, assemble)
+	survivors, _, used := NewTokenBudgetManager().ShedToFit(atoms, full, 500, tokenCountForMode, assemble)
 	require.Len(t, survivors, 1, "one atom must shed to fit 500 tokens")
 	assert.Equal(t, "cond", survivors[0].Atom.ID, "unbudgeted atom must shed before conditional")
 	assert.LessOrEqual(t, used, 500)

@@ -1164,6 +1164,14 @@ func runJITStatus(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Shard DBs:        %d\n", stats.ShardDBCount)
 		fmt.Printf("Compilations:     %d\n", stats.TotalCompilations)
 		fmt.Printf("Avg Time (ms):    %.2f\n", stats.AverageTimeMs)
+		// Served-without-compiling work, kept apart so a fast cache cannot
+		// hide an expensive preflight.
+		fmt.Printf("Cache Hits:       %d (joined in flight: %d)\n", stats.CacheHits, stats.Joiners)
+		fmt.Printf("Preflights:       %d (avg %.2f ms, kernel snapshot reused: %d)\n",
+			stats.Preflights, stats.AveragePreflightMs, stats.PreflightReuses)
+		fmt.Printf("Catalog Reuses:   %d\n", stats.CatalogReuses)
+		fmt.Printf("Not Cached:       %d (degraded: %d, source changed mid-compile: %d)\n",
+			stats.Uncacheable, stats.Degraded, stats.SourceChurn)
 	} else {
 		fmt.Println("JIT Compiler not initialized")
 	}

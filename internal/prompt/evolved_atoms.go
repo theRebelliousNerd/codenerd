@@ -341,6 +341,7 @@ func (eam *EvolvedAtomManager) Count() int {
 func (c *JITPromptCompiler) RegisterEvolvedAtomManager(eam *EvolvedAtomManager) {
 	c.dbMu.Lock()
 	defer c.dbMu.Unlock()
+	defer c.bumpSourceEpoch()
 
 	c.evolvedAtomMgr = eam
 	logging.JIT("Registered evolved atom manager: %d atoms", eam.Count())

@@ -74,7 +74,7 @@ func TestRenderKernelContextBlock_SurvivesFitAtShardBudget(t *testing.T) {
 	atom.IsMandatory = true
 
 	fitted, err := NewTokenBudgetManager().Fit(
-		[]*OrderedAtom{{Atom: atom, Score: 95, RenderMode: "standard"}}, shardBudget)
+		[]*OrderedAtom{{Atom: atom, Score: 95, RenderMode: "standard"}}, shardBudget, tokenCountForMode)
 	if err != nil {
 		t.Fatalf("Fit: %v", err)
 	}

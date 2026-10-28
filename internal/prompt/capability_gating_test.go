@@ -195,11 +195,20 @@ func TestCapabilityGatingMangleFacts(t *testing.T) {
 func toStringSlice(facts []any) []string {
 	out := make([]string, 0, len(facts))
 	for _, f := range facts {
-		if s, ok := f.(string); ok {
-			out = append(out, s)
-		}
+		out = append(out, factText(f))
 	}
 	return out
+}
+
+// factText renders a selector fact, string or typed, as Mangle text.
+func factText(f any) string {
+	switch v := f.(type) {
+	case string:
+		return v
+	case Fact:
+		return v.String()
+	}
+	return ""
 }
 
 func TestCapabilityGatingRequiresToolsRoundTrip(t *testing.T) {
