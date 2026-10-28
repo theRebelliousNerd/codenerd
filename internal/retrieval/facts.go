@@ -135,11 +135,13 @@ type SeedReport struct {
 	// Asserted is every fact the pass loaded, so a caller that owns the issue
 	// can retract exactly those when it is over.
 	Asserted []types.Fact
-	// SemanticTier records which Tier 4 backend the pass used: "embeddings"
-	// when an engine was supplied, "heuristic fallback" otherwise. It exists
-	// so the degradation is visible in the seed summary line itself rather
-	// than only in a boot warning nobody reads on the turn.
-	SemanticTier string
+	// Outcomes is each searching tier's provenance (TierOutcome): the
+	// backend it attempted and the one it used, whether it searched its whole
+	// domain, and why not. Until 2026-10-27 the report carried a
+	// SemanticTier string set to "embeddings" whenever an engine was
+	// configured -- before the search ran -- so a failed embedding pass that
+	// fell back read as a vector search.
+	Outcomes []TierOutcome
 }
 
 // Summary renders the report as the one line the glass box and the context log
@@ -154,8 +156,12 @@ func (r *SeedReport) Summary() string {
 	if r.TimedOut {
 		s += " (budget expired)"
 	}
-	if r.SemanticTier == "heuristic fallback" {
-		s += " [semantic tier: heuristic fallback]"
+	// Only what departs from a whole search with the configured backend is
+	// news on the summary line.
+	for _, o := range r.Outcomes {
+		if o.Status != StatusComplete || o.Used != o.Attempted || o.Attempted == BackendDefinitionScan {
+			s += " [" + o.String() + "]"
+		}
 	}
 	return s
 }
@@ -226,22 +232,12 @@ func SeedIssueFacts(ctx context.Context, sink FactSink, req SeedRequest) (*SeedR
 	// silently used the definition-scan fallback even with a healthy embedding
 	// backend. Wire the optional engine through; a nil engine keeps today's
 	// heuristic path byte-identical.
+	// What Tier 4 actually used is the pass's outcome (TierOutcome), known
+	// only after it ran.
 	if req.SemanticSearcher != nil {
 		cfg.Semantic = req.SemanticSearcher
-		report.SemanticTier = "embeddings"
-		logging.ContextDebug("semantic tier: embeddings (shared searcher)")
-	} else if req.EmbeddingEngine != nil {
-		if searcher := NewEmbeddingSemanticSearcher(req.EmbeddingEngine, workDir); searcher != nil {
-			cfg.Semantic = searcher
-			report.SemanticTier = "embeddings"
-			logging.ContextDebug("semantic tier: embeddings")
-		} else {
-			report.SemanticTier = "heuristic fallback"
-			logging.ContextDebug("semantic tier: heuristic fallback (no usable engine)")
-		}
-	} else {
-		report.SemanticTier = "heuristic fallback"
-		logging.ContextDebug("semantic tier: heuristic fallback (embeddings unavailable)")
+	} else if searcher := NewEmbeddingSemanticSearcher(req.EmbeddingEngine, workDir); searcher != nil {
+		cfg.Semantic = searcher
 	}
 	builder := NewTieredContextBuilder(cfg)
 
@@ -279,6 +275,8 @@ func SeedIssueFacts(ctx context.Context, sink FactSink, req SeedRequest) (*SeedR
 			report.KeywordHits += len(c.Hits)
 		}
 		report.TotalTokens = totalTokens(tc, workDir)
+		report.Outcomes = tc.Outcomes
+		facts = append(facts, OutcomeFacts(issueID, tc.Outcomes)...)
 	} else {
 		// No tiered context at all: the mentions still deserve to be resolved
 		// and asserted, otherwise a timeout costs the caller even the free half.

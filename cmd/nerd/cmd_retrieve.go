@@ -137,10 +137,14 @@ func runRetrieve(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintf(out, "tiers:      T1=%d  T2=%d  T3=%d  T4=%d\n",
 		report.TierCounts[0], report.TierCounts[1], report.TierCounts[2], report.TierCounts[3])
-	if report.SemanticTier == "embeddings" {
-		fmt.Fprintln(out, "semantic:   embeddings tier (vector similarity)")
-	} else {
-		fmt.Fprintln(out, "semantic:   heuristic fallback (embeddings unavailable)")
+	// The tiers' own provenance: the backend each attempted and used, and
+	// whether it searched its whole domain -- read off the pass, not off
+	// which engine was configured.
+	for _, o := range report.Outcomes {
+		fmt.Fprintf(out, "%-11s %s\n", o.Tier+":", o)
+		if o.Detail != "" {
+			fmt.Fprintf(out, "            %s\n", o.Detail)
+		}
 	}
 	fmt.Fprintf(out, "candidates: %d ranked files, %d keyword hits\n", report.Candidates, report.KeywordHits)
 	fmt.Fprintf(out, "facts:      %d asserted, ~%d tokens of context\n\n", report.Facts, report.TotalTokens)
@@ -199,7 +203,8 @@ func printRetrievalFacts(cmd *cobra.Command, kernel *core.RealKernel) {
 	for _, pred := range []string{
 		"issue_text", "issue_keyword", "keyword_weight", "file_mentioned",
 		"candidate_file", "keyword_hit", "context_tier", "tiered_context_file",
-		"issue_context",
+		"issue_context", "retrieval_outcome", "retrieval_backend", "retrieval_coverage",
+		"retrieval_brief_caveat",
 	} {
 		facts, err := kernel.Query(pred)
 		if err != nil {

@@ -53,8 +53,8 @@ func (s *SparseRetrieverSuite) TestSearchKeywords_RealRg() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	hits, err := r.SearchKeywords(ctx, kw)
-	s.Require().NoError(err)
+	hits, outcome := r.SearchKeywords(ctx, kw)
+	s.Require().Equal(StatusComplete, outcome.Status, outcome.String())
 	s.Require().Len(hits, 1)
 
 	// Avoid asserting exact path formatting: ripgrep may return absolute or relative paths.
@@ -74,12 +74,12 @@ func (s *SparseRetrieverSuite) TestSearchKeywords_NoMatch() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	hits, err := r.SearchKeywords(ctx, kw)
-	s.Require().NoError(err)
+	hits, outcome := r.SearchKeywords(ctx, kw)
+	s.Require().Equal(StatusComplete, outcome.Status, outcome.String())
 	s.Require().Empty(hits)
 }
 
-func (s *SparseRetrieverSuite) TestFindRelevantFiles() {
+func (s *SparseRetrieverSuite) TestFindRelevant() {
 	cfg := retrieval.DefaultSparseRetrieverConfig(s.tempDir)
 	r := retrieval.NewSparseRetriever(cfg)
 
@@ -87,7 +87,7 @@ func (s *SparseRetrieverSuite) TestFindRelevantFiles() {
 	defer cancel()
 
 	// "Fix bug in MyFunc" should extract MyFunc as a keyword.
-	candidates, err := r.FindRelevantFiles(ctx, "Fix bug in MyFunc", 10)
+	candidates, err := findRelevant(ctx, r, "Fix bug in MyFunc", 10)
 	s.Require().NoError(err)
 
 	s.Require().NotEmpty(candidates)
@@ -108,8 +108,8 @@ func (s *SparseRetrieverSuite) TestSearchKeywords_Exclusions() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	hits, err := r.SearchKeywords(ctx, kw)
-	s.Require().NoError(err)
+	hits, outcome := r.SearchKeywords(ctx, kw)
+	s.Require().Equal(StatusComplete, outcome.Status, outcome.String())
 	s.Require().Empty(hits, "Should not find file in excluded directory")
 }
 
@@ -147,7 +147,7 @@ func TestSparseRetriever_Integration(t *testing.T) {
 	// The query mentions "TargetError", which should be extracted as a primary keyword.
 	query := "panic: TargetError in production system"
 
-	candidates, err := retriever.FindRelevantFiles(ctx, query, 10)
+	candidates, err := retrievefindRelevant(ctx, r, query, 10)
 	require.NoError(t, err)
 
 	// 5. Verification
@@ -192,7 +192,7 @@ func TestSparseRetriever_ContextCancellation(t *testing.T) {
 	// but it must not hang.
 	done := make(chan struct{})
 	go func() {
-		_, _ = retriever.FindRelevantFiles(ctx, "panic: Something", 10)
+		_, _ = retrievefindRelevant(ctx, r, "panic: Something", 10)
 		close(done)
 	}()
 
@@ -200,6 +200,6 @@ func TestSparseRetriever_ContextCancellation(t *testing.T) {
 	case <-done:
 		// Success
 	case <-time.After(2 * time.Second):
-		t.Fatal("FindRelevantFiles hung on context cancellation")
+		t.Fatal("the keyword search hung on context cancellation")
 	}
 }

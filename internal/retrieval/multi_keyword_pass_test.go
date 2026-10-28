@@ -52,7 +52,6 @@ func hitKeys(hits []KeywordHit) []string {
 	return out
 }
 
-
 // One walk for many keywords records, per keyword, exactly what a walk for
 // that keyword alone records.
 func TestMultiKeywordPassMatchesSingleKeywordWalks(t *testing.T) {
@@ -88,7 +87,7 @@ func TestMultiKeywordPassTiming(t *testing.T) {
 	keywords := strings.Fields("northstar wizard agentic interview explore codebase questions suggest navigation session kernel dreamer campaign orient embedding shard retrieval budget context atom prompt policy mangle config verify test coverage repair escalation transducer")
 	r := NewSparseRetriever(&SparseRetrieverConfig{WorkDir: root, SearchTimeout: 2 * time.Minute})
 	start := time.Now()
-	if _, err := r.searchEachKeyword(context.Background(), keywords); err != nil {
+	if _, _, err := r.searchEachKeyword(context.Background(), keywords); err != nil {
 		t.Logf("per-keyword walks: %v", err)
 	}
 	perKeyword := time.Since(start)

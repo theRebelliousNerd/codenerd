@@ -98,6 +98,8 @@ func DefaultConfig() CompressorConfig {
 			"issue_keyword":       85,
 			"file_mentioned":      85,
 			"tiered_context_file": 80,
+			// A search that did not finish: its absence claims are void.
+			"retrieval_brief_caveat": 85,
 
 			// Shard delegation
 			"delegate_task": 90,
