@@ -453,6 +453,12 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		out = append(out, c.JIT.Check("jit")...)
 	}
 
+	// --- typesafe ---
+	// Absent is off; present must name its model, endpoint and key.
+	if c.TypeSafe != nil {
+		out = append(out, c.TypeSafe.Check("typesafe")...)
+	}
+
 	// --- everything the file leaves to a default ---
 	if raw != nil {
 		for _, path := range ImplicitFields(raw) {
@@ -584,6 +590,9 @@ func walkImplicit(t reflect.Type, doc map[string]any, prefix string, out *[]stri
 		switch ft.Kind() {
 		case reflect.Struct:
 			child, _ := value.(map[string]any)
+			if child == nil && isOptionalSection(ft) {
+				continue // off, not defaulted
+			}
 			if !present || child == nil {
 				child = map[string]any{}
 			}

@@ -47,6 +47,10 @@ func writeFull(buf *bytes.Buffer, v reflect.Value, depth int) error {
 	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
 		if v.IsNil() {
 			if v.Kind() == reflect.Pointer && v.Type().Elem().Kind() == reflect.Struct {
+				if isOptionalSection(v.Type().Elem()) {
+					buf.WriteString("null") // absent is off; zeroed keys would be a broken section
+					return nil
+				}
 				v = reflect.New(v.Type().Elem()) // a nil section, shown with its keys
 				continue
 			}
@@ -197,4 +201,14 @@ func withDefaults(section reflect.Value) (reflect.Value, bool) {
 	out := reflect.New(section.Type()).Elem()
 	out.Set(m.Call(nil)[0])
 	return out, true
+}
+
+// OptionalSection marks a section whose absence means the feature is off and
+// whose presence must be complete. It has no defaults to print, so the full
+// document writes it as null rather than as a zeroed section the loader would
+// refuse, and the implicit-field pass does not call its keys defaulted.
+type OptionalSection interface{ OffWhenAbsent() }
+
+func isOptionalSection(t reflect.Type) bool {
+	return reflect.PointerTo(t).Implements(reflect.TypeOf((*OptionalSection)(nil)).Elem())
 }

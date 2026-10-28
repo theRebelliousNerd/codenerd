@@ -317,6 +317,10 @@ type UserConfig struct {
 	// JIT Prompt Compiler configuration
 	JIT *JITConfig `json:"jit,omitempty"`
 
+	// TypeSafe is the Jev (System One) API, extra typed evidence for
+	// perception and routing. Absent means off.
+	TypeSafe *TypeSafeConfig `json:"typesafe,omitempty"`
+
 	// Articulation is the share of the prompt budget the legacy session
 	// blackboard may occupy (articulation.go).
 	Articulation *ArticulationConfig `json:"articulation,omitempty"`
