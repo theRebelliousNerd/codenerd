@@ -25,6 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"codenerd/internal/atomjudge"
 	"codenerd/internal/autopoiesis"
 	pe "codenerd/internal/autopoiesis/prompt_evolution"
 	ctxlearn "codenerd/internal/context"
@@ -34,6 +35,10 @@ import (
 	"codenerd/internal/prompt"
 	"codenerd/internal/session"
 )
+
+// evolvedAtomCompare bounds the existing atoms a generated atom is compared
+// with for duplication: its nearest neighbours by wording.
+const evolvedAtomCompare = 3
 
 // recordIDSequence disambiguates execution records minted within one clock
 // tick.
