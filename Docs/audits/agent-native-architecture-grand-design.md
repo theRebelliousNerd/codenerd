@@ -532,3 +532,18 @@ Begin with a behavior family whose local mechanisms differ but whose shared obli
 No new programming language, permanent agent per directory, blanket microservice migration or repository-wide clone campaign is required to test the thesis. Those remain separate options with substantial obligations of their own.
 
 **The north star is software whose behavior is easy to locate, whose ordinary changes can proceed independently, whose shared obligations cannot be forgotten, and whose completion claims remain tied to the code that was actually checked.** Cheap code generation makes this architecture worth investigating. It does not excuse us from building it carefully.
+
+## As built (2026-10-28)
+
+This document is a research program; its pilot (section "A decisive pilot") asks for representation work before any structural change. Where each step stands on `main`:
+
+| Pilot step | State |
+|---|---|
+| 2. Evidence-carrying behavioral boundaries for cancellation, incomplete results and partial usage | **Built.** Every provider stream ends in exactly one typed terminal (`types.StreamResult`: complete, truncated, refused, filtered, canceled, unsupported, protocol_failed, incomplete or failed), with normalized usage settled before the terminal publishes. See `Docs/audits/stream-completion-contract.md`, As built. |
+| Duplication as a declared relationship; Mangle derives the obligations rather than prompts remembering them | **Built**, as code families (`Docs/audits/codedom-governed-code-replication.md`, As built). A changed member derives review obligations per peer and shared requirement, and an open one withholds `turn_verified`. |
+| Evidence as a maintained dependency graph | **Partly.** These are revision-bound and typed:<ul><li>test identity (package+test, `Docs/audits/test-evidence-capability.md`);</li><li>tool-effect receipts;</li><li>judge evidence packets;</li><li>structural observation envelopes, with generation-bound cursors and deficits.</li></ul>A general evidence-dependency graph with invalidation is not built. |
+| Progressive disclosure | **In progress.** The orientation treatment shadow slice (`Docs/audits/orientation-treatment-disclosure-contract.md`). |
+| 1. A change packet over CodeDOM identity | **Not built.** The packet compiler (resolve intent, production path, boundary contracts and evidence obligations into a compact view with typed expansion handles and an unresolved ledger) is the next representation step. |
+| 3–5. Comparative treatments, conflict-aware admission, and expansion gated on measured campaigns | **Not built.** These need the live-model, paired-task evaluation program the document specifies; no superiority claim is made. |
+
+Nothing here moved toward a repository rewrite, per-directory agents or a clone campaign; the document rules those out as prerequisites.
