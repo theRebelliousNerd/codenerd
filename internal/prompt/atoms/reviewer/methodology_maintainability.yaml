@@ -164,6 +164,17 @@
     - Avoid global state
     - Use dependency injection
 
+- id: "reviewer/methodology/coupling_cohesion/cohesion-should-be-high"
+  category: "methodology"
+  subcategory: "maintainability"
+  priority: 78
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/analyze"]
+  depends_on: ["reviewer/methodology/maintainability_fundamentals"]
+  content: |
+    *Part of: COUPLING AND COHESION REVIEW*
+
     ### COHESION (Should Be HIGH)
 
     **Cohesion Types (Best to Worst)**
@@ -245,6 +256,17 @@
     **Parallel Inheritance**
     - Creating subclass requires another subclass
     - FIX: Flatten hierarchy
+
+- id: "reviewer/methodology/code_smells/dispensables"
+  category: "methodology"
+  subcategory: "maintainability"
+  priority: 76
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/analyze"]
+  depends_on: ["reviewer/methodology/maintainability_fundamentals"]
+  content: |
+    *Part of: CODE SMELL DETECTION*
 
     ### DISPENSABLES
 
@@ -331,6 +353,17 @@
     - [ ] Usage examples for complex APIs
     - [ ] Edge cases demonstrated
     - [ ] Error handling shown
+
+- id: "reviewer/methodology/documentation/documentation-anti-patterns"
+  category: "methodology"
+  subcategory: "maintainability"
+  priority: 72
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/maintainability_fundamentals"]
+  content: |
+    *Part of: DOCUMENTATION REVIEW*
 
     ### DOCUMENTATION ANTI-PATTERNS
 

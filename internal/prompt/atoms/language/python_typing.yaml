@@ -12,6 +12,7 @@
     ## TYPE HINTS FUNDAMENTALS
 
     ### Basic Types (Python 3.9+ built-in generics)
+
     ```python
     # Python 3.9+: Use built-in types directly
     def process(items: list[str], mapping: dict[str, int]) -> tuple[str, ...]:
@@ -24,6 +25,7 @@
     ```
 
     ### Union and Optional
+
     ```python
     # Python 3.10+: Use | syntax (PREFERRED)
     def process(value: str | int | None) -> str | None:
@@ -41,8 +43,25 @@
     def func2(x: Optional[str]):  # Parameter REQUIRED, but can be None
         ...
     ```
+  content_concise: |
+    ## Type Hints Basics
+    - Python 3.9+: `list[str]`, `dict[str, int]` (built-in generics)
+    - Python 3.10+: `str | None` instead of `Optional[str]`
+    - `Optional[X]` = `Union[X, None]`, does NOT mean parameter is optional
+    - `Callable[[args], return]` for function types
+
+- id: "language/python/typing/fundamentals/callable-types"
+  category: "language"
+  subcategory: "python"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  content: |
+    *Part of: TYPE HINTS FUNDAMENTALS*
 
     ### Callable Types
+
     ```python
     from typing import Callable
 
@@ -57,6 +76,7 @@
     ```
 
     ### Type Aliases
+
     ```python
     # Simple type alias
     UserId = int
@@ -70,13 +90,6 @@
     type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
     ```
 
-  content_concise: |
-    ## Type Hints Basics
-    - Python 3.9+: `list[str]`, `dict[str, int]` (built-in generics)
-    - Python 3.10+: `str | None` instead of `Optional[str]`
-    - `Optional[X]` = `Union[X, None]`, does NOT mean parameter is optional
-    - `Callable[[args], return]` for function types
-
 - id: "language/python/typing/generics"
   category: "language"
   subcategory: "python"
@@ -89,6 +102,7 @@
     ## GENERIC TYPES
 
     ### TypeVar for Generic Functions
+
     ```python
     from typing import TypeVar, Sequence
 
@@ -106,6 +120,7 @@
     ```
 
     ### Generic Classes
+
     ```python
     from typing import TypeVar, Generic
 
@@ -128,8 +143,27 @@
         def get(self, key: K) -> V | None:
             ...
     ```
+  content_concise: |
+    ## Generics
+    - `TypeVar('T')` for generic functions and classes
+    - `Generic[T]` base for generic classes
+    - Python 3.12+: `def first[T](items: list[T]) -> T:`
+    - `bound=` for upper bound, constraints for specific types
+    - Covariant (output), Contravariant (input), Invariant (exact)
+
+- id: "language/python/typing/generics/python-3-12-type-parameter-syntax-preferred"
+  category: "language"
+  subcategory: "python"
+  priority: 84
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  depends_on: ["language/python/typing/fundamentals"]
+  content: |
+    *Part of: GENERIC TYPES*
 
     ### Python 3.12+ Type Parameter Syntax (PREFERRED)
+
     ```python
     # NEW SYNTAX (Python 3.12+)
     def first[T](items: list[T]) -> T:
@@ -149,6 +183,7 @@
     ```
 
     ### Covariance and Contravariance
+
     ```python
     from typing import TypeVar
 
@@ -166,14 +201,6 @@
     # Callable[[Animal], None] works for Callable[[Dog], None] (contravariant)
     ```
 
-  content_concise: |
-    ## Generics
-    - `TypeVar('T')` for generic functions and classes
-    - `Generic[T]` base for generic classes
-    - Python 3.12+: `def first[T](items: list[T]) -> T:`
-    - `bound=` for upper bound, constraints for specific types
-    - Covariant (output), Contravariant (input), Invariant (exact)
-
 - id: "language/python/typing/protocol"
   category: "language"
   subcategory: "python"
@@ -186,6 +213,7 @@
     ## PROTOCOL CLASSES (STRUCTURAL SUBTYPING)
 
     ### Basic Protocol
+
     ```python
     from typing import Protocol, runtime_checkable
 
@@ -210,6 +238,7 @@
     ```
 
     ### Runtime Checkable Protocols
+
     ```python
     @runtime_checkable
     class Closeable(Protocol):
@@ -222,8 +251,27 @@
     # CAVEAT: @runtime_checkable only checks method existence, not signatures
     # Use for simple structural checks, not complex validation
     ```
+  content_concise: |
+    ## Protocol (Structural Typing)
+    - Define interface without inheritance: `class Drawable(Protocol)`
+    - Any class with matching methods/attributes is compatible
+    - `@runtime_checkable` enables `isinstance()` checks
+    - Protocol = duck typing with type safety
+    - Use Protocol over ABC when inheritance isn't required
+
+- id: "language/python/typing/protocol/protocol-with-generic"
+  category: "language"
+  subcategory: "python"
+  priority: 86
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  depends_on: ["language/python/typing/fundamentals"]
+  content: |
+    *Part of: PROTOCOL CLASSES (STRUCTURAL SUBTYPING)*
 
     ### Protocol with Generic
+
     ```python
     from typing import Protocol, TypeVar
 
@@ -250,7 +298,19 @@
     process(Box(42))  # Type-safe!
     ```
 
+- id: "language/python/typing/protocol/protocol-vs-abc"
+  category: "language"
+  subcategory: "python"
+  priority: 86
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  depends_on: ["language/python/typing/fundamentals"]
+  content: |
+    *Part of: PROTOCOL CLASSES (STRUCTURAL SUBTYPING)*
+
     ### Protocol vs ABC
+
     | Feature | Protocol | ABC |
     |---------|----------|-----|
     | Type matching | Structural | Nominal |
@@ -270,14 +330,6 @@
         def fly(self) -> None: ...
     ```
 
-  content_concise: |
-    ## Protocol (Structural Typing)
-    - Define interface without inheritance: `class Drawable(Protocol)`
-    - Any class with matching methods/attributes is compatible
-    - `@runtime_checkable` enables `isinstance()` checks
-    - Protocol = duck typing with type safety
-    - Use Protocol over ABC when inheritance isn't required
-
 - id: "language/python/typing/paramspec"
   category: "language"
   subcategory: "python"
@@ -290,6 +342,7 @@
     ## PARAMSPEC AND CONCATENATE
 
     ### ParamSpec for Decorators (Python 3.10+)
+
     ```python
     from typing import ParamSpec, TypeVar, Callable
     from functools import wraps
@@ -311,8 +364,26 @@
 
     # Type checker knows: greet(name: str, excited: bool = False) -> str
     ```
+  content_concise: |
+    ## ParamSpec (Decorator Typing)
+    - `ParamSpec('P')` captures function signatures
+    - `P.args` and `P.kwargs` for wrapper functions
+    - `Concatenate[T, P]` for decorators that add parameters
+    - Essential for type-safe decorators in Python 3.10+
+
+- id: "language/python/typing/paramspec/concatenate-for-adding-parameters"
+  category: "language"
+  subcategory: "python"
+  priority: 83
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  depends_on: ["language/python/typing/generics"]
+  content: |
+    *Part of: PARAMSPEC AND CONCATENATE*
 
     ### Concatenate for Adding Parameters
+
     ```python
     from typing import Concatenate, ParamSpec, TypeVar, Callable
 
@@ -336,7 +407,19 @@
     # The 'conn' parameter is handled by decorator
     ```
 
+- id: "language/python/typing/paramspec/common-decorator-patterns"
+  category: "language"
+  subcategory: "python"
+  priority: 83
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  depends_on: ["language/python/typing/generics"]
+  content: |
+    *Part of: PARAMSPEC AND CONCATENATE*
+
     ### Common Decorator Patterns
+
     ```python
     # Retry decorator
     def retry(
@@ -365,13 +448,6 @@
         return wrapper
     ```
 
-  content_concise: |
-    ## ParamSpec (Decorator Typing)
-    - `ParamSpec('P')` captures function signatures
-    - `P.args` and `P.kwargs` for wrapper functions
-    - `Concatenate[T, P]` for decorators that add parameters
-    - Essential for type-safe decorators in Python 3.10+
-
 - id: "language/python/typing/narrowing"
   category: "language"
   subcategory: "python"
@@ -384,6 +460,7 @@
     ## TYPE NARROWING
 
     ### isinstance Narrowing
+
     ```python
     from typing import Union
 
@@ -400,6 +477,7 @@
     ```
 
     ### TypeGuard for Custom Narrowing (Python 3.10+)
+
     ```python
     from typing import TypeGuard
 
@@ -411,8 +489,27 @@
             # Type checker knows: items is list[str] here
             print(items[0].upper())
     ```
+  content_concise: |
+    ## Type Narrowing
+    - `isinstance()` automatically narrows types
+    - `TypeGuard` for custom type predicates (3.10+)
+    - `TypeIs` for two-way narrowing (3.13+)
+    - `assert` narrows subsequent code
+    - `cast()` is escape hatch - no runtime check
+
+- id: "language/python/typing/narrowing/typeis-for-precise-narrowing-python-3-13"
+  category: "language"
+  subcategory: "python"
+  priority: 82
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  depends_on: ["language/python/typing/fundamentals"]
+  content: |
+    *Part of: TYPE NARROWING*
 
     ### TypeIs for Precise Narrowing (Python 3.13+)
+
     ```python
     from typing import TypeIs
 
@@ -433,6 +530,7 @@
     ```
 
     ### assert Narrowing
+
     ```python
     def process(value: str | None) -> str:
         assert value is not None
@@ -443,7 +541,19 @@
     # Use for internal invariants, not runtime validation
     ```
 
+- id: "language/python/typing/narrowing/typing-cast-escape-hatch"
+  category: "language"
+  subcategory: "python"
+  priority: 82
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  depends_on: ["language/python/typing/fundamentals"]
+  content: |
+    *Part of: TYPE NARROWING*
+
     ### typing.cast (Escape Hatch)
+
     ```python
     from typing import cast
 
@@ -455,11 +565,3 @@
     # Use only when type checker can't infer correctly
     # Prefer isinstance/TypeGuard for actual validation
     ```
-
-  content_concise: |
-    ## Type Narrowing
-    - `isinstance()` automatically narrows types
-    - `TypeGuard` for custom type predicates (3.10+)
-    - `TypeIs` for two-way narrowing (3.13+)
-    - `assert` narrows subsequent code
-    - `cast()` is escape hatch - no runtime check

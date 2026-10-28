@@ -10,10 +10,11 @@
   languages: ["/mangle"]
   content: |
     # Mangle Transform Pipelines - Complete Guide
-    
+
     ## Transform Pipeline Architecture
-    
+
     ### Basic Pipeline Structure
+
     ```mangle
     result(GroupVars, AggResults) :-
         source_atoms |>
@@ -22,19 +23,30 @@
         let AggVar1 = fn:aggregate1(),
         let AggVar2 = fn:aggregate2().
     ```
-    
+
     ### Pipeline Keywords
-    
+
     | Keyword | Purpose | Position | Example |
     |---------|---------|----------|---------|
     | `\|>` | Pipeline operator | Infix | `source() \|>` |
     | `do` | Apply transform | Before function | `do fn:group_by(K)` |
     | `let` | Bind aggregation result | Before assignment | `let N = fn:count()` |
     | `fn:` | Function namespace | Prefix | `fn:sum`, `fn:count` |
-    
+
+- id: "language/mangle/docs/transforms_complete/single-stage-aggregation"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipelines - Complete Guide: Single-Stage Aggregation"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipelines - Complete Guide*
+
     ## Single-Stage Aggregation
-    
+
     ### Count
+
     ```mangle
     Decl item(X, Y).
     items_per_category(Cat, N) :-
@@ -42,8 +54,9 @@
         do fn:group_by(Cat),
         let N = fn:count().
     ```
-    
+
     ### Sum
+
     ```mangle
     Decl item(Cat, Value).
     total_by_category(Cat, Total) :-
@@ -51,8 +64,9 @@
         do fn:group_by(Cat),
         let Total = fn:sum(Value).
     ```
-    
+
     ### Min/Max
+
     ```mangle
     Decl item(Cat, Value).
     value_range(Cat, Min, Max) :-
@@ -61,8 +75,9 @@
         let Min = fn:min(Value),
         let Max = fn:max(Value).
     ```
-    
+
     ### Average (Derived)
+
     ```mangle
     average_per_category(Cat, Avg) :-
         item(Cat, Value) |>
@@ -71,10 +86,21 @@
         let Count = fn:count(),
         let Avg = fn:divide(Total, Count).
     ```
-    
+
+- id: "language/mangle/docs/transforms_complete/multi-stage-pipelines"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipelines - Complete Guide: Multi-Stage Pipelines"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipelines - Complete Guide*
+
     ## Multi-Stage Pipelines
-    
+
     ### Filter then Aggregate
+
     ```mangle
     high_value_count(Cat, N) :-
         item(Cat, Value) |>
@@ -82,8 +108,9 @@
         do fn:group_by(Cat),
         let N = fn:count().
     ```
-    
+
     ### Transform then Aggregate
+
     ```mangle
     normalized_total(Cat, Total) :-
         item(Cat, RawValue) |>
@@ -91,8 +118,9 @@
         do fn:group_by(Cat),
         let Total = fn:sum(NormalizedValue).
     ```
-    
+
     ### Multiple Filters
+
     ```mangle
     filtered_count(Cat, N) :-
         item(Cat, Value, Status) |>
@@ -101,8 +129,9 @@
         do fn:group_by(Cat),
         let N = fn:count().
     ```
-    
+
     ### Complex Multi-Stage
+
     ```mangle
     complex_stats(Region, Product, Count, Revenue, Avg) :-
         sale(Region, Product, Amount) |>
@@ -112,10 +141,21 @@
         let Revenue = fn:sum(Amount) |>
         let Avg = fn:divide(Revenue, Count).
     ```
-    
+
+- id: "language/mangle/docs/transforms_complete/grouping-patterns"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipelines - Complete Guide: Grouping Patterns"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipelines - Complete Guide*
+
     ## Grouping Patterns
-    
+
     ### Single Variable Grouping
+
     ```mangle
     Decl file(X, Y).
     count_by_lang(Lang, N) :-
@@ -123,8 +163,9 @@
         do fn:group_by(Lang),
         let N = fn:count().
     ```
-    
+
     ### Multi-Variable Grouping
+
     ```mangle
     Decl sale(Region, Product, Amount).
     sales_summary(Region, Product, Count, Revenue) :-
@@ -133,8 +174,9 @@
         let Count = fn:count(),
         let Revenue = fn:sum(Amount).
     ```
-    
+
     ### Grouping with No Variables (Global Aggregation)
+
     ```mangle
     Decl item(X, Y).
     overall_total(GrandTotal) :-
@@ -142,10 +184,21 @@
         do fn:group_by(),  # No grouping variables = single group
         let GrandTotal = fn:sum(Value).
     ```
-    
+
+- id: "language/mangle/docs/transforms_complete/nested-aggregation"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipelines - Complete Guide: Nested Aggregation"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipelines - Complete Guide*
+
     ## Nested Aggregation
-    
+
     ### Two-Level Aggregation
+
     ```mangle
     # Step 1: Category subtotals
     Decl item(Cat, Value).
@@ -160,8 +213,9 @@
         do fn:group_by(),
         let GrandTotal = fn:sum(Total).
     ```
-    
+
     ### Average of Averages
+
     ```mangle
     # Step 1: Regional averages
     regional_avg(Region, Avg) :-
@@ -170,7 +224,7 @@
         let Total = fn:sum(Amount),
         let Count = fn:count(),
         let Avg = fn:divide(Total, Count).
-    
+
     # Step 2: Overall average of regional averages
     overall_avg(OverallAvg) :-
         regional_avg(_, Avg) |>
@@ -179,10 +233,21 @@
         let RegionCount = fn:count(),
         let OverallAvg = fn:divide(AvgTotal, RegionCount).
     ```
-    
+
+- id: "language/mangle/docs/transforms_complete/conditional-aggregation"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipelines - Complete Guide: Conditional Aggregation"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipelines - Complete Guide*
+
     ## Conditional Aggregation
-    
+
     ### Filter Before Aggregation
+
     ```mangle
     # Only count items > 1000
     high_value_count(Cat, N) :-
@@ -191,28 +256,30 @@
         do fn:group_by(Cat),
         let N = fn:count().
     ```
-    
+
     ### Multiple Conditional Aggregations
+
     ```mangle
     # Separate high and low counts
     category_breakdown(Cat, HighCount, LowCount) :-
         high_value_count(Cat, HighCount),
         low_value_count(Cat, LowCount).
-    
+
     high_value_count(Cat, N) :-
         item(Cat, V) |>
         do fn:filter(fn:gt(V, 1000)),
         do fn:group_by(Cat),
         let N = fn:count().
-    
+
     low_value_count(Cat, N) :-
         item(Cat, V) |>
         do fn:filter(fn:le(V, 1000)),
         do fn:group_by(Cat),
         let N = fn:count().
     ```
-    
+
     ### HAVING Clause Equivalent
+
     ```mangle
     # Categories with > 10 items
     Decl item(X, Y).
@@ -225,10 +292,21 @@
         do fn:group_by(Cat),
         let N = fn:count().
     ```
-    
+
+- id: "language/mangle/docs/transforms_complete/window-functions-simulated"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipelines - Complete Guide: Window Functions (Simulated)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipelines - Complete Guide*
+
     ## Window Functions (Simulated)
-    
+
     ### Running Total
+
     ```mangle
     # Assumes ordered data (e.g., by timestamp)
     Decl item(Item, Timestamp, Value).
@@ -239,8 +317,9 @@
         do fn:group_by(Item, Timestamp),
         let RunningSum = fn:sum(PrevValue).
     ```
-    
+
     ### Rank (Simulated)
+
     ```mangle
     # Count items with higher value
     Decl item(Item, Value).
@@ -252,8 +331,9 @@
         let BetterCount = fn:count(),
         let Rank = fn:plus(BetterCount, 1).
     ```
-    
+
     ### Row Number (Simulated)
+
     ```mangle
     # Assign sequential numbers within group
     Decl item(Group, Item, Timestamp).
@@ -265,31 +345,43 @@
         let PriorCount = fn:count(),
         let RowNum = fn:plus(PriorCount, 1).
     ```
-    
+
+- id: "language/mangle/docs/transforms_complete/advanced-transform-patterns"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipelines - Complete Guide: Advanced Transform Patterns"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipelines - Complete Guide*
+
     ## Advanced Transform Patterns
-    
+
     ### Percentage Calculation
+
     ```mangle
     # Step 1: Category totals
     category_total(Cat, Total) :-
         item(Cat, Value) |>
         do fn:group_by(Cat),
         let Total = fn:sum(Value).
-    
+
     # Step 2: Grand total
     grand_total(GT) :-
         item(_, Value) |>
         do fn:group_by(),
         let GT = fn:sum(Value).
-    
+
     # Step 3: Percentage
     category_percentage(Cat, Pct) :-
         category_total(Cat, CatTotal),
         grand_total(GT) |>
         let Pct = fn:divide(fn:multiply(CatTotal, 100), GT).
     ```
-    
+
     ### Cumulative Distribution
+
     ```mangle
     # Count items at or below value
     cumulative_count(Value, Count) :-
@@ -299,8 +391,9 @@
         do fn:group_by(Value),
         let Count = fn:count().
     ```
-    
+
     ### Moving Average (Fixed Window)
+
     ```mangle
     # 3-item moving average
     moving_avg(Item, Avg) :-
@@ -313,10 +406,21 @@
         let Count = fn:count(),
         let Avg = fn:divide(Total, Count).
     ```
-    
+
+- id: "language/mangle/docs/transforms_complete/aggregation-with-arithmetic"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipelines - Complete Guide: Aggregation with Arithmetic"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipelines - Complete Guide*
+
     ## Aggregation with Arithmetic
-    
+
     ### Weighted Average
+
     ```mangle
     weighted_avg(Category, WeightedAvg) :-
         item(Category, Value, Weight) |>
@@ -325,8 +429,9 @@
         let TotalWeight = fn:sum(Weight),
         let WeightedAvg = fn:divide(WeightedSum, TotalWeight).
     ```
-    
+
     ### Variance Calculation
+
     ```mangle
     # Step 1: Mean
     mean(Cat, Mean) :-
@@ -335,14 +440,14 @@
         let Total = fn:sum(Value),
         let Count = fn:count(),
         let Mean = fn:divide(Total, Count).
-    
+
     # Step 2: Squared deviations
     sq_dev(Cat, Item, SqDev) :-
         item(Cat, Item, Value),
         mean(Cat, Mean),
         Diff = fn:minus(Value, Mean) |>
         let SqDev = fn:multiply(Diff, Diff).
-    
+
     # Step 3: Variance
     variance(Cat, Var) :-
         sq_dev(Cat, _, SqDev) |>
@@ -351,80 +456,106 @@
         let Count = fn:count(),
         let Var = fn:divide(SumSqDev, Count).
     ```
-    
+
+- id: "language/mangle/docs/transforms_complete/common-pipeline-errors"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipelines - Complete Guide: Common Pipeline Errors"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipelines - Complete Guide*
+
     ## Common Pipeline Errors
-    
+
     ### Missing `do` Keyword
+
     ```mangle
     # ❌ WRONG
     result(K, N) :-
         source(K, _) |>
         fn:group_by(K),  # Missing 'do'!
         let N = fn:count().
-    
+
     # ✅ CORRECT
     result(K, N) :-
         source(K, _) |>
         do fn:group_by(K),
         let N = fn:count().
     ```
-    
+
     ### Wrong Function Casing
+
     ```mangle
     # ❌ WRONG - lowercase
     ... let N = fn:count().
     ... let S = fn:sum(X).
-    
+
     # ✅ CORRECT - capital letters
     ... let N = fn:count().
     ... let S = fn:sum(X).
     ```
-    
+
     ### Missing Pipeline Operator
+
     ```mangle
     # ❌ WRONG
     result(K, N) :-
         source(K, _)
         do fn:group_by(K),
         let N = fn:count().
-    
+
     # ✅ CORRECT
     result(K, N) :-
         source(K, _) |>
         do fn:group_by(K),
         let N = fn:count().
     ```
-    
+
     ### Aggregation Without Grouping
+
     ```mangle
     # ❌ WRONG - implicit grouping doesn't work
     total(K, Sum) :- item(K, V), Sum = sum(V).
-    
+
     # ✅ CORRECT - explicit pipeline
     total(K, Sum) :-
         item(K, V) |>
         do fn:group_by(K),
         let Sum = fn:sum(V).
     ```
-    
+
     ### Unbound Grouping Variable
+
     ```mangle
     # ❌ WRONG - Cat not in body
     bad(Cat, N) :-
         item(_, _) |>
         do fn:group_by(Cat),  # Cat unbound!
         let N = fn:count().
-    
+
     # ✅ CORRECT - Cat appears in body
     good(Cat, N) :-
         item(Cat, _) |>
         do fn:group_by(Cat),
         let N = fn:count().
     ```
-    
+
+- id: "language/mangle/docs/transforms_complete/performance-optimization"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipelines - Complete Guide: Performance Optimization"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipelines - Complete Guide*
+
     ## Performance Optimization
-    
+
     ### Filter Early
+
     ```mangle
     # ✅ GOOD - filter before aggregation
     efficient(Cat, N) :-
@@ -432,15 +563,16 @@
         do fn:filter(fn:gt(Value, 1000)) |>  # Filter first
         do fn:group_by(Cat),
         let N = fn:count().
-    
+
     # ❌ BAD - aggregate then filter
     inefficient(Cat, N) :-
         count_all(Cat, Total),
         high_value_count(Cat, N),
         # Did extra work counting all items
     ```
-    
+
     ### Minimize Aggregation Stages
+
     ```mangle
     # ✅ GOOD - single aggregation
     efficient(Cat, Total, Count, Avg) :-
@@ -449,13 +581,13 @@
         let Total = fn:sum(Value),
         let Count = fn:count(),
         let Avg = fn:divide(Total, Count).
-    
+
     # ❌ BAD - three separate aggregations
     inefficient(Cat, Avg) :-
         total(Cat, Total),
         count(Cat, Count),
         Avg = fn:divide(Total, Count).
-    
+
     total(Cat, T) :- item(Cat, V) |> do fn:group_by(Cat), let T = fn:sum(V).
     count(Cat, N) :- item(Cat, _) |> do fn:group_by(Cat), let N = fn:count().
     ```

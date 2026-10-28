@@ -12,6 +12,7 @@
     ## BORROW CHECKER FAILURE MODES (CRITICAL)
 
     ### FAILURE: Returning Reference to Local Data
+
     ```rust
     // WRONG - AI often generates this
     fn get_string() -> &str {
@@ -30,8 +31,25 @@
         buffer
     }
     ```
+  content_concise: |
+    ## Borrow Checker Failures
+    - Never return reference to local variable
+    - Don't modify collection while iterating
+    - Release references before mutating
+    - Self-referential structs impossible in safe Rust
+
+- id: "language/rust/ai_failures/borrow_checker/failure-modifying-while-iterating"
+  category: "language"
+  subcategory: "rust"
+  priority: 100
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    *Part of: BORROW CHECKER FAILURE MODES (CRITICAL)*
 
     ### FAILURE: Modifying While Iterating
+
     ```rust
     // WRONG - Very common AI mistake
     let mut v = vec![1, 2, 3];
@@ -52,7 +70,18 @@
     }
     ```
 
+- id: "language/rust/ai_failures/borrow_checker/failure-holding-references-too-long"
+  category: "language"
+  subcategory: "rust"
+  priority: 100
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    *Part of: BORROW CHECKER FAILURE MODES (CRITICAL)*
+
     ### FAILURE: Holding References Too Long
+
     ```rust
     // WRONG
     let mut data = HashMap::new();
@@ -72,7 +101,18 @@
     data.insert("key2", "value");
     ```
 
+- id: "language/rust/ai_failures/borrow_checker/failure-self-referential-structs"
+  category: "language"
+  subcategory: "rust"
+  priority: 100
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    *Part of: BORROW CHECKER FAILURE MODES (CRITICAL)*
+
     ### FAILURE: Self-Referential Structs
+
     ```rust
     // WRONG - AI tries to create self-referential structs
     struct SelfRef {
@@ -100,13 +140,6 @@
     // 2. Use ouroboros or self_cell crate for advanced cases
     ```
 
-  content_concise: |
-    ## Borrow Checker Failures
-    - Never return reference to local variable
-    - Don't modify collection while iterating
-    - Release references before mutating
-    - Self-referential structs impossible in safe Rust
-
 - id: "language/rust/ai_failures/string_types"
   category: "language"
   subcategory: "rust"
@@ -118,6 +151,7 @@
     ## STRING TYPE CONFUSION (CRITICAL)
 
     ### String vs &str vs &String
+
     | Type | Ownership | Mutability | Size |
     |------|-----------|------------|------|
     | String | Owned | Mutable | Dynamic (heap) |
@@ -125,6 +159,7 @@
     | &String | Borrowed | Immutable | Via Deref to &str |
 
     ### FAILURE: Wrong Parameter Type
+
     ```rust
     // WRONG - Overly restrictive
     fn process(s: &String) { }
@@ -138,8 +173,25 @@
     process(&my_string);  // Works
     process("literal");    // Also works
     ```
+  content_concise: |
+    ## String Confusion
+    - Use `&str` for parameters, not `&String`
+    - `String::from()` or `to_owned()` for &str → String
+    - `.len()` is bytes, `.chars().count()` is characters
+    - Cannot index strings directly (use `.chars()`)
+
+- id: "language/rust/ai_failures/string_types/failure-unnecessary-allocation"
+  category: "language"
+  subcategory: "rust"
+  priority: 95
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    *Part of: STRING TYPE CONFUSION (CRITICAL)*
 
     ### FAILURE: Unnecessary Allocation
+
     ```rust
     // WRONG - AI allocates when not needed
     fn greet(name: &str) {
@@ -159,6 +211,7 @@
     ```
 
     ### FAILURE: to_string() vs to_owned() Confusion
+
     ```rust
     let s: &str = "hello";
 
@@ -171,7 +224,18 @@
     // For &str -> String, prefer String::from() or to_owned()
     ```
 
+- id: "language/rust/ai_failures/string_types/failure-bytes-vs-characters"
+  category: "language"
+  subcategory: "rust"
+  priority: 95
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    *Part of: STRING TYPE CONFUSION (CRITICAL)*
+
     ### FAILURE: Bytes vs Characters
+
     ```rust
     let s = "héllo";
 
@@ -187,13 +251,6 @@
     s.chars().count() // 5 characters
     ```
 
-  content_concise: |
-    ## String Confusion
-    - Use `&str` for parameters, not `&String`
-    - `String::from()` or `to_owned()` for &str → String
-    - `.len()` is bytes, `.chars().count()` is characters
-    - Cannot index strings directly (use `.chars()`)
-
 - id: "language/rust/ai_failures/smart_pointers"
   category: "language"
   subcategory: "rust"
@@ -205,6 +262,7 @@
     ## SMART POINTER CONFUSION (CRITICAL)
 
     ### FAILURE: Using Rc When Arc Needed
+
     ```rust
     // WRONG - Rc in multi-threaded code
     use std::rc::Rc;
@@ -223,6 +281,7 @@
     ```
 
     ### FAILURE: Missing Mutex with Arc
+
     ```rust
     // WRONG - Arc alone doesn't allow mutation
     let counter = Arc::new(0);
@@ -238,8 +297,25 @@
         *c.lock().unwrap() += 1;
     });
     ```
+  content_concise: |
+    ## Smart Pointer Confusion
+    - `Rc` for single-threaded, `Arc` for multi-threaded
+    - `Arc` alone can't mutate - need `Arc<Mutex<T>>`
+    - `RefCell` NOT thread-safe - use `Mutex`
+    - `Box` for recursion, large data, trait objects
+
+- id: "language/rust/ai_failures/smart_pointers/failure-box-overuse"
+  category: "language"
+  subcategory: "rust"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    *Part of: SMART POINTER CONFUSION (CRITICAL)*
 
     ### FAILURE: Box Overuse
+
     ```rust
     // WRONG - Unnecessary boxing
     fn process(data: Box<Vec<i32>>) { }
@@ -262,6 +338,7 @@
     ```
 
     ### FAILURE: RefCell in Multi-Threaded Code
+
     ```rust
     // WRONG - RefCell is NOT thread-safe
     use std::cell::RefCell;
@@ -272,7 +349,18 @@
     let data = Arc::new(Mutex::new(vec![]));
     ```
 
+- id: "language/rust/ai_failures/smart_pointers/when-to-use-each"
+  category: "language"
+  subcategory: "rust"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    *Part of: SMART POINTER CONFUSION (CRITICAL)*
+
     ### When to Use Each
+
     | Pointer | Thread-Safe | Interior Mutability | Use Case |
     |---------|-------------|---------------------|----------|
     | Box<T> | YES | NO | Heap allocation, recursive types |
@@ -280,13 +368,6 @@
     | Arc<T> | YES | NO | Multi-threaded shared ownership |
     | RefCell<T> | NO | YES | Single-threaded mutation |
     | Mutex<T> | YES | YES | Multi-threaded mutation |
-
-  content_concise: |
-    ## Smart Pointer Confusion
-    - `Rc` for single-threaded, `Arc` for multi-threaded
-    - `Arc` alone can't mutate - need `Arc<Mutex<T>>`
-    - `RefCell` NOT thread-safe - use `Mutex`
-    - `Box` for recursion, large data, trait objects
 
 - id: "language/rust/ai_failures/lifetimes"
   category: "language"
@@ -299,6 +380,7 @@
     ## LIFETIME ANNOTATION MISTAKES (CRITICAL)
 
     ### FAILURE: Overly Restrictive Lifetimes
+
     ```rust
     // WRONG - Ties return to both inputs unnecessarily
     fn first<'a>(x: &'a str, y: &'a str) -> &'a str {
@@ -312,6 +394,7 @@
     ```
 
     ### FAILURE: Lifetime on Struct That Owns Data
+
     ```rust
     // WRONG - Struct owns the string, why lifetime?
     struct Person<'a> {
@@ -328,8 +411,25 @@
         name: &'a str,  // Borrows from existing data
     }
     ```
+  content_concise: |
+    ## Lifetime Mistakes
+    - Only tie output lifetime to inputs actually returned
+    - Owned data (String) doesn't need lifetime
+    - Know elision rules - don't over-annotate
+    - `'static` only when truly needed (threads, globals)
+
+- id: "language/rust/ai_failures/lifetimes/failure-missing-lifetime-in-impl"
+  category: "language"
+  subcategory: "rust"
+  priority: 95
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    *Part of: LIFETIME ANNOTATION MISTAKES (CRITICAL)*
 
     ### FAILURE: Missing Lifetime in Impl
+
     ```rust
     // WRONG
     struct Holder<'a> {
@@ -351,6 +451,7 @@
     ```
 
     ### FAILURE: Unnecessary 'static
+
     ```rust
     // WRONG - Overly restrictive
     fn process(callback: Box<dyn Fn() + 'static>) { }
@@ -364,7 +465,18 @@
     fn process<'a>(callback: Box<dyn Fn() + 'a>) { }
     ```
 
+- id: "language/rust/ai_failures/lifetimes/failure-forgetting-elision-rules"
+  category: "language"
+  subcategory: "rust"
+  priority: 95
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    *Part of: LIFETIME ANNOTATION MISTAKES (CRITICAL)*
+
     ### FAILURE: Forgetting Elision Rules
+
     ```rust
     // AI often adds lifetimes when compiler would infer them
 
@@ -380,13 +492,6 @@
     // 3. If &self/&mut self, output gets that lifetime
     ```
 
-  content_concise: |
-    ## Lifetime Mistakes
-    - Only tie output lifetime to inputs actually returned
-    - Owned data (String) doesn't need lifetime
-    - Know elision rules - don't over-annotate
-    - `'static` only when truly needed (threads, globals)
-
 - id: "language/rust/ai_failures/move_copy"
   category: "language"
   subcategory: "rust"
@@ -398,6 +503,7 @@
     ## MOVE VS COPY CONFUSION (CRITICAL)
 
     ### FAILURE: Using Moved Value
+
     ```rust
     // WRONG - Very common AI error
     let s = String::from("hello");
@@ -417,6 +523,7 @@
     ```
 
     ### FAILURE: Assuming Copy Trait
+
     ```rust
     // WRONG - Vec doesn't implement Copy
     let v = vec![1, 2, 3];
@@ -431,8 +538,25 @@
     // Copy types: integers, floats, bool, char, tuples of Copy types
     // NOT Copy: String, Vec, Box, any heap-allocated type
     ```
+  content_concise: |
+    ## Move/Copy Confusion
+    - Assignment moves non-Copy types (String, Vec, etc.)
+    - Use `.clone()` if you need both values
+    - `move` keyword transfers ownership into closures
+    - Threads require `move` - data may outlive caller
+
+- id: "language/rust/ai_failures/move_copy/failure-move-in-loop"
+  category: "language"
+  subcategory: "rust"
+  priority: 92
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    *Part of: MOVE VS COPY CONFUSION (CRITICAL)*
 
     ### FAILURE: Move in Loop
+
     ```rust
     // WRONG
     let s = String::from("hello");
@@ -452,7 +576,18 @@
     }
     ```
 
+- id: "language/rust/ai_failures/move_copy/failure-closure-move-semantics"
+  category: "language"
+  subcategory: "rust"
+  priority: 92
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    *Part of: MOVE VS COPY CONFUSION (CRITICAL)*
+
     ### FAILURE: Closure Move Semantics
+
     ```rust
     // WRONG - Closure captures by reference by default
     let s = String::from("hello");
@@ -476,13 +611,6 @@
     println!("{:?}", data);  // OK
     ```
 
-  content_concise: |
-    ## Move/Copy Confusion
-    - Assignment moves non-Copy types (String, Vec, etc.)
-    - Use `.clone()` if you need both values
-    - `move` keyword transfers ownership into closures
-    - Threads require `move` - data may outlive caller
-
 - id: "language/rust/ai_failures/pattern_matching"
   category: "language"
   subcategory: "rust"
@@ -494,6 +622,7 @@
     ## PATTERN MATCHING MISTAKES
 
     ### FAILURE: Non-Exhaustive Match
+
     ```rust
     // WRONG - Missing variant
     enum Color { Red, Green, Blue }
@@ -517,8 +646,25 @@
         _ => println!("other"),
     }
     ```
+  content_concise: |
+    ## Pattern Matching Mistakes
+    - `match` must be exhaustive - cover all variants
+    - Use `&opt` or `opt.as_ref()` to avoid moving
+    - Prefer `if let` for single-pattern matches
+    - Use guards: `x if x > 0 => ...`
+
+- id: "language/rust/ai_failures/pattern_matching/failure-ownership-in-patterns"
+  category: "language"
+  subcategory: "rust"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    *Part of: PATTERN MATCHING MISTAKES*
 
     ### FAILURE: Ownership in Patterns
+
     ```rust
     // WRONG - Takes ownership when matching
     let opt = Some(String::from("hello"));
@@ -544,6 +690,7 @@
     ```
 
     ### FAILURE: if let vs match
+
     ```rust
     // AI sometimes uses match when if let is cleaner
 
@@ -566,7 +713,18 @@
     }
     ```
 
+- id: "language/rust/ai_failures/pattern_matching/failure-missing-pattern-guards"
+  category: "language"
+  subcategory: "rust"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    *Part of: PATTERN MATCHING MISTAKES*
+
     ### FAILURE: Missing Pattern Guards
+
     ```rust
     // WRONG - AI forgets guards exist
     match value {
@@ -584,13 +742,6 @@
     }
     ```
 
-  content_concise: |
-    ## Pattern Matching Mistakes
-    - `match` must be exhaustive - cover all variants
-    - Use `&opt` or `opt.as_ref()` to avoid moving
-    - Prefer `if let` for single-pattern matches
-    - Use guards: `x if x > 0 => ...`
-
 - id: "language/rust/ai_failures/traits"
   category: "language"
   subcategory: "rust"
@@ -602,6 +753,7 @@
     ## TRAIT MISTAKES
 
     ### FAILURE: Orphan Rule Violation
+
     ```rust
     // WRONG - Cannot implement foreign trait for foreign type
     impl std::fmt::Display for Vec<i32> {
@@ -617,8 +769,25 @@
         }
     }
     ```
+  content_concise: |
+    ## Trait Mistakes
+    - Orphan rule: can't impl foreign trait for foreign type
+    - `impl Trait`: one type, static dispatch
+    - `dyn Trait`: multiple types, dynamic dispatch, needs Box
+    - Object safety: no generics, no Self return, need &self
+
+- id: "language/rust/ai_failures/traits/failure-dyn-trait-vs-impl-trait-confusion"
+  category: "language"
+  subcategory: "rust"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    *Part of: TRAIT MISTAKES*
 
     ### FAILURE: dyn Trait vs impl Trait Confusion
+
     ```rust
     // impl Trait - static dispatch, ONE concrete type
     fn returns_closure() -> impl Fn(i32) -> i32 {
@@ -644,7 +813,18 @@
     }
     ```
 
+- id: "language/rust/ai_failures/traits/failure-missing-trait-bounds"
+  category: "language"
+  subcategory: "rust"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    *Part of: TRAIT MISTAKES*
+
     ### FAILURE: Missing Trait Bounds
+
     ```rust
     // WRONG - Missing Debug bound
     fn print_debug<T>(item: T) {
@@ -666,6 +846,7 @@
     ```
 
     ### FAILURE: Trait Object Safety
+
     ```rust
     // NOT object-safe (can't use as dyn Trait)
     trait NotObjectSafe {
@@ -683,13 +864,6 @@
     let obj: &dyn ObjectSafe = &my_impl;  // OK
     ```
 
-  content_concise: |
-    ## Trait Mistakes
-    - Orphan rule: can't impl foreign trait for foreign type
-    - `impl Trait`: one type, static dispatch
-    - `dyn Trait`: multiple types, dynamic dispatch, needs Box
-    - Object safety: no generics, no Self return, need &self
-
 - id: "language/rust/ai_failures/async"
   category: "language"
   subcategory: "rust"
@@ -701,6 +875,7 @@
     ## ASYNC/AWAIT MISTAKES
 
     ### FAILURE: Blocking in Async Context
+
     ```rust
     // WRONG - Blocks the async executor
     async fn bad() {
@@ -721,8 +896,26 @@
         }).await.unwrap();
     }
     ```
+  content_concise: |
+    ## Async Mistakes
+    - Never use `std::thread::sleep` or blocking IO in async
+    - Don't hold locks across `.await`
+    - Don't forget `.await` - futures are lazy
+    - Use `Arc` not `Rc` for spawned tasks (Send bound)
+    - Need runtime (`#[tokio::main]`) for async
+
+- id: "language/rust/ai_failures/async/failure-holding-locks-across-await"
+  category: "language"
+  subcategory: "rust"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    *Part of: ASYNC/AWAIT MISTAKES*
 
     ### FAILURE: Holding Locks Across Await
+
     ```rust
     // WRONG - Lock held across await point
     async fn bad(mutex: &tokio::sync::Mutex<Vec<i32>>) {
@@ -748,6 +941,7 @@
     ```
 
     ### FAILURE: Forgetting .await
+
     ```rust
     // WRONG - Future never executed
     async fn fetch() -> String { "data".into() }
@@ -763,7 +957,18 @@
     }
     ```
 
+- id: "language/rust/ai_failures/async/failure-send-bounds-in-async"
+  category: "language"
+  subcategory: "rust"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    *Part of: ASYNC/AWAIT MISTAKES*
+
     ### FAILURE: Send Bounds in Async
+
     ```rust
     // WRONG - Rc is not Send
     async fn bad() {
@@ -783,6 +988,7 @@
     ```
 
     ### FAILURE: Missing Runtime
+
     ```rust
     // WRONG - No runtime
     fn main() {
@@ -801,12 +1007,3 @@
         rt.block_on(async_function());
     }
     ```
-
-  content_concise: |
-    ## Async Mistakes
-    - Never use `std::thread::sleep` or blocking IO in async
-    - Don't hold locks across `.await`
-    - Don't forget `.await` - futures are lazy
-    - Use `Arc` not `Rc` for spawned tasks (Send bound)
-    - Need runtime (`#[tokio::main]`) for async
-

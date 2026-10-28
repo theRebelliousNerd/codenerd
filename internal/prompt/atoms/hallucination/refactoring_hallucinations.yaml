@@ -44,6 +44,15 @@
     - Performance changes are behavior changes
     - Returning reference vs copy is semantically different
 
+- id: "hallucination/refactoring/behavior_changes/validation-and-edge-cases"
+  category: "hallucination"
+  subcategory: "refactoring"
+  priority: 100
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    ## CRITICAL: REFACTORING IS NOT REWRITING (continued)
+
     ### HALLUCINATION: Adding "Missing" Validation
     ```
     // WRONG: Adding validation is adding behavior
@@ -278,6 +287,7 @@
     ## HALLUCINATION: INAPPROPRIATE TEST CHANGES
 
     ### Tests Verify Behavior, Not Structure
+
     ```
     // WRONG: Changing test assertions during refactoring
     // Original test
@@ -295,7 +305,17 @@
     ```
     If the test needs to change, the behavior changed - that's not refactoring.
 
+- id: "hallucination/refactoring/test_changes/when-test-changes-are-acceptable"
+  category: "hallucination"
+  subcategory: "refactoring"
+  priority: 96
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    *Part of: HALLUCINATION: INAPPROPRIATE TEST CHANGES*
+
     ### When Test Changes ARE Acceptable
+
     1. **Test structure mirrors code structure** (rename, move)
     ```
     // Code: Renamed ProcessOrder to HandleOrder
@@ -319,10 +339,12 @@
     ```
 
     ### RED FLAG: Test Changes to Make Them Pass
+
     If you're changing test assertions to make tests pass after refactoring,
     you changed behavior. Stop and reconsider.
 
     ### The Refactoring Test Invariant
+
     Before refactoring: Tests pass
     After refactoring: SAME tests pass
     Exception: Structural tests (method names) may update
@@ -337,12 +359,14 @@
     ## HALLUCINATION: VIOLATING CHESTERTON'S FENCE
 
     ### The Principle
+
     "Don't remove a fence until you understand why it was put there."
     - G.K. Chesterton
 
     Applied to code: Don't remove/change code you don't understand.
 
     ### HALLUCINATION: "Dead Code" That Isn't
+
     ```
     // WRONG assumption
     // "This function is never called, deleting it"
@@ -354,6 +378,7 @@
     ```
 
     ### HALLUCINATION: "Unnecessary" Complexity
+
     ```
     // WRONG assumption
     // "This nil check is unnecessary, simplifying"
@@ -366,7 +391,17 @@
     }
     ```
 
+- id: "hallucination/refactoring/chesterton_fence/hallucination-unused-parameters"
+  category: "hallucination"
+  subcategory: "refactoring"
+  priority: 95
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    *Part of: HALLUCINATION: VIOLATING CHESTERTON'S FENCE*
+
     ### HALLUCINATION: "Unused" Parameters
+
     ```
     // WRONG assumption
     // "ctx is never used, removing"
@@ -383,6 +418,7 @@
     ```
 
     ### The Investigation Protocol
+
     Before removing "unnecessary" code:
     1. Search for all references (including reflection, strings)
     2. Check git blame for why it was added
@@ -391,6 +427,7 @@
     5. Ask if unsure (propose removal, don't execute)
 
     ### Safe vs Unsafe Removals
+
     **Safe to remove:**
     - Code in `if false { }` blocks
     - Commented-out code (git has history)
@@ -412,6 +449,7 @@
     ## HALLUCINATION: TIMING AND ORDERING CHANGES
 
     ### Initialization Order
+
     ```
     // NOT equivalent
     // Before
@@ -426,6 +464,7 @@
     ```
 
     ### Deferred Execution Order
+
     ```
     // Go defers execute LIFO
     func Process() {
@@ -444,6 +483,7 @@
     ```
 
     ### Goroutine/Thread Creation
+
     ```
     // NOT equivalent
     // Before: Sequential
@@ -456,7 +496,17 @@
     // Now order is non-deterministic!
     ```
 
+- id: "hallucination/refactoring/timing_semantics/mutex-lock-scope"
+  category: "hallucination"
+  subcategory: "refactoring"
+  priority: 94
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    *Part of: HALLUCINATION: TIMING AND ORDERING CHANGES*
+
     ### Mutex/Lock Scope
+
     ```
     // DIFFERENT behavior
     // Before
@@ -473,6 +523,7 @@
     ```
 
     ### Channel Operations
+
     ```
     // NOT equivalent
     // Before: Buffered
@@ -483,6 +534,7 @@
     ```
 
     ### The Timing Principle
+
     If code involves:
     - Concurrency (goroutines, threads)
     - Synchronization (mutexes, channels)

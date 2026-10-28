@@ -10,58 +10,78 @@
   languages: ["/mangle"]
   content: |
     # Mangle Analysis: Stratification
-    
+
     ## What is Stratification?
-    
+
     Stratification is the process of separating predicates into **layers (strata)** such that:
-    
+
     1. Each layer only depends on **lower layers**
     2. Negation only references **strictly lower layers**
     3. Recursion within a layer is **positive only** (no negation)
-    
+
     This enables safe evaluation of programs with negation.
-    
+
     ## Why Stratification Matters
-    
+
     Pure Datalog has no negation - everything is monotonic (adding facts).
-    
+
     With negation, we face a problem:
     ```mangle
     # What does this mean?
     p(X) :- !q(X).
     q(X) :- !p(X).
     ```
-    
+
     If `p` is true, then `q` must be false (from second rule), which makes `p` false (from first rule), contradiction!
-    
+
     Stratification prevents such circular dependencies through negation.
-    
+
+- id: "language/mangle/docs/analysis/stratification/stratify-function"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Analysis: Stratification: Stratify Function"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Analysis: Stratification*
+
     ## Stratify Function
-    
+
     The `analysis.Stratify` function checks whether a program can be stratified.
-    
+
     ### Returns
-    
+
     On **success**:
     - List of **strongly-connected components** (SCCs)
     - Map from **predicate to stratum number**
     - Strata are **topologically sorted**
-    
+
     On **failure**:
     - Returns an **error** indicating why stratification failed
-    
+
     ### What It Checks
-    
+
     1. **Dependency graph** - Which predicates depend on which others
     2. **Negative edges** - Which dependencies go through negation
     3. **Cycles** - Are there cycles involving negation?
-    
+
     If a cycle passes through negation → **STRATIFICATION FAILS**
-    
+
+- id: "language/mangle/docs/analysis/stratification/valid-stratification-examples"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Analysis: Stratification: Valid Stratification Examples"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Analysis: Stratification*
+
     ## Valid Stratification Examples
-    
+
     ### Example 1: Two Strata
-    
+
     ```mangle
     # Stratum 0 (base facts)
     Decl person(X).
@@ -79,14 +99,14 @@
         !ancestor(X, Y),
         !ancestor(Y, X).
     ```
-    
+
     **Why this works**:
     - `ancestor` is computed to fixpoint first (stratum 1)
     - `unrelated` uses negation of `ancestor` (stratum 2)
     - No cycle through negation
-    
+
     ### Example 2: Sequential Computation
-    
+
     ```mangle
     # Stratum 0
     Decl edge(X, Y).
@@ -97,25 +117,35 @@
     # Stratum 1
     unreachable(X, Y) :- node(X), node(Y), !reachable(X, Y).
     ```
-    
+
     Evaluation order:
     1. Compute all `reachable` facts (fixpoint)
     2. Then compute `unreachable` using negation
-    
+
+- id: "language/mangle/docs/analysis/stratification/invalid-stratification-examples"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Analysis: Stratification: Invalid Stratification Examples"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Analysis: Stratification*
+
     ## Invalid Stratification Examples
-    
+
     ### Example 1: Cycle Through Negation
-    
+
     ```mangle
     # INVALID - cannot stratify
     p(X) :- !q(X).
     q(X) :- !p(X).
     ```
-    
+
     **Why it fails**: `p` depends on negation of `q`, and `q` depends on negation of `p`. This is a cycle through negation.
-    
+
     ### Example 2: Self-Negation in Recursion
-    
+
     ```mangle
     # INVALID - cannot stratify
     reachable(X, Y) :- edge(X, Y).
@@ -124,45 +154,55 @@
         edge(Y, Z),
         !reachable(X, Z).  # Negates itself!
     ```
-    
+
     **Why it fails**: `reachable` depends on its own negation. Cannot compute to fixpoint.
-    
+
     ### Example 3: Indirect Cycle
-    
+
     ```mangle
     # INVALID - cannot stratify
     a(X) :- b(X), !c(X).
     b(X) :- c(X).
     c(X) :- a(X).
     ```
-    
+
     **Why it fails**: `a` → (negates) `c` → `a`, forming a cycle.
-    
+
+- id: "language/mangle/docs/analysis/stratification/stratification-rules"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Analysis: Stratification: Stratification Rules"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Analysis: Stratification*
+
     ## Stratification Rules
-    
+
     ### Rule 1: No Recursion Through Negation
-    
+
     **CRITICAL**: Negation cannot be part of predicate definitions that recursively depend on each other.
-    
+
     ```mangle
     # INVALID
     ancestor(X, Y) :- parent(X, Y).
     ancestor(X, Z) :- ancestor(X, Y), !ancestor(Y, Z).  # BAD
     ```
-    
+
     ### Rule 2: Positive Recursion is Fine
-    
+
     Within a single stratum, positive recursion is allowed:
-    
+
     ```mangle
     # VALID - positive recursion in same stratum
     Decl parent(X, Y).
     ancestor(X, Y) :- parent(X, Y).
     ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
     ```
-    
+
     ### Rule 3: Negation Only References Lower Strata
-    
+
     ```mangle
     # Stratum 0
     Decl data(X).
@@ -172,20 +212,30 @@
     # Stratum 1 - can negate stratum 0
     derived(X) :- candidate(X), !base(X).
     ```
-    
+
+- id: "language/mangle/docs/analysis/stratification/stratified-evaluation-process"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Analysis: Stratification: Stratified Evaluation Process"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Analysis: Stratification*
+
     ## Stratified Evaluation Process
-    
+
     Once stratification succeeds, evaluation proceeds:
-    
+
     1. **Sort strata topologically** - Lower strata first
     2. **For each stratum**:
        - Treat all lower strata as **extensional** (fixed facts)
        - Compute stratum to **fixpoint** using semi-naive evaluation
        - Derived facts become **fixed** for next stratum
     3. **Continue** until all strata are evaluated
-    
+
     ### Example Evaluation
-    
+
     ```mangle
     # Stratum 0
     Decl node(X).
@@ -199,31 +249,41 @@
     # Stratum 2
     no_path(X, Y) :- node(X), node(Y), !path(X, Y).
     ```
-    
+
     **Evaluation steps**:
     1. Load `edge` facts (extensional)
     2. Compute `path` to fixpoint → `path(/a,/b)`, `path(/b,/c)`, `path(/a,/c)`
     3. Treat `path` as fixed, compute `no_path`
-    
+
+- id: "language/mangle/docs/analysis/stratification/semipositive-datalog"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Analysis: Stratification: Semipositive Datalog"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Analysis: Stratification*
+
     ## Semipositive Datalog
-    
+
     Programs that stratify are called **semipositive Datalog**:
-    
+
     - **Semipositive** = negation applies only to extensional relations (in lower strata)
     - **Positive** within each stratum (recursion without negation)
-    
+
     These programs can be safely composed sequentially.
-    
+
     ## Strongly-Connected Components (SCCs)
-    
+
     The `Stratify` function returns SCCs, which are:
-    
+
     - Sets of predicates that **mutually depend** on each other
     - Within an SCC, all predicates are in the **same stratum**
     - SCCs are **topologically sorted** by dependency
-    
+
     ### Example SCC Analysis
-    
+
     ```mangle
     Decl parent(X, Y).
     ancestor(X, Y) :- parent(X, Y).
@@ -231,16 +291,26 @@
 
     descendant(X, Y) :- ancestor(Y, X).
     ```
-    
+
     **SCCs**:
     - SCC 1: `{ancestor}` - recursive
     - SCC 2: `{descendant}` - depends on SCC 1
-    
+
+- id: "language/mangle/docs/analysis/stratification/checking-stratification-in-go"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Analysis: Stratification: Checking Stratification in Go"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Analysis: Stratification*
+
     ## Checking Stratification in Go
-    
+
     ```go
     import "github.com/google/mangle/analysis"
-    
+
     // Check if program can be stratified
     strata, predToStratum, err := analysis.Stratify(program)
     if err != nil {
@@ -248,63 +318,83 @@
         // Program uses negation incorrectly
         return
     }
-    
+
     // Use stratified evaluation
     for i, stratum := range strata {
         log.Printf("Stratum %d: %v", i, stratum)
     }
     ```
-    
+
+- id: "language/mangle/docs/analysis/stratification/debugging-stratification-failures"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Analysis: Stratification: Debugging Stratification Failures"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Analysis: Stratification*
+
     ## Debugging Stratification Failures
-    
+
     If stratification fails:
-    
+
     1. **Identify the cycle** - Which predicates form the cycle?
     2. **Find negations** - Which rules use negation?
     3. **Break the cycle**:
        - Remove negation, OR
        - Restructure rules to eliminate circular dependency
     4. **Verify** - Run `Stratify` again
-    
+
     ### Common Fixes
-    
+
     **Problem**: Self-negation in recursive rule
-    
+
     ```mangle
     # INVALID
     reachable(X, Y) :- edge(X, Y), !reachable(X, Y).
     ```
-    
+
     **Fix**: Remove the negation (it makes no logical sense anyway)
-    
+
     ```mangle
     # VALID
     Decl edge(X, Y).
     reachable(X, Y) :- edge(X, Y).
     ```
-    
+
     **Problem**: Mutual negation
-    
+
     ```mangle
     # INVALID
     a(X) :- !b(X).
     b(X) :- !a(X).
     ```
-    
+
     **Fix**: Redesign logic - this is likely a modeling error.
-    
+
+- id: "language/mangle/docs/analysis/stratification/stratification-and-termination"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Analysis: Stratification: Stratification and Termination"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Analysis: Stratification*
+
     ## Stratification and Termination
-    
+
     Stratification does NOT affect termination:
-    
+
     - Each stratum must **terminate independently**
     - Negation is only a **lookup** (doesn't add facts)
     - If all strata terminate, the whole program terminates
-    
+
     If stratification succeeds, termination depends only on the **positive rules** in each stratum.
-    
+
     ## Best Practices
-    
+
     1. **Design in layers** - Think about dependency order upfront
     2. **Negation last** - Compute positive facts first, then negate
     3. **Test stratification** - Run `Stratify` during development

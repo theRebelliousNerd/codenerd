@@ -19,18 +19,32 @@
     // V. FRAMEWORK SPECIFIC HEURISTICS (Go Ecosystem)
     // =============================================================================
 
+- id: "campaign/librarian/edge_cases/gin-web-framework"
+  category: "campaign"
+  subcategory: "librarian"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["librarian"]
+  campaign_phases: ["taxonomy"]
+  operational_modes: ["classification"]
+  description: "Edge case handbook and framework-specific heuristics for Gin, Echo, GORM, Cobra, middleware, utils, and config structs: GIN WEB FRAMEWORK"
+  content: |
     ### GIN WEB FRAMEWORK
+
     - 'gin.Context' usage is a distinct marker for **/transport**.
     - 'gin.H{}' return values -> **/transport**.
 
     ### ECHO FRAMEWORK
+
     - 'echo.Context' -> **/transport**.
 
     ### GORM (ORM)
+
     - Structs embedded with 'gorm.Model' -> We might be tempted to call them "Domain", but strictly speaking, they are coupled to persistence.
     - If the project clearly uses "Anemic Domain Model" (structs with DB tags used everywhere), classify these as **/data_layer** if they contain heavy ORM configs, or **/domain_core** if they are simple POJOs that happen to have tags.
     - Prefer **/data_layer** if they are adjacent to migration scripts.
 
     ### COBRA (CLI)
+
     - 'cobra.Command' -> **/transport** (Command Line Interface is a transport).
     - 'cmd/root.go' -> **/transport** or **/integration**.

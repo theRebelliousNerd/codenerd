@@ -110,8 +110,26 @@
       }
     }
     ```
+  content_concise: |
+    ## Type Narrowing
+    - `typeof`: primitives only (string, number, boolean, etc.)
+    - `instanceof`: class instances only
+    - `in`: property existence
+    - User-defined guards: `(value: unknown): value is T`
+    - CRITICAL: Use type guards with `.filter()` to narrow arrays
+
+- id: "language/typescript/types/narrowing/user-defined-type-guards-critical-pattern"
+  category: "language"
+  subcategory: "typescript"
+  priority: 89
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    *Part of: TYPE NARROWING AND GUARDS*
 
     ### User-Defined Type Guards (CRITICAL PATTERN)
+
     ```typescript
     // Return type is `value is Type` - this makes it a type guard
     function isString(value: unknown): value is string {
@@ -133,14 +151,6 @@
     const strings: string[] = mixed.filter(isString); // string[]
     ```
 
-  content_concise: |
-    ## Type Narrowing
-    - `typeof`: primitives only (string, number, boolean, etc.)
-    - `instanceof`: class instances only
-    - `in`: property existence
-    - User-defined guards: `(value: unknown): value is T`
-    - CRITICAL: Use type guards with `.filter()` to narrow arrays
-
 - id: "language/typescript/types/discriminated_unions"
   category: "language"
   subcategory: "typescript"
@@ -154,6 +164,7 @@
     Use a literal type property (discriminant) to narrow union types.
 
     ### The Pattern
+
     ```typescript
     interface Square {
       kind: "square";  // Discriminant property
@@ -184,8 +195,25 @@
       }
     }
     ```
+  content_concise: |
+    ## Discriminated Unions
+    - Add literal `kind`/`type` property to each variant
+    - Switch on discriminant for type-safe narrowing
+    - Use `assertNever(x: never)` for exhaustiveness checking
+    - Perfect for: API responses, Redux actions, state machines
+
+- id: "language/typescript/types/discriminated_unions/exhaustiveness-checking-with-never"
+  category: "language"
+  subcategory: "typescript"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    *Part of: DISCRIMINATED UNIONS (CRITICAL PATTERN)*
 
     ### Exhaustiveness Checking with `never`
+
     ```typescript
     function assertNever(x: never): never {
       throw new Error(`Unexpected value: ${x}`);
@@ -202,6 +230,7 @@
     ```
 
     ### API Response Pattern
+
     ```typescript
     type ApiResponse<T> =
       | { status: "success"; data: T }
@@ -221,7 +250,18 @@
     }
     ```
 
+- id: "language/typescript/types/discriminated_unions/redux-action-pattern"
+  category: "language"
+  subcategory: "typescript"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    *Part of: DISCRIMINATED UNIONS (CRITICAL PATTERN)*
+
     ### Redux Action Pattern
+
     ```typescript
     type Action =
       | { type: "ADD_TODO"; payload: { text: string } }
@@ -241,13 +281,6 @@
     }
     ```
 
-  content_concise: |
-    ## Discriminated Unions
-    - Add literal `kind`/`type` property to each variant
-    - Switch on discriminant for type-safe narrowing
-    - Use `assertNever(x: never)` for exhaustiveness checking
-    - Perfect for: API responses, Redux actions, state machines
-
 - id: "language/typescript/types/conditional"
   category: "language"
   subcategory: "typescript"
@@ -261,6 +294,7 @@
     **Syntax:** `T extends U ? X : Y`
 
     ### Basic Patterns
+
     ```typescript
     // Basic conditional
     type IsString<T> = T extends string ? true : false;
@@ -278,6 +312,7 @@
     ```
 
     ### Distributive Conditional Types
+
     ```typescript
     // Distributes over unions automatically
     type NotString<T> = T extends string ? never : T;
@@ -289,8 +324,25 @@
     type Strings = OnlyStrings<string | number | boolean>;
     // string
     ```
+  content_concise: |
+    ## Conditional Types
+    - Syntax: `T extends U ? X : Y`
+    - `infer` keyword to extract types
+    - Distributes over unions automatically
+    - Use `never` to filter from unions
+
+- id: "language/typescript/types/conditional/the-infer-keyword"
+  category: "language"
+  subcategory: "typescript"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    *Part of: CONDITIONAL TYPES*
 
     ### The `infer` Keyword
+
     ```typescript
     // CRITICAL: infer only works inside conditional extends clause
 
@@ -310,13 +362,6 @@
     type Foo<T> = T extends { a: infer U; b: infer U } ? U : never;
     type T1 = Foo<{ a: string; b: number }>; // string | number
     ```
-
-  content_concise: |
-    ## Conditional Types
-    - Syntax: `T extends U ? X : Y`
-    - `infer` keyword to extract types
-    - Distributes over unions automatically
-    - Use `never` to filter from unions
 
 - id: "language/typescript/types/mapped"
   category: "language"
@@ -412,6 +457,7 @@
     ## SATISFIES AND CONST ASSERTIONS
 
     ### The `satisfies` Operator (TS 4.9+)
+
     Validate a value matches a type WITHOUT widening the inferred type.
 
     ```typescript
@@ -440,8 +486,25 @@
       gren: "#00ff00", // ERROR: typo caught!
     } satisfies Record<Colors, string>;
     ```
+  content_concise: |
+    ## satisfies and as const
+    - `satisfies`: Validate type without widening
+    - `as const`: Preserve literal types, make readonly
+    - `satisfies` catches typos in object keys
+    - Combine: `{...} as const satisfies Type`
+
+- id: "language/typescript/types/satisfies_const/const-assertions"
+  category: "language"
+  subcategory: "typescript"
+  priority: 86
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    *Part of: SATISFIES AND CONST ASSERTIONS*
 
     ### Const Assertions
+
     ```typescript
     // Without as const - types widen
     const obj1 = { x: 10, y: 20 }; // { x: number, y: number }
@@ -464,6 +527,7 @@
     ```
 
     ### Combining `satisfies` and `as const`
+
     ```typescript
     const config = {
       api: "https://example.com",
@@ -476,10 +540,3 @@
     };
     // Type is readonly AND validated
     ```
-
-  content_concise: |
-    ## satisfies and as const
-    - `satisfies`: Validate type without widening
-    - `as const`: Preserve literal types, make readonly
-    - `satisfies` catches typos in object keys
-    - Combine: `{...} as const satisfies Type`

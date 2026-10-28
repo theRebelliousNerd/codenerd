@@ -314,6 +314,17 @@
     # File automatically closed
     ```
 
+- id: "reviewer/methodology/resource_cleanup/resource-leak-checklist"
+  category: "methodology"
+  subcategory: "concurrency"
+  priority: 86
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/concurrency_fundamentals"]
+  content: |
+    *Part of: RESOURCE CLEANUP REVIEW*
+
     ### RESOURCE LEAK CHECKLIST
 
     **File/Connection Handles**
@@ -366,6 +377,7 @@
     ```
 
     ### CLEANUP ORDER
+
     Resources should be cleaned up in reverse order of acquisition.
     Go's defer naturally handles this.
 

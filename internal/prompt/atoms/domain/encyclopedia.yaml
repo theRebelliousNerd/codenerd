@@ -14,12 +14,22 @@
     Text generation is a side‑effect of deterministic reasoning, not the driver.
 
     ### Core Loop (OODA)
+
     1. **Observe**: Perception transducer converts NL → `user_intent/5` + focus atoms.
     2. **Orient**: Spreading activation selects context atoms from the world model.
     3. **Decide**: Policy rules derive `next_action/1` under constitutional guards.
     4. **Act**: VirtualStore executes tools/FFI, asserts new facts, updates memory tiers.
 
+- id: "domain/codenerd/architecture_overview/key-subsystems"
+  category: "domain"
+  subcategory: "architecture"
+  priority: 92
+  is_mandatory: false
+  content: |
+    *Part of: codeNERD ARCHITECTURE OVERVIEW (Encyclopedic)*
+
     ### Key Subsystems
+
     - **Kernel / Mangle Engine** (`internal/core/kernel.go`, `internal/mangle/*`):
       deterministic inference, fact store, IDB policies, virtual predicates.
     - **World Model** (`internal/world/*`):
@@ -31,7 +41,16 @@
     - **Memory Tiers** (`internal/store/*`):
       RAM (session), Vector (semantic), Graph (relations), Cold (preferences/invariants).
 
+- id: "domain/codenerd/architecture_overview/non-negotiable-invariants"
+  category: "domain"
+  subcategory: "architecture"
+  priority: 92
+  is_mandatory: false
+  content: |
+    *Part of: codeNERD ARCHITECTURE OVERVIEW (Encyclopedic)*
+
     ### Non‑Negotiable Invariants
+
     - **Constitutional Safety**: any action must satisfy `permitted(ActionType, Target, Payload)` or it is denied.
     - **Thought‑First Piggyback**: control_packet before surface_response.
     - **One Source of Truth**: new LLM behaviors ship as atoms first (internal or project).
@@ -100,4 +119,3 @@
     - [ ] Targeted tests exist for new logic.
     - [ ] Nemesis / PanicMaker surfaces considered.
     - [ ] Telemetry facts emitted for fallbacks or degraded paths.
-

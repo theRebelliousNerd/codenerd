@@ -34,6 +34,16 @@
     2. Research 1-2 quick topics relevant to detected language/framework
     3. Store knowledge in shard-specific SQLite DB
 
+- id: "init/kb_core_shards/creation/topics-and-modes"
+  category: "init"
+  subcategory: "kb_core_shards"
+  priority: 75
+  is_mandatory: false
+  shard_types: ["/researcher"]
+  init_phases: ["/core_shards_kb"]
+  content: |
+    Core shard KB creation (continued):
+
     ## CoderShard Topics (pick 2 based on project)
     - "best practices for [language]"
     - "common patterns in [framework]"

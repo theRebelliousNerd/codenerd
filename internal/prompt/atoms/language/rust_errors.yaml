@@ -12,6 +12,7 @@
     ## RESULT AND OPTION FUNDAMENTALS
 
     ### Option<T> - Nullable Values
+
     ```rust
     enum Option<T> {
         Some(T),
@@ -31,6 +32,7 @@
     ```
 
     ### Result<T, E> - Fallible Operations
+
     ```rust
     enum Result<T, E> {
         Ok(T),
@@ -49,8 +51,25 @@
         Err(e) => eprintln!("Error: {}", e),
     }
     ```
+  content_concise: |
+    ## Result & Option
+    - `Option<T>`: `Some(T)` or `None` for nullable values
+    - `Result<T, E>`: `Ok(T)` or `Err(E)` for fallible ops
+    - `?` operator propagates errors early
+    - Key combinators: `map`, `and_then`, `unwrap_or`
+
+- id: "language/rust/errors/result_option/the-operator-error-propagation"
+  category: "language"
+  subcategory: "rust"
+  priority: 95
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    *Part of: RESULT AND OPTION FUNDAMENTALS*
 
     ### The ? Operator - Error Propagation
+
     ```rust
     // ? unwraps Ok or returns Err early
     fn process() -> Result<Output, Error> {
@@ -70,7 +89,18 @@
     }
     ```
 
+- id: "language/rust/errors/result_option/essential-combinators"
+  category: "language"
+  subcategory: "rust"
+  priority: 95
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    *Part of: RESULT AND OPTION FUNDAMENTALS*
+
     ### Essential Combinators
+
     ```rust
     // Option combinators
     opt.unwrap()              // Panic if None
@@ -92,13 +122,6 @@
     res.ok()                  // Convert Result to Option (discards error)
     ```
 
-  content_concise: |
-    ## Result & Option
-    - `Option<T>`: `Some(T)` or `None` for nullable values
-    - `Result<T, E>`: `Ok(T)` or `Err(E)` for fallible ops
-    - `?` operator propagates errors early
-    - Key combinators: `map`, `and_then`, `unwrap_or`
-
 - id: "language/rust/errors/thiserror"
   category: "language"
   subcategory: "rust"
@@ -113,6 +136,7 @@
     Use thiserror when callers need to match on error variants (libraries).
 
     ### Basic Usage
+
     ```rust
     use thiserror::Error;
 
@@ -133,14 +157,33 @@
     ```
 
     ### Attribute Reference
+
     | Attribute | Purpose |
     |-----------|---------|
     | `#[error("...")]` | Generates `Display` impl |
     | `#[from]` | Generates `From` impl for auto-conversion |
     | `#[source]` | Sets error source for chaining |
     | `#[transparent]` | Delegates Display/source to inner error |
+  content_concise: |
+    ## thiserror
+    - Use for libraries where callers match on error variants
+    - `#[error("...")]`: Display impl
+    - `#[from]`: Auto-convert with `?`
+    - `#[source]`: Error chaining
+
+- id: "language/rust/errors/thiserror/using-thiserror-errors"
+  category: "language"
+  subcategory: "rust"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  depends_on: ["language/rust/errors/result_option"]
+  content: |
+    *Part of: THISERROR - Custom Error Types*
 
     ### Using thiserror Errors
+
     ```rust
     fn load_data(path: &str) -> Result<Data, DataError> {
         // io::Error auto-converts via #[from]
@@ -171,6 +214,7 @@
     ```
 
     ### Nested Error Hierarchies
+
     ```rust
     #[derive(Error, Debug)]
     pub enum AppError {
@@ -184,13 +228,6 @@
         Config(#[from] ConfigError),
     }
     ```
-
-  content_concise: |
-    ## thiserror
-    - Use for libraries where callers match on error variants
-    - `#[error("...")]`: Display impl
-    - `#[from]`: Auto-convert with `?`
-    - `#[source]`: Error chaining
 
 - id: "language/rust/errors/anyhow"
   category: "language"
@@ -206,6 +243,7 @@
     Use anyhow when errors just need reporting (applications).
 
     ### Basic Usage
+
     ```rust
     use anyhow::{anyhow, bail, Context, Result};
 
@@ -226,14 +264,34 @@
     ```
 
     ### Key Functions
+
     | Function | Purpose |
     |----------|---------|
     | `anyhow!("msg")` | Create ad-hoc error |
     | `bail!("msg")` | Return error early (like `return Err(anyhow!(...))`) |
     | `.context("msg")` | Add context to error |
     | `.with_context(\|\| ...)` | Lazy context construction |
+  content_concise: |
+    ## anyhow
+    - Use for applications where errors are reported, not matched
+    - `context("msg")`: Add context to any error
+    - `bail!("msg")`: Return error early
+    - `anyhow!("msg")`: Create ad-hoc error
+    - Combine with thiserror for domain errors
+
+- id: "language/rust/errors/anyhow/in-main"
+  category: "language"
+  subcategory: "rust"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  depends_on: ["language/rust/errors/result_option"]
+  content: |
+    *Part of: ANYHOW - Opaque Error Type*
 
     ### In main()
+
     ```rust
     fn main() -> Result<()> {
         let output = process_file("config.json")?;
@@ -244,6 +302,7 @@
     ```
 
     ### Downcasting to Concrete Types
+
     ```rust
     // Check if underlying error is specific type
     if let Some(io_error) = err.downcast_ref::<std::io::Error>() {
@@ -258,7 +317,19 @@
     }
     ```
 
+- id: "language/rust/errors/anyhow/integration-with-thiserror"
+  category: "language"
+  subcategory: "rust"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  depends_on: ["language/rust/errors/result_option"]
+  content: |
+    *Part of: ANYHOW - Opaque Error Type*
+
     ### Integration with thiserror
+
     ```rust
     // Domain errors with thiserror
     #[derive(Error, Debug)]
@@ -280,14 +351,6 @@
     }
     ```
 
-  content_concise: |
-    ## anyhow
-    - Use for applications where errors are reported, not matched
-    - `context("msg")`: Add context to any error
-    - `bail!("msg")`: Return error early
-    - `anyhow!("msg")`: Create ad-hoc error
-    - Combine with thiserror for domain errors
-
 - id: "language/rust/errors/conversion"
   category: "language"
   subcategory: "rust"
@@ -300,6 +363,7 @@
     ## ERROR CONVERSION PATTERNS
 
     ### Implementing From Trait
+
     ```rust
     use std::num::ParseIntError;
     use std::io;
@@ -331,8 +395,26 @@
         Ok(num)
     }
     ```
+  content_concise: |
+    ## Error Conversion
+    - Implement `From<E>` for automatic `?` conversion
+    - `Box<dyn Error>` for quick prototyping
+    - thiserror for libraries, anyhow for applications
+    - Messages: lowercase, no punctuation, specific
+
+- id: "language/rust/errors/conversion/box-dyn-error-quick-and-dirty"
+  category: "language"
+  subcategory: "rust"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  depends_on: ["language/rust/errors/result_option"]
+  content: |
+    *Part of: ERROR CONVERSION PATTERNS*
 
     ### Box<dyn Error> - Quick and Dirty
+
     ```rust
     use std::error::Error;
 
@@ -350,6 +432,7 @@
     ```
 
     ### When to Use Each
+
     | Approach | Use When |
     |----------|----------|
     | `thiserror` | Library, callers match variants |
@@ -358,14 +441,7 @@
     | Custom `From` impls | Need specific conversion behavior |
 
     ### Error Message Conventions
+
     - Lowercase, no trailing punctuation: "failed to open file"
     - Don't include source in message (chains automatically)
     - Be specific: "invalid port number" not "invalid config"
-
-  content_concise: |
-    ## Error Conversion
-    - Implement `From<E>` for automatic `?` conversion
-    - `Box<dyn Error>` for quick prototyping
-    - thiserror for libraries, anyhow for applications
-    - Messages: lowercase, no punctuation, specific
-

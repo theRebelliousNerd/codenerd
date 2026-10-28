@@ -46,6 +46,15 @@
     3. **Combine Related:** Merge similar atoms into coherent sections
     4. **Tag Appropriately:** Add selectors for shard_types, languages, frameworks
 
+- id: "shards/researcher/knowledge_atom_extraction/selector-inference"
+  category: "methodology"
+  subcategory: "extraction"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/researcher"]
+  content: |
+    *Part of: KNOWLEDGE ATOM EXTRACTION*
+
     ### Selector Inference
 
     When extracting atoms, infer appropriate selectors:

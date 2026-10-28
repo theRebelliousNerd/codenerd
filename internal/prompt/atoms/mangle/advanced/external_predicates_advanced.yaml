@@ -10,16 +10,16 @@
   languages: ["/mangle"]
   content: |
     # Mangle External Predicates: Advanced Patterns
-    
+
     ## What Are External Predicates?
-    
+
     External predicates are implemented in Go and called from Mangle. They allow:
     - Accessing external systems (databases, APIs, file I/O)
     - Performing complex computations not expressible in Mangle
     - Interfacing with the host application
-    
+
     ## External Predicate Signature (Go)
-    
+
     ```go
     // External predicate function signature
     func MyPredicate(query engine.Query, callback func(engine.Fact)) error {
@@ -29,15 +29,27 @@
         return nil
     }
     ```
-    
+
+- id: "language/mangle/docs/advanced/external_predicates_advanced/basic-example"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle External Predicates: Advanced Patterns: Basic Example"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle External Predicates: Advanced Patterns*
+
     ## Basic Example
-    
+
     ### Mangle Declaration
+
     ```mangle
     Decl external_data(Key, Value) bound [/name, /string].
     ```
-    
+
     ### Go Implementation
+
     ```go
     func ExternalData(query engine.Query, cb func(engine.Fact)) error {
         // Mock external data source
@@ -45,10 +57,10 @@
             "api_key": "secret123",
             "db_host": "localhost",
         }
-    
+
         // Extract argument from query
         keyArg := query.Args[0]
-    
+
         if keyArg.IsWildcard() {
             // Return all key-value pairs
             for k, v := range data {
@@ -71,15 +83,16 @@
                 cb(fact)
             }
         }
-    
+
         return nil
     }
-    
+
     // Register
     engine.RegisterExternalPredicate("external_data", ExternalData)
     ```
-    
+
     ### Mangle Usage
+
     ```mangle
     # Query specific key
     Decl external_data(Key, Value).
@@ -90,25 +103,36 @@
     all_configs(Key, Value) :-
       external_data(Key, Value).
     ```
-    
+
+- id: "language/mangle/docs/advanced/external_predicates_advanced/pattern-1-caching-external-results"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle External Predicates: Advanced Patterns: Pattern 1: Caching External Results"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle External Predicates: Advanced Patterns*
+
     ## Pattern 1: Caching External Results
-    
+
     External calls can be expensive. Cache results in Mangle facts.
-    
+
     ### Strategy: One-time Fetch
+
     ```go
     var cachedData []engine.Fact
     var cacheMutex sync.Mutex
     var cacheInitialized bool
-    
+
     func CachedExternalData(query engine.Query, cb func(engine.Fact)) error {
         cacheMutex.Lock()
         defer cacheMutex.Unlock()
-    
+
         if !cacheInitialized {
             // Fetch from external source once
             data := fetchFromExternalAPI()  // Expensive call
-    
+
             for k, v := range data {
                 fact := engine.NewFact("cached_external_data",
                     engine.NewAtom(k), engine.NewString(v))
@@ -116,7 +140,7 @@
             }
             cacheInitialized = true
         }
-    
+
         // Serve from cache
         keyArg := query.Args[0]
         if keyArg.IsWildcard() {
@@ -131,69 +155,91 @@
                 }
             }
         }
-    
+
         return nil
     }
     ```
-    
+
     ### Mangle Usage
+
     ```mangle
     # First call fetches from API, subsequent calls use cache
     Decl cached_external_data(Key, Value).
     lookup(Key, Value) :-
       cached_external_data(Key, Value).
     ```
-    
+
+- id: "language/mangle/docs/advanced/external_predicates_advanced/pattern-2-lazy-evaluation"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle External Predicates: Advanced Patterns: Pattern 2: Lazy Evaluation"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle External Predicates: Advanced Patterns*
+
     ## Pattern 2: Lazy Evaluation
-    
+
     Only fetch data when actually needed.
-    
+
     ```go
     func LazyFetch(query engine.Query, cb func(engine.Fact)) error {
         keyArg := query.Args[0]
-    
+
         if keyArg.IsWildcard() {
             return fmt.Errorf("lazy predicates require specific key")
         }
-    
+
         key := keyArg.AsAtom().Value
-    
+
         // Only fetch this specific key
         value := fetchSingleKey(key)  // Targeted fetch
-    
+
         fact := engine.NewFact("lazy_fetch",
             engine.NewAtom(key),
             engine.NewString(value))
         cb(fact)
-    
+
         return nil
     }
     ```
-    
+
     ### Mangle Usage
+
     ```mangle
     # Only fetches /api_key, not all data
     Decl lazy_fetch(X, Y).
     specific_config(Value) :-
       lazy_fetch(/api_key, Value).
     ```
-    
+
+- id: "language/mangle/docs/advanced/external_predicates_advanced/pattern-3-error-handling"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle External Predicates: Advanced Patterns: Pattern 3: Error Handling"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle External Predicates: Advanced Patterns*
+
     ## Pattern 3: Error Handling
-    
+
     External predicates can fail. Handle errors gracefully.
-    
+
     ```go
     func FalliblePredicate(query engine.Query, cb func(engine.Fact)) error {
         key := query.Args[0].AsAtom().Value
-    
+
         value, err := riskyOperation(key)
         if err != nil {
             // Option 1: Return error (stops evaluation)
             return fmt.Errorf("external predicate failed: %w", err)
-    
+
             // Option 2: Return no results (predicate fails silently)
             // return nil
-    
+
             // Option 3: Return error fact
             errorFact := engine.NewFact("error",
                 engine.NewAtom(key),
@@ -201,7 +247,7 @@
             cb(errorFact)
             return nil
         }
-    
+
         fact := engine.NewFact("fallible_predicate",
             engine.NewAtom(key),
             engine.NewString(value))
@@ -209,8 +255,9 @@
         return nil
     }
     ```
-    
+
     ### Mangle Usage
+
     ```mangle
     # Option 1: Stops if error
     Decl has_error_key().
@@ -228,54 +275,75 @@
     error_message(Key, Msg) :-
       error(Key, Msg).
     ```
-    
+
+- id: "language/mangle/docs/advanced/external_predicates_advanced/pattern-4-side-effects-dangerous"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle External Predicates: Advanced Patterns: Pattern 4: Side Effects (Dangerous!)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle External Predicates: Advanced Patterns*
+
     ## Pattern 4: Side Effects (Dangerous!)
-    
+
     External predicates should be **pure** (no side effects), but sometimes necessary.
-    
+
     ```go
     var sideEffectCounter int
     var counterMutex sync.Mutex
-    
+
     func SideEffectPredicate(query engine.Query, cb func(engine.Fact)) error {
         counterMutex.Lock()
         defer counterMutex.Unlock()
-    
+
         // DANGER: Side effect!
         sideEffectCounter++
         log.Printf("Called %d times", sideEffectCounter)
-    
+
         fact := engine.NewFact("side_effect",
             engine.NewInt(sideEffectCounter))
         cb(fact)
-    
+
         return nil
     }
     ```
-    
+
     **Problems**:
     - Non-deterministic (depends on call order)
     - Can be called multiple times due to backtracking
     - Breaks logical semantics
-    
+
     **Solution**: Use carefully, document heavily, or redesign.
-    
+
     ### Better Approach: Explicit Action Queue
+
     ```mangle
     # Declare intent, execute later
     Decl action_intent(Action, Args).
-    
+
     # Mangle declares what should happen
     action_intent(/send_email, { /to: "user@example.com", /subject: "Hello" }).
     action_intent(/log_event, { /level: /info, /message: "Processing complete" }).
-    
+
     # Go executor reads action queue and executes
     ```
-    
+
+- id: "language/mangle/docs/advanced/external_predicates_advanced/pattern-5-streaming-large-results"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle External Predicates: Advanced Patterns: Pattern 5: Streaming Large Results"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle External Predicates: Advanced Patterns*
+
     ## Pattern 5: Streaming Large Results
-    
+
     For large datasets, stream results instead of loading all into memory.
-    
+
     ```go
     func StreamResults(query engine.Query, cb func(engine.Fact)) error {
         // Open database connection
@@ -284,25 +352,26 @@
             return err
         }
         defer rows.Close()
-    
+
         // Stream results one at a time
         for rows.Next() {
             var id, name string
             if err := rows.Scan(&id, &name); err != nil {
                 return err
             }
-    
+
             fact := engine.NewFact("user_from_db",
                 engine.NewAtom(id),
                 engine.NewString(name))
             cb(fact)  // Callback immediately, no buffering
         }
-    
+
         return rows.Err()
     }
     ```
-    
+
     ### Mangle Usage
+
     ```mangle
     # Processes users one at a time, doesn't load all into memory
     Decl user_from_db(Id, Name).
@@ -312,36 +381,47 @@
       user_total_spent(Id, Total),
       Total > 10000.
     ```
-    
+
+- id: "language/mangle/docs/advanced/external_predicates_advanced/pattern-6-time-sensitive-data"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle External Predicates: Advanced Patterns: Pattern 6: Time-Sensitive Data"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle External Predicates: Advanced Patterns*
+
     ## Pattern 6: Time-Sensitive Data
-    
+
     External predicates that depend on current time.
-    
+
     ```go
     func CurrentTime(query engine.Query, cb func(engine.Fact)) error {
         now := time.Now().Unix()
-    
+
         fact := engine.NewFact("current_time",
             engine.NewInt(int(now)))
         cb(fact)
-    
+
         return nil
     }
-    
+
     func IsRecent(query engine.Query, cb func(engine.Fact)) error {
         timestamp := query.Args[0].AsInt().Value
         now := time.Now().Unix()
-    
+
         if now - int64(timestamp) < 3600 {  // Within last hour
             fact := engine.NewFact("is_recent", query.Args[0])
             cb(fact)
         }
-    
+
         return nil
     }
     ```
-    
+
     ### Mangle Usage
+
     ```mangle
     Decl is_recent(Timestamp).
     Decl event(Id, Timestamp) bound [/name, /number].
@@ -351,47 +431,67 @@
       event(Id, Timestamp),
       is_recent(Timestamp).
     ```
-    
+
     **Warning**: Non-deterministic! Results change over time.
-    
+
+- id: "language/mangle/docs/advanced/external_predicates_advanced/pattern-7-argument-type-checking"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle External Predicates: Advanced Patterns: Pattern 7: Argument Type Checking"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle External Predicates: Advanced Patterns*
+
     ## Pattern 7: Argument Type Checking
-    
+
     Validate arguments before processing.
-    
+
     ```go
     func SafePredicate(query engine.Query, cb func(engine.Fact)) error {
         if len(query.Args) != 2 {
             return fmt.Errorf("expected 2 arguments, got %d", len(query.Args))
         }
-    
+
         // Check argument types
         if !query.Args[0].IsAtom() {
             return fmt.Errorf("arg 0 must be atom, got %T", query.Args[0])
         }
-    
+
         if query.Args[1].IsWildcard() {
             // OK, output parameter
         } else if !query.Args[1].IsString() {
             return fmt.Errorf("arg 1 must be string or wildcard, got %T", query.Args[1])
         }
-    
+
         // Proceed with safe arguments
         key := query.Args[0].AsAtom().Value
         value := fetchValue(key)
-    
+
         fact := engine.NewFact("safe_predicate",
             query.Args[0],
             engine.NewString(value))
         cb(fact)
-    
+
         return nil
     }
     ```
-    
+
+- id: "language/mangle/docs/advanced/external_predicates_advanced/pattern-8-context-aware-predicates"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle External Predicates: Advanced Patterns: Pattern 8: Context-Aware Predicates"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle External Predicates: Advanced Patterns*
+
     ## Pattern 8: Context-Aware Predicates
-    
+
     Use Go context for cancellation and timeouts.
-    
+
     ```go
     func ContextAwarePredicate(ctx context.Context, query engine.Query, cb func(engine.Fact)) error {
         // Long-running operation
@@ -403,29 +503,39 @@
             default:
                 // Continue processing
             }
-    
+
             // Compute result
             fact := engine.NewFact("result", engine.NewInt(i))
             cb(fact)
         }
-    
+
         return nil
     }
     ```
-    
+
     **Note**: Requires engine support for context propagation.
-    
+
+- id: "language/mangle/docs/advanced/external_predicates_advanced/pattern-9-composite-results-structs"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle External Predicates: Advanced Patterns: Pattern 9: Composite Results (Structs)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle External Predicates: Advanced Patterns*
+
     ## Pattern 9: Composite Results (Structs)
-    
+
     Return complex data structures.
-    
+
     ```go
     func UserProfile(query engine.Query, cb func(engine.Fact)) error {
         userId := query.Args[0].AsAtom().Value
-    
+
         // Fetch complex profile
         profile := fetchUserProfile(userId)
-    
+
         // Build struct
         structValue := engine.NewStruct(map[string]engine.Value{
             "name": engine.NewString(profile.Name),
@@ -435,53 +545,65 @@
                 engine.NewAtom("user"),
             ),
         })
-    
+
         fact := engine.NewFact("user_profile",
             query.Args[0],
             structValue)
         cb(fact)
-    
+
         return nil
     }
     ```
-    
+
     ### Mangle Usage
+
     ```mangle
     Decl user_profile(Id, Profile).
     user_name(Id, Name) :-
       user_profile(Id, Profile),
       :match_field(Profile, /name, Name).
     ```
-    
+
+- id: "language/mangle/docs/advanced/external_predicates_advanced/pattern-10-virtual-aggregation"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle External Predicates: Advanced Patterns: Pattern 10: Virtual Aggregation"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle External Predicates: Advanced Patterns*
+
     ## Pattern 10: Virtual Aggregation
-    
+
     Implement aggregation in Go for efficiency.
-    
+
     ```go
     func CountMatches(query engine.Query, cb func(engine.Fact)) error {
         pattern := query.Args[0].AsString().Value
-    
+
         // Efficient counting in Go
         count := 0
         rows, _ := db.Query("SELECT COUNT(*) FROM items WHERE name LIKE ?", pattern)
         rows.Next()
         rows.Scan(&count)
         rows.Close()
-    
+
         fact := engine.NewFact("count_matches",
             query.Args[0],
             engine.NewInt(count))
         cb(fact)
-    
+
         return nil
     }
     ```
-    
+
     **Benefit**: Avoids loading all data into Mangle just to count.
-    
+
     ## Best Practices
-    
+
     ### 1. Keep External Predicates Pure
+
     ```go
     // BAD: Mutates global state
     var globalCounter int
@@ -489,15 +611,26 @@
         globalCounter++  // Side effect!
         // ...
     }
-    
+
     // GOOD: Pure function
     func GoodPredicate(query engine.Query, cb func(engine.Fact)) error {
         // Only reads input, produces output via callback
         // No side effects
     }
     ```
-    
+
+- id: "language/mangle/docs/advanced/external_predicates_advanced/2-document-performance-characteristics"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle External Predicates: Advanced Patterns: 2. Document Performance Characteristics"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle External Predicates: Advanced Patterns > Best Practices*
+
     ### 2. Document Performance Characteristics
+
     ```go
     // SlowExternalAPI fetches data from remote API.
     // WARNING: Can take 5-10 seconds. Cache results if calling multiple times.
@@ -505,27 +638,29 @@
         // ...
     }
     ```
-    
+
     ### 3. Fail Fast
+
     ```go
     func ValidatedPredicate(query engine.Query, cb func(engine.Fact)) error {
         // Validate arguments immediately
         if len(query.Args) != 2 {
             return fmt.Errorf("invalid arguments")
         }
-    
+
         // Early return on errors
         data, err := fetchData()
         if err != nil {
             return err
         }
-    
+
         // Process data
         // ...
     }
     ```
-    
+
     ### 4. Use Specific Queries When Possible
+
     ```go
     func OptimizedPredicate(query engine.Query, cb func(engine.Fact)) error {
         if query.Args[0].IsWildcard() {
@@ -538,29 +673,50 @@
         }
     }
     ```
-    
+
+- id: "language/mangle/docs/advanced/external_predicates_advanced/5-limit-result-set-size"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle External Predicates: Advanced Patterns: 5. Limit Result Set Size"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle External Predicates: Advanced Patterns > Best Practices*
+
     ### 5. Limit Result Set Size
+
     ```go
     func BoundedResults(query engine.Query, cb func(engine.Fact)) error {
         const maxResults = 1000
-    
+
         count := 0
         for _, item := range fetchItems() {
             if count >= maxResults {
                 log.Warn("Result set truncated at %d", maxResults)
                 break
             }
-    
+
             cb(engine.NewFact("item", engine.NewAtom(item)))
             count++
         }
-    
+
         return nil
     }
     ```
-    
+
+- id: "language/mangle/docs/advanced/external_predicates_advanced/testing-external-predicates"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle External Predicates: Advanced Patterns: Testing External Predicates"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle External Predicates: Advanced Patterns*
+
     ## Testing External Predicates
-    
+
     ```go
     func TestExternalPredicate(t *testing.T) {
         // Create mock query
@@ -571,25 +727,35 @@
                 engine.Wildcard(),
             },
         }
-    
+
         // Collect results
         var results []engine.Fact
         callback := func(fact engine.Fact) {
             results = append(results, fact)
         }
-    
+
         // Execute
         err := MyPredicate(query, callback)
-    
+
         // Assert
         assert.NoError(t, err)
         assert.Len(t, results, 1)
         assert.Equal(t, "expected_value", results[0].Args[1].AsString().Value)
     }
     ```
-    
+
+- id: "language/mangle/docs/advanced/external_predicates_advanced/mangle-external-predicates-advanced"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle External Predicates: Advanced Patterns: Mangle External Predicates: Advanced Patterns Checklist"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle External Predicates: Advanced Patterns*
+
     ## Checklist
-    
+
     - [ ] External predicate is pure (no side effects)
     - [ ] Arguments are validated before processing
     - [ ] Errors are handled and returned appropriately

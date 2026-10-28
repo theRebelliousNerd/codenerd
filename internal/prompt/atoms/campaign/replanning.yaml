@@ -36,6 +36,15 @@
     1.  **Completed Phase**: What we just finished -- each task's status and, when it returned one, its result (research findings, what a task wrote).
     2.  **Next Phase**: What we *thought* we were going to do next -- each task with its ID in brackets, its type, and its write_set, every path marked `exists` or `ABSENT` on disk.
 
+- id: "campaign/replanning/reality_check/the-refinement-protocol"
+  category: "methodology"
+  subcategory: "state_reconciliation"
+  priority: 75
+  is_mandatory: false
+  campaign_phases: ["replanning"]
+  shard_types: ["/planner"]
+  depends_on: ["campaign/replanning/identity"]
+  content: |
     ## The Refinement Protocol
 
     You must analyze the Next Phase and apply the following transformations:

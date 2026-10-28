@@ -106,6 +106,15 @@
     - `rs_unsafe_block(Ref)` - Unsafe code blocks
     - `rs_derive(Ref, Trait)` - Derive macro applications
 
+- id: "capability/codedom_polyglot/stratum-1-semantic-archetypes-idb"
+  category: "capability"
+  subcategory: "semantic_editing"
+  priority: 88
+  is_mandatory: false
+  depends_on: ["capability/codedom_core"]
+  content: |
+    *Part of: Polyglot Code Analysis*
+
     ### Stratum 1: Semantic Archetypes (IDB)
 
     Language-specific facts are normalized to universal concepts:

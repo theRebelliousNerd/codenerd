@@ -10,13 +10,13 @@
   languages: ["/mangle"]
   content: |
     # Mangle Transform Pipeline Reference
-    
+
     Complete reference for Mangle's transform pipeline syntax (`|>`, `do`, `fn:group_by`, `let`).
-    
+
     ## Transform Pipeline Overview
-    
+
     Transform pipelines allow you to perform aggregations and transformations on query results. The syntax uses the pipe operator `|>` followed by `do` and reducer functions.
-    
+
     **Basic Structure:**
     ```mangle
     result(GroupVars, AggregatedValues) :-
@@ -25,23 +25,31 @@
          let Agg1 = fn:AggFunction1(Var1),
          let Agg2 = fn:AggFunction2(Var2).
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/builtins/transform_functions/pipeline-operator"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipeline Reference: Pipeline Operator: `|>`"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipeline Reference*
+
     ## Pipeline Operator: `|>`
-    
+
     **Syntax:** `predicate(args) |> transform`
-    
+
     **Description:** The pipe operator takes the result set from a query and passes it to a transform operation.
-    
+
     **Examples:**
-    
+
     ```mangle
     # Simple pipeline
     result(Sum) :-
       value(X)
       |> do fn:group_by(), let Sum = fn:sum(X).
-    
+
     # Multiple predicates before pipeline
     result(Cat, Avg) :-
       item(Item, Cat),
@@ -49,100 +57,124 @@
       :gt(Val, 0)
       |> do fn:group_by(Cat), let Avg = fn:avg(Val).
     ```
-    
+
     **Rules:**
     - The `|>` comes after ALL predicates in the rule body
     - Only ONE pipeline per rule
     - Everything before `|>` generates the input rows
     - Everything after `|>` is the transform operation
-    
-    ---
-    
+
+- id: "language/mangle/docs/builtins/transform_functions/transform-keyword-do"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipeline Reference: Transform Keyword: `do`"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipeline Reference*
+
     ## Transform Keyword: `do`
-    
+
     **Syntax:** `|> do fn:group_by(...), let ...`
-    
+
     **Description:** Introduces a transform block. Must be followed by `fn:group_by`.
-    
+
     **Structure:**
     ```mangle
     |> do fn:group_by(GroupVariables),
        let Result1 = fn:Aggregation1(...),
        let Result2 = fn:Aggregation2(...).
     ```
-    
+
     **Rules:**
     - `do` must come immediately after `|>`
     - `fn:group_by` must come first after `do`
     - Multiple `let` bindings can follow (comma-separated)
-    
-    ---
-    
+
+- id: "language/mangle/docs/builtins/transform_functions/grouping-function-fn-group-by"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipeline Reference: Grouping Function: `fn:group_by`"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipeline Reference*
+
     ## Grouping Function: `fn:group_by`
-    
+
     **Syntax:** `fn:group_by(Var1, Var2, ...)`
-    
+
     **Description:** Specifies which variables to group by. Similar to SQL's GROUP BY.
-    
+
     **Parameters:**
     - Zero or more variables that appear in the rule body
     - Variables must be bound before the pipeline
-    
+
     **Behavior:**
     - **Empty group_by**: `fn:group_by()` - aggregates ALL rows into one group
     - **Single variable**: `fn:group_by(X)` - group by X values
     - **Multiple variables**: `fn:group_by(X, Y)` - group by combinations of X and Y
-    
+
     **Examples:**
-    
+
     ```mangle
     # No grouping - aggregate everything
     global_sum(Total) :-
       value(X)
       |> do fn:group_by(), let Total = fn:sum(X).
-    
+
     # Group by one variable
     sum_per_category(Cat, Total) :-
       item(Item, Cat, Amount)
       |> do fn:group_by(Cat), let Total = fn:sum(Amount).
-    
+
     # Group by multiple variables
     sum_per_category_and_type(Cat, Type, Total) :-
       item(Item, Cat, Type, Amount)
       |> do fn:group_by(Cat, Type), let Total = fn:sum(Amount).
-    
+
     # From aggregation example
     aggregated(Subject, Verb, Topic, Sum)
       :- observed(Subject, Verb, Topic, Weight, _)
       |> do fn:group_by(Subject, Verb, Topic), let Sum = fn:sum(Weight).
     ```
-    
+
     **Common Mistakes:**
     - ❌ Grouping by unbound variables - variables must appear before `|>`
     - ❌ Using variables in `let` that aren't in group_by or aggregations
     - ❌ Forgetting `fn:` prefix: `group_by(X)` should be `fn:group_by(X)`
-    
-    ---
-    
+
+- id: "language/mangle/docs/builtins/transform_functions/binding-keyword-let"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipeline Reference: Binding Keyword: `let`"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipeline Reference*
+
     ## Binding Keyword: `let`
-    
+
     **Syntax:** `let Variable = fn:AggFunction(...)`
-    
+
     **Description:** Binds aggregation results to variables.
-    
+
     **Rules:**
     - Must come after `fn:group_by`
     - Multiple `let` clauses separated by commas
     - Variables bound by `let` can be used in rule head or further computation
-    
+
     **Examples:**
-    
+
     ```mangle
     # Single let
     result(Sum) :-
       value(X)
       |> do fn:group_by(), let Sum = fn:sum(X).
-    
+
     # Multiple let bindings
     stats(Cat, Count, Sum, Avg) :-
       value(Cat, X)
@@ -150,24 +182,32 @@
          let Count = fn:count(),
          let Sum = fn:sum(X),
          let Avg = fn:avg(X).
-    
+
     # Using let result in rule head
     category_info(Cat, fn:string_concat("Count: ", Count)) :-
       item(Cat, _)
       |> do fn:group_by(Cat), let Count = fn:count().
     ```
-    
+
     **Common Mistakes:**
     - ❌ Missing `=` sign: `let Sum fn:sum(X)` should be `let Sum = fn:sum(X)`
     - ❌ Using `let` outside transform: only works inside `|> do` blocks
     - ❌ Separating with semicolons: use commas between `let` clauses
-    
-    ---
-    
+
+- id: "language/mangle/docs/builtins/transform_functions/complete-examples"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipeline Reference: Complete Examples"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipeline Reference*
+
     ## Complete Examples
-    
+
     ### Example 1: Simple Aggregation (From Examples)
-    
+
     ```mangle
     # From aggregation.mg
     Decl observed(Subject, Verb, Topic, Weight, Description).
@@ -181,9 +221,9 @@
     # - Aggregate: Sum of Weight values
     # - Output: One row per unique (Subject, Verb, Topic) with summed Weight
     ```
-    
+
     ### Example 2: Global Aggregation
-    
+
     ```mangle
     # Count all items
     Decl item(X).
@@ -195,9 +235,19 @@
     # - Empty fn:group_by() means "aggregate everything"
     # - Results in single row with total count
     ```
-    
+
+- id: "language/mangle/docs/builtins/transform_functions/complete-examples-example-3-multiple"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipeline Reference: Complete Examples Example 3: Multiple Aggregations"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipeline Reference > Complete Examples*
+
     ### Example 3: Multiple Aggregations
-    
+
     ```mangle
     # Statistics per category
     Decl measurement(Cat, Value).
@@ -210,9 +260,9 @@
          let Max = fn:max(Value),
          let Avg = fn:avg(Value).
     ```
-    
+
     ### Example 4: Filtering Before Aggregation
-    
+
     ```mangle
     # Sum only positive values per category
     Decl value(Cat, Val).
@@ -221,9 +271,9 @@
       :gt(Val, 0)  # Filter before pipeline
       |> do fn:group_by(Cat), let Sum = fn:sum(Val).
     ```
-    
+
     ### Example 5: Collecting to List
-    
+
     ```mangle
     # From map_aggregation.mg
     Decl user_language(User, Language).
@@ -236,9 +286,19 @@
     # - Collect all Language values into a list
     # - Each user gets one row with list of their languages
     ```
-    
+
+- id: "language/mangle/docs/builtins/transform_functions/complete-examples-example-6-collecting-to"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipeline Reference: Complete Examples Example 6: Collecting to Map"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipeline Reference > Complete Examples*
+
     ### Example 6: Collecting to Map
-    
+
     ```mangle
     # From map_aggregation.mg
     Decl user_language(User, Language).
@@ -255,9 +315,19 @@
     # - Group by User
     # - Build map: Language -> Score for each user
     ```
-    
+
+- id: "language/mangle/docs/builtins/transform_functions/complete-examples-example-7-nested"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipeline Reference: Complete Examples Example 7: Nested Computations"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipeline Reference > Complete Examples*
+
     ### Example 7: Nested Computations
-    
+
     ```mangle
     # Average of averages (careful!)
     category_avg_of_averages(Cat, AvgOfAvg) :-
@@ -265,135 +335,159 @@
       |> do fn:group_by(Cat, SubCat), let SubAvg = fn:avg(Value),
       # Now we have Cat, SubCat, SubAvg
       |> do fn:group_by(Cat), let AvgOfAvg = fn:avg(SubAvg).
-    
+
     # NOTE: This requires TWO separate rules in Mangle:
     # Rule 1: Compute subcategory averages
     subcat_avg(Cat, SubCat, SubAvg) :-
       item(Cat, SubCat, Value)
       |> do fn:group_by(Cat, SubCat), let SubAvg = fn:avg(Value).
-    
+
     # Rule 2: Average the averages
     category_avg_of_averages(Cat, AvgOfAvg) :-
       subcat_avg(Cat, SubCat, SubAvg)
       |> do fn:group_by(Cat), let AvgOfAvg = fn:avg(SubAvg).
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/builtins/transform_functions/variable-scoping-rules"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipeline Reference: Variable Scoping Rules"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipeline Reference*
+
     ## Variable Scoping Rules
-    
+
     **Before Pipeline (`|>`):**
     - All variables in predicates are visible
     - Variables must be bound by predicates
-    
+
     **In Group By:**
     - Only variables from before pipeline can be used
     - These become grouping keys
-    
+
     **In Let Bindings:**
     - Can reference variables from group_by
     - Can reference variables being aggregated
     - Cannot reference other let-bound variables in same transform
-    
+
     **In Rule Head:**
     - Can use group_by variables
     - Can use let-bound variables
     - Cannot use aggregated variables directly
-    
+
     **Examples:**
-    
+
     ```mangle
     # ✓ CORRECT
     result(Cat, Sum) :-
       item(Cat, Val)          # Cat and Val bound here
       |> do fn:group_by(Cat), # Cat used in grouping
          let Sum = fn:sum(Val). # Val used in aggregation
-    
+
     # ✗ WRONG - X not bound before pipeline
     result(X, Sum) :-
       item(Val)
       |> do fn:group_by(X), let Sum = fn:sum(Val).
-    
+
     # ✗ WRONG - Can't use Val in head (it's aggregated away)
     result(Cat, Val, Sum) :-
       item(Cat, Val)
       |> do fn:group_by(Cat), let Sum = fn:sum(Val).
-    
+
     # ✓ CORRECT - Only Cat and Sum in head
     result(Cat, Sum) :-
       item(Cat, Val)
       |> do fn:group_by(Cat), let Sum = fn:sum(Val).
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/builtins/transform_functions/execution-model"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipeline Reference: Execution Model"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipeline Reference*
+
     ## Execution Model
-    
+
     1. **Base Query Evaluation:**
        - All predicates before `|>` are evaluated
        - Generates a set of variable bindings (rows)
-    
+
     2. **Grouping:**
        - Rows are partitioned by `fn:group_by` variables
        - Each unique combination of group_by values forms one group
-    
+
     3. **Aggregation:**
        - For each group, aggregation functions are evaluated
        - Each `let` binding computes an aggregation over the group
-    
+
     4. **Result Construction:**
        - One output row per group
        - Contains group_by variables + let-bound variables
-    
+
     **Example Execution:**
-    
+
     ```mangle
     # Input facts:
     value(/a, 1).
     value(/a, 2).
     value(/b, 3).
-    
+
     # Query:
     sum_per_category(Cat, Sum) :-
       value(Cat, Val)
       |> do fn:group_by(Cat), let Sum = fn:sum(Val).
-    
+
     # Step 1: Base query generates rows:
     # {Cat=/a, Val=1}
     # {Cat=/a, Val=2}
     # {Cat=/b, Val=3}
-    
+
     # Step 2: Group by Cat:
     # Group 1: {Cat=/a, Val=1}, {Cat=/a, Val=2}
     # Group 2: {Cat=/b, Val=3}
-    
+
     # Step 3: Aggregate each group:
     # Group 1: Sum = 1 + 2 = 3
     # Group 2: Sum = 3
-    
+
     # Step 4: Output:
     # sum_per_category(/a, 3).
     # sum_per_category(/b, 3).
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/builtins/transform_functions/comparison-with-sql"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipeline Reference: Comparison with SQL"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipeline Reference*
+
     ## Comparison with SQL
-    
+
     | Mangle | SQL | Notes |
     |--------|-----|-------|
     | `\|>` | - | Pipeline operator (no SQL equivalent) |
     | `do fn:group_by(X)` | `GROUP BY X` | Similar concept |
     | `let Sum = fn:sum(V)` | `SUM(V) AS Sum` | Aggregation |
     | Empty group_by | `SELECT SUM(...) FROM ...` | No GROUP BY = aggregate all |
-    
+
     **SQL Example:**
     ```sql
     SELECT Category, SUM(Amount) AS Total
     FROM Items
     GROUP BY Category
     ```
-    
+
     **Mangle Equivalent:**
     ```mangle
     Decl items(X, Y, Z).
@@ -401,19 +495,28 @@
       items(_, Category, Amount)
       |> do fn:group_by(Category), let Total = fn:sum(Amount).
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/builtins/transform_functions/limitations"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipeline Reference: Limitations"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipeline Reference*
+
     ## Limitations
-    
+
     ### No Nested Pipelines
+
     ```mangle
     # ✗ WRONG - Can't nest pipelines
     result(X) :-
       (inner(Y) |> do fn:group_by(), let Sum = fn:sum(Y))
       |> do fn:group_by(), let Count = fn:count().
     ```
-    
+
     **Solution:** Use multiple rules:
     ```mangle
     # ✓ CORRECT
@@ -426,10 +529,11 @@
       inner_sum(Sum)
       |> do fn:group_by(), let Count = fn:count().
     ```
-    
+
     ### No Having Clause
+
     Mangle doesn't have SQL's HAVING. Filter after aggregation using a second rule:
-    
+
     ```mangle
     # SQL: SELECT Cat, SUM(Val) AS Total FROM ... GROUP BY Cat HAVING SUM(Val) > 100
 
@@ -443,15 +547,16 @@
       category_sum(Cat, Total),
       :gt(Total, 100).
     ```
-    
+
     ### One Pipeline Per Rule
+
     ```mangle
     # ✗ WRONG - Multiple pipelines
     result(X, Y) :-
       data1(A) |> do fn:group_by(), let X = fn:sum(A),
       data2(B) |> do fn:group_by(), let Y = fn:sum(B).
     ```
-    
+
     **Solution:** Use separate rules:
     ```mangle
     # ✓ CORRECT
@@ -461,34 +566,52 @@
     sum2(Y) :- data2(B) |> do fn:group_by(), let Y = fn:sum(B).
     result(X, Y) :- sum1(X), sum2(Y).
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/builtins/transform_functions/mangle-transform-pipeline-reference"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipeline Reference: Mangle Transform Pipeline Reference Performance Considerations"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipeline Reference*
+
     ## Performance Considerations
-    
+
     - Grouping is efficient (hash-based)
     - Multiple aggregations in one pipeline are cheaper than separate queries
     - Large groups (many rows per group) can be memory-intensive
     - `fn:collect` and `fn:collect_distinct` hold every value of the group in memory
-    
+
     **Optimization Tips:**
     1. Filter before the pipeline (reduce input rows)
     2. Combine multiple aggregations in one pipeline
     3. Use `fn:count` instead of `fn:collect` + `fn:list:len` when possible
-    
-    ---
-    
+
+- id: "language/mangle/docs/builtins/transform_functions/mangle-transform-pipeline-reference-common"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipeline Reference: Mangle Transform Pipeline Reference Common Patterns"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipeline Reference*
+
     ## Common Patterns
-    
+
     ### Count Per Group
+
     ```mangle
     Decl item(X, Y).
     count_by_category(Cat, Count) :-
       item(Cat, _)
       |> do fn:group_by(Cat), let Count = fn:count().
     ```
-    
+
     ### Top N Per Group
+
     ```mangle
     # Find max score per player
     Decl score(Player, Points).
@@ -496,16 +619,18 @@
       score(Player, Points)
       |> do fn:group_by(Player), let MaxScore = fn:max(Points).
     ```
-    
+
     ### Distinct Count
+
     ```mangle
     distinct_values(Cat, Count) :-
       item(Cat, Val)
       |> do fn:group_by(Cat), let Distinct = fn:collect_distinct(Val),
       Count = fn:list:len(Distinct).
     ```
-    
+
     ### Percentage Calculation
+
     ```mangle
     # Part 1: Category totals
     Decl item(Cat, Amount).
@@ -524,23 +649,29 @@
       grand_total(GTotal),
       Pct = fn:float:div(fn:float:mult(Total, 100.0), GTotal).
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/builtins/transform_functions/error-messages"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Transform Pipeline Reference: Error Messages"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Transform Pipeline Reference*
+
     ## Error Messages
-    
+
     Common errors and what they mean:
-    
+
     - **"reducer function outside of transform"**: Trying to use `fn:sum`, `fn:count`, etc. without `|> do`
     - **"variable not bound in group_by"**: Using a variable in `let` that isn't in group_by or being aggregated
     - **"group_by variable not bound"**: Grouping by a variable that doesn't appear before `|>`
-    
-    ---
-    
+
     ## Summary Checklist
-    
+
     When writing transform pipelines, ensure:
-    
+
     - [ ] All predicates come before `|>`
     - [ ] Pipeline starts with `|> do fn:group_by(...)`
     - [ ] Group variables are bound before pipeline

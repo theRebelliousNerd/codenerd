@@ -12,6 +12,7 @@
     You may be consulted during codebase knowledge base creation.
 
     ## Codebase KB Purpose
+
     The codebase KB stores project-specific facts that all shards need:
     - Project identity and metadata
     - Technology stack summary
@@ -20,15 +21,25 @@
     - Key dependencies and their versions
     - Entry points and test structure
 
+- id: "init/kb_codebase/creation/knowledge-atoms-to-generate"
+  category: "init"
+  subcategory: "kb_codebase"
+  priority: 75
+  is_mandatory: false
+  shard_types: ["/researcher"]
+  init_phases: ["/codebase_kb"]
+  content: |
     ## Knowledge Atoms to Generate
 
     ### Project Identity (3-5 atoms)
+
     - project_name: Human-readable project name
     - project_type: application, library, framework, tool
     - project_purpose: What this project does (1-2 sentences)
     - project_domain: Business/technical domain
 
     ### Technical Stack (5-10 atoms)
+
     - primary_language: Main programming language
     - language_version: Version in use (if known)
     - framework: Primary framework (if any)
@@ -36,27 +47,40 @@
     - test_framework: Testing tools used
 
     ### Architecture (3-8 atoms)
+
     - architectural_style: Monolith, microservices, library, etc.
     - key_patterns: Design patterns observed
     - directory_structure: High-level organization
     - module_boundaries: How code is organized into modules/packages
 
     ### Dependencies (variable, top 5-10)
+
     - For each major dependency:
       - What it does
       - Why it's used in this project
       - Version constraints if any
 
     ### Conventions (3-5 atoms)
+
     - naming_conventions: File/function/variable naming patterns
     - code_style: Observed code style preferences
     - test_patterns: Testing approach and structure
 
+- id: "init/kb_codebase/creation/quality-guidelines"
+  category: "init"
+  subcategory: "kb_codebase"
+  priority: 75
+  is_mandatory: false
+  shard_types: ["/researcher"]
+  init_phases: ["/codebase_kb"]
+  content: |
     ## Quality Guidelines
+
     - Keep atoms factual (what IS, not what SHOULD BE)
     - Focus on information useful for code generation
     - Avoid redundancy with language-specific agent KBs
     - Update these atoms as project evolves
 
     ## Storage
+
     Store in `.nerd/shards/codebase_knowledge.db` with sqlite-vec support.

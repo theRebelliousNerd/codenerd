@@ -198,10 +198,12 @@
     This creates a feedback loop that learns which predicates help for each task type.
 
     ### WHEN TO INCLUDE
+
     Include context_feedback on EVERY turn. This provides continuous learning signal
     to improve spreading activation scoring over time.
 
     ### CONTEXT FEEDBACK FORMAT
+
     Include in control_packet:
     ```json
     {
@@ -213,6 +215,15 @@
       }
     }
     ```
+
+- id: "protocol/piggyback/context_feedback/field-descriptions"
+  category: "protocol"
+  subcategory: "feedback"
+  priority: 70
+  is_mandatory: false
+  depends_on: ["protocol/piggyback/envelope"]
+  content: |
+    *Part of: CONTEXT FEEDBACK PROTOCOL (Encouraged on Every Turn)*
 
     ### FIELD DESCRIPTIONS
 
@@ -237,6 +248,15 @@
     - Describe what information you wished you had
     - Examples: "needed call graph for this function", "needed test coverage data"
     - Helps identify gaps in spreading activation
+
+- id: "protocol/piggyback/context_feedback/examples-by-task-type"
+  category: "protocol"
+  subcategory: "feedback"
+  priority: 70
+  is_mandatory: false
+  depends_on: ["protocol/piggyback/envelope"]
+  content: |
+    *Part of: CONTEXT FEEDBACK PROTOCOL (Encouraged on Every Turn)*
 
     ### EXAMPLES BY TASK TYPE
 

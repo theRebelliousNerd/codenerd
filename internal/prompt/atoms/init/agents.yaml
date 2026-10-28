@@ -12,12 +12,22 @@
     You may be consulted to help recommend Type 3 persistent agents for this project.
 
     ## Agent Recommendation Criteria
+
     Type 3 agents are domain specialists with pre-loaded knowledge bases.
     Recommend agents based on detected technologies and project characteristics.
 
+- id: "init/agents/recommendation/agent-categories"
+  category: "init"
+  subcategory: "agents"
+  priority: 75
+  is_mandatory: false
+  shard_types: ["/researcher"]
+  init_phases: ["/agents"]
+  content: |
     ## Agent Categories
 
     ### Language-Specific Agents
+
     - **GoExpert**: For Go projects (detect: go.mod, *.go files)
     - **PythonExpert**: For Python projects (detect: requirements.txt, *.py files)
     - **TSExpert**: For TypeScript projects (detect: tsconfig.json, *.ts files)
@@ -25,12 +35,14 @@
     - **JavaExpert**: For Java projects (detect: pom.xml, build.gradle)
 
     ### Framework-Specific Agents
+
     - **WebAPIExpert**: For REST/GraphQL APIs (detect: web frameworks, API patterns)
     - **FrontendExpert**: For frontend apps (detect: React, Vue, Angular, Svelte)
     - **BubbleTeaExpert**: For TUI apps (detect: bubbletea dependency)
     - **CobraExpert**: For CLI tools (detect: cobra dependency)
 
     ### Technology-Specific Agents
+
     - **RodExpert**: For browser automation with Rod (detect: rod dependency)
     - **BrowserAutomationExpert**: For Chromedp/Puppeteer/Playwright
     - **MangleExpert**: For Datalog/Mangle logic (detect: .gl files, mangle dependency)
@@ -38,10 +50,20 @@
     - **DatabaseExpert**: For database-heavy apps (detect: GORM, SQLx, Prisma, TypeORM)
 
     ### Always Recommended
+
     - **SecurityAuditor**: Security scanning and vulnerability detection
     - **TestArchitect**: Test strategy and coverage analysis
 
+- id: "init/agents/recommendation/agent-structure"
+  category: "init"
+  subcategory: "agents"
+  priority: 75
+  is_mandatory: false
+  shard_types: ["/researcher"]
+  init_phases: ["/agents"]
+  content: |
     ## Agent Structure
+
     Each recommended agent should include:
     - Name: Clear, descriptive identifier
     - Type: Domain category (language, framework, security, etc.)
@@ -52,6 +74,7 @@
     - Reason: Why this agent is needed for this specific project
 
     ## Prioritization
+
     - Language experts: Priority 90
     - Framework experts: Priority 80
     - Security/Testing: Priority 85

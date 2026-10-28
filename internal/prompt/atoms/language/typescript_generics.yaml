@@ -169,6 +169,7 @@
     ## UTILITY TYPES
 
     ### Object Transformations
+
     ```typescript
     interface User { name: string; age: number; email: string; }
 
@@ -195,8 +196,30 @@
     type NoEmail = Omit<User, "email">;
     // { name: string; age: number }
     ```
+  content_concise: |
+    ## Utility Types
+    - `Partial<T>`: All optional
+    - `Required<T>`: All required
+    - `Readonly<T>`: All readonly
+    - `Pick<T, K>`: Select keys
+    - `Omit<T, K>`: Exclude keys
+    - `Record<K, V>`: Object with K keys, V values
+    - `Exclude<T, U>`: Remove from union
+    - `ReturnType<F>`: Function return type
+    - `Parameters<F>`: Function params as tuple
+
+- id: "language/typescript/generics/utility_types/record-type"
+  category: "language"
+  subcategory: "typescript"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    *Part of: UTILITY TYPES*
 
     ### Record Type
+
     ```typescript
     // Create object type with specific keys and value type
     type StringMap = Record<string, number>;
@@ -211,6 +234,7 @@
     ```
 
     ### Union Manipulations
+
     ```typescript
     // Exclude - remove types from union
     type NoString = Exclude<string | number | boolean, string>;
@@ -225,7 +249,18 @@
     // string
     ```
 
+- id: "language/typescript/generics/utility_types/function-types"
+  category: "language"
+  subcategory: "typescript"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    *Part of: UTILITY TYPES*
+
     ### Function Types
+
     ```typescript
     type Fn = (a: string, b: number) => boolean;
 
@@ -250,6 +285,7 @@
     ```
 
     ### Awaited Type
+
     ```typescript
     // Unwrap Promise type (recursive)
     type Awaited<T> = T extends Promise<infer U> ? Awaited<U> : T;
@@ -257,15 +293,3 @@
     type A = Awaited<Promise<string>>;           // string
     type B = Awaited<Promise<Promise<number>>>; // number
     ```
-
-  content_concise: |
-    ## Utility Types
-    - `Partial<T>`: All optional
-    - `Required<T>`: All required
-    - `Readonly<T>`: All readonly
-    - `Pick<T, K>`: Select keys
-    - `Omit<T, K>`: Exclude keys
-    - `Record<K, V>`: Object with K keys, V values
-    - `Exclude<T, U>`: Remove from union
-    - `ReturnType<F>`: Function return type
-    - `Parameters<F>`: Function params as tuple

@@ -10,19 +10,30 @@
   languages: ["/mangle"]
   content: |
     # Default Values Patterns
-    
+
     ## Problem Description
-    
+
     Handling missing data and providing defaults is critical for robust queries. Common needs:
     - Provide default when data is missing
     - Fill gaps with fallback values
     - Cascade through multiple sources
     - Handle optional attributes
     - NULL coalescing
-    
+
+- id: "language/mangle/docs/patterns/default_values/core-pattern-basic-default"
+  category: "language"
+  subcategory: "mangle"
+  description: "Default Values Patterns: Core Pattern: Basic Default"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Default Values Patterns*
+
     ## Core Pattern: Basic Default
-    
+
     ### Template
+
     ```mangle
     # Use actual value if it exists
     Decl has_data(X).
@@ -37,8 +48,9 @@
       !has_data(X),
       DefaultValue = "default".
     ```
-    
+
     ### Complete Working Example
+
     ```mangle
     # Schema
     Decl has_email(UserId).
@@ -70,13 +82,25 @@
     # user_email("u2", "no-email@example.com")  # Default
     # user_email("u3", "u3@example.com")
     ```
-    
+
+- id: "language/mangle/docs/patterns/default_values/variation-1-cascading-defaults-coalesce"
+  category: "language"
+  subcategory: "mangle"
+  description: "Default Values Patterns: Variation 1: Cascading Defaults (Coalesce)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Default Values Patterns*
+
     ## Variation 1: Cascading Defaults (Coalesce)
-    
+
     ### Problem
+
     Try multiple sources in priority order, use first available.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl has_primary_value(Id).
@@ -114,36 +138,59 @@
       !has_secondary_value(Id),
       !has_tertiary_value(Id).
     ```
-    
+
+- id: "language/mangle/docs/patterns/default_values/variation-1-cascading-defaults-coalesce-2"
+  category: "language"
+  subcategory: "mangle"
+  description: "Default Values Patterns: Variation 1: Cascading Defaults (Coalesce) Example"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Default Values Patterns > Variation 1: Cascading Defaults (Coalesce)*
+
     ### Example
+
     ```mangle
     entity("e1").
     entity("e2").
     entity("e3").
     entity("e4").
-    
+
     primary_value("e1", "primary1").
     secondary_value("e1", "secondary1").  # Ignored - primary exists
-    
+
     secondary_value("e2", "secondary2").  # No primary
-    
+
     tertiary_value("e3", "tertiary3").    # No primary or secondary
-    
+
     # e4 has nothing - will get default
-    
+
     # Results:
     # final_value("e1", "primary1")
     # final_value("e2", "secondary2")
     # final_value("e3", "tertiary3")
     # final_value("e4", "DEFAULT")
     ```
-    
+
+- id: "language/mangle/docs/patterns/default_values/variation-2-numeric-defaults-zero-fill"
+  category: "language"
+  subcategory: "mangle"
+  description: "Default Values Patterns: Variation 2: Numeric Defaults (Zero-Fill)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Default Values Patterns*
+
     ## Variation 2: Numeric Defaults (Zero-Fill)
-    
+
     ### Problem
+
     Replace missing numeric values with zero.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl has_purchase(UserId).
@@ -163,29 +210,42 @@
       user(UserId),
       !has_purchase(UserId).
     ```
-    
+
     ### Example
+
     ```mangle
     user("u1").
     user("u2").
     user("u3").
-    
+
     purchase("u1", 100).
     purchase("u1", 200).
     purchase("u3", 50).
-    
+
     # Results:
     # user_total("u1", 300)
     # user_total("u2", 0)    # Default
     # user_total("u3", 50)
     ```
-    
+
+- id: "language/mangle/docs/patterns/default_values/variation-3-inherited-defaults-hierarchy"
+  category: "language"
+  subcategory: "mangle"
+  description: "Default Values Patterns: Variation 3: Inherited Defaults (Hierarchy)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Default Values Patterns*
+
     ## Variation 3: Inherited Defaults (Hierarchy)
-    
+
     ### Problem
+
     Use parent's value if child doesn't have one.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl has_own_value(Child).
@@ -213,35 +273,58 @@
       !has_own_value(Id),
       !has_parent(Id).
     ```
-    
+
+- id: "language/mangle/docs/patterns/default_values/variation-3-inherited-defaults-hierarchy-2"
+  category: "language"
+  subcategory: "mangle"
+  description: "Default Values Patterns: Variation 3: Inherited Defaults (Hierarchy) Example"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Default Values Patterns > Variation 3: Inherited Defaults (Hierarchy)*
+
     ### Example
+
     ```mangle
     node("root").
     node("child1").
     node("child2").
     node("grandchild").
-    
+
     parent("child1", "root").
     parent("child2", "root").
     parent("grandchild", "child1").
-    
+
     own_value("root", "root_value").
     own_value("child2", "child2_value").
     # child1 and grandchild have no own values
-    
+
     # Results:
     # effective_value("root", "root_value")
     # effective_value("child1", "root_value")      # Inherited from root
     # effective_value("child2", "child2_value")    # Own value
     # effective_value("grandchild", "root_value")  # Inherited through child1
     ```
-    
+
+- id: "language/mangle/docs/patterns/default_values/variation-4-conditional-defaults"
+  category: "language"
+  subcategory: "mangle"
+  description: "Default Values Patterns: Variation 4: Conditional Defaults"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Default Values Patterns*
+
     ## Variation 4: Conditional Defaults
-    
+
     ### Problem
+
     Use different defaults based on other attributes.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl has_custom_setting(UserId).
@@ -268,29 +351,42 @@
       Country != "EU",
       !has_custom_setting(UserId).
     ```
-    
+
     ### Example
+
     ```mangle
     user("u1", "USA").
     user("u2", "EU").
     user("u3", "Japan").
     user("u4", "USA").
-    
+
     custom_setting("u1", "CUSTOM1").
-    
+
     # Results:
     # effective_setting("u1", "CUSTOM1")        # Custom
     # effective_setting("u2", "EU_DEFAULT")     # EU default
     # effective_setting("u3", "GLOBAL_DEFAULT") # Global default
     # effective_setting("u4", "US_DEFAULT")     # US default
     ```
-    
+
+- id: "language/mangle/docs/patterns/default_values/variation-5-range-defaults-fill-missing"
+  category: "language"
+  subcategory: "mangle"
+  description: "Default Values Patterns: Variation 5: Range Defaults (Fill Missing Numbers)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Default Values Patterns*
+
     ## Variation 5: Range Defaults (Fill Missing Numbers)
-    
+
     ### Problem
+
     Fill missing values in a numeric sequence.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl has_actual_value(N).
@@ -307,19 +403,20 @@
       expected_sequence(N),
       !has_actual_value(N).
     ```
-    
+
     ### Example
+
     ```mangle
     expected_sequence(1).
     expected_sequence(2).
     expected_sequence(3).
     expected_sequence(4).
     expected_sequence(5).
-    
+
     actual_value(1, "first").
     actual_value(3, "third").
     actual_value(5, "fifth").
-    
+
     # Results:
     # complete_sequence(1, "first")
     # complete_sequence(2, "MISSING")
@@ -327,13 +424,25 @@
     # complete_sequence(4, "MISSING")
     # complete_sequence(5, "fifth")
     ```
-    
+
+- id: "language/mangle/docs/patterns/default_values/variation-6-interpolation-forward-fill"
+  category: "language"
+  subcategory: "mangle"
+  description: "Default Values Patterns: Variation 6: Interpolation (Forward Fill)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Default Values Patterns*
+
     ## Variation 6: Interpolation (Forward Fill)
-    
+
     ### Problem
+
     Use last known value for missing entries.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl time_point(T) bound [/number].
@@ -362,21 +471,22 @@
       latest_prior(T, MaxPrevT),
       measurement(MaxPrevT, Value).
     ```
-    
+
     ### Example
+
     ```mangle
     time_point(1).
     time_point(2).
     time_point(3).
     time_point(4).
     time_point(5).
-    
+
     measurement(1, 100).
     # 2 missing
     measurement(3, 150).
     # 4 missing
     measurement(5, 200).
-    
+
     # Results:
     # filled_value(1, 100)
     # filled_value(2, 100)  # Forward fill from 1
@@ -384,32 +494,44 @@
     # filled_value(4, 150)  # Forward fill from 3
     # filled_value(5, 200)
     ```
-    
+
+- id: "language/mangle/docs/patterns/default_values/variation-7-aggregate-based-defaults"
+  category: "language"
+  subcategory: "mangle"
+  description: "Default Values Patterns: Variation 7: Aggregate-Based Defaults"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Default Values Patterns*
+
     ## Variation 7: Aggregate-Based Defaults
-    
+
     ### Problem
+
     Use aggregate statistic (mean, median, mode) as default.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl item(Id, Category) bound [/string, /string].
     Decl actual_price(Id, Price) bound [/string, /number].
     Decl category_avg_price(Category, AvgPrice) bound [/string, /float64].
     Decl effective_price(Id, Price) bound [/string, /float64].
-    
+
     # Calculate average price per category
     category_avg_price(Category, AvgPrice) :-
       item(ItemId, Category),
       actual_price(ItemId, Price)
       |> do fn:group_by(Category),
          let AvgPrice = fn:avg(Price).
-    
+
     # Use actual price if exists
     effective_price(Id, Price) :-
       actual_price(Id, IntPrice),
       Price = fn:to_float(IntPrice).
-    
+
     # Use category average as default
     has_actual_price(Id) :- actual_price(Id, P).
 
@@ -418,30 +540,43 @@
       !has_actual_price(Id),
       category_avg_price(Category, AvgPrice).
     ```
-    
+
     ### Example
+
     ```mangle
     item("i1", "electronics").
     item("i2", "electronics").
     item("i3", "electronics").
-    
+
     actual_price("i1", 1000).
     actual_price("i3", 2000).
     # i2 missing - will use average of i1 and i3
-    
+
     # Results:
     # category_avg_price("electronics", 1500.0)
     # effective_price("i1", 1000.0)
     # effective_price("i2", 1500.0)  # Average
     # effective_price("i3", 2000.0)
     ```
-    
+
+- id: "language/mangle/docs/patterns/default_values/variation-8-multi-attribute-defaults"
+  category: "language"
+  subcategory: "mangle"
+  description: "Default Values Patterns: Variation 8: Multi-Attribute Defaults"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Default Values Patterns*
+
     ## Variation 8: Multi-Attribute Defaults
-    
+
     ### Problem
+
     Provide defaults for multiple optional attributes.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl has_user_name(UserId).
@@ -469,6 +604,19 @@
     has_user_phone(UserId) :- user_phone(UserId, _).
     phone_or_default(UserId, "no-phone") :- user(UserId), !has_user_phone(UserId).
 
+    ```
+
+- id: "language/mangle/docs/patterns/default_values/solution-example"
+  category: "language"
+  subcategory: "mangle"
+  description: "Default Values Patterns: Solution Example"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Default Values Patterns > Variation 8: Multi-Attribute Defaults > Solution*
+
+    ```mangle
     # Build complete profile
     user_profile(UserId, Name, Email, Phone) :-
       user(UserId),
@@ -476,30 +624,43 @@
       email_or_default(UserId, Email),
       phone_or_default(UserId, Phone).
     ```
-    
+
     ### Example
+
     ```mangle
     user("u1").
     user("u2").
-    
+
     user_name("u1", "Alice").
     user_email("u1", "alice@example.com").
     # u1 missing phone
-    
+
     user_email("u2", "bob@example.com").
     # u2 missing name and phone
-    
+
     # Results:
     # user_profile("u1", "Alice", "alice@example.com", "no-phone")
     # user_profile("u2", "Anonymous", "bob@example.com", "no-phone")
     ```
-    
+
+- id: "language/mangle/docs/patterns/default_values/variation-9-computed-defaults"
+  category: "language"
+  subcategory: "mangle"
+  description: "Default Values Patterns: Variation 9: Computed Defaults"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Default Values Patterns*
+
     ## Variation 9: Computed Defaults
-    
+
     ### Problem
+
     Calculate default value based on other data.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl has_custom_discount(Id).
@@ -522,39 +683,52 @@
       !has_custom_discount(Id),
       BasePrice <= 1000.
     ```
-    
+
     ### Example
+
     ```mangle
     item("i1", 1500).
     item("i2", 500).
     item("i3", 2000).
-    
+
     custom_discount("i1", 0.15).
-    
+
     # Results:
     # effective_discount("i1", 0.15)  # Custom
     # effective_discount("i2", 0.05)  # Computed (<=1000)
     # effective_discount("i3", 0.10)  # Computed (>1000)
     ```
-    
+
+- id: "language/mangle/docs/patterns/default_values/variation-10-time-based-defaults"
+  category: "language"
+  subcategory: "mangle"
+  description: "Default Values Patterns: Variation 10: Time-Based Defaults"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Default Values Patterns*
+
     ## Variation 10: Time-Based Defaults
-    
+
     ### Problem
+
     Use time-dependent defaults (expire and fallback).
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl setting(Key, Value, ExpiresAt) bound [/string, /string, /number].
     Decl current_time(T) bound [/number].
     Decl effective_setting(Key, Value) bound [/string, /string].
-    
+
     # Use setting if not expired
     effective_setting(Key, Value) :-
       setting(Key, Value, ExpiresAt),
       current_time(Now),
       Now < ExpiresAt.
-    
+
     # Use default if expired or not set. Defaulting needs the key domain:
     # a key with no live setting can only be named if it is known from
     # somewhere — here, from any setting row, expired or not. (A key that
@@ -569,45 +743,59 @@
       setting(Key, OldValue, OldExpiry),
       !has_live_setting(Key).
     ```
-    
+
     ### Example
+
     ```mangle
     current_time(1000).
-    
+
     setting("key1", "active_value", 2000).  # Not expired
     setting("key2", "expired_value", 500).  # Expired
     # key3 not set
-    
+
     # Results:
     # effective_setting("key1", "active_value")
     # effective_setting("key2", "DEFAULT_VALUE")  # Expired
     # effective_setting("key3", "DEFAULT_VALUE")  # Not set
     ```
-    
+
+- id: "language/mangle/docs/patterns/default_values/anti-patterns"
+  category: "language"
+  subcategory: "mangle"
+  description: "Default Values Patterns: Anti-Patterns"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Default Values Patterns*
+
     ## Anti-Patterns
-    
+
     ### WRONG: Overlapping Rules (Ambiguous Defaults)
+
     ```mangle
     # Bad - both rules can match!
     has_data(X) :- data(X, V).
     result(X, "default1") :- entity(X), !has_data(X).
     result(X, "default2") :- entity(X), !has_data(X).
-    
+
     # Result: Both facts are derived! Confusing.
     # Fix: Use mutually exclusive conditions
     ```
-    
+
     ### WRONG: Infinite Default Chain
+
     ```mangle
     # Bad - circular dependency
     has_primary(X) :- primary(X, V).
     value(X, V) :- primary(X, V).
     value(X, V) :- candidate(X), !has_primary(X), value(X, V).  # Circular!
-    
+
     # Fix: Break the cycle with explicit base case
     ```
-    
+
     ### WRONG: Ignoring Stratification
+
     ```mangle
     # Bad - negation of the predicate being defined (and X unbound)
     has_result(X) :- result(X, V).
@@ -622,23 +810,34 @@
     result(X, V) :- actual(X, V).
     result(X, "default") :- candidate(X), !has_actual(X).
     ```
-    
+
+- id: "language/mangle/docs/patterns/default_values/default-values-patterns-performance-tips"
+  category: "language"
+  subcategory: "mangle"
+  description: "Default Values Patterns: Default Values Patterns Performance Tips"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Default Values Patterns*
+
     ## Performance Tips
-    
+
     1. **Materialize Defaults**: Pre-compute default values if reused
     2. **Stratify Properly**: Compute actuals before defaults
     3. **Avoid Redundant Checks**: Use mutually exclusive rules
     4. **Index Lookups**: Index predicates used in negation checks
-    
+
     ## Common Use Cases in codeNERD
-    
+
     ### Configuration Defaults
+
     ```mangle
     Decl config_key(Key) bound [/string].
     Decl user_config(UserId, Key, Value) bound [/string, /string, /string].
     Decl system_default(Key, Value) bound [/string, /string].
     Decl effective_config(UserId, Key, Value) bound [/string, /string, /string].
-    
+
     effective_config(UserId, Key, Value) :- user_config(UserId, Key, Value).
     Decl user(UserId) bound [/string].
     Decl has_user_config(UserId, Key) bound [/string, /string].
@@ -650,20 +849,32 @@
       !has_user_config(UserId, Key),
       system_default(Key, Value).
     ```
-    
+
+- id: "language/mangle/docs/patterns/default_values/test-timeout-defaults"
+  category: "language"
+  subcategory: "mangle"
+  description: "Default Values Patterns: Test Timeout Defaults"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Default Values Patterns > Common Use Cases in codeNERD*
+
     ### Test Timeout Defaults
+
     ```mangle
     Decl test(TestId, Suite) bound [/string, /string].
     Decl custom_timeout(TestId, TimeoutMs) bound [/string, /number].
     Decl effective_timeout(TestId, TimeoutMs) bound [/string, /number].
-    
+
     effective_timeout(TestId, TimeoutMs) :- custom_timeout(TestId, TimeoutMs).
     Decl has_custom_timeout(TestId) bound [/string].
     has_custom_timeout(TestId) :- custom_timeout(TestId, TimeoutMs).
     effective_timeout(TestId, 5000) :- test(TestId, _), !has_custom_timeout(TestId).
     ```
-    
+
     ### File Metadata Defaults
+
     ```mangle
     Decl has_file_encoding(Path).
     Decl file(Path) bound [/string].

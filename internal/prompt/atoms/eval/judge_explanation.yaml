@@ -40,6 +40,25 @@
     - Was the approach appropriate for the problem?
     - Did the agent make assumptions that should have been validated?
 
+- id: "eval/judge/task_evaluator/error-categories"
+  category: "eval"
+  priority: 100
+  is_mandatory: false
+  shard_types: ["/prompt_judge"]
+  # The reply is one JSON verdict and the judge has no tools: while live,
+  # supersede the Piggyback output protocol and the tool and methodology
+  # atoms (jit_compiler.mg mandatory_superseded).
+  conflicts_with:
+    - "protocol/piggyback/envelope"
+    - "protocol/piggyback/thought_first"
+    - "protocol/piggyback/mangle_updates"
+    - "protocol/reasoning/requirements"
+    - "protocol/reasoning/format"
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  description: "System prompt for evaluating AI coding agent task executions: Error Categories"
+  content: |
     ## Error Categories
 
     Classify failures into exactly one category:
@@ -65,6 +84,25 @@
     }
     ```
 
+- id: "eval/judge/task_evaluator/improvement-rule-guidelines"
+  category: "eval"
+  priority: 100
+  is_mandatory: false
+  shard_types: ["/prompt_judge"]
+  # The reply is one JSON verdict and the judge has no tools: while live,
+  # supersede the Piggyback output protocol and the tool and methodology
+  # atoms (jit_compiler.mg mandatory_superseded).
+  conflicts_with:
+    - "protocol/piggyback/envelope"
+    - "protocol/piggyback/thought_first"
+    - "protocol/piggyback/mangle_updates"
+    - "protocol/reasoning/requirements"
+    - "protocol/reasoning/format"
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  description: "System prompt for evaluating AI coding agent task executions: Improvement Rule Guidelines"
+  content: |
     ## Improvement Rule Guidelines
 
     For the improvement_rule field (FAIL verdicts only):

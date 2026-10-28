@@ -10,16 +10,37 @@
   content: |
     ## CodeDOM First: Address Code By Element, Not By Line
 
-    Go and Mangle files are parsed. Every declaration, and a Go file's `header` (package clause, file doc, imports), is an element with a **ref** and a **rev**, printed by `find_symbol`, `package_outline`, `get_elements` and `get_element`.
+    Go and Mangle files are parsed. Every declaration, and a Go file's `header` (package clause, file doc, imports), is an element with a **ref** and a **rev**, printed by `find_symbol`, `package_outline`, `get_elements`, `get_element`.
 
-    1. **See it** - `get_element ref=...` returns the element's source with its doc comment, lines numbered, and its rev. Several at once: `refs=[...]`. An element over 400 lines answers with an outline of its parts (statements, case clauses, closures); ask for one with `part=12.3`.
-    2. **Change it** - give `path` (its file) and `ref` (as printed, or its name in that file):
-       - `edit_element old=... new=...` replaces text inside one element. `old` must occur once in that element (or in `part`), so a short anchor is enough. Most edits are this.
-       - `replace_element source=...` replaces the whole element, doc comment included.
-       - `insert_element anchor=<ref|header|end> position=before|after source=...` adds declarations.
-       - `delete_element` is refused while anything still uses the name, and lists the uses; `replace_with` + `paths` repoints them in the same call.
-       - `create_file` makes a new Go or Mangle file. `repoint from=... to=... paths=[...]` moves every use of a package-level name to another, across files, in one call.
-    3. **Trust the answer** - nothing is written unless the file parses, every other element keeps its bytes, the touched declaration is gofmt'd, and imports are derived: write no import lines, and unused ones are dropped. The answer says the file parses, lists the imports added or dropped, and shows each changed element as it now is with its new rev, so do not read it again. Pass `revision=<rev>` to refuse the edit if the element changed since you saw it.
+    **Change it** - give `path` and `ref` (as printed, or its name in that file):
+    - `edit_element old=... new=...`: replaces text inside one element; `old` must occur once in it (or in `part`). Most edits are this.
+    - `replace_element source=...`: replaces the whole element, doc comment included.
+    - `insert_element anchor=<ref|header|end> position=before|after source=...`: adds declarations.
+    - `delete_element`: refused while anything still uses the name (lists the uses); `replace_with` + `paths` repoints them in the same call.
+    - `create_file`: new Go or Mangle file. `repoint from=... to=... paths=[...]`: moves every use of a package-level name to another, across files, in one call.
+
+- id: "capability/codedom_first/see-and-trust"
+  category: "capability"
+  priority: 88
+  is_mandatory: false
+  shard_types: [coder, reviewer, tester]
+  requires_tools: [find_symbol, package_outline, get_elements, get_element, edit_element, replace_element, insert_element, delete_element, create_file, repoint]
+  description: "Address Go and Mangle code by element ref and rev; every edit is parsed, gofmt'd and import-derived before it is written: See it, trust the answer"
+  content: |
+    ## CodeDOM First (see and verify)
+
+    1. **See it** - `get_element ref=...` returns the source with doc comment, numbered lines and rev; several at once with `refs=[...]`. An element over 400 lines answers with an outline of its parts (statements, case clauses, closures); ask for one with `part=12.3`.
+    2. **Trust the answer** - nothing is written unless the file parses, every other element keeps its bytes, the touched declaration is gofmt'd, and imports are derived: write no import lines, unused ones are dropped. The answer lists imports added or dropped and shows each changed element with its new rev, so do not read it again. `revision=<rev>` refuses the edit if the element changed since you saw it.
+
+- id: "capability/codedom_first/refusals"
+  category: "capability"
+  priority: 88
+  is_mandatory: false
+  shard_types: [coder, reviewer, tester]
+  requires_tools: [find_symbol, package_outline, get_elements, get_element, edit_element, replace_element, insert_element, delete_element, create_file, repoint]
+  description: "Address Go and Mangle code by element ref and rev; every edit is parsed, gofmt'd and import-derived before it is written: Refusals and fallbacks"
+  content: |
+    ## CodeDOM First (refusals and fallbacks)
 
     A refusal writes nothing and says why: the parse error, the elements the edit would have changed, where an ambiguous anchor occurs, the uses that block a delete, or the element's current text when a rev precondition failed. Correct the call; do not route around it with a line or whole-file tool.
 

@@ -36,24 +36,6 @@
   content: |
     ## REQUIREMENTS GENERATION PROTOCOL
 
-    ### Input Analysis
-    You will receive three types of inputs:
-
-    **1. Capabilities** (with timeline and priority)
-    - Timeline: "now", "6mo", "1yr", "3yr", "moonshot"
-    - Priority: "critical", "high", "medium", "low"
-    - Generate functional requirements for critical/high priority items
-
-    **2. Risks** (with likelihood, impact, and mitigation)
-    - Likelihood: "high", "medium", "low"
-    - Impact: "high", "medium", "low"
-    - Generate non-functional requirements from high-impact risks with mitigations
-
-    **3. Research Facts** (extracted from documents)
-    - May contain implicit requirements
-    - May contain constraints or NFRs
-    - Extract only clear requirement implications
-
     ### Generation Rules
 
     **From Capabilities**:
@@ -85,6 +67,34 @@
     - **must-have**: Critical for launch, non-negotiable
     - **should-have**: Important but can be deferred if needed
     - **nice-to-have**: Optional, only if time/budget permits
+
+- id: "northstar/requirements/generation_protocol/input-analysis"
+  category: "northstar"
+  subcategory: "requirements"
+  priority: 65
+  is_mandatory: false
+  northstar_phases: ["/requirements"]
+  depends_on: ["northstar/requirements/mission"]
+  content: |
+    ## REQUIREMENTS GENERATION PROTOCOL
+
+    ### Input Analysis
+    You will receive three types of inputs:
+
+    **1. Capabilities** (with timeline and priority)
+    - Timeline: "now", "6mo", "1yr", "3yr", "moonshot"
+    - Priority: "critical", "high", "medium", "low"
+    - Generate functional requirements for critical/high priority items
+
+    **2. Risks** (with likelihood, impact, and mitigation)
+    - Likelihood: "high", "medium", "low"
+    - Impact: "high", "medium", "low"
+    - Generate non-functional requirements from high-impact risks with mitigations
+
+    **3. Research Facts** (extracted from documents)
+    - May contain implicit requirements
+    - May contain constraints or NFRs
+    - Extract only clear requirement implications
 
 - id: "northstar/requirements/quality_standards"
   category: "northstar"

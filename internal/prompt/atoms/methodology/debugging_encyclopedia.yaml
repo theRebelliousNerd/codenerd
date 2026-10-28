@@ -12,6 +12,7 @@
     ## SCIENTIFIC DEBUGGING METHOD
 
     ### The Hypothesis-Driven Approach
+
     Debugging is not guessing—it's systematic investigation:
 
     ```
@@ -39,8 +40,25 @@
        - Hypothesis refuted → eliminate branch
        - Unexpected result → new hypothesis
     ```
+  content_concise: |
+    ## Scientific Debugging
+    1. OBSERVE → HYPOTHESIZE → PREDICT → TEST → ANALYZE
+    2. One variable at a time - preserve reproducibility
+    3. Five Whys to find root cause, not symptoms
+    4. Stack traces > user reports for evidence
+
+- id: "methodology/debugging/scientific_method/evidence-hierarchy-most-to-least-reliable"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 100
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  intent_verbs: ["/fix", "/debug", "/investigate"]
+  content: |
+    *Part of: SCIENTIFIC DEBUGGING METHOD*
 
     ### Evidence Hierarchy (Most to Least Reliable)
+
     ```
     1. Deterministic reproduction → Trust completely
     2. Stack trace with line numbers → Trust, verify versions
@@ -50,6 +68,7 @@
     ```
 
     ### The Five Whys (Root Cause)
+
     ```
     Problem: Server returns 500 error
     Why 1: Database query failed
@@ -60,13 +79,6 @@
 
     ROOT CAUSE: Missing resource cleanup in error path
     ```
-
-  content_concise: |
-    ## Scientific Debugging
-    1. OBSERVE → HYPOTHESIZE → PREDICT → TEST → ANALYZE
-    2. One variable at a time - preserve reproducibility
-    3. Five Whys to find root cause, not symptoms
-    4. Stack traces > user reports for evidence
 
 - id: "methodology/debugging/binary_search"
   category: "methodology"
@@ -219,6 +231,7 @@
     ## DEBUGGER MASTERY
 
     ### Breakpoint Types
+
     ```
     LINE BREAKPOINT
     - Pauses at specific line
@@ -242,6 +255,7 @@
     ```
 
     ### Debugger Commands (Universal)
+
     ```
     NAVIGATION
     - step into (s): Enter function call
@@ -260,14 +274,32 @@
     - jump/goto: Skip to line (DANGEROUS)
     - return: Force function return
     ```
+  content_concise: |
+    ## Debugger Essentials
+    - Breakpoints: line, conditional, data, exception
+    - Commands: step into/over/out, continue, print, backtrace
+    - Avoid for: timing bugs, production, multi-process
+    - Power: conditional breaks, watchpoints, logpoints
+
+- id: "methodology/debugging/debugger_mastery/when-not-to-use-debugger"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  intent_verbs: ["/fix", "/debug", "/investigate"]
+  content: |
+    *Part of: DEBUGGER MASTERY*
 
     ### When NOT to Use Debugger
+
     - **Timing-sensitive bugs**: Debugger pauses change timing
     - **Multi-process**: Complex setup, state diverges
     - **Production**: No debugger access
     - **Heisenbugs**: Observation changes outcome
 
     ### IDE-Specific Power Features
+
     ```
     VS Code:
     - logpoints (print without modifying code)
@@ -284,13 +316,6 @@
     - goroutine-aware stepping
     ```
 
-  content_concise: |
-    ## Debugger Essentials
-    - Breakpoints: line, conditional, data, exception
-    - Commands: step into/over/out, continue, print, backtrace
-    - Avoid for: timing bugs, production, multi-process
-    - Power: conditional breaks, watchpoints, logpoints
-
 - id: "methodology/debugging/concurrent_debugging"
   category: "methodology"
   subcategory: "debugging"
@@ -304,6 +329,7 @@
     ## CONCURRENT CODE DEBUGGING
 
     ### Race Condition Detection
+
     ```bash
     # Go race detector
     go test -race ./...
@@ -319,6 +345,7 @@
     ```
 
     ### Race Condition Patterns
+
     ```go
     // CHECK-THEN-ACT (TOCTOU)
     // WRONG:
@@ -340,8 +367,27 @@
     }
     // RIGHT: sync.Once
     ```
+  content_concise: |
+    ## Concurrent Debugging
+    - Race detector: `go test -race`, thread sanitizer
+    - Patterns: check-then-act, read-modify-write, lazy init
+    - Deadlock: lock ordering, timeouts, runtime dumps
+    - Heisenbugs: remove prints, atomic logging, stress test
+
+- id: "methodology/debugging/concurrent_debugging/deadlock-detection"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 92
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  intent_verbs: ["/fix", "/debug", "/investigate"]
+  languages: ["/go", "/java", "/rust"]
+  world_states: ["authoring_code"]
+  content: |
+    *Part of: CONCURRENT CODE DEBUGGING*
 
     ### Deadlock Detection
+
     ```
     Signs of Deadlock:
     - Program hangs with no CPU usage
@@ -360,6 +406,7 @@
     ```
 
     ### Debugging Strategies
+
     ```
     1. INSTRUMENT LOCK ACQUISITION
        log.Printf("[LOCK] goroutine=%d acquiring mutex=%s",
@@ -379,6 +426,7 @@
     ```
 
     ### Heisenbug Strategies
+
     When observation changes behavior:
     ```
     - Remove ALL print statements
@@ -386,13 +434,6 @@
     - Add artificial delays to widen race window
     - Use stress testing with randomized timing
     ```
-
-  content_concise: |
-    ## Concurrent Debugging
-    - Race detector: `go test -race`, thread sanitizer
-    - Patterns: check-then-act, read-modify-write, lazy init
-    - Deadlock: lock ordering, timeouts, runtime dumps
-    - Heisenbugs: remove prints, atomic logging, stress test
 
 - id: "methodology/debugging/performance_debugging"
   category: "methodology"
@@ -405,6 +446,7 @@
     ## PERFORMANCE DEBUGGING
 
     ### Profiling Workflow
+
     ```
     1. MEASURE FIRST
        - Establish baseline (before optimization)
@@ -428,6 +470,7 @@
     ```
 
     ### Go Profiling
+
     ```go
     // CPU Profile
     import _ "net/http/pprof"
@@ -448,8 +491,25 @@
     }
     go test -bench=. -benchmem
     ```
+  content_concise: |
+    ## Performance Debugging
+    - Measure → Profile → Analyze → Optimize (one thing)
+    - Go: pprof (CPU, heap), trace, benchmarks
+    - Common: N+1 queries, allocation in loops, lock contention
+    - Memory leaks: heap profiles over time, compare growth
+
+- id: "methodology/debugging/performance_debugging/memory-debugging"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 87
+  is_mandatory: false
+  shard_types: ["/coder", "/tester", "/reviewer"]
+  intent_verbs: ["/fix", "/debug", "/investigate", "/optimize"]
+  content: |
+    *Part of: PERFORMANCE DEBUGGING*
 
     ### Memory Debugging
+
     ```
     SYMPTOMS:
     - OOM kills
@@ -467,6 +527,7 @@
     ```
 
     ### Common Performance Bugs
+
     ```
     N+1 QUERIES
     - Symptom: Slow list pages
@@ -489,13 +550,6 @@
     - Fix: strings.Builder, bytes.Buffer
     ```
 
-  content_concise: |
-    ## Performance Debugging
-    - Measure → Profile → Analyze → Optimize (one thing)
-    - Go: pprof (CPU, heap), trace, benchmarks
-    - Common: N+1 queries, allocation in loops, lock contention
-    - Memory leaks: heap profiles over time, compare growth
-
 - id: "methodology/debugging/error_messages"
   category: "methodology"
   subcategory: "debugging"
@@ -507,6 +561,7 @@
     ## ERROR MESSAGE INTERPRETATION
 
     ### Reading Stack Traces
+
     ```
     panic: runtime error: index out of range [5] with length 3
 
@@ -521,8 +576,25 @@
     READ BOTTOM-UP for context
     READ TOP-DOWN for cause
     ```
+  content_concise: |
+    ## Error Message Debugging
+    - Stack traces: bottom-up for context, top-down for cause
+    - Common: nil deref, index OOB, deadlock, connection refused
+    - Wrapped errors: unwrap to find root cause
+    - Log correlation: timestamp, trace ID, timeline
+
+- id: "methodology/debugging/error_messages/common-error-patterns"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  intent_verbs: ["/fix", "/debug", "/investigate"]
+  content: |
+    *Part of: ERROR MESSAGE INTERPRETATION*
 
     ### Common Error Patterns
+
     ```
     "nil pointer dereference"
     → Something is nil that shouldn't be
@@ -550,6 +622,7 @@
     ```
 
     ### Error Wrapping Investigation
+
     ```go
     // Wrapped errors need unwrapping
     err := operation()
@@ -567,7 +640,18 @@
     }
     ```
 
+- id: "methodology/debugging/error_messages/log-correlation"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  intent_verbs: ["/fix", "/debug", "/investigate"]
+  content: |
+    *Part of: ERROR MESSAGE INTERPRETATION*
+
     ### Log Correlation
+
     ```
     1. Find timestamp of error
     2. Look at logs BEFORE error (setup, inputs)
@@ -575,13 +659,6 @@
     4. Follow ID across services
     5. Build timeline of events
     ```
-
-  content_concise: |
-    ## Error Message Debugging
-    - Stack traces: bottom-up for context, top-down for cause
-    - Common: nil deref, index OOB, deadlock, connection refused
-    - Wrapped errors: unwrap to find root cause
-    - Log correlation: timestamp, trace ID, timeline
 
 - id: "methodology/debugging/ai_code_debugging"
   category: "methodology"
@@ -636,6 +713,23 @@
     [ ] Does the test actually test the code?
     [ ] Would a wrong implementation pass this test?
     ```
+  content_concise: |
+    ## Debugging AI Code
+    - Failure modes: plausible but wrong, API hallucinations, incomplete errors
+    - "Looks right" trap: structure correct, details wrong
+    - Checklist: function exists? types correct? error handling? thread-safe?
+    - Verify: compile → run → test edges → read docs → security scan
+
+- id: "methodology/debugging/ai_code_debugging/looks-right-trap"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 93
+  is_mandatory: false
+  shard_types: ["/coder", "/tester", "/reviewer"]
+  intent_verbs: ["/fix", "/debug", "/investigate", "/review"]
+  world_states: ["authoring_code"]
+  content: |
+    ## DEBUGGING AI-GENERATED CODE (continued)
 
     ### The "Looks Right" Trap
     ```go
@@ -666,13 +760,6 @@
     4. READ DOCS (catches API errors)
     5. SECURITY SCAN (catches vulnerabilities)
     ```
-
-  content_concise: |
-    ## Debugging AI Code
-    - Failure modes: plausible but wrong, API hallucinations, incomplete errors
-    - "Looks right" trap: structure correct, details wrong
-    - Checklist: function exists? types correct? error handling? thread-safe?
-    - Verify: compile → run → test edges → read docs → security scan
 
 - id: "methodology/debugging/rubber_duck"
   category: "methodology"
@@ -912,6 +999,7 @@
     ## DEBUGGING TOOLBOX
 
     ### Command-Line Tools
+
     ```bash
     # Process inspection
     ps aux | grep process        # Find process
@@ -937,8 +1025,26 @@
     free -h                      # Memory usage
     vmstat 1                     # Memory/CPU over time
     ```
+  content_concise: |
+    ## Debugging Toolbox
+    - CLI: ps, top, lsof, strace, netstat, tcpdump, curl -v
+    - Go: pprof, trace, race detector, delve
+    - Python: pdb, cProfile, memory_profiler, py-spy
+    - JS: DevTools, node --inspect, 0x, clinic.js
+    - Java: jstack, jmap, jstat, async-profiler
+
+- id: "methodology/debugging/toolbox/language-specific-tools"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  intent_verbs: ["/fix", "/debug", "/investigate"]
+  content: |
+    *Part of: DEBUGGING TOOLBOX*
 
     ### Language-Specific Tools
+
     ```
     Go:
     - go tool pprof (CPU, memory profiling)
@@ -966,17 +1072,10 @@
     ```
 
     ### Online Resources
+
     ```
     Stack Overflow: Search exact error message
     GitHub Issues: Project-specific bugs
     Official Docs: Authoritative behavior
     Source Code: Ultimate truth
     ```
-
-  content_concise: |
-    ## Debugging Toolbox
-    - CLI: ps, top, lsof, strace, netstat, tcpdump, curl -v
-    - Go: pprof, trace, race detector, delve
-    - Python: pdb, cProfile, memory_profiler, py-spy
-    - JS: DevTools, node --inspect, 0x, clinic.js
-    - Java: jstack, jmap, jstat, async-profiler

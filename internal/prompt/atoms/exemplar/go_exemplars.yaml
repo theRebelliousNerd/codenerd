@@ -70,6 +70,7 @@
     ## GO CONCURRENCY EXEMPLARS
 
     ### GOROUTINE WITH WAITGROUP
+
     ```go
     func processItems(items []Item) error {
         var wg sync.WaitGroup
@@ -97,6 +98,7 @@
     ```
 
     ### CONTEXT CANCELLATION
+
     ```go
     func worker(ctx context.Context) error {
         for {
@@ -112,7 +114,17 @@
     }
     ```
 
+- id: "exemplar/go/concurrency/channel-patterns"
+  category: "exemplar"
+  subcategory: "go"
+  priority: 85
+  is_mandatory: false
+  languages: ["/go"]
+  content: |
+    *Part of: GO CONCURRENCY EXEMPLARS*
+
     ### CHANNEL PATTERNS
+
     ```go
     // Fan-out: One to many
     func fanOut(input <-chan int, workers int) []<-chan int {

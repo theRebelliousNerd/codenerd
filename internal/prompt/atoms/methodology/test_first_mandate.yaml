@@ -51,6 +51,7 @@
     unfinished turn, not a completed one.
 
     ### WHAT THIS MEANS CONCRETELY
+
     - New function, method, or branch -> a test that calls it.
     - Bug fix -> a test that FAILS before your fix and passes after. If you
       cannot state which assertion would have failed yesterday, you have not
@@ -59,7 +60,18 @@
       Do not leave a test asserting the old one.
     - Pure rename, comment, or formatting change -> no new test needed. Say so.
 
+- id: "methodology/tdd/coverage_mandate/the-two-evasions-do-not-use-them"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 96
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  world_states: ["authoring_code"]
+  content: |
+    *Part of: TEST COVERAGE IS PART OF THE WORK, NOT A FOLLOW-UP*
+
     ### THE TWO EVASIONS - DO NOT USE THEM
+
     1. **The tautological test.** A test that mirrors the implementation line
        for line, asserts on a mock you just configured, or can never fail proves
        nothing and costs maintenance forever. Ask: what wrong implementation
@@ -70,7 +82,18 @@
        have not met yet. If the test itself is genuinely wrong, say so
        explicitly and explain why before changing it.
 
+- id: "methodology/tdd/coverage_mandate/verification-is-automatic-so-do-not-guess"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 96
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  world_states: ["authoring_code"]
+  content: |
+    *Part of: TEST COVERAGE IS PART OF THE WORK, NOT A FOLLOW-UP*
+
     ### VERIFICATION IS AUTOMATIC, SO DO NOT GUESS
+
     Your edits are compiled and the affected packages are tested after this turn
     regardless of what you report. Claiming success does not make a turn
     successful; passing does. Run the tests yourself before you finish rather
@@ -81,6 +104,7 @@
     least likely to be wrong.
 
     ### WHERE A TEST GOES
+
     - Extend the existing `<file>_test.go` for the file under test. Create a new
       test file only when that file has none.
     - Name tests and test files for the behaviour they pin

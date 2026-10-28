@@ -10,9 +10,9 @@
   languages: ["/mangle"]
   content: |
     # Set Operations Patterns
-    
+
     ## Problem Description
-    
+
     Set operations are fundamental for combining and comparing collections. Common needs:
     - Union (A ∪ B)
     - Intersection (A ∩ B)
@@ -20,10 +20,11 @@
     - Symmetric difference (A Δ B)
     - Subset/superset checks
     - Disjoint sets
-    
+
     ## Core Pattern: Union
-    
+
     ### Template
+
     ```mangle
     # Union: Items in A or B (or both)
     Decl set_a(X).
@@ -31,67 +32,83 @@
     union(X) :- set_a(X).
     union(X) :- set_b(X).
     ```
-    
+
     ### Complete Working Example
+
     ```mangle
     # Schema
     Decl set_a(Elem) bound [/string].
     Decl set_b(Elem) bound [/string].
     Decl union_result(Elem) bound [/string].
-    
+
     # Facts
     set_a("a").
     set_a("b").
     set_a("c").
-    
+
     set_b("b").
     set_b("c").
     set_b("d").
     set_b("e").
-    
+
     # Union
     union_result(X) :- set_a(X).
     union_result(X) :- set_b(X).
-    
+
     # Query: union_result(X)
     # Results: "a", "b", "c", "d", "e"
     ```
-    
+
+- id: "language/mangle/docs/patterns/set_operations/variation-1-intersection"
+  category: "language"
+  subcategory: "mangle"
+  description: "Set Operations Patterns: Variation 1: Intersection"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Set Operations Patterns*
+
     ## Variation 1: Intersection
-    
+
     ### Problem
+
     Find elements common to both sets (A ∩ B).
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl set_a(Elem) bound [/string].
     Decl set_b(Elem) bound [/string].
     Decl intersection(Elem) bound [/string].
-    
+
     # Intersection: Items in both A and B
     intersection(X) :- set_a(X), set_b(X).
     ```
-    
+
     ### Example
+
     ```mangle
     set_a("a").
     set_a("b").
     set_a("c").
-    
+
     set_b("b").
     set_b("c").
     set_b("d").
-    
+
     # Results: intersection("b"), intersection("c")
     ```
-    
+
     ## Variation 2: Difference (A - B)
-    
+
     ### Problem
+
     Find elements in A but not in B.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl set_a(Elem) bound [/string].
@@ -101,28 +118,41 @@
     # A - B: Items in A but not in B
     difference(X) :- set_a(X), !set_b(X).
     ```
-    
+
     ### Example
+
     ```mangle
     set_a("a").
     set_a("b").
     set_a("c").
-    
+
     set_b("b").
     set_b("c").
     set_b("d").
-    
+
     # Result: difference("a")
     # NOT "b" or "c" (in both)
     # NOT "d" (only in B)
     ```
-    
+
+- id: "language/mangle/docs/patterns/set_operations/variation-3-symmetric-difference-xor"
+  category: "language"
+  subcategory: "mangle"
+  description: "Set Operations Patterns: Variation 3: Symmetric Difference (XOR)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Set Operations Patterns*
+
     ## Variation 3: Symmetric Difference (XOR)
-    
+
     ### Problem
+
     Find elements in A or B, but not both (A Δ B).
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl set_a(Elem) bound [/string].
@@ -135,33 +165,46 @@
     # In B but not A
     symmetric_difference(X) :- set_b(X), !set_a(X).
     ```
-    
+
     ### Example
+
     ```mangle
     set_a("a").
     set_a("b").
     set_a("c").
-    
+
     set_b("b").
     set_b("c").
     set_b("d").
-    
+
     # Results: symmetric_difference("a"), symmetric_difference("d")
     # NOT "b" or "c" (in both)
     ```
-    
+
+- id: "language/mangle/docs/patterns/set_operations/variation-4-subset-check-a-b"
+  category: "language"
+  subcategory: "mangle"
+  description: "Set Operations Patterns: Variation 4: Subset Check (A \u2286 B)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Set Operations Patterns*
+
     ## Variation 4: Subset Check (A ⊆ B)
-    
+
     ### Problem
+
     Verify that all elements of A are in B.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl set_a(Elem) bound [/string].
     Decl set_b(Elem) bound [/string].
     Decl is_subset(Result) bound [/name].
-    
+
     # A is a subset of B iff there is no counterexample element. Negation
     # takes one fully bound atom — never a conjunction, never a wildcard —
     # so project the counterexample, then its existence.
@@ -173,37 +216,50 @@
     is_subset(/no) :- any_in_a_not_b().
     is_subset(/yes) :- !any_in_a_not_b().
     ```
-    
+
     ### Example
+
     ```mangle
     # Scenario 1: A ⊆ B
     set_a("b").
     set_a("c").
-    
+
     set_b("a").
     set_b("b").
     set_b("c").
     set_b("d").
-    
+
     # Result: is_subset(/yes)
-    
+
     # Scenario 2: A ⊄ B
     set_a("x").  # x not in B
     # Result: is_subset(/no)
     ```
-    
+
+- id: "language/mangle/docs/patterns/set_operations/variation-5-proper-subset-a-b"
+  category: "language"
+  subcategory: "mangle"
+  description: "Set Operations Patterns: Variation 5: Proper Subset (A \u2282 B)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Set Operations Patterns*
+
     ## Variation 5: Proper Subset (A ⊂ B)
-    
+
     ### Problem
+
     Verify A is a proper subset of B (A ⊆ B and A ≠ B).
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl set_a(Elem) bound [/string].
     Decl set_b(Elem) bound [/string].
     Decl is_proper_subset(Result) bound [/name].
-    
+
     # A ⊂ B means:
     # 1. A ⊆ B (no element in A that's not in B)
     # 2. B has at least one element not in A
@@ -229,32 +285,45 @@
       !any_in_a_not_b(),            # A ⊆ B but also B ⊆ A: A = B
       !any_in_b_not_a().
     ```
-    
+
     ### Example
+
     ```mangle
     set_a("b").
     set_a("c").
-    
+
     set_b("a").
     set_b("b").
     set_b("c").
-    
+
     # Result: is_proper_subset(/yes)
     # A ⊆ B, and B has "a" which A doesn't
     ```
-    
+
+- id: "language/mangle/docs/patterns/set_operations/variation-6-disjoint-sets"
+  category: "language"
+  subcategory: "mangle"
+  description: "Set Operations Patterns: Variation 6: Disjoint Sets"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Set Operations Patterns*
+
     ## Variation 6: Disjoint Sets
-    
+
     ### Problem
+
     Check if two sets have no common elements.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl set_a(Elem) bound [/string].
     Decl set_b(Elem) bound [/string].
     Decl are_disjoint(Result) bound [/name].
-    
+
     # Disjoint if no element is in both: project the overlap, then negate
     # its zero-arity existence projection.
     Decl in_both(Elem) bound [/string].
@@ -265,38 +334,51 @@
     are_disjoint(/yes) :- !any_in_both().
     are_disjoint(/no) :- any_in_both().
     ```
-    
+
     ### Example
+
     ```mangle
     # Scenario 1: Disjoint
     set_a("a").
     set_a("b").
-    
+
     set_b("x").
     set_b("y").
-    
+
     # Result: are_disjoint(/yes)
-    
+
     # Scenario 2: Not disjoint
     set_a("a").
     set_a("b").
     set_b("b").  # Common element!
-    
+
     # Result: are_disjoint(/no)
     ```
-    
+
+- id: "language/mangle/docs/patterns/set_operations/variation-7-set-equality"
+  category: "language"
+  subcategory: "mangle"
+  description: "Set Operations Patterns: Variation 7: Set Equality"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Set Operations Patterns*
+
     ## Variation 7: Set Equality
-    
+
     ### Problem
+
     Check if two sets contain exactly the same elements.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl set_a(Elem) bound [/string].
     Decl set_b(Elem) bound [/string].
     Decl are_equal(Result) bound [/name].
-    
+
     # Equal if A ⊆ B and B ⊆ A: negated zero-arity counterexample
     # projections, as in the subset pattern above.
     Decl in_a_not_b(Elem) bound [/string].
@@ -311,163 +393,228 @@
     are_equal(/yes) :-
       !any_in_a_not_b(),  # A ⊆ B
       !any_in_b_not_a().  # B ⊆ A
-    
+
     are_equal(/no) :- set_a(X), !set_b(X).  # A has something B doesn't
     are_equal(/no) :- set_b(Y), !set_a(Y).  # B has something A doesn't
     ```
-    
+
     ### Example
+
     ```mangle
     # Scenario 1: Equal
     set_a("a").
     set_a("b").
     set_a("c").
-    
+
     set_b("c").
     set_b("a").
     set_b("b").
-    
+
     # Result: are_equal(/yes)
-    
+
     # Scenario 2: Not equal
     set_a("a").
     set_a("b").
     set_b("a").  # Missing "b"
-    
+
     # Result: are_equal(/no)
     ```
-    
+
+- id: "language/mangle/docs/patterns/set_operations/variation-8-multiple-set-union"
+  category: "language"
+  subcategory: "mangle"
+  description: "Set Operations Patterns: Variation 8: Multiple Set Union"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Set Operations Patterns*
+
     ## Variation 8: Multiple Set Union
-    
+
     ### Problem
+
     Union of three or more sets.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl set_a(Elem) bound [/string].
     Decl set_b(Elem) bound [/string].
     Decl set_c(Elem) bound [/string].
     Decl union_all(Elem) bound [/string].
-    
+
     # Union of A, B, and C
     union_all(X) :- set_a(X).
     union_all(X) :- set_b(X).
     union_all(X) :- set_c(X).
     ```
-    
+
     ### Example
+
     ```mangle
     set_a("a").
     set_b("b").
     set_c("c").
     set_a("d").
-    
+
     # Results: union_all("a"), union_all("b"), union_all("c"), union_all("d")
     ```
-    
+
+- id: "language/mangle/docs/patterns/set_operations/variation-9-conditional-set-operations"
+  category: "language"
+  subcategory: "mangle"
+  description: "Set Operations Patterns: Variation 9: Conditional Set Operations"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Set Operations Patterns*
+
     ## Variation 9: Conditional Set Operations
-    
+
     ### Problem
+
     Perform set operations based on element properties.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl set_a(Elem, Value) bound [/string, /number].
     Decl set_b(Elem, Value) bound [/string, /number].
     Decl conditional_union(Elem) bound [/string].
-    
+
     # Union only elements where Value > 100
     conditional_union(Elem) :- set_a(Elem, Value), Value > 100.
     conditional_union(Elem) :- set_b(Elem, Value), Value > 100.
     ```
-    
+
     ### Example
+
     ```mangle
     set_a("a", 150).
     set_a("b", 50).
     set_b("c", 200).
     set_b("d", 30).
-    
+
     # Results: conditional_union("a"), conditional_union("c")
     # NOT "b" or "d" (values too low)
     ```
-    
+
+- id: "language/mangle/docs/patterns/set_operations/variation-10-partitioning-disjoint-union"
+  category: "language"
+  subcategory: "mangle"
+  description: "Set Operations Patterns: Variation 10: Partitioning (Disjoint Union)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Set Operations Patterns*
+
     ## Variation 10: Partitioning (Disjoint Union)
-    
+
     ### Problem
+
     Partition elements into disjoint subsets.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl item(Id, Value) bound [/string, /number].
     Decl partition_low(Id) bound [/string].
     Decl partition_mid(Id) bound [/string].
     Decl partition_high(Id) bound [/string].
-    
+
     # Partition by value ranges (disjoint)
     partition_low(Id) :- item(Id, Value), Value < 50.
     partition_mid(Id) :- item(Id, Value), Value >= 50, Value < 100.
     partition_high(Id) :- item(Id, Value), Value >= 100.
     ```
-    
+
     ### Example
+
     ```mangle
     item("i1", 25).
     item("i2", 75).
     item("i3", 150).
     item("i4", 45).
-    
+
     # Results:
     # partition_low("i1"), partition_low("i4")
     # partition_mid("i2")
     # partition_high("i3")
     ```
-    
+
+- id: "language/mangle/docs/patterns/set_operations/variation-11-power-set-all-subsets"
+  category: "language"
+  subcategory: "mangle"
+  description: "Set Operations Patterns: Variation 11: Power Set (All Subsets)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Set Operations Patterns*
+
     ## Variation 11: Power Set (All Subsets)
-    
+
     ### Problem
+
     Generate all subsets of a set (limited to small sets).
-    
+
     ### Solution
+
     ```mangle
     # Note: Power set grows exponentially (2^n)
     # Only practical for very small sets in Mangle
-    
+
     # Schema
     Decl element(Elem) bound [/string].
     Decl subset(Elem) bound [/string].
-    
+
     # Every element is either in the subset or not
     # This creates all 2^n combinations
-    
+
     # Include element
     subset(X) :- element(X).
-    
+
     # Exclude element (represented by absence)
     # Not explicitly represented - handled by closed world assumption
-    
+
     # For practical use, you'd enumerate specific subsets:
     Decl subset_empty() bound [].
     any_element() :- element(X).
     subset_empty() :- !any_element().  # Empty set exists if no elements
-    
+
     # Better: Define specific subsets based on properties
     Decl subset_by_property(Elem, Property) bound [/string, /name].
     subset_by_property(Elem, Prop) :- element(Elem), has_property(Elem, Prop).
     ```
-    
+
     ### Note
+
     Power sets are impractical in Datalog. Use explicit enumeration or property-based subsets instead.
-    
+
+- id: "language/mangle/docs/patterns/set_operations/variation-12-cardinality-comparison"
+  category: "language"
+  subcategory: "mangle"
+  description: "Set Operations Patterns: Variation 12: Cardinality Comparison"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Set Operations Patterns*
+
     ## Variation 12: Cardinality Comparison
-    
+
     ### Problem
+
     Compare sizes of sets.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl set_a(Elem) bound [/string].
@@ -475,86 +622,122 @@
     Decl count_a(Count) bound [/number].
     Decl count_b(Count) bound [/number].
     Decl size_comparison(Result) bound [/name].
-    
+
     # Count elements
     count_a(Count) :- set_a(Elem) |> do fn:group_by(), let Count = fn:count().
     count_b(Count) :- set_b(Elem) |> do fn:group_by(), let Count = fn:count().
-    
+
     # Compare
     size_comparison(/a_larger) :- count_a(A), count_b(B), A > B.
     size_comparison(/b_larger) :- count_a(A), count_b(B), B > A.
     size_comparison(/equal) :- count_a(A), count_b(A).
     ```
-    
+
     ### Example
+
     ```mangle
     set_a("a").
     set_a("b").
     set_a("c").
-    
+
     set_b("x").
     set_b("y").
-    
+
     # Results:
     # count_a(3)
     # count_b(2)
     # size_comparison(/a_larger)
     ```
-    
+
+- id: "language/mangle/docs/patterns/set_operations/anti-patterns"
+  category: "language"
+  subcategory: "mangle"
+  description: "Set Operations Patterns: Anti-Patterns"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Set Operations Patterns*
+
     ## Anti-Patterns
-    
+
     ### WRONG: Assuming Sets Are Sorted
+
     ```mangle
     # Bad - order is not guaranteed
     first_element(X) :- set_a(X).  # Which X?
-    
+
     # Fix - use explicit ordering
     first_element(X) :- set_a(X, Priority), ... |> do fn:group_by(), let MinP = fn:min(Priority), ...
     ```
-    
+
     ### WRONG: Modifying Sets (Mutable Operations)
+
     ```mangle
     # Mangle sets are immutable
     # Can't "remove" from a set - create new set instead
-    
+
     # Bad (conceptually):
     # set_a.remove(X)
-    
+
     # Good:
     new_set(Y) :- set_a(Y), Y != X.  # New set excluding X
     ```
-    
+
     ### WRONG: Infinite Sets
+
     ```mangle
     # Bad - unbounded
     all_numbers(X) :- X = fn:plus(X, 1).
-    
+
     # Sets must be finite and grounded
     ```
-    
+
+- id: "language/mangle/docs/patterns/set_operations/set-operations-patterns-performance-tips"
+  category: "language"
+  subcategory: "mangle"
+  description: "Set Operations Patterns: Set Operations Patterns Performance Tips"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Set Operations Patterns*
+
     ## Performance Tips
-    
+
     1. **Materialize Intermediate Sets**: For complex operations
     2. **Filter Early**: Reduce set sizes before operations
     3. **Use Indices**: Index predicates representing sets
     4. **Avoid Cartesian Products**: In multi-set operations
-    
+
+- id: "language/mangle/docs/patterns/set_operations/common-use-cases-in-codenerd"
+  category: "language"
+  subcategory: "mangle"
+  description: "Set Operations Patterns: Common Use Cases in codeNERD"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Set Operations Patterns*
+
     ## Common Use Cases in codeNERD
-    
+
     ### File Set Operations
+
     ```mangle
     # Files modified in branch A
     Decl modified_in_a(File) bound [/string].
-    
+
     # Files modified in branch B
     Decl modified_in_b(File) bound [/string].
-    
+
     # Merge conflicts (both modified)
     Decl conflict_files(File) bound [/string].
     conflict_files(File) :- modified_in_a(File), modified_in_b(File).
     ```
-    
+
     ### Test Coverage Sets
+
     ```mangle
     # All source files
     Decl source_file(File) bound [/string].
@@ -566,22 +749,24 @@
     Decl uncovered_file(File) bound [/string].
     uncovered_file(File) :- source_file(File), !covered_file(File).
     ```
-    
+
     ### Dependency Resolution
+
     ```mangle
     # Direct dependencies
     Decl direct_dep(Package) bound [/string].
-    
+
     # Transitive dependencies
     Decl transitive_dep(Package) bound [/string].
-    
+
     # All dependencies (union)
     Decl all_deps(Package) bound [/string].
     all_deps(Pkg) :- direct_dep(Pkg).
     all_deps(Pkg) :- transitive_dep(Pkg).
     ```
-    
+
     ### Symbol Scope Sets
+
     ```mangle
     # Symbols defined in scope A
     Decl defined_in_a(Symbol) bound [/string].
@@ -593,24 +778,34 @@
     Decl undefined_symbol(Symbol) bound [/string].
     undefined_symbol(Sym) :- used_in_b(Sym), !defined_in_a(Sym).
     ```
-    
+
+- id: "language/mangle/docs/patterns/set_operations/set-algebra-laws-for-verification"
+  category: "language"
+  subcategory: "mangle"
+  description: "Set Operations Patterns: Set Algebra Laws (For Verification)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Set Operations Patterns*
+
     ## Set Algebra Laws (For Verification)
-    
+
     ```mangle
     # Commutative: A ∪ B = B ∪ A
     # union(X) :- set_a(X) ; set_b(X).
     # Same as: union(X) :- set_b(X) ; set_a(X).
-    
+
     # Associative: (A ∪ B) ∪ C = A ∪ (B ∪ C)
     # union(X) :- set_a(X).
     # union(X) :- set_b(X).
     # union(X) :- set_c(X).
-    
+
     # Distributive: A ∩ (B ∪ C) = (A ∩ B) ∪ (A ∩ C)
     # a_and_b_or_c(X) :- set_a(X), (set_b(X) ; set_c(X)).
     # Same as: a_and_b_or_c(X) :- set_a(X), set_b(X).
     #          a_and_b_or_c(X) :- set_a(X), set_c(X).
-    
+
     # De Morgan's Laws: ¬(A ∪ B) = ¬A ∩ ¬B. There is no `;` disjunction and
     # no negation of a compound body; write the two negated atoms out:
     # not_a_or_b(X) :- domain(X), !set_a(X), !set_b(X).

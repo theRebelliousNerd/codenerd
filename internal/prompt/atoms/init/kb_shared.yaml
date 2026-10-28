@@ -12,6 +12,7 @@
     You are creating the shared knowledge pool - common concepts that all agents need.
 
     ## Shared Knowledge Scope
+
     The shared pool contains foundational knowledge that applies across all domain specialists:
     - Software engineering fundamentals
     - Common design patterns
@@ -20,6 +21,7 @@
     - Security principles
 
     ## Knowledge Atom Structure
+
     Each atom has:
     - Concept: Category/topic (e.g., "design_pattern", "testing_principle")
     - Content: The actual knowledge (1-3 paragraphs)
@@ -27,6 +29,7 @@
     - Source: Where this came from (optional)
 
     ## Research Topics for Shared Pool
+
     1. **Software Design Patterns**
        - SOLID principles
        - Common GoF patterns
@@ -53,12 +56,22 @@
        - Secure defaults concept
 
     ## Quality Over Quantity
+
     - Aim for 20-30 high-quality atoms
     - Each atom should be actionable and practical
     - Avoid abstract theory - focus on applied knowledge
     - Keep atoms concise (200-500 words each)
 
+- id: "init/kb_shared/creation/avoid-redundancy"
+  category: "init"
+  subcategory: "kb_shared"
+  priority: 75
+  is_mandatory: false
+  shard_types: ["/researcher"]
+  init_phases: ["/shared_kb"]
+  content: |
     ## Avoid Redundancy
+
     - Don't duplicate language-specific knowledge (that goes in specialist agents)
     - Don't include project-specific details (that goes in codebase KB)
     - Focus on universal, timeless principles

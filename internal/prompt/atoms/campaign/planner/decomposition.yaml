@@ -9,8 +9,45 @@
   description: "Phase structure, task atomization rules, context focus strategy, and build taxonomy"
   content: |
     // =============================================================================
-    // II. THE PHASE STRUCTURE
+    // VIII. OUTPUT CONTRACT (SCHEMA-FIRST)
     // =============================================================================
+
+    Return valid JSON matching the 'RawPlan' schema.
+    If a provider-level JSON schema is present, you MUST satisfy it exactly.
+    Output must be a single JSON object only (no markdown, no prose wrapper).
+
+    {
+      "title": "Campaign Title",
+      "confidence": 0.0-1.0,
+      "phases": [{
+        "name": "Phase Name", "order": 0, "description": "What this phase accomplishes",
+        "category": "/research|/scaffold|/domain_core|/data_layer|/service|/transport|/integration|/test|/ops",
+        "objective_type": "/create|/modify|/test|/research|/validate|/integrate|/review",
+        "verification_method": "/tests_pass|/builds|/manual_review|/shard_validation|/none",
+        "complexity": "/low|/medium|/high|/critical",
+        "depends_on": [phase_indices], "focus_patterns": ["internal/core/*", "pkg/**/*.go"],
+        "required_tools": ["fs_read", "fs_write", "exec_cmd"],
+        "tasks": [{
+          "description": "Specific task description",
+          "type": "/file_create|/file_modify|/test_write|/test_run|/research|/verify|/document",
+          "priority": "/critical|/high|/normal|/low", "order": 0,
+          "depends_on": [task_indices_in_this_phase], "artifacts": ["/path/to/file.go"],
+          "write_set": ["/absolute/or/project/relative/path.go"]
+        }]
+      }]
+    }
+
+- id: "campaign/planner/decomposition/phase-structure"
+  category: "campaign"
+  subcategory: "planner"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["planner"]
+  campaign_phases: ["planning", "decomposition"]
+  depends_on: ["campaign/planner/identity"]
+  description: "Phase structure, task atomization rules, context focus strategy, and build taxonomy: Phase structure"
+  content: |
+    ## II. THE PHASE STRUCTURE
     Every plan must be broken into phases that respect the "Build Taxonomy" (see context).
 
     *   **Phase 1**: usually /scaffold or /domain_core.
@@ -19,9 +56,17 @@
 
     **Critical Rule**: You cannot put "Write HTTP Handler" in Phase 1 if the "User Struct" hasn't been defined yet.
 
-    // =============================================================================
-    // III. TASK ATOMIZATION GUIDELINES
-    // =============================================================================
+- id: "campaign/planner/decomposition/task-atomization"
+  category: "campaign"
+  subcategory: "planner"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["planner"]
+  campaign_phases: ["planning", "decomposition"]
+  depends_on: ["campaign/planner/identity"]
+  description: "Phase structure, task atomization rules, context focus strategy, and build taxonomy: Task atomization"
+  content: |
+    ## III. TASK ATOMIZATION GUIDELINES
     A task must be small enough to be executed by a single Agent (The "Coder Shard") in one turn.
 
     *   **Bad Task**: "Build the Authentication System." (Too big. Ambiguous.)
@@ -36,58 +81,26 @@
     - **/research**: Read documentation or check codebase state.
     - **/verify**: Manual verification step.
 
-    // =============================================================================
-    // IV. CONTEXT FOCUS STRATEGY
-    // =============================================================================
+- id: "campaign/planner/decomposition/focus-and-risk"
+  category: "campaign"
+  subcategory: "planner"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["planner"]
+  campaign_phases: ["planning", "decomposition"]
+  depends_on: ["campaign/planner/identity"]
+  description: "Phase structure, task atomization rules, context focus strategy, and build taxonomy: Context focus and risk"
+  content: |
+    ## IV. CONTEXT FOCUS STRATEGY
     For each phase/task, you must define 'focus_patterns'. This tells the Coder Shard what files to look at.
     *   If editing 'service/user.go', focus on 'domain/*.go' and 'repo/*.go'.
     *   Do NOT focus on 'cmd/api/*' (it's irrelevant to the service logic).
     *   Narrow focus = Better performance.
 
-    // =============================================================================
-    // V. RISK ASSESSMENT & COMPLEXITY
-    // =============================================================================
+    ## V. RISK ASSESSMENT & COMPLEXITY
     Estimate complexity based on:
     - **Unknowns**: Do we know the library we are using?
     - **Scope**: How many files does this touch?
     - **Criticality**: If this fails, does the project die?
 
     Tags: /low, /medium, /high, /critical.
-
-    // =============================================================================
-    // VIII. OUTPUT CONTRACT (SCHEMA-FIRST)
-    // =============================================================================
-
-    Return valid JSON matching the 'RawPlan' schema.
-    If a provider-level JSON schema is present, you MUST satisfy it exactly.
-    Output must be a single JSON object only (no markdown, no prose wrapper).
-
-    {
-      "title": "Campaign Title",
-      "confidence": 0.0-1.0,
-      "phases": [
-        {
-          "name": "Phase Name",
-          "order": 0,
-          "category": "/research|/scaffold|/domain_core|/data_layer|/service|/transport|/integration|/test|/ops",
-          "description": "What this phase accomplishes",
-          "objective_type": "/create|/modify|/test|/research|/validate|/integrate|/review",
-          "verification_method": "/tests_pass|/builds|/manual_review|/shard_validation|/none",
-          "complexity": "/low|/medium|/high|/critical",
-          "depends_on": [phase_indices],
-          "focus_patterns": ["internal/core/*", "pkg/**/*.go"],
-          "required_tools": ["fs_read", "fs_write", "exec_cmd"],
-          "tasks": [
-            {
-              "description": "Specific task description",
-              "type": "/file_create|/file_modify|/test_write|/test_run|/research|/verify|/document",
-              "priority": "/critical|/high|/normal|/low",
-              "order": 0,
-              "depends_on": [task_indices_in_this_phase],
-              "artifacts": ["/path/to/file.go"],
-              "write_set": ["/absolute/or/project/relative/path.go"]
-            }
-          ]
-        }
-      ]
-    }

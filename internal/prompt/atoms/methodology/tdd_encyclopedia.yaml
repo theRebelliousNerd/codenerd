@@ -146,6 +146,7 @@
     Table-driven tests are the standard pattern for Go.
 
     ### Canonical Structure
+
     ```go
     func TestFunction(t *testing.T) {
         tests := map[string]struct {
@@ -181,14 +182,31 @@
         }
     }
     ```
+  content_concise: |
+    ## TABLE-DRIVEN TESTS (Go)
+    Use map[string]struct for test cases. Include: name, input, want, wantErr.
+    Use t.Run for subtests. Maps randomize order to catch dependencies.
+
+- id: "methodology/tdd/table_driven_testing/why-use-maps-instead-of-slices"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/tester"]
+  intent_verbs: ["/test", "/cover"]
+  languages: ["/go"]
+  content: |
+    *Part of: TABLE-DRIVEN TESTING (Go Best Practice)*
 
     ### Why Use Maps Instead of Slices
+
     - Map iteration order is undefined
     - Tests run in different orders each time
     - Exposes hidden dependencies between tests
     - Catches global state pollution
 
     ### Edge Case Categories to Include
+
     | Category | Examples |
     |----------|----------|
     | Zero/Empty | nil, "", 0, empty slice/map |
@@ -197,11 +215,6 @@
     | Special | Unicode, whitespace, special chars |
     | Overflow | Very large numbers, long strings |
     | Negative | Negative indices, counts |
-
-  content_concise: |
-    ## TABLE-DRIVEN TESTS (Go)
-    Use map[string]struct for test cases. Include: name, input, want, wantErr.
-    Use t.Run for subtests. Maps randomize order to catch dependencies.
 
 - id: "methodology/tdd/edge_case_identification"
   category: "methodology"
@@ -648,6 +661,7 @@
     Every happy path needs at least one corresponding sad path.
 
     ### Error Path Categories
+
     1. **Input validation errors**: Invalid/malformed input
     2. **Resource errors**: File not found, permission denied, network timeout
     3. **State errors**: Invalid state transitions, concurrent modification
@@ -656,6 +670,7 @@
     6. **Security errors**: Authentication/authorization failures
 
     ### Testing Pattern: Error Injection
+
     ```go
     func TestServiceWithDatabaseError(t *testing.T) {
         mockDB := &MockDB{
@@ -671,8 +686,25 @@
         assert.Contains(t, err.Error(), "connection refused")
     }
     ```
+  content_concise: |
+    ## ERROR PATH TESTING
+    - Test every error return path
+    - Use error injection with mocks
+    - Verify cleanup on error
+    - Include wantErr in table-driven tests
+
+- id: "methodology/tdd/error_path_testing/error-handling-test-checklist"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 87
+  is_mandatory: false
+  shard_types: ["/tester"]
+  intent_verbs: ["/test", "/cover"]
+  content: |
+    *Part of: TESTING ERROR PATHS AND EXCEPTION HANDLING*
 
     ### Error Handling Test Checklist
+
     - [ ] Error is returned/propagated correctly
     - [ ] Error message is informative
     - [ ] Error type is appropriate
@@ -682,6 +714,7 @@
     - [ ] User-facing message is safe (no sensitive data)
 
     ### Table-Driven Error Tests
+
     ```go
     tests := map[string]struct {
         input   string
@@ -692,10 +725,3 @@
         "invalid chars":    {input: "abc<script>", wantErr: "invalid characters"},
     }
     ```
-
-  content_concise: |
-    ## ERROR PATH TESTING
-    - Test every error return path
-    - Use error injection with mocks
-    - Verify cleanup on error
-    - Include wantErr in table-driven tests

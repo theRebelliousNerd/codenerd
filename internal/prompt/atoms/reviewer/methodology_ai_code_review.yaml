@@ -94,6 +94,17 @@
     - [ ] Edge cases handled as expected
     - [ ] Errors returned as expected
 
+- id: "reviewer/methodology/api_verification/verification-techniques"
+  category: "methodology"
+  subcategory: "ai_review"
+  priority: 92
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/ai_review_fundamentals"]
+  content: |
+    *Part of: API AND PACKAGE VERIFICATION*
+
     ### VERIFICATION TECHNIQUES
 
     **For Packages:**
@@ -384,6 +395,17 @@
     **Overly Complex**
     AI may over-engineer simple problems.
     Simplify where appropriate.
+
+- id: "reviewer/methodology/ai_code_integration/codebase-context-questions"
+  category: "methodology"
+  subcategory: "ai_review"
+  priority: 82
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/ai_review_fundamentals"]
+  content: |
+    *Part of: AI CODE INTEGRATION REVIEW*
 
     ### CODEBASE CONTEXT QUESTIONS
 

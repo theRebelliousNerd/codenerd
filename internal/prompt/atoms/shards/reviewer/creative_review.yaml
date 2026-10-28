@@ -24,48 +24,27 @@
     - Don't repeat issues already found in the review findings
     - Be creative but practical
     - Rate effort as: trivial, small, medium, large
-
     ### Output Format
+    One JSON object with file_suggestions, module_suggestions, system_insights and feature_ideas; the last two shapes follow.
     ```json
     {
-      "file_suggestions": [
-        {
-          "file": "path/to/file.go",
-          "category": "refactor|performance|readability|testing|error_handling",
-          "title": "Brief title",
-          "description": "Detailed explanation",
-          "code_example": "optional code snippet",
-          "effort": "trivial|small|medium|large"
-        }
-      ],
-      "module_suggestions": [
-        {
-          "package": "package/path",
-          "category": "api_design|coupling|cohesion|naming|abstraction",
-          "title": "Brief title",
-          "description": "Detailed explanation",
-          "affected_files": ["file1.go", "file2.go"],
-          "effort": "trivial|small|medium|large"
-        }
-      ],
-      "system_insights": [
-        {
-          "category": "architecture|security|scalability|maintainability",
-          "title": "Brief title",
-          "description": "Detailed explanation",
-          "impact": "low|medium|high",
-          "related_modules": ["module1", "module2"]
-        }
-      ],
-      "feature_ideas": [
-        {
-          "title": "Feature name",
-          "description": "What it does",
-          "rationale": "Why it would help",
-          "complexity": "trivial|small|medium|large|epic",
-          "prerequisites": ["optional", "list"]
-        }
-      ]
+      "file_suggestions": [{"file":"path/to/file.go","category":"refactor|performance|readability|testing|error_handling","title":"Brief title","description":"Detailed explanation","code_example":"optional code snippet","effort":"trivial|small|medium|large"}],
+      "module_suggestions": [{"package":"package/path","category":"api_design|coupling|cohesion|naming|abstraction","title":"Brief title","description":"Detailed explanation","affected_files":["file1.go","file2.go"],"effort":"trivial|small|medium|large"}]
+    }
+    ```
+
+- id: "shards/reviewer/creative_first_pass/system-and-feature-output"
+  category: "methodology"
+  subcategory: "review"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  content: |
+    ### Output Format (continued)
+    ```json
+    {
+      "system_insights": [{"category":"architecture|security|scalability|maintainability","title":"Brief title","description":"Detailed explanation","impact":"low|medium|high","related_modules":["module1","module2"]}],
+      "feature_ideas": [{"title":"Feature name","description":"What it does","rationale":"Why it would help","complexity":"trivial|small|medium|large|epic","prerequisites":["optional","list"]}]
     }
     ```
 

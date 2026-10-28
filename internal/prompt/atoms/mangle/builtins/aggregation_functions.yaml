@@ -32,6 +32,16 @@
     Do not exist on this engine: `fn:mean` (use `fn:avg`), `fn:count_distinct` ("unknown
     function"), `fn:CollectToMap`, `fn:pick_any`, `fn:map:get`.
 
+- id: "language/mangle/docs/builtins/aggregation_functions/the-shape"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Functions: The shape"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Aggregation Functions*
+
     ## The shape
 
     ```mangle
@@ -50,6 +60,16 @@
         |> do fn:group_by(), let Total = fn:sum(Amount).
     ```
 
+- id: "language/mangle/docs/builtins/aggregation_functions/counting-distinct-values"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Functions: Counting distinct values"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Aggregation Functions*
+
     ## Counting distinct values
 
     There is no count-distinct reducer. Facts are a set, so project to the columns that define
@@ -64,6 +84,16 @@
     products_per_region(Region, N) :- region_product(Region, Product)
         |> do fn:group_by(Region), let N = fn:count().
     ```
+
+- id: "language/mangle/docs/builtins/aggregation_functions/rules-that-keep-aggregation-correct"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Functions: Rules that keep aggregation correct"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Aggregation Functions*
 
     ## Rules that keep aggregation correct
 

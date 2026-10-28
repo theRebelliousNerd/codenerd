@@ -26,6 +26,16 @@
 
     Every row is `path:start-end  kind  ref  rev <rev>  signature`: a finished citation (repo-relative path, real lines) and an address every element tool accepts. Quote it as is; never retype a path from memory.
 
+- id: "capability/structure_queries/caller-marks-and-search-gate"
+  category: "capability"
+  subcategory: "structural_navigation"
+  priority: 97  # Above codedom_selection: locating comes before editing
+  is_mandatory: false
+  depends_on: []
+  requires_tools: [find_symbol, package_outline, callers_of, callees_of, unreferenced_symbols, get_element, importers_of, find_text, predicate_outline]
+  content: |
+    ## The Workspace Is Already Parsed (continued)
+
     `callers_of` marks a site `exact` when the package ties it to the target, and `by-name` when it is a method call through a variable: check a by-name site before relying on it.
 
     `grep`, `glob`, `list_files` and `search_code` stay in the catalog, but the working loop withholds them from each request until the `working_search_open` gate derives -- after the structural queries above have had their trial, or have shown they have no answer. `read_file` is for files CodeDOM does not parse: prose, configuration, other languages.

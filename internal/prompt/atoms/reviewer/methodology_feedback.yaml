@@ -163,6 +163,17 @@
     thought: We might want to extract this into a utility later if it gets reused.
     ```
 
+- id: "reviewer/methodology/feedback_formats/oir-rule-observation-impact-request"
+  category: "methodology"
+  subcategory: "feedback"
+  priority: 82
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/feedback_fundamentals"]
+  content: |
+    *Part of: FEEDBACK FORMATTING*
+
     ### OIR RULE (Observation-Impact-Request)
 
     **Observation**: What you see
@@ -223,6 +234,17 @@
     - "Good catch on that edge case"
     - "This is really clean"
     - "I learned something from this"
+
+- id: "reviewer/methodology/feedback_phrasing/phrases-to-avoid"
+  category: "methodology"
+  subcategory: "feedback"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/feedback_fundamentals"]
+  content: |
+    *Part of: FEEDBACK PHRASING GUIDE*
 
     ### PHRASES TO AVOID
 
@@ -317,6 +339,17 @@
     - Should this integrate with the existing auth system?
     ```
 
+- id: "reviewer/methodology/feedback_structure/comment-placement"
+  category: "methodology"
+  subcategory: "feedback"
+  priority: 78
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/feedback_fundamentals"]
+  content: |
+    *Part of: STRUCTURED REVIEW OUTPUT*
+
     ### COMMENT PLACEMENT
 
     **Line-Level Comments**
@@ -395,6 +428,17 @@
     Fix: `for i := 0; i < len(items); i++`
     Or better: `for _, item := range items`
     ```
+
+- id: "reviewer/methodology/feedback_examples/style-suggestion"
+  category: "methodology"
+  subcategory: "feedback"
+  priority: 75
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/feedback_fundamentals"]
+  content: |
+    *Part of: FEEDBACK EXAMPLES*
 
     ### STYLE SUGGESTION
 

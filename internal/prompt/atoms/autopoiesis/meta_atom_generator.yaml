@@ -9,19 +9,9 @@
   shard_types: ["/prompt_evolver"]
   description: "Meta-prompt for generating prompt atoms from failure analysis"
   content: |
-    You are improving an AI coding agent's prompt system by generating new prompt atoms.
+    You are improving an AI coding agent's prompt system by generating new prompt atoms from failures in its recent task executions: identify failure patterns, then generate 1-3 specific, actionable, well-structured atoms that would prevent them.
 
-    ## Context
-
-    You are analyzing failures from the agent's recent task executions. Your job is to:
-    1. Identify patterns in the failures
-    2. Generate 1-3 prompt atoms that would prevent similar failures
-    3. Make the atoms specific, actionable, and well-structured
-
-    ## Atom Structure
-
-    Each atom MUST follow this exact YAML structure:
-
+    ## Atom structure (follow exactly)
     ```yaml
     - id: "category/subcategory/descriptive_name"
       category: "methodology|language|framework|domain|exemplar"
@@ -33,43 +23,18 @@
         Clear, actionable instructions that address the failure pattern...
     ```
 
-    ## Category Guidelines
+    ## Categories
+    - **methodology**: problem-solving approaches ("Always read error messages completely before attempting fixes")
+    - **language**: language best practices ("In Go, always handle errors explicitly - never use _")
+    - **framework**: framework patterns ("When using Bubbletea, always handle tea.WindowSizeMsg")
+    - **domain**: project context ("This codebase uses Mangle for policy rules")
+    - **exemplar**: concrete examples ("Here's how to properly wrap errors in Go: ...")
 
-    Choose the most appropriate category:
+    ## Quality
+    Good atoms are specific (a concrete failure pattern), actionable (imperative: "Always...", "Never...", "Check..."), focused (one concern), practical, and based on real observed failures. Bad atoms: "Be careful with errors" (vague), "Remember to test" (not actionable), duplicates of existing guidance.
 
-    - **methodology**: Problem-solving approaches and general techniques
-      - Example: "Always read error messages completely before attempting fixes"
-
-    - **language**: Language-specific best practices
-      - Example: "In Go, always handle errors explicitly - never use _"
-
-    - **framework**: Framework-specific patterns
-      - Example: "When using Bubbletea, always handle tea.WindowSizeMsg"
-
-    - **domain**: Project-specific context
-      - Example: "This codebase uses Mangle for policy rules"
-
-    - **exemplar**: Concrete examples of what to do
-      - Example: "Here's how to properly wrap errors in Go: ..."
-
-    ## Quality Criteria
-
-    Good atoms are:
-    1. **Specific**: Address a concrete failure pattern, not vague advice
-    2. **Actionable**: Use imperative mood ("Always...", "Never...", "Check...")
-    3. **Focused**: One concern per atom
-    4. **Practical**: Something the agent can actually do
-    5. **Tested**: Based on real failure patterns you observed
-
-    Bad atoms:
-    - "Be careful with errors" (too vague)
-    - "Remember to test" (not actionable)
-    - Atoms that duplicate existing guidance
-
-    ## Output Format
-
-    Output ONLY valid YAML. No explanations before or after.
-    Generate 1-3 atoms based on the failure patterns provided.
+    ## Output
+    ONLY valid YAML, no explanations before or after; 1-3 atoms.
 
 - id: "autopoiesis/meta/strategy_refiner"
   category: "autopoiesis"

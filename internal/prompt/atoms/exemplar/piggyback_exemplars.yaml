@@ -61,29 +61,12 @@
     {
       "surface_response": "Code review complete. Found 2 issues: one potential nil pointer dereference (high) and one style inconsistency (low).",
       "control_packet": {
-        "intent_classification": {
-          "category": "/verification",
-          "verb": "/review",
-          "target": "PR_123",
-          "constraints": ["security", "correctness", "style"]
-        },
+        "intent_classification": {"category": "/verification", "verb": "/review", "target": "PR_123", "constraints": ["security", "correctness", "style"]},
         "findings": [
-          {
-            "severity": "high",
-            "type": "potential_nil_deref",
-            "file": "/internal/handler/user.go",
-            "line": 45,
-            "description": "user.Profile accessed without nil check",
-            "suggestion": "Add nil check before accessing Profile"
-          },
-          {
-            "severity": "low",
-            "type": "style",
-            "file": "/internal/handler/user.go",
-            "line": 52,
-            "description": "Inconsistent error message format",
-            "suggestion": "Use lowercase error messages per Go conventions"
-          }
+          {"severity": "high", "type": "potential_nil_deref", "file": "/internal/handler/user.go", "line": 45,
+           "description": "user.Profile accessed without nil check", "suggestion": "Add nil check before accessing Profile"},
+          {"severity": "low", "type": "style", "file": "/internal/handler/user.go", "line": 52,
+           "description": "Inconsistent error message format", "suggestion": "Use lowercase error messages per Go conventions"}
         ],
         "mangle_updates": [
           "review_finding(\"internal/handler/user.go\", 45, /error, /correctness, \"possible nil dereference of user\").",
@@ -91,12 +74,8 @@
         ],
         "verdict": "changes_requested",
         "confidence": 0.85,
-        "context_feedback": {
-          "overall_usefulness": 0.75,
-          "helpful_facts": ["symbol_graph", "file_topology", "diagnostic_found"],
-          "noise_facts": ["session_context", "campaign_context"],
-          "missing_context": "git blame for recently changed lines"
-        }
+        "context_feedback": {"overall_usefulness": 0.75, "helpful_facts": ["symbol_graph", "file_topology", "diagnostic_found"],
+          "noise_facts": ["session_context", "campaign_context"], "missing_context": "git blame for recently changed lines"}
       }
     }
     ```
@@ -115,20 +94,12 @@
     {
       "surface_response": "Generated 5 test cases for ValidateEmail: 3 passing cases, 2 edge cases for invalid input.",
       "control_packet": {
-        "intent_classification": {
-          "category": "/verification",
-          "verb": "/test",
-          "target": "ValidateEmail",
-          "constraints": ["unit", "edge_cases", "error_paths"]
-        },
+        "intent_classification": {"category": "/verification", "verb": "/test", "target": "ValidateEmail", "constraints": ["unit", "edge_cases", "error_paths"]},
         "test_plan": {
-          "function": "ValidateEmail",
-          "file": "/internal/user/validation_test.go",
+          "function": "ValidateEmail", "file": "/internal/user/validation_test.go",
           "cases": [
-            {"name": "valid_email", "type": "happy_path"},
-            {"name": "valid_email_with_plus", "type": "happy_path"},
-            {"name": "valid_email_subdomain", "type": "happy_path"},
-            {"name": "empty_string", "type": "error_case"},
+            {"name": "valid_email", "type": "happy_path"}, {"name": "valid_email_with_plus", "type": "happy_path"},
+            {"name": "valid_email_subdomain", "type": "happy_path"}, {"name": "empty_string", "type": "error_case"},
             {"name": "missing_at_symbol", "type": "error_case"}
           ]
         },
@@ -138,20 +109,11 @@
         ],
         "reasoning_trace": "1. Identified function signature. 2. Analyzed RFC 5322 email format. 3. Generated valid cases. 4. Generated boundary cases. 5. Generated error cases.",
         "confidence": 0.95,
-        "context_feedback": {
-          "overall_usefulness": 0.9,
-          "helpful_facts": ["test_state", "file_topology", "symbol_graph"],
-          "noise_facts": ["browser_state", "dom_node"],
-          "missing_context": ""
-        }
+        "context_feedback": {"overall_usefulness": 0.9, "helpful_facts": ["test_state", "file_topology", "symbol_graph"],
+          "noise_facts": ["browser_state", "dom_node"], "missing_context": ""}
       },
       "artifacts": [
-        {
-          "type": "file_edit",
-          "path": "/internal/user/validation_test.go",
-          "operation": "create",
-          "content": "..."
-        }
+        {"type": "file_edit", "path": "/internal/user/validation_test.go", "operation": "create", "content": "..."}
       ]
     }
     ```

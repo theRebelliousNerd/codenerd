@@ -7,58 +7,15 @@
   content: |
     ## MANGLE SYNTH OUTPUT FORMAT (MANDATORY)
 
-    You MUST output a single JSON object. No markdown. No code fences. No extra keys.
-    If Piggyback Protocol is active, the surface_response field MUST be the JSON object and nothing else.
+    Output a single JSON object. No markdown, no code fences, no extra keys. If Piggyback Protocol is active, the surface_response field MUST be the JSON object and nothing else.
 
-    REQUIRED ENVELOPE:
-    {
-      "format": "mangle_synth_v1",
-      "program": { ... }
-    }
+    ENVELOPE: {"format": "mangle_synth_v1", "program": { ... }}
 
-    ### ProgramSpec
-    - package: { name, atoms? }            # optional
-    - use: [ { name, atoms? }, ... ]       # optional
-    - decls: [ DeclSpec, ... ]             # optional
-    - clauses: [ ClauseSpec, ... ]         # REQUIRED for rule generation
+    - ProgramSpec: package {name, atoms?} (optional); use [{name, atoms?}] (optional); decls [DeclSpec] (optional); clauses [ClauseSpec] (REQUIRED for rule generation).
+    - ClauseSpec: {"head": AtomSpec, "body": [TermSpec] (optional), "transform": TransformSpec? (optional)}
+    - AtomSpec: {"pred": "predicate_name", "args": [ExprSpec]}
+    - TermSpec: {"kind": "atom", "atom": AtomSpec} | {"kind": "not", "atom": AtomSpec} | {"kind": "eq"|"neq", "left": ExprSpec, "right": ExprSpec} | {"kind": "cmp", "op": "lt|le|gt|ge", "left": ExprSpec, "right": ExprSpec}
+    - ExprSpec kinds: var {"value": "X"}; name {"value": "/atom"}; string {"value": "text"}; bytes {"value": "raw-bytes"}; number {"number": 123} or {"value": "123"}; float {"float": 1.23} or {"value": "1.23"}; apply {"function": "fn:sum", "args": [ExprSpec]}; list {"args": [...]} (maps to fn:list); map and struct {"args": [...]} (even arg count).
+    - TransformSpec: {"statements": [TransformStmtSpec]}. Statements: {"kind": "do", "fn": ExprSpec} and {"kind": "let", "var": "X", "fn": ExprSpec}; fn.kind must be "apply".
 
-    ### ClauseSpec
-    {
-      "head": AtomSpec,
-      "body": [ TermSpec, ... ],           # optional
-      "transform": TransformSpec?          # optional
-    }
-
-    ### TermSpec
-    - {"kind": "atom", "atom": AtomSpec}
-    - {"kind": "not",  "atom": AtomSpec}
-    - {"kind": "eq",   "left": ExprSpec, "right": ExprSpec}
-    - {"kind": "neq",  "left": ExprSpec, "right": ExprSpec}
-    - {"kind": "cmp",  "op": "lt|le|gt|ge", "left": ExprSpec, "right": ExprSpec}
-
-    ### AtomSpec
-    { "pred": "predicate_name", "args": [ ExprSpec, ... ] }
-
-    ### ExprSpec
-    - {"kind": "var",    "value": "X"}
-    - {"kind": "name",   "value": "/atom"}
-    - {"kind": "string", "value": "text"}
-    - {"kind": "bytes",  "value": "raw-bytes"}
-    - {"kind": "number", "number": 123}           # or "value": "123"
-    - {"kind": "float",  "float": 1.23}           # or "value": "1.23"
-    - {"kind": "apply",  "function": "fn:sum", "args": [ ExprSpec, ... ]}
-    - {"kind": "list",   "args": [ ExprSpec, ... ]}     # maps to fn:list
-    - {"kind": "map",    "args": [ ExprSpec, ... ]}     # even arg count
-    - {"kind": "struct", "args": [ ExprSpec, ... ]}     # even arg count
-
-    ### TransformSpec
-    { "statements": [ TransformStmtSpec, ... ] }
-
-    ### TransformStmtSpec
-    - {"kind": "do",  "fn": ExprSpec}              # fn.kind must be "apply"
-    - {"kind": "let", "var": "X", "fn": ExprSpec}  # fn.kind must be "apply"
-
-    ### Requirements
-    - Output EXACTLY one ClauseSpec for rule generation.
-    - Do not include extra keys or commentary.
-    - Predicate names must be declared in available predicates.
+    Requirements: output EXACTLY one ClauseSpec for rule generation; no extra keys or commentary; predicate names must be declared in available predicates.

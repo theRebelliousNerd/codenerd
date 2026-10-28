@@ -10,11 +10,11 @@
   languages: ["/mangle"]
   content: |
     # codeNERD Mangle Policy Rules (IDB)
-    
+
     Complete reference of Intensional Database (IDB) derivation rules used in codeNERD. These rules **derive** new facts from existing EDB facts through logical inference.
-    
+
     ## Overview
-    
+
     IDB rules are the "brains" of the Mangle kernel. They implement:
     - **Intent routing** - Map user requests to actions
     - **Strategy selection** - Choose execution workflows
@@ -22,19 +22,27 @@
     - **Context selection** - Spreading activation
     - **Repair orchestration** - TDD loop state machine
     - **Impact analysis** - Transitive dependency tracking
-    
+
     ## Rule Categories
-    
+
     Policy rules are organized into thematic sections matching the codeNERD architecture.
-    
-    ---
-    
+
+- id: "language/mangle/docs/codenerd/policy/section-1-intent-classification-routing"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): SECTION 1: Intent Classification & Routing"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB)*
+
     ## SECTION 1: Intent Classification & Routing
-    
+
     ### Clarification Logic
-    
+
     Blocks execution when user intent is ambiguous.
-    
+
     ```mangle
     # Trigger interrogative mode when focus resolution confidence is low
     Decl focus_resolution(A1, A2, A3, A4).
@@ -51,11 +59,21 @@
     next_action(/interrogative_mode) :-
         ambiguity_flag(_, _, _).
     ```
-    
+
+- id: "language/mangle/docs/codenerd/policy/polymorphic-verb-dispatch"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): Polymorphic Verb Dispatch"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB) > SECTION 1: Intent Classification & Routing*
+
     ### Polymorphic Verb Dispatch
-    
+
     Same verb applied to different targets triggers different strategies.
-    
+
     ```mangle
     # fix applied to File -> TDD repair loop
     Decl user_intent(A1, A2, A3, A4, A5).
@@ -76,11 +94,21 @@
         user_intent(_, /query, /review, _, _),
         context_token("security").
     ```
-    
+
+- id: "language/mangle/docs/codenerd/policy/verb-selection-semantic-classification"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): Verb Selection (Semantic Classification)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB) > SECTION 1: Intent Classification & Routing*
+
     ### Verb Selection (Semantic Classification)
-    
+
     Advanced semantic matching with learned patterns.
-    
+
     ```mangle
     # Base score from candidates
     Decl candidate_intent(Verb, Score).
@@ -121,6 +149,17 @@
     has_greater_score(S) :-
         potential_score(_, S),
         potential_score(_, Other),
+
+- id: "language/mangle/docs/codenerd/policy/section-2-strategy-selection"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): SECTION 2: Strategy Selection"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB) > SECTION 1: Intent Classification & Routing > Verb Selection (Semantic Classification)*
+
         Other > S.
 
     best_score(S) :-
@@ -132,15 +171,13 @@
         best_score(Max),
         S = Max.
     ```
-    
-    ---
-    
+
     ## SECTION 2: Strategy Selection
-    
+
     Dynamic workflow dispatch based on context.
-    
+
     ### TDD Strategies
-    
+
     ```mangle
     # TDD repair loop for test failures
     Decl user_intent(A1, A2, A3, A4, A5).
@@ -157,9 +194,19 @@
         user_intent(_, /mutation, _, Target, _),
         test_coverage(Target, /true).
     ```
-    
+
+- id: "language/mangle/docs/codenerd/policy/exploration-strategies"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): Exploration Strategies"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB) > SECTION 2: Strategy Selection*
+
     ### Exploration Strategies
-    
+
     ```mangle
     # Breadth-first for large codebases
     Decl user_intent(A1, A2, A3, A4, A5).
@@ -175,9 +222,9 @@
         file_count(N),
         N <= 100.
     ```
-    
+
     ### Scaffolding Strategies
-    
+
     ```mangle
     # Project init for empty directories
     Decl user_intent(A1, A2, A3, A4, A5).
@@ -192,9 +239,9 @@
         file_count(N),
         N > 0.
     ```
-    
+
     ### Strategy Conflict Detection
-    
+
     ```mangle
     # Only one strategy active per shard
     Decl active_strategy(A).
@@ -203,15 +250,23 @@
         active_strategy(B),
         A != B.
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/codenerd/policy/section-3-tdd-repair-loop-state-machine"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): SECTION 3: TDD Repair Loop State Machine"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB)*
+
     ## SECTION 3: TDD Repair Loop State Machine
-    
+
     The TDD repair orchestrator - derives next action based on test state.
-    
+
     ### State Transitions
-    
+
     ```mangle
     # Read error log when failing
     Decl test_state(X).
@@ -243,9 +298,9 @@
     next_action(/mark_complete) :-
         test_state(/passing).
     ```
-    
+
     ### Retry Logic
-    
+
     ```mangle
     # Increment retry counter
     Decl test_state(X).
@@ -254,15 +309,23 @@
         test_state(/failing),
         NewN = fn:plus(N, 1).
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/codenerd/policy/section-4-impact-analysis-dependency"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): SECTION 4: Impact Analysis & Dependency Tracking"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB)*
+
     ## SECTION 4: Impact Analysis & Dependency Tracking
-    
+
     Transitive closure for "who is affected by this change?"
-    
+
     ### Direct Impact
-    
+
     ```mangle
     # Direct impact from modification
     Decl dependency_link(X, Y, Z).
@@ -271,9 +334,9 @@
         dependency_link(X, Y, _),
         modified(Y).
     ```
-    
+
     ### Recursive Closure
-    
+
     ```mangle
     # Recursive spread through call graph
     Decl dependency_link(X, Y, Z).
@@ -281,29 +344,37 @@
         dependency_link(X, Z, _),
         impacted(Z).
     ```
-    
+
     ### Test Coverage Requirements
-    
+
     ```mangle
     # Mark impacted files for testing
     needs_testing(X) :-
         impacted(X).
-    
+
     # Unsafe if impacted symbol has no tests
     unsafe_to_refactor(Target) :-
         impacted(Dependent),
         depends_on(Dependent, Target),
         test_coverage(Dependent, /false).
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/codenerd/policy/section-5-constitutional-safety-permission"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): SECTION 5: Constitutional Safety (Permission Gate)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB)*
+
     ## SECTION 5: Constitutional Safety (Permission Gate)
-    
+
     Default-deny execution model. Every action requires explicit permission.
-    
+
     ### Permission Rules
-    
+
     ```mangle
     # Safe actions are permitted
     Decl safe_action(ActionType).
@@ -322,67 +393,87 @@
         signed_approval(ActionType),
         pending_action(_, ActionType, Target, Payload, _).
     ```
-    
+
     ### Safe Action Classification
-    
+
     ```mangle
     # Read operations are safe
     safe_action(/read_file).
     safe_action(/query_database).
     safe_action(/list_directory).
-    
+
     # Some write operations are safe
     safe_action(/write_test_file) :-
         file_path(Action, Path),
         fn:string_contains(Path, "_test").
     ```
-    
+
+- id: "language/mangle/docs/codenerd/policy/dangerous-action-classification"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): Dangerous Action Classification"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB) > SECTION 5: Constitutional Safety (Permission Gate)*
+
     ### Dangerous Action Classification
-    
+
     ```mangle
     # Shell commands with destructive potential
     dangerous_action(Action) :-
         action_type(Action, /exec_cmd),
         cmd_string(Action, Cmd),
         fn:string_contains(Cmd, "rm").
-    
+
     dangerous_action(Action) :-
         action_type(Action, /exec_cmd),
         cmd_string(Action, Cmd),
         fn:string_contains(Cmd, "sudo").
-    
+
     # File writes to sensitive files
     dangerous_action(Action) :-
         action_type(Action, /write_file),
         file_path(Action, Path),
         fn:string_contains(Path, ".env").
-    
+
     dangerous_action(Action) :-
         action_type(Action, /write_file),
         file_path(Action, Path),
         fn:string_contains(Path, "credentials").
     ```
-    
+
     ### Commit Barrier
-    
+
     ```mangle
     # Block git commit if any errors exist
     block_commit("Build Broken") :-
         diagnostic(/error, _, _, _, _).
-    
+
     # Block commit if tests failing
     block_commit("Tests Failing") :-
         test_result(_, _, /failed, _, _).
-    
+
     # Commit allowed only when no blockers
     commit_blocked() :- block_commit(Reason).
 
     git_commit_allowed() :-
         !commit_blocked().
     ```
-    
+
+- id: "language/mangle/docs/codenerd/policy/network-policy"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): Network Policy"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB) > SECTION 5: Constitutional Safety (Permission Gate)*
+
     ### Network Policy
-    
+
     ```mangle
     # Allowlist for network requests
     Decl pending_action(A1, A2, A3, A4, A5).
@@ -398,9 +489,9 @@
         extract_domain(URL, Domain),
         !network_allowlist(Domain).
     ```
-    
+
     ### Binary Allowlist
-    
+
     ```mangle
     # Permitted binaries for shell execution
     binary_allowlist("go").
@@ -408,21 +499,29 @@
     binary_allowlist("cargo").
     binary_allowlist("git").
     binary_allowlist("python").
-    
+
     # Block if not in allowlist
     block_action(/shell_exec, Req) :-
         shell_exec_request(Binary, _, _, _, _),
         !binary_allowlist(Binary).
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/codenerd/policy/section-6-context-selection-spreading"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): SECTION 6: Context Selection (Spreading Activation)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB)*
+
     ## SECTION 6: Context Selection (Spreading Activation)
-    
+
     Implements attention mechanism for prompt context selection.
-    
+
     ### Base Activation
-    
+
     ```mangle
     # Recency boost for new facts
     Decl new_fact(Fact).
@@ -434,9 +533,9 @@
     activation(File, 90) :-
         focus_resolution(_, File, _, _).
     ```
-    
+
     ### Spreading from Goals
-    
+
     ```mangle
     # Spread from active goal to relevant tools
     Decl active_goal(Goal).
@@ -447,9 +546,9 @@
         tool_capabilities(Tool, Cap),
         goal_requires(Goal, Cap).
     ```
-    
+
     ### Recursive Spread via Dependencies
-    
+
     ```mangle
     # Spread through call graph (decay factor 0.5)
     activation(FileB, Score2) :-
@@ -458,9 +557,19 @@
         dependency_link(FileA, FileB, _),
         Score2 = fn:times(Score, 0.5).
     ```
-    
+
+- id: "language/mangle/docs/codenerd/policy/context-pruning"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): Context Pruning"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB) > SECTION 6: Context Selection (Spreading Activation)*
+
     ### Context Pruning
-    
+
     ```mangle
     # Include in prompt context if activation above threshold
     Decl activation(Fact, Score).
@@ -468,29 +577,37 @@
         activation(Fact, Score),
         Score > 30.
     ```
-    
+
     ### Priority Weighting
-    
+
     ```mangle
     # Higher priority for files with errors
     activation(File, 95) :-
         diagnostic(_, File, _, _, _).
-    
+
     # Higher priority for recently modified files
     activation(File, 85) :-
         file_topology(File, _, _, LastMod, _),
         current_time(Now),
         Now - LastMod < 300.  # Modified in last 5 minutes
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/codenerd/policy/section-7-shard-delegation"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): SECTION 7: Shard Delegation"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB)*
+
     ## SECTION 7: Shard Delegation
-    
+
     Dynamic shard spawning and task routing.
-    
+
     ### Delegation Triggers
-    
+
     ```mangle
     # Spawn shard when task delegated
     Decl user_intent(A1, A2, A3, A4, A5).
@@ -509,28 +626,36 @@
     delegate_task(/researcher, Topic, /pending) :-
         user_intent(_, _, /research, Topic, _).
     ```
-    
+
     ### Specialist Requirements
-    
+
     ```mangle
     # Specialists require knowledge base
     invalid_shard(ShardID) :-
         shard_lifecycle(ShardID, /specialist, _, null, _).
-    
+
     # Research needed before instantiation
     needs_research(Agent) :-
         shard_profile(Agent, _, Topics, _),
         !knowledge_ingested(Agent).
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/codenerd/policy/section-8-memory-operations"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): SECTION 8: Memory Operations"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB)*
+
     ## SECTION 8: Memory Operations
-    
+
     Long-term memory promotion and archival.
-    
+
     ### Promotion Criteria
-    
+
     ```mangle
     # Promote facts mentioned repeatedly
     Decl mentioned_count(Fact, N).
@@ -546,9 +671,9 @@
         activation(Fact, Score),
         Score > 80.
     ```
-    
+
     ### Archival Criteria
-    
+
     ```mangle
     # Archive old facts with low activation. Arithmetic goes through a
     # let-transform (no infix arithmetic), and the negated test is a bound
@@ -565,48 +690,64 @@
         Age > 3600,
         !has_activation(Fact).
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/codenerd/policy/section-9-campaign-orchestration"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): SECTION 9: Campaign Orchestration"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB)*
+
     ## SECTION 9: Campaign Orchestration
-    
+
     Multi-phase goal tracking and phase dependency resolution.
-    
+
     ### Phase Ordering
-    
+
     ```mangle
     # Phase ready when dependencies completed
     phase_ready(CampaignID, Phase) :-
         campaign_phase(CampaignID, Phase, _, /pending),
         !has_incomplete_dependency(CampaignID, Phase).
-    
+
     has_incomplete_dependency(CID, Phase) :-
         phase_depends(CID, Phase, DependsOn),
         campaign_phase(CID, DependsOn, _, Status),
         Status != /completed.
     ```
-    
+
     ### Next Phase Selection
-    
+
     ```mangle
     # Next phase is the lowest-numbered ready phase
     next_phase(CampaignID, Phase) :-
         phase_ready(CampaignID, Phase),
         !has_earlier_ready_phase(CampaignID, Phase).
-    
+
     has_earlier_ready_phase(CID, Phase) :-
         phase_ready(CID, Earlier),
         Earlier < Phase.
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/codenerd/policy/section-10-autopoiesis-ouroboros-loop"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): SECTION 10: Autopoiesis (Ouroboros Loop)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB)*
+
     ## SECTION 10: Autopoiesis (Ouroboros Loop)
-    
+
     Self-modification stability tracking and termination detection.
-    
+
     ### Stagnation Detection
-    
+
     ```mangle
     # Detect code hash repetition
     Decl history(StepA, Hash).
@@ -615,9 +756,9 @@
         history(StepB, Hash),
         StepA != StepB.
     ```
-    
+
     ### Penalty Calculation
-    
+
     ```mangle
     # Panic penalty
     Decl error_history(X, Y, Z).
@@ -649,9 +790,19 @@
         state(StepID, _, _),
         !has_penalty(StepID).
     ```
-    
+
+- id: "language/mangle/docs/codenerd/policy/effective-stability"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): Effective Stability"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB) > SECTION 10: Autopoiesis (Ouroboros Loop)*
+
     ### Effective Stability
-    
+
     ```mangle
     # Stability adjusted for penalties
     Decl base_stability(StepID, Base).
@@ -661,9 +812,9 @@
         cumulative_penalty(StepID, Penalty),
         Effective = fn:minus(Base, Penalty).
     ```
-    
+
     ### Transition Validation
-    
+
     ```mangle
     # Monotonic improvement constraint
     Decl state(X, Y, Z).
@@ -676,9 +827,19 @@
         effective_stability(Next, NextEff),
         NextEff >= CurrEff.
     ```
-    
+
+- id: "language/mangle/docs/codenerd/policy/termination-conditions"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): Termination Conditions"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB) > SECTION 10: Autopoiesis (Ouroboros Loop)*
+
     ### Termination Conditions
-    
+
     ```mangle
     # Max iterations exceeded
     Decl iteration(StepID, N).
@@ -715,9 +876,19 @@
         S1 = S2,
         N2 >= 2.
     ```
-    
+
+- id: "language/mangle/docs/codenerd/policy/halting-oracle"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): Halting Oracle"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB) > SECTION 10: Autopoiesis (Ouroboros Loop)*
+
     ### Halting Oracle
-    
+
     ```mangle
     # Halt on various failure conditions
     Decl iteration(X, Y).
@@ -750,41 +921,57 @@
         state_at_iteration(StepID, _, _),
         converged(StepID).
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/codenerd/policy/section-11-abductive-reasoning"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): SECTION 11: Abductive Reasoning"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB)*
+
     ## SECTION 11: Abductive Reasoning
-    
+
     Hypothesis generation for root cause analysis.
-    
+
     ### Symptom-Cause Mapping
-    
+
     ```mangle
     # Known cause lookup
     diagnosis(RootCause) :-
         symptom(_, Symptom),
         known_cause(Symptom, RootCause).
-    
+
     # Generate hypothesis when cause unknown
     has_known_cause(Symptom) :- known_cause(Symptom, Cause).
 
     missing_hypothesis(Symptom) :-
         symptom(_, Symptom),
         !has_known_cause(Symptom).
-    
+
     # Trigger clarification for unknown symptoms
     clarification_needed(Symptom) :-
         missing_hypothesis(Symptom).
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/codenerd/policy/section-12-browser-automation-semantic-web"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): SECTION 12: Browser Automation (Semantic Web)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB)*
+
     ## SECTION 12: Browser Automation (Semantic Web)
-    
+
     Spatial and semantic reasoning over DOM.
-    
+
     ### Element Selection
-    
+
     ```mangle
     # Find checkbox to the left of text
     Decl dom_node(X, Y, Z).
@@ -811,13 +998,21 @@
         W > 0,
         H > 0.
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/codenerd/policy/rule-composition-patterns"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): Rule Composition Patterns"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB)*
+
     ## Rule Composition Patterns
-    
+
     ### Chaining Rules
-    
+
     ```mangle
     # Multi-step derivation
     Decl initial_fact(X).
@@ -828,9 +1023,9 @@
         intermediate_step(X),
         final_check(X).
     ```
-    
+
     ### Negation Safety
-    
+
     ```mangle
     # All variables in negated atoms must be bound first
     Decl positive_binding(X).
@@ -839,9 +1034,9 @@
         positive_binding(X),
         !negative_condition(X).
     ```
-    
+
     ### Aggregation with Transforms
-    
+
     ```mangle
     # Count files per language
     Decl file_topology(A1, A2, A3, A4, A5).
@@ -850,28 +1045,30 @@
         |> do fn:group_by(Lang),
            let Count = fn:count().
     ```
-    
+
     ### Recursive Closure
-    
+
     ```mangle
     # Transitive closure pattern
     Decl parent(X, Y).
     ancestor(X, Y) :- parent(X, Y).
     ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/codenerd/policy/usage-guidelines"
+  category: "language"
+  subcategory: "mangle"
+  description: "codeNERD Mangle Policy Rules (IDB): Usage Guidelines"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: codeNERD Mangle Policy Rules (IDB)*
+
     ## Usage Guidelines
-    
+
     1. **Variable Safety**: All variables in rule head must appear in positive body atoms
     2. **Negation Safety**: Variables in negated atoms must be bound elsewhere
     3. **Stratification**: No recursion through negation (causes cyclic dependency)
     4. **Termination**: Recursive rules must have base case and bounded domain
     5. **Aggregation**: Use pipe `|>` operator with `do fn:group_by()`
-    
-    ## See Also
-    
-    - [schemas.md](schemas.md) - EDB predicate declarations
-    - [predicates_reference.md](predicates_reference.md) - Predicate documentation
-    - [validation_rules.md](validation_rules.md) - Common errors to avoid

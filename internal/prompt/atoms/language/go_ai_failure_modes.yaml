@@ -206,6 +206,7 @@
     **Multiple subtle behaviors trip up AI agents**
 
     ### Gotcha 1: Defer Runs at Function Exit, Not Block Exit
+
     ```go
     // BAD: Defers accumulate in loop
     for _, file := range files {
@@ -224,6 +225,7 @@
     ```
 
     ### Gotcha 2: Deferred Args Evaluated Immediately
+
     ```go
     // BAD: i captured at defer time
     for i := 0; i < 3; i++ {
@@ -238,6 +240,7 @@
     ```
 
     ### Gotcha 3: Defer Order is LIFO
+
     ```go
     defer fmt.Println("1")
     defer fmt.Println("2")
@@ -245,7 +248,20 @@
     // Output: 3, 2, 1 (Last In, First Out)
     ```
 
+- id: "language/go/ai_failures/defer_gotchas/gotcha-4-named-return-modification"
+  category: "language"
+  subcategory: "go"
+  priority: 92
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  world_states: ["authoring_go"]
+  depends_on: ["language/go/ai_failures/overview"]
+  content: |
+    *Part of: DEFER GOTCHAS*
+
     ### Gotcha 4: Named Return Modification
+
     ```go
     func example() (result int) {
         defer func() {
@@ -256,6 +272,7 @@
     ```
 
     ### Gotcha 5: Panic Recovery Scope
+
     ```go
     // BAD: Recover in wrong scope
     func bad() {
@@ -279,6 +296,7 @@
     ```
 
     ### AI MUST CHECK
+
     - Defers inside loops (consider closures)
     - Arguments to defer (evaluated immediately)
     - Named returns with defer modifications
@@ -300,10 +318,12 @@
     **Symptom: Unexpected slice mutations or data loss**
 
     ### The Problem
+
     Append may or may not allocate new backing array depending on capacity.
     This leads to subtle aliasing bugs.
 
     ### BAD: Aliasing through sub-slices
+
     ```go
     original := []int{1, 2, 3, 4, 5}
     subset := original[1:3]  // [2, 3], shares backing array!
@@ -313,6 +333,7 @@
     ```
 
     ### CORRECT: Full slice expression to limit capacity
+
     ```go
     original := []int{1, 2, 3, 4, 5}
     subset := original[1:3:3]  // [2, 3], capacity limited to 2
@@ -322,6 +343,7 @@
     ```
 
     ### CORRECT: Explicit copy
+
     ```go
     original := []int{1, 2, 3, 4, 5}
     subset := make([]int, 2)
@@ -331,7 +353,20 @@
     // original unchanged
     ```
 
+- id: "language/go/ai_failures/slice_append/bad-concurrent-append"
+  category: "language"
+  subcategory: "go"
+  priority: 91
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  world_states: ["authoring_go"]
+  depends_on: ["language/go/ai_failures/overview"]
+  content: |
+    *Part of: SLICE APPEND BEHAVIOR*
+
     ### BAD: Concurrent append
+
     ```go
     var results []int
     var wg sync.WaitGroup
@@ -345,6 +380,7 @@
     ```
 
     ### CORRECT: Use channel or mutex
+
     ```go
     var results []int
     var mu sync.Mutex
@@ -361,6 +397,7 @@
     ```
 
     ### Pre-allocation for Performance
+
     ```go
     // BAD: Multiple allocations
     var items []Item
@@ -376,6 +413,7 @@
     ```
 
     ### AI MUST CHECK
+
     - Sub-slices returned from functions
     - Slices passed to functions and modified
     - Concurrent append operations
@@ -397,6 +435,7 @@
     **Symptom: Panic or data corruption**
 
     ### Issue 1: Nil Map Write Panic
+
     ```go
     // BAD: Writing to nil map panics
     var m map[string]int
@@ -412,6 +451,7 @@
     ```
 
     ### Issue 2: Concurrent Map Access
+
     ```go
     // BAD: Data race
     m := make(map[string]int)
@@ -439,7 +479,20 @@
     v, _ := m.Load("a")
     ```
 
+- id: "language/go/ai_failures/map_safety/issue-3-map-iteration-order"
+  category: "language"
+  subcategory: "go"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  world_states: ["authoring_go"]
+  depends_on: ["language/go/ai_failures/overview"]
+  content: |
+    *Part of: MAP SAFETY ISSUES*
+
     ### Issue 3: Map Iteration Order
+
     ```go
     // BAD: Assuming iteration order
     m := map[string]int{"a": 1, "b": 2, "c": 3}
@@ -459,6 +512,7 @@
     ```
 
     ### Issue 4: Map Element Addressability
+
     ```go
     type User struct { Age int }
     m := map[string]User{"alice": {Age: 30}}
@@ -477,6 +531,7 @@
     ```
 
     ### AI MUST CHECK
+
     - Map initialization before use
     - Concurrent map access patterns
     - Assumptions about iteration order
@@ -494,107 +549,38 @@
   content: |
     ## ERROR HANDLING FAILURES
 
-    **Severity: HIGH**
-    **AI agents frequently mishandle Go's explicit error model**
+    **Severity: HIGH.** AI agents frequently mishandle Go's explicit error model.
 
-    ### Failure 1: Ignoring Errors
     ```go
-    // BAD: Error ignored
-    data, _ := json.Marshal(obj)
-
-    // BAD: Error checked but not used
-    if err := doSomething(); err != nil {
-        // Empty block!
-    }
-
-    // CORRECT: Handle or propagate
+    // 1. Ignoring errors. BAD: `data, _ := json.Marshal(obj)`, or an empty `if err != nil {}` block.
     data, err := json.Marshal(obj)
     if err != nil {
         return fmt.Errorf("marshal: %w", err)
     }
-    ```
 
-    ### Failure 2: Shadow Error Variable
-    ```go
-    // BAD: err shadowed, original lost
-    err := doFirst()
-    if err != nil {
-        return err
-    }
-
-    if result, err := doSecond(); err != nil {  // New err shadows!
-        return err
-    }
-    // Original err might still be non-nil here!
-
-    // CORRECT: Reuse err variable
+    // 2. Shadowed err. BAD: `if result, err := doSecond(); err != nil { return err }` declares a NEW err
+    //    that shadows the outer one (the original err may still be non-nil afterwards).
+    // CORRECT: declare once and reuse
     var err error
     err = doFirst()
-    if err != nil {
-        return err
-    }
-
     var result Result
-    result, err = doSecond()  // Same err
-    if err != nil {
-        return err
-    }
+    result, err = doSecond()
+
+    // 3. Wrong wrapping. BAD: fmt.Errorf("failed: %v", err) loses the chain;
+    //    fmt.Errorf("failed: %w: %w", err1, err2) is invalid.
+    return fmt.Errorf("failed: %w", err) // %w once
+    return errors.Join(err1, err2)       // several errors (Go 1.20+)
+
+    // 4. String matching. BAD: if err.Error() == "not found" { ... }
+    if errors.Is(err, ErrNotFound) { /* handle */ }
+
+    // 5. BAD: err := step1(); err = step2(); return err  (step1's failure is lost)
+    if err := step1(); err != nil { return err }
+    if err := step2(); err != nil { return err }
+    return nil
     ```
 
-    ### Failure 3: Wrong Error Wrapping
-    ```go
-    // BAD: Using %v loses error chain
-    return fmt.Errorf("failed: %v", err)
-
-    // BAD: Double wrapping
-    return fmt.Errorf("failed: %w: %w", err1, err2)  // Invalid!
-
-    // CORRECT: Use %w once
-    return fmt.Errorf("failed: %w", err)
-
-    // CORRECT: Join multiple errors (Go 1.20+)
-    return errors.Join(err1, err2)
-    ```
-
-    ### Failure 4: String Matching Errors
-    ```go
-    // BAD: Brittle string matching
-    if err.Error() == "not found" {
-        // Handle...
-    }
-
-    // CORRECT: Use sentinel errors
-    if errors.Is(err, ErrNotFound) {
-        // Handle...
-    }
-    ```
-
-    ### Failure 5: Returning err When nil Expected
-    ```go
-    // BAD: Always returning err (might be nil)
-    func doSomething() error {
-        err := step1()
-        err = step2()
-        return err  // What if step1 failed but step2 succeeded?
-    }
-
-    // CORRECT: Check each error
-    func doSomething() error {
-        if err := step1(); err != nil {
-            return err
-        }
-        if err := step2(); err != nil {
-            return err
-        }
-        return nil
-    }
-    ```
-
-    ### AI MUST CHECK
-    - Every function returning error is checked
-    - Error shadowing in if statements
-    - Using %w for error wrapping
-    - Not using string matching for errors
+    AI MUST CHECK: every error-returning call is checked; no shadowing in `if` statements; `%w` for wrapping; no string matching on errors.
 
 - id: "language/go/ai_failures/goroutine_leaks"
   category: "language"
@@ -608,133 +594,52 @@
   content: |
     ## GOROUTINE LEAKS
 
-    **Severity: CRITICAL**
-    **Symptom: Memory growth, resource exhaustion**
+    **Severity: CRITICAL.** Symptom: memory growth, resource exhaustion.
 
-    ### Leak Pattern 1: Blocked Channel Send
     ```go
-    // BAD: Goroutine blocked forever
-    func leaky() {
-        ch := make(chan int)
-        go func() {
-            ch <- 1  // Blocks forever - no receiver!
-        }()
-        // Function returns, goroutine still blocked
-    }
+    // 1. BAD: blocked send, no receiver -> goroutine blocked forever
+    ch := make(chan int)
+    go func() { ch <- 1 }()
+    // CORRECT: buffered channel (or guarantee a receiver)
+    ch := make(chan int, 1)
 
-    // CORRECT: Buffered channel or ensure receiver
-    func fixed() {
-        ch := make(chan int, 1)  // Buffered
-        go func() {
-            ch <- 1  // Doesn't block
-        }()
-    }
-    ```
-
-    ### Leak Pattern 2: Missing Context Check
-    ```go
-    // BAD: No way to stop
-    func worker(ch <-chan Job) {
-        for job := range ch {
-            process(job)
-        }
-    }
-
-    // CORRECT: Context cancellation
+    // 2. BAD: no way to stop
+    func worker(ch <-chan Job) { for job := range ch { process(job) } }
+    // CORRECT: context cancellation
     func worker(ctx context.Context, ch <-chan Job) {
         for {
             select {
             case <-ctx.Done():
-                return  // Clean exit
+                return
             case job, ok := <-ch:
-                if !ok {
-                    return
-                }
+                if !ok { return }
                 process(job)
             }
         }
     }
-    ```
 
-    ### Leak Pattern 3: Infinite Loop Without Exit
-    ```go
-    // BAD: Never exits
-    go func() {
-        for {
-            doWork()
-            time.Sleep(time.Second)
-        }
-    }()
-
-    // CORRECT: Done channel
+    // 3. BAD: `for { doWork(); time.Sleep(time.Second) }` never exits
+    // CORRECT: done channel (close(done) later)
     done := make(chan struct{})
     go func() {
         for {
             select {
-            case <-done:
-                return
-            default:
-                doWork()
-                time.Sleep(time.Second)
+            case <-done: return
+            default: doWork(); time.Sleep(time.Second)
             }
         }
     }()
-    // Later: close(done)
+
+    // 4. BAD: `go backgroundTask()` keeps running after the parent returns an error
+    // CORRECT: tie its lifecycle to a cancelable context
+    ctx, cancel := context.WithCancel(ctx)
+    defer cancel()
+    go backgroundTask(ctx)
     ```
 
-    ### Leak Pattern 4: Orphaned After Error
-    ```go
-    // BAD: Goroutine continues after parent returns error
-    func process(ctx context.Context) error {
-        go backgroundTask()  // Still running after error!
-        return validateInput()  // Returns error
-    }
+    Detect in tests with `runtime.NumGoroutine()` before/after, or `goleak.VerifyTestMain(m)` (go.uber.org/goleak).
 
-    // CORRECT: Track goroutine lifecycle
-    func process(ctx context.Context) error {
-        ctx, cancel := context.WithCancel(ctx)
-        defer cancel()  // Signals goroutine to stop
-
-        go backgroundTask(ctx)
-
-        if err := validateInput(); err != nil {
-            return err  // cancel() called, goroutine exits
-        }
-        // ...
-    }
-    ```
-
-    ### Detecting Goroutine Leaks
-    ```go
-    // In tests
-    func TestNoLeak(t *testing.T) {
-        before := runtime.NumGoroutine()
-
-        // Run code under test
-        doSomething()
-
-        // Allow goroutines to finish
-        time.Sleep(100 * time.Millisecond)
-
-        after := runtime.NumGoroutine()
-        if after > before {
-            t.Errorf("goroutine leak: before=%d, after=%d", before, after)
-        }
-    }
-
-    // Use goleak package for better detection
-    import "go.uber.org/goleak"
-
-    func TestMain(m *testing.M) {
-        goleak.VerifyTestMain(m)
-    }
-    ```
-
-    ### AI MUST CHECK
-    - Every `go func()` has an exit path
-    - Context cancellation is propagated
-    - Channels are closed or goroutines have receivers
-    - Long-running goroutines have shutdown signals
+    AI MUST CHECK: every `go func()` has an exit path; context cancellation is propagated; channels are closed or goroutines have receivers; long-running goroutines have shutdown signals.
 
 - id: "language/go/ai_failures/context_misuse"
   category: "language"
@@ -752,6 +657,7 @@
     **Symptom: Resource leaks, unresponsive cancellation**
 
     ### Misuse 1: Not Calling Cancel
+
     ```go
     // BAD: Cancel never called - resources leaked
     func bad() {
@@ -769,6 +675,7 @@
     ```
 
     ### Misuse 2: Storing Context in Struct
+
     ```go
     // BAD: Context stored in struct
     type Service struct {
@@ -783,7 +690,20 @@
     }
     ```
 
+- id: "language/go/ai_failures/context_misuse/misuse-3-using-background-in-request-handler"
+  category: "language"
+  subcategory: "go"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  world_states: ["authoring_go"]
+  depends_on: ["language/go/ai_failures/overview"]
+  content: |
+    *Part of: CONTEXT MISUSE*
+
     ### Misuse 3: Using Background in Request Handler
+
     ```go
     // BAD: Ignores request cancellation
     func handler(w http.ResponseWriter, r *http.Request) {
@@ -799,6 +719,7 @@
     ```
 
     ### Misuse 4: Context Values for Everything
+
     ```go
     // BAD: Using context for optional params
     ctx = context.WithValue(ctx, "debug", true)
@@ -811,7 +732,20 @@
     // NOT for: configuration, optional parameters
     ```
 
+- id: "language/go/ai_failures/context_misuse/misuse-5-not-checking-ctx-done"
+  category: "language"
+  subcategory: "go"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  world_states: ["authoring_go"]
+  depends_on: ["language/go/ai_failures/overview"]
+  content: |
+    *Part of: CONTEXT MISUSE*
+
     ### Misuse 5: Not Checking ctx.Done()
+
     ```go
     // BAD: Long operation ignores cancellation
     func process(ctx context.Context, items []Item) {
@@ -835,6 +769,7 @@
     ```
 
     ### AI MUST CHECK
+
     - Every WithCancel/WithTimeout/WithDeadline has defer cancel()
     - Context passed as first parameter, not stored
     - Request handlers use r.Context()

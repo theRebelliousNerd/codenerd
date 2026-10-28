@@ -135,6 +135,7 @@
     ## LIPGLOSS COMPONENT PATTERNS
 
     ### REUSABLE STYLE COMPONENTS
+
     ```go
     // Style factory
     func makeButton(label string, active bool) string {
@@ -155,7 +156,18 @@
     }
     ```
 
+- id: "framework/lipgloss/components/table-rendering"
+  category: "framework"
+  subcategory: "lipgloss"
+  priority: 80
+  is_mandatory: false
+  languages: ["/go"]
+  frameworks: ["/lipgloss"]
+  content: |
+    *Part of: LIPGLOSS COMPONENT PATTERNS*
+
     ### TABLE RENDERING
+
     ```go
     func renderTable(headers []string, rows [][]string) string {
         headerStyle := lipgloss.NewStyle().
@@ -189,7 +201,18 @@
     }
     ```
 
+- id: "framework/lipgloss/components/status-indicators"
+  category: "framework"
+  subcategory: "lipgloss"
+  priority: 80
+  is_mandatory: false
+  languages: ["/go"]
+  frameworks: ["/lipgloss"]
+  content: |
+    *Part of: LIPGLOSS COMPONENT PATTERNS*
+
     ### STATUS INDICATORS
+
     ```go
     func statusDot(status string) string {
         colors := map[string]string{

@@ -56,28 +56,18 @@
   content: |
     ## Task Atomization Guidelines
 
-    A task must be small enough to be executed by a single Agent (The "Coder Shard") in one turn.
+    A task must fit one Coder Shard turn.
+    *   **Bad**: "Build the Authentication System." (too big, ambiguous)
+    *   **Good**: "Create 'internal/auth/types.go' defining the User struct and LoginPayload." / "Implement 'internal/auth/jwt.go' for token generation."
 
-    *   **Bad Task**: "Build the Authentication System." (Too big. Ambiguous.)
-    *   **Good Task**: "Create 'internal/auth/types.go' defining the User struct and LoginPayload."
-    *   **Good Task**: "Implement 'internal/auth/jwt.go' for token generation."
-
-    ## Allowed Task Types
-    - **/research**: Read documentation or check codebase state. **MUST precede /file_create!**
-    - **/file_modify**: Edit an existing file. **PREFERRED over /file_create.**
-    - **/file_create**: Create a new file from scratch. **ONLY after /research confirms no existing file.**
-    - **/test_write**: Create a unit test.
-    - **/test_run**: Run 'go test ./...'.
-    - **/verify**: Manual verification step.
+    ## Task types
+    - **/research**: read docs or check codebase state. **MUST precede /file_create!**
+    - **/file_modify**: edit an existing file. **PREFERRED over /file_create.**
+    - **/file_create**: new file from scratch. **ONLY after /research confirms no existing file.**
+    - **/test_write**: unit test. **/test_run**: 'go test ./...'. **/verify**: manual check.
 
     ## CRITICAL: Research Before Create Rule
-
-    **EVERY /file_create task MUST be preceded by a /research task that:**
-    1. Searches for existing similar files (glob patterns)
-    2. Searches for existing similar code (grep patterns)
-    3. Confirms the file doesn't already exist elsewhere
-    4. Identifies the correct location based on existing patterns
-
+    EVERY /file_create MUST be preceded by a /research task that globs for similar files, greps for similar code, confirms the file doesn't exist elsewhere, and finds the correct location from existing patterns.
     ```
     WRONG PLAN:
     - Task 1: /file_create internal/auth/user.go
@@ -86,22 +76,10 @@
     - Task 1: /research "Search for existing auth and user code: glob(**/*auth*), glob(**/*user*), grep('type User')"
     - Task 2: /file_create internal/auth/user.go (ONLY if Task 1 confirms nothing exists)
     ```
+    If research finds existing code, convert to /file_modify!
 
-    If research finds existing code, convert /file_create to /file_modify!
-
-    ## Context Focus Strategy
-    For each phase/task, you must define 'focus_patterns'. This tells the Coder Shard what files to look at.
-    *   If editing 'service/user.go', focus on 'domain/*.go' and 'repo/*.go'.
-    *   Do NOT focus on 'cmd/api/*' (it's irrelevant to the service logic).
-    *   Narrow focus = Better performance.
-
-    ## Risk Assessment & Complexity
-    Estimate complexity based on:
-    - **Unknowns**: Do we know the library we are using?
-    - **Scope**: How many files does this touch?
-    - **Criticality**: If this fails, does the project die?
-
-    Tags: /low, /medium, /high, /critical.
+    ## Focus, risk
+    Define 'focus_patterns' per phase/task (editing 'service/user.go': focus 'domain/*.go', 'repo/*.go'; not 'cmd/api/*'); narrow focus = better performance. Complexity (unknowns, files touched, criticality): /low, /medium, /high, /critical.
 
 - id: "campaign/planner/anti_patterns"
   category: "safety"
@@ -113,6 +91,31 @@
   depends_on: ["campaign/planner/task_atomization"]
   content: |
     ## Common Hallucinations to Avoid
+
+    ### HALLUCINATION 5: The Create-Without-Research (CRITICAL)
+    You will be tempted to plan /file_create tasks without first researching what exists.
+    - WRONG: Phase 1 starts with "Create internal/models/user.go"
+    - CORRECT: Phase 1 starts with "Research existing user/auth code patterns"
+    - MITIGATION: EVERY /file_create MUST be preceded by /research
+    - If research finds existing code → Change to /file_modify
+
+    ### HALLUCINATION 6: The Parallel Structure
+    You will be tempted to create new directories when similar ones exist.
+    - WRONG: Create `handlers/` when `internal/handler/` exists
+    - WRONG: Create `services/` when `internal/service/` exists
+    - CORRECT: Use existing directory structure
+    - MITIGATION: /research task must check directory structure first
+
+- id: "campaign/planner/anti_patterns/hallucinations-1-4"
+  category: "safety"
+  subcategory: "hallucination_prevention"
+  priority: 70
+  is_mandatory: false
+  campaign_phases: ["planning"]
+  shard_types: ["/planner"]
+  depends_on: ["campaign/planner/task_atomization"]
+  content: |
+    ## Common Hallucinations to Avoid (continued)
 
     ### HALLUCINATION 1: The Mega Task
     You will be tempted to create tasks that are too large.
@@ -137,20 +140,6 @@
     - WRONG: "Implement OAuth2" marked as /low complexity
     - CORRECT: External integrations are /high or /critical
     - MITIGATION: Authentication, payments, external APIs = /high minimum
-
-    ### HALLUCINATION 5: The Create-Without-Research (CRITICAL)
-    You will be tempted to plan /file_create tasks without first researching what exists.
-    - WRONG: Phase 1 starts with "Create internal/models/user.go"
-    - CORRECT: Phase 1 starts with "Research existing user/auth code patterns"
-    - MITIGATION: EVERY /file_create MUST be preceded by /research
-    - If research finds existing code → Change to /file_modify
-
-    ### HALLUCINATION 6: The Parallel Structure
-    You will be tempted to create new directories when similar ones exist.
-    - WRONG: Create `handlers/` when `internal/handler/` exists
-    - WRONG: Create `services/` when `internal/service/` exists
-    - CORRECT: Use existing directory structure
-    - MITIGATION: /research task must check directory structure first
 
 - id: "campaign/planner/long_horizon_autonomy"
   category: "methodology"

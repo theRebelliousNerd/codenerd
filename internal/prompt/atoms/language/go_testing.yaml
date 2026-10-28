@@ -12,12 +12,14 @@
     ## GO TESTING FUNDAMENTALS
 
     ### Test File Conventions
+
     - Test files: `*_test.go` in same package
     - Test functions: `func TestXxx(t *testing.T)`
     - Example functions: `func ExampleXxx()`
     - Benchmark functions: `func BenchmarkXxx(b *testing.B)`
 
     ### Basic Test Structure
+
     ```go
     func TestAdd(t *testing.T) {
         got := Add(2, 3)
@@ -27,6 +29,23 @@
         }
     }
     ```
+  content_concise: |
+    ## Go Testing Basics
+    - Files: `*_test.go`, functions: `func TestXxx(t *testing.T)`
+    - `t.Errorf()` reports and continues, `t.Fatalf()` stops
+    - `t.Helper()` improves error line numbers
+    - `t.Parallel()` enables concurrent execution
+    - Run: `go test -v -race ./...`
+
+- id: "language/go/testing/fundamentals/testing-methods"
+  category: "language"
+  subcategory: "go"
+  priority: 84
+  is_mandatory: false
+  shard_types: ["/coder", "/tester", "/reviewer"]
+  languages: ["/go", "/golang"]
+  content: |
+    *Part of: GO TESTING FUNDAMENTALS*
 
     ### Testing Methods
 
@@ -71,7 +90,18 @@
     }
     ```
 
+- id: "language/go/testing/fundamentals/running-tests"
+  category: "language"
+  subcategory: "go"
+  priority: 84
+  is_mandatory: false
+  shard_types: ["/coder", "/tester", "/reviewer"]
+  languages: ["/go", "/golang"]
+  content: |
+    *Part of: GO TESTING FUNDAMENTALS*
+
     ### Running Tests
+
     ```bash
     go test                     # Run tests in current package
     go test ./...              # Run tests in all packages
@@ -83,14 +113,6 @@
     go test -cover             # Show coverage
     go test -coverprofile=c.out && go tool cover -html=c.out
     ```
-
-  content_concise: |
-    ## Go Testing Basics
-    - Files: `*_test.go`, functions: `func TestXxx(t *testing.T)`
-    - `t.Errorf()` reports and continues, `t.Fatalf()` stops
-    - `t.Helper()` improves error line numbers
-    - `t.Parallel()` enables concurrent execution
-    - Run: `go test -v -race ./...`
 
 - id: "language/go/testing/table_driven"
   category: "language"
@@ -106,6 +128,7 @@
     Table-driven tests are the idiomatic Go pattern for testing multiple cases.
 
     ### Basic Table-Driven Test
+
     ```go
     func TestAdd(t *testing.T) {
         tests := []struct {
@@ -129,8 +152,39 @@
         }
     }
     ```
+  content_concise: |
+    ## Table-Driven Tests
+    ```go
+    tests := []struct{
+        name string
+        input int
+        want int
+    }{
+        {"case1", 1, 2},
+        {"case2", 2, 4},
+    }
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            if got := fn(tt.input); got != tt.want {
+                t.Errorf("got %v, want %v", got, tt.want)
+            }
+        })
+    }
+    ```
+
+- id: "language/go/testing/table_driven/with-error-cases"
+  category: "language"
+  subcategory: "go"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/testing/fundamentals"]
+  content: |
+    *Part of: TABLE-DRIVEN TESTS*
 
     ### With Error Cases
+
     ```go
     func TestDivide(t *testing.T) {
         tests := []struct {
@@ -159,7 +213,19 @@
     }
     ```
 
+- id: "language/go/testing/table_driven/parallel-table-tests"
+  category: "language"
+  subcategory: "go"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/testing/fundamentals"]
+  content: |
+    *Part of: TABLE-DRIVEN TESTS*
+
     ### Parallel Table Tests
+
     ```go
     func TestProcess(t *testing.T) {
         tests := []struct {
@@ -183,6 +249,7 @@
     ```
 
     ### Named Fields for Clarity
+
     ```go
     tests := []struct {
         name     string
@@ -205,26 +272,6 @@
     }
     ```
 
-  content_concise: |
-    ## Table-Driven Tests
-    ```go
-    tests := []struct{
-        name string
-        input int
-        want int
-    }{
-        {"case1", 1, 2},
-        {"case2", 2, 4},
-    }
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            if got := fn(tt.input); got != tt.want {
-                t.Errorf("got %v, want %v", got, tt.want)
-            }
-        })
-    }
-    ```
-
 - id: "language/go/testing/testify"
   category: "language"
   subcategory: "go"
@@ -239,6 +286,7 @@
     github.com/stretchr/testify provides assertions and mocking.
 
     ### Assert Package
+
     ```go
     import "github.com/stretchr/testify/assert"
 
@@ -272,8 +320,31 @@
         assert.Equal(t, expected, actual, "values should match")
     }
     ```
+  content_concise: |
+    ## Testify
+    ```go
+    import "github.com/stretchr/testify/assert"
+    import "github.com/stretchr/testify/require"
+
+    assert.Equal(t, want, got)     // Continue on fail
+    require.NoError(t, err)        // Stop on fail
+    assert.ErrorIs(t, err, target) // Check error
+    assert.Contains(t, slice, item)
+    ```
+
+- id: "language/go/testing/testify/require-package-fatal-on-failure"
+  category: "language"
+  subcategory: "go"
+  priority: 82
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/testing/fundamentals"]
+  content: |
+    *Part of: TESTIFY ASSERTION LIBRARY*
 
     ### Require Package (Fatal on Failure)
+
     ```go
     import "github.com/stretchr/testify/require"
 
@@ -288,7 +359,19 @@
     }
     ```
 
+- id: "language/go/testing/testify/mock-package"
+  category: "language"
+  subcategory: "go"
+  priority: 82
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/testing/fundamentals"]
+  content: |
+    *Part of: TESTIFY ASSERTION LIBRARY*
+
     ### Mock Package
+
     ```go
     import "github.com/stretchr/testify/mock"
 
@@ -325,7 +408,19 @@
     }
     ```
 
+- id: "language/go/testing/testify/suite-package"
+  category: "language"
+  subcategory: "go"
+  priority: 82
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/testing/fundamentals"]
+  content: |
+    *Part of: TESTIFY ASSERTION LIBRARY*
+
     ### Suite Package
+
     ```go
     import "github.com/stretchr/testify/suite"
 
@@ -358,18 +453,6 @@
     }
     ```
 
-  content_concise: |
-    ## Testify
-    ```go
-    import "github.com/stretchr/testify/assert"
-    import "github.com/stretchr/testify/require"
-
-    assert.Equal(t, want, got)     // Continue on fail
-    require.NoError(t, err)        // Stop on fail
-    assert.ErrorIs(t, err, target) // Check error
-    assert.Contains(t, slice, item)
-    ```
-
 - id: "language/go/testing/httptest"
   category: "language"
   subcategory: "go"
@@ -382,6 +465,7 @@
     ## HTTP TESTING
 
     ### Testing HTTP Handlers
+
     ```go
     import (
         "net/http"
@@ -413,8 +497,36 @@
         }
     }
     ```
+  content_concise: |
+    ## HTTP Testing
+    ```go
+    // Test handler
+    req := httptest.NewRequest("GET", "/path", nil)
+    w := httptest.NewRecorder()
+    handler.ServeHTTP(w, req)
+    assert.Equal(t, 200, w.Code)
+
+    // Mock server for client testing
+    server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        w.Write([]byte(`{"id":"1"}`))
+    }))
+    defer server.Close()
+    client := NewClient(server.URL)
+    ```
+
+- id: "language/go/testing/httptest/testing-http-client-code"
+  category: "language"
+  subcategory: "go"
+  priority: 81
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/testing/fundamentals"]
+  content: |
+    *Part of: HTTP TESTING*
 
     ### Testing HTTP Client Code
+
     ```go
     func TestAPIClient(t *testing.T) {
         // Create test server
@@ -447,7 +559,19 @@
     }
     ```
 
+- id: "language/go/testing/httptest/testing-with-tls"
+  category: "language"
+  subcategory: "go"
+  priority: 81
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/testing/fundamentals"]
+  content: |
+    *Part of: HTTP TESTING*
+
     ### Testing with TLS
+
     ```go
     func TestSecureClient(t *testing.T) {
         server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -463,6 +587,7 @@
     ```
 
     ### Request/Response Patterns
+
     ```go
     // POST with JSON body
     body := strings.NewReader(`{"name": "John"}`)
@@ -482,23 +607,6 @@
     assert.Equal(t, "John", result.Name)
     ```
 
-  content_concise: |
-    ## HTTP Testing
-    ```go
-    // Test handler
-    req := httptest.NewRequest("GET", "/path", nil)
-    w := httptest.NewRecorder()
-    handler.ServeHTTP(w, req)
-    assert.Equal(t, 200, w.Code)
-
-    // Mock server for client testing
-    server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        w.Write([]byte(`{"id":"1"}`))
-    }))
-    defer server.Close()
-    client := NewClient(server.URL)
-    ```
-
 - id: "language/go/testing/benchmarks"
   category: "language"
   subcategory: "go"
@@ -511,6 +619,7 @@
     ## BENCHMARKS AND FUZZING
 
     ### Basic Benchmark
+
     ```go
     func BenchmarkFib(b *testing.B) {
         for i := 0; i < b.N; i++ {
@@ -523,6 +632,7 @@
     ```
 
     ### Benchmark with Setup
+
     ```go
     func BenchmarkProcess(b *testing.B) {
         // Setup (not timed)
@@ -536,6 +646,7 @@
     ```
 
     ### Sub-benchmarks
+
     ```go
     func BenchmarkSort(b *testing.B) {
         sizes := []int{100, 1000, 10000}
@@ -552,8 +663,38 @@
         }
     }
     ```
+  content_concise: |
+    ## Benchmarks & Fuzzing
+    ```go
+    func BenchmarkFoo(b *testing.B) {
+        b.ReportAllocs()
+        for i := 0; i < b.N; i++ {
+            Foo()
+        }
+    }
+
+    func FuzzBar(f *testing.F) {
+        f.Add([]byte("seed"))
+        f.Fuzz(func(t *testing.T, data []byte) {
+            Bar(data)  // Shouldn't panic
+        })
+    }
+    ```
+    Run: `go test -bench=. -benchmem -fuzz=Fuzz -fuzztime=30s`
+
+- id: "language/go/testing/benchmarks/memory-allocation-benchmark"
+  category: "language"
+  subcategory: "go"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/testing/fundamentals"]
+  content: |
+    *Part of: BENCHMARKS AND FUZZING*
 
     ### Memory Allocation Benchmark
+
     ```go
     func BenchmarkConcat(b *testing.B) {
         b.ReportAllocs()  // Report allocations
@@ -567,6 +708,7 @@
     ```
 
     ### Fuzz Testing (Go 1.18+)
+
     ```go
     func FuzzParseJSON(f *testing.F) {
         // Seed corpus
@@ -592,7 +734,19 @@
     // Run: go test -fuzz=FuzzParseJSON -fuzztime=30s
     ```
 
+- id: "language/go/testing/benchmarks/benchmark-comparison"
+  category: "language"
+  subcategory: "go"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/testing/fundamentals"]
+  content: |
+    *Part of: BENCHMARKS AND FUZZING*
+
     ### Benchmark Comparison
+
     ```bash
     # Save baseline
     go test -bench=. -count=5 > old.txt
@@ -601,25 +755,6 @@
     go test -bench=. -count=5 > new.txt
     benchstat old.txt new.txt
     ```
-
-  content_concise: |
-    ## Benchmarks & Fuzzing
-    ```go
-    func BenchmarkFoo(b *testing.B) {
-        b.ReportAllocs()
-        for i := 0; i < b.N; i++ {
-            Foo()
-        }
-    }
-
-    func FuzzBar(f *testing.F) {
-        f.Add([]byte("seed"))
-        f.Fuzz(func(t *testing.T, data []byte) {
-            Bar(data)  // Shouldn't panic
-        })
-    }
-    ```
-    Run: `go test -bench=. -benchmem -fuzz=Fuzz -fuzztime=30s`
 
 - id: "language/go/testing/mocking"
   category: "language"
@@ -633,6 +768,7 @@
     ## MOCKING AND DEPENDENCY INJECTION
 
     ### Interface-Based Mocking (Recommended)
+
     ```go
     // Define interface for dependency
     type UserRepository interface {
@@ -680,8 +816,31 @@
         assert.Equal(t, "John", user.Name)
     }
     ```
+  content_concise: |
+    ## Mocking
+    1. Define interface for dependency
+    2. Production struct implements interface
+    3. Test mock implements same interface
+    4. Inject mock in tests
+    ```go
+    type Repo interface { Find(id string) (*User, error) }
+    type MockRepo struct { users map[string]*User }
+    func (m *MockRepo) Find(id string) (*User, error) { return m.users[id], nil }
+    ```
+
+- id: "language/go/testing/mocking/function-type-mocking"
+  category: "language"
+  subcategory: "go"
+  priority: 83
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/testing/fundamentals"]
+  content: |
+    *Part of: MOCKING AND DEPENDENCY INJECTION*
 
     ### Function Type Mocking
+
     ```go
     // Define function type
     type TimeFunc func() time.Time
@@ -709,7 +868,19 @@
     }
     ```
 
+- id: "language/go/testing/mocking/gomock-code-generation"
+  category: "language"
+  subcategory: "go"
+  priority: 83
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/testing/fundamentals"]
+  content: |
+    *Part of: MOCKING AND DEPENDENCY INJECTION*
+
     ### gomock (Code Generation)
+
     ```bash
     go install github.com/golang/mock/mockgen@latest
     mockgen -source=repository.go -destination=mock_repository.go
@@ -735,21 +906,10 @@
     ```
 
     ### Test Doubles Summary
+
     | Type | Purpose | Example |
     |------|---------|---------|
     | Stub | Fixed return values | `MockRepo.Find() returns User` |
     | Mock | Verifies interactions | `AssertCalled("Find", "123")` |
     | Fake | Working implementation | In-memory database |
     | Spy | Records calls | `GetCallCount("Find")` |
-
-  content_concise: |
-    ## Mocking
-    1. Define interface for dependency
-    2. Production struct implements interface
-    3. Test mock implements same interface
-    4. Inject mock in tests
-    ```go
-    type Repo interface { Find(id string) (*User, error) }
-    type MockRepo struct { users map[string]*User }
-    func (m *MockRepo) Find(id string) (*User, error) { return m.users[id], nil }
-    ```

@@ -12,6 +12,7 @@
     ## PROMISE PATTERNS
 
     ### Explicit Promise Typing
+
     ```typescript
     // Always type async function returns
     async function fetchUser(id: string): Promise<User> {
@@ -31,6 +32,7 @@
     ```
 
     ### Promise.all - Parallel Execution, Fail Fast
+
     ```typescript
     async function fetchAllUsers(ids: string[]): Promise<User[]> {
       const promises = ids.map(id => fetchUser(id));
@@ -43,8 +45,26 @@
       fetchPosts("1"),
     ]); // [User, Post[]]
     ```
+  content_concise: |
+    ## Promise Patterns
+    - Always type: `async function f(): Promise<T>`
+    - `Promise.all`: Parallel, fail-fast
+    - `Promise.allSettled`: Capture all results/errors
+    - `Promise.race`: First to settle wins
+    - `Promise.any`: First to fulfill wins
+
+- id: "language/typescript/async/promises/promise-allsettled-capture-all-results"
+  category: "language"
+  subcategory: "typescript"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    *Part of: PROMISE PATTERNS*
 
     ### Promise.allSettled - Capture All Results
+
     ```typescript
     async function fetchAllUsersSafe(ids: string[]): Promise<PromiseSettledResult<User>[]> {
       const promises = ids.map(id => fetchUser(id));
@@ -64,6 +84,7 @@
     ```
 
     ### Promise.race and Promise.any
+
     ```typescript
     // race - first to settle wins (fulfilled OR rejected)
     const winner = await Promise.race([
@@ -80,14 +101,6 @@
     ]); // First successful response
     ```
 
-  content_concise: |
-    ## Promise Patterns
-    - Always type: `async function f(): Promise<T>`
-    - `Promise.all`: Parallel, fail-fast
-    - `Promise.allSettled`: Capture all results/errors
-    - `Promise.race`: First to settle wins
-    - `Promise.any`: First to fulfill wins
-
 - id: "language/typescript/async/abort"
   category: "language"
   subcategory: "typescript"
@@ -100,6 +113,7 @@
     ## ABORTCONTROLLER FOR CANCELLATION
 
     ### Basic Usage
+
     ```typescript
     async function fetchWithCancel(
       url: string,
@@ -126,8 +140,27 @@
       }
     }
     ```
+  content_concise: |
+    ## AbortController
+    - Create: `const controller = new AbortController()`
+    - Cancel: `controller.abort()`
+    - Check: `signal.aborted`
+    - Pass signal to fetch: `fetch(url, { signal })`
+    - Catch: `err.name === "AbortError"`
+
+- id: "language/typescript/async/abort/timeout-helper"
+  category: "language"
+  subcategory: "typescript"
+  priority: 79
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  depends_on: ["language/typescript/async/promises"]
+  content: |
+    *Part of: ABORTCONTROLLER FOR CANCELLATION*
 
     ### Timeout Helper
+
     ```typescript
     async function fetchWithTimeout<T>(
       fetcher: (signal: AbortSignal) => Promise<T>,
@@ -150,7 +183,19 @@
     );
     ```
 
+- id: "language/typescript/async/abort/passing-signal-through-layers"
+  category: "language"
+  subcategory: "typescript"
+  priority: 79
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  depends_on: ["language/typescript/async/promises"]
+  content: |
+    *Part of: ABORTCONTROLLER FOR CANCELLATION*
+
     ### Passing Signal Through Layers
+
     ```typescript
     async function complexOperation(signal: AbortSignal): Promise<void> {
       // Check if already aborted
@@ -176,6 +221,7 @@
     ```
 
     ### AbortController with Cleanup
+
     ```typescript
     function createCancellableRequest(url: string) {
       const controller = new AbortController();
@@ -194,14 +240,6 @@
     cancel(); // Clean cancellation
     ```
 
-  content_concise: |
-    ## AbortController
-    - Create: `const controller = new AbortController()`
-    - Cancel: `controller.abort()`
-    - Check: `signal.aborted`
-    - Pass signal to fetch: `fetch(url, { signal })`
-    - Catch: `err.name === "AbortError"`
-
 - id: "language/typescript/async/error_handling"
   category: "language"
   subcategory: "typescript"
@@ -214,6 +252,7 @@
     ## ASYNC ERROR HANDLING
 
     ### Type-Safe Error Handling
+
     ```typescript
     // Define custom error types
     class NetworkError extends Error {
@@ -247,8 +286,26 @@
       }
     }
     ```
+  content_concise: |
+    ## Async Error Handling
+    - Use custom Error classes with `instanceof` checks
+    - Result type: `{ success: true; data: T } | { success: false; error: E }`
+    - Always `await` before `return` in try/catch
+    - Retry with exponential backoff for transient errors
+
+- id: "language/typescript/async/error_handling/result-type-pattern"
+  category: "language"
+  subcategory: "typescript"
+  priority: 81
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  depends_on: ["language/typescript/async/promises"]
+  content: |
+    *Part of: ASYNC ERROR HANDLING*
 
     ### Result Type Pattern
+
     ```typescript
     type Result<T, E = Error> =
       | { success: true; data: T }
@@ -272,7 +329,19 @@
     }
     ```
 
+- id: "language/typescript/async/error_handling/retry-with-exponential-backoff"
+  category: "language"
+  subcategory: "typescript"
+  priority: 81
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  depends_on: ["language/typescript/async/promises"]
+  content: |
+    *Part of: ASYNC ERROR HANDLING*
+
     ### Retry with Exponential Backoff
+
     ```typescript
     async function withRetry<T>(
       fn: () => Promise<T>,
@@ -311,7 +380,19 @@
     );
     ```
 
+- id: "language/typescript/async/error_handling/critical-await-before-return"
+  category: "language"
+  subcategory: "typescript"
+  priority: 81
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  depends_on: ["language/typescript/async/promises"]
+  content: |
+    *Part of: ASYNC ERROR HANDLING*
+
     ### CRITICAL: Await Before Return
+
     ```typescript
     // WRONG: Error may escape try/catch
     async function bad(): Promise<Data> {
@@ -333,10 +414,3 @@
       }
     }
     ```
-
-  content_concise: |
-    ## Async Error Handling
-    - Use custom Error classes with `instanceof` checks
-    - Result type: `{ success: true; data: T } | { success: false; error: E }`
-    - Always `await` before `return` in try/catch
-    - Retry with exponential backoff for transient errors

@@ -15,6 +15,7 @@
     ### PRIORITY ORDER (What to address first)
 
     #### PRIORITY 1: CURRENT DIAGNOSTICS
+
     If there are build errors or lint failures, you MUST fix these FIRST before doing anything else.
     ```
     CURRENT BUILD/LINT ERRORS (must address):
@@ -23,6 +24,7 @@
     This is not a suggestion. This is a blocker. The codebase is broken. Fix it.
 
     #### PRIORITY 2: TEST STATE
+
     If tests are failing, understand WHY before making changes.
     ```
     TEST STATE: FAILING
@@ -31,7 +33,17 @@
     ```
     The TDD Retry count tells you how many times we've tried to fix this. If it's > 1, your previous fix was wrong. Think harder.
 
+- id: "shards/coder/session_context/priority-3-recent-findings"
+  category: "methodology"
+  subcategory: "context"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder"]
+  content: |
+    *Part of: SESSION CONTEXT UTILIZATION > PRIORITY ORDER (What to address first)*
+
     #### PRIORITY 3: RECENT FINDINGS
+
     Other shards (Reviewer, Tester) may have flagged issues.
     ```
     RECENT FINDINGS TO ADDRESS:
@@ -41,6 +53,7 @@
     Address these if they relate to the code you're modifying.
 
     #### PRIORITY 4: IMPACT ANALYSIS
+
     Changes you make may affect other files.
     ```
     IMPACTED FILES (may need updates):
@@ -50,6 +63,7 @@
     If you change a function signature, check if these files need updates.
 
     #### PRIORITY 5: GIT CONTEXT (CHESTERTON'S FENCE)
+
     Recent commits explain WHY code exists.
     ```
     GIT STATE:
@@ -59,7 +73,17 @@
     ```
     If you see code that looks wrong, the git history might explain why it's actually right. Don't "fix" things you don't understand.
 
+- id: "shards/coder/session_context/priority-6-domain-knowledge"
+  category: "methodology"
+  subcategory: "context"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder"]
+  content: |
+    *Part of: SESSION CONTEXT UTILIZATION > PRIORITY ORDER (What to address first)*
+
     #### PRIORITY 6: DOMAIN KNOWLEDGE
+
     For Type B/U Specialists, domain-specific hints are provided.
     ```
     DOMAIN KNOWLEDGE:

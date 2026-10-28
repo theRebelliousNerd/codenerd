@@ -10,12 +10,13 @@
   languages: ["/mangle"]
   content: |
     # Mangle Aggregation Syntax
-    
+
     ## Pipeline Operator (`|>`)
-    
+
     Mangle aggregation uses explicit pipeline syntax, NOT SQL-style implicit grouping.
-    
+
     ### Basic Structure
+
     ```mangle
     Decl source(GroupKey, Value).
     result(GroupKey, AggValue) :-
@@ -23,36 +24,48 @@
         do fn:group_by(GroupKey),
         let AggValue = fn:sum(Value).
     ```
-    
+
     ## Required Keywords
-    
+
     | Keyword | Purpose | Example |
     |---------|---------|---------|
     | `\|>` | Start pipeline | `source() \|>` |
     | `do` | Apply transform | `do fn:group_by(K)` |
     | `let` | Bind result | `let N = fn:count()` |
-    
+
     ## Function Casing (Critical)
-    
+
     Aggregation functions use SPECIFIC casing:
     - `fn:count()` - Capital C
     - `fn:sum(X)` - Capital S
     - `fn:min(X)` - Capital M
     - `fn:max(X)` - Capital M
     - `fn:group_by(X)` - lowercase
-    
+
     ### Wrong vs Right
+
     ```mangle
     # WRONG - lowercase
     ... let N = fn:count().
-    
+
     # CORRECT - capital C
     ... let N = fn:count().
     ```
-    
+
+- id: "language/mangle/docs/aggregation_syntax/mangle-aggregation-syntax-common-patterns"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Syntax: Mangle Aggregation Syntax Common Patterns"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Aggregation Syntax*
+
     ## Common Patterns
-    
+
     ### Count by Group
+
     ```mangle
     Decl file_topology(A1, A2, A3, A4, A5).
     files_per_lang(Lang, Count) :-
@@ -60,8 +73,9 @@
         do fn:group_by(Lang),
         let Count = fn:count().
     ```
-    
+
     ### Sum by Group
+
     ```mangle
     Decl item(Cat, Amount).
     total_by_category(Cat, Total) :-
@@ -69,8 +83,9 @@
         do fn:group_by(Cat),
         let Total = fn:sum(Amount).
     ```
-    
+
     ### Multiple Aggregations
+
     ```mangle
     Decl metric(Project, Value).
     stats(Project, Min, Max, Total) :-
@@ -80,16 +95,18 @@
         let Max = fn:max(Value),
         let Total = fn:sum(Value).
     ```
-    
+
     ## Anti-Patterns
-    
+
     ### SQL-Style (Wrong)
+
     ```mangle
     # WRONG - SQL mental model
     total(Sum) :- item(X), Sum = sum(X).
     ```
-    
+
     ### Missing `do` (Wrong)
+
     ```mangle
     # WRONG - missing 'do' keyword
     result(K, N) :-

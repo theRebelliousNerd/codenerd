@@ -77,6 +77,7 @@
     ## TYPE ASSERTION ABUSE (CRITICAL)
 
     ### Dangerous Patterns
+
     ```typescript
     // BAD: Lying to the compiler
     const user = {} as User; // user has NO properties at runtime!
@@ -95,8 +96,26 @@
       return arr[0] as T; // Hides potential undefined!
     }
     ```
+  content_concise: |
+    ## Type Assertion Abuse
+    - `as` lies to compiler - no runtime checking
+    - Never: `{} as User`, `x as unknown as Y`
+    - Use type guards for runtime validation
+    - Use Zod/io-ts for API response validation
+    - Legitimate: DOM with querySelector, after validation
+
+- id: "language/typescript/ai_failures/type_assertions/safe-alternatives"
+  category: "language"
+  subcategory: "typescript"
+  priority: 94
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    *Part of: TYPE ASSERTION ABUSE (CRITICAL)*
 
     ### Safe Alternatives
+
     ```typescript
     // GOOD: Runtime validation with type guard
     function isUser(value: unknown): value is User {
@@ -119,7 +138,18 @@
     const user = UserSchema.parse(response); // Throws if invalid, type-safe if valid
     ```
 
+- id: "language/typescript/ai_failures/type_assertions/legitimate-uses-of-type-assertions"
+  category: "language"
+  subcategory: "typescript"
+  priority: 94
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    *Part of: TYPE ASSERTION ABUSE (CRITICAL)*
+
     ### Legitimate Uses of Type Assertions
+
     ```typescript
     // OK: DOM elements where you know the type
     const canvas = document.getElementById("canvas") as HTMLCanvasElement;
@@ -134,14 +164,6 @@
     const mockFn = jest.fn() as jest.MockedFunction<typeof realFn>;
     ```
 
-  content_concise: |
-    ## Type Assertion Abuse
-    - `as` lies to compiler - no runtime checking
-    - Never: `{} as User`, `x as unknown as Y`
-    - Use type guards for runtime validation
-    - Use Zod/io-ts for API response validation
-    - Legitimate: DOM with querySelector, after validation
-
 - id: "language/typescript/ai_failures/non_null_assertion"
   category: "language"
   subcategory: "typescript"
@@ -153,6 +175,7 @@
     ## NON-NULL ASSERTION (`!`) ABUSE (CRITICAL)
 
     ### Dangerous Patterns
+
     ```typescript
     // BAD: Asserting existence without checking
     function getUser(id: string): User | undefined { /* ... */ }
@@ -170,8 +193,26 @@
     // BAD: Array access
     const first = arr[0]!; // Crashes on empty array
     ```
+  content_concise: |
+    ## Non-Null Assertion (!)
+    - `!` asserts non-null with NO runtime check
+    - Never on: API results, DOM queries, array access, env vars
+    - Use: `?.`, `??`, explicit `if` checks
+    - Throw explicitly if value is required
+    - Enable `noUncheckedIndexedAccess` in tsconfig
+
+- id: "language/typescript/ai_failures/non_null_assertion/safe-alternatives"
+  category: "language"
+  subcategory: "typescript"
+  priority: 93
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    *Part of: NON-NULL ASSERTION (`!`) ABUSE (CRITICAL)*
 
     ### Safe Alternatives
+
     ```typescript
     // GOOD: Explicit checks
     const user = getUser("123");
@@ -202,7 +243,18 @@
     const first = arr[0] ?? defaultValue;
     ```
 
+- id: "language/typescript/ai_failures/non_null_assertion/legitimate-uses-of"
+  category: "language"
+  subcategory: "typescript"
+  priority: 93
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    *Part of: NON-NULL ASSERTION (`!`) ABUSE (CRITICAL)*
+
     ### Legitimate Uses of `!`
+
     ```typescript
     // OK: After definite assignment in class
     class Component {
@@ -219,14 +271,6 @@
       const first = items[0]!; // We just checked length
     }
     ```
-
-  content_concise: |
-    ## Non-Null Assertion (!)
-    - `!` asserts non-null with NO runtime check
-    - Never on: API results, DOM queries, array access, env vars
-    - Use: `?.`, `??`, explicit `if` checks
-    - Throw explicitly if value is required
-    - Enable `noUncheckedIndexedAccess` in tsconfig
 
 - id: "language/typescript/ai_failures/array_types"
   category: "language"
@@ -371,6 +415,7 @@
     ## AI-SPECIFIC HALLUCINATIONS
 
     ### Non-Existent Type Features
+
     ```typescript
     // WRONG: These don't exist in TypeScript!
     type JSON = any; // No built-in JSON type
@@ -386,6 +431,7 @@
     ```
 
     ### Confused Utility Types
+
     ```typescript
     // WRONG: Non-existent utilities
     type Deep<T> = DeepPartial<T>; // DeepPartial doesn't exist!
@@ -400,8 +446,26 @@
       -readonly [P in keyof T]: T[P];
     };
     ```
+  content_concise: |
+    ## AI Hallucinations
+    - No built-in: DeepPartial, Mutable, Writeable
+    - Interfaces don't exist at runtime (no instanceof)
+    - JSON.parse returns unknown, not your type
+    - Type imports from "typescript" package are rare
+    - Build utility types yourself when needed
+
+- id: "language/typescript/ai_failures/hallucinations/javascript-typescript-confusion"
+  category: "language"
+  subcategory: "typescript"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    *Part of: AI-SPECIFIC HALLUCINATIONS*
 
     ### JavaScript/TypeScript Confusion
+
     ```typescript
     // WRONG: Runtime behavior doesn't match types
     interface User { name: string; }
@@ -417,6 +481,7 @@
     ```
 
     ### Generic Constraints Confusion
+
     ```typescript
     // WRONG: Constraint too loose
     function process<T extends object>(obj: T): T {
@@ -429,7 +494,18 @@
     }
     ```
 
+- id: "language/typescript/ai_failures/hallucinations/import-hallucinations"
+  category: "language"
+  subcategory: "typescript"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    *Part of: AI-SPECIFIC HALLUCINATIONS*
+
     ### Import Hallucinations
+
     ```typescript
     // WRONG: These imports don't exist
     import { DeepReadonly } from "typescript"; // No such export
@@ -439,14 +515,6 @@
     import { z } from "zod"; // For runtime validation
     import type { JSONSchema7 } from "json-schema"; // Actual type
     ```
-
-  content_concise: |
-    ## AI Hallucinations
-    - No built-in: DeepPartial, Mutable, Writeable
-    - Interfaces don't exist at runtime (no instanceof)
-    - JSON.parse returns unknown, not your type
-    - Type imports from "typescript" package are rare
-    - Build utility types yourself when needed
 
 - id: "language/typescript/ai_failures/tsconfig"
   category: "language"

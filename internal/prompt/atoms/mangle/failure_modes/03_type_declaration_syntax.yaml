@@ -14,9 +14,11 @@
     # Failure Mode 3: Type Declaration Syntax
 
     ## Category
+
     Syntactic hallucination (Souffle, TypeScript and old-documentation bias)
 
     ## Severity
+
     HIGH - the program does not load
 
     ## The form the engine accepts
@@ -29,6 +31,7 @@
     `/float64`, `/any`.
 
     ## Wrong Code
+
     ```mangle
     # WRONG - Souffle syntax
     .decl direct_dep(app: string, lib: string)
@@ -47,7 +50,18 @@
     Decl edge(X, Y) bound [/number, /number]
     ```
 
+- id: "language/mangle/docs/failure_modes/03_type_declaration_syntax/failure-mode-3-type-declaration-syntax"
+  category: "language"
+  subcategory: "mangle"
+  description: "Failure Mode 3: Type Declaration Syntax: Failure Mode 3: Type Declaration Syntax Correct Code"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Failure Mode 3: Type Declaration Syntax*
+
     ## Correct Code
+
     ```mangle
     Decl direct_dep(App, Lib) bound [/string, /string].
     Decl status(Entity, State) bound [/name, /name].
@@ -72,7 +86,18 @@
     Inputs of an external must be literal constants in the rule that calls it on the pinned
     engine; a variable bound by an earlier atom panics the evaluation.
 
+- id: "language/mangle/docs/failure_modes/03_type_declaration_syntax/failure-mode-3-type-declaration-syntax-2"
+  category: "language"
+  subcategory: "mangle"
+  description: "Failure Mode 3: Type Declaration Syntax: Failure Mode 3: Type Declaration Syntax Checklist"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Failure Mode 3: Type Declaration Syntax*
+
     ## Checklist
+
     1. Does the line start with `Decl` (capital D)?
     2. Are the arguments bare variable names (uppercase)?
     3. Are the types in `bound [...]`, one per argument, in order?

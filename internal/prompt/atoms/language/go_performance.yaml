@@ -73,6 +73,7 @@
     ## ALLOCATION OPTIMIZATION
 
     ### Escape Analysis
+
     Go compiler decides if variables go on stack (fast) or heap (slow).
     Variables "escape" to heap when:
     - Returned from function
@@ -86,6 +87,7 @@
     ```
 
     ### Pre-allocation
+
     ```go
     // BAD: Multiple reallocations
     var items []Item
@@ -101,6 +103,7 @@
     ```
 
     ### sync.Pool for Temporary Objects
+
     ```go
     var bufPool = sync.Pool{
         New: func() interface{} {
@@ -120,8 +123,27 @@
         return buf.Bytes()
     }
     ```
+  content_concise: |
+    ## Allocation Optimization
+    - Pre-allocate: `make([]T, 0, n)`
+    - Use sync.Pool for temp objects
+    - strings.Builder for concatenation
+    - Check escape: `go build -gcflags="-m"`
+    - Order struct fields by size (largest first)
+
+- id: "language/go/performance/allocation/strings-builder-for-concatenation"
+  category: "language"
+  subcategory: "go"
+  priority: 79
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/performance/fundamentals"]
+  content: |
+    *Part of: ALLOCATION OPTIMIZATION*
 
     ### strings.Builder for Concatenation
+
     ```go
     // BAD: O(n²) string concatenation
     s := ""
@@ -138,6 +160,7 @@
     ```
 
     ### Avoiding Interface Boxing
+
     ```go
     // BAD: Allocates for interface
     func process(v interface{}) {
@@ -152,6 +175,7 @@
     ```
 
     ### Struct Field Ordering
+
     ```go
     // BAD: Padding wastes memory
     type Bad struct {
@@ -167,14 +191,6 @@
         c bool   // 1 byte (6 bytes padding at end)
     }  // Total: 16 bytes
     ```
-
-  content_concise: |
-    ## Allocation Optimization
-    - Pre-allocate: `make([]T, 0, n)`
-    - Use sync.Pool for temp objects
-    - strings.Builder for concatenation
-    - Check escape: `go build -gcflags="-m"`
-    - Order struct fields by size (largest first)
 
 - id: "language/go/performance/data_structures"
   category: "language"
@@ -268,11 +284,13 @@
     ## CONCURRENCY PERFORMANCE
 
     ### Goroutine Cost
+
     - Stack: ~2KB initial (grows as needed)
     - Context switch: ~200ns (much faster than OS threads)
     - Still has cost: don't spawn millions needlessly
 
     ### Optimal Worker Count
+
     ```go
     // CPU-bound: GOMAXPROCS (default: num CPUs)
     workers := runtime.GOMAXPROCS(0)
@@ -285,6 +303,7 @@
     ```
 
     ### Channel Buffer Sizing
+
     ```go
     // Unbuffered: Synchronization point
     ch := make(chan T)
@@ -299,8 +318,27 @@
     // Too small: blocking
     // Too large: memory waste, hiding problems
     ```
+  content_concise: |
+    ## Concurrency Performance
+    - Goroutine: ~2KB stack, ~200ns context switch
+    - Workers: CPU-bound = GOMAXPROCS, I/O-bound = higher
+    - Buffer size = expected burst size
+    - Shard locks to reduce contention
+    - atomic for counters, mutex for complex state
+
+- id: "language/go/performance/concurrency/lock-contention"
+  category: "language"
+  subcategory: "go"
+  priority: 76
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/performance/fundamentals"]
+  content: |
+    *Part of: CONCURRENCY PERFORMANCE*
 
     ### Lock Contention
+
     ```go
     // BAD: Single lock for everything
     var mu sync.Mutex
@@ -323,6 +361,7 @@
     ```
 
     ### atomic vs Mutex
+
     ```go
     // For simple counters: atomic (faster)
     var counter int64
@@ -337,6 +376,7 @@
     ```
 
     ### Avoid False Sharing
+
     ```go
     // BAD: Adjacent atomic values share cache line
     type Bad struct {
@@ -352,14 +392,6 @@
     }
     ```
 
-  content_concise: |
-    ## Concurrency Performance
-    - Goroutine: ~2KB stack, ~200ns context switch
-    - Workers: CPU-bound = GOMAXPROCS, I/O-bound = higher
-    - Buffer size = expected burst size
-    - Shard locks to reduce contention
-    - atomic for counters, mutex for complex state
-
 - id: "language/go/performance/io"
   category: "language"
   subcategory: "go"
@@ -372,6 +404,7 @@
     ## I/O PERFORMANCE
 
     ### Buffered I/O
+
     ```go
     // BAD: Unbuffered writes
     for _, line := range lines {
@@ -387,6 +420,7 @@
     ```
 
     ### Buffer Sizes
+
     ```go
     // Default bufio: 4KB
     bufio.NewReader(r)  // 4KB buffer
@@ -396,6 +430,7 @@
     ```
 
     ### Reading Patterns
+
     ```go
     // Read entire file (small files only)
     data, err := os.ReadFile(path)
@@ -419,8 +454,26 @@
         process(buf[:n])
     }
     ```
+  content_concise: |
+    ## I/O Performance
+    - Use bufio for file I/O
+    - Stream large files with Scanner or fixed reads
+    - Reuse http.Client (connection pooling)
+    - Consider json-iterator for high-throughput JSON
+
+- id: "language/go/performance/io/json-performance"
+  category: "language"
+  subcategory: "go"
+  priority: 75
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/performance/fundamentals"]
+  content: |
+    *Part of: I/O PERFORMANCE*
 
     ### JSON Performance
+
     ```go
     // json.Unmarshal allocates
     var data Data
@@ -436,6 +489,7 @@
     ```
 
     ### HTTP Client Reuse
+
     ```go
     // BAD: New client per request
     func fetch(url string) (*http.Response, error) {
@@ -458,13 +512,6 @@
     }
     ```
 
-  content_concise: |
-    ## I/O Performance
-    - Use bufio for file I/O
-    - Stream large files with Scanner or fixed reads
-    - Reuse http.Client (connection pooling)
-    - Consider json-iterator for high-throughput JSON
-
 - id: "language/go/performance/benchmarking"
   category: "language"
   subcategory: "go"
@@ -477,6 +524,7 @@
     ## BENCHMARKING BEST PRACTICES
 
     ### Basic Benchmark Structure
+
     ```go
     func BenchmarkProcess(b *testing.B) {
         // Setup (not timed)
@@ -490,6 +538,7 @@
     ```
 
     ### Reporting Allocations
+
     ```go
     func BenchmarkAllocs(b *testing.B) {
         b.ReportAllocs()  // Report allocs/op
@@ -500,6 +549,7 @@
     ```
 
     ### Sub-benchmarks for Comparison
+
     ```go
     func BenchmarkSort(b *testing.B) {
         sizes := []int{10, 100, 1000, 10000}
@@ -518,8 +568,34 @@
         }
     }
     ```
+  content_concise: |
+    ## Benchmarking
+    ```go
+    func BenchmarkX(b *testing.B) {
+        data := setup()
+        b.ResetTimer()
+        b.ReportAllocs()
+        for i := 0; i < b.N; i++ {
+            Process(data)
+        }
+    }
+    ```
+    Run: `go test -bench=. -benchmem -count=5`
+    Compare: `benchstat old.txt new.txt`
+
+- id: "language/go/performance/benchmarking/avoiding-compiler-optimization"
+  category: "language"
+  subcategory: "go"
+  priority: 74
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/performance/fundamentals"]
+  content: |
+    *Part of: BENCHMARKING BEST PRACTICES*
 
     ### Avoiding Compiler Optimization
+
     ```go
     // BAD: Compiler may optimize away
     func BenchmarkBad(b *testing.B) {
@@ -541,6 +617,7 @@
     ```
 
     ### Running Benchmarks
+
     ```bash
     # Run all benchmarks
     go test -bench=.
@@ -562,7 +639,19 @@
     benchstat old.txt new.txt
     ```
 
+- id: "language/go/performance/benchmarking/common-mistakes"
+  category: "language"
+  subcategory: "go"
+  priority: 74
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/performance/fundamentals"]
+  content: |
+    *Part of: BENCHMARKING BEST PRACTICES*
+
     ### Common Mistakes
+
     ```go
     // MISTAKE: Setup inside loop
     func BenchmarkBad(b *testing.B) {
@@ -581,18 +670,3 @@
         }
     }
     ```
-
-  content_concise: |
-    ## Benchmarking
-    ```go
-    func BenchmarkX(b *testing.B) {
-        data := setup()
-        b.ResetTimer()
-        b.ReportAllocs()
-        for i := 0; i < b.N; i++ {
-            Process(data)
-        }
-    }
-    ```
-    Run: `go test -bench=. -benchmem -count=5`
-    Compare: `benchstat old.txt new.txt`

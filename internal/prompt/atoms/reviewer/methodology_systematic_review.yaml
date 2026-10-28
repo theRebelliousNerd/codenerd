@@ -48,7 +48,18 @@
     - Look for code smells
     - Ask: "Will someone understand this in 6 months?"
 
+- id: "reviewer/methodology/systematic_review_process/pass-timing-guidance"
+  category: "methodology"
+  subcategory: "code_review"
+  priority: 95
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check", "/analyze", "/inspect"]
+  content: |
+    *Part of: SYSTEMATIC CODE REVIEW PROCESS*
+
     ### PASS TIMING GUIDANCE
+
     - Pass 1: 10-15% of review time
     - Pass 2: 35-40% of review time
     - Pass 3: 30-35% of review time

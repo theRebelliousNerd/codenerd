@@ -10,90 +10,123 @@
   languages: ["/mangle"]
   content: |
     # Mangle Stratification: Complete Theory
-    
+
     ## What is Stratification?
-    
+
     **Stratification** is a property of logic programs that determines whether they have a well-defined, unique minimal model in the presence of **negation**.
-    
+
     **Key Insight**: You cannot compute a predicate that depends on its own negation.
-    
+
     ## The Problem: Cyclic Negation
-    
+
     ### Example: The Liar's Paradox
+
     ```mangle
     # This statement is false.
     false(X) :- !false(X).
     ```
-    
+
     **Question**: Is `false(/statement)` true or false?
     - If true, then `!false(/statement)` is false, so the rule makes it false. Contradiction.
     - If false, then `!false(/statement)` is true, so the rule makes it true. Contradiction.
-    
+
     **Mangle's response**: This program is **not stratified** and will be **rejected** at compile time.
-    
+
+- id: "language/mangle/docs/advanced/stratification_deep/stratification-definition"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Stratification: Complete Theory: Stratification Definition"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Stratification: Complete Theory*
+
     ## Stratification Definition
-    
+
     A program is **stratified** if you can partition predicates into **layers** (strata) such that:
-    
+
     1. **Positive dependencies** can go to the same or lower strata
     2. **Negative dependencies** can ONLY go to strictly lower strata
-    
+
     ### Dependency Types
-    
+
     - **Positive dependency**: `p(X) :- q(X).` → p depends positively on q
     - **Negative dependency**: `p(X) :- !q(X).` → p depends negatively on q
-    
+
+- id: "language/mangle/docs/advanced/stratification_deep/stratification-algorithm"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Stratification: Complete Theory: Stratification Algorithm"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Stratification: Complete Theory*
+
     ## Stratification Algorithm
-    
+
     ### Step 1: Build Dependency Graph
-    
+
     Nodes = Predicates
     Edges = Dependencies (labeled + or -)
-    
+
     #### Example Program
+
     ```mangle
     Decl a(X) bound [/number].
     Decl b(X) bound [/number].
     Decl c(X) bound [/number].
     Decl d(X) bound [/number].
-    
+
     # Rules
     a(X) :- b(X).           # a → b (positive)
     b(X) :- c(X).           # b → c (positive)
     c(X) :- !d(X).       # c → d (negative)
     d(X) :- data(X).        # d → data (positive)
     ```
-    
+
     **Dependency graph**:
     ```
     a --+-> b --+-> c --(-)--> d --+-> data
     ```
-    
+
     ### Step 2: Detect Cycles with Negative Edges
-    
+
     **Stratified** ⇔ No cycles contain a negative edge
-    
+
     In the example above:
     - No cycles exist → **Stratified** ✅
-    
+
     **Strata assignment**:
     1. Stratum 0: `data` (base facts)
     2. Stratum 1: `d`
     3. Stratum 2: `c`
     4. Stratum 3: `b`
     5. Stratum 4: `a`
-    
+
     ### Step 3: Evaluation Order
-    
+
     Evaluate strata from lowest to highest:
     1. Compute stratum 0 (base facts)
     2. Compute stratum 1 (can use stratum 0)
     3. Compute stratum 2 (can use strata 0-1, negation safe)
     4. ...and so on
-    
+
+- id: "language/mangle/docs/advanced/stratification_deep/examples-stratified-programs"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Stratification: Complete Theory: Examples: Stratified Programs"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Stratification: Complete Theory*
+
     ## Examples: Stratified Programs
-    
+
     ### Example 1: Safe Negation
+
     ```mangle
     Decl employee(Id, Name) bound [/name, /string].
     Decl manager(Id) bound [/name].
@@ -112,17 +145,18 @@
       employee(Id, Name),
       !manager(Id).
     ```
-    
+
     **Dependency graph**:
     ```
     employee (stratum 0)
     manager (stratum 0)
     non_manager (stratum 1) --(-)--> manager
     ```
-    
+
     **Stratified** ✅
-    
+
     ### Example 2: Layered Permissions
+
     ```mangle
     Decl user(Id) bound [/name].
     Decl admin(Id) bound [/name].
@@ -146,7 +180,7 @@
       active_user(Id),
       !admin(Id).
     ```
-    
+
     **Dependency graph**:
     ```
     user (stratum 0)
@@ -156,64 +190,89 @@
     safe_user (stratum 2) --(-)--> admin
     safe_user (stratum 2) --+-> active_user
     ```
-    
+
     **Stratified** ✅
-    
+
+- id: "language/mangle/docs/advanced/stratification_deep/examples-non-stratified-programs-invalid"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Stratification: Complete Theory: Examples: Non-Stratified Programs (INVALID)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Stratification: Complete Theory*
+
     ## Examples: Non-Stratified Programs (INVALID)
-    
+
     ### Example 1: Direct Cyclic Negation
+
     ```mangle
     # WRONG: p depends on its own negation
     p(X) :- !p(X).
     ```
-    
+
     **Dependency graph**:
     ```
     p --(-)--> p  (cycle with negation)
     ```
-    
+
     **NOT stratified** ❌
-    
+
     ### Example 2: Mutual Cyclic Negation
+
     ```mangle
     # WRONG: Cycle through negation
     p(X) :- !q(X).
     q(X) :- !p(X).
     ```
-    
+
     **Dependency graph**:
     ```
     p --(-)--> q --(-)--> p  (cycle with negation)
     ```
-    
+
     **NOT stratified** ❌
-    
+
     ### Example 3: Indirect Cyclic Negation
+
     ```mangle
     a(X) :- b(X).
     b(X) :- !c(X).
     c(X) :- a(X).
     ```
-    
+
     **Dependency graph**:
     ```
     a --+-> b --(-)--> c --+-> a  (cycle contains negation)
     ```
-    
+
     **NOT stratified** ❌
-    
+
+- id: "language/mangle/docs/advanced/stratification_deep/fixing-non-stratified-programs"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Stratification: Complete Theory: Fixing Non-Stratified Programs"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Stratification: Complete Theory*
+
     ## Fixing Non-Stratified Programs
-    
+
     ### Strategy 1: Remove Cyclic Dependency
-    
+
     #### Before (Non-Stratified)
+
     ```mangle
     # Trying to define "not admin" and "admin" mutually
     non_admin(X) :- user(X), !admin(X).
     admin(X) :- user(X), !non_admin(X).
     ```
-    
+
     #### After (Stratified)
+
     ```mangle
     # Admin is base fact
     Decl user(X).
@@ -223,26 +282,38 @@
     # Non-admin derives from admin
     non_admin(X) :- user(X), !admin(X).
     ```
-    
+
+- id: "language/mangle/docs/advanced/stratification_deep/strategy-2-break-cycle-with-explicit-stratum"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Stratification: Complete Theory: Strategy 2: Break Cycle with Explicit Stratum"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Stratification: Complete Theory > Fixing Non-Stratified Programs*
+
     ### Strategy 2: Break Cycle with Explicit Stratum
-    
+
     #### Before (Non-Stratified)
+
     ```mangle
     can_edit(User, Doc) :-
       owner(User, Doc).
-    
+
     can_edit(User, Doc) :-
       shared(Doc, User),
       !blocked(User, Doc).
-    
+
     blocked(User, Doc) :-
       !can_edit(User, Doc),
       attempted_edit(User, Doc).
     ```
-    
+
     **Problem**: `can_edit` → `blocked` → `can_edit` (negative cycle)
-    
+
     #### After (Stratified)
+
     ```mangle
     # Stratum 0: Base permissions
     Decl owner(User, Doc).
@@ -268,30 +339,40 @@
       shared_can_edit(User, Doc),
       !blocked(User, Doc).
     ```
-    
+
+- id: "language/mangle/docs/advanced/stratification_deep/detecting-stratification-violations"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Stratification: Complete Theory: Detecting Stratification Violations"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Stratification: Complete Theory*
+
     ## Detecting Stratification Violations
-    
+
     ### Manual Check
-    
+
     1. List all predicates
     2. For each rule, note positive and negative dependencies
     3. Build dependency graph
     4. Check for cycles containing negative edges
-    
+
     ### Automated Check (Tarjan's Algorithm)
-    
+
     ```go
     // Pseudocode for stratification check
-    
+
     type Edge struct {
         From, To string
         Negative bool
     }
-    
+
     func IsStratified(edges []Edge) bool {
         // Build strongly connected components (SCCs)
         sccs := TarjanSCC(edges)
-    
+
         // Check each SCC for negative edges
         for _, scc := range sccs {
             if HasNegativeEdgeInSCC(scc, edges) {
@@ -300,7 +381,7 @@
         }
         return true
     }
-    
+
     func HasNegativeEdgeInSCC(scc []string, edges []Edge) bool {
         for _, edge := range edges {
             if InSCC(edge.From, scc) && InSCC(edge.To, scc) && edge.Negative {
@@ -310,31 +391,44 @@
         return false
     }
     ```
-    
+
+- id: "language/mangle/docs/advanced/stratification_deep/stratification-and-aggregation"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Stratification: Complete Theory: Stratification and Aggregation"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Stratification: Complete Theory*
+
     ## Stratification and Aggregation
-    
+
     Aggregation also creates stratification constraints.
-    
+
     ### Rule
+
     If predicate `p` uses aggregation over predicate `q`, then `p` must be in a **strictly higher stratum** than `q`.
-    
+
     #### Example
+
     ```mangle
     Decl employee(Id, Dept, Salary) bound [/name, /name, /number].
     Decl dept_total(Dept, Total) bound [/name, /number].
-    
+
     # Stratum 0: Base facts
     employee(/e1, /engineering, 100000).
     employee(/e2, /engineering, 120000).
-    
+
     # Stratum 1: Aggregation (must be higher than employee)
     dept_total(Dept, Total) :-
       employee(Id, Dept, Salary)
       |> do fn:group_by(Dept),
       let Total = fn:sum(Salary).
     ```
-    
+
     ### Invalid: Recursive Aggregation
+
     ```mangle
     # WRONG: Cannot aggregate over yourself
     recursive_sum(N, Total) :-
@@ -343,26 +437,47 @@
       |> do fn:group_by(N),
       let Total = fn:sum(SubTotal).
     ```
-    
+
     **Problem**: `recursive_sum` depends on itself through aggregation → infinite stratum needed.
-    
+
+- id: "language/mangle/docs/advanced/stratification_deep/stratification-checklist"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Stratification: Complete Theory: Stratification Checklist"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Stratification: Complete Theory*
+
     ## Stratification Checklist
-    
+
     - [ ] No predicate depends on its own negation (directly)
     - [ ] No predicate depends on its own negation (indirectly through a cycle)
     - [ ] All negative dependencies go to lower strata
     - [ ] Aggregations go to strictly higher strata than their input
     - [ ] Dependency graph has no cycles containing negative edges
-    
+
     ## Well-Founded Semantics (Advanced)
-    
+
     Some systems support **well-founded semantics**, which allows certain non-stratified programs by treating some facts as "undefined".
-    
+
     **Mangle does NOT support well-founded semantics.** All programs must be stratified.
-    
+
+- id: "language/mangle/docs/advanced/stratification_deep/mangle-stratification-complete-theory"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Stratification: Complete Theory: Mangle Stratification: Complete Theory Example: Full Stratification Analysis"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Stratification: Complete Theory*
+
     ## Example: Full Stratification Analysis
-    
+
     ### Program
+
     ```mangle
     Decl has_reachable(X).
     Decl has_reachable_1(X).
@@ -395,7 +510,7 @@
       !has_reachable(X),
       !has_reachable_1(X).
     ```
-    
+
     **Dependency graph**:
     ```
     node (stratum 0)
@@ -405,17 +520,27 @@
     unreachable (stratum 2) --(-)--> reachable
     isolated (stratum 3) --(-)--> reachable
     ```
-    
+
     **Stratified** ✅
-    
+
     **Evaluation order**:
     1. Load `node` and `edge` facts
     2. Compute `reachable` to fixpoint
     3. Compute `unreachable` (reachable is now fixed)
     4. Compute `isolated` (reachable is now fixed)
-    
+
+- id: "language/mangle/docs/advanced/stratification_deep/mangle-stratification-complete-theory-2"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Stratification: Complete Theory: Mangle Stratification: Complete Theory Summary"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Stratification: Complete Theory*
+
     ## Summary
-    
+
     | Concept | Rule |
     |---------|------|
     | **Stratified** | No cycles contain negative edges |
@@ -424,5 +549,5 @@
     | **Aggregation** | Must go to strictly higher stratum than input |
     | **Evaluation** | Bottom-up, one stratum at a time |
     | **Fixpoint** | Computed within each stratum |
-    
+
     **Golden Rule**: Never negate a predicate that can recursively call itself.

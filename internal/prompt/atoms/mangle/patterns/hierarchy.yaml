@@ -10,18 +10,19 @@
   languages: ["/mangle"]
   content: |
     # Hierarchy Patterns
-    
+
     ## Problem Description
-    
+
     Hierarchical data (org charts, file systems, class inheritance, AST trees) requires:
     - Ancestor/descendant queries
     - Subtree extraction
     - Level/depth calculations
     - Sibling relationships
-    
+
     ## Core Pattern: Ancestor-Descendant
-    
+
     ### Template
+
     ```mangle
     # Direct parent-child
     Decl parent(X, Y).
@@ -30,13 +31,14 @@
     # Transitive: ancestor of ancestor
     ancestor(X, Z) :- ancestor(X, Y), parent(Y, Z).
     ```
-    
+
     ### Complete Working Example
+
     ```mangle
     # Schema
     Decl parent(Parent, Child) bound [/string, /string].
     Decl ancestor(Ancestor, Descendant) bound [/string, /string].
-    
+
     # Facts - Org chart
     parent("CEO", "VP_Eng").
     parent("CEO", "VP_Sales").
@@ -44,91 +46,129 @@
     parent("VP_Eng", "EM_Frontend").
     parent("EM_Backend", "Dev1").
     parent("EM_Backend", "Dev2").
-    
+
     # Rules
     ancestor(X, Y) :- parent(X, Y).
     ancestor(X, Z) :- ancestor(X, Y), parent(Y, Z).
-    
+
     # Query: Who are all descendants of CEO?
     # Answer: ancestor("CEO", X) gives VP_Eng, VP_Sales, EM_Backend, EM_Frontend, Dev1, Dev2
     ```
-    
+
+- id: "language/mangle/docs/patterns/hierarchy/variation-1-depth-level-in-hierarchy"
+  category: "language"
+  subcategory: "mangle"
+  description: "Hierarchy Patterns: Variation 1: Depth/Level in Hierarchy"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Hierarchy Patterns*
+
     ## Variation 1: Depth/Level in Hierarchy
-    
+
     ### Problem
+
     Calculate how many levels deep each node is.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl parent(Parent, Child) bound [/string, /string].
     Decl depth(Node, Level) bound [/string, /number].
     Decl root(Node) bound [/string].
     Decl has_parent(Node) bound [/string].
-    
+
     # Root nodes have depth 0
     has_parent(X) :- parent(P, X).
     root(X) :- parent(X, _), !has_parent(X).
     depth(X, 0) :- root(X).
-    
+
     # Children are one level deeper
     depth(Child, D) :-
       parent(Parent, Child),
       depth(Parent, ParentDepth),
       D = fn:plus(ParentDepth, 1).
     ```
-    
+
     ### Example
+
     ```mangle
     parent("A", "B").
     parent("A", "C").
     parent("B", "D").
-    
+
     # Results:
     # depth("A", 0)  # root
     # depth("B", 1)
     # depth("C", 1)
     # depth("D", 2)
     ```
-    
+
+- id: "language/mangle/docs/patterns/hierarchy/variation-2-subtree-extraction"
+  category: "language"
+  subcategory: "mangle"
+  description: "Hierarchy Patterns: Variation 2: Subtree Extraction"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Hierarchy Patterns*
+
     ## Variation 2: Subtree Extraction
-    
+
     ### Problem
+
     Get all nodes under a specific subtree root.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl parent(Parent, Child) bound [/string, /string].
     Decl in_subtree(Root, Node) bound [/string, /string].
-    
+
     # Root is in its own subtree
     in_subtree(Root, Root).
-    
+
     # All descendants are in subtree
     in_subtree(Root, Child) :-
       in_subtree(Root, Node),
       parent(Node, Child).
     ```
-    
+
     ### Example
+
     ```mangle
     parent("A", "B").
     parent("A", "C").
     parent("B", "D").
     parent("B", "E").
     parent("C", "F").
-    
+
     # Query: in_subtree("B", X)
     # Results: "B", "D", "E"
     ```
-    
+
+- id: "language/mangle/docs/patterns/hierarchy/variation-3-leaf-nodes"
+  category: "language"
+  subcategory: "mangle"
+  description: "Hierarchy Patterns: Variation 3: Leaf Nodes"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Hierarchy Patterns*
+
     ## Variation 3: Leaf Nodes
-    
+
     ### Problem
+
     Find all leaf nodes (nodes with no children).
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl has_parent(X).
@@ -144,58 +184,84 @@
     has_parent(X) :- parent(X, _).
     leaf(X) :- node(X), !has_parent(X).
     ```
-    
+
     ### Example
+
     ```mangle
     parent("A", "B").
     parent("A", "C").
     parent("B", "D").
-    
+
     # Results:
     # leaf("D")
     # leaf("C")
     # NOT leaf("A") - has children
     # NOT leaf("B") - has children
     ```
-    
+
+- id: "language/mangle/docs/patterns/hierarchy/variation-4-siblings"
+  category: "language"
+  subcategory: "mangle"
+  description: "Hierarchy Patterns: Variation 4: Siblings"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Hierarchy Patterns*
+
     ## Variation 4: Siblings
-    
+
     ### Problem
+
     Find all siblings (nodes with same parent).
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl parent(Parent, Child) bound [/string, /string].
     Decl sibling(A, B) bound [/string, /string].
-    
+
     # Two nodes are siblings if they share a parent and are different
     sibling(X, Y) :-
       parent(P, X),
       parent(P, Y),
       X != Y.
     ```
-    
+
     ### Example
+
     ```mangle
     parent("A", "B").
     parent("A", "C").
     parent("A", "D").
     parent("B", "E").
-    
+
     # Results:
     # sibling("B", "C"), sibling("C", "B")
     # sibling("B", "D"), sibling("D", "B")
     # sibling("C", "D"), sibling("D", "C")
     # NOT sibling("B", "E") - different generations
     ```
-    
+
+- id: "language/mangle/docs/patterns/hierarchy/variation-5-lowest-common-ancestor-lca"
+  category: "language"
+  subcategory: "mangle"
+  description: "Hierarchy Patterns: Variation 5: Lowest Common Ancestor (LCA)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Hierarchy Patterns*
+
     ## Variation 5: Lowest Common Ancestor (LCA)
-    
+
     ### Problem
+
     Find the lowest common ancestor of two nodes.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl parent(Parent, Child) bound [/string, /string].
@@ -203,14 +269,14 @@
     Decl common_ancestor(A, B, Anc) bound [/string, /string, /string].
     Decl depth(Node, D) bound [/string, /number].
     Decl lca(A, B, Anc) bound [/string, /string, /string].
-    
+
     # Build ancestor relation
     ancestor(X, Y) :- parent(X, Y).
     ancestor(X, Z) :- ancestor(X, Y), parent(Y, Z).
-    
+
     # Common ancestors
     common_ancestor(A, B, Anc) :- ancestor(Anc, A), ancestor(Anc, B).
-    
+
     # Calculate depths (from earlier pattern)
     has_parent(X) :- parent(P, X).
     root(X) :- parent(X, _), !has_parent(X).
@@ -219,7 +285,7 @@
       parent(Parent, Child),
       depth(Parent, PD),
       D = fn:plus(PD, 1).
-    
+
     # LCA is the deepest common ancestor
     lca(A, B, Anc) :-
       common_ancestor(A, B, Anc),
@@ -228,55 +294,69 @@
          let MaxDepth = fn:max(D),
       depth(Anc, MaxDepth).
     ```
-    
+
     ### Example
+
     ```mangle
     parent("A", "B").
     parent("A", "C").
     parent("B", "D").
     parent("B", "E").
     parent("C", "F").
-    
+
     # Query: lca("D", "E", X)
     # Answer: X = "B"
-    
+
     # Query: lca("D", "F", X)
     # Answer: X = "A"
     ```
-    
+
+- id: "language/mangle/docs/patterns/hierarchy/variation-6-path-to-root"
+  category: "language"
+  subcategory: "mangle"
+  description: "Hierarchy Patterns: Variation 6: Path to Root"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Hierarchy Patterns*
+
     ## Variation 6: Path to Root
-    
+
     ### Problem
+
     Find the path from any node to the root.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl parent(Parent, Child) bound [/string, /string].
     Decl path_to_root(Node, Ancestor, Distance) bound [/string, /string, /number].
     Decl root(Node) bound [/string].
     Decl has_parent(Node) bound [/string].
-    
+
     # Root definition
     has_parent(X) :- parent(P, X).
     root(X) :- parent(X, _), !has_parent(X).
-    
+
     # Node is distance 0 from itself
     path_to_root(X, X, 0).
-    
+
     # Walk up to parent
     path_to_root(Node, Ancestor, Dist) :-
       parent(Parent, Node),
       path_to_root(Parent, Ancestor, ParentDist),
       Dist = fn:plus(ParentDist, 1).
     ```
-    
+
     ### Example
+
     ```mangle
     parent("A", "B").
     parent("B", "C").
     parent("C", "D").
-    
+
     # Query: path_to_root("D", Anc, Dist)
     # Results:
     # path_to_root("D", "D", 0)
@@ -284,13 +364,25 @@
     # path_to_root("D", "B", 2)
     # path_to_root("D", "A", 3)
     ```
-    
+
+- id: "language/mangle/docs/patterns/hierarchy/variation-7-n-ary-tree-children-count"
+  category: "language"
+  subcategory: "mangle"
+  description: "Hierarchy Patterns: Variation 7: N-ary Tree Children Count"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Hierarchy Patterns*
+
     ## Variation 7: N-ary Tree Children Count
-    
+
     ### Problem
+
     Count how many children each node has.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl has_parent(Node).
@@ -313,14 +405,15 @@
     has_parent(Node) :- parent(Node, _).
     child_count_with_zero(Node, 0) :- node(Node), !has_parent(Node).
     ```
-    
+
     ### Example
+
     ```mangle
     parent("A", "B").
     parent("A", "C").
     parent("A", "D").
     parent("B", "E").
-    
+
     # Results:
     # child_count_with_zero("A", 3)
     # child_count_with_zero("B", 1)
@@ -328,18 +421,30 @@
     # child_count_with_zero("D", 0)
     # child_count_with_zero("E", 0)
     ```
-    
+
+- id: "language/mangle/docs/patterns/hierarchy/anti-patterns"
+  category: "language"
+  subcategory: "mangle"
+  description: "Hierarchy Patterns: Anti-Patterns"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Hierarchy Patterns*
+
     ## Anti-Patterns
-    
+
     ### WRONG: Confusing Parent and Child Order
+
     ```mangle
     # Backwards!
     ancestor(Child, Parent) :- parent(Parent, Child).
     # Always check: ancestor(older, younger) or ancestor(younger, older)?
     # Convention: ancestor(ANCESTOR, descendant)
     ```
-    
+
     ### WRONG: Infinite Recursion on Self-Loops
+
     ```mangle
     parent("A", "A").  # Self-loop
     ancestor(X, Y) :- parent(X, Y).
@@ -347,48 +452,72 @@
     # Result: Infinite derivation of ancestor("A", "A")
     # Fix: Add X != Y checks or ensure no self-loops in data
     ```
-    
+
     ### WRONG: Missing Base Case
+
     ```mangle
     # Only recursive case!
     descendant(X, Z) :- descendant(X, Y), parent(Y, Z).
     # Result: Empty predicate (nothing to build from)
     ```
-    
+
+- id: "language/mangle/docs/patterns/hierarchy/hierarchy-patterns-performance-tips"
+  category: "language"
+  subcategory: "mangle"
+  description: "Hierarchy Patterns: Hierarchy Patterns Performance Tips"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Hierarchy Patterns*
+
     ## Performance Tips
-    
+
     1. **Materialize Depth First**: If doing multiple level-based queries, compute depth once
     2. **Use Subtree Predicates**: Don't recompute transitive closure per query
     3. **Index on Parent**: Most queries walk up from child to parent
     4. **Bound Recursion**: For deep trees, add depth limits
-    
+
+- id: "language/mangle/docs/patterns/hierarchy/common-use-cases-in-codenerd"
+  category: "language"
+  subcategory: "mangle"
+  description: "Hierarchy Patterns: Common Use Cases in codeNERD"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Hierarchy Patterns*
+
     ## Common Use Cases in codeNERD
-    
+
     ### File System Hierarchy
+
     ```mangle
     Decl file_parent(Parent, Child) bound [/string, /string].
     Decl in_directory(Dir, File) bound [/string, /string].
-    
+
     in_directory(Dir, Dir).
     in_directory(Dir, File) :-
       in_directory(Dir, Subdir),
       file_parent(Subdir, File).
     ```
-    
+
     ### Class Inheritance
+
     ```mangle
     Decl extends(Child, Parent) bound [/string, /string].
     Decl inherits(Class, Ancestor) bound [/string, /string].
-    
+
     inherits(C, P) :- extends(C, P).
     inherits(C, A) :- inherits(C, P), extends(P, A).
     ```
-    
+
     ### AST Node Traversal
+
     ```mangle
     Decl ast_child(Parent, Child, Index) bound [/number, /number, /number].
     Decl ast_descendant(Ancestor, Descendant) bound [/number, /number].
-    
+
     ast_descendant(P, C) :- ast_child(P, C, _).
     ast_descendant(A, D) :- ast_descendant(A, N), ast_child(N, D, _).
     ```

@@ -12,6 +12,7 @@
     ## PYTEST FUNDAMENTALS
 
     ### Basic Test Structure
+
     ```python
     import pytest
 
@@ -35,8 +36,25 @@
             with pytest.raises(ValidationError):
                 create_user("alice", email="invalid")
     ```
+  content_concise: |
+    ## pytest Basics
+    - `assert` for simple checks, `pytest.raises()` for exceptions
+    - `pytest.approx()` for floating point
+    - Markers: `@pytest.mark.skip`, `@pytest.mark.skipif`, `@pytest.mark.xfail`
+    - Configure in `pyproject.toml` under `[tool.pytest.ini_options]`
+
+- id: "language/python/testing/fundamentals/assertions"
+  category: "language"
+  subcategory: "python"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/python"]
+  content: |
+    *Part of: PYTEST FUNDAMENTALS*
 
     ### Assertions
+
     ```python
     # Basic assertions
     assert result == expected
@@ -60,6 +78,7 @@
     ```
 
     ### Test Markers
+
     ```python
     @pytest.mark.skip(reason="Not implemented yet")
     def test_future_feature():
@@ -79,7 +98,18 @@
         pass
     ```
 
+- id: "language/python/testing/fundamentals/pytest-ini-pyproject-toml-configuration"
+  category: "language"
+  subcategory: "python"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/python"]
+  content: |
+    *Part of: PYTEST FUNDAMENTALS*
+
     ### pytest.ini / pyproject.toml Configuration
+
     ```toml
     # pyproject.toml
     [tool.pytest.ini_options]
@@ -94,13 +124,6 @@
     asyncio_mode = "auto"
     ```
 
-  content_concise: |
-    ## pytest Basics
-    - `assert` for simple checks, `pytest.raises()` for exceptions
-    - `pytest.approx()` for floating point
-    - Markers: `@pytest.mark.skip`, `@pytest.mark.skipif`, `@pytest.mark.xfail`
-    - Configure in `pyproject.toml` under `[tool.pytest.ini_options]`
-
 - id: "language/python/testing/fixtures"
   category: "language"
   subcategory: "python"
@@ -113,6 +136,7 @@
     ## PYTEST FIXTURES
 
     ### Basic Fixtures
+
     ```python
     import pytest
     from typing import Generator
@@ -131,6 +155,7 @@
     ```
 
     ### Fixture Scopes
+
     ```python
     @pytest.fixture(scope="session")  # Once per test session
     def expensive_resource():
@@ -148,8 +173,27 @@
     def function_resource():
         return create_resource()
     ```
+  content_concise: |
+    ## pytest Fixtures
+    - `@pytest.fixture` with `yield` for setup/teardown
+    - Scopes: function (default), class, module, session
+    - Chain fixtures via parameters
+    - `conftest.py` for shared fixtures
+    - `autouse=True` for automatic execution
+
+- id: "language/python/testing/fixtures/fixture-composition"
+  category: "language"
+  subcategory: "python"
+  priority: 81
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/python"]
+  depends_on: ["language/python/testing/fundamentals"]
+  content: |
+    *Part of: PYTEST FIXTURES*
 
     ### Fixture Composition
+
     ```python
     @pytest.fixture
     def database(db_connection):
@@ -172,6 +216,7 @@
     ```
 
     ### conftest.py for Shared Fixtures
+
     ```python
     # tests/conftest.py - fixtures available to all tests in directory
 
@@ -188,7 +233,19 @@
         return app.test_client()
     ```
 
+- id: "language/python/testing/fixtures/autouse-fixtures"
+  category: "language"
+  subcategory: "python"
+  priority: 81
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/python"]
+  depends_on: ["language/python/testing/fundamentals"]
+  content: |
+    *Part of: PYTEST FIXTURES*
+
     ### Autouse Fixtures
+
     ```python
     @pytest.fixture(autouse=True)
     def reset_database(database):
@@ -204,6 +261,7 @@
     ```
 
     ### Request Object for Dynamic Fixtures
+
     ```python
     @pytest.fixture
     def temp_file(request, tmp_path):
@@ -225,14 +283,6 @@
         assert user.role == "admin"
     ```
 
-  content_concise: |
-    ## pytest Fixtures
-    - `@pytest.fixture` with `yield` for setup/teardown
-    - Scopes: function (default), class, module, session
-    - Chain fixtures via parameters
-    - `conftest.py` for shared fixtures
-    - `autouse=True` for automatic execution
-
 - id: "language/python/testing/parametrize"
   category: "language"
   subcategory: "python"
@@ -245,6 +295,7 @@
     ## PARAMETRIZED TESTS
 
     ### Basic Parametrization
+
     ```python
     import pytest
 
@@ -259,6 +310,7 @@
     ```
 
     ### Multiple Parameters with IDs
+
     ```python
     @pytest.mark.parametrize(
         "x,y,expected",
@@ -275,6 +327,7 @@
     ```
 
     ### Parametrized Fixtures
+
     ```python
     @pytest.fixture(params=["mysql", "postgres", "sqlite"])
     def database(request) -> Database:
@@ -288,8 +341,27 @@
         result = database.query("SELECT 1")
         assert result is not None
     ```
+  content_concise: |
+    ## Parametrized Tests
+    - `@pytest.mark.parametrize("param", [values])` for data-driven tests
+    - `ids=` for readable test names
+    - `indirect=True` to parametrize fixtures
+    - Stack decorators for cartesian product
+    - `request.param` in fixtures for parametrized values
+
+- id: "language/python/testing/parametrize/indirect-parametrization"
+  category: "language"
+  subcategory: "python"
+  priority: 79
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/python"]
+  depends_on: ["language/python/testing/fundamentals"]
+  content: |
+    *Part of: PARAMETRIZED TESTS*
 
     ### Indirect Parametrization
+
     ```python
     @pytest.fixture
     def user(request) -> User:
@@ -303,6 +375,7 @@
     ```
 
     ### Stacking Parametrize Decorators
+
     ```python
     @pytest.mark.parametrize("x", [1, 2, 3])
     @pytest.mark.parametrize("y", [10, 20])
@@ -312,6 +385,7 @@
     ```
 
     ### Parametrize with Expected Exceptions
+
     ```python
     @pytest.mark.parametrize("input,expected", [
         ("abc", 3),
@@ -326,14 +400,6 @@
             assert len(input) == expected
     ```
 
-  content_concise: |
-    ## Parametrized Tests
-    - `@pytest.mark.parametrize("param", [values])` for data-driven tests
-    - `ids=` for readable test names
-    - `indirect=True` to parametrize fixtures
-    - Stack decorators for cartesian product
-    - `request.param` in fixtures for parametrized values
-
 - id: "language/python/testing/mocking"
   category: "language"
   subcategory: "python"
@@ -346,6 +412,7 @@
     ## MOCKING PATTERNS
 
     ### Basic Mock
+
     ```python
     from unittest.mock import Mock, MagicMock
 
@@ -364,8 +431,27 @@
         mock_list.__len__.return_value = 5
         assert len(mock_list) == 5
     ```
+  content_concise: |
+    ## Mocking
+    - `Mock()` for basic mocking, `MagicMock()` includes magic methods
+    - `@patch("module.name")` - patch where USED, not defined
+    - `spec=Class` or `autospec=True` for type safety
+    - `AsyncMock` for async functions
+    - `side_effect` for sequences, exceptions, or custom logic
+
+- id: "language/python/testing/mocking/patching"
+  category: "language"
+  subcategory: "python"
+  priority: 78
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/python"]
+  depends_on: ["language/python/testing/fundamentals"]
+  content: |
+    *Part of: MOCKING PATTERNS*
 
     ### Patching
+
     ```python
     from unittest.mock import patch
 
@@ -393,7 +479,19 @@
     # NOT "requests.get"
     ```
 
+- id: "language/python/testing/mocking/patching-with-spec"
+  category: "language"
+  subcategory: "python"
+  priority: 78
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/python"]
+  depends_on: ["language/python/testing/fundamentals"]
+  content: |
+    *Part of: MOCKING PATTERNS*
+
     ### Patching with spec
+
     ```python
     @patch("mymodule.Database", spec=Database)
     def test_with_spec(MockDatabase):
@@ -408,7 +506,19 @@
         pass
     ```
 
+- id: "language/python/testing/mocking/asyncmock"
+  category: "language"
+  subcategory: "python"
+  priority: 78
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/python"]
+  depends_on: ["language/python/testing/fundamentals"]
+  content: |
+    *Part of: MOCKING PATTERNS*
+
     ### AsyncMock
+
     ```python
     from unittest.mock import AsyncMock
     import pytest
@@ -434,7 +544,19 @@
             assert result == {"ok": True}
     ```
 
+- id: "language/python/testing/mocking/side-effects"
+  category: "language"
+  subcategory: "python"
+  priority: 78
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/python"]
+  depends_on: ["language/python/testing/fundamentals"]
+  content: |
+    *Part of: MOCKING PATTERNS*
+
     ### Side Effects
+
     ```python
     # Different return values per call
     mock.method.side_effect = [1, 2, 3]
@@ -454,14 +576,6 @@
     mock.method.side_effect = custom_side_effect
     ```
 
-  content_concise: |
-    ## Mocking
-    - `Mock()` for basic mocking, `MagicMock()` includes magic methods
-    - `@patch("module.name")` - patch where USED, not defined
-    - `spec=Class` or `autospec=True` for type safety
-    - `AsyncMock` for async functions
-    - `side_effect` for sequences, exceptions, or custom logic
-
 - id: "language/python/testing/hypothesis"
   category: "language"
   subcategory: "python"
@@ -474,6 +588,7 @@
     ## PROPERTY-BASED TESTING WITH HYPOTHESIS
 
     ### Basic Property Tests
+
     ```python
     from hypothesis import given, strategies as st, assume
 
@@ -492,8 +607,27 @@
         sorted_lst = sorted(lst)
         assert sorted_lst[0] == min(lst)
     ```
+  content_concise: |
+    ## Hypothesis (Property-Based Testing)
+    - `@given(st.integers())` generates random inputs
+    - `assume()` to filter invalid inputs
+    - `@st.composite` for custom data generation
+    - Strategies: integers(), text(), lists(), one_of()
+    - Stateful testing with `RuleBasedStateMachine`
+
+- id: "language/python/testing/hypothesis/strategies"
+  category: "language"
+  subcategory: "python"
+  priority: 77
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/python"]
+  depends_on: ["language/python/testing/fundamentals"]
+  content: |
+    *Part of: PROPERTY-BASED TESTING WITH HYPOTHESIS*
 
     ### Strategies
+
     ```python
     from hypothesis import strategies as st
 
@@ -518,6 +652,7 @@
     ```
 
     ### Custom Strategies
+
     ```python
     @st.composite
     def user_strategy(draw):
@@ -533,7 +668,19 @@
         assert user == deserialized
     ```
 
+- id: "language/python/testing/hypothesis/assume-for-filtering"
+  category: "language"
+  subcategory: "python"
+  priority: 77
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/python"]
+  depends_on: ["language/python/testing/fundamentals"]
+  content: |
+    *Part of: PROPERTY-BASED TESTING WITH HYPOTHESIS*
+
     ### assume() for Filtering
+
     ```python
     @given(st.integers(), st.integers())
     def test_division(a, b):
@@ -543,6 +690,7 @@
     ```
 
     ### Stateful Testing
+
     ```python
     from hypothesis.stateful import RuleBasedStateMachine, rule, invariant
 
@@ -566,14 +714,6 @@
     TestDatabase = DatabaseStateMachine.TestCase
     ```
 
-  content_concise: |
-    ## Hypothesis (Property-Based Testing)
-    - `@given(st.integers())` generates random inputs
-    - `assume()` to filter invalid inputs
-    - `@st.composite` for custom data generation
-    - Strategies: integers(), text(), lists(), one_of()
-    - Stateful testing with `RuleBasedStateMachine`
-
 - id: "language/python/testing/async"
   category: "language"
   subcategory: "python"
@@ -586,6 +726,7 @@
     ## ASYNC TESTING
 
     ### pytest-asyncio Setup
+
     ```toml
     # pyproject.toml
     [tool.pytest.ini_options]
@@ -594,6 +735,7 @@
     ```
 
     ### Basic Async Tests
+
     ```python
     import pytest
 
@@ -609,6 +751,7 @@
     ```
 
     ### Async Fixtures
+
     ```python
     @pytest.fixture
     async def async_client():
@@ -626,8 +769,27 @@
         result = await async_client.query(database_session)
         assert result.success
     ```
+  content_concise: |
+    ## Async Testing
+    - `asyncio_mode = "auto"` in pyproject.toml
+    - `@pytest.mark.asyncio` for async tests (optional with auto mode)
+    - `async def` fixtures with `yield` for teardown
+    - Test cancellation with `task.cancel()` + `await task`
+    - Test timeouts with `pytest.raises(asyncio.TimeoutError)`
+
+- id: "language/python/testing/async/testing-taskgroup"
+  category: "language"
+  subcategory: "python"
+  priority: 76
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/python"]
+  depends_on: ["language/python/testing/fundamentals"]
+  content: |
+    *Part of: ASYNC TESTING*
 
     ### Testing TaskGroup
+
     ```python
     import asyncio
 
@@ -647,6 +809,7 @@
     ```
 
     ### Testing Cancellation
+
     ```python
     @pytest.mark.asyncio
     async def test_cancellation():
@@ -665,7 +828,19 @@
         assert result == "cancelled"
     ```
 
+- id: "language/python/testing/async/testing-timeouts"
+  category: "language"
+  subcategory: "python"
+  priority: 76
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/python"]
+  depends_on: ["language/python/testing/fundamentals"]
+  content: |
+    *Part of: ASYNC TESTING*
+
     ### Testing Timeouts
+
     ```python
     @pytest.mark.asyncio
     async def test_timeout_handling():
@@ -676,11 +851,3 @@
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(slow_operation(), timeout=0.1)
     ```
-
-  content_concise: |
-    ## Async Testing
-    - `asyncio_mode = "auto"` in pyproject.toml
-    - `@pytest.mark.asyncio` for async tests (optional with auto mode)
-    - `async def` fixtures with `yield` for teardown
-    - Test cancellation with `task.cancel()` + `await task`
-    - Test timeouts with `pytest.raises(asyncio.TimeoutError)`

@@ -29,6 +29,22 @@
     only. Implementation belongs to a later `/implement` turn. One concern
     per turn; the plan is the concern here.
 
+    ### Design Checklist (must satisfy)
+    - [ ] Every decision traces to capability / risk-mitigation / research
+    - [ ] Layer placement named per component (no floating logic)
+    - [ ] New predicates listed with `Decl` shape and bound types
+    - [ ] Standing constraints checked per decision (no forbidden touches)
+    - [ ] Prior decisions followed or explicitly reopened with reason
+    - [ ] Failure modes and detection points listed
+    - [ ] No production code written; hand-off to `/implement` is explicit
+
+- id: "intent/design/core/required-context-1-2"
+  category: "intent"
+  subcategory: "design"
+  priority: 95
+  is_mandatory: false
+  intent_verbs: ["/design"]
+  content: |
     ### Required Context (consult BEFORE deciding)
     1. **North star** — mission, capabilities, risks, requirements, and
        constraints via `injectable_context("*", ...)` (see
@@ -39,6 +55,15 @@
     2. **Architecture map** — the `/architecture` phase protocol from
        `internal/prompt/atoms/northstar/architecture_roadmap_validation.yaml`:
        layer placement, kernel truth, prompt surface, failure modes.
+
+- id: "intent/design/core/required-context-3-5"
+  category: "intent"
+  subcategory: "design"
+  priority: 95
+  is_mandatory: false
+  intent_verbs: ["/design"]
+  content: |
+    ### Required Context (consult BEFORE deciding)
     3. **Capabilities inventory** — closest existing patterns to mirror
        (`domain/project/conventions`: find 2-3 examples, match structure
        exactly). Name the files and symbols the design extends.
@@ -49,6 +74,13 @@
        hydration. Follow consistently; reopen only on changed context with
        the change named.
 
+- id: "intent/design/core/workflow"
+  category: "intent"
+  subcategory: "design"
+  priority: 95
+  is_mandatory: false
+  intent_verbs: ["/design"]
+  content: |
     ### Encyclopedic Design Workflow
     1. **Restate the accepted option** and its brainstorm anchors in 2-3
        lines (which option, why it won).
@@ -62,15 +94,6 @@
     6. **Plan the build order** — smallest milestones with success criteria,
        foundational invariants (schemas, safety, atoms) before features.
 
-    ### Design Checklist (must satisfy)
-    - [ ] Every decision traces to capability / risk-mitigation / research
-    - [ ] Layer placement named per component (no floating logic)
-    - [ ] New predicates listed with `Decl` shape and bound types
-    - [ ] Standing constraints checked per decision (no forbidden touches)
-    - [ ] Prior decisions followed or explicitly reopened with reason
-    - [ ] Failure modes and detection points listed
-    - [ ] No production code written; hand-off to `/implement` is explicit
-
 - id: "intent/design/architecture"
   category: "intent"
   subcategory: "design"
@@ -82,6 +105,7 @@
     ## DESIGN ARCHITECTURE MAPPING
 
     ### Layer placement
+
     Map each piece to exactly one build layer:
     - `/domain_core` — business rules, invariants, kernel-adjacent logic.
     - `/data_layer` — persistence, retrieval, stores.
@@ -92,7 +116,18 @@
     never create parallel structures (`intent/create/core` create-vs-extend
     bar applies to placement claims).
 
+- id: "intent/design/architecture/kernel-truth-decision"
+  category: "intent"
+  subcategory: "design"
+  priority: 90
+  is_mandatory: false
+  intent_verbs: ["/design"]
+  depends_on: ["intent/design/core"]
+  content: |
+    *Part of: DESIGN ARCHITECTURE MAPPING*
+
     ### Kernel truth decision
+
     For each new piece of state or policy, decide exactly one home:
     - **EDB fact** — asserted by Go, declared in a `schemas_*.mg` file with
       a `Decl <pred>(<Args>) bound [<types>].` line plus per-slot comment
@@ -108,13 +143,25 @@
     If no new predicate or atom is needed, state that explicitly — the
     cheapest design reuses existing truth.
 
+- id: "intent/design/architecture/prompt-surface-only-if-the-design-adds"
+  category: "intent"
+  subcategory: "design"
+  priority: 90
+  is_mandatory: false
+  intent_verbs: ["/design"]
+  depends_on: ["intent/design/core"]
+  content: |
+    *Part of: DESIGN ARCHITECTURE MAPPING*
+
     ### Prompt surface (only if the design adds model-facing behavior)
+
     - Define atom ids, categories, and selectors (selector-tight:
       `intent_verbs` for intent atoms, `northstar_phases` for phase atoms).
     - State `depends_on` ordering and mandatory vs optional split
       (core 95 mandatory, follow-ons 90/85 optional).
 
     ### Failure modes
+
     Per piece: what can go wrong, which layer detects it, and what fact or
     error surfaces it. Include at least: wrong-layer placement, duplicate
     predicate/arity (whole-kernel boot failure), unbound negation, and
@@ -131,6 +178,7 @@
     ## DESIGN CONSTRAINTS AND TRACEABILITY
 
     ### Standing constraints (check per decision)
+
     - **Forbidden paths** (never touch via tool): paths containing
       `.nerd/config.json`, `.nerd/mangle/learned`,
       `internal/session/modularity.go`, `internal/session/write_guards.go`,
@@ -147,13 +195,25 @@
     - **File contract**: creating a file is `/file_create`, editing one is
       `/file_modify`; the design states which per file.
 
+- id: "intent/design/constraints/prior-decisions-consistency"
+  category: "intent"
+  subcategory: "design"
+  priority: 85
+  is_mandatory: false
+  intent_verbs: ["/design"]
+  depends_on: ["intent/design/core"]
+  content: |
+    *Part of: DESIGN CONSTRAINTS AND TRACEABILITY*
+
     ### Prior decisions consistency
+
     - Quote the `context/session/decisions` record (Decision / Context /
       Options / Rationale / Consequences) each structural choice follows.
     - To reopen: name the changed context, restate the decision, and carry
       the consequence analysis forward. Silent reversal is forbidden.
 
     ### Traceability output (per requirement or decision)
+
     ```
     Decision: <what was decided>
     Source: capability | risk-mitigation | research (+ anchor id or fact)
@@ -164,6 +224,7 @@
     ```
 
     ### Hand-off to /implement
+
     End with an ordered build list: file, `/file_create` vs `/file_modify`,
     success criterion (which test pins it), and what is explicitly out of
     scope. If the design cannot state the pinning test per milestone, it

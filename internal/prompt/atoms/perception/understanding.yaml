@@ -156,33 +156,11 @@ content: |
   ```json
   {
     "understanding": {
-      "primary_intent": "debug",
-      "semantic_type": "causation",
-      "action_type": "investigate",
-      "domain": "testing",
-      "scope": {
-        "level": "function",
-        "target": "TestValidateToken",
-        "file": "",
-        "symbol": "TestValidateToken"
-      },
-      "user_constraints": [],
-      "confidence": 0.95,
-      "signals": {
-        "is_question": true,
-        "is_hypothetical": false,
-        "is_multi_step": false,
-        "is_negated": false,
-        "requires_confirmation": false,
-        "urgency": "normal"
-      },
-      "suggested_approach": {
-        "mode": "tdd",
-        "primary_shard": "tester",
-        "supporting_shards": ["coder"],
-        "tools_needed": ["run_tests", "read_file", "ast_query"],
-        "context_needed": ["test_output", "test_source", "function_under_test"]
-      }
+      "primary_intent": "debug", "semantic_type": "causation", "action_type": "investigate", "domain": "testing",
+      "scope": {"level": "function", "target": "TestValidateToken", "file": "", "symbol": "TestValidateToken"},
+      "user_constraints": [], "confidence": 0.95,
+      "signals": {"is_question": true, "is_hypothetical": false, "is_multi_step": false, "is_negated": false, "requires_confirmation": false, "urgency": "normal"},
+      "suggested_approach": {"mode": "tdd", "primary_shard": "tester", "supporting_shards": ["coder"], "tools_needed": ["run_tests", "read_file", "ast_query"], "context_needed": ["test_output", "test_source", "function_under_test"]}
     },
     "surface_response": "I'll investigate why TestValidateToken is failing. Let me run the test and examine the output."
   }
@@ -195,33 +173,11 @@ content: |
   ```json
   {
     "understanding": {
-      "primary_intent": "implement",
-      "semantic_type": "mechanism",
-      "action_type": "implement",
-      "domain": "general",
-      "scope": {
-        "level": "module",
-        "target": "API",
-        "file": "",
-        "symbol": ""
-      },
-      "user_constraints": ["preserve existing test behavior"],
-      "confidence": 0.88,
-      "signals": {
-        "is_question": false,
-        "is_hypothetical": false,
-        "is_multi_step": true,
-        "is_negated": false,
-        "requires_confirmation": false,
-        "urgency": "normal"
-      },
-      "suggested_approach": {
-        "mode": "tdd",
-        "primary_shard": "coder",
-        "supporting_shards": ["tester"],
-        "tools_needed": ["edit_file", "run_tests", "ast_query"],
-        "context_needed": ["api_handlers", "middleware_patterns", "existing_tests"]
-      }
+      "primary_intent": "implement", "semantic_type": "mechanism", "action_type": "implement", "domain": "general",
+      "scope": {"level": "module", "target": "API", "file": "", "symbol": ""},
+      "user_constraints": ["preserve existing test behavior"], "confidence": 0.88,
+      "signals": {"is_question": false, "is_hypothetical": false, "is_multi_step": true, "is_negated": false, "requires_confirmation": false, "urgency": "normal"},
+      "suggested_approach": {"mode": "tdd", "primary_shard": "coder", "supporting_shards": ["tester"], "tools_needed": ["edit_file", "run_tests", "ast_query"], "context_needed": ["api_handlers", "middleware_patterns", "existing_tests"]}
     },
     "surface_response": "I'll implement rate limiting for the API while ensuring all existing tests continue to pass."
   }
@@ -234,33 +190,11 @@ content: |
   ```json
   {
     "understanding": {
-      "primary_intent": "research",
-      "semantic_type": "mechanism",
-      "action_type": "research",
-      "domain": "architecture",
-      "scope": {
-        "level": "codebase",
-        "target": "LocalStore and semantic vector recall",
-        "file": "",
-        "symbol": "LocalStore"
-      },
-      "user_constraints": [],
-      "confidence": 0.95,
-      "signals": {
-        "is_question": true,
-        "is_hypothetical": false,
-        "is_multi_step": false,
-        "is_negated": false,
-        "requires_confirmation": false,
-        "urgency": "normal"
-      },
-      "suggested_approach": {
-        "mode": "normal",
-        "primary_shard": "researcher",
-        "supporting_shards": [],
-        "tools_needed": ["grep_search", "read_file", "ast_query"],
-        "context_needed": ["LocalStore definition", "vector recall implementation"]
-      }
+      "primary_intent": "research", "semantic_type": "mechanism", "action_type": "research", "domain": "architecture",
+      "scope": {"level": "codebase", "target": "LocalStore and semantic vector recall", "file": "", "symbol": "LocalStore"},
+      "user_constraints": [], "confidence": 0.95,
+      "signals": {"is_question": true, "is_hypothetical": false, "is_multi_step": false, "is_negated": false, "requires_confirmation": false, "urgency": "normal"},
+      "suggested_approach": {"mode": "normal", "primary_shard": "researcher", "supporting_shards": [], "tools_needed": ["grep_search", "read_file", "ast_query"], "context_needed": ["LocalStore definition", "vector recall implementation"]}
     },
     "surface_response": "I'll locate the LocalStore definition and explain the mechanics of semantic vector recall."
   }
@@ -273,33 +207,11 @@ content: |
   ```json
   {
     "understanding": {
-      "primary_intent": "analyze",
-      "semantic_type": "hypothetical",
-      "action_type": "investigate",
-      "domain": "architecture",
-      "scope": {
-        "level": "module",
-        "target": "caching layer",
-        "file": "",
-        "symbol": ""
-      },
-      "user_constraints": ["simulation only", "no actual changes"],
-      "confidence": 0.92,
-      "signals": {
-        "is_question": true,
-        "is_hypothetical": true,
-        "is_multi_step": false,
-        "is_negated": false,
-        "requires_confirmation": false,
-        "urgency": "low"
-      },
-      "suggested_approach": {
-        "mode": "dream",
-        "primary_shard": "reviewer",
-        "supporting_shards": [],
-        "tools_needed": ["ast_query", "grep", "read_file"],
-        "context_needed": ["cache_usage", "dependencies", "performance_impact"]
-      }
+      "primary_intent": "analyze", "semantic_type": "hypothetical", "action_type": "investigate", "domain": "architecture",
+      "scope": {"level": "module", "target": "caching layer", "file": "", "symbol": ""},
+      "user_constraints": ["simulation only", "no actual changes"], "confidence": 0.92,
+      "signals": {"is_question": true, "is_hypothetical": true, "is_multi_step": false, "is_negated": false, "requires_confirmation": false, "urgency": "low"},
+      "suggested_approach": {"mode": "dream", "primary_shard": "reviewer", "supporting_shards": [], "tools_needed": ["ast_query", "grep", "read_file"], "context_needed": ["cache_usage", "dependencies", "performance_impact"]}
     },
     "surface_response": "I'll analyze the impact of removing the caching layer without making any actual changes."
   }
@@ -322,33 +234,11 @@ content: |
   ```json
   {
     "understanding": {
-      "primary_intent": "greeting",
-      "semantic_type": "state",
-      "action_type": "chat",
-      "domain": "general",
-      "scope": {
-        "level": "codebase",
-        "target": "user",
-        "file": "",
-        "symbol": ""
-      },
-      "user_constraints": [],
-      "confidence": 0.99,
-      "signals": {
-        "is_question": false,
-        "is_hypothetical": false,
-        "is_multi_step": false,
-        "is_negated": false,
-        "requires_confirmation": false,
-        "urgency": "normal"
-      },
-      "suggested_approach": {
-        "mode": "normal",
-        "primary_shard": "none",
-        "supporting_shards": [],
-        "tools_needed": [],
-        "context_needed": []
-      }
+      "primary_intent": "greeting", "semantic_type": "state", "action_type": "chat", "domain": "general",
+      "scope": {"level": "codebase", "target": "user", "file": "", "symbol": ""},
+      "user_constraints": [], "confidence": 0.99,
+      "signals": {"is_question": false, "is_hypothetical": false, "is_multi_step": false, "is_negated": false, "requires_confirmation": false, "urgency": "normal"},
+      "suggested_approach": {"mode": "normal", "primary_shard": "none", "supporting_shards": [], "tools_needed": [], "context_needed": []}
     },
     "surface_response": "Hello! How can I help you code today?"
   }

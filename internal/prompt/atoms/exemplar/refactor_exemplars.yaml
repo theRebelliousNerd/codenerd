@@ -11,6 +11,7 @@
     ## EXTRACT METHOD EXEMPLAR
 
     ### BEFORE
+
     ```go
     func ProcessOrder(order *Order) error {
         // Validate order
@@ -45,7 +46,17 @@
     }
     ```
 
+- id: "exemplar/refactor/extract_method/after"
+  category: "exemplar"
+  subcategory: "refactor"
+  priority: 90
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    *Part of: EXTRACT METHOD EXEMPLAR*
+
     ### AFTER
+
     ```go
     func ProcessOrder(order *Order) error {
         if err := validateOrder(order); err != nil {

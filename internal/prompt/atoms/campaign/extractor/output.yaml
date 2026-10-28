@@ -42,9 +42,19 @@
     does not appear in the reply -- there is no reasoning_trace field and no
     envelope to carry one.
 
-    // =============================================================================
+    Document Chunk follows.
+
+- id: "campaign/extractor/output/extraction-rigor"
+  category: "campaign"
+  subcategory: "extractor"
+  priority: 95
+  is_mandatory: false
+  shard_types: ["extractor"]
+  campaign_phases: ["requirements", "northstar"]
+  depends_on: ["campaign/extractor/identity", "campaign/extractor/methodology"]
+  description: "Piggyback Protocol output format, thought-first ordering, and reasoning trace requirements for requirements extraction: Extraction rigor"
+  content: |
     // EXTRACTION RIGOR (INTERNAL -- DO NOT EMIT)
-    // =============================================================================
 
     Work through all five stages before writing the array. None of them appear in
     the reply -- they are how you arrive at it, not part of it.
@@ -54,8 +64,3 @@
     3. **Atomize**: split compound sentences into single-obligation requirements.
     4. **Deduplicate**: collapse restatements of the same obligation.
     5. **Assess**: drop anything you cannot source to the document.
-
-    // =============================================================================
-    // EXECUTION CONTEXT
-    // =============================================================================
-    Document Chunk follows.

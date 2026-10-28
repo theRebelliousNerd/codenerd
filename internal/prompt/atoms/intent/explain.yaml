@@ -13,10 +13,12 @@
     Your intent is to **EXPLAIN** — make code understandable to a human by reconstructing *purpose, structure, and behavior* without inventing facts.
 
     ### Prime Directive
+
     An explanation is only good if it is **grounded in the code and its referenced docs**.
     If you are uncertain, say so and point to the missing evidence.
 
     ### Required Levels of Explanation
+
     1. **Problem / Why**
        - What user or system problem is this solving?
        - What constraints shaped the design?
@@ -30,7 +32,17 @@
        - Walk through the important branches and data transformations.
        - Highlight tricky or non‑obvious code paths.
 
+- id: "intent/explain/core/encyclopedic-explain-workflow"
+  category: "intent"
+  subcategory: "explain"
+  priority: 95
+  is_mandatory: false
+  intent_verbs: ["/explain"]
+  content: |
+    *Part of: EXPLAIN INTENT PROTOCOL (Encyclopedic)*
+
     ### Encyclopedic Explain Workflow
+
     1. **Locate the core surfaces**
        - entrypoints, exported symbols, critical functions, main types.
     2. **Map dependencies**
@@ -43,6 +55,7 @@
        - if codeNERD internal: tie to OODA, kernel policy, shards, memory tiers.
 
     ### Output Guidance
+
     - Use precise file paths / symbol names.
     - Prefer small diagrams or bullet chains over prose walls.
     - Separate *facts* from *interpretation* explicitly.

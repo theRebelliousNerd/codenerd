@@ -175,6 +175,17 @@
     - [ ] Backup codes are single-use
     - [ ] Rate limiting on MFA attempts
 
+- id: "reviewer/methodology/auth_security/authorization-checklist"
+  category: "methodology"
+  subcategory: "security"
+  priority: 95
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/security_fundamentals"]
+  content: |
+    *Part of: AUTHENTICATION & AUTHORIZATION REVIEW*
+
     ### AUTHORIZATION CHECKLIST
 
     **Access Control**
@@ -194,6 +205,7 @@
     - [ ] Vertical privilege escalation prevented
 
     ### SECRETS MANAGEMENT
+
     - [ ] No hardcoded credentials in code
     - [ ] API keys not committed to repo
     - [ ] Secrets loaded from environment/vault

@@ -13,11 +13,7 @@
   content: |
     ## MANGLE LANGUAGE CORE
 
-    Mangle is a deductive database programming language. codeNERD runs TauCeti's canonical
-    mangle-go engine (the v0.5.1 line), not Google's frozen 0.4.0 snapshot. A program is facts
-    (the EDB), rules that derive new facts (the IDB), and one `Decl` per predicate. In codeNERD
-    Go asserts what it measured (witnesses) and rules derive every decision (judgements): never
-    make Go assert a judgement, and never let a threshold live in Go when it can be a fact.
+    Mangle is a deductive database language. codeNERD runs TauCeti's canonical mangle-go engine (the v0.5.1 line), not Google's frozen 0.4.0 snapshot. A program is facts (the EDB), rules that derive new facts (the IDB), and one `Decl` per predicate. In codeNERD Go asserts what it measured (witnesses) and rules derive every decision (judgements): Go never asserts a judgement, and no threshold lives in Go when it can be a fact.
 
     ### SYNTAX BASICS
     ```mangle
@@ -34,23 +30,24 @@
     can_edit(Name, File) :- admin(Name), file_size(File, Bytes).
     ```
 
-    ### CONVENTIONS
-    - UPPERCASE is a variable. `/lowercase` is a name constant (enumerations, IDs, verbs).
-      `"quoted"` is a string. `/admin` and `"/admin"` are different values that never unify.
-    - `_` is a variable you do not care about. Never put one inside a negated literal: the
-      negation is silently deleted (see the engine truths).
-    - `#` starts a comment.
-    - Numbers are int64. A float in a number column aborts the whole fixpoint: use an integer
-      scale (0..100) for scores and percentages.
-    - Declare every predicate exactly once, before use, with `bound [...]` column types.
+- id: "language/mangle/core/conventions-and-data"
+  category: "language"
+  subcategory: "mangle"
+  priority: 95
+  is_mandatory: false
+  languages: ["/mangle"]
+  # Served with language/mangle/engine_truths_pinned when the kernel derives
+  # /authoring_mangle (policy/jit_needs.mg); relevance-admitted atoms add the rest.
+  world_states: ["authoring_mangle"]
+  content: |
+    ## MANGLE LANGUAGE CORE: conventions and data
 
-    ### DATA
-    ```mangle
-    status(/active).          # name constant
-    label("free text").       # string
-    count(42).                # number
-    items([1, 2, 3]).         # list
-    ```
+    ### CONVENTIONS
+    - UPPERCASE is a variable; `/lowercase` a name constant (enums, IDs); `"quoted"` a string. `/admin` and `"/admin"` never unify.
+    - `_` is a don't-care variable. Never put one inside a negated literal: the negation is silently deleted (see the engine truths).
+    - `#` starts a comment. Numbers are int64; a float in a number column aborts the whole fixpoint, so use an integer scale (0..100) for scores.
+    - Declare every predicate exactly once, before use, with `bound [...]` column types.
+    - Data: `status(/active).` name; `label("free text").` string; `count(42).` number; `items([1, 2, 3]).` list.
 
 - id: "language/mangle/rules"
   category: "language"

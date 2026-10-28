@@ -45,6 +45,7 @@
     ## ADAPTER PATTERNS
 
     ### DOMAIN INTERFACE
+
     ```go
     // internal/domain/payment/gateway.go
     package payment
@@ -69,7 +70,18 @@
     }
     ```
 
+- id: "build_layer/integration/adapter/adapter-implementation"
+  category: "build_layer"
+  subcategory: "integration"
+  priority: 90
+  is_mandatory: false
+  build_layers: ["/integration"]
+  depends_on: ["build_layer/integration/principles"]
+  content: |
+    *Part of: ADAPTER PATTERNS*
+
     ### ADAPTER IMPLEMENTATION
+
     ```go
     // internal/integration/stripe/payment.go
     package stripe

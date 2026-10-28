@@ -72,6 +72,7 @@
     ## DJANGO VIEWS
 
     ### FUNCTION-BASED VIEW
+
     ```python
     from django.shortcuts import render, get_object_or_404
     from django.http import JsonResponse
@@ -85,7 +86,18 @@
         return render(request, 'posts/detail.html', {'post': post})
     ```
 
+- id: "framework/django/views/class-based-view"
+  category: "framework"
+  subcategory: "django"
+  priority: 85
+  is_mandatory: false
+  languages: ["/python"]
+  frameworks: ["/django"]
+  content: |
+    *Part of: DJANGO VIEWS*
+
     ### CLASS-BASED VIEW
+
     ```python
     from django.views.generic import ListView, DetailView, CreateView
     from django.contrib.auth.mixins import LoginRequiredMixin
@@ -109,7 +121,18 @@
             return super().form_valid(form)
     ```
 
+- id: "framework/django/views/api-view-drf"
+  category: "framework"
+  subcategory: "django"
+  priority: 85
+  is_mandatory: false
+  languages: ["/python"]
+  frameworks: ["/django"]
+  content: |
+    *Part of: DJANGO VIEWS*
+
     ### API VIEW (DRF)
+
     ```python
     from rest_framework import viewsets, permissions
     from rest_framework.decorators import action

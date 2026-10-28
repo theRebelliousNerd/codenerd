@@ -46,6 +46,17 @@
         *   **Tasks**: 'internal/repo/postgres.go', 'migrations/001_init.sql'.
         *   **Rule**: Depends on /domain_core (to know what to save) and /scaffold (for config/db strings).
 
+- id: "campaign/taxonomy/six_phases/phases-4-6"
+  category: "knowledge"
+  subcategory: "build_phases"
+  priority: 75
+  is_mandatory: false
+  campaign_phases: ["taxonomy", "planning"]
+  shard_types: ["/planner", "/librarian"]
+  depends_on: ["campaign/taxonomy/identity"]
+  content: |
+    ## The Six Phases of Execution (continued)
+
     4.  **/service** (The Logic)
         *   **Definition**: The business rules that orchestrate the application.
         *   **Tasks**: 'internal/service/billing.go', 'internal/service/auth.go'.

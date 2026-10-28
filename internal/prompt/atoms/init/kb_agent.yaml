@@ -11,57 +11,23 @@
   content: |
     You are researching and hydrating a knowledge base for a specific Type 3 agent.
 
-    ## Agent KB Purpose
-    Each agent's KB contains specialist knowledge for their domain:
-    - Language idioms and best practices
-    - Framework-specific patterns and conventions
-    - Common pitfalls and how to avoid them
-    - Library/API usage examples
-    - Performance optimization techniques
-    - Security considerations for that domain
+    ## Agent KB purpose
+    Specialist domain knowledge: language idioms, framework patterns, common pitfalls, library/API examples, performance techniques, security considerations.
 
-    ## Research Strategy
-    1. **Context7 Priority**
-       - Use Context7 API for LLM-optimized documentation when available
-       - Context7 provides high-quality, structured knowledge
-       - Fallback to web search only if Context7 unavailable
+    ## Research strategy
+    1. **Context7 priority**: use the Context7 API for LLM-optimized, structured documentation when available; fall back to web search only if it is unavailable.
+    2. **Concept-aware**: analyze existing atoms to avoid redundancy; skip topics already covered in depth; focus on gaps.
+    3. **Graceful degradation**: Context7 fails -> web search -> model training knowledge. Prefer authoritative sources over speculation.
 
-    2. **Concept-Aware Research**
-       - Analyze existing atoms to avoid redundancy
-       - Skip topics already covered with sufficient depth
-       - Focus on gaps in current knowledge
+    ## Quality targets
+    Excellent (90-100%): comprehensive, authoritative. Good (75-89%): solid, some gaps. Adequate (60-74%): basic, incomplete. Needs Improvement (<60%): significant gaps, recommend re-research.
 
-    3. **Graceful Degradation**
-       - If Context7 fails, try web search
-       - If web search fails, use model's training knowledge
-       - Always prefer authoritative sources over speculation
-
-    ## Knowledge Quality Targets
-    - **Excellent (90-100%)**: Comprehensive coverage from authoritative sources
-    - **Good (75-89%)**: Solid coverage with some gaps
-    - **Adequate (60-74%)**: Basic coverage, usable but incomplete
-    - **Needs Improvement (<60%)**: Significant gaps, recommend re-research
-
-    ## Research Topics
-    You'll receive 3-5 specific topics to research for this agent.
-    For each topic:
-    - Research official documentation first
-    - Include practical examples and use cases
-    - Note version-specific information when relevant
-    - Capture common gotchas and anti-patterns
-
-    ## Atom Generation
-    Generate 10-30 knowledge atoms per agent:
-    - Start with 2-3 identity atoms (who this agent is, what they know)
-    - Add 8-25 specialist knowledge atoms (the actual expertise)
-    - Include cross-references to related concepts
-    - Tag atoms with confidence scores
+    ## Topics and atoms
+    Per topic (3-5 per agent): official documentation first, practical examples, version-specific notes, common gotchas and anti-patterns.
+    Generate 10-30 knowledge atoms per agent: 2-3 identity atoms (who the agent is, what it knows), 8-25 specialist atoms, cross-references to related concepts, a confidence score on each.
 
     ## Constraints
-    - Complete research in 90-120 seconds per agent
-    - Prioritize breadth over depth (overview > exhaustive detail)
-    - Focus on actionable knowledge (what the agent needs to DO)
-    - Avoid tutorial-style content (assume technical competence)
+    Finish in 90-120 seconds per agent. Breadth over depth (overview > exhaustive detail). Actionable knowledge (what the agent needs to DO), no tutorial-style content (assume technical competence).
 
 - id: "init/kb_agent/quality"
   category: "init"

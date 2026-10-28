@@ -10,19 +10,20 @@
   languages: ["/mangle"]
   content: |
     # Grouping Patterns
-    
+
     ## Problem Description
-    
+
     Grouping aggregates data by common attributes. Common needs:
     - Group by single attribute
     - Group by multiple attributes
     - Nested grouping
     - Grouping with complex aggregations
     - Post-aggregation filtering (HAVING)
-    
+
     ## Core Pattern: Basic Grouping
-    
+
     ### Template
+
     ```mangle
     # Group by single attribute
     Decl data(Item, Group, Value).
@@ -31,76 +32,102 @@
       |> do fn:group_by(Group),
          let AggValue = fn:sum(Value).
     ```
-    
+
     ### Complete Working Example
+
     ```mangle
     # Schema
     Decl sale(SaleId, Department, Amount) bound [/string, /string, /number].
     Decl dept_total(Department, Total) bound [/string, /number].
-    
+
     # Facts
     sale("s1", "electronics", 1000).
     sale("s2", "electronics", 1500).
     sale("s3", "books", 500).
     sale("s4", "books", 300).
     sale("s5", "electronics", 2000).
-    
+
     # Group by department, sum amounts
     dept_total(Department, Total) :-
       sale(SaleId, Department, Amount)
       |> do fn:group_by(Department),
          let Total = fn:sum(Amount).
-    
+
     # Query: dept_total(Dept, Total)
     # Results:
     # dept_total("electronics", 4500)  # 1000 + 1500 + 2000
     # dept_total("books", 800)         # 500 + 300
     ```
-    
+
+- id: "language/mangle/docs/patterns/grouping/variation-1-multi-attribute-grouping"
+  category: "language"
+  subcategory: "mangle"
+  description: "Grouping Patterns: Variation 1: Multi-Attribute Grouping"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Grouping Patterns*
+
     ## Variation 1: Multi-Attribute Grouping
-    
+
     ### Problem
+
     Group by multiple attributes simultaneously.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl sale(SaleId, Department, Region, Amount) bound [/string, /string, /string, /number].
     Decl dept_region_total(Department, Region, Total) bound [/string, /string, /number].
-    
+
     # Group by both department AND region
     dept_region_total(Department, Region, Total) :-
       sale(SaleId, Department, Region, Amount)
       |> do fn:group_by(Department, Region),
          let Total = fn:sum(Amount).
     ```
-    
+
     ### Example
+
     ```mangle
     sale("s1", "electronics", "west", 1000).
     sale("s2", "electronics", "west", 1500).
     sale("s3", "electronics", "east", 2000).
     sale("s4", "books", "west", 500).
     sale("s5", "books", "east", 300).
-    
+
     # Results:
     # dept_region_total("electronics", "west", 2500)
     # dept_region_total("electronics", "east", 2000)
     # dept_region_total("books", "west", 500)
     # dept_region_total("books", "east", 300)
     ```
-    
+
+- id: "language/mangle/docs/patterns/grouping/variation-2-multiple-aggregations-per-group"
+  category: "language"
+  subcategory: "mangle"
+  description: "Grouping Patterns: Variation 2: Multiple Aggregations per Group"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Grouping Patterns*
+
     ## Variation 2: Multiple Aggregations per Group
-    
+
     ### Problem
+
     Calculate several aggregates for each group.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl employee(EmpId, Department, Salary) bound [/string, /string, /number].
     Decl dept_stats(Department, TotalSalary, AvgSalary, EmpCount) bound [/string, /number, /float64, /number].
-    
+
     # Multiple aggregations
     dept_stats(Department, TotalSalary, AvgSalary, EmpCount) :-
       employee(EmpId, Department, Salary)
@@ -109,51 +136,74 @@
          let AvgSalary = fn:avg(Salary),
          let EmpCount = fn:count().
     ```
-    
+
     ### Example
+
     ```mangle
     employee("e1", "eng", 100000).
     employee("e2", "eng", 120000).
     employee("e3", "eng", 110000).
     employee("e4", "sales", 80000).
     employee("e5", "sales", 90000).
-    
+
     # Results:
     # dept_stats("eng", 330000, 110000.0, 3)
     # dept_stats("sales", 170000, 85000.0, 2)
     ```
-    
+
+- id: "language/mangle/docs/patterns/grouping/variation-3-conditional-aggregation"
+  category: "language"
+  subcategory: "mangle"
+  description: "Grouping Patterns: Variation 3: Conditional Aggregation"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Grouping Patterns*
+
     ## Variation 3: Conditional Aggregation
-    
+
     ### Problem
+
     Aggregate only values that meet certain criteria.
-    
+
+- id: "language/mangle/docs/patterns/grouping/variation-3-conditional-aggregation-solution"
+  category: "language"
+  subcategory: "mangle"
+  description: "Grouping Patterns: Variation 3: Conditional Aggregation Solution"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Grouping Patterns > Variation 3: Conditional Aggregation*
+
     ### Solution
+
     ```mangle
     # Schema
     Decl transaction(TxId, AccountId, Amount, Type) bound [/string, /string, /number, /name].
     Decl account_balance(AccountId, Balance) bound [/string, /number].
-    
+
     # Sum deposits, subtract withdrawals
     Decl deposits(AccountId, Total) bound [/string, /number].
     Decl withdrawals(AccountId, Total) bound [/string, /number].
-    
+
     deposits(AccountId, Total) :-
       transaction(TxId, AccountId, Amount, /deposit)
       |> do fn:group_by(AccountId),
          let Total = fn:sum(Amount).
-    
+
     withdrawals(AccountId, Total) :-
       transaction(TxId, AccountId, Amount, /withdrawal)
       |> do fn:group_by(AccountId),
          let Total = fn:sum(Amount).
-    
+
     # Calculate balance
     account_balance(AccountId, Balance) :-
       deposits(AccountId, Dep),
       withdrawals(AccountId, With),
       Balance = fn:minus(Dep, With).
-    
+
     # "Has any row" tests are bound projections: a negated literal takes no
     # wildcard argument.
     has_withdrawals(AccountId) :- withdrawals(AccountId, Amount).
@@ -170,14 +220,25 @@
       !has_deposits(AccountId),
       Balance = fn:mult(With, -1).
     ```
-    
+
+- id: "language/mangle/docs/patterns/grouping/variation-3-conditional-aggregation-example"
+  category: "language"
+  subcategory: "mangle"
+  description: "Grouping Patterns: Variation 3: Conditional Aggregation Example"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Grouping Patterns > Variation 3: Conditional Aggregation*
+
     ### Example
+
     ```mangle
     transaction("t1", "acc1", 1000, /deposit).
     transaction("t2", "acc1", 500, /deposit).
     transaction("t3", "acc1", 200, /withdrawal).
     transaction("t4", "acc2", 300, /deposit).
-    
+
     # Results:
     # deposits("acc1", 1500)
     # withdrawals("acc1", 200)
@@ -185,47 +246,60 @@
     # deposits("acc2", 300)
     # account_balance("acc2", 300)
     ```
-    
+
+- id: "language/mangle/docs/patterns/grouping/variation-4-hierarchical-grouping-rollup"
+  category: "language"
+  subcategory: "mangle"
+  description: "Grouping Patterns: Variation 4: Hierarchical Grouping (Rollup)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Grouping Patterns*
+
     ## Variation 4: Hierarchical Grouping (Rollup)
-    
+
     ### Problem
+
     Aggregate at multiple levels of a hierarchy.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl sale(SaleId, Region, City, Amount) bound [/string, /string, /string, /number].
     Decl city_total(Region, City, Total) bound [/string, /string, /number].
     Decl region_total(Region, Total) bound [/string, /number].
     Decl grand_total(Total) bound [/number].
-    
+
     # Level 1: City totals
     city_total(Region, City, Total) :-
       sale(SaleId, Region, City, Amount)
       |> do fn:group_by(Region, City),
          let Total = fn:sum(Amount).
-    
+
     # Level 2: Region totals (sum of cities)
     region_total(Region, Total) :-
       city_total(Region, City, CityTotal)
       |> do fn:group_by(Region),
          let Total = fn:sum(CityTotal).
-    
+
     # Level 3: Grand total (sum of regions)
     grand_total(Total) :-
       region_total(Region, RegionTotal)
       |> do fn:group_by(),
          let Total = fn:sum(RegionTotal).
     ```
-    
+
     ### Example
+
     ```mangle
     sale("s1", "west", "LA", 1000).
     sale("s2", "west", "LA", 1500).
     sale("s3", "west", "SF", 2000).
     sale("s4", "east", "NYC", 3000).
     sale("s5", "east", "Boston", 1000).
-    
+
     # Results:
     # city_total("west", "LA", 2500)
     # city_total("west", "SF", 2000)
@@ -235,40 +309,53 @@
     # region_total("east", 4000)
     # grand_total(8500)
     ```
-    
+
+- id: "language/mangle/docs/patterns/grouping/variation-5-grouping-with-filtering-having"
+  category: "language"
+  subcategory: "mangle"
+  description: "Grouping Patterns: Variation 5: Grouping with Filtering (HAVING)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Grouping Patterns*
+
     ## Variation 5: Grouping with Filtering (HAVING)
-    
+
     ### Problem
+
     Filter groups based on aggregated values.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl customer(CustomerId, Segment) bound [/string, /string].
     Decl purchase(PurchaseId, CustomerId, Amount) bound [/string, /string, /number].
     Decl customer_total(CustomerId, Total) bound [/string, /number].
     Decl high_value_customers(CustomerId, Total) bound [/string, /number].
-    
+
     # Calculate totals
     customer_total(CustomerId, Total) :-
       purchase(PurchaseId, CustomerId, Amount)
       |> do fn:group_by(CustomerId),
          let Total = fn:sum(Amount).
-    
+
     # Filter: only customers with total > 10000
     high_value_customers(CustomerId, Total) :-
       customer_total(CustomerId, Total),
       Total > 10000.
     ```
-    
+
     ### Example
+
     ```mangle
     purchase("p1", "c1", 5000).
     purchase("p2", "c1", 6000).  # Total: 11000
     purchase("p3", "c2", 3000).
     purchase("p4", "c2", 2000).  # Total: 5000
     purchase("p5", "c3", 15000). # Total: 15000
-    
+
     # Results:
     # customer_total("c1", 11000)
     # customer_total("c2", 5000)
@@ -277,83 +364,121 @@
     # high_value_customers("c3", 15000)
     # NOT c2 (below threshold)
     ```
-    
+
+- id: "language/mangle/docs/patterns/grouping/variation-6-grouping-with-min-max"
+  category: "language"
+  subcategory: "mangle"
+  description: "Grouping Patterns: Variation 6: Grouping with Min/Max"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Grouping Patterns*
+
     ## Variation 6: Grouping with Min/Max
-    
+
     ### Problem
+
     Find minimum or maximum value per group.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl product(ProductId, Category, Price) bound [/string, /string, /number].
     Decl category_price_range(Category, MinPrice, MaxPrice) bound [/string, /number, /number].
-    
+
     category_price_range(Category, MinPrice, MaxPrice) :-
       product(ProductId, Category, Price)
       |> do fn:group_by(Category),
          let MinPrice = fn:min(Price),
          let MaxPrice = fn:max(Price).
     ```
-    
+
     ### Example
+
     ```mangle
     product("p1", "electronics", 1000).
     product("p2", "electronics", 3000).
     product("p3", "electronics", 500).
     product("p4", "books", 20).
     product("p5", "books", 50).
-    
+
     # Results:
     # category_price_range("electronics", 500, 3000)
     # category_price_range("books", 20, 50)
     ```
-    
+
+- id: "language/mangle/docs/patterns/grouping/variation-7-grouping-with-first-last"
+  category: "language"
+  subcategory: "mangle"
+  description: "Grouping Patterns: Variation 7: Grouping with First/Last"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Grouping Patterns*
+
     ## Variation 7: Grouping with First/Last
-    
+
     ### Problem
+
     Get the first or last item in each group (by some ordering).
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl event(EventId, UserId, Timestamp, Action) bound [/string, /string, /number, /string].
     Decl user_latest_event(UserId, LatestTime) bound [/string, /number].
     Decl user_latest_action(UserId, Action) bound [/string, /string].
-    
+
     # Find latest timestamp per user
     user_latest_event(UserId, LatestTime) :-
       event(EventId, UserId, Timestamp, Action)
       |> do fn:group_by(UserId),
          let LatestTime = fn:max(Timestamp).
-    
+
     # Get action at latest timestamp
     user_latest_action(UserId, Action) :-
       user_latest_event(UserId, LatestTime),
       event(EventId, UserId, LatestTime, Action).
     ```
-    
+
     ### Example
+
     ```mangle
     event("e1", "u1", 1000, "login").
     event("e2", "u1", 1005, "click").
     event("e3", "u1", 1010, "logout").
     event("e4", "u2", 2000, "login").
     event("e5", "u2", 2005, "purchase").
-    
+
     # Results:
     # user_latest_event("u1", 1010)
     # user_latest_event("u2", 2005)
     # user_latest_action("u1", "logout")
     # user_latest_action("u2", "purchase")
     ```
-    
+
+- id: "language/mangle/docs/patterns/grouping/variation-8-distinct-values-per-group"
+  category: "language"
+  subcategory: "mangle"
+  description: "Grouping Patterns: Variation 8: Distinct Values per Group"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Grouping Patterns*
+
     ## Variation 8: Distinct Values per Group
-    
+
     ### Problem
+
     Find all distinct values of an attribute per group.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl user_action(UserId, Action, Timestamp) bound [/string, /string, /number].
@@ -367,8 +492,9 @@
       |> do fn:group_by(UserId),
          let DistinctActions = fn:count().
     ```
-    
+
     ### Example
+
     ```mangle
     user_action("u1", "login", 1000).
     user_action("u1", "login", 1100).  # Duplicate action
@@ -376,26 +502,38 @@
     user_action("u1", "logout", 1300).
     user_action("u2", "login", 2000).
     user_action("u2", "login", 2100).  # Duplicate action
-    
+
     # Results:
     # user_action_count("u1", 3)  # login, click, logout
     # user_action_count("u2", 1)  # only login
     ```
-    
+
+- id: "language/mangle/docs/patterns/grouping/variation-9-grouping-with-percentiles"
+  category: "language"
+  subcategory: "mangle"
+  description: "Grouping Patterns: Variation 9: Grouping with Percentiles"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Grouping Patterns*
+
     ## Variation 9: Grouping with Percentiles
-    
+
     ### Problem
+
     Calculate percentile values per group.
-    
+
     ### Solution
+
     ```mangle
     # Note: Mangle doesn't have built-in percentile functions
     # Workaround: Use Min/Max as approximations or implement in Go
-    
+
     # Schema
     Decl test_score(StudentId, Class, Score) bound [/string, /string, /number].
     Decl class_stats(Class, MinScore, MaxScore, AvgScore) bound [/string, /number, /number, /float64].
-    
+
     # Approximate range with min/max
     class_stats(Class, MinScore, MaxScore, AvgScore) :-
       test_score(StudentId, Class, Score)
@@ -404,31 +542,44 @@
          let MaxScore = fn:max(Score),
          let AvgScore = fn:avg(Score).
     ```
-    
+
     ### Example
+
     ```mangle
     test_score("s1", "math", 85).
     test_score("s2", "math", 92).
     test_score("s3", "math", 78).
     test_score("s4", "science", 88).
     test_score("s5", "science", 95).
-    
+
     # Results:
     # class_stats("math", 78, 92, 85.0)
     # class_stats("science", 88, 95, 91.5)
     ```
-    
+
+- id: "language/mangle/docs/patterns/grouping/variation-10-window-functions-running"
+  category: "language"
+  subcategory: "mangle"
+  description: "Grouping Patterns: Variation 10: Window Functions (Running Aggregates)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Grouping Patterns*
+
     ## Variation 10: Window Functions (Running Aggregates)
-    
+
     ### Problem
+
     Calculate running totals or moving averages within groups.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl sale(SaleId, Day, Amount) bound [/string, /number, /number].
     Decl cumulative_sales(Day, CumulativeTotal) bound [/number, /number].
-    
+
     # Running total up to each day
     cumulative_sales(Day, CumulativeTotal) :-
       sale(SaleId1, Day, Amount),
@@ -437,32 +588,45 @@
       |> do fn:group_by(Day),
          let CumulativeTotal = fn:sum(Amount2).
     ```
-    
+
     ### Example
+
     ```mangle
     sale("s1", 1, 100).
     sale("s2", 2, 150).
     sale("s3", 3, 200).
     sale("s4", 3, 50).  # Two sales on day 3
-    
+
     # Results:
     # cumulative_sales(1, 100)   # Day 1: 100
     # cumulative_sales(2, 250)   # Days 1-2: 100 + 150
     # cumulative_sales(3, 500)   # Days 1-3: 100 + 150 + 200 + 50
     ```
-    
+
+- id: "language/mangle/docs/patterns/grouping/variation-11-grouping-after-join"
+  category: "language"
+  subcategory: "mangle"
+  description: "Grouping Patterns: Variation 11: Grouping After Join"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Grouping Patterns*
+
     ## Variation 11: Grouping After Join
-    
+
     ### Problem
+
     Join multiple predicates then group the results.
-    
+
     ### Solution
+
     ```mangle
     # Schema
     Decl order(OrderId, CustomerId, Amount) bound [/string, /string, /number].
     Decl customer(CustomerId, Segment) bound [/string, /string].
     Decl segment_revenue(Segment, TotalRevenue) bound [/string, /number].
-    
+
     # Join customer with orders, then group by segment
     segment_revenue(Segment, TotalRevenue) :-
       customer(CustomerId, Segment),
@@ -470,56 +634,70 @@
       |> do fn:group_by(Segment),
          let TotalRevenue = fn:sum(Amount).
     ```
-    
+
     ### Example
+
     ```mangle
     customer("c1", "premium").
     customer("c2", "premium").
     customer("c3", "standard").
-    
+
     order("o1", "c1", 1000).
     order("o2", "c1", 1500).
     order("o3", "c2", 2000).
     order("o4", "c3", 500).
-    
+
     # Results:
     # segment_revenue("premium", 4500)  # c1: 2500, c2: 2000
     # segment_revenue("standard", 500)   # c3: 500
     ```
-    
+
+- id: "language/mangle/docs/patterns/grouping/anti-patterns"
+  category: "language"
+  subcategory: "mangle"
+  description: "Grouping Patterns: Anti-Patterns"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Grouping Patterns*
+
     ## Anti-Patterns
-    
+
     ### WRONG: Grouping Variable Not Bound
+
     ```mangle
     # Bad - Category appears in grouping but not in body first
     result(Category, Total) :-
       data(X, Value)
       |> do fn:group_by(Category),  # Category is unbound!
          let Total = fn:sum(Value).
-    
+
     # Fix - ensure grouping variables are bound
     result(Category, Total) :-
       data(X, Category, Value)
       |> do fn:group_by(Category),
          let Total = fn:sum(Value).
     ```
-    
+
     ### WRONG: Using Non-Grouped Variables in Result
+
     ```mangle
     # Bad - X is not grouped, so which X should appear in result?
     result(Category, X, Total) :-
       data(X, Category, Value)
       |> do fn:group_by(Category),
          let Total = fn:sum(Value).
-    
+
     # Fix - only use grouped variables or aggregates
     result(Category, Total) :-
       data(X, Category, Value)
       |> do fn:group_by(Category),
          let Total = fn:sum(Value).
     ```
-    
+
     ### WRONG: Multiple Aggregations Without Common Grouping
+
     ```mangle
     # Bad - conflicting grouping levels
     sum1(Total1) :- data(X, Y) |> do fn:group_by(X), let Total1 = fn:sum(Y).
@@ -527,52 +705,75 @@
     final(Total) :- sum1(Total1), sum2(Total2), Total = fn:plus(Total1, Total2).
     # These are at different granularities - results will be misleading
     ```
-    
+
+- id: "language/mangle/docs/patterns/grouping/grouping-patterns-performance-tips"
+  category: "language"
+  subcategory: "mangle"
+  description: "Grouping Patterns: Grouping Patterns Performance Tips"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Grouping Patterns*
+
     ## Performance Tips
-    
+
     1. **Group Early**: Reduce data volume before further processing
     2. **Materialize Intermediate Groups**: For multi-level rollups
     3. **Index Group Keys**: Ensure grouping attributes are indexed
     4. **Minimize Group Count**: Fewer groups = faster aggregation
     5. **Filter Before Grouping**: Reduce input size
-    
+
     ## Common Use Cases in codeNERD
-    
+
     ### Test Results by Suite
+
     ```mangle
     Decl test_result(TestId, Suite, Status) bound [/string, /string, /name].
     Decl suite_stats(Suite, Passed, Failed) bound [/string, /number, /number].
-    
+
     Decl suite_passed(Suite, Count) bound [/string, /number].
     suite_passed(Suite, Count) :-
       test_result(TestId, Suite, /passed)
       |> do fn:group_by(Suite),
          let Count = fn:count().
-    
+
     Decl suite_failed(Suite, Count) bound [/string, /number].
     suite_failed(Suite, Count) :-
       test_result(TestId, Suite, /failed)
       |> do fn:group_by(Suite),
          let Count = fn:count().
     ```
-    
+
+- id: "language/mangle/docs/patterns/grouping/code-complexity-by-module"
+  category: "language"
+  subcategory: "mangle"
+  description: "Grouping Patterns: Code Complexity by Module"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Grouping Patterns > Common Use Cases in codeNERD*
+
     ### Code Complexity by Module
+
     ```mangle
     Decl function(FuncId, Module, Complexity) bound [/string, /string, /number].
     Decl module_complexity(Module, TotalComplexity, AvgComplexity) bound [/string, /number, /float64].
-    
+
     module_complexity(Module, TotalComplexity, AvgComplexity) :-
       function(FuncId, Module, Complexity)
       |> do fn:group_by(Module),
          let TotalComplexity = fn:sum(Complexity),
          let AvgComplexity = fn:avg(Complexity).
     ```
-    
+
     ### Shard Performance Metrics
+
     ```mangle
     Decl shard_execution(ShardId, TaskId, DurationMs) bound [/string, /string, /number].
     Decl shard_perf(ShardId, MinMs, MaxMs, AvgMs) bound [/string, /number, /number, /float64].
-    
+
     shard_perf(ShardId, MinMs, MaxMs, AvgMs) :-
       shard_execution(ShardId, TaskId, DurationMs)
       |> do fn:group_by(ShardId),

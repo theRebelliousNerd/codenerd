@@ -338,6 +338,17 @@
 
     FIX: Avoid timing assertions or use generous margins.
 
+- id: "reviewer/methodology/test_anti_patterns/anti-pattern-hidden-setup"
+  category: "methodology"
+  subcategory: "testing"
+  priority: 78
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/analyze"]
+  depends_on: ["reviewer/methodology/test_coverage_fundamentals"]
+  content: |
+    *Part of: TEST ANTI-PATTERNS*
+
     ### ANTI-PATTERN: HIDDEN SETUP
 
     ```python

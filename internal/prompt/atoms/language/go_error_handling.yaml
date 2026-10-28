@@ -12,11 +12,13 @@
     ## GO ERROR HANDLING FUNDAMENTALS
 
     ### The Go Error Philosophy
+
     Errors are values. They are not exceptions - they are explicit return values
     that must be handled by the caller. This makes error handling visible and
     forces developers to consider failure modes.
 
     ### Basic Error Handling
+
     ```go
     result, err := doSomething()
     if err != nil {
@@ -36,6 +38,23 @@
         log.Printf("warning: %v (continuing anyway)", err)
     }
     ```
+  content_concise: |
+    ## Go Error Handling
+    - Always check: `if err != nil { return fmt.Errorf("context: %w", err) }`
+    - Use `%w` for wrapping (preserves chain)
+    - `errors.Is(err, target)` - check error identity
+    - `errors.As(err, &target)` - extract error type
+    - Sentinel errors: `var ErrNotFound = errors.New("not found")`
+
+- id: "language/go/errors/fundamentals/error-creation"
+  category: "language"
+  subcategory: "go"
+  priority: 87
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  content: |
+    *Part of: GO ERROR HANDLING FUNDAMENTALS*
 
     ### Error Creation
 
@@ -61,6 +80,16 @@
         ErrInvalidInput = errors.New("invalid input")
     )
     ```
+
+- id: "language/go/errors/fundamentals/error-wrapping-go-1-13"
+  category: "language"
+  subcategory: "go"
+  priority: 87
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  content: |
+    *Part of: GO ERROR HANDLING FUNDAMENTALS*
 
     ### Error Wrapping (Go 1.13+)
 
@@ -104,14 +133,6 @@
     - You want to hide the error source
     - Breaking the error chain is intentional
 
-  content_concise: |
-    ## Go Error Handling
-    - Always check: `if err != nil { return fmt.Errorf("context: %w", err) }`
-    - Use `%w` for wrapping (preserves chain)
-    - `errors.Is(err, target)` - check error identity
-    - `errors.As(err, &target)` - extract error type
-    - Sentinel errors: `var ErrNotFound = errors.New("not found")`
-
 - id: "language/go/errors/custom_types"
   category: "language"
   subcategory: "go"
@@ -124,11 +145,13 @@
     ## CUSTOM ERROR TYPES
 
     ### When to Use Custom Error Types
+
     - Error needs additional context (fields)
     - Different error cases need different handling
     - You want type-based error matching
 
     ### Basic Custom Error
+
     ```go
     type ValidationError struct {
         Field   string
@@ -153,8 +176,30 @@
         fmt.Printf("Invalid field: %s\n", valErr.Field)
     }
     ```
+  content_concise: |
+    ## Custom Error Types
+    ```go
+    type MyError struct {
+        Field string
+        Err   error
+    }
+    func (e *MyError) Error() string { return fmt.Sprintf("%s: %v", e.Field, e.Err) }
+    func (e *MyError) Unwrap() error { return e.Err }  // For errors.Is/As
+    ```
+
+- id: "language/go/errors/custom_types/error-with-wrapped-cause"
+  category: "language"
+  subcategory: "go"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/errors/fundamentals"]
+  content: |
+    *Part of: CUSTOM ERROR TYPES*
 
     ### Error with Wrapped Cause
+
     ```go
     type QueryError struct {
         Query string
@@ -180,6 +225,7 @@
     ```
 
     ### Multi-Error (Error List)
+
     ```go
     type MultiError struct {
         Errors []error
@@ -204,7 +250,19 @@
     // errors.Is/As now checks all wrapped errors
     ```
 
+- id: "language/go/errors/custom_types/error-categories-with-interface"
+  category: "language"
+  subcategory: "go"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/errors/fundamentals"]
+  content: |
+    *Part of: CUSTOM ERROR TYPES*
+
     ### Error Categories with Interface
+
     ```go
     // Define behavior interface
     type TemporaryError interface {
@@ -237,17 +295,6 @@
     }
     ```
 
-  content_concise: |
-    ## Custom Error Types
-    ```go
-    type MyError struct {
-        Field string
-        Err   error
-    }
-    func (e *MyError) Error() string { return fmt.Sprintf("%s: %v", e.Field, e.Err) }
-    func (e *MyError) Unwrap() error { return e.Err }  // For errors.Is/As
-    ```
-
 - id: "language/go/errors/patterns"
   category: "language"
   subcategory: "go"
@@ -260,6 +307,7 @@
     ## ERROR HANDLING PATTERNS
 
     ### Defer for Cleanup on Error
+
     ```go
     func ProcessFile(path string) (err error) {
         f, err := os.Open(path)
@@ -281,6 +329,7 @@
     ```
 
     ### Error Handling in Loops
+
     ```go
     func ProcessItems(items []Item) error {
         var errs []error
@@ -296,8 +345,27 @@
         return nil
     }
     ```
+  content_concise: |
+    ## Error Handling Patterns
+    - Named returns for defer error handling
+    - `errors.Join(errs...)` for multiple errors (Go 1.20+)
+    - `defer recover()` for panic safety
+    - Log at top level, wrap at lower levels
+    - Must pattern: panic for unrecoverable init errors
+
+- id: "language/go/errors/patterns/panic-recovery"
+  category: "language"
+  subcategory: "go"
+  priority: 84
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/errors/fundamentals"]
+  content: |
+    *Part of: ERROR HANDLING PATTERNS*
 
     ### Panic Recovery
+
     ```go
     func SafeCall(fn func()) (err error) {
         defer func() {
@@ -311,6 +379,7 @@
     ```
 
     ### Error Transformation at Boundaries
+
     ```go
     // Internal error -> API error
     func ToAPIError(err error) *APIError {
@@ -326,7 +395,19 @@
     }
     ```
 
+- id: "language/go/errors/patterns/must-pattern-panic-on-error"
+  category: "language"
+  subcategory: "go"
+  priority: 84
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/errors/fundamentals"]
+  content: |
+    *Part of: ERROR HANDLING PATTERNS*
+
     ### Must Pattern (Panic on Error)
+
     ```go
     // Use only for unrecoverable initialization errors
     func MustCompile(pattern string) *regexp.Regexp {
@@ -341,7 +422,19 @@
     var emailRegex = MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
     ```
 
+- id: "language/go/errors/patterns/retry-with-exponential-backoff"
+  category: "language"
+  subcategory: "go"
+  priority: 84
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/errors/fundamentals"]
+  content: |
+    *Part of: ERROR HANDLING PATTERNS*
+
     ### Retry with Exponential Backoff
+
     ```go
     func Retry(ctx context.Context, maxAttempts int, fn func() error) error {
         var lastErr error
@@ -368,7 +461,19 @@
     }
     ```
 
+- id: "language/go/errors/patterns/error-logging-best-practices"
+  category: "language"
+  subcategory: "go"
+  priority: 84
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/errors/fundamentals"]
+  content: |
+    *Part of: ERROR HANDLING PATTERNS*
+
     ### Error Logging Best Practices
+
     ```go
     // Log at the top level, wrap at lower levels
     func handleRequest(w http.ResponseWriter, r *http.Request) {
@@ -389,14 +494,6 @@
     }
     ```
 
-  content_concise: |
-    ## Error Handling Patterns
-    - Named returns for defer error handling
-    - `errors.Join(errs...)` for multiple errors (Go 1.20+)
-    - `defer recover()` for panic safety
-    - Log at top level, wrap at lower levels
-    - Must pattern: panic for unrecoverable init errors
-
 - id: "language/go/errors/anti_patterns"
   category: "language"
   subcategory: "go"
@@ -409,6 +506,7 @@
     ## ERROR HANDLING ANTI-PATTERNS
 
     ### Anti-Pattern 1: Ignoring Errors
+
     ```go
     // BAD: Silent failure
     result, _ := doSomething()
@@ -426,6 +524,7 @@
     ```
 
     ### Anti-Pattern 2: Logging and Returning
+
     ```go
     // BAD: Error logged multiple times
     func processItem(item Item) error {
@@ -445,8 +544,28 @@
         return nil
     }
     ```
+  content_concise: |
+    ## Error Anti-Patterns
+    - Don't ignore errors with `_`
+    - Don't log AND return (pick one)
+    - Don't wrap without adding context
+    - Don't match error strings, use errors.Is/As
+    - Don't panic for recoverable errors
+    - Don't over-wrap (readable chain > detailed chain)
+
+- id: "language/go/errors/anti_patterns/anti-pattern-3-wrapping-without-context"
+  category: "language"
+  subcategory: "go"
+  priority: 86
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/errors/fundamentals"]
+  content: |
+    *Part of: ERROR HANDLING ANTI-PATTERNS*
 
     ### Anti-Pattern 3: Wrapping Without Context
+
     ```go
     // BAD: No useful context added
     if err != nil {
@@ -465,6 +584,7 @@
     ```
 
     ### Anti-Pattern 4: String Matching Errors
+
     ```go
     // BAD: Brittle string matching
     if err.Error() == "not found" {
@@ -483,7 +603,19 @@
     }
     ```
 
+- id: "language/go/errors/anti_patterns/anti-pattern-5-panic-for-normal-errors"
+  category: "language"
+  subcategory: "go"
+  priority: 86
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/errors/fundamentals"]
+  content: |
+    *Part of: ERROR HANDLING ANTI-PATTERNS*
+
     ### Anti-Pattern 5: Panic for Normal Errors
+
     ```go
     // BAD: Panic for recoverable errors
     func GetUser(id string) *User {
@@ -505,6 +637,7 @@
     ```
 
     ### Anti-Pattern 6: Over-wrapping
+
     ```go
     // BAD: Wrapping at every level
     // Level 3: "process: handle: execute: read: open: no such file"
@@ -515,6 +648,7 @@
     ```
 
     ### Anti-Pattern 7: Checking err != nil After Successful Operation
+
     ```go
     // BAD: Redundant nil check
     result, err := doSomething()
@@ -531,12 +665,3 @@
     }
     // Use result
     ```
-
-  content_concise: |
-    ## Error Anti-Patterns
-    - Don't ignore errors with `_`
-    - Don't log AND return (pick one)
-    - Don't wrap without adding context
-    - Don't match error strings, use errors.Is/As
-    - Don't panic for recoverable errors
-    - Don't over-wrap (readable chain > detailed chain)

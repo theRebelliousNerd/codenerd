@@ -412,6 +412,7 @@
     AI agents often misuse these, especially in Singletons.
 
     ### Understanding the Difference
+
     ```python
     class MyClass:
         def __new__(cls):
@@ -429,6 +430,7 @@
     ```
 
     ### The Singleton Bug
+
     ```python
     # WRONG - __init__ runs every time, resetting state
     class Singleton:
@@ -447,8 +449,25 @@
     s2 = Singleton()  # __init__ runs again!
     print(s2.value)  # 0, not 42!
     ```
+  content_concise: |
+    ## __init__ vs __new__
+    - `__new__`: Creates instance (before __init__)
+    - `__init__`: Initializes instance (can run multiple times)
+    - Singleton bug: `__init__` resets state each call
+    - Fix: Guard `__init__` with initialization flag
+
+- id: "language/python/ai_failures/init_vs_new/correct-singleton"
+  category: "language"
+  subcategory: "python"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  content: |
+    *Part of: __init__ vs __new__ CONFUSION*
 
     ### Correct Singleton
+
     ```python
     # CORRECT - Guard __init__
     class Singleton:
@@ -467,6 +486,7 @@
     ```
 
     ### When to Use __new__
+
     ```python
     # 1. Singletons
     # 2. Subclassing immutable types
@@ -485,13 +505,6 @@
             return cls._cache[value]
     ```
 
-  content_concise: |
-    ## __init__ vs __new__
-    - `__new__`: Creates instance (before __init__)
-    - `__init__`: Initializes instance (can run multiple times)
-    - Singleton bug: `__init__` resets state each call
-    - Fix: Guard `__init__` with initialization flag
-
 - id: "language/python/ai_failures/asyncio_mistakes"
   category: "language"
   subcategory: "python"
@@ -505,6 +518,7 @@
     AI agents frequently generate broken async code.
 
     ### Mistake 1: Forgetting await
+
     ```python
     # WRONG - Creates coroutine object, doesn't execute
     async def bad():
@@ -518,6 +532,7 @@
     ```
 
     ### Mistake 2: Blocking the Event Loop
+
     ```python
     # WRONG - Blocks entire event loop
     async def bad():
@@ -532,6 +547,7 @@
     ```
 
     ### Mistake 3: Nested asyncio.run()
+
     ```python
     # WRONG - Can't nest event loops
     async def outer():
@@ -541,8 +557,26 @@
     async def outer():
         await inner()
     ```
+  content_concise: |
+    ## Asyncio Mistakes
+    1. Always `await` coroutines - check RuntimeWarning
+    2. Use `asyncio.sleep()`, not `time.sleep()`
+    3. Don't call `asyncio.run()` inside async code
+    4. Always re-raise `CancelledError` after cleanup
+    5. Keep references to fire-and-forget tasks
+
+- id: "language/python/ai_failures/asyncio_mistakes/mistake-4-swallowing-cancellederror"
+  category: "language"
+  subcategory: "python"
+  priority: 91
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  content: |
+    *Part of: ASYNCIO COMMON MISTAKES*
 
     ### Mistake 4: Swallowing CancelledError
+
     ```python
     # WRONG - Breaks structured concurrency
     async def bad():
@@ -561,6 +595,7 @@
     ```
 
     ### Mistake 5: Fire-and-Forget Tasks
+
     ```python
     # WRONG - Task may be garbage collected
     async def bad():
@@ -571,14 +606,6 @@
         task = asyncio.create_task(work())
         await task
     ```
-
-  content_concise: |
-    ## Asyncio Mistakes
-    1. Always `await` coroutines - check RuntimeWarning
-    2. Use `asyncio.sleep()`, not `time.sleep()`
-    3. Don't call `asyncio.run()` inside async code
-    4. Always re-raise `CancelledError` after cleanup
-    5. Keep references to fire-and-forget tasks
 
 - id: "language/python/ai_failures/hallucinations"
   category: "language"
@@ -593,6 +620,7 @@
     Common patterns where AI agents generate non-existent code.
 
     ### Hallucinated Imports
+
     ```python
     # WRONG - These don't exist!
     import python_utils
@@ -608,6 +636,7 @@
     ```
 
     ### Cross-Language Leakage
+
     ```python
     # JavaScript leakage
     my_list.push(item)  # Use .append()
@@ -625,8 +654,26 @@
     array.each do |x|  # Use for x in array:
     puts "hello"  # Use print("hello")
     ```
+  content_concise: |
+    ## AI Hallucinations
+    - Hallucinated imports: `python_utils`, `typing.JSONType`
+    - JavaScript leakage: `.push()`, `.length`
+    - Java leakage: `.equals()`, `.isEmpty()`
+    - Placeholder code: `pass # TODO`
+    - Non-existent types: `typing.JSON`, `typing.URL`
+
+- id: "language/python/ai_failures/hallucinations/placeholder-code"
+  category: "language"
+  subcategory: "python"
+  priority: 92
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  content: |
+    *Part of: AI-SPECIFIC HALLUCINATIONS*
 
     ### Placeholder Code
+
     ```python
     # WRONG - AI leaves unfinished code
     def process_data(data):
@@ -640,6 +687,7 @@
     ```
 
     ### Confident but Wrong Patterns
+
     ```python
     # WRONG - Looks correct but fails
     def get_user_name(user_id: int) -> str:
@@ -653,6 +701,7 @@
     ```
 
     ### Type Annotation Hallucinations
+
     ```python
     # WRONG - These types don't exist
     from typing import JSON, URL, Path, Numeric
@@ -664,14 +713,6 @@
     from pathlib import Path
     JsonType = dict[str, Any] | list[Any] | str | int | float | bool | None
     ```
-
-  content_concise: |
-    ## AI Hallucinations
-    - Hallucinated imports: `python_utils`, `typing.JSONType`
-    - JavaScript leakage: `.push()`, `.length`
-    - Java leakage: `.equals()`, `.isEmpty()`
-    - Placeholder code: `pass # TODO`
-    - Non-existent types: `typing.JSON`, `typing.URL`
 
 - id: "language/python/ai_failures/exception_handling"
   category: "language"
@@ -686,6 +727,7 @@
     AI agents often generate broken or dangerous exception handling.
 
     ### Mistake 1: Bare Except
+
     ```python
     # WRONG - Catches SystemExit, KeyboardInterrupt, etc.
     try:
@@ -708,6 +750,7 @@
     ```
 
     ### Mistake 2: Lost Exception Context
+
     ```python
     # WRONG - Loses original traceback
     try:
@@ -721,8 +764,26 @@
     except json.JSONDecodeError as e:
         raise ValueError("Invalid data") from e  # Preserves chain
     ```
+  content_concise: |
+    ## Exception Handling Mistakes
+    - Never use bare `except:` - catches KeyboardInterrupt
+    - Chain with `raise X from e` to preserve context
+    - Don't silently swallow exceptions
+    - Don't put return statements in finally blocks
+    - Use context managers instead of try/finally for resources
+
+- id: "language/python/ai_failures/exception_handling/mistake-3-catching-and-ignoring"
+  category: "language"
+  subcategory: "python"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  content: |
+    *Part of: EXCEPTION HANDLING MISTAKES*
 
     ### Mistake 3: Catching and Ignoring
+
     ```python
     # WRONG - Silent failure
     try:
@@ -739,6 +800,7 @@
     ```
 
     ### Mistake 4: Exception in Finally
+
     ```python
     # WRONG - Exception in finally replaces original
     try:
@@ -761,7 +823,18 @@
             f.close()
     ```
 
+- id: "language/python/ai_failures/exception_handling/mistake-5-return-in-finally"
+  category: "language"
+  subcategory: "python"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  content: |
+    *Part of: EXCEPTION HANDLING MISTAKES*
+
     ### Mistake 5: Return in Finally
+
     ```python
     # WRONG - Return in finally suppresses exceptions
     def bad():
@@ -779,11 +852,3 @@
         finally:
             cleanup()  # No return here
     ```
-
-  content_concise: |
-    ## Exception Handling Mistakes
-    - Never use bare `except:` - catches KeyboardInterrupt
-    - Chain with `raise X from e` to preserve context
-    - Don't silently swallow exceptions
-    - Don't put return statements in finally blocks
-    - Use context managers instead of try/finally for resources

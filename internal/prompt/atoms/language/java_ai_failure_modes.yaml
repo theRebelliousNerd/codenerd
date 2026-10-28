@@ -12,6 +12,7 @@
     ## NULL HANDLING MISTAKES (CRITICAL)
 
     ### FAILURE: No Null Check Before Dereference
+
     ```java
     // WRONG - NullPointerException waiting to happen
     public String process(String input) {
@@ -33,6 +34,7 @@
     ```
 
     ### FAILURE: String Comparison with ==
+
     ```java
     // WRONG - compares references, not content
     if (str == "hello") { }
@@ -43,8 +45,25 @@
     // Also correct - explicit null handling
     if (Objects.equals(str, "hello")) { }
     ```
+  content_concise: |
+    ## Null Handling
+    - Always check null before dereference
+    - Use `"literal".equals(str)` for null-safe comparison
+    - Use `Optional.orElse/orElseThrow`, never raw `get()`
+    - Don't use Optional for fields/parameters - only return types
+
+- id: "language/java/ai_failures/null_handling/failure-optional-misuse"
+  category: "language"
+  subcategory: "java"
+  priority: 95
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: NULL HANDLING MISTAKES (CRITICAL)*
 
     ### FAILURE: Optional Misuse
+
     ```java
     // WRONG - using get() without check
     String value = optional.get();  // NoSuchElementException if empty!
@@ -74,13 +93,6 @@
     }
     ```
 
-  content_concise: |
-    ## Null Handling
-    - Always check null before dereference
-    - Use `"literal".equals(str)` for null-safe comparison
-    - Use `Optional.orElse/orElseThrow`, never raw `get()`
-    - Don't use Optional for fields/parameters - only return types
-
 - id: "language/java/ai_failures/equals_hashcode"
   category: "language"
   subcategory: "java"
@@ -92,11 +104,13 @@
     ## EQUALS/HASHCODE CONTRACT VIOLATIONS (CRITICAL)
 
     ### The Contract
+
     - If `a.equals(b)` is true, then `a.hashCode() == b.hashCode()` MUST be true
     - If `hashCode()` differs, `equals()` MUST return false
     - Override BOTH or NEITHER
 
     ### FAILURE: Only Override equals()
+
     ```java
     // WRONG - missing hashCode
     public class User {
@@ -130,8 +144,25 @@
         }
     }
     ```
+  content_concise: |
+    ## equals/hashCode Contract
+    - Override BOTH or NEITHER
+    - Use SAME fields in both methods
+    - Never use mutable fields in hashCode
+    - Use records or IDE generation to avoid bugs
+
+- id: "language/java/ai_failures/equals_hashcode/failure-mutable-fields-in-hashcode"
+  category: "language"
+  subcategory: "java"
+  priority: 95
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: EQUALS/HASHCODE CONTRACT VIOLATIONS (CRITICAL)*
 
     ### FAILURE: Mutable Fields in hashCode
+
     ```java
     // WRONG - mutable field in hashCode
     public class BadKey {
@@ -164,6 +195,7 @@
     ```
 
     ### Best Practice: Use Records
+
     ```java
     // Records automatically implement equals/hashCode correctly
     public record User(String id, String name) {}
@@ -176,13 +208,6 @@
     }
     ```
 
-  content_concise: |
-    ## equals/hashCode Contract
-    - Override BOTH or NEITHER
-    - Use SAME fields in both methods
-    - Never use mutable fields in hashCode
-    - Use records or IDE generation to avoid bugs
-
 - id: "language/java/ai_failures/generics"
   category: "language"
   subcategory: "java"
@@ -194,6 +219,7 @@
     ## GENERICS AND TYPE ERASURE MISTAKES
 
     ### FAILURE: Using Raw Types
+
     ```java
     // WRONG - raw type (pre-generics style)
     List list = new ArrayList();
@@ -209,6 +235,7 @@
     ```
 
     ### FAILURE: Mixing Raw and Parameterized
+
     ```java
     // WRONG - mixing types
     List<String> strings = new ArrayList<>();
@@ -220,8 +247,25 @@
     List<String> strings = new ArrayList<>();
     List<?> wildcard = strings;  // Safe - can't add
     ```
+  content_concise: |
+    ## Generics Mistakes
+    - Never use raw types: `List` → `List<String>`
+    - Can't check `instanceof T` - use Class token
+    - Can't create `new T[]` - use Array.newInstance
+    - PECS: Producer Extends, Consumer Super
+
+- id: "language/java/ai_failures/generics/failure-instanceof-with-generics"
+  category: "language"
+  subcategory: "java"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: GENERICS AND TYPE ERASURE MISTAKES*
 
     ### FAILURE: instanceof with Generics
+
     ```java
     // WRONG - type erasure prevents this
     public <T> boolean isInstance(Object obj) {
@@ -235,6 +279,7 @@
     ```
 
     ### FAILURE: Generic Array Creation
+
     ```java
     // WRONG - cannot create generic array
     T[] array = new T[10];  // Compile error!
@@ -250,6 +295,7 @@
     ```
 
     ### FAILURE: Overloading by Generic Type
+
     ```java
     // WRONG - same erasure
     public void process(List<String> strings) { }
@@ -260,7 +306,18 @@
     public void processIntegers(List<Integer> integers) { }
     ```
 
+- id: "language/java/ai_failures/generics/use-wildcards-correctly"
+  category: "language"
+  subcategory: "java"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: GENERICS AND TYPE ERASURE MISTAKES*
+
     ### Use Wildcards Correctly
+
     ```java
     // PECS: Producer Extends, Consumer Super
 
@@ -275,13 +332,6 @@
     }
     ```
 
-  content_concise: |
-    ## Generics Mistakes
-    - Never use raw types: `List` → `List<String>`
-    - Can't check `instanceof T` - use Class token
-    - Can't create `new T[]` - use Array.newInstance
-    - PECS: Producer Extends, Consumer Super
-
 - id: "language/java/ai_failures/collections"
   category: "language"
   subcategory: "java"
@@ -293,6 +343,7 @@
     ## COLLECTION MISTAKES
 
     ### FAILURE: Mutable Keys in HashMap
+
     ```java
     // WRONG - mutable key
     List<String> mutableKey = new ArrayList<>(List.of("a", "b"));
@@ -311,8 +362,25 @@
     Map<Key, String> map = new HashMap<>();
     map.put(new Key("a", "b"), "value");
     ```
+  content_concise: |
+    ## Collection Mistakes
+    - Never use mutable objects as HashMap keys
+    - Use `Iterator.remove()` or `removeIf()` when iterating
+    - ArrayList for random access, ArrayDeque for ends
+    - `List.of()` is immutable, `unmodifiableList()` is just a view
+
+- id: "language/java/ai_failures/collections/failure-modifying-collection-during"
+  category: "language"
+  subcategory: "java"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: COLLECTION MISTAKES*
 
     ### FAILURE: Modifying Collection During Iteration
+
     ```java
     // WRONG - ConcurrentModificationException
     for (String item : list) {
@@ -338,7 +406,18 @@
         .toList();
     ```
 
+- id: "language/java/ai_failures/collections/failure-wrong-collection-type"
+  category: "language"
+  subcategory: "java"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: COLLECTION MISTAKES*
+
     ### FAILURE: Wrong Collection Type
+
     ```java
     // WRONG - LinkedList for random access
     LinkedList<String> list = new LinkedList<>();
@@ -358,6 +437,7 @@
     ```
 
     ### FAILURE: Unmodifiable vs Immutable Confusion
+
     ```java
     List<String> original = new ArrayList<>();
     List<String> unmodifiable = Collections.unmodifiableList(original);
@@ -370,13 +450,6 @@
     List<String> copy = List.copyOf(original);  // Defensive copy
     ```
 
-  content_concise: |
-    ## Collection Mistakes
-    - Never use mutable objects as HashMap keys
-    - Use `Iterator.remove()` or `removeIf()` when iterating
-    - ArrayList for random access, ArrayDeque for ends
-    - `List.of()` is immutable, `unmodifiableList()` is just a view
-
 - id: "language/java/ai_failures/streams"
   category: "language"
   subcategory: "java"
@@ -388,6 +461,7 @@
     ## STREAM MISTAKES
 
     ### FAILURE: Stream Reuse
+
     ```java
     // WRONG - IllegalStateException
     Stream<String> stream = list.stream()
@@ -409,6 +483,7 @@
     ```
 
     ### FAILURE: Side Effects in Streams
+
     ```java
     // WRONG - shared mutable state
     List<String> results = new ArrayList<>();
@@ -417,8 +492,25 @@
     // CORRECT - use collect
     List<String> results = stream.collect(Collectors.toList());
     ```
+  content_concise: |
+    ## Stream Mistakes
+    - Streams can only be consumed ONCE
+    - Use `Supplier<Stream>` for reusable pipelines
+    - No mutable state in parallel streams
+    - `peek()` is for debugging only, not side effects
+
+- id: "language/java/ai_failures/streams/failure-stateful-lambda-in-parallel-stream"
+  category: "language"
+  subcategory: "java"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: STREAM MISTAKES*
 
     ### FAILURE: Stateful Lambda in Parallel Stream
+
     ```java
     // WRONG - race condition in parallel
     AtomicInteger counter = new AtomicInteger(0);
@@ -433,6 +525,7 @@
     ```
 
     ### FAILURE: peek() for Side Effects
+
     ```java
     // WRONG - peek may not execute if terminal op short-circuits
     stream.peek(item -> save(item))  // May not save all!
@@ -446,7 +539,18 @@
     result.forEach(item -> save(item));
     ```
 
+- id: "language/java/ai_failures/streams/failure-inefficient-terminal-operations"
+  category: "language"
+  subcategory: "java"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: STREAM MISTAKES*
+
     ### FAILURE: Inefficient Terminal Operations
+
     ```java
     // WRONG - count after collecting
     List<String> list = stream.toList();
@@ -462,13 +566,6 @@
     if (stream.findAny().isPresent()) { }
     ```
 
-  content_concise: |
-    ## Stream Mistakes
-    - Streams can only be consumed ONCE
-    - Use `Supplier<Stream>` for reusable pipelines
-    - No mutable state in parallel streams
-    - `peek()` is for debugging only, not side effects
-
 - id: "language/java/ai_failures/strings"
   category: "language"
   subcategory: "java"
@@ -480,6 +577,7 @@
     ## STRING MISTAKES
 
     ### FAILURE: Concatenation in Loop
+
     ```java
     // WRONG - O(n^2) performance
     String result = "";
@@ -503,6 +601,7 @@
     ```
 
     ### FAILURE: Substring Memory Leak (Pre-Java 7u6)
+
     ```java
     // In older JVMs, substring kept reference to original char[]
     String huge = readHugeFile();
@@ -513,8 +612,25 @@
     // But good practice to be explicit:
     String small = new String(huge.substring(0, 10));
     ```
+  content_concise: |
+    ## String Mistakes
+    - Never concatenate in loops - use StringBuilder
+    - Use `String.join()` or `Collectors.joining()` for collections
+    - Use `isBlank()` (Java 11+) for empty/whitespace check
+    - Use `Objects.equals()` for null-safe comparison
+
+- id: "language/java/ai_failures/strings/failure-empty-string-check"
+  category: "language"
+  subcategory: "java"
+  priority: 82
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: STRING MISTAKES*
 
     ### FAILURE: Empty String Check
+
     ```java
     // WRONG - doesn't handle null
     if (str.isEmpty()) { }  // NullPointerException if null!
@@ -528,6 +644,7 @@
     ```
 
     ### FAILURE: Wrong Equality Check
+
     ```java
     // WRONG - reference comparison
     if (str1 == str2) { }
@@ -543,6 +660,7 @@
     ```
 
     ### Use Text Blocks Correctly (Java 15+)
+
     ```java
     // WRONG - concatenation with text block
     String json = """
@@ -555,13 +673,6 @@
         """.formatted(name);
     ```
 
-  content_concise: |
-    ## String Mistakes
-    - Never concatenate in loops - use StringBuilder
-    - Use `String.join()` or `Collectors.joining()` for collections
-    - Use `isBlank()` (Java 11+) for empty/whitespace check
-    - Use `Objects.equals()` for null-safe comparison
-
 - id: "language/java/ai_failures/exceptions"
   category: "language"
   subcategory: "java"
@@ -573,6 +684,7 @@
     ## EXCEPTION HANDLING MISTAKES
 
     ### FAILURE: Swallowing Exceptions
+
     ```java
     // WRONG - silent failure
     try {
@@ -598,6 +710,7 @@
     ```
 
     ### FAILURE: Catching Too Broadly
+
     ```java
     // WRONG - catches everything including programming errors
     try {
@@ -618,8 +731,25 @@
         handleDB(e);
     }
     ```
+  content_concise: |
+    ## Exception Handling
+    - Never swallow exceptions - log and handle
+    - Catch specific exceptions, not Exception/Throwable
+    - Always preserve exception cause: `new Ex("msg", cause)`
+    - Always use try-with-resources for closeable resources
+
+- id: "language/java/ai_failures/exceptions/failure-losing-exception-cause"
+  category: "language"
+  subcategory: "java"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: EXCEPTION HANDLING MISTAKES*
 
     ### FAILURE: Losing Exception Cause
+
     ```java
     // WRONG - loses original stack trace
     try {
@@ -637,6 +767,7 @@
     ```
 
     ### FAILURE: Not Closing Resources
+
     ```java
     // WRONG - resource leak if exception
     FileInputStream fis = new FileInputStream(file);
@@ -649,7 +780,18 @@
     }  // Auto-closed even if exception
     ```
 
+- id: "language/java/ai_failures/exceptions/failure-checked-vs-unchecked-confusion"
+  category: "language"
+  subcategory: "java"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: EXCEPTION HANDLING MISTAKES*
+
     ### FAILURE: Checked vs Unchecked Confusion
+
     ```java
     // Use checked exceptions for recoverable conditions
     public void loadConfig(Path path) throws IOException {
@@ -663,11 +805,3 @@
         }
     }
     ```
-
-  content_concise: |
-    ## Exception Handling
-    - Never swallow exceptions - log and handle
-    - Catch specific exceptions, not Exception/Throwable
-    - Always preserve exception cause: `new Ex("msg", cause)`
-    - Always use try-with-resources for closeable resources
-

@@ -10,96 +10,112 @@
   languages: ["/mangle"]
   content: |
     # Fix: Parse Error
-    
+
     ## Common Parse Errors
-    
+
     ### 1. Missing Period
+
     **Error:** `unexpected end of rule`
-    
+
     **Before:**
     ```mangle
     rule(X) :- source(X)
     ```
-    
+
     **After:**
     ```mangle
     Decl source(X).
     rule(X) :- source(X).
     ```
-    
+
     ### 2. Wrong Declaration Syntax
+
     **Error:** `invalid declaration` or `.decl`
-    
+
     **Before (Soufflé style):**
     ```mangle
     .decl edge(x:number, y:number)
     ```
-    
+
     **After (Mangle style):**
     ```mangle
     Decl edge(X, Y) bound [/number, /number].
     ```
-    
+
     ### 3. Lowercase Variables
+
     **Error:** `unexpected lowercase` or `invalid variable`
-    
+
     **Before:**
     ```mangle
     ancestor(x, y) :- parent(x, y).
     ```
-    
+
     **After:**
     ```mangle
     Decl parent(X, Y).
     ancestor(X, Y) :- parent(X, Y).
     ```
-    
+
     ### 4. Wrong Negation Syntax
+
     **Error:** `NOT` or `!` expected
-    
+
     **Before:**
     ```mangle
     safe(X) :- !dangerous(X).
     safe(X) :- NOT dangerous(X).
     ```
-    
+
     **After:**
     ```mangle
     Decl source(X).
     Decl dangerous(X).
     safe(X) :- source(X), !dangerous(X).
     ```
-    
+
+- id: "language/mangle/docs/error_fixes/parse_error/5-missing-do-in-aggregation"
+  category: "language"
+  subcategory: "mangle"
+  description: "Fix: Parse Error: 5. Missing `do` in Aggregation"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Fix: Parse Error > Common Parse Errors*
+
     ### 5. Missing `do` in Aggregation
+
     **Error:** `expected 'do' after` or `parse error.*group_by`
-    
+
     **Before:**
     ```mangle
     count(N) :- source(_) |> fn:group_by(), let N = fn:count().
     ```
-    
+
     **After:**
     ```mangle
     Decl source(X).
     count(N) :- source(_) |> do fn:group_by(), let N = fn:count().
     ```
-    
+
     ### 6. Wrong String/Atom Syntax
+
     **Error:** `type mismatch` or `cannot unify`
-    
+
     **Before:**
     ```mangle
     status(X) :- state(X, 'active').  # Wrong: single quotes
     status(X) :- state(X, active).    # Wrong: no slash
     ```
-    
+
     **After:**
     ```mangle
     status(X) :- state(X, /active).   # Correct: atom with slash
     ```
-    
+
     ## Quick Reference
-    
+
     | Element | Correct | Wrong |
     |---------|---------|-------|
     | Variable | `X`, `User` | `x`, `user` |

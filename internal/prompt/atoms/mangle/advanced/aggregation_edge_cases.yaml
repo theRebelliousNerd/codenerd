@@ -10,9 +10,9 @@
   languages: ["/mangle"]
   content: |
     # Mangle Aggregation Edge Cases
-    
+
     ## Aggregation Syntax Recap
-    
+
     ```mangle
     Decl predicate(GroupKey, Value).
     result(GroupKey, AggValue) :-
@@ -20,38 +20,50 @@
       |> do fn:group_by(GroupKey),
       let AggValue = fn:sum(Value).
     ```
-    
+
     **Key components**:
     - `|>` = Pipe operator (starts aggregation)
     - `do fn:group_by(...)` = Define grouping keys
     - `let X = fn:agg(Y)` = Compute aggregate
-    
+
+- id: "language/mangle/docs/advanced/aggregation_edge_cases/edge-case-1-empty-groups"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Edge Cases: Edge Case 1: Empty Groups"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Aggregation Edge Cases*
+
     ## Edge Case 1: Empty Groups
-    
+
     What happens when a group has no elements?
-    
+
     ### Example
+
     ```mangle
     Decl employee(Id, Dept, Salary) bound [/name, /name, /number].
     Decl dept_total(Dept, Total) bound [/name, /number].
-    
+
     # Facts
     employee(/e1, /engineering, 100000).
     # No employees in /marketing!
-    
+
     # Aggregation
     dept_total(Dept, Total) :-
       employee(Id, Dept, Salary)
       |> do fn:group_by(Dept),
       let Total = fn:sum(Salary).
-    
+
     # Query: dept_total(/marketing, ?Total)
     # Result: NO RESULTS (not 0!)
     ```
-    
+
     **Behavior**: If a group has no members, **no result is produced** for that group.
-    
+
     ### Solution: Explicit Group Universe
+
     ```mangle
     Decl has_employee_total(Dept).
     Decl employee(Id, Dept, Salary).
@@ -74,26 +86,38 @@
       |> do fn:group_by(Dept),
       let Total = fn:sum(Salary).
     ```
-    
+
+- id: "language/mangle/docs/advanced/aggregation_edge_cases/edge-case-2-null-handling"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Edge Cases: Edge Case 2: Null Handling"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Aggregation Edge Cases*
+
     ## Edge Case 2: Null Handling
-    
+
     Mangle does NOT have null values. Under CWA, missing = doesn't exist.
-    
+
     ### Common Mistake (Coming from SQL)
+
     ```mangle
     # In SQL: SUM ignores NULLs
     # In Mangle: There are no NULLs to ignore
-    
+
     # This is fine:
     total(Sum) :-
       data(X)
       |> do fn:group_by(),
       let Sum = fn:sum(X).
-    
+
     # If data/1 has no facts, the rule produces NO results (not 0, not NULL)
     ```
-    
+
     ### Solution: Default Values
+
     ```mangle
     # To ensure a result even if empty:
     Decl has_total().
@@ -105,175 +129,241 @@
     total_or_zero(0) :-
       !has_total().
     ```
-    
+
+- id: "language/mangle/docs/advanced/aggregation_edge_cases/edge-case-3-multiple-aggregations"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Edge Cases: Edge Case 3: Multiple Aggregations"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Aggregation Edge Cases*
+
     ## Edge Case 3: Multiple Aggregations
-    
+
     Can you compute multiple aggregates in one rule?
-    
+
     **Yes!**
-    
+
     ### Example
+
     ```mangle
     Decl sale(Product, Amount) bound [/name, /number].
     Decl product_stats(Product, Total, Avg, Count) bound [/name, /number, /float64, /number].
-    
+
     sale(/widget, 100).
     sale(/widget, 150).
     sale(/widget, 200).
-    
+
     product_stats(Product, Total, Avg, Count) :-
       sale(Product, Amount)
       |> do fn:group_by(Product),
       let Total = fn:sum(Amount),
       let Avg = fn:avg(Amount),
       let Count = fn:count().
-    
+
     # Result: product_stats(/widget, 450, 150.0, 3)
     ```
-    
+
     **All aggregates share the same grouping.**
-    
+
+- id: "language/mangle/docs/advanced/aggregation_edge_cases/edge-case-4-aggregation-with-filtering"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Edge Cases: Edge Case 4: Aggregation with Filtering"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Aggregation Edge Cases*
+
     ## Edge Case 4: Aggregation with Filtering
-    
+
     Filter **before** aggregation for performance.
-    
+
     ### Example
+
     ```mangle
     Decl transaction(Id, User, Amount, Status) bound [/name, /name, /number, /name].
     Decl user_successful_total(User, Total) bound [/name, /number].
-    
+
     transaction(/t1, /alice, 100, /success).
     transaction(/t2, /alice, 50, /failed).
     transaction(/t3, /alice, 200, /success).
-    
+
     # BAD: Aggregate all, then filter
     bad_total(User, Total) :-
       transaction(Id, User, Amount, Status)
       |> do fn:group_by(User),
       let Total = fn:sum(Amount),
       Status = /success.  # WRONG: Status is not accessible here!
-    
+
     # GOOD: Filter first, then aggregate
     good_total(User, Total) :-
       Status = /success,  # Filter first
       transaction(Id, User, Amount, Status)
       |> do fn:group_by(User),
       let Total = fn:sum(Amount).
-    
+
     # Result: user_successful_total(/alice, 300)
     ```
-    
+
     **Rule**: Variables used in filtering must be bound **before** the pipe `|>`.
-    
+
+- id: "language/mangle/docs/advanced/aggregation_edge_cases/edge-case-5-nested-aggregations"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Edge Cases: Edge Case 5: Nested Aggregations"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Aggregation Edge Cases*
+
     ## Edge Case 5: Nested Aggregations
-    
+
     Can you aggregate over aggregate results?
-    
+
     **Yes, but requires two strata.**
-    
+
     ### Example: Average of Department Averages
+
     ```mangle
     Decl employee(Id, Dept, Salary) bound [/name, /name, /number].
     Decl dept_avg(Dept, Avg) bound [/name, /float64].
     Decl company_avg_of_avgs(Avg) bound [/float64].
-    
+
     employee(/e1, /eng, 100000).
     employee(/e2, /eng, 120000).
     employee(/e3, /sales, 80000).
-    
+
     # Stratum 1: Compute department averages
     dept_avg(Dept, Avg) :-
       employee(Id, Dept, Salary)
       |> do fn:group_by(Dept),
       let Avg = fn:avg(Salary).
-    
+
     # Stratum 2: Aggregate over department averages
     company_avg_of_avgs(CompanyAvg) :-
       dept_avg(Dept, Avg)
       |> do fn:group_by(),
       let CompanyAvg = fn:avg(Avg).
-    
+
     # Result: company_avg_of_avgs(100000.0)
     #   dept_avg(/eng, 110000.0)
     #   dept_avg(/sales, 80000.0)
     #   mean([110000.0, 80000.0]) = 95000.0
     ```
-    
+
     **Important**: Each aggregation is a separate stratum.
-    
+
+- id: "language/mangle/docs/advanced/aggregation_edge_cases/edge-case-6-aggregation-over-empty-input"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Edge Cases: Edge Case 6: Aggregation Over Empty Input"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Aggregation Edge Cases*
+
     ## Edge Case 6: Aggregation Over Empty Input
-    
+
     What if the input predicate has no facts?
-    
+
     ```mangle
     Decl data(X) bound [/number].
     # No facts!
-    
+
     total(Sum) :-
       data(X)
       |> do fn:group_by(),
       let Sum = fn:sum(X).
-    
+
     # Query: total(?Sum)
     # Result: NO RESULTS (not 0!)
     ```
-    
+
     **Mangle behavior**: No input → No output (not even a 0).
-    
+
     ### Solution: Provide Default
+
     ```mangle
     total_or_zero(Sum) :-
       total(Sum).
-    
+
     # "No total at all" is a negated nullary projection: a negated
     # literal takes no wildcard.
     any_total() :- total(Sum).
 
     total_or_zero(0) :-
       !any_total().
-    
+
     # Query: total_or_zero(?Sum)
     # Result: total_or_zero(0)
     ```
-    
+
+- id: "language/mangle/docs/advanced/aggregation_edge_cases/edge-case-7-group-by-without-aggregation"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Edge Cases: Edge Case 7: GROUP BY without Aggregation"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Aggregation Edge Cases*
+
     ## Edge Case 7: GROUP BY without Aggregation
-    
+
     Can you group without aggregating?
-    
+
     **No direct syntax**, but you can use `fn:collect` to gather values.
-    
+
     ### Example: Group Users by Department
+
     ```mangle
     Decl employee(Id, Dept) bound [/name, /name].
     Decl dept_employees(Dept, Employees).
-    
+
     employee(/e1, /eng).
     employee(/e2, /eng).
     employee(/e3, /sales).
-    
+
     dept_employees(Dept, Employees) :-
       employee(Id, Dept)
       |> do fn:group_by(Dept),
       let Employees = fn:collect(Id).
-    
+
     # Result:
     #   dept_employees(/eng, [/e1, /e2])
     #   dept_employees(/sales, [/e3])
     ```
-    
+
+- id: "language/mangle/docs/advanced/aggregation_edge_cases/edge-case-8-count-distinct"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Edge Cases: Edge Case 8: Count Distinct"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Aggregation Edge Cases*
+
     ## Edge Case 8: Count Distinct
-    
+
     Count unique values in a group.
-    
+
     ### Example
+
     ```mangle
     Decl purchase(User, Product) bound [/name, /name].
     Decl user_product_count(User, Count) bound [/name, /number].
-    
+
     purchase(/alice, /widget).
     purchase(/alice, /widget).  # Duplicate purchase
     purchase(/alice, /gadget).
-    
+
     # Count distinct products per user. There is no working count-distinct
     # reducer on the pinned engine (fn:count_distinct is declared but not
     # wired: "unknown function"). Facts are a set, so project to the columns
@@ -283,89 +373,133 @@
       user_product(User, Product)
       |> do fn:group_by(User),
       let Count = fn:count().
-    
+
     # Result: user_product_count(/alice, 2)
     #   (widget appears twice, but counted once)
     ```
-    
+
+- id: "language/mangle/docs/advanced/aggregation_edge_cases/edge-case-9-aggregation-with-inequality"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Edge Cases: Edge Case 9: Aggregation with Inequality"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Aggregation Edge Cases*
+
     ## Edge Case 9: Aggregation with Inequality
-    
+
     Filter aggregated results with inequality.
-    
+
     ### Example: High-Value Customers
+
     ```mangle
     Decl purchase(User, Amount) bound [/name, /number].
     Decl high_value_customer(User, Total) bound [/name, /number].
-    
+
     purchase(/alice, 100).
     purchase(/alice, 200).
     purchase(/bob, 50).
-    
+
     # Customers with total > 150
     high_value_customer(User, Total) :-
       purchase(User, Amount)
       |> do fn:group_by(User),
       let Total = fn:sum(Amount),
       Total > 150.  # Filter on aggregate result
-    
+
     # Result: high_value_customer(/alice, 300)
     #   (Bob's total is 50, excluded)
     ```
-    
+
+- id: "language/mangle/docs/advanced/aggregation_edge_cases/edge-case-10-aggregation-over-computed"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Edge Cases: Edge Case 10: Aggregation Over Computed Values"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Aggregation Edge Cases*
+
     ## Edge Case 10: Aggregation Over Computed Values
-    
+
     Aggregate over expressions, not just raw values.
-    
+
     ### Example: Total Tax
+
     ```mangle
     Decl sale(Product, Price) bound [/name, /number].
     Decl total_tax(TaxAmount) bound [/float64].
-    
+
     sale(/widget, 100).
     sale(/gadget, 200).
-    
+
     # Compute tax per item, then sum
     total_tax(TaxAmount) :-
       sale(Product, Price),
       Tax = fn:mult(fn:to_float(Price), 0.08)  # 8% tax
       |> do fn:group_by(),
       let TaxAmount = fn:sum(Tax).
-    
+
     # Result: total_tax(24.0)
     #   Tax on widget: 8.0
     #   Tax on gadget: 16.0
     #   Total: 24.0
     ```
-    
+
+- id: "language/mangle/docs/advanced/aggregation_edge_cases/edge-case-11-multiple-group-by-keys"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Edge Cases: Edge Case 11: Multiple GROUP BY Keys"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Aggregation Edge Cases*
+
     ## Edge Case 11: Multiple GROUP BY Keys
-    
+
     Group by multiple columns.
-    
+
     ### Example: Department and Job Title
+
     ```mangle
     Decl employee(Id, Dept, Title, Salary) bound [/name, /name, /name, /number].
     Decl dept_title_avg(Dept, Title, Avg) bound [/name, /name, /float64].
-    
+
     employee(/e1, /eng, /senior, 120000).
     employee(/e2, /eng, /senior, 130000).
     employee(/e3, /eng, /junior, 80000).
-    
+
     # Group by both department AND title
     dept_title_avg(Dept, Title, Avg) :-
       employee(Id, Dept, Title, Salary)
       |> do fn:group_by(Dept, Title),
       let Avg = fn:avg(Salary).
-    
+
     # Result:
     #   dept_title_avg(/eng, /senior, 125000.0)
     #   dept_title_avg(/eng, /junior, 80000.0)
     ```
-    
+
+- id: "language/mangle/docs/advanced/aggregation_edge_cases/edge-case-12-aggregation-safety"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Edge Cases: Edge Case 12: Aggregation Safety"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Aggregation Edge Cases*
+
     ## Edge Case 12: Aggregation Safety
-    
+
     All variables in `fn:group_by()` must be bound in the rule body.
-    
+
     ### Unsafe (WRONG)
+
     ```mangle
     # WRONG: Dept is not bound before grouping
     bad_agg(Dept, Total) :-
@@ -373,8 +507,9 @@
       |> do fn:group_by(Dept),  # Dept is unbound!
       let Total = fn:sum(Salary).
     ```
-    
+
     ### Safe (CORRECT)
+
     ```mangle
     # CORRECT: Dept is bound in body
     Decl employee(Id, Dept, Salary).
@@ -383,9 +518,19 @@
       |> do fn:group_by(Dept),
       let Total = fn:sum(Salary).
     ```
-    
+
+- id: "language/mangle/docs/advanced/aggregation_edge_cases/available-aggregate-functions"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Edge Cases: Available Aggregate Functions"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Aggregation Edge Cases*
+
     ## Available Aggregate Functions
-    
+
     | Function | Purpose | Example |
     |----------|---------|---------|
     | `fn:sum(X)` | Sum of values | `fn:sum(Salary)` |
@@ -395,9 +540,19 @@
     | `fn:min(X)` | Minimum value | `fn:min(Price)` |
     | `fn:max(X)` | Maximum value | `fn:max(Price)` |
     | `fn:collect(X)` | Collect values into list | `fn:collect(Name)` |
-    
+
+- id: "language/mangle/docs/advanced/aggregation_edge_cases/mangle-aggregation-edge-cases-performance"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Edge Cases: Mangle Aggregation Edge Cases Performance Tips"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Aggregation Edge Cases*
+
     ## Performance Tips
-    
+
     1. **Filter before aggregation**
        ```mangle
        # GOOD
@@ -407,19 +562,19 @@
          |> do fn:group_by(),
          let Total = fn:sum(X).
        ```
-    
+
     2. **Avoid re-aggregating**
        ```mangle
        # BAD: Computes same aggregate twice
        rule1(Sum) :- data(X) |> do fn:group_by(), let Sum = fn:sum(X).
        rule2(Sum) :- data(X) |> do fn:group_by(), let Sum = fn:sum(X).
-    
+
        # GOOD: Materialize once
        total(Sum) :- data(X) |> do fn:group_by(), let Sum = fn:sum(X).
        rule1(Sum) :- total(Sum).
        rule2(Sum) :- total(Sum).
        ```
-    
+
     3. **Use count instead of collecting + length**
        ```mangle
        # BAD
@@ -428,16 +583,26 @@
          |> do fn:group_by(),
          let List = fn:collect(X),
          N = fn:length(List).
-    
+
        # GOOD
        count_good(N) :-
          data(X)
          |> do fn:group_by(),
          let N = fn:count().
        ```
-    
+
+- id: "language/mangle/docs/advanced/aggregation_edge_cases/mangle-aggregation-edge-cases-checklist"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Edge Cases: Mangle Aggregation Edge Cases Checklist"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Aggregation Edge Cases*
+
     ## Checklist
-    
+
     - [ ] Empty groups handled (default values if needed)
     - [ ] Filtering happens before `|>` pipe
     - [ ] All grouping variables are bound in rule body

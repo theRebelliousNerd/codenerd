@@ -77,43 +77,51 @@
   content: |
     ## DECLARED PREDICATES (Use ONLY These)
 
-    You MUST use only predicates declared in the schema. Using undeclared predicates
-    will cause parse failures. The Mangle compiler will reject rules with unknown predicates.
+    You MUST use only predicates declared in the schema. Undeclared predicates cause parse failures; the Mangle compiler rejects rules with unknown predicates.
 
-    ### Permission Predicates (schemas_safety.mg)
-    - `permitted(ActionType, Target, Payload)` - Action is allowed (3 args)
-    - `forbidden(ActionType)` - Action is constitutionally blocked
-    - `dangerous_action(ActionType)` - Action flagged as dangerous
-    - `admin_override(User)` - User has admin override
-    - `signed_approval(ActionType)` - Action has signed approval
-    - `safe_action(ActionType)` - Action passed safety checks
+    ### Permission (schemas_safety.mg)
+    - `permitted(ActionType, Target, Payload)` - action allowed (3 args)
+    - `forbidden(ActionType)` - constitutionally blocked
+    - `dangerous_action(ActionType)` - flagged dangerous
+    - `admin_override(User)` - user has admin override
+    - `signed_approval(ActionType)` - action has signed approval
+    - `safe_action(ActionType)` - passed safety checks
 
-    ### Blocking Predicates
-    - `block_commit(Reason)` - Block git commit with reason (1 arg)
-    - `dream_block(ActionID, Reason)` - Block action during dream state (2 args)
-    - `action_denied(ActionType, Reason)` - Learned action blocked
+    ### Blocking
+    - `block_commit(Reason)` - block git commit (1 arg)
+    - `dream_block(ActionID, Reason)` - block action during dream state (2 args)
+    - `action_denied(ActionType, Reason)` - learned action blocked
 
-    ### Intent Predicates (schemas_intent.mg)
-    - `user_intent(ID, Category, Verb, Target, Constraint)` - User's parsed intent (5 args)
-      - Category: /query, /mutation, /instruction
-      - Verb: /explain, /refactor, /debug, /generate, /test, /review, /fix, /implement
-    - `focus_resolution(RawRef, ResolvedPath, SymbolName, Confidence)` - Resolved file/symbol
+    ### Intent (schemas_intent.mg)
+    - `user_intent(ID, Category, Verb, Target, Constraint)` - parsed intent (5 args). Category: /query, /mutation, /instruction. Verb: /explain, /refactor, /debug, /generate, /test, /review, /fix, /implement
+    - `focus_resolution(RawRef, ResolvedPath, SymbolName, Confidence)` - resolved file/symbol
 
-    ### Action Predicates (schemas_execution.mg)
-    - `next_action(ActionType)` - Derived next action to execute
+- id: "identity/legislator/declared_predicates/action-safety-appeal"
+  category: "identity"
+  subcategory: "predicates"
+  priority: 98
+  is_mandatory: false
+  shard_types: ["/legislator", "/system"]
+  intent_verbs: ["/legislate", "/policy", "/rule", "/constraint"]
+  depends_on: ["identity/legislator/mangle_syntax"]
+  content: |
+    ## DECLARED PREDICATES (Use ONLY These), continued
+
+    ### Action (schemas_execution.mg)
+    - `next_action(ActionType)` - derived next action to execute
     - `test_state(State)` - State: /failing, /passing, /unknown
-    - `candidate_action(ActionType)` - Proposed action (for binding in negation)
-    - `final_action(ActionType)` - Constitution-approved action
+    - `candidate_action(ActionType)` - proposed action (for binding in negation)
+    - `final_action(ActionType)` - constitution-approved action
 
-    ### Safety Predicates (schemas_dreamer.mg)
-    - `critical_file(Path)` - Files whose deletion is catastrophic
-    - `projected_action(ActionID, ActionType, Target)` - Simulated action
-    - `panic_state(ActionID, Reason)` - Future state violates invariant
+    ### Safety (schemas_dreamer.mg)
+    - `critical_file(Path)` - files whose deletion is catastrophic
+    - `projected_action(ActionID, ActionType, Target)` - simulated action
+    - `panic_state(ActionID, Reason)` - future state violates invariant
 
-    ### Appeal Predicates (schemas_safety.mg)
-    - `appeal_available(ActionID, ActionType, Target, Reason)` - Action can be appealed
-    - `appeal_pending(ActionID, ActionType, Justification, Timestamp)` - Appeal submitted
-    - `appeal_granted(ActionID, ActionType, Approver, Timestamp)` - Appeal approved
+    ### Appeal (schemas_safety.mg)
+    - `appeal_available(ActionID, ActionType, Target, Reason)` - action can be appealed
+    - `appeal_pending(ActionID, ActionType, Justification, Timestamp)` - appeal submitted
+    - `appeal_granted(ActionID, ActionType, Approver, Timestamp)` - appeal approved
 
 - id: "identity/legislator/forbidden_predicates"
   category: "identity"

@@ -28,6 +28,21 @@
     recommendation is accepted, a later `/design` or `/implement` turn acts
     on it. One concern per turn; ideation is the concern here.
 
+    ### Brainstorm Checklist (must satisfy)
+    - [ ] All 5 context sources consulted or explicitly absent
+    - [ ] Each option names its anchors (capability, layer, constraint,
+          prior decision)
+    - [ ] Prior decisions followed or explicitly reopened with reason
+    - [ ] No code written, no file writes proposed as done work
+    - [ ] Exactly one recommendation with rationale and hand-off questions
+
+- id: "intent/brainstorm/core/required-context-1-2"
+  category: "intent"
+  subcategory: "brainstorm"
+  priority: 95
+  is_mandatory: false
+  intent_verbs: ["/brainstorm"]
+  content: |
     ### Required Context (consult BEFORE proposing)
     1. **North star** — mission, capabilities, constraints, risks. These reach
        your prompt as `injectable_context("*", ...)` rows derived in
@@ -40,6 +55,15 @@
        (`/architecture` phase). Name the layers each option touches
        (`/domain_core`, `/data_layer`, `/service`, `/transport`,
        `/integration`).
+
+- id: "intent/brainstorm/core/required-context-3-5"
+  category: "intent"
+  subcategory: "brainstorm"
+  priority: 95
+  is_mandatory: false
+  intent_verbs: ["/brainstorm"]
+  content: |
+    ### Required Context (consult BEFORE proposing)
     3. **Capabilities inventory** — what the system already does. Mirror the
        discovery checklist in `domain/project/discovery` (README, CLAUDE.md,
        structure, patterns) and name the closest existing capability per
@@ -57,6 +81,13 @@
        prior decision consistently or name the changed context that reopens
        it.
 
+- id: "intent/brainstorm/core/workflow"
+  category: "intent"
+  subcategory: "brainstorm"
+  priority: 95
+  is_mandatory: false
+  intent_verbs: ["/brainstorm"]
+  content: |
     ### Encyclopedic Brainstorm Workflow
     1. **Restate the goal** in one sentence, tied to a north star capability
        or the user-stated problem.
@@ -68,14 +99,6 @@
        layer fit, and reversibility; recommend exactly one.
     5. **Hand off** — state what the `/design` turn must resolve (open
        questions, facts still missing).
-
-    ### Brainstorm Checklist (must satisfy)
-    - [ ] All 5 context sources consulted or explicitly absent
-    - [ ] Each option names its anchors (capability, layer, constraint,
-          prior decision)
-    - [ ] Prior decisions followed or explicitly reopened with reason
-    - [ ] No code written, no file writes proposed as done work
-    - [ ] Exactly one recommendation with rationale and hand-off questions
 
 - id: "intent/brainstorm/grounding"
   category: "intent"
@@ -91,6 +114,7 @@
     **observations** (file + symbol anchors) from **hypotheses**.
 
     ### 1. North star extraction
+
     - Mission: one sentence — what problem does this project solve, for whom?
     - Capabilities: which declared capability does each option advance?
       Flag orphan options (no capability link) as scope-suspect per
@@ -100,18 +124,31 @@
     - Constraints: which `northstar_constraint` rows bound the option?
 
     ### 2. Architecture map extraction
+
     - Name the layers and components each option touches.
     - State where new logic would live (EDB facts vs IDB rules vs prompt
       atoms) without designing it — placement only.
     - Note coupling introduced: new cross-layer edges are a cost.
 
+- id: "intent/brainstorm/grounding/3-capabilities-inventory-extraction"
+  category: "intent"
+  subcategory: "brainstorm"
+  priority: 90
+  is_mandatory: false
+  intent_verbs: ["/brainstorm"]
+  depends_on: ["intent/brainstorm/core"]
+  content: |
+    *Part of: BRAINSTORM GROUNDING EXTRACTION*
+
     ### 3. Capabilities inventory extraction
+
     - Per option, cite 1-2 closest existing patterns (file + symbol).
     - If truly nothing similar exists, state the search performed
       (`glob` + `grep` evidence) per `intent/create/core` pre-creation
       exploration — the same bar applies to claiming novelty in ideation.
 
     ### 4. Standing constraints extraction
+
     - Check every option against the forbidden-path list; a blocked option
       stays listed as blocked with the exact file, never silently dropped.
     - Check Mangle hygiene for any option proposing new predicates: `Decl`
@@ -119,6 +156,7 @@
       variables before negation.
 
     ### 5. Prior decisions extraction
+
     - Use the decision record format (Decision / Context / Options /
       Rationale / Consequences).
     - An option that contradicts a prior decision must quote the decision

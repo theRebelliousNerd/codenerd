@@ -40,6 +40,7 @@
     ## SERVICE PATTERNS
 
     ### SERVICE DEFINITION
+
     ```go
     // internal/service/user_service.go
     package service
@@ -84,6 +85,19 @@
             return nil, fmt.Errorf("create user: %w", err)
         }
 
+    ```
+
+- id: "build_layer/service/patterns/service-definition-cont"
+  category: "build_layer"
+  subcategory: "service"
+  priority: 90
+  is_mandatory: false
+  build_layers: ["/service"]
+  depends_on: ["build_layer/service/principles"]
+  content: |
+    *Part of: SERVICE PATTERNS > SERVICE DEFINITION*
+
+    ```go
         if err := s.repo.Save(ctx, u); err != nil {
             return nil, fmt.Errorf("save user: %w", err)
         }

@@ -17,6 +17,7 @@
     ## REFACTORING FOUNDATION: THE IMMUTABLE LAWS
 
     ### Definition (Martin Fowler)
+
     Refactoring is "a disciplined technique for restructuring an existing body of code,
     altering its internal structure without changing its external behavior."
 
@@ -40,13 +41,24 @@
     - If tests don't exist, write characterization tests first
     - "Legacy code is code without tests" - Michael Feathers
 
+- id: "methodology/refactoring/foundation/the-kent-beck-sequence"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 100
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    *Part of: REFACTORING FOUNDATION: THE IMMUTABLE LAWS*
+
     ### The Kent Beck Sequence
+
     "Make it work, make it right, make it fast" - always in that order:
     1. Working code is the prerequisite
     2. Refactoring makes it "right" (clean, maintainable)
     3. Performance optimization comes last (and only when measured)
 
     ### When Refactoring is NOT Appropriate
+
     - No tests exist (write them first or use Golden Master)
     - Deadline pressure (refactoring debt compounds, but ship first)
     - Code is being replaced soon (don't polish what you'll discard)
@@ -97,6 +109,16 @@
     - Trace through execution paths manually
     - Last resort when automated verification unavailable
 
+- id: "methodology/refactoring/behavior_preservation/characterization-tests"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 98
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    ## BEHAVIOR PRESERVATION (continued)
+
     ### Creating Characterization Tests
     ```pseudocode
     function create_golden_master(code_under_test):
@@ -119,10 +141,6 @@
     - Mask volatile values (timestamps, UUIDs) in output
     - Stub external service calls
 
-# =============================================================================
-# PART 2: THE COMPLETE REFACTORING CATALOG
-# =============================================================================
-
 - id: "methodology/refactoring/catalog_composition"
   category: "methodology"
   subcategory: "refactoring"
@@ -134,6 +152,7 @@
     ## REFACTORING CATALOG: COMPOSING CODE
 
     ### Extract Method (Most Important Refactoring)
+
     **When:** A code fragment can be grouped together and named
     **Why:** Improves readability, enables reuse, isolates complexity
     **Mechanics:**
@@ -154,7 +173,18 @@
     - Side effects on instance variables need careful handling
     - Loop extraction may change iteration semantics
 
+- id: "methodology/refactoring/catalog_composition/extract-variable-introduce-explaining"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 95
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING CATALOG: COMPOSING CODE*
+
     ### Extract Variable (Introduce Explaining Variable)
+
     **When:** Complex expression is hard to understand
     **Why:** Names communicate intent; simplifies debugging
     **Mechanics:**
@@ -175,6 +205,7 @@
     ```
 
     ### Inline Variable
+
     **When:** Variable name adds no clarity beyond expression itself
     **Why:** Reduces indirection; expression is already clear
     **Mechanics:**
@@ -183,7 +214,18 @@
     3. Remove variable declaration
     4. Run tests
 
+- id: "methodology/refactoring/catalog_composition/inline-method"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 95
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING CATALOG: COMPOSING CODE*
+
     ### Inline Method
+
     **When:** Method body is as clear as its name
     **Why:** Removes unnecessary indirection
     **Mechanics:**
@@ -194,6 +236,7 @@
     5. Run tests
 
     ### Extract Class
+
     **When:** Class has responsibilities that should be separate
     **Why:** Single Responsibility Principle; smaller classes easier to understand
     **Mechanics:**
@@ -206,6 +249,7 @@
     7. Run tests
 
     ### Inline Class
+
     **When:** Class is too small to justify existence
     **Why:** Removes unnecessary abstraction; simplifies design
     **Mechanics:**
@@ -226,6 +270,7 @@
     ## REFACTORING CATALOG: MOVING FEATURES
 
     ### Move Method
+
     **When:** Method uses features of another class more than its own
     **Why:** Reduces coupling; improves cohesion (Feature Envy smell)
     **Mechanics:**
@@ -238,6 +283,7 @@
     7. Run tests
 
     ### Move Field
+
     **When:** Field is used more by another class
     **Why:** Data and behavior should be co-located
     **Mechanics:**
@@ -248,7 +294,18 @@
     5. Remove field from source
     6. Run tests
 
+- id: "methodology/refactoring/catalog_movement/move-statements-into-function"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 94
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING CATALOG: MOVING FEATURES*
+
     ### Move Statements into Function
+
     **When:** Same code appears before/after every call to a function
     **Why:** DRY principle; single source of truth
     **Mechanics:**
@@ -258,6 +315,7 @@
     4. Run tests
 
     ### Move Statements to Callers
+
     **When:** Function does slightly different things in different contexts
     **Why:** Caller-specific behavior should be in caller
     **Mechanics:**
@@ -267,7 +325,18 @@
     4. Remove now-empty function body portions
     5. Run tests
 
+- id: "methodology/refactoring/catalog_movement/split-loop"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 94
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING CATALOG: MOVING FEATURES*
+
     ### Split Loop
+
     **When:** Single loop does multiple unrelated operations
     **Why:** Single Responsibility; enables further extraction
     **Mechanics:**
@@ -281,7 +350,18 @@
     - Profile before assuming performance impact
     - Clean code first, optimize measured bottlenecks later
 
+- id: "methodology/refactoring/catalog_movement/replace-loop-with-pipeline"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 94
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING CATALOG: MOVING FEATURES*
+
     ### Replace Loop with Pipeline
+
     **When:** Loop processes collection element-by-element
     **Why:** Pipeline operations are composable and declarative
     **Mechanics:**
@@ -316,6 +396,7 @@
     ## REFACTORING CATALOG: ORGANIZING DATA
 
     ### Replace Primitive with Object (Replace Data Value with Object)
+
     **When:** Primitive carries more meaning than its type suggests
     **Why:** Enables behavior attachment; type safety; validation
     **Mechanics:**
@@ -345,7 +426,18 @@
     }
     ```
 
+- id: "methodology/refactoring/catalog_data/replace-magic-number-with-symbolic-constant"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 93
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING CATALOG: ORGANIZING DATA*
+
     ### Replace Magic Number with Symbolic Constant
+
     **When:** Literal number appears with special meaning
     **Why:** Communicates intent; single point of change
     **Mechanics:**
@@ -364,6 +456,7 @@
     ```
 
     ### Encapsulate Collection
+
     **When:** Class exposes collection directly
     **Why:** Prevents unexpected modification; maintains invariants
     **Mechanics:**
@@ -373,7 +466,18 @@
     4. Update all modifying code to use add/remove
     5. Run tests
 
+- id: "methodology/refactoring/catalog_data/encapsulate-record-replace-record-with-data"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 93
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING CATALOG: ORGANIZING DATA*
+
     ### Encapsulate Record (Replace Record with Data Class)
+
     **When:** Record structures need behavior
     **Why:** Provides encapsulation; enables validation
     **Mechanics:**
@@ -384,6 +488,7 @@
     5. Run tests
 
     ### Introduce Parameter Object
+
     **When:** Same group of parameters travels together
     **Why:** Reduces parameter count; creates home for shared behavior
     **Mechanics:**
@@ -407,7 +512,18 @@
     func AmountOwed(period DateRange, customer Customer) float64
     ```
 
+- id: "methodology/refactoring/catalog_data/replace-derived-variable-with-query"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 93
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING CATALOG: ORGANIZING DATA*
+
     ### Replace Derived Variable with Query
+
     **When:** Variable is calculated from other data
     **Why:** Eliminates data synchronization bugs
     **Mechanics:**
@@ -428,6 +544,7 @@
     ## REFACTORING CATALOG: SIMPLIFYING CONDITIONAL LOGIC
 
     ### Decompose Conditional
+
     **When:** Complex conditional logic obscures intent
     **Why:** Named functions communicate what conditions mean
     **Mechanics:**
@@ -453,7 +570,18 @@
     }
     ```
 
+- id: "methodology/refactoring/catalog_conditionals/consolidate-conditional-expression"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 92
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING CATALOG: SIMPLIFYING CONDITIONAL LOGIC*
+
     ### Consolidate Conditional Expression
+
     **When:** Multiple conditions yield same result
     **Why:** Combines related logic; enables extraction
     **Mechanics:**
@@ -473,7 +601,18 @@
     if isNotEligibleForDisability(employee) { return 0 }
     ```
 
+- id: "methodology/refactoring/catalog_conditionals/replace-nested-conditional-with-guard"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 92
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING CATALOG: SIMPLIFYING CONDITIONAL LOGIC*
+
     ### Replace Nested Conditional with Guard Clauses
+
     **When:** Nested if-else creates arrow anti-pattern
     **Why:** Guard clauses flatten structure; highlight exceptional cases
     **Mechanics:**
@@ -506,7 +645,18 @@
     }
     ```
 
+- id: "methodology/refactoring/catalog_conditionals/replace-conditional-with-polymorphism"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 92
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING CATALOG: SIMPLIFYING CONDITIONAL LOGIC*
+
     ### Replace Conditional with Polymorphism
+
     **When:** Switch/type-check on type code scattered across code
     **Why:** New types don't require modifying existing code (Open/Closed)
     **Mechanics:**
@@ -516,7 +666,18 @@
     4. Replace conditionals with polymorphic calls
     5. Run tests
 
+- id: "methodology/refactoring/catalog_conditionals/introduce-special-case-introduce-null-object"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 92
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING CATALOG: SIMPLIFYING CONDITIONAL LOGIC*
+
     ### Introduce Special Case (Introduce Null Object)
+
     **When:** Null checks scattered throughout code
     **Why:** Eliminates null checks; provides default behavior
     **Mechanics:**
@@ -553,6 +714,7 @@
     ## REFACTORING CATALOG: REFACTORING APIs
 
     ### Change Function Declaration (Rename Function, Add/Remove Parameter)
+
     **When:** Function name doesn't reflect purpose, or signature needs adjustment
     **Why:** Good names are the best documentation
     **Mechanics (Simple):**
@@ -569,7 +731,18 @@
     5. Remove old function
     6. Run tests at each step
 
+- id: "methodology/refactoring/catalog_api/separate-query-from-modifier-command-query"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 91
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING CATALOG: REFACTORING APIs*
+
     ### Separate Query from Modifier (Command-Query Separation)
+
     **When:** Function returns value AND has side effects
     **Why:** Queries can be called freely; commands are intentional
     **Mechanics:**
@@ -596,7 +769,18 @@
     }
     ```
 
+- id: "methodology/refactoring/catalog_api/remove-flag-argument"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 91
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING CATALOG: REFACTORING APIs*
+
     ### Remove Flag Argument
+
     **When:** Boolean parameter controls behavior branch
     **Why:** Separate functions are clearer than boolean flags
     **Mechanics:**
@@ -615,6 +799,7 @@
     ```
 
     ### Replace Constructor with Factory Function
+
     **When:** Constructor limitations require more flexibility
     **Why:** Factory can return subtype, use caching, have meaningful name
     **Mechanics:**
@@ -623,7 +808,18 @@
     3. Make constructor private if possible
     4. Run tests
 
+- id: "methodology/refactoring/catalog_api/replace-error-code-with-exception"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 91
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING CATALOG: REFACTORING APIs*
+
     ### Replace Error Code with Exception
+
     **When:** Function returns special value to indicate error
     **Why:** Errors can't be ignored; normal flow is clear
     **Mechanics:**
@@ -633,6 +829,7 @@
     4. Run tests
 
     ### Replace Exception with Precheck
+
     **When:** Exception is used for expected condition
     **Why:** Exceptions are for exceptional circumstances
     **Mechanics:**
@@ -657,9 +854,9 @@
     }
     ```
 
-# =============================================================================
-# PART 3: CODE SMELLS - DETECTION AND REMEDIATION
-# =============================================================================
+    ===========================================================================
+    RT 3: CODE SMELLS - DETECTION AND REMEDIATION
+    ===========================================================================
 
 - id: "methodology/refactoring/smells_bloaters"
   category: "methodology"
@@ -674,6 +871,7 @@
     Bloaters are code constructs that have grown so large they're hard to work with.
 
     ### Long Method
+
     **Symptoms:**
     - Method exceeds 30 lines (pragmatic) or 10 lines (aggressive)
     - Multiple levels of abstraction
@@ -691,7 +889,18 @@
     - Lines > 50: Critical
     - Cyclomatic complexity > 10: Warning
 
+- id: "methodology/refactoring/smells_bloaters/large-class-god-class"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 90
+  is_mandatory: false
+  intent_verbs: ["/refactor", "/review"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: CODE SMELLS: BLOATERS*
+
     ### Large Class (God Class)
+
     **Symptoms:**
     - Class exceeds 300 lines
     - Too many instance variables (>10)
@@ -711,6 +920,7 @@
     - Methods > 20: Warning
 
     ### Long Parameter List
+
     **Symptoms:**
     - Method has more than 4 parameters
     - Same parameter group appears in multiple methods
@@ -725,7 +935,18 @@
     - Parameters > 4: Warning
     - Parameters > 7: Critical
 
+- id: "methodology/refactoring/smells_bloaters/primitive-obsession"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 90
+  is_mandatory: false
+  intent_verbs: ["/refactor", "/review"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: CODE SMELLS: BLOATERS*
+
     ### Primitive Obsession
+
     **Symptoms:**
     - Strings used for complex data (phone, email, currency)
     - Integers for type codes
@@ -744,7 +965,18 @@
     - `int` for status -> `Status` enum with methods
     - `string` for email -> `Email` with validation
 
+- id: "methodology/refactoring/smells_bloaters/data-clumps"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 90
+  is_mandatory: false
+  intent_verbs: ["/refactor", "/review"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: CODE SMELLS: BLOATERS*
+
     ### Data Clumps
+
     **Symptoms:**
     - Same 3+ variables appear together repeatedly
     - Same parameters passed to multiple methods
@@ -780,6 +1012,7 @@
     These smells indicate incomplete or incorrect application of OOP principles.
 
     ### Switch Statements (Type Code Smell)
+
     **Symptoms:**
     - Switch/type-switch on same expression in multiple places
     - Adding new type requires modifying multiple switches
@@ -797,6 +1030,7 @@
     - Performance-critical code (measure first!)
 
     ### Parallel Inheritance Hierarchies
+
     **Symptoms:**
     - Creating subclass in one hierarchy requires subclass in another
     - Similar class names with different prefixes (CustomerOrder, VendorOrder)
@@ -807,7 +1041,18 @@
     - Move Field to consolidate data
     - Use composition instead of inheritance
 
+- id: "methodology/refactoring/smells_oo_abusers/refused-bequest"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 89
+  is_mandatory: false
+  intent_verbs: ["/refactor", "/review"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: CODE SMELLS: OBJECT-ORIENTATION ABUSERS*
+
     ### Refused Bequest
+
     **Symptoms:**
     - Subclass doesn't use inherited methods/fields
     - Subclass throws "not supported" for inherited methods
@@ -821,6 +1066,7 @@
     **Key Question:** "Is this truly an IS-A relationship?"
 
     ### Alternative Classes with Different Interfaces
+
     **Symptoms:**
     - Two classes do similar things with different method names
     - Code duplicated across classes with slight variations
@@ -832,7 +1078,18 @@
     - Extract Superclass for shared behavior
     - Extract Interface for polymorphism
 
+- id: "methodology/refactoring/smells_oo_abusers/temporary-field"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 89
+  is_mandatory: false
+  intent_verbs: ["/refactor", "/review"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: CODE SMELLS: OBJECT-ORIENTATION ABUSERS*
+
     ### Temporary Field
+
     **Symptoms:**
     - Instance variable only used in some methods
     - Field is null/uninitialized most of the time
@@ -860,6 +1117,7 @@
     These smells make modifications painful, requiring changes in many places.
 
     ### Divergent Change
+
     **Symptoms:**
     - One class changes for multiple unrelated reasons
     - Different parts of class change at different rates
@@ -873,6 +1131,7 @@
     **Detection:** Class changes in multiple commits for unrelated features.
 
     ### Shotgun Surgery
+
     **Symptoms:**
     - Small change requires modifying many classes
     - Related behavior scattered across codebase
@@ -889,7 +1148,18 @@
 
     ### Parallel Inheritance Hierarchies (See OO Abusers)
 
+- id: "methodology/refactoring/smells_change_preventers/feature-envy"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 88
+  is_mandatory: false
+  intent_verbs: ["/refactor", "/review"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: CODE SMELLS: CHANGE PREVENTERS*
+
     ### Feature Envy
+
     **Symptoms:**
     - Method accesses data of another object more than its own
     - Long chains of getter calls: `order.Customer.Address.City`
@@ -918,6 +1188,7 @@
     Pointless code that should be removed to improve clarity.
 
     ### Comments (When They're a Smell)
+
     **Symptoms:**
     - Comments explain "what" instead of "why"
     - Comments compensate for poor naming
@@ -936,7 +1207,18 @@
     - Performance explanations
     - TODO with ticket numbers
 
+- id: "methodology/refactoring/smells_dispensables/duplicate-code-dry-violation"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 87
+  is_mandatory: false
+  intent_verbs: ["/refactor", "/review"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: CODE SMELLS: DISPENSABLES*
+
     ### Duplicate Code (DRY Violation)
+
     **Symptoms:**
     - Identical code in multiple places
     - Nearly identical code with small variations
@@ -953,6 +1235,7 @@
     - Coincidental similarity (different concepts)
 
     ### Lazy Class (Freeloader)
+
     **Symptoms:**
     - Class does very little (< 50 lines)
     - Class exists only to hold data passed elsewhere
@@ -963,7 +1246,18 @@
     - Collapse Hierarchy for unused subclasses
     - Move Method to give class responsibility
 
+- id: "methodology/refactoring/smells_dispensables/dead-code"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 87
+  is_mandatory: false
+  intent_verbs: ["/refactor", "/review"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: CODE SMELLS: DISPENSABLES*
+
     ### Dead Code
+
     **Symptoms:**
     - Unreachable code (after return, in impossible branch)
     - Unused methods/classes
@@ -981,6 +1275,7 @@
     - Compiler warnings for unused
 
     ### Speculative Generality
+
     **Symptoms:**
     - Abstract classes with single implementation
     - Parameters/methods "for future use"
@@ -1010,6 +1305,7 @@
     ### Feature Envy (See Change Preventers)
 
     ### Inappropriate Intimacy
+
     **Symptoms:**
     - Classes access each other's private parts (reflection, friend)
     - Bidirectional dependencies
@@ -1022,7 +1318,18 @@
     - Extract Class for shared concerns
     - Hide Delegate to reduce knowledge
 
+- id: "methodology/refactoring/smells_couplers/message-chains-train-wreck"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 86
+  is_mandatory: false
+  intent_verbs: ["/refactor", "/review"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: CODE SMELLS: COUPLERS*
+
     ### Message Chains (Train Wreck)
+
     **Symptoms:**
     - Long chains: `a.getB().getC().getD().doThing()`
     - Client navigates object graph
@@ -1045,6 +1352,7 @@
     ```
 
     ### Middle Man
+
     **Symptoms:**
     - Class delegates most methods to another class
     - Methods just pass-through with no added logic
@@ -1057,7 +1365,18 @@
 
     **Balance:** Some delegation is good (Hide Delegate). Too much creates Middle Man.
 
+- id: "methodology/refactoring/smells_couplers/incomplete-library-class"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 86
+  is_mandatory: false
+  intent_verbs: ["/refactor", "/review"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: CODE SMELLS: COUPLERS*
+
     ### Incomplete Library Class
+
     **Symptoms:**
     - Need functionality that library class should provide
     - Can't modify library source
@@ -1082,9 +1401,9 @@
     func (e ExtendedDate) DaysBetween(other ExtendedDate) int { ... }
     ```
 
-# =============================================================================
-# PART 4: ADVANCED REFACTORING STRATEGIES
-# =============================================================================
+    ===========================================================================
+    RT 4: ADVANCED REFACTORING STRATEGIES
+    ===========================================================================
 
 - id: "methodology/refactoring/legacy_strategies"
   category: "methodology"
@@ -1097,6 +1416,7 @@
     ## LEGACY CODE REFACTORING STRATEGIES
 
     ### The Mikado Method (Large-Scale Refactoring)
+
     **When:** Refactoring is too large for single step
     **Philosophy:** Named after Mikado game - remove sticks without disturbing others
 
@@ -1117,7 +1437,18 @@
     - Can pause refactoring for urgent work
     - Team can collaborate on different leaves
 
+- id: "methodology/refactoring/legacy_strategies/strangler-fig-pattern-system-migration"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 85
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: LEGACY CODE REFACTORING STRATEGIES*
+
     ### Strangler Fig Pattern (System Migration)
+
     **When:** Replacing legacy system with new implementation
     **Philosophy:** New system gradually "strangles" old, like strangler fig tree
 
@@ -1149,7 +1480,18 @@
     - Easy rollback
     - Business continues during migration
 
+- id: "methodology/refactoring/legacy_strategies/seams-working-effectively-with-legacy-code"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 85
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: LEGACY CODE REFACTORING STRATEGIES*
+
     ### Seams (Working Effectively with Legacy Code)
+
     **Definition:** "A place where you can alter behavior without editing in that place"
 
     **Types of Seams:**
@@ -1179,7 +1521,18 @@
     }
     ```
 
+- id: "methodology/refactoring/legacy_strategies/branch-by-abstraction"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 85
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: LEGACY CODE REFACTORING STRATEGIES*
+
     ### Branch by Abstraction
+
     **When:** Need to replace implementation while code still runs
     **Process:**
     1. Create abstraction layer over current implementation
@@ -1199,11 +1552,22 @@
     ## REFACTORING FOR TESTABILITY
 
     ### The Testing Pyramid and Refactoring
+
     - Unit tests: Fast, focused, many
     - Integration tests: Medium scope, moderate count
     - E2E tests: Slow, broad, few
 
     **Refactoring Goal:** Enable more unit tests, fewer integration tests.
+
+- id: "methodology/refactoring/testability/breaking-dependencies-for-testing"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 84
+  is_mandatory: false
+  intent_verbs: ["/refactor", "/test"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING FOR TESTABILITY*
 
     ### Breaking Dependencies for Testing
 
@@ -1270,7 +1634,18 @@
     // Test can inject mock validator
     ```
 
+- id: "methodology/refactoring/testability/static-cling-problem"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 84
+  is_mandatory: false
+  intent_verbs: ["/refactor", "/test"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING FOR TESTABILITY*
+
     ### Static Cling Problem
+
     **Problem:** Static methods can't be mocked.
     **Solutions:**
     1. Wrap in instance method that delegates
@@ -1291,6 +1666,7 @@
     ```
 
     ### When to Break Encapsulation for Testing
+
     **Michael Feathers' Perspective:**
     - Encapsulation helps reason about code
     - Tests also help reason about code
@@ -1313,6 +1689,7 @@
     ## PERFORMANCE REFACTORING
 
     ### The Cardinal Rule: Measure First
+
     **Donald Knuth:** "Premature optimization is the root of all evil"
     **Full Quote:** "We should forget about small efficiencies, say about 97%
     of the time: premature optimization is the root of all evil. Yet we should
@@ -1326,6 +1703,7 @@
     5. Document why optimization was necessary
 
     ### Profiling Before Optimizing
+
     **Tools:**
     - Go: `pprof`, `trace`
     - Python: `cProfile`, `py-spy`
@@ -1338,7 +1716,18 @@
     - I/O wait (what's blocking?)
     - Lock contention (what's synchronized?)
 
+- id: "methodology/refactoring/performance/high-value-optimizations"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 83
+  is_mandatory: false
+  intent_verbs: ["/refactor", "/optimize"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: PERFORMANCE REFACTORING*
+
     ### High-Value Optimizations
+
     **Algorithmic Improvements (10-100x gains):**
     - O(n2) -> O(n log n)
     - Eliminate N+1 queries
@@ -1358,12 +1747,24 @@
     - Use appropriate sizes ([]byte vs string)
 
     ### Low-Value Optimizations (Usually Not Worth It)
+
     - Micro-benchmarking individual operations
     - Manual loop unrolling (compilers do this)
     - Avoiding "slow" language features
     - Pre-computing trivial operations
 
+- id: "methodology/refactoring/performance/refactoring-for-performance-when-needed"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 83
+  is_mandatory: false
+  intent_verbs: ["/refactor", "/optimize"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: PERFORMANCE REFACTORING*
+
     ### Refactoring for Performance (When Needed)
+
     **Replace Loop with Algorithm:**
     ```
     // Before: O(n^2) nested loop
@@ -1402,9 +1803,9 @@
     }
     ```
 
-# =============================================================================
-# PART 5: AI-ASSISTED REFACTORING
-# =============================================================================
+    ===========================================================================
+    RT 5: AI-ASSISTED REFACTORING
+    ===========================================================================
 
 - id: "methodology/refactoring/ai_safety"
   category: "methodology"
@@ -1416,6 +1817,18 @@
   content: |
     ## AI-ASSISTED REFACTORING: SAFETY GUIDELINES
 
+    Risk tiers: **Low** (minimal review): Rename, Extract Variable, Inline Variable, Format/Style, Remove Dead Code (proven unreachable), Replace Magic Number with Constant. **Moderate** (needs test verification or human review): Extract Method, Move Method/Field, Simplify Conditional, Replace Conditional with Polymorphism. **High** (AI proposes, does NOT execute without approval): Change Function Signature, Extract Class/Interface, Replace Algorithm, Strangler Fig / Large Migration.
+
+    Process: Analyze (smell, test coverage, dependencies) -> Propose (change, preservation argument, files) -> Execute atomically (smallest change, under 200 lines, each step compiles) -> Verify (existing tests, regressions, observable behavior) -> Document (why, trade-offs, related docs).
+
+- id: "methodology/refactoring/ai_safety/low-risk-refactorings"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 82
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
     ### Safe Refactorings for AI (Low Risk)
     These can be performed with minimal human review:
 
@@ -1443,6 +1856,14 @@
        - Pure naming improvement
        - Value unchanged
 
+- id: "methodology/refactoring/ai_safety/moderate-and-high-risk"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 82
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
     ### Moderate Risk Refactorings (Require Verification)
     These need test verification or human review:
 
@@ -1482,6 +1903,14 @@
        - System-level changes
        - Multi-step process
 
+- id: "methodology/refactoring/ai_safety/process-steps"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 82
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
     ### AI Refactoring Process
 
     **Step 1: Analyze**
@@ -1509,6 +1938,14 @@
     - Note any trade-offs or caveats
     - Update related documentation
 
+- id: "methodology/refactoring/ai_safety/common-mistakes-and-verification"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 82
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
     ### Common AI Refactoring Mistakes
 
     1. **Over-Engineering**
@@ -1553,6 +1990,7 @@
     ## AI REFACTORING WORKFLOW
 
     ### Pre-Refactoring Checklist
+
     ```
     1. [ ] Tests exist and pass (or create Golden Master)
     2. [ ] Understand current behavior completely
@@ -1563,6 +2001,7 @@
     ```
 
     ### During Refactoring
+
     ```
     1. [ ] Make atomic changes (one refactoring at a time)
     2. [ ] Keep changes under 200 lines per commit
@@ -1573,6 +2012,7 @@
     ```
 
     ### Post-Refactoring Verification
+
     ```
     1. [ ] All tests pass (unit, integration, E2E)
     2. [ ] Code coverage maintained or improved
@@ -1584,7 +2024,18 @@
     8. [ ] Team review completed
     ```
 
+- id: "methodology/refactoring/ai_workflow/rollback-criteria"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 81
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/ai_safety"]
+  content: |
+    *Part of: AI REFACTORING WORKFLOW*
+
     ### Rollback Criteria
+
     Immediately revert if:
     - Any test fails
     - New warnings appear
@@ -1593,6 +2044,7 @@
     - Review reveals design issues
 
     ### Metrics to Track
+
     - Lines changed per refactoring
     - Test failures introduced (should be 0)
     - Time to complete refactoring
@@ -1600,6 +2052,7 @@
     - Code complexity before/after
 
     ### Communication Template
+
     ```markdown
     ## Refactoring: [Name]
 
@@ -1620,9 +2073,9 @@
     - [ ] Reviewed by: [Name]
     ```
 
-# =============================================================================
-# PART 6: REFACTORING BY GOAL
-# =============================================================================
+    ===========================================================================
+    RT 6: REFACTORING BY GOAL
+    ===========================================================================
 
 - id: "methodology/refactoring/goals_readability"
   category: "methodology"
@@ -1635,6 +2088,7 @@
     ## REFACTORING FOR READABILITY
 
     ### Naming Improvements
+
     **Principles:**
     - Names should reveal intent (what, not how)
     - Names should be pronounceable
@@ -1659,6 +2113,7 @@
     - Conversion: `toJson`, `fromBytes`, `asMap`
 
     ### Structure Improvements
+
     **Reduce Nesting:**
     - Guard clauses for early returns
     - Extract nested logic to methods
@@ -1669,7 +2124,18 @@
     - Simple conditions first
     - Extract complex conditions to named variables/methods
 
+- id: "methodology/refactoring/goals_readability/comment-improvements"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 80
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING FOR READABILITY*
+
     ### Comment Improvements
+
     **Replace Comment with Better Code:**
     ```
     // Bad: Comment explains what
@@ -1703,6 +2169,7 @@
     ## REFACTORING TO REDUCE COUPLING
 
     ### Types of Coupling (Worst to Best)
+
     1. **Content Coupling:** Class modifies internals of another (worst)
     2. **Common Coupling:** Shared global state
     3. **Control Coupling:** Flag parameters controlling behavior
@@ -1711,6 +2178,7 @@
     6. **Message Coupling:** Only method calls (ideal)
 
     ### Dependency Injection Pattern
+
     **Constructor Injection (Preferred):**
     ```
     type Service struct {
@@ -1729,7 +2197,18 @@
     - Easy to test with mocks
     - Compiler catches missing dependencies
 
+- id: "methodology/refactoring/goals_coupling/interface-segregation"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 79
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING TO REDUCE COUPLING*
+
     ### Interface Segregation
+
     **Problem:** Depending on large interface when small one suffices
     **Solution:** Create focused interfaces
 
@@ -1751,6 +2230,7 @@
     ```
 
     ### Breaking Circular Dependencies
+
     **Pattern 1: Extract Interface**
     ```
     // Before: A -> B -> A (circular)
@@ -1769,7 +2249,18 @@
     // After: A publishes event, B subscribes, A subscribes to result
     ```
 
+- id: "methodology/refactoring/goals_coupling/law-of-demeter-compliance"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 79
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING TO REDUCE COUPLING*
+
     ### Law of Demeter Compliance
+
     **Rule:** Only talk to immediate friends
     - Your own fields
     - Parameters passed to you
@@ -1796,6 +2287,7 @@
     ## REFACTORING FOR TESTABILITY
 
     ### Remove Static Dependencies
+
     **Problem:** Static/global calls can't be mocked
     ```
     // Untestable
@@ -1810,6 +2302,7 @@
     ```
 
     ### Extract Time/Randomness
+
     **Problem:** Non-deterministic code is hard to test
     ```
     // Untestable
@@ -1823,7 +2316,18 @@
     }
     ```
 
+- id: "methodology/refactoring/goals_testability/seam-creation-for-legacy-code"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 78
+  is_mandatory: false
+  intent_verbs: ["/refactor", "/test"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING FOR TESTABILITY*
+
     ### Seam Creation for Legacy Code
+
     **Extract and Override:**
     ```
     // Original method with untestable dependency
@@ -1843,6 +2347,7 @@
     ```
 
     ### Reduce Test Setup Complexity
+
     **Builder Pattern for Test Data:**
     ```
     func TestOrderProcessing(t *testing.T) {
@@ -1876,6 +2381,7 @@
     ## REFACTORING TO ENABLE FEATURES
 
     ### Preparatory Refactoring
+
     **Kent Beck:** "Make the change easy, then make the easy change"
 
     **Process:**
@@ -1912,7 +2418,18 @@
     }
     ```
 
+- id: "methodology/refactoring/goals_features/open-closed-principle-refactoring"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 77
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING TO ENABLE FEATURES*
+
     ### Open/Closed Principle Refactoring
+
     **Goal:** Open for extension, closed for modification
     **Approach:** Use polymorphism to enable new behavior without changing existing code
 
@@ -1949,7 +2466,18 @@
     }
     ```
 
+- id: "methodology/refactoring/goals_features/feature-toggle-infrastructure"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 77
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: REFACTORING TO ENABLE FEATURES*
+
     ### Feature Toggle Infrastructure
+
     **When adding complex features incrementally:**
     ```
     type FeatureFlags struct {

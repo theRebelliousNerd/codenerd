@@ -15,6 +15,7 @@
     Translate abstract refactoring into concrete Go commands.
 
     ### 1. Safety First (Tests)
+
     Before touching any code, ensure the safety net is active.
     ```bash
     go test ./... -v      # Run all tests
@@ -22,6 +23,7 @@
     ```
 
     ### 2. Automated Refactoring Tools
+
     Go has excellent tooling. Use it before manual editing.
 
     **Formatting & Imports:**
@@ -35,6 +37,17 @@
     ```bash
     gorename -from "path/to/pkg.OldName" -to "NewName"
     ```
+
+- id: "methodology/refactoring/go_workflow/3-manual-refactoring-patterns-in-go"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 95
+  is_mandatory: false
+  languages: ["/go", "/golang"]
+  intent_verbs: ["/refactor", "/cleanup", "/optimize"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: GO REFACTORING TOOLKIT*
 
     ### 3. Manual Refactoring Patterns in Go
 
@@ -82,13 +95,26 @@
     ```
 
     ### 4. Verification
+
     After changes, verify nothing broke.
     ```bash
     go test ./... -count=1  # Force run (no cache)
     staticcheck ./...       # Deep static analysis (if installed)
     ```
 
+- id: "methodology/refactoring/go_workflow/common-go-refactoring-targets"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 95
+  is_mandatory: false
+  languages: ["/go", "/golang"]
+  intent_verbs: ["/refactor", "/cleanup", "/optimize"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    *Part of: GO REFACTORING TOOLKIT*
+
     ### Common Go Refactoring Targets
+
     - **Global State:** Move `var global` into a `struct` and pass it.
     - **Long Functions:** Extract into small, private methods `func (s *Service) helper()`.
     - **Package Cycles:** Extract shared interfaces to a separate `types` or `api` package.

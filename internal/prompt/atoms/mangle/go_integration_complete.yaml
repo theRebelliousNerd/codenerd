@@ -10,9 +10,9 @@
   languages: ["/mangle"]
   content: |
     # Mangle Go Integration - Complete Reference
-    
+
     ## Package Imports
-    
+
     ```go
     import (
         "github.com/google/mangle/ast"
@@ -24,11 +24,21 @@
         "github.com/google/mangle/unionfind"
     )
     ```
-    
+
+- id: "language/mangle/docs/go_integration_complete/basic-evaluation-flow"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Go Integration - Complete Reference: Basic Evaluation Flow"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Go Integration - Complete Reference*
+
     ## Basic Evaluation Flow
-    
+
     ### Step-by-Step Integration
-    
+
     ```go
     // 1. Parse Mangle source code
     sourceCode := `
@@ -36,47 +46,58 @@
         ancestor(X, Y) :- parent(X, Y).
         ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
     `
-    
+
     // 2. Parse to AST
     unit, err := parse.Unit(strings.NewReader(sourceCode))
     if err != nil {
         return fmt.Errorf("parse error: %w", err)
     }
-    
+
     // 3. Analyze program
     programInfo, err := analysis.AnalyzeOneUnit(unit, nil)
     if err != nil {
         return fmt.Errorf("analysis error: %w", err)
     }
-    
+
     // 4. Create fact store
     store := factstore.NewSimpleInMemoryStore()
-    
+
     // 5. Evaluate to fixpoint
     if err := engine.EvalProgram(programInfo, store); err != nil {
         return fmt.Errorf("evaluation error: %w", err)
     }
-    
+
     // 6. Query results
     predSym := ast.PredicateSym{Symbol: "ancestor", Arity: 2}
     query := ast.NewAtom(predSym.Symbol, ast.Variable{Symbol: "X"}, ast.Variable{Symbol: "Y"})
-    
+
     err = store.GetFacts(query, func(fact ast.Atom) error {
         fmt.Printf("Found: %v\n", fact)
         return nil
     })
     ```
-    
+
+- id: "language/mangle/docs/go_integration_complete/creating-facts-from-go"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Go Integration - Complete Reference: Creating Facts from Go"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Go Integration - Complete Reference*
+
     ## Creating Facts from Go
-    
+
     ### Atom Constants
+
     ```go
     // Create name constant (/alice)
     alice, err := ast.Name("alice")
     if err != nil {
         return err
     }
-    
+
     // Create atom
     parentPred := ast.PredicateSym{Symbol: "parent", Arity: 2}
     bob, _ := ast.Name("bob")
@@ -84,19 +105,20 @@
         Predicate: parentPred,
         Args: []ast.BaseTerm{alice, bob},
     }
-    
+
     // Add to store
     store.Add(fact)
     ```
-    
+
     ### Numeric Constants
+
     ```go
     // Integer
     age := ast.Number(30)
-    
+
     // Float
     price := ast.Float64(19.99)
-    
+
     // Create fact: item(/apple, 19.99)
     itemPred := ast.PredicateSym{Symbol: "item", Arity: 2}
     apple, _ := ast.Name("apple")
@@ -106,12 +128,23 @@
     }
     store.Add(itemFact)
     ```
-    
+
+- id: "language/mangle/docs/go_integration_complete/string-constants"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Go Integration - Complete Reference: String Constants"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Go Integration - Complete Reference > Creating Facts from Go*
+
     ### String Constants
+
     ```go
     // String
     message := ast.String("Error: File not found")
-    
+
     // Create fact: log(/error, "Error: File not found")
     logPred := ast.PredicateSym{Symbol: "log", Arity: 2}
     errorLevel, _ := ast.Name("error")
@@ -121,15 +154,16 @@
     }
     store.Add(logFact)
     ```
-    
+
     ### Lists
+
     ```go
     // Create list [1, 2, 3]
     one := ast.Number(1)
     two := ast.Number(2)
     three := ast.Number(3)
     list := ast.List([]ast.Constant{one, two, three})
-    
+
     // Create fact: scores(/alice, [1, 2, 3])
     scoresPred := ast.PredicateSym{Symbol: "scores", Arity: 2}
     alice, _ := ast.Name("alice")
@@ -139,20 +173,31 @@
     }
     store.Add(scoresFact)
     ```
-    
+
+- id: "language/mangle/docs/go_integration_complete/maps-structs"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Go Integration - Complete Reference: Maps/Structs"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Go Integration - Complete Reference > Creating Facts from Go*
+
     ### Maps/Structs
+
     ```go
     // Create struct {/name: "Alice", /age: 30}
     nameKey, _ := ast.Name("name")
     ageKey, _ := ast.Name("age")
     nameValue := ast.String("Alice")
     ageValue := ast.Number(30)
-    
+
     structData := ast.Struct(map[*ast.Constant]*ast.Constant{
         &nameKey: &nameValue,
         &ageKey: &ageValue,
     })
-    
+
     // Create fact: person(1, {/name: "Alice", /age: 30})
     personPred := ast.PredicateSym{Symbol: "person", Arity: 2}
     id := ast.Number(1)
@@ -162,21 +207,31 @@
     }
     store.Add(personFact)
     ```
-    
+
     ## External Predicates (Virtual Predicates)
-    
+
+- id: "language/mangle/docs/go_integration_complete/implementing-external-predicate"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Go Integration - Complete Reference: Implementing External Predicate"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Go Integration - Complete Reference > External Predicates (Virtual Predicates)*
+
     ### Implementing External Predicate
-    
+
     ```go
     // External predicate signature
     type ExternalPredicate func(query ast.Atom, callback func(ast.Atom) error) error
-    
+
     // Example: file_exists(Path, Exists)
     func fileExists(query ast.Atom, callback func(ast.Atom) error) error {
         // Check which arguments are bound
         pathArg := query.Args[0]
         existsArg := query.Args[1]
-    
+
         switch pathTerm := pathArg.(type) {
         case ast.Constant:
             // Path is bound - check if file exists
@@ -184,40 +239,50 @@
                 return fmt.Errorf("expected string path")
             }
             path := pathTerm.StringValue()
-    
+
             _, err := os.Stat(path)
             exists := ast.Name("true")
             if os.IsNotExist(err) {
                 exists, _ = ast.Name("false")
             }
-    
+
             // Return result
             result := ast.Atom{
                 Predicate: query.Predicate,
                 Args: []ast.BaseTerm{pathTerm, exists},
             }
             return callback(result)
-    
+
         case ast.Variable:
             // Path is free - enumerate all known files
             // This would require maintaining a file index
             return fmt.Errorf("cannot enumerate all files")
-    
+
         default:
             return fmt.Errorf("unexpected path argument type")
         }
     }
     ```
-    
+
+- id: "language/mangle/docs/go_integration_complete/registering-external-predicate"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Go Integration - Complete Reference: Registering External Predicate"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Go Integration - Complete Reference > External Predicates (Virtual Predicates)*
+
     ### Registering External Predicate
-    
+
     ```go
     // Create custom fact store with virtual predicates
     type VirtualStore struct {
         base factstore.FactStore
         externals map[ast.PredicateSym]ExternalPredicate
     }
-    
+
     func (vs *VirtualStore) GetFacts(query ast.Atom, callback func(ast.Atom) error) error {
         // Check if virtual predicate
         if external, ok := vs.externals[query.Predicate]; ok {
@@ -226,7 +291,7 @@
         // Otherwise use base store
         return vs.base.GetFacts(query, callback)
     }
-    
+
     // Register predicates
     store := &VirtualStore{
         base: factstore.NewSimpleInMemoryStore(),
@@ -236,10 +301,21 @@
         },
     }
     ```
-    
+
+- id: "language/mangle/docs/go_integration_complete/querying-results"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Go Integration - Complete Reference: Querying Results"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Go Integration - Complete Reference*
+
     ## Querying Results
-    
+
     ### Simple Query
+
     ```go
     // Query: ancestor(X, Y)
     predSym := ast.PredicateSym{Symbol: "ancestor", Arity: 2}
@@ -247,7 +323,7 @@
         ast.Variable{Symbol: "X"},
         ast.Variable{Symbol: "Y"},
     )
-    
+
     err := store.GetFacts(query, func(fact ast.Atom) error {
         // Extract arguments
         x := fact.Args[0]
@@ -256,8 +332,9 @@
         return nil
     })
     ```
-    
+
     ### Query with Bound Arguments
+
     ```go
     // Query: ancestor(/alice, Y) - find alice's descendants
     alice, _ := ast.Name("alice")
@@ -265,7 +342,7 @@
         Predicate: ast.PredicateSym{Symbol: "ancestor", Arity: 2},
         Args: []ast.BaseTerm{alice, ast.Variable{Symbol: "Y"}},
     }
-    
+
     var descendants []ast.Constant
     err := store.GetFacts(query, func(fact ast.Atom) error {
         descendant := fact.Args[1].(ast.Constant)
@@ -273,37 +350,48 @@
         return nil
     })
     ```
-    
+
+- id: "language/mangle/docs/go_integration_complete/extract-constant-values"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Go Integration - Complete Reference: Extract Constant Values"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Go Integration - Complete Reference > Querying Results*
+
     ### Extract Constant Values
+
     ```go
     err := store.GetFacts(query, func(fact ast.Atom) error {
         arg := fact.Args[0]
-    
+
         // Type assert to Constant
         if constant, ok := arg.(ast.Constant); ok {
             switch constant.Type {
             case ast.NameType:
                 name := constant.NameValue()
                 fmt.Printf("Name: %s\n", name)
-    
+
             case ast.StringType:
                 str := constant.StringValue()
                 fmt.Printf("String: %s\n", str)
-    
+
             case ast.NumberType:
                 num := constant.NumberValue()
                 fmt.Printf("Number: %d\n", num)
-    
+
             case ast.Float64Type:
                 f := constant.Float64Value()
                 fmt.Printf("Float: %f\n", f)
-    
+
             case ast.ListType:
                 for elem := range constant.ListValues() {
                     // Process list element
                     fmt.Printf("  Element: %v\n", elem)
                 }
-    
+
             case ast.StructType:
                 for k, v := range constant.StructValues() {
                     keyName := k.NameValue()
@@ -314,10 +402,21 @@
         return nil
     })
     ```
-    
+
+- id: "language/mangle/docs/go_integration_complete/mangle-go-integration-complete-reference"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Go Integration - Complete Reference: Mangle Go Integration - Complete Reference Error Handling"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Go Integration - Complete Reference*
+
     ## Error Handling
-    
+
     ### Parse Errors
+
     ```go
     unit, err := parse.Unit(strings.NewReader(source))
     if err != nil {
@@ -326,8 +425,9 @@
         return err
     }
     ```
-    
+
     ### Analysis Errors
+
     ```go
     programInfo, err := analysis.AnalyzeOneUnit(unit, nil)
     if err != nil {
@@ -336,8 +436,9 @@
         return err
     }
     ```
-    
+
     ### Evaluation Errors
+
     ```go
     err := engine.EvalProgram(programInfo, store)
     if err != nil {
@@ -346,52 +447,75 @@
         return err
     }
     ```
-    
+
+- id: "language/mangle/docs/go_integration_complete/advanced-integration-patterns"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Go Integration - Complete Reference: Advanced Integration Patterns"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Go Integration - Complete Reference*
+
     ## Advanced Integration Patterns
-    
+
     ### Incremental Evaluation
+
     ```go
     // Initial facts
     store := factstore.NewSimpleInMemoryStore()
     // ... add initial facts ...
-    
+
     // First evaluation
     engine.EvalProgram(programInfo, store)
-    
+
     // Add more facts
     newFact := ast.NewAtom("edge", ast.Name("x"), ast.Name("y"))
     store.Add(newFact)
-    
+
     // Re-evaluate (semi-naive will only process new derivations)
     engine.EvalProgram(programInfo, store)
     ```
-    
+
     ### Custom Fact Store
+
     ```go
     type CustomStore struct {
         // Your storage backend (database, cache, etc.)
         db *sql.DB
     }
-    
+
     func (cs *CustomStore) Add(atom ast.Atom) bool {
         // Store fact in database
         // Return true if new, false if duplicate
     }
-    
+
     func (cs *CustomStore) GetFacts(query ast.Atom, callback func(ast.Atom) error) error {
         // Query database and call callback for each match
     }
-    
+
     func (cs *CustomStore) ListPredicates() []ast.PredicateSym {
         // Return all known predicates
     }
-    
+
     func (cs *CustomStore) EstimateFactCount() int {
         // Return approximate fact count
     }
     ```
-    
+
+- id: "language/mangle/docs/go_integration_complete/toatom-pattern-codenerd-style"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Go Integration - Complete Reference: ToAtom Pattern (codeNERD Style)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Go Integration - Complete Reference > Advanced Integration Patterns*
+
     ### ToAtom Pattern (codeNERD Style)
+
     ```go
     // Convert Go struct to Mangle atom
     type FileFact struct {
@@ -399,27 +523,37 @@
         Language string
         Lines    int
     }
-    
+
     func (f FileFact) ToAtom() ast.Atom {
         path := ast.String(f.Path)
         lang, _ := ast.Name(f.Language)
         lines := ast.Number(int64(f.Lines))
-    
+
         return ast.Atom{
             Predicate: ast.PredicateSym{Symbol: "file_topology", Arity: 3},
             Args: []ast.BaseTerm{path, lang, lines},
         }
     }
-    
+
     // Usage
     file := FileFact{Path: "main.go", Language: "go", Lines: 100}
     store.Add(file.ToAtom())
     ```
-    
+
+- id: "language/mangle/docs/go_integration_complete/type-conversions"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Go Integration - Complete Reference: Type Conversions"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Go Integration - Complete Reference*
+
     ## Type Conversions
-    
+
     ### Go Type to Mangle Constant
-    
+
     | Go Type | Mangle Function | Example |
     |---------|----------------|---------|
     | `string` (identifier) | `ast.Name(str)` | `/alice` |
@@ -429,9 +563,9 @@
     | `[]T` | `ast.List([]ast.Constant)` | `[1,2,3]` |
     | `map[K]V` | `ast.Struct(map)` | `{/k: v}` |
     | `bool` | `ast.TrueConstant` / `ast.FalseConstant` | `/true`, `/false` |
-    
+
     ### Mangle Constant to Go Type
-    
+
     ```go
     func extractValue(c ast.Constant) interface{} {
         switch c.Type {
@@ -460,33 +594,56 @@
         }
     }
     ```
-    
+
+- id: "language/mangle/docs/go_integration_complete/common-go-integration-errors"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Go Integration - Complete Reference: Common Go Integration Errors"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Go Integration - Complete Reference*
+
     ## Common Go Integration Errors
-    
+
     ### Using String-Based API
+
     ```go
     // ❌ WRONG - No string-based API exists
     store.Add("parent", "alice", "bob")
-    
+
     // ✅ CORRECT - Use proper types
     alice, _ := ast.Name("alice")
     bob, _ := ast.Name("bob")
     fact := ast.NewAtom("parent", alice, bob)
     store.Add(fact)
     ```
-    
+
     ### Skipping Parse Step
+
     ```go
     // ❌ WRONG - Can't execute strings directly
     engine.Run("ancestor(X, Y) :- parent(X, Y).")
-    
+
     // ✅ CORRECT - Must parse first
     unit, _ := parse.Unit(strings.NewReader(source))
     programInfo, _ := analysis.AnalyzeOneUnit(unit, nil)
     engine.EvalProgram(programInfo, store)
     ```
-    
+
+- id: "language/mangle/docs/go_integration_complete/ignoring-binding-patterns-in-external"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Go Integration - Complete Reference: Ignoring Binding Patterns in External Predicates"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Go Integration - Complete Reference > Common Go Integration Errors*
+
     ### Ignoring Binding Patterns in External Predicates
+
     ```go
     // ❌ WRONG - Doesn't check if arguments are bound
     func badExternal(query ast.Atom, cb func(ast.Atom) error) error {
@@ -494,7 +651,7 @@
         path := query.Args[0].(ast.Constant).StringValue()
         // Will panic if Args[0] is a Variable!
     }
-    
+
     // ✅ CORRECT - Check argument types
     func goodExternal(query ast.Atom, cb func(ast.Atom) error) error {
         switch arg := query.Args[0].(type) {
@@ -507,12 +664,13 @@
         }
     }
     ```
-    
+
     ### Not Handling All Type Cases
+
     ```go
     // ❌ WRONG - Assumes always Constant
     value := arg.(ast.Constant)
-    
+
     // ✅ CORRECT - Check type first
     if constant, ok := arg.(ast.Constant); ok {
         // Use constant

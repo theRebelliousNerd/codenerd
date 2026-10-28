@@ -25,6 +25,13 @@
     with final_page: false is a prefix; the running summary on the next
     page is context, not a replacement for the bytes on that page.
 
+- id: "northstar/derive/classify/section-cont"
+  category: "northstar"
+  subcategory: "derive"
+  priority: 80
+  is_mandatory: false
+  northstar_phases: ["/derive_classify"]
+  content: |
     When final_page is false, return only this JSON object and nothing else:
     {"summary":"<cumulative findings from ALL pages so far, including roles, themes and an exact evidence line, so the next page can continue>"}
     The summary is required. Do not include roles on a non-final page.
@@ -35,6 +42,13 @@
     {"documents":[{"path":"<the path byte-for-byte as it appeared after @@DOC or @@PAGE>","roles":[{"role":"<token>","confidence_pct":<integer 0-100>,"evidence":"<one line copied from the document>"}],"themes":["<short theme>"]}]}
     Include every path in the request. Omit none.
 
+- id: "northstar/derive/classify/section-cont-2"
+  category: "northstar"
+  subcategory: "derive"
+  priority: 80
+  is_mandatory: false
+  northstar_phases: ["/derive_classify"]
+  content: |
     Role tokens, without a leading slash, are only:
     vision, north_star_draft, origin_design, spec, plan, report, standard,
     guide, journal, readme, instructions, reference, archive, generated.

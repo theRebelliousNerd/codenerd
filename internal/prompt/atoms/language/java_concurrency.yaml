@@ -12,6 +12,7 @@
     ## EXECUTORSERVICE PATTERNS
 
     ### Choosing the Right Executor
+
     | Executor | Use Case |
     |----------|----------|
     | `newFixedThreadPool(n)` | CPU-bound work, known parallelism |
@@ -21,6 +22,7 @@
     | `newScheduledThreadPool(n)` | Delayed/periodic tasks |
 
     ### Basic Usage
+
     ```java
     // CPU-bound - use processor count
     ExecutorService cpuPool = Executors.newFixedThreadPool(
@@ -39,8 +41,25 @@
     String result = future.get();
     String result = future.get(5, TimeUnit.SECONDS);  // With timeout
     ```
+  content_concise: |
+    ## ExecutorService
+    - `newFixedThreadPool(n)` for CPU-bound
+    - `newVirtualThreadPerTaskExecutor()` for I/O (Java 21+)
+    - Always `shutdown()` in finally block
+    - Java 19+: try-with-resources for auto-shutdown
+
+- id: "language/java/concurrency/executor_service/proper-shutdown-pattern"
+  category: "language"
+  subcategory: "java"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: EXECUTORSERVICE PATTERNS*
 
     ### Proper Shutdown Pattern
+
     ```java
     ExecutorService executor = Executors.newFixedThreadPool(10);
     try {
@@ -63,6 +82,7 @@
     ```
 
     ### Try-With-Resources (Java 19+)
+
     ```java
     try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
         executor.submit(() -> task1());
@@ -70,7 +90,18 @@
     }  // Automatically calls shutdown() and awaitTermination()
     ```
 
+- id: "language/java/concurrency/executor_service/invoke-all-any"
+  category: "language"
+  subcategory: "java"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: EXECUTORSERVICE PATTERNS*
+
     ### Invoke All/Any
+
     ```java
     List<Callable<String>> tasks = List.of(
         () -> fetchFromSource1(),
@@ -85,13 +116,6 @@
     String firstResult = executor.invokeAny(tasks);
     ```
 
-  content_concise: |
-    ## ExecutorService
-    - `newFixedThreadPool(n)` for CPU-bound
-    - `newVirtualThreadPerTaskExecutor()` for I/O (Java 21+)
-    - Always `shutdown()` in finally block
-    - Java 19+: try-with-resources for auto-shutdown
-
 - id: "language/java/concurrency/completable_future"
   category: "language"
   subcategory: "java"
@@ -103,6 +127,7 @@
     ## COMPLETABLEFUTURE PATTERNS
 
     ### Basic Async Execution
+
     ```java
     // Always specify executor for control
     CompletableFuture<String> future = CompletableFuture.supplyAsync(
@@ -118,6 +143,7 @@
     ```
 
     ### Combining Futures
+
     ```java
     CompletableFuture<String> f1 = CompletableFuture.supplyAsync(() -> "Hello");
     CompletableFuture<String> f2 = CompletableFuture.supplyAsync(() -> "World");
@@ -132,8 +158,26 @@
     // Wait for any (first to complete)
     CompletableFuture<Object> any = CompletableFuture.anyOf(f1, f2);
     ```
+  content_concise: |
+    ## CompletableFuture
+    - `supplyAsync(() -> ..., executor)` - always specify executor
+    - `thenApply` (map), `thenCompose` (flatMap)
+    - `thenCombine` - combine two futures
+    - `exceptionally`, `handle` - error handling
+    - `orTimeout` (Java 9+) - fail on timeout
+
+- id: "language/java/concurrency/completable_future/completablefuture-patterns-error-handling"
+  category: "language"
+  subcategory: "java"
+  priority: 92
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: COMPLETABLEFUTURE PATTERNS*
 
     ### Error Handling
+
     ```java
     CompletableFuture<String> withFallback = CompletableFuture
         .supplyAsync(() -> riskyOperation())
@@ -162,7 +206,18 @@
     });
     ```
 
+- id: "language/java/concurrency/completable_future/timeout-java-9"
+  category: "language"
+  subcategory: "java"
+  priority: 92
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: COMPLETABLEFUTURE PATTERNS*
+
     ### Timeout (Java 9+)
+
     ```java
     CompletableFuture<String> withTimeout = future
         .orTimeout(5, TimeUnit.SECONDS)
@@ -174,6 +229,7 @@
     ```
 
     ### Composition Patterns
+
     ```java
     // Sequential async operations
     CompletableFuture<Order> orderFuture = CompletableFuture
@@ -190,14 +246,6 @@
         );
     ```
 
-  content_concise: |
-    ## CompletableFuture
-    - `supplyAsync(() -> ..., executor)` - always specify executor
-    - `thenApply` (map), `thenCompose` (flatMap)
-    - `thenCombine` - combine two futures
-    - `exceptionally`, `handle` - error handling
-    - `orTimeout` (Java 9+) - fail on timeout
-
 - id: "language/java/concurrency/synchronization"
   category: "language"
   subcategory: "java"
@@ -209,6 +257,7 @@
     ## SYNCHRONIZATION PATTERNS
 
     ### When to Use What
+
     | Scenario | Use |
     |----------|-----|
     | Simple critical section | `synchronized` |
@@ -219,6 +268,7 @@
     | Virtual threads | `ReentrantLock` (avoid synchronized) |
 
     ### synchronized Keyword
+
     ```java
     // Method-level
     public synchronized void increment() {
@@ -235,8 +285,26 @@
     // NEVER synchronize on null or changing reference
     private final Object lock = new Object();  // Use final!
     ```
+  content_concise: |
+    ## Synchronization
+    - `synchronized` - simple critical sections
+    - `ReentrantLock` - timed/interruptible, virtual threads
+    - `ReadWriteLock` - multiple readers OR one writer
+    - `Atomic*` - lock-free single variable updates
+    - `volatile` - visibility only, NOT atomicity
+
+- id: "language/java/concurrency/synchronization/reentrantlock"
+  category: "language"
+  subcategory: "java"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: SYNCHRONIZATION PATTERNS*
 
     ### ReentrantLock
+
     ```java
     private final ReentrantLock lock = new ReentrantLock();
 
@@ -273,7 +341,18 @@
     }
     ```
 
+- id: "language/java/concurrency/synchronization/readwritelock"
+  category: "language"
+  subcategory: "java"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: SYNCHRONIZATION PATTERNS*
+
     ### ReadWriteLock
+
     ```java
     private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
     private final Lock readLock = rwLock.readLock();
@@ -299,6 +378,7 @@
     ```
 
     ### Atomic Classes
+
     ```java
     private final AtomicInteger counter = new AtomicInteger(0);
 
@@ -321,7 +401,18 @@
     }
     ```
 
+- id: "language/java/concurrency/synchronization/volatile-keyword"
+  category: "language"
+  subcategory: "java"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: SYNCHRONIZATION PATTERNS*
+
     ### volatile Keyword
+
     ```java
     // Visibility only - NOT atomicity
     private volatile boolean running = true;
@@ -337,14 +428,6 @@
     }
     ```
 
-  content_concise: |
-    ## Synchronization
-    - `synchronized` - simple critical sections
-    - `ReentrantLock` - timed/interruptible, virtual threads
-    - `ReadWriteLock` - multiple readers OR one writer
-    - `Atomic*` - lock-free single variable updates
-    - `volatile` - visibility only, NOT atomicity
-
 - id: "language/java/concurrency/concurrent_collections"
   category: "language"
   subcategory: "java"
@@ -356,6 +439,7 @@
     ## CONCURRENT COLLECTIONS
 
     ### ConcurrentHashMap Patterns
+
     ```java
     ConcurrentHashMap<String, Integer> map = new ConcurrentHashMap<>();
 
@@ -376,8 +460,25 @@
     // CORRECT - atomic merge (increment or initialize)
     map.merge(key, 1, Integer::sum);
     ```
+  content_concise: |
+    ## Concurrent Collections
+    - `ConcurrentHashMap` - atomic ops: `putIfAbsent`, `computeIfAbsent`, `merge`
+    - Never check-then-act, use atomic methods
+    - `BlockingQueue` for producer-consumer
+    - `CopyOnWriteArrayList` for read-heavy, rare writes
+
+- id: "language/java/concurrency/concurrent_collections/bulk-operations"
+  category: "language"
+  subcategory: "java"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: CONCURRENT COLLECTIONS*
 
     ### Bulk Operations
+
     ```java
     // Parallel forEach (parallelism threshold = 10000)
     map.forEach(10000, (k, v) -> process(k, v));
@@ -396,7 +497,18 @@
     );
     ```
 
+- id: "language/java/concurrency/concurrent_collections/other-concurrent-collections"
+  category: "language"
+  subcategory: "java"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: CONCURRENT COLLECTIONS*
+
     ### Other Concurrent Collections
+
     ```java
     // Thread-safe queue
     ConcurrentLinkedQueue<Task> queue = new ConcurrentLinkedQueue<>();
@@ -415,6 +527,7 @@
     ```
 
     ### Thread-Safe Collection Wrappers
+
     ```java
     // Synchronized wrappers (legacy - prefer concurrent collections)
     List<String> syncList = Collections.synchronizedList(new ArrayList<>());
@@ -427,11 +540,3 @@
         }
     }
     ```
-
-  content_concise: |
-    ## Concurrent Collections
-    - `ConcurrentHashMap` - atomic ops: `putIfAbsent`, `computeIfAbsent`, `merge`
-    - Never check-then-act, use atomic methods
-    - `BlockingQueue` for producer-consumer
-    - `CopyOnWriteArrayList` for read-heavy, rare writes
-

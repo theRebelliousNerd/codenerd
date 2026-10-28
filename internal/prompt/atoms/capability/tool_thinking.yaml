@@ -60,66 +60,31 @@
   content: |
     ## Tool Request Protocol
 
-    When invoking tools via Piggyback Protocol:
-
-    ### Single Tool Request
+    When invoking tools via Piggyback Protocol, add one or more entries to `tool_requests`:
     ```json
     "tool_requests": [
-      {
-        "id": "req_1",
-        "tool_name": "read_file",
-        "tool_args": {"path": "internal/core/kernel.go"},
-        "purpose": "Understand kernel implementation",
-        "required": true
-      }
+      {"id": "req_1", "tool_name": "read_file", "tool_args": {"path": "internal/core/kernel.go"},
+       "purpose": "Understand kernel implementation", "required": true},
+      {"id": "req_2", "tool_name": "glob", "tool_args": {"pattern": "internal/**/*.go"},
+       "purpose": "List all Go files"}
     ]
     ```
 
-    ### Multiple Tool Requests
+    ### Field semantics
+    - **id**: unique request ID for result correlation (e.g. "req_1", "tool_abc123")
+    - **tool_name**: exact tool name from the catalog
+    - **tool_args**: arguments matching the tool's schema
+    - **purpose**: why the tool is invoked (debugging/learning)
+    - **required**: true blocks execution; false/omitted is best-effort
+
+    Tool results are injected into your context on the next turn; reference them by request ID.
+
+    ### Requesting tool generation (Ouroboros)
+    When the catalog has no tool for what you need, add a fact:
     ```json
-    "tool_requests": [
-      {
-        "id": "req_1",
-        "tool_name": "read_file",
-        "tool_args": {"path": "go.mod"},
-        "purpose": "Check dependencies"
-      },
-      {
-        "id": "req_2",
-        "tool_name": "glob",
-        "tool_args": {"pattern": "internal/**/*.go"},
-        "purpose": "List all Go files"
-      }
-    ]
+    "mangle_updates": ["missing_tool_for(/parse, /yaml_parsing)."]
     ```
-
-    ### Field Semantics
-
-    - **id**: Unique request ID for result correlation (e.g., "req_1", "tool_abc123")
-    - **tool_name**: Exact tool name from the catalog
-    - **tool_args**: Arguments matching the tool's schema
-    - **purpose**: Why this tool is being invoked (for debugging/learning)
-    - **required**: If true, blocks execution; if false/omitted, best-effort
-
-    ### After Tool Execution
-
-    Tool results are automatically injected into your context on the next turn.
-    You can reference them by the request ID.
-
-    ### Requesting Tool Generation (Ouroboros)
-
-    When the catalog has no tool for what you need, ask for one by adding a fact:
-
-    ```json
-    "mangle_updates": [
-      "missing_tool_for(/parse, /yaml_parsing)."
-    ]
-    ```
-
-    The first argument is the capability atom, the second a description of what
-    the tool should do. This lives here rather than in capability/tool_thinking
-    because it is envelope syntax: tool_thinking is ungated and reaches roles that
-    must not emit an envelope.
+    First argument: the capability atom; second: what the tool should do. This lives here, not in capability/tool_thinking, because it is envelope syntax: tool_thinking is ungated and reaches roles that must not emit an envelope.
 
 - id: "capability/ouroboros_awareness"
   category: "capability"

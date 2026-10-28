@@ -41,6 +41,25 @@
   content: |
     ## THE SIX SACRED LAYERS (DETAILED SPECIFICATION)
 
+    Every file belongs to exactly one layer. Each layer has a concept, characteristics, "signs of life" (keywords and imports) and anti-patterns; the per-layer details follow as separate atoms.
+
+    1. **/scaffold** (Foundation): tools to build, deploy and configure; no business domain knowledge.
+    2. **/domain_core** (Inner Circle): WHAT the business is; pure Go, zero infrastructure dependencies.
+    3. **/data_layer** (Persistence): implements the Domain Core interfaces against SQL, NoSQL, filesystems, S3.
+    4. **/service** (Business Logic): the conductor; orchestrates use cases between Domain and Data Layer.
+    5. **/transport** (Interface): the gateway; turns HTTP, gRPC, CLI signals into service calls.
+    6. **/integration** (Wiring): the assembler; `main.go`, E2E tests, dependency injection.
+
+- id: "methodology/librarian/layers/layer-1-scaffold"
+  category: "methodology"
+  subcategory: "classification"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/librarian"]
+  depends_on: ["identity/librarian/mission"]
+  content: |
+    ## THE SIX SACRED LAYERS (DETAILED SPECIFICATION)
+
     ### LAYER 1: /scaffold (The Foundation)
     **Concept**: The bedrock upon which the application sits. These are not the application itself, but the tools required to build, deploy, and configure it.
     **Primary Characteristics**:
@@ -54,6 +73,16 @@
     **Anti-Patterns**:
     - Business logic in a Makefile (Shell scripts doing too much).
     - Database connection strings hardcoded in configuration loaders.
+
+- id: "methodology/librarian/layers/layer-2-domain-core"
+  category: "methodology"
+  subcategory: "classification"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/librarian"]
+  depends_on: ["identity/librarian/mission"]
+  content: |
+    ## THE SIX SACRED LAYERS (DETAILED SPECIFICATION)
 
     ### LAYER 2: /domain_core (The Inner Circle)
     **Concept**: The Platonic Ideals of the business. This layer defines WHAT the business is, without caring HOW it is stored or served.
@@ -70,6 +99,16 @@
     - A Domain Entity with a 'Save()' method (Active Record pattern is forbidden).
     - Importing "gorm" or "sqlx" tags in domain structs (leaky abstraction).
 
+- id: "methodology/librarian/layers/layer-3-data-layer"
+  category: "methodology"
+  subcategory: "classification"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/librarian"]
+  depends_on: ["identity/librarian/mission"]
+  content: |
+    ## THE SIX SACRED LAYERS (DETAILED SPECIFICATION)
+
     ### LAYER 3: /data_layer (The Persistence Mechanism)
     **Concept**: The materialization of the domain into bits and bytes. This layer implements the interfaces defined in the Domain Core.
     **Primary Characteristics**:
@@ -83,6 +122,16 @@
     **Anti-Patterns**:
     - HTTP logic in a repository.
     - Returning 'sql.Rows' directly to the service layer.
+
+- id: "methodology/librarian/layers/layer-4-service"
+  category: "methodology"
+  subcategory: "classification"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/librarian"]
+  depends_on: ["identity/librarian/mission"]
+  content: |
+    ## THE SIX SACRED LAYERS (DETAILED SPECIFICATION)
 
     ### LAYER 4: /service (The Business Logic)
     **Concept**: The Conductor. This layer orchestrates the flow of data between the Domain and the Data Layer. It implements the "Use Cases".
@@ -99,6 +148,16 @@
     - Direct SQL queries in a service method.
     - Reading "r.FormValue" in a service method.
 
+- id: "methodology/librarian/layers/layer-5-transport"
+  category: "methodology"
+  subcategory: "classification"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/librarian"]
+  depends_on: ["identity/librarian/mission"]
+  content: |
+    ## THE SIX SACRED LAYERS (DETAILED SPECIFICATION)
+
     ### LAYER 5: /transport (The Interface)
     **Concept**: The Gateway. This layer exposes the application to the outside world. It translates external signals (HTTP, gRPC, CLI) into internal service calls.
     **Primary Characteristics**:
@@ -112,6 +171,16 @@
     **Anti-Patterns**:
     - Business logic in a handler.
     - Direct database access from a handler.
+
+- id: "methodology/librarian/layers/layer-6-integration"
+  category: "methodology"
+  subcategory: "classification"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/librarian"]
+  depends_on: ["identity/librarian/mission"]
+  content: |
+    ## THE SIX SACRED LAYERS (DETAILED SPECIFICATION)
 
     ### LAYER 6: /integration (The Wiring)
     **Concept**: The Assembler. This layer brings everything together.

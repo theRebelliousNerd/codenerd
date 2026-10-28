@@ -14,12 +14,14 @@
     Immutable data carriers that auto-generate constructor, getters, equals(), hashCode(), toString().
 
     ### When to Use
+
     - Data Transfer Objects (DTOs)
     - Value objects in Domain-Driven Design
     - Return types for multiple values
     - HashMap/HashSet keys (naturally immutable)
 
     ### Basic Syntax
+
     ```java
     // Simple record - generates everything
     public record Point(int x, int y) {}
@@ -31,6 +33,7 @@
     ```
 
     ### Compact Constructor for Validation
+
     ```java
     public record User(String name, String email) {
         public User {  // Compact constructor - no parentheses
@@ -43,8 +46,25 @@
         }
     }
     ```
+  content_concise: |
+    ## Records (Java 16+)
+    - `record Point(int x, int y) {}` - immutable data carrier
+    - Auto-generates constructor, `equals()`, `hashCode()`, `toString()`
+    - Compact constructor for validation: `public User { /* validate */ }`
+    - Can have methods and implement interfaces
+
+- id: "language/java/modern/records/records-with-methods"
+  category: "language"
+  subcategory: "java"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: RECORDS (Java 16+)*
 
     ### Records with Methods
+
     ```java
     public record Range(int start, int end) {
         public int length() {
@@ -63,6 +83,7 @@
     ```
 
     ### Records Can Implement Interfaces
+
     ```java
     public sealed interface Shape permits Circle, Rectangle {}
 
@@ -80,17 +101,11 @@
     ```
 
     ### Limitations
+
     - Cannot extend other classes (implicitly extend Record)
     - All fields are final (no setters possible)
     - Cannot have instance fields beyond components
     - Can have static fields and methods
-
-  content_concise: |
-    ## Records (Java 16+)
-    - `record Point(int x, int y) {}` - immutable data carrier
-    - Auto-generates constructor, `equals()`, `hashCode()`, `toString()`
-    - Compact constructor for validation: `public User { /* validate */ }`
-    - Can have methods and implement interfaces
 
 - id: "language/java/modern/sealed_classes"
   category: "language"
@@ -168,6 +183,7 @@
     ## PATTERN MATCHING (Java 16-21+)
 
     ### instanceof Pattern Matching (Java 16+)
+
     ```java
     // OLD - redundant cast
     if (obj instanceof String) {
@@ -188,6 +204,7 @@
     ```
 
     ### Switch Expressions (Java 14+)
+
     ```java
     // Arrow syntax - no fall-through
     String result = switch (day) {
@@ -200,8 +217,25 @@
         }
     };
     ```
+  content_concise: |
+    ## Pattern Matching
+    - `instanceof String s` - pattern variable, no cast needed
+    - Switch expressions with `->` - no fall-through, yield for blocks
+    - `case X when condition ->` - guarded patterns (Java 21+)
+    - Record patterns: `case Point(int x, int y) ->`
+
+- id: "language/java/modern/pattern_matching/pattern-matching-in-switch-java-21"
+  category: "language"
+  subcategory: "java"
+  priority: 92
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: PATTERN MATCHING (Java 16-21+)*
 
     ### Pattern Matching in Switch (Java 21+)
+
     ```java
     String describe(Object obj) {
         return switch (obj) {
@@ -217,7 +251,18 @@
     }
     ```
 
+- id: "language/java/modern/pattern_matching/record-patterns-java-21"
+  category: "language"
+  subcategory: "java"
+  priority: 92
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: PATTERN MATCHING (Java 16-21+)*
+
     ### Record Patterns (Java 21+)
+
     ```java
     record Point(int x, int y) {}
     record ColoredPoint(Point p, String color) {}
@@ -242,6 +287,7 @@
     ```
 
     ### Guards with `when` Clause
+
     ```java
     String classify(Integer num) {
         return switch (num) {
@@ -252,13 +298,6 @@
         };
     }
     ```
-
-  content_concise: |
-    ## Pattern Matching
-    - `instanceof String s` - pattern variable, no cast needed
-    - Switch expressions with `->` - no fall-through, yield for blocks
-    - `case X when condition ->` - guarded patterns (Java 21+)
-    - Record patterns: `case Point(int x, int y) ->`
 
 - id: "language/java/modern/text_blocks"
   category: "language"
@@ -396,16 +435,19 @@
     Lightweight threads managed by JVM for massive concurrency.
 
     ### When to Use
+
     - I/O-bound operations (network, file, database)
     - High-concurrency scenarios (10,000+ concurrent tasks)
     - Simple blocking operations at scale
 
     ### When NOT to Use
+
     - CPU-intensive computations (no benefit)
     - Operations requiring thread-local state
     - Code using synchronized blocks extensively (pinning)
 
     ### Basic Usage
+
     ```java
     // Create virtual thread directly
     Thread vThread = Thread.ofVirtual().start(() -> {
@@ -418,8 +460,25 @@
         .name("worker-", 0)
         .start(() -> doWork());
     ```
+  content_concise: |
+    ## Virtual Threads (Java 21+)
+    - `Executors.newVirtualThreadPerTaskExecutor()` - preferred
+    - Use for I/O-bound work, NOT CPU-intensive
+    - Avoid `synchronized` (causes pinning) - use `ReentrantLock`
+    - Auto-shutdown with try-with-resources
+
+- id: "language/java/modern/virtual_threads/virtual-thread-executor-preferred"
+  category: "language"
+  subcategory: "java"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: VIRTUAL THREADS (Java 21+)*
 
     ### Virtual Thread Executor (Preferred)
+
     ```java
     try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
         List<Future<String>> futures = urls.stream()
@@ -434,6 +493,7 @@
     ```
 
     ### Structured Concurrency (Preview)
+
     ```java
     try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
         Future<User> user = scope.fork(() -> fetchUser(userId));
@@ -446,7 +506,18 @@
     }
     ```
 
+- id: "language/java/modern/virtual_threads/avoid-pinning"
+  category: "language"
+  subcategory: "java"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: VIRTUAL THREADS (Java 21+)*
+
     ### Avoid Pinning
+
     ```java
     // WRONG - synchronized pins virtual thread to carrier
     synchronized (lock) {
@@ -463,11 +534,3 @@
         lock.unlock();
     }
     ```
-
-  content_concise: |
-    ## Virtual Threads (Java 21+)
-    - `Executors.newVirtualThreadPerTaskExecutor()` - preferred
-    - Use for I/O-bound work, NOT CPU-intensive
-    - Avoid `synchronized` (causes pinning) - use `ReentrantLock`
-    - Auto-shutdown with try-with-resources
-

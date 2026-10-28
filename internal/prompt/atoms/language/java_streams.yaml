@@ -76,6 +76,7 @@
     ## STREAM OPERATIONS
 
     ### Intermediate Operations (lazy, return Stream)
+
     ```java
     stream
         .filter(x -> x > 0)           // Keep matching elements
@@ -90,8 +91,25 @@
         .takeWhile(x -> x < 100)      // Take until predicate fails (Java 9+)
         .dropWhile(x -> x < 10)       // Skip until predicate fails (Java 9+)
     ```
+  content_concise: |
+    ## Stream Operations
+    - Intermediate (lazy): `filter`, `map`, `flatMap`, `distinct`, `sorted`
+    - Terminal (execute): `forEach`, `collect`, `reduce`, `count`, `findFirst`
+    - Filter EARLY to reduce work
+    - Never use mutable state in lambdas
+
+- id: "language/java/streams/operations/terminal-operations-trigger-execution"
+  category: "language"
+  subcategory: "java"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: STREAM OPERATIONS*
 
     ### Terminal Operations (trigger execution)
+
     ```java
     // Consuming
     stream.forEach(System.out::println);
@@ -119,7 +137,18 @@
     int sum = stream.reduce(0, Integer::sum);  // With identity
     ```
 
+- id: "language/java/streams/operations/stream-operations-best-practices"
+  category: "language"
+  subcategory: "java"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: STREAM OPERATIONS*
+
     ### Best Practices
+
     ```java
     // Filter EARLY to reduce work
     items.stream()
@@ -135,13 +164,6 @@
     List<String> good = stream.collect(Collectors.toList());
     ```
 
-  content_concise: |
-    ## Stream Operations
-    - Intermediate (lazy): `filter`, `map`, `flatMap`, `distinct`, `sorted`
-    - Terminal (execute): `forEach`, `collect`, `reduce`, `count`, `findFirst`
-    - Filter EARLY to reduce work
-    - Never use mutable state in lambdas
-
 - id: "language/java/streams/collectors"
   category: "language"
   subcategory: "java"
@@ -153,6 +175,7 @@
     ## COLLECTORS PATTERNS
 
     ### Basic Collectors
+
     ```java
     // Lists
     List<String> mutable = stream.collect(Collectors.toList());
@@ -182,8 +205,26 @@
             LinkedHashMap::new
         ));
     ```
+  content_concise: |
+    ## Collectors
+    - `toList()` (Java 16+), `toSet()`, `toMap(keyFn, valueFn)`
+    - `groupingBy(classifier)` - group into Map
+    - `partitioningBy(predicate)` - split into true/false
+    - `joining(delimiter)` - concatenate strings
+    - Handle duplicate keys: `toMap(k, v, mergeFunction)`
+
+- id: "language/java/streams/collectors/grouping"
+  category: "language"
+  subcategory: "java"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: COLLECTORS PATTERNS*
 
     ### Grouping
+
     ```java
     // Group by key
     Map<Department, List<Employee>> byDept = employees.stream()
@@ -211,7 +252,18 @@
         ));
     ```
 
+- id: "language/java/streams/collectors/partitioning"
+  category: "language"
+  subcategory: "java"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: COLLECTORS PATTERNS*
+
     ### Partitioning
+
     ```java
     // Partition into two groups
     Map<Boolean, List<Employee>> partitioned = employees.stream()
@@ -224,6 +276,7 @@
     ```
 
     ### String Joining
+
     ```java
     String names = employees.stream()
         .map(Employee::getName)
@@ -237,6 +290,7 @@
     ```
 
     ### Statistics
+
     ```java
     IntSummaryStatistics stats = employees.stream()
         .collect(Collectors.summarizingInt(Employee::getAge));
@@ -247,14 +301,6 @@
     stats.getMax();
     stats.getAverage();
     ```
-
-  content_concise: |
-    ## Collectors
-    - `toList()` (Java 16+), `toSet()`, `toMap(keyFn, valueFn)`
-    - `groupingBy(classifier)` - group into Map
-    - `partitioningBy(predicate)` - split into true/false
-    - `joining(delimiter)` - concatenate strings
-    - Handle duplicate keys: `toMap(k, v, mergeFunction)`
 
 - id: "language/java/streams/parallel"
   category: "language"
@@ -267,12 +313,14 @@
     ## PARALLEL STREAMS
 
     ### When to Use
+
     - Large datasets (100,000+ elements minimum)
     - CPU-intensive operations per element
     - Operations are independent (no shared state)
     - Data source is easily splittable (ArrayList, arrays)
 
     ### When to AVOID
+
     - Small datasets (overhead > benefit)
     - I/O-bound operations (use virtual threads instead)
     - Order matters and source is LinkedList
@@ -280,6 +328,7 @@
     - Using stateful lambdas
 
     ### Basic Usage
+
     ```java
     // From stream
     long count = hugeList.parallelStream()
@@ -293,6 +342,7 @@
     ```
 
     ### Custom ForkJoinPool
+
     ```java
     // Isolate parallel stream from common pool
     ForkJoinPool customPool = new ForkJoinPool(4);
@@ -306,8 +356,25 @@
         customPool.shutdown();
     }
     ```
+  content_concise: |
+    ## Parallel Streams
+    - Use for: Large data (100K+), CPU-intensive, independent ops
+    - Avoid for: Small data, I/O-bound, ordered LinkedList, side effects
+    - Use `groupingByConcurrent()` for parallel grouping
+    - `findAny()` faster than `findFirst()` in parallel
+
+- id: "language/java/streams/parallel/concurrent-collectors"
+  category: "language"
+  subcategory: "java"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: PARALLEL STREAMS*
 
     ### Concurrent Collectors
+
     ```java
     // Use concurrent collectors for parallel streams
     Map<String, List<Item>> grouped = items.parallelStream()
@@ -321,6 +388,7 @@
     ```
 
     ### Ordered vs Unordered
+
     ```java
     // Unordered can improve parallel performance
     long count = list.parallelStream()
@@ -331,11 +399,3 @@
     // findAny is faster than findFirst in parallel
     Optional<Item> any = list.parallelStream().findAny();
     ```
-
-  content_concise: |
-    ## Parallel Streams
-    - Use for: Large data (100K+), CPU-intensive, independent ops
-    - Avoid for: Small data, I/O-bound, ordered LinkedList, side effects
-    - Use `groupingByConcurrent()` for parallel grouping
-    - `findAny()` faster than `findFirst()` in parallel
-

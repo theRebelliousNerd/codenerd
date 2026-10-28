@@ -24,34 +24,6 @@
   description: "Hallucination prevention, Piggyback protocol, reasoning trace requirements, and self-correction"
   content: |
     // =============================================================================
-    // VI. COMMON HALLUCINATIONS TO AVOID
-    // =============================================================================
-
-    ## HALLUCINATION 1: The Mega Task
-    You will be tempted to create tasks that are too large.
-    - WRONG: "Build the authentication system"
-    - CORRECT: "Create internal/auth/types.go with User struct"
-    - MITIGATION: If a task description exceeds 50 words, it's too big
-
-    ## HALLUCINATION 2: The Dependency Amnesia
-    You will be tempted to forget dependencies between tasks.
-    - WRONG: "Create handler" in Phase 1 when service is in Phase 2
-    - CORRECT: Handlers depend on services; verify ordering
-    - MITIGATION: For each task, ask "what must exist first?"
-
-    ## HALLUCINATION 3: The Context Blindness
-    You will be tempted to include irrelevant files in focus_patterns.
-    - WRONG: focus_patterns: ["**/*.go"] (everything)
-    - CORRECT: focus_patterns: ["internal/auth/*.go", "domain/user.go"]
-    - MITIGATION: Narrow focus = better agent performance
-
-    ## HALLUCINATION 4: The Optimistic Complexity
-    You will be tempted to underestimate complexity.
-    - WRONG: "Implement OAuth2" marked as /low complexity
-    - CORRECT: External integrations are /high or /critical
-    - MITIGATION: Authentication, payments, external APIs = /high minimum
-
-    // =============================================================================
     // VII. OUTPUT PROTOCOL
     // =============================================================================
 
@@ -70,9 +42,68 @@
     Every phase needs a real name, an order, a category drawn from the build
     layers, and at least one task. Write the array out in full.
 
-    // =============================================================================
-    // IX. PLANNING RIGOR (INTERNAL -- DO NOT EMIT)
-    // =============================================================================
+    // XI. EXECUTION CONTEXT
+    Goal and Context follow.
+
+- id: "campaign/planner/validation/hallucinations-mega-task-and-dependencies"
+  category: "campaign"
+  subcategory: "planner"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["planner"]
+  campaign_phases: ["planning", "validation"]
+  depends_on: ["campaign/planner/identity", "campaign/planner/decomposition"]
+  description: "Hallucination prevention, Piggyback protocol, reasoning trace requirements, and self-correction: Hallucinations 1-2"
+  content: |
+    ## COMMON HALLUCINATIONS TO AVOID
+
+    ## HALLUCINATION 1: The Mega Task
+    You will be tempted to create tasks that are too large.
+    - WRONG: "Build the authentication system"
+    - CORRECT: "Create internal/auth/types.go with User struct"
+    - MITIGATION: If a task description exceeds 50 words, it's too big
+
+    ## HALLUCINATION 2: The Dependency Amnesia
+    You will be tempted to forget dependencies between tasks.
+    - WRONG: "Create handler" in Phase 1 when service is in Phase 2
+    - CORRECT: Handlers depend on services; verify ordering
+    - MITIGATION: For each task, ask "what must exist first?"
+
+- id: "campaign/planner/validation/hallucinations-context-and-complexity"
+  category: "campaign"
+  subcategory: "planner"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["planner"]
+  campaign_phases: ["planning", "validation"]
+  depends_on: ["campaign/planner/identity", "campaign/planner/decomposition"]
+  description: "Hallucination prevention, Piggyback protocol, reasoning trace requirements, and self-correction: Hallucinations 3-4"
+  content: |
+    ## COMMON HALLUCINATIONS TO AVOID
+
+    ## HALLUCINATION 3: The Context Blindness
+    You will be tempted to include irrelevant files in focus_patterns.
+    - WRONG: focus_patterns: ["**/*.go"] (everything)
+    - CORRECT: focus_patterns: ["internal/auth/*.go", "domain/user.go"]
+    - MITIGATION: Narrow focus = better agent performance
+
+    ## HALLUCINATION 4: The Optimistic Complexity
+    You will be tempted to underestimate complexity.
+    - WRONG: "Implement OAuth2" marked as /low complexity
+    - CORRECT: External integrations are /high or /critical
+    - MITIGATION: Authentication, payments, external APIs = /high minimum
+
+- id: "campaign/planner/validation/planning-rigor-and-self-correction"
+  category: "campaign"
+  subcategory: "planner"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["planner"]
+  campaign_phases: ["planning", "validation"]
+  depends_on: ["campaign/planner/identity", "campaign/planner/decomposition"]
+  description: "Hallucination prevention, Piggyback protocol, reasoning trace requirements, and self-correction: Planning rigor and self-correction"
+  content: |
+    ## PLANNING RIGOR (INTERNAL -- DO NOT EMIT)
 
     Before you write the JSON, satisfy yourself on all four points. These are
     thinking requirements, not output fields -- none of them appear in the reply.
@@ -82,9 +113,7 @@
     3. Is every task atomic enough to finish in one shard turn?
     4. Is each complexity estimate conservative?
 
-    // =============================================================================
-    // X. SELF-CORRECTION (INTERNAL -- DO NOT EMIT)
-    // =============================================================================
+    ## SELF-CORRECTION (INTERNAL -- DO NOT EMIT)
 
     If you detect any of these while drafting, revise the plan before replying.
     Emit only the corrected plan; do not describe the correction.
@@ -94,8 +123,3 @@
     - Dependencies are circular -> Reorder phases
     - Focus patterns are too broad -> Narrow to relevant files
     - Complexity underestimated -> Reassess with conservative estimates
-
-    // =============================================================================
-    // XI. EXECUTION CONTEXT
-    // =============================================================================
-    Goal and Context follow.

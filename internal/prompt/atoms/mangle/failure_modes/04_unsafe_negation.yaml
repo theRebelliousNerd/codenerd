@@ -10,35 +10,50 @@
   languages: ["/mangle"]
   content: |
     # Failure Mode 4: Unsafe Negation (Unbounded Variables)
-    
+
     ## Category
+
     Semantic Safety & Logic (Datalog Safety Violation)
-    
+
     ## Severity
+
     CRITICAL - Runtime error or panic
-    
+
     ## Error Pattern
+
     Using negation with unbounded variables. Every variable in a negated atom MUST be bound by a positive atom that appears BEFORE the negation.
-    
+
     ## Wrong Code
+
     ```mangle
     # WRONG - X is not bound before negation
     non_admin(User) :- !admin(User).  # UNSAFE - will crash!
-    
+
     # WRONG - Y is unbound in negation
     bad(X, Y) :- foo(X), !bar(Y).  # Y never bound!
-    
+
     # WRONG - X bound AFTER negation (order matters)
     bad(X) :- !excluded(X), source(X).  # X unbound when negation evaluated
-    
+
     # WRONG - Multiple unbound variables
     bad(X, Y, Z) :- foo(X), !bar(Y, Z).  # Y and Z unbound
-    
+
     # WRONG - Thinking negation generates values
     orphan(Child) :- !parent(_, Child).  # Child unbound!
     ```
-    
+
+- id: "language/mangle/docs/failure_modes/04_unsafe_negation/failure-mode-4-unsafe-negation-unbounded"
+  category: "language"
+  subcategory: "mangle"
+  description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Failure Mode 4: Unsafe Negation (Unbounded Variables) Correct Code"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Failure Mode 4: Unsafe Negation (Unbounded Variables)*
+
     ## Correct Code
+
     ```mangle
     # CORRECT - User is bound by user() first
     Decl user(User).
@@ -74,135 +89,199 @@
     orphan(Child) :- child(Child), !has_parent(Child).
     #                ^^^^^^^^^^^^ Binds Child first
     ```
-    
+
+- id: "language/mangle/docs/failure_modes/04_unsafe_negation/failure-mode-4-unsafe-negation-unbounded-2"
+  category: "language"
+  subcategory: "mangle"
+  description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Failure Mode 4: Unsafe Negation (Unbounded Variables) Detection"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Failure Mode 4: Unsafe Negation (Unbounded Variables)*
+
     ## Detection
+
     - **Symptom**: Error like "unsafe variable in negation"
     - **Symptom**: Panic about unbounded domain
     - **Pattern**: `!pred(X)` where X doesn't appear in positive atom before
     - **Pattern**: Variable appears first in negated position
     - **Test**: For each `!pred(V1, V2, ...)`, verify all variables appear in positive atoms earlier
-    
+
     ## Prevention
-    
+
     ### Safety Checklist
+
     Before any negation `!pred(X, Y, ...)`:
     1. ✓ Is every variable already bound by a positive atom?
     2. ✓ Does the positive atom appear BEFORE the negation?
     3. ✓ Are you trying to enumerate all possible values? (This won't work!)
-    
+
+- id: "language/mangle/docs/failure_modes/04_unsafe_negation/mental-model-generators-vs-filters"
+  category: "language"
+  subcategory: "mangle"
+  description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Mental Model: Generators vs Filters"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Failure Mode 4: Unsafe Negation (Unbounded Variables) > Prevention*
+
     ### Mental Model: Generators vs Filters
-    
+
     **Positive atoms = Generators** (produce values)
     ```mangle
     user(X)           # Generates all users
     edge(X, Y)        # Generates all edges
     status(X, /active) # Generates all active items
     ```
-    
+
     **Negative atoms = Filters** (reject values)
     ```mangle
     !admin(X)      # Filters out admins
     !blocked(X, Y) # Filters out blocked pairs
     !excluded(X)   # Filters out excluded items
     ```
-    
+
     **Rule**: Always generate before filtering!
-    
+
+- id: "language/mangle/docs/failure_modes/04_unsafe_negation/safe-patterns-reference"
+  category: "language"
+  subcategory: "mangle"
+  description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Safe Patterns Reference"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Failure Mode 4: Unsafe Negation (Unbounded Variables) > Prevention*
+
     ### Safe Patterns Reference
-    
+
     ```mangle
     # Pattern 1: Simple filtering
     good(X) :- candidate(X), !bad(X).
-    
+
     # Pattern 2: Join then filter
     related(X, Y) :-
         entity_a(X),
         entity_b(Y),
         !incompatible(X, Y).
-    
+
     # Pattern 3: Multiple filters
     valid(X) :-
         source(X),
         !excluded(X),
         !deprecated(X),
         !blocked(X).
-    
+
     # Pattern 4: Negated join (all variables bound)
     missing_edge(X, Y) :-
         node(X),
         node(Y),
         X != Y,
         !edge(X, Y).
-    
+
     # Pattern 5: Set difference using intermediate predicate
     # Find children without parents
     has_parent(C) :- parent(_, C).
     orphan(C) :- child(C), !has_parent(C).
-    
+
     # Pattern 6: Double negation (De Morgan's law)
     # "X is active OR healthy" = "X is not (inactive AND unhealthy)"
     good(X) :- entity(X), !bad(X).
     bad(X) :- inactive(X), unhealthy(X).
     ```
-    
+
+- id: "language/mangle/docs/failure_modes/04_unsafe_negation/unsafe-patterns-do-not-use"
+  category: "language"
+  subcategory: "mangle"
+  description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Unsafe Patterns (DO NOT USE)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Failure Mode 4: Unsafe Negation (Unbounded Variables) > Prevention*
+
     ### Unsafe Patterns (DO NOT USE)
-    
+
     ```mangle
     # UNSAFE: Direct negation without generator
     bad(X) :- !foo(X).              # X unbound
-    
+
     # UNSAFE: Generator appears AFTER negation
     bad(X) :- !foo(X), source(X).   # Wrong order
-    
+
     # UNSAFE: Partial binding
     bad(X, Y) :- foo(X), !bar(Y).   # Y unbound
-    
+
     # UNSAFE: Negation in head of recursive rule
     bad(X) :- parent(X, Y), !bad(Y). # Stratification issue
-    
+
     # UNSAFE: Trying to enumerate "missing" items
     missing(X) :- !exists(X).       # No generator!
     ```
-    
+
+- id: "language/mangle/docs/failure_modes/04_unsafe_negation/why-this-restriction-exists"
+  category: "language"
+  subcategory: "mangle"
+  description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Why This Restriction Exists"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Failure Mode 4: Unsafe Negation (Unbounded Variables)*
+
     ## Why This Restriction Exists
-    
+
     ### The Infinite Domain Problem
+
     ```mangle
     # Without generator, what values should X take?
     bad(X) :- !admin(X).
-    
+
     # Mangle would need to test:
     # - Every possible string?
     # - Every possible atom?
     # - Every possible integer?
     # This is INFINITE - impossible to compute!
     ```
-    
+
     ### Bottom-Up Evaluation
+
     Mangle uses **bottom-up evaluation** (compute ALL facts):
     1. Start with base facts (EDB)
     2. Apply rules to generate new facts
     3. Repeat until no new facts (fixpoint)
-    
+
     Negation requires knowing "what doesn't exist", but you can only test values that COULD exist (from generators).
-    
+
+- id: "language/mangle/docs/failure_modes/04_unsafe_negation/complex-example-finding-missing"
+  category: "language"
+  subcategory: "mangle"
+  description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Complex Example: Finding Missing Relationships"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Failure Mode 4: Unsafe Negation (Unbounded Variables)*
+
     ## Complex Example: Finding Missing Relationships
-    
+
     ```mangle
     # Schema
     Decl person(Name) bound [/name].
     Decl friend(P1, P2) bound [/name, /name].
     Decl not_friend(P1, P2) bound [/name, /name].
-    
+
     # Base facts
     person(/alice).
     person(/bob).
     person(/carol).
     friend(/alice, /bob).
-    
+
     # WRONG - Unbounded variables
     not_friend(X, Y) :- !friend(X, Y).  # UNSAFE!
-    
+
     # CORRECT - Bind all variables first
     not_friend(X, Y) :-
         person(X),
@@ -211,27 +290,40 @@
         !friend(X, Y),        # Now safe: X and Y are bound
         !friend(Y, X).        # Check both directions
     ```
-    
+
     ## Training Bias Origins
+
     | Language | Syntax | Leads to Wrong Mangle |
     |----------|--------|----------------------|
     | SQL | `SELECT * FROM users WHERE id NOT IN (...)` | Assumes filtering works on unbounded sets |
     | Prolog | `\+ goal(X)` with backtracking | Mangle has no backtracking |
     | Python | `[x for x in ... if !pred(x)]` | Generator is explicit in Python |
-    
+
+- id: "language/mangle/docs/failure_modes/04_unsafe_negation/failure-mode-4-unsafe-negation-unbounded-3"
+  category: "language"
+  subcategory: "mangle"
+  description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Failure Mode 4: Unsafe Negation (Unbounded Variables) Quick Check"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Failure Mode 4: Unsafe Negation (Unbounded Variables)*
+
     ## Quick Check
+
     For every negation `!pred(V1, V2, ...)`:
     1. Find each variable (V1, V2, etc.)
     2. For each variable, locate a positive atom that binds it
     3. Verify the positive atom appears BEFORE the negation
     4. If any variable is not bound → UNSAFE!
-    
+
     ## Debugging Aid
+
     ```mangle
     # Add this pattern to trace what's being generated vs filtered:
     debug_generated(X) :- source(X).  # Generator
     debug_filtered(X) :- source(X), !excluded(X).  # Filter applied
-    
+
     # Query both to see the difference:
     # ?debug_generated(X)  → Shows all generated values
     # ?debug_filtered(X)   → Shows after filtering

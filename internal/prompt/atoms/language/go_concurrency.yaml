@@ -12,6 +12,7 @@
     ## GO CONCURRENCY FUNDAMENTALS
 
     ### The Go Concurrency Philosophy
+
     "Don't communicate by sharing memory; share memory by communicating." - Rob Pike
 
     Go's concurrency model is based on CSP (Communicating Sequential Processes).
@@ -56,6 +57,23 @@
         }
     }()
     ```
+  content_concise: |
+    ## Go Concurrency Essentials
+    - Goroutines: `go func(){}()` - lightweight, need exit conditions
+    - Channels: `make(chan T)` unbuffered, `make(chan T, n)` buffered
+    - Always use context cancellation for long-running goroutines
+    - Only sender closes channels; close(nil) and double-close panic
+    - Share memory by communicating, not vice versa
+
+- id: "language/go/concurrency/fundamentals/channel-fundamentals"
+  category: "language"
+  subcategory: "go"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  content: |
+    *Part of: GO CONCURRENCY FUNDAMENTALS*
 
     ### Channel Fundamentals
 
@@ -83,14 +101,6 @@
     - Closing a nil channel panics
     - Closing a closed channel panics
 
-  content_concise: |
-    ## Go Concurrency Essentials
-    - Goroutines: `go func(){}()` - lightweight, need exit conditions
-    - Channels: `make(chan T)` unbuffered, `make(chan T, n)` buffered
-    - Always use context cancellation for long-running goroutines
-    - Only sender closes channels; close(nil) and double-close panic
-    - Share memory by communicating, not vice versa
-
 - id: "language/go/concurrency/patterns"
   category: "language"
   subcategory: "go"
@@ -103,6 +113,7 @@
     ## GO CONCURRENCY PATTERNS
 
     ### Worker Pool Pattern
+
     ```go
     func WorkerPool(ctx context.Context, jobs <-chan Job, results chan<- Result, workers int) {
         var wg sync.WaitGroup
@@ -127,8 +138,27 @@
         close(results)
     }
     ```
+  content_concise: |
+    ## Go Concurrency Patterns
+    - Worker Pool: Fixed goroutines processing job channel
+    - Fan-Out/Fan-In: Distribute work, merge results
+    - Pipeline: Chain of processing stages
+    - Semaphore: `make(chan struct{}, n)` for bounded concurrency
+    - Or-Done: Wrap channel with context cancellation
+
+- id: "language/go/concurrency/patterns/fan-out-fan-in-pattern"
+  category: "language"
+  subcategory: "go"
+  priority: 84
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/concurrency/fundamentals"]
+  content: |
+    *Part of: GO CONCURRENCY PATTERNS*
 
     ### Fan-Out, Fan-In Pattern
+
     ```go
     // Fan-out: Distribute work to multiple goroutines
     func fanOut(ctx context.Context, input <-chan int, workers int) []<-chan int {
@@ -174,7 +204,19 @@
     }
     ```
 
+- id: "language/go/concurrency/patterns/pipeline-pattern"
+  category: "language"
+  subcategory: "go"
+  priority: 84
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/concurrency/fundamentals"]
+  content: |
+    *Part of: GO CONCURRENCY PATTERNS*
+
     ### Pipeline Pattern
+
     ```go
     func Pipeline(ctx context.Context, input <-chan int) <-chan int {
         stage1 := transform(ctx, input, double)
@@ -206,7 +248,19 @@
     }
     ```
 
+- id: "language/go/concurrency/patterns/semaphore-pattern-bounded-concurrency"
+  category: "language"
+  subcategory: "go"
+  priority: 84
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/concurrency/fundamentals"]
+  content: |
+    *Part of: GO CONCURRENCY PATTERNS*
+
     ### Semaphore Pattern (Bounded Concurrency)
+
     ```go
     type Semaphore chan struct{}
 
@@ -229,6 +283,7 @@
     ```
 
     ### Or-Done Pattern (Early Exit)
+
     ```go
     func orDone(ctx context.Context, ch <-chan int) <-chan int {
         out := make(chan int)
@@ -254,14 +309,6 @@
     }
     ```
 
-  content_concise: |
-    ## Go Concurrency Patterns
-    - Worker Pool: Fixed goroutines processing job channel
-    - Fan-Out/Fan-In: Distribute work, merge results
-    - Pipeline: Chain of processing stages
-    - Semaphore: `make(chan struct{}, n)` for bounded concurrency
-    - Or-Done: Wrap channel with context cancellation
-
 - id: "language/go/concurrency/sync_primitives"
   category: "language"
   subcategory: "go"
@@ -274,6 +321,7 @@
     ## GO SYNC PRIMITIVES
 
     ### sync.WaitGroup
+
     ```go
     var wg sync.WaitGroup
 
@@ -294,6 +342,7 @@
     - Never copy a WaitGroup after first use
 
     ### sync.Mutex / sync.RWMutex
+
     ```go
     var mu sync.Mutex
     mu.Lock()
@@ -313,8 +362,28 @@
     - Keep critical sections as small as possible
     - Use RWMutex when reads vastly outnumber writes
     - Never copy a Mutex after first use
+  content_concise: |
+    ## Go Sync Primitives
+    - WaitGroup: `Add()` before goroutine, `Done()` in defer, `Wait()` to block
+    - Mutex: `Lock()/Unlock()`, always defer Unlock
+    - RWMutex: `RLock()` for reads, `Lock()` for writes
+    - Once: `once.Do(fn)` - runs exactly once
+    - Pool: Object reuse, always Reset before Put
+    - atomic: Lock-free counters, `atomic.AddInt64(&v, 1)`
+
+- id: "language/go/concurrency/sync_primitives/sync-once"
+  category: "language"
+  subcategory: "go"
+  priority: 83
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/concurrency/fundamentals"]
+  content: |
+    *Part of: GO SYNC PRIMITIVES*
 
     ### sync.Once
+
     ```go
     var once sync.Once
     var instance *Service
@@ -334,6 +403,7 @@
     - Safe for lazy initialization patterns
 
     ### sync.Cond
+
     ```go
     var mu sync.Mutex
     cond := sync.NewCond(&mu)
@@ -353,7 +423,19 @@
     mu.Unlock()
     ```
 
+- id: "language/go/concurrency/sync_primitives/sync-map-concurrent-map"
+  category: "language"
+  subcategory: "go"
+  priority: 83
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/concurrency/fundamentals"]
+  content: |
+    *Part of: GO SYNC PRIMITIVES*
+
     ### sync.Map (Concurrent Map)
+
     ```go
     var m sync.Map
 
@@ -372,6 +454,7 @@
     - NOT for general-purpose concurrent maps (use mutex + map)
 
     ### sync.Pool (Object Reuse)
+
     ```go
     var bufPool = sync.Pool{
         New: func() interface{} {
@@ -392,7 +475,19 @@
     - Always reset objects before returning to pool
     - Not for connection pooling (use dedicated pool)
 
+- id: "language/go/concurrency/sync_primitives/atomic-package"
+  category: "language"
+  subcategory: "go"
+  priority: 83
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/concurrency/fundamentals"]
+  content: |
+    *Part of: GO SYNC PRIMITIVES*
+
     ### atomic Package
+
     ```go
     var counter int64
 
@@ -406,15 +501,6 @@
     counter.Add(1)
     counter.Load()
     ```
-
-  content_concise: |
-    ## Go Sync Primitives
-    - WaitGroup: `Add()` before goroutine, `Done()` in defer, `Wait()` to block
-    - Mutex: `Lock()/Unlock()`, always defer Unlock
-    - RWMutex: `RLock()` for reads, `Lock()` for writes
-    - Once: `once.Do(fn)` - runs exactly once
-    - Pool: Object reuse, always Reset before Put
-    - atomic: Lock-free counters, `atomic.AddInt64(&v, 1)`
 
 - id: "language/go/concurrency/errgroup"
   category: "language"
@@ -431,6 +517,7 @@
     for groups of goroutines.
 
     ### Basic Usage
+
     ```go
     import "golang.org/x/sync/errgroup"
 
@@ -447,6 +534,28 @@
         return g.Wait()  // Returns first non-nil error
     }
     ```
+  content_concise: |
+    ## errgroup: Concurrent Error Handling
+    ```go
+    g, ctx := errgroup.WithContext(ctx)
+    g.SetLimit(10)  // Optional: limit concurrency
+    for _, item := range items {
+        item := item
+        g.Go(func() error { return process(ctx, item) })
+    }
+    return g.Wait()  // First error cancels ctx, Wait returns it
+    ```
+
+- id: "language/go/concurrency/errgroup/key-features"
+  category: "language"
+  subcategory: "go"
+  priority: 82
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/concurrency/fundamentals"]
+  content: |
+    *Part of: ERRGROUP: CONCURRENT ERROR HANDLING*
 
     ### Key Features
 
@@ -476,6 +585,17 @@
         })
     }
     ```
+
+- id: "language/go/concurrency/errgroup/errgroup-concurrent-error-handling-common"
+  category: "language"
+  subcategory: "go"
+  priority: 82
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/concurrency/fundamentals"]
+  content: |
+    *Part of: ERRGROUP: CONCURRENT ERROR HANDLING*
 
     ### Common Patterns
 
@@ -521,6 +641,17 @@
     }
     ```
 
+- id: "language/go/concurrency/errgroup/errgroup-vs-waitgroup"
+  category: "language"
+  subcategory: "go"
+  priority: 82
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/concurrency/fundamentals"]
+  content: |
+    *Part of: ERRGROUP: CONCURRENT ERROR HANDLING*
+
     ### errgroup vs WaitGroup
 
     | Feature | WaitGroup | errgroup |
@@ -539,18 +670,6 @@
     - Simple fire-and-forget goroutines
     - No error handling needed
     - Maximum performance (slightly less overhead)
-
-  content_concise: |
-    ## errgroup: Concurrent Error Handling
-    ```go
-    g, ctx := errgroup.WithContext(ctx)
-    g.SetLimit(10)  // Optional: limit concurrency
-    for _, item := range items {
-        item := item
-        g.Go(func() error { return process(ctx, item) })
-    }
-    return g.Wait()  // First error cancels ctx, Wait returns it
-    ```
 
 - id: "language/go/concurrency/context"
   category: "language"
@@ -623,6 +742,33 @@
     ctx = context.WithValue(parent, requestIDKey, "abc123")
     requestID := ctx.Value(requestIDKey).(string)
     ```
+  content_concise: |
+    ## Context: Cancellation and Deadlines
+    ```go
+    ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+    defer cancel()  // ALWAYS call cancel
+
+    select {
+    case <-ctx.Done():
+        return ctx.Err()  // Canceled or DeadlineExceeded
+    case result := <-work(ctx):
+        return result
+    }
+    ```
+    - First param: `func Foo(ctx context.Context, ...)`
+    - Check `ctx.Done()` in loops
+    - Don't store in structs, pass to methods
+
+- id: "language/go/concurrency/context/context-best-practices"
+  category: "language"
+  subcategory: "go"
+  priority: 86
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/concurrency/fundamentals"]
+  content: |
+    *Part of: CONTEXT: CANCELLATION AND DEADLINES*
 
     ### Context Best Practices
 
@@ -674,13 +820,26 @@
     - Authentication tokens
     - NOT for optional parameters
 
+- id: "language/go/concurrency/context/context-errors"
+  category: "language"
+  subcategory: "go"
+  priority: 86
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/concurrency/fundamentals"]
+  content: |
+    *Part of: CONTEXT: CANCELLATION AND DEADLINES*
+
     ### Context Errors
+
     ```go
     ctx.Err() == context.Canceled         // Cancel was called
     ctx.Err() == context.DeadlineExceeded // Timeout/deadline hit
     ```
 
     ### HTTP Context Integration
+
     ```go
     func Handler(w http.ResponseWriter, r *http.Request) {
         ctx := r.Context()  // Gets request context
@@ -693,23 +852,6 @@
         // ...
     }
     ```
-
-  content_concise: |
-    ## Context: Cancellation and Deadlines
-    ```go
-    ctx, cancel := context.WithTimeout(parent, 5*time.Second)
-    defer cancel()  // ALWAYS call cancel
-
-    select {
-    case <-ctx.Done():
-        return ctx.Err()  // Canceled or DeadlineExceeded
-    case result := <-work(ctx):
-        return result
-    }
-    ```
-    - First param: `func Foo(ctx context.Context, ...)`
-    - Check `ctx.Done()` in loops
-    - Don't store in structs, pass to methods
 
 - id: "language/go/concurrency/race_conditions"
   category: "language"
@@ -782,6 +924,24 @@
     go func() { resultCh <- 1 }()
     go func() { resultCh <- 2 }()
     ```
+  content_concise: |
+    ## Race Conditions
+    - Use `-race` flag: `go test -race ./...`
+    - Maps need sync.Map or mutex protection
+    - Counters need mutex or atomic operations
+    - Pre-Go 1.22: capture loop variables explicitly
+    - Check-then-act needs atomic operation or mutex
+
+- id: "language/go/concurrency/race_conditions/detecting-race-conditions"
+  category: "language"
+  subcategory: "go"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/concurrency/fundamentals"]
+  content: |
+    *Part of: RACE CONDITIONS AND DATA RACES > Common Race Condition Patterns*
 
     **4. Closure Variable Capture (Pre-Go 1.22):**
     ```go
@@ -826,7 +986,19 @@
     - Adds ~10x slowdown and memory overhead
     - Cannot find logic races (e.g., check-then-act)
 
+- id: "language/go/concurrency/race_conditions/check-then-act-races"
+  category: "language"
+  subcategory: "go"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/concurrency/fundamentals"]
+  content: |
+    *Part of: RACE CONDITIONS AND DATA RACES*
+
     ### Check-Then-Act Races
+
     ```go
     // BAD: Check-then-act race
     if _, ok := cache[key]; !ok {
@@ -843,11 +1015,3 @@
     // GOOD: sync.Map LoadOrStore
     actual, loaded := m.LoadOrStore(key, value)
     ```
-
-  content_concise: |
-    ## Race Conditions
-    - Use `-race` flag: `go test -race ./...`
-    - Maps need sync.Map or mutex protection
-    - Counters need mutex or atomic operations
-    - Pre-Go 1.22: capture loop variables explicitly
-    - Check-then-act needs atomic operation or mutex

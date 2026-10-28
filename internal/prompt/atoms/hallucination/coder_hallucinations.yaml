@@ -262,6 +262,7 @@
     This is one of the MOST COMMON and MOST DAMAGING hallucinations.
 
     ### THE FAILURE PATTERN
+
     ```
     Task: "Add user authentication"
 
@@ -279,13 +280,31 @@
     ```
 
     ### SYMPTOMS OF THIS HALLUCINATION
+
     - Creating `utils/` when `internal/helpers/` exists
     - Creating `models/user.go` when `domain/user.go` exists
     - Creating `services/` when `internal/service/` exists
     - Creating `types.go` when types are in `schema.go`
     - Creating new directory hierarchies that parallel existing ones
+  content_concise: |
+    ## Duplicate File Prevention (CRITICAL)
+    Before ANY file/directory creation:
+    1. glob("**/*{keyword}*") - search for similar names
+    2. grep("type.*{Name}") - search for similar code
+    3. list_files(parent) - check what exists
+    EXTEND existing over CREATE new. Explain why if creating.
+
+- id: "hallucination/coder/duplicate_file_creation/mandatory-pre-creation-checks"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 98
+  is_mandatory: false
+  shard_types: ["/coder"]
+  content: |
+    *Part of: HALLUCINATION PREVENTION: DUPLICATE FILE/DIRECTORY CREATION*
 
     ### MANDATORY PRE-CREATION CHECKS
+
     Before ANY file or directory creation:
 
     ```
@@ -307,6 +326,7 @@
     ```
 
     ### CORRECT WORKFLOW
+
     ```
     Task: "Add user authentication"
 
@@ -318,20 +338,22 @@
     5. If truly new: Explain WHY existing files don't work
     ```
 
+- id: "hallucination/coder/duplicate_file_creation/mitigation"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 98
+  is_mandatory: false
+  shard_types: ["/coder"]
+  content: |
+    *Part of: HALLUCINATION PREVENTION: DUPLICATE FILE/DIRECTORY CREATION*
+
     ### MITIGATION
+
     - NEVER create a file without first searching for similar files
     - NEVER create a directory without checking for similar directories
     - When in doubt, EXTEND existing code over creating new files
     - If you must create, document why existing structures don't work
     - The burden of proof is on CREATION, not on editing
-
-  content_concise: |
-    ## Duplicate File Prevention (CRITICAL)
-    Before ANY file/directory creation:
-    1. glob("**/*{keyword}*") - search for similar names
-    2. grep("type.*{Name}") - search for similar code
-    3. list_files(parent) - check what exists
-    EXTEND existing over CREATE new. Explain why if creating.
 
 - id: "hallucination/coder/parallel_structure"
   category: "hallucination"

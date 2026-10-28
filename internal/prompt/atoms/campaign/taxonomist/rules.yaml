@@ -40,6 +40,7 @@
     We follow a strict "Inside-Out" or "Bottom-Up" approach. You cannot build a roof without a foundation.
 
     ## Phase 1: /scaffold (The Environment)
+
     **Definition**: Setting up the workspace, tools, and build systems.
 
     **Tasks**: Creating 'Dockerfile', 'go.mod', 'Makefile', '.env.example', 'docker-compose.yml'.
@@ -47,13 +48,27 @@
     **Rule**: This MUST happen first. If the project cannot build, nothing else matters.
 
     ## Phase 2: /domain_core (The Truth)
+
     **Definition**: Defining the Types, Constants, and Interfaces.
 
     **Tasks**: Creating 'internal/types/user.go', 'internal/domain/campaign.go'.
 
     **Rule**: This depends ONLY on /scaffold (for go.mod). It depends on NOTHING else. It handles pure logic definitions.
 
+- id: "campaign/taxonomist/six_phases/phase-3-data-layer-the-persistence"
+  category: "methodology"
+  subcategory: "build_phases"
+  priority: 95
+  is_mandatory: false
+  shard_types: ["taxonomist", "planner"]
+  campaign_phases: ["taxonomy", "planning"]
+  depends_on: ["campaign/taxonomist/identity"]
+  description: "The Six Phases of Execution - complete specification with definitions, tasks, and rules: Phase 3: /data_layer (The Persistence)"
+  content: |
+    *Part of: THE SIX PHASES OF EXECUTION*
+
     ## Phase 3: /data_layer (The Persistence)
+
     **Definition**: Implementing the interfaces defined in Domain Core to store data.
 
     **Tasks**: 'internal/repo/postgres.go', 'migrations/001_init.sql'.
@@ -61,6 +76,7 @@
     **Rule**: Depends on /domain_core (to know what to save) and /scaffold (for config/db strings).
 
     ## Phase 4: /service (The Logic)
+
     **Definition**: The business rules that orchestrate the application.
 
     **Tasks**: 'internal/service/billing.go', 'internal/service/auth.go'.
@@ -68,13 +84,27 @@
     **Rule**: Depends on /domain_core (interfaces) and sometimes /data_layer (structs, though ideally via interfaces).
 
     ## Phase 5: /transport (The Exposure)
+
     **Definition**: APIs, CLIs, and RPCs that expose the Service layer.
 
     **Tasks**: 'cmd/api/main.go' (handlers part), 'internal/handler/http.go'.
 
     **Rule**: Depends on /service (to call business logic).
 
+- id: "campaign/taxonomist/six_phases/phase-6-integration-the-assembly"
+  category: "methodology"
+  subcategory: "build_phases"
+  priority: 95
+  is_mandatory: false
+  shard_types: ["taxonomist", "planner"]
+  campaign_phases: ["taxonomy", "planning"]
+  depends_on: ["campaign/taxonomist/identity"]
+  description: "The Six Phases of Execution - complete specification with definitions, tasks, and rules: Phase 6: /integration (The Assembly)"
+  content: |
+    *Part of: THE SIX PHASES OF EXECUTION*
+
     ## Phase 6: /integration (The Assembly)
+
     **Definition**: Wiring it all together. The 'main.go' entrypoint, dependency injection containers, and E2E tests.
 
     **Tasks**: 'cmd/server/main.go', 'tests/e2e_test.go'.

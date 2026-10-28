@@ -166,6 +166,17 @@
     - Lazy loading inside iteration
     - Multiple queries for related data
 
+- id: "reviewer/methodology/database_performance/query-optimization-checklist"
+  category: "methodology"
+  subcategory: "performance"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/analyze"]
+  depends_on: ["reviewer/methodology/performance_fundamentals"]
+  content: |
+    *Part of: DATABASE PERFORMANCE REVIEW*
+
     ### QUERY OPTIMIZATION CHECKLIST
 
     **Index Usage**
@@ -207,7 +218,19 @@
     SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)  -- Faster
     ```
 
+- id: "reviewer/methodology/database_performance/sql-complexity"
+  category: "methodology"
+  subcategory: "performance"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/analyze"]
+  depends_on: ["reviewer/methodology/performance_fundamentals"]
+  content: |
+    *Part of: DATABASE PERFORMANCE REVIEW*
+
     ### SQL COMPLEXITY
+
     - O(1): Indexed lookup
     - O(log n): Index range scan
     - O(n): Table scan (BAD for large tables)
@@ -339,6 +362,17 @@
     - [ ] Cache hit rate monitored
     - [ ] Cache size bounded
     - [ ] Eviction policy appropriate (LRU, LFU)
+
+- id: "reviewer/methodology/caching/cache-invalidation-patterns"
+  category: "methodology"
+  subcategory: "performance"
+  priority: 82
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/analyze"]
+  depends_on: ["reviewer/methodology/performance_fundamentals"]
+  content: |
+    *Part of: CACHING REVIEW*
 
     ### CACHE INVALIDATION PATTERNS
 

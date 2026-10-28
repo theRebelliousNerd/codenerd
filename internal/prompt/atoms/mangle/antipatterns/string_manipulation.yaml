@@ -10,23 +10,24 @@
   languages: ["/mangle"]
   content: |
     # Anti-Pattern: String Manipulation
-    
+
     ## Category
+
     Limited Built-in Support (Complex String Operations)
-    
+
     ## Description
+
     Expecting rich string manipulation functions (split, regex, interpolation, formatting) when Mangle has minimal string support. Complex string operations should happen in Go.
-    
-    ---
-    
+
     ## Anti-Pattern 1: String Interpolation
-    
+
     ### Wrong Approach
+
     ```python
     name = "Alice"
     message = f"Hello, {name}!"
     ```
-    
+
     Attempting:
     ```mangle
     # WRONG - no string interpolation
@@ -34,34 +35,45 @@
         user_name(Name),
         Msg = f"Hello, {Name}!".
     ```
-    
+
     ### Why It Fails
+
     No string interpolation syntax like `${}`, `f""`, or `#{}`.
-    
+
     ### Correct Mangle Way
+
     ```mangle
     # Use fn:string_concat (if available):
     greeting(Name, Msg) :-
         user_name(Name),
         fn:string_concat(["Hello, ", Name, "!"], Msg).
-    
+
     # Or build the string in Go before loading:
     // msg := fmt.Sprintf("Hello, %s!", name)
     // store.Add(engine.NewAtom("greeting", engine.String(name), engine.String(msg)))
-    
+
     # Query:
     Decl greeting(Name, Msg) bound [/string, /string].
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-2-string-split"
+  category: "language"
+  subcategory: "mangle"
+  description: "Anti-Pattern: String Manipulation: Anti-Pattern 2: String Split"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Anti-Pattern: String Manipulation*
+
     ## Anti-Pattern 2: String Split
-    
+
     ### Wrong Approach
+
     ```javascript
     const parts = "a,b,c".split(",");  // ["a", "b", "c"]
     ```
-    
+
     Attempting:
     ```mangle
     # WRONG - no split function
@@ -69,11 +81,13 @@
         csv_line(Line),
         Parts = split(Line, ",").
     ```
-    
+
     ### Why It Fails
+
     Mangle likely doesn't have a built-in `split` function. Check the `builtin` package.
-    
+
     ### Correct Mangle Way
+
     ```mangle
     # Option 1: Split in Go and load as facts
     // line := "a,b,c"
@@ -81,32 +95,41 @@
     // for i, part := range parts {
     //     store.Add(engine.NewAtom("csv_part", engine.Number(i), engine.String(part)))
     // }
-    
+
     Decl csv_part(Index, Value) bound [/number, /string].
-    
+
     # Option 2: If fn:string:split exists:
     parse_csv(Parts) :-
         csv_line(Line),
         fn:string:split(Line, ",", Parts).
-    
+
     # Option 3: Model delimited data as separate facts
     Decl field(Line, Index, Value) bound [/name, /number, /string].
-    
+
     field(/line1, 0, "a").
     field(/line1, 1, "b").
     field(/line1, 2, "c").
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-3-regular-expressions"
+  category: "language"
+  subcategory: "mangle"
+  description: "Anti-Pattern: String Manipulation: Anti-Pattern 3: Regular Expressions"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Anti-Pattern: String Manipulation*
+
     ## Anti-Pattern 3: Regular Expressions
-    
+
     ### Wrong Approach
+
     ```python
     import re
     match = re.search(r"(\d{3})-(\d{4})", phone)
     ```
-    
+
     Attempting:
     ```mangle
     # WRONG - no regex support
@@ -114,11 +137,13 @@
         phone_string(Phone),
         regex_match(Phone, r"(\d{3})-(\d{4})", AreaCode, Number).
     ```
-    
+
     ### Why It Fails
+
     No built-in regex support.
-    
+
     ### Correct Mangle Way
+
     ```mangle
     # Parse in Go and load results:
     // re := regexp.MustCompile(`(\d{3})-(\d{4})`)
@@ -129,24 +154,33 @@
     //         engine.String(matches[1]), // area code
     //         engine.String(matches[2]))) // number
     // }
-    
+
     Decl phone_parts(Phone, AreaCode, Number) bound [/string, /string, /string].
-    
+
     format_phone(Phone, Formatted) :-
         phone_parts(Phone, Area, Num),
         fn:string_concat(["(", Area, ") ", Num], Formatted).
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-4-substring-slicing"
+  category: "language"
+  subcategory: "mangle"
+  description: "Anti-Pattern: String Manipulation: Anti-Pattern 4: Substring / Slicing"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Anti-Pattern: String Manipulation*
+
     ## Anti-Pattern 4: Substring / Slicing
-    
+
     ### Wrong Approach
+
     ```python
     first_three = text[0:3]
     rest = text[3:]
     ```
-    
+
     Attempting:
     ```mangle
     # WRONG - no substring/slicing
@@ -155,18 +189,20 @@
         First = Text[0:3],
         Rest = Text[3:].
     ```
-    
+
     ### Why It Fails
+
     No substring or slicing syntax.
-    
+
     ### Correct Mangle Way
+
     ```mangle
     # If fn:string:substring exists:
     extract(Text, First, Rest) :-
         data(Text),
         fn:string:substring(Text, 0, 3, First),
         fn:string:substring(Text, 3, fn:length(Text), Rest).
-    
+
     # Or do it in Go:
     // first := text[0:3]
     // rest := text[3:]
@@ -174,19 +210,28 @@
     //     engine.String(text),
     //     engine.String(first),
     //     engine.String(rest)))
-    
+
     Decl text_parts(Text, First, Rest) bound [/string, /string, /string].
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-5-string-formatting"
+  category: "language"
+  subcategory: "mangle"
+  description: "Anti-Pattern: String Manipulation: Anti-Pattern 5: String Formatting"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Anti-Pattern: String Manipulation*
+
     ## Anti-Pattern 5: String Formatting
-    
+
     ### Wrong Approach
+
     ```python
     formatted = "{:>10}".format(value)  # Right-align, width 10
     ```
-    
+
     Attempting:
     ```mangle
     # WRONG - no format strings
@@ -194,29 +239,40 @@
         value(Val),
         Formatted = format("{:>10}", Val).
     ```
-    
+
     ### Why It Fails
+
     No printf-style or template formatting.
-    
+
     ### Correct Mangle Way
+
     ```mangle
     # Format in Go:
     // formatted := fmt.Sprintf("%10s", value)
     // store.Add(engine.NewAtom("formatted_value", engine.String(value), engine.String(formatted)))
-    
+
     Decl formatted_value(Value, Formatted) bound [/string, /string].
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-6-case-conversion"
+  category: "language"
+  subcategory: "mangle"
+  description: "Anti-Pattern: String Manipulation: Anti-Pattern 6: Case Conversion"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Anti-Pattern: String Manipulation*
+
     ## Anti-Pattern 6: Case Conversion
-    
+
     ### Wrong Approach
+
     ```javascript
     upper = text.toUpperCase();
     lower = text.toLowerCase();
     ```
-    
+
     Attempting:
     ```mangle
     # WRONG - may not have case functions
@@ -224,33 +280,44 @@
         data(Text),
         Upper = Text.toUpperCase().
     ```
-    
+
     ### Why It Fails
+
     Check if `fn:string:upper` or similar exists. May not be available.
-    
+
     ### Correct Mangle Way
+
     ```mangle
     # If available:
     uppercase(Text, Upper) :-
         data(Text),
         fn:string:upper(Text, Upper).
-    
+
     # Otherwise, do in Go:
     // upper := strings.ToUpper(text)
     // store.Add(engine.NewAtom("uppercase", engine.String(text), engine.String(upper)))
-    
+
     Decl uppercase(Original, Upper) bound [/string, /string].
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-7-string-trimming"
+  category: "language"
+  subcategory: "mangle"
+  description: "Anti-Pattern: String Manipulation: Anti-Pattern 7: String Trimming"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Anti-Pattern: String Manipulation*
+
     ## Anti-Pattern 7: String Trimming
-    
+
     ### Wrong Approach
+
     ```python
     trimmed = text.strip()
     ```
-    
+
     Attempting:
     ```mangle
     # WRONG - may not have trim
@@ -258,31 +325,42 @@
         input(Text),
         Trimmed = trim(Text).
     ```
-    
+
     ### Why It Fails
+
     Check if `fn:string:trim` exists.
-    
+
     ### Correct Mangle Way
+
     ```mangle
     # If available:
     clean(Text, Trimmed) :-
         input(Text),
         fn:string:trim(Text, Trimmed).
-    
+
     # Or in Go:
     // trimmed := strings.TrimSpace(text)
     // store.Add(engine.NewAtom("cleaned", engine.String(text), engine.String(trimmed)))
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-8-string-replace"
+  category: "language"
+  subcategory: "mangle"
+  description: "Anti-Pattern: String Manipulation: Anti-Pattern 8: String Replace"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Anti-Pattern: String Manipulation*
+
     ## Anti-Pattern 8: String Replace
-    
+
     ### Wrong Approach
+
     ```python
     new_text = text.replace("old", "new")
     ```
-    
+
     Attempting:
     ```mangle
     # WRONG - may not have replace
@@ -290,32 +368,43 @@
         data(Text),
         New = replace(Text, "old", "new").
     ```
-    
+
     ### Why It Fails
+
     Check if `fn:string:replace` exists.
-    
+
     ### Correct Mangle Way
+
     ```mangle
     # If available:
     substitute(Text, New) :-
         data(Text),
         fn:string:replace(Text, "old", "new", New).
-    
+
     # Or in Go:
     // new := strings.ReplaceAll(text, "old", "new")
     // store.Add(engine.NewAtom("substituted", engine.String(text), engine.String(new)))
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-9-string-contains-index"
+  category: "language"
+  subcategory: "mangle"
+  description: "Anti-Pattern: String Manipulation: Anti-Pattern 9: String Contains / Index"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Anti-Pattern: String Manipulation*
+
     ## Anti-Pattern 9: String Contains / Index
-    
+
     ### Wrong Approach
+
     ```python
     if "needle" in haystack:
         index = haystack.index("needle")
     ```
-    
+
     Attempting:
     ```mangle
     # WRONG - may not have contains/index
@@ -324,30 +413,41 @@
         contains(Haystack, "needle"),
         Index = indexOf(Haystack, "needle").
     ```
-    
+
     ### Why It Fails
+
     Check if `fn:string:contains` or `fn:string:index` exist.
-    
+
     ### Correct Mangle Way
+
     ```mangle
     # If available:
     found(Haystack, Index) :-
         data(Haystack),
         fn:string:contains(Haystack, "needle"),
         fn:string:index(Haystack, "needle", Index).
-    
+
     # Or check in Go and load result:
     // if strings.Contains(haystack, "needle") {
     //     index := strings.Index(haystack, "needle")
     //     store.Add(engine.NewAtom("found", engine.String(haystack), engine.Number(index)))
     // }
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-10-multi-line-strings-heredoc"
+  category: "language"
+  subcategory: "mangle"
+  description: "Anti-Pattern: String Manipulation: Anti-Pattern 10: Multi-line Strings / Heredoc"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Anti-Pattern: String Manipulation*
+
     ## Anti-Pattern 10: Multi-line Strings / Heredoc
-    
+
     ### Wrong Approach
+
     ```python
     sql = """
         SELECT *
@@ -355,7 +455,7 @@
         WHERE active = true
     """
     ```
-    
+
     Attempting:
     ```mangle
     # WRONG - no multi-line string literals (usually)
@@ -365,11 +465,13 @@
         FROM users
         """.
     ```
-    
+
     ### Why It Fails
+
     Most Datalog variants don't support multi-line strings.
-    
+
     ### Correct Mangle Way
+
     ```mangle
     # Use string concatenation:
     query(SQL) :-
@@ -378,7 +480,7 @@
             "FROM users ",
             "WHERE active = true"
         ], SQL).
-    
+
     # Or load from Go:
     // sql := `
     //     SELECT *
@@ -386,19 +488,28 @@
     //     WHERE active = true
     // `
     // store.Add(engine.NewAtom("query", engine.String(sql)))
-    
+
     Decl query(SQL) bound [/string].
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-11-string-reversal"
+  category: "language"
+  subcategory: "mangle"
+  description: "Anti-Pattern: String Manipulation: Anti-Pattern 11: String Reversal"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Anti-Pattern: String Manipulation*
+
     ## Anti-Pattern 11: String Reversal
-    
+
     ### Wrong Approach
+
     ```python
     reversed_text = text[::-1]
     ```
-    
+
     Attempting:
     ```mangle
     # WRONG - no reverse function
@@ -406,11 +517,13 @@
         data(Text),
         Rev = reverse(Text).
     ```
-    
+
     ### Why It Fails
+
     Unlikely to have a built-in reverse function.
-    
+
     ### Correct Mangle Way
+
     ```mangle
     # Do in Go:
     // runes := []rune(text)
@@ -419,28 +532,37 @@
     // }
     // reversed := string(runes)
     // store.Add(engine.NewAtom("reversed", engine.String(text), engine.String(reversed)))
-    
+
     Decl reversed(Original, Reversed) bound [/string, /string].
-    
+
     # Or implement recursively (for learning, not production):
     Decl reverse_chars(Chars, Result).
-    
+
     reverse_chars([], []).
     reverse_chars(List, Reversed) :-
         :match_cons(List, Head, Tail),
         reverse_chars(Tail, ReversedTail),
         fn:list:append(ReversedTail, [Head], Reversed).
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-12-string-length"
+  category: "language"
+  subcategory: "mangle"
+  description: "Anti-Pattern: String Manipulation: Anti-Pattern 12: String Length"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Anti-Pattern: String Manipulation*
+
     ## Anti-Pattern 12: String Length
-    
+
     ### Wrong Approach
+
     ```python
     length = len(text)
     ```
-    
+
     Attempting:
     ```mangle
     # WRONG - may not have length function
@@ -448,33 +570,44 @@
         data(Text),
         Len = len(Text).
     ```
-    
+
     ### Why It Fails (Partially)
+
     This might actually work if `fn:length` exists, but check the builtin package.
-    
+
     ### Correct Mangle Way
+
     ```mangle
     # If fn:length exists:
     string_length(Text, Len) :-
         data(Text),
         Len = fn:length(Text).
-    
+
     # Or compute in Go:
     // length := len(text)
     // store.Add(engine.NewAtom("text_length", engine.String(text), engine.Number(length)))
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-13-string-building-in-loops"
+  category: "language"
+  subcategory: "mangle"
+  description: "Anti-Pattern: String Manipulation: Anti-Pattern 13: String Building in Loops"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Anti-Pattern: String Manipulation*
+
     ## Anti-Pattern 13: String Building in Loops
-    
+
     ### Wrong Approach
+
     ```python
     result = ""
     for item in items:
         result += str(item) + ", "
     ```
-    
+
     Attempting:
     ```mangle
     # WRONG - no loops or mutable strings
@@ -483,11 +616,13 @@
         item(I),
         Result = Result + str(I) + ", ".
     ```
-    
+
     ### Why It Fails
+
     No mutation, no loops. Use aggregation or do in Go.
-    
+
     ### Correct Mangle Way
+
     ```mangle
     # Option 1: Aggregate with fn:string_concat
     all_items(Result) :-
@@ -495,7 +630,7 @@
         |> do fn:group_by()
         |> let Parts = fn:List(I)
         |> let Result = fn:string:join(Parts, ", ").  # If exists
-    
+
     # Option 2: Build in Go
     // var parts []string
     // results := store.Query("item", i)
@@ -505,67 +640,86 @@
     // result := strings.Join(parts, ", ")
     // store.Add(engine.NewAtom("all_items", engine.String(result)))
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-14-escape-sequences"
+  category: "language"
+  subcategory: "mangle"
+  description: "Anti-Pattern: String Manipulation: Anti-Pattern 14: Escape Sequences"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Anti-Pattern: String Manipulation*
+
     ## Anti-Pattern 14: Escape Sequences
-    
+
     ### Wrong Approach
+
     ```python
     path = "C:\\Users\\Name\\file.txt"
     tab_separated = "col1\tcol2\tcol3"
     ```
-    
+
     Attempting:
     ```mangle
     # WRONG - escape sequence handling varies
     windows_path(Path) :-
         Path = "C:\\Users\\Name\\file.txt".
-    
+
     tsv(Line) :-
         Line = "col1\tcol2\tcol3".
     ```
-    
+
     ### Why It Fails
+
     Escape sequence handling may differ from expectations.
-    
+
     ### Correct Mangle Way
+
     ```mangle
     # Use raw strings or load from Go:
     // path := `C:\Users\Name\file.txt`
     // store.Add(engine.NewAtom("windows_path", engine.String(path)))
-    
+
     // tsv := "col1\tcol2\tcol3"
     // store.Add(engine.NewAtom("tsv_line", engine.String(tsv)))
-    
+
     Decl windows_path(Path) bound [/string].
     Decl tsv_line(Line) bound [/string].
-    
+
     # Or use atoms for paths:
     Decl file_path(Path) bound [/name].
     file_path(/c_users_name_file_txt).
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/antipatterns/string_manipulation/pattern-string-processing-workflow"
+  category: "language"
+  subcategory: "mangle"
+  description: "Anti-Pattern: String Manipulation: Pattern: String Processing Workflow"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Anti-Pattern: String Manipulation*
+
     ## Pattern: String Processing Workflow
-    
+
     ### General Approach
-    
+
     1. **Simple operations**: Use `fn:string_concat` and available built-ins
     2. **Complex operations**: Process in Go, load results as facts
     3. **Parsing**: Always do in Go (regex, split, custom parsers)
     4. **Formatting**: Always do in Go (printf, templates)
     5. **Validation**: Check in Go, load as boolean facts
-    
+
     ### Example: Processing CSV
-    
+
     ```mangle
     # Don't parse CSV in Mangle!
-    
+
     # Instead, load parsed data:
     Decl csv_row(RowId, Col1, Col2, Col3) bound [/number, /string, /string, /string].
-    
+
     # In Go:
     // csvReader := csv.NewReader(file)
     // for rowId, record := range csvReader.ReadAll() {
@@ -575,19 +729,27 @@
     //         engine.String(record[1]),
     //         engine.String(record[2])))
     // }
-    
+
     # Then derive in Mangle:
     valid_row(RowId) :-
         csv_row(RowId, Col1, _, _),
         fn:length(Col1) > 0.
     ```
-    
-    ---
-    
+
+- id: "language/mangle/docs/antipatterns/string_manipulation/available-string-functions-check-your"
+  category: "language"
+  subcategory: "mangle"
+  description: "Anti-Pattern: String Manipulation: Available String Functions (Check Your Mangle Version)"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Anti-Pattern: String Manipulation*
+
     ## Available String Functions (Check Your Mangle Version)
-    
+
     Common built-ins that MAY exist:
-    
+
     - `fn:string_concat(Parts, Result)` - Concatenate strings
     - `fn:length(Str)` - String length
     - `fn:string:upper(Str, Upper)` - To uppercase
@@ -597,13 +759,21 @@
     - `fn:string:split(Str, Delim, Parts)` - Split string
     - `fn:string:join(Parts, Delim, Result)` - Join strings
     - `fn:to_string(Value)` - Convert to string
-    
+
     **Always check** the `builtin` package documentation for your Mangle version!
-    
-    ---
-    
+
+- id: "language/mangle/docs/antipatterns/string_manipulation/key-principle-mangle-is-not-a-string"
+  category: "language"
+  subcategory: "mangle"
+  description: "Anti-Pattern: String Manipulation: Key Principle: Mangle is Not a String Processor"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Anti-Pattern: String Manipulation*
+
     ## Key Principle: Mangle is Not a String Processor
-    
+
     | String-Heavy Language | Mangle |
     |-----------------------|--------|
     | String interpolation | `fn:string_concat` |
@@ -616,13 +786,21 @@
     | Contains, index | May exist, or do in Go |
     | Multi-line strings | Usually not supported |
     | String builder loops | Aggregation or Go |
-    
-    ---
-    
+
+- id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-string-manipulation-migration"
+  category: "language"
+  subcategory: "mangle"
+  description: "Anti-Pattern: String Manipulation: Anti-Pattern: String Manipulation Migration Checklist"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Anti-Pattern: String Manipulation*
+
     ## Migration Checklist
-    
+
     When translating string-heavy code to Mangle:
-    
+
     - [ ] Replace string interpolation with `fn:string_concat`
     - [ ] Move split/parse operations to Go
     - [ ] Move all regex to Go
@@ -637,29 +815,37 @@
     - [ ] Load processed strings as facts
     - [ ] Use Mangle for string-based logic, not processing
     - [ ] Remember: Mangle reasons about strings, Go manipulates them
-    
-    ---
-    
+
+- id: "language/mangle/docs/antipatterns/string_manipulation/pro-tip-strings-as-atoms"
+  category: "language"
+  subcategory: "mangle"
+  description: "Anti-Pattern: String Manipulation: Pro Tip: Strings as Atoms"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Anti-Pattern: String Manipulation*
+
     ## Pro Tip: Strings as Atoms
-    
+
     For many use cases, use **atoms** instead of strings:
-    
+
     ```mangle
     # Instead of:
     Decl status(Id, Status) bound [/number, /string].
     status(1, "active").
     status(2, "inactive").
-    
+
     # Use atoms:
     Decl status(Id, Status) bound [/number, /name].
     status(1, /active).
     status(2, /inactive).
     ```
-    
+
     **Benefits:**
     - More efficient (atoms are interned)
     - Type-safe (can't typo `/active` as `/activ`)
     - No string manipulation needed
     - Better for pattern matching
-    
+
     Use **strings** only when you have truly arbitrary text data.

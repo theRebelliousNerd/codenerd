@@ -33,32 +33,25 @@
   content: |
     ## INVESTIGATE FIRST PROTOCOL (MANDATORY) — Bounded-Evidence Contract
 
-    Investigation exists to answer only unresolved questions required for the requested change; it is not a ritual checklist. Do the smallest sufficient discovery, then write. Preserve Chesterton's Fence: never delete or "fix" apparently-unused code without checking wiring, callers, tests, and history — this codebase has many partially wired features and dormant integration points.
+    Investigate only the unresolved questions the change needs, then write. Preserve Chesterton's Fence: never delete or "fix" apparently-unused code without checking wiring, callers, tests and history.
 
-    ### Precedence & Stop Rule
+    ### Precedence & stop rule
+    - **Supplied context wins**: if the task gives exact paths, acceptance cases and named fixtures/helpers, read only the directly necessary file/range; don't rediscover the repo or guess filenames.
+    - **Bounded discovery then write**: write/edit once target, local pattern and safety constraints are known.
+    - **New-file EARLY-OUT**: a named new file with supplied location and contents/acceptance: `identity/coder/tool_usage` EARLY-OUT overrides discovery; `write_file` immediately, then verify. No `list_files`/`glob`/`grep`/adjacent reads first.
+    - **Failed-path correction**: a failed guessed path earns one `list_files`/`glob` in that exact directory, not a fan-out.
 
-    - **Supplied context wins**: If the task already supplies exact target paths, exact acceptance cases, and named existing fixtures/helpers, use that supplied context and read only the directly necessary file/range. Do not rediscover the repo, read unrelated packages, or guess filenames.
-    - **Bounded discovery then write**: Cap ordinary pre-write discovery at the smallest sufficient set and transition to a write or edit tool call as soon as target, local pattern, and safety constraints are known. Never defer every write until forced finalization.
-    - **New-file EARLY-OUT**: For an explicitly named new file whose location and required contents/acceptance are supplied, `identity/coder/tool_usage` EARLY-OUT overrides directory/search/adjacent-file discovery: create it immediately via `write_file`, then verify. Do not `list_files`/`glob`/`grep` or read adjacent files first.
-    - **Failed-path correction**: Failed guessed paths are evidence to use `list_files`/`glob` once in that exact directory, not permission to fan out into unrelated directories. Keep the correction scoped to the failing directory.
+    ### Minimal investigation
+    1. **TARGET**: if not supplied, one `read_file` on the named path or one `glob`/`list_files` in its parent.
+    2. **PATTERN**: one read of the target range or adjacent file defining the local pattern.
+    3. **SAFETY**: only the constraint relevant to the edit (callers, wiring, tests for deletion).
+    4. **THEN WRITE** this turn.
 
-    ### Minimal Investigation (when needed)
-
-    When questions remain unresolved, answer them with the smallest sufficient evidence:
-
-    1. **TARGET**: If not supplied, confirm target file exists (one `read_file` on the task-named path or one `glob`/`list_files` in its exact parent dir).
-    2. **PATTERN**: Read the target range or adjacent file that defines local naming/pattern for the change — one read only.
-    3. **SAFETY**: Check only the safety/scope constraint directly relevant to the edit (callers, wiring, or tests for deletion).
-    4. **THEN WRITE**: Plan is complete when target + pattern + safety are known — emit the write/edit tool call on this turn.
-
-    ### Guardrails (bounded)
-
-    - Do not create parallel structures when extending existing ones would work, but do not search the entire repo to prove non-existence when the task already names the target.
-    - Before EVERY file creation where the location is NOT supplied, ask: Did I check for similar files with one scoped `glob`? Could I extend an existing file instead? If you cannot answer with evidence from one scoped check, do that one check — not an unbounded sweep.
-
+    Don't create parallel structures when extending works, nor sweep the repo when the target is named. If location is NOT supplied, one scoped `glob` for similar files first.
   content_concise: |
     ## Investigate First — Bounded Evidence (MANDATORY)
     Investigation answers only unresolved questions for the requested change — not a ritual checklist. If task supplies exact paths + acceptance + fixtures/helpers, use that context: read only the necessary file/range, do not rediscover repo or guess names. Cap pre-write discovery at smallest sufficient set; transition to write/edit tool as soon as target+pattern+safety known — never defer all writes to finalization. New-file EARLY-OUT (identity/coder/tool_usage) overrides discovery: create named file immediately, then verify. Failed guess → one scoped list/glob in that exact dir only. Preserve Chesterton's Fence; verify wiring before delete.
+
 - id: "identity/coder/constraints"
   category: "identity"
   subcategory: "constraints"

@@ -194,6 +194,7 @@
     ## SMART POINTERS
 
     ### When to Use Each
+
     | Pointer | Thread Safety | Use Case |
     |---------|---------------|----------|
     | Box<T> | YES | Heap allocation, recursive types |
@@ -203,6 +204,7 @@
     | Mutex<T> | YES | Thread-safe mutation |
 
     ### Box<T> - Heap Allocation
+
     ```rust
     // Required for recursive types
     enum List {
@@ -215,6 +217,7 @@
     ```
 
     ### Rc<T> - Reference Counting (Single-Threaded)
+
     ```rust
     use std::rc::Rc;
 
@@ -225,6 +228,7 @@
     ```
 
     ### Arc<T> - Atomic Reference Counting (Multi-Threaded)
+
     ```rust
     use std::sync::Arc;
     use std::thread;
@@ -236,8 +240,26 @@
         println!("{:?}", clone);  // Safe across threads
     });
     ```
+  content_concise: |
+    ## Smart Pointers
+    - `Box<T>`: Heap allocation, recursive types
+    - `Rc<T>`: Single-threaded shared ownership
+    - `Arc<T>`: Multi-threaded shared ownership
+    - `RefCell<T>`: Interior mutability (runtime borrow check)
+    - `Mutex<T>`: Thread-safe mutation
+
+- id: "language/rust/ownership/smart_pointers/refcell-t-interior-mutability"
+  category: "language"
+  subcategory: "rust"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    *Part of: SMART POINTERS*
 
     ### RefCell<T> - Interior Mutability
+
     ```rust
     use std::cell::RefCell;
 
@@ -251,6 +273,7 @@
     ```
 
     ### Common Patterns
+
     ```rust
     // Rc<RefCell<T>> - Shared mutable state (single-threaded)
     let shared = Rc::new(RefCell::new(vec![1, 2, 3]));
@@ -258,11 +281,3 @@
     // Arc<Mutex<T>> - Shared mutable state (multi-threaded)
     let shared = Arc::new(Mutex::new(0));
     ```
-
-  content_concise: |
-    ## Smart Pointers
-    - `Box<T>`: Heap allocation, recursive types
-    - `Rc<T>`: Single-threaded shared ownership
-    - `Arc<T>`: Multi-threaded shared ownership
-    - `RefCell<T>`: Interior mutability (runtime borrow check)
-    - `Mutex<T>`: Thread-safe mutation

@@ -10,45 +10,59 @@
   languages: ["/mangle"]
   content: |
     # Mangle Stratification
-    
+
     ## What is Stratification?
-    
+
     Stratification ensures that negation is evaluated in a well-defined order. A program is stratifiable if predicates can be organized into layers (strata) where:
     - Predicates in stratum N only depend on predicates in strata < N through negation
     - No predicate depends on itself through negation (directly or indirectly)
-    
+
     ## Stratification Errors
-    
+
     ### Direct Cycle (Immediate)
+
     ```mangle
     # INVALID - p depends on not p
     p(X) :- !p(X).
     ```
-    
+
     ### Mutual Negation Cycle
+
     ```mangle
     # INVALID - p <-> q through negation
     p(X) :- !q(X).
     q(X) :- !p(X).
     ```
-    
+
     ### Indirect Cycle (Transitive)
+
     ```mangle
     # INVALID - a -> not b -> c -> not a
     a(X) :- !b(X).
     b(X) :- c(X).
     c(X) :- !a(X).
     ```
-    
+
+- id: "language/mangle/docs/stratification/how-to-fix"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Stratification: How to Fix"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Stratification*
+
     ## How to Fix
-    
+
     ### 1. Use Positive Intermediates
+
     **Before:**
     ```mangle
     blocked(X) :- !allowed(X).
     allowed(X) :- !blocked(X).
     ```
-    
+
     **After:**
     ```mangle
     # Base facts determine state
@@ -57,14 +71,15 @@
     allowed(X) :- user(X), has_permission(X).
     blocked(X) :- user(X), !allowed(X).
     ```
-    
+
     ### 2. Break with Ground Facts
+
     **Before:**
     ```mangle
     winner(X) :- player(X), !loser(X).
     loser(X) :- player(X), !winner(X).
     ```
-    
+
     **After:**
     ```mangle
     # Determine winner from game result (ground truth)
@@ -73,14 +88,15 @@
     winner(X) :- game_result(X, /won).
     loser(X) :- player(X), !winner(X).
     ```
-    
+
     ### 3. Separate Domains
+
     **Before:**
     ```mangle
     active(X) :- !inactive(X).
     inactive(X) :- !active(X).
     ```
-    
+
     **After:**
     ```mangle
     # Derive from explicit status
@@ -88,17 +104,28 @@
     active(X) :- status(X, /active).
     inactive(X) :- status(X, /inactive).
     ```
-    
+
+- id: "language/mangle/docs/stratification/detection-checklist"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Stratification: Detection Checklist"
+  priority: 30
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Stratification*
+
     ## Detection Checklist
-    
+
     1. Draw the predicate dependency graph
     2. Mark edges that go through negation
     3. Check for cycles that include negation edges
     4. If a cycle exists through negation, restructure
-    
+
     ## Safe Patterns
-    
+
     ### Default with Override
+
     ```mangle
     # Safe: defaults to open, override to close
     Decl domain(X).
@@ -106,8 +133,9 @@
     open(X) :- domain(X), !closed(X).
     closed(X) :- explicitly_closed(X).
     ```
-    
+
     ### Hierarchical Negation
+
     ```mangle
     # Safe: each level only negates lower levels
     Decl base_fact(X).
