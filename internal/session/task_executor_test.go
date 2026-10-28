@@ -521,6 +521,27 @@ func TestTaskRequest_TaskText(t *testing.T) {
 	}
 }
 
+// The routing layer synthesizes Task from the intent (often a target noun
+// phrase); the shard must still see what the person asked.
+func TestTaskRequest_TaskTextCarriesThePersonsRequest(t *testing.T) {
+	r := TaskRequest{
+		Task:       "exact model pin matching",
+		Constraint: "read_only",
+		Request:    "explain why the pin matches later snapshots and propose the fix",
+	}
+	want := "Request (the person's words):\nexplain why the pin matches later snapshots and propose the fix\n\nTask:\nexact model pin matching\n\nConstraints:\nread_only"
+	if got := r.TaskText(); got != want {
+		t.Fatalf("TaskText = %q, want %q", got, want)
+	}
+	if got := (TaskRequest{Request: "just this"}).TaskText(); got != "just this" {
+		t.Fatalf("request alone = %q", got)
+	}
+	same := TaskRequest{Task: "explain why it fails", Request: "explain why it fails"}
+	if got := same.TaskText(); got != "explain why it fails" {
+		t.Fatalf("a request already in the task is not repeated: %q", got)
+	}
+}
+
 func TestJITExecutor_Execute_SlashedCoderIsMutation(t *testing.T) {
 	// "/coder" (the policy atom form) must behave exactly like bare "coder":
 	// write-oriented, so a prose-only reply is hollow and must fail.

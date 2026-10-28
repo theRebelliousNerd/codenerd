@@ -33,14 +33,28 @@ type TaskRequest struct {
 	// criteria, must/must-not rules). The delegation boundary used to drop
 	// it: shards received a bare target noun and analyzed instead of acting.
 	Constraint string
+	// Request is the person's own words, verbatim. Task is the routing layer's
+	// synthesis of them (often a target noun phrase); without the words, a
+	// shard answers the noun phrase and not the questions that were asked
+	// (observed live: "explain why, propose the fix and its test" reached the
+	// researcher as "exact model pin matching ...", and it described the code).
+	Request string
 }
 
-// TaskText returns the agent-facing task description: the task plus any
-// routing-layer constraint. Callers that already merged the constraint into
-// Task are left unchanged (Contains guard) so cmd flattening and direct
-// TaskRequest users compose without duplication.
+// TaskText returns the agent-facing task description: the person's request
+// when one is carried, the task, and any routing-layer constraint. Callers
+// that already merged the constraint or the request into Task are left
+// unchanged (Contains guards) so cmd flattening and direct TaskRequest users
+// compose without duplication.
 func (r TaskRequest) TaskText() string {
 	task := strings.TrimSpace(r.Task)
+	if req := strings.TrimSpace(r.Request); req != "" && !strings.Contains(task, req) {
+		if task != "" {
+			task = "Request (the person's words):\n" + req + "\n\nTask:\n" + task
+		} else {
+			task = req
+		}
+	}
 	if c := strings.TrimSpace(r.Constraint); c != "" && !strings.Contains(task, c) {
 		if task != "" {
 			task += "\n\nConstraints:\n" + c

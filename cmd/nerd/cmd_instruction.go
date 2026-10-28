@@ -182,6 +182,7 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 			Task:       task,
 			Target:     intent.Target,
 			Constraint: intent.Constraint,
+			Request:    userInput,
 		}
 		task = delegateReq.TaskText()
 		logger.Info("Delegating to shard", zap.String("type", shardType), zap.String("task", task))

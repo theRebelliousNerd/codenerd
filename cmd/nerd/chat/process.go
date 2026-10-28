@@ -527,6 +527,7 @@ func (m Model) processInput(input string) tea.Cmd {
 					Task:       m.backgroundTask(intent),
 					Target:     intent.Target,
 					Constraint: taskConstraint(intent.Constraint),
+					Request:    input,
 					Started:    time.Now(),
 				}
 				if route.SelfDiagnosis {
@@ -575,6 +576,7 @@ func (m Model) processInput(input string) tea.Cmd {
 					Persona:     shardType,
 					Target:      intent.Target,
 					Constraint:  taskConstraint(intent.Constraint),
+					Request:     input,
 					MaxAttempts: m.shardMaxRetries(shardType),
 					Config:      m.Config.GetDelegationConfig(),
 					// The blackboard and priority the unverified path uses.
@@ -635,7 +637,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				})
 			}
 
-			ret, spawnErr := m.spawnTaskWithContext(ctx, intentTaskRequest(shardType, task, intent), sessionCtx, types.PriorityHigh)
+			ret, spawnErr := m.spawnTaskWithContext(ctx, intentTaskRequest(shardType, task, intent, input), sessionCtx, types.PriorityHigh)
 			result := ret.Output
 
 			// Glass Box: Emit shard completion event

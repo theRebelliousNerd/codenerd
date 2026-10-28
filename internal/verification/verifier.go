@@ -215,6 +215,9 @@ type Delegation struct {
 	// A retry's task is rewritten with the judge's defect; these are not.
 	Target     string
 	Constraint string
+	// Request is the person's own words, verbatim, carried to every attempt
+	// beside the synthesized Task (session.TaskRequest.Request).
+	Request string
 	// MaxAttempts is the persona's attempt cap,
 	// shard_profiles.<persona>.max_retries.
 	MaxAttempts int
@@ -285,7 +288,7 @@ func (v *TaskVerifier) VerifyWithRetry(ctx context.Context, d Delegation) (strin
 		// ExecuteObserved and ran without the blackboard: the delegations the
 		// kernel routes through verification -- mutations -- were the ones
 		// that never saw the prior shard results.
-		ret, err := observed.ExecuteObservedWithContext(ctx, session.TaskRequest{IntentVerb: intent, Task: task, Target: d.Target, Constraint: d.Constraint}, d.SessionContext, d.Priority)
+		ret, err := observed.ExecuteObservedWithContext(ctx, session.TaskRequest{IntentVerb: intent, Task: task, Target: d.Target, Constraint: d.Constraint, Request: d.Request}, d.SessionContext, d.Priority)
 		if err != nil {
 			return ret.Output, nil, &ExecutionError{Attempt: attempt, Return: ret, Err: err}
 		}

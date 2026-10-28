@@ -34,7 +34,9 @@ type backgroundJob struct {
 	// as fields (intentTaskRequest); a self-diagnosis job has neither.
 	Target     string
 	Constraint string
-	Started    time.Time
+	// Request is the person's words the job was started from.
+	Request string
+	Started time.Time
 	// FollowUp, when set, is submitted as a turn of its own once the job
 	// succeeds, with the result appended: the next step of a chain (a self
 	// diagnosis proposes its fix). The work mode decides whether it runs.
@@ -178,7 +180,7 @@ func (m Model) startBackground(job backgroundJob, input string) tea.Cmd {
 	m.assertBackgroundJob(job, "/running")
 	return func() tea.Msg {
 		req := shardTypeToTaskRequest(job.Shard, job.Task)
-		req.Target, req.Constraint = job.Target, job.Constraint
+		req.Target, req.Constraint, req.Request = job.Target, job.Constraint, job.Request
 		ret, err := m.spawnTaskWithContext(ctx, req, m.buildSessionContext(ctx), types.PriorityNormal)
 		result := ret.Output
 		var facts []core.Fact

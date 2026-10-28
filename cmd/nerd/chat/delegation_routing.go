@@ -353,10 +353,11 @@ func shardTypeToTaskRequest(shardType, task string) session.TaskRequest {
 // its target and stated constraint ride as fields, the way the verified lane
 // already passes them (verification.Delegation), so the executor's preset
 // intent carries them instead of leaving them only inside the task text.
-func intentTaskRequest(shardType, task string, intent perception.Intent) session.TaskRequest {
+func intentTaskRequest(shardType, task string, intent perception.Intent, request string) session.TaskRequest {
 	req := shardTypeToTaskRequest(shardType, task)
 	req.Target = intent.Target
 	req.Constraint = taskConstraint(intent.Constraint)
+	req.Request = request
 	return req
 }
 

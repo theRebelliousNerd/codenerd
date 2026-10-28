@@ -54,11 +54,11 @@ func TestFormatShardTaskWithContext_NoConstraintAddsNoClause(t *testing.T) {
 // Work routed from an intent hands the executor its target and constraint as
 // fields, as the verified lane does; "none" is no constraint.
 func TestIntentTaskRequest_CarriesTargetAndConstraint(t *testing.T) {
-	req := intentTaskRequest("coder", "fix the parser", perception.Intent{Target: "internal/parse.go", Constraint: "keep the API"})
-	if req.IntentVerb != "coder" || req.Task != "fix the parser" || req.Target != "internal/parse.go" || req.Constraint != "keep the API" {
+	req := intentTaskRequest("coder", "fix the parser", perception.Intent{Target: "internal/parse.go", Constraint: "keep the API"}, "fix the parser, it drops the last token")
+	if req.IntentVerb != "coder" || req.Task != "fix the parser" || req.Target != "internal/parse.go" || req.Constraint != "keep the API" || req.Request != "fix the parser, it drops the last token" {
 		t.Fatalf("request = %+v", req)
 	}
-	if req := intentTaskRequest("coder", "x", perception.Intent{Constraint: "none"}); req.Constraint != "" {
+	if req := intentTaskRequest("coder", "x", perception.Intent{Constraint: "none"}, ""); req.Constraint != "" {
 		t.Fatalf(`"none" became constraint %q`, req.Constraint)
 	}
 }
