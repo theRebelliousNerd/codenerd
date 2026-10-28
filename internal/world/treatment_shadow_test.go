@@ -38,14 +38,20 @@ func shadowFixture(t *testing.T) (string, *workspace.Membership) {
 }
 
 func writeShadowArtifact(t *testing.T, m *workspace.Membership, generation string) {
+	writeTreatmentArtifact(t, m, generation, workspace.AuthorityInferred)
+}
+
+// writeTreatmentArtifact writes the fixture artifact with every names-only row
+// at the given authority.
+func writeTreatmentArtifact(t *testing.T, m *workspace.Membership, generation, authority string) {
 	t.Helper()
 	art := workspace.TreatmentArtifact{
 		SchemaVersion: workspace.TreatmentArtifactSchema,
 		Workspace:     m.Root(),
 		Generation:    generation,
 		Treatments: []workspace.TreatmentRow{
-			{Dir: "data", Treatment: workspace.TreatmentIndexNamesOnly, Authority: "/operator", Scope: "data", Reasons: []string{"/operator_override"}},
-			{Dir: "data/big", Treatment: workspace.TreatmentIndexNamesOnly, Authority: "/operator", Scope: "data", Reasons: []string{"/operator_override"}},
+			{Dir: "data", Treatment: workspace.TreatmentIndexNamesOnly, Authority: authority, Scope: "data", Reasons: []string{"/operator_override"}},
+			{Dir: "data/big", Treatment: workspace.TreatmentIndexNamesOnly, Authority: authority, Scope: "data", Reasons: []string{"/operator_override"}},
 		},
 		Conflicts: []workspace.TreatmentConflict{
 			{Dir: "contested", Scope: "contested", Treatments: []workspace.Treatment{workspace.TreatmentIndexAndParse, workspace.TreatmentIndexNamesOnly}},

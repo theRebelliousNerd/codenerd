@@ -40,6 +40,16 @@ func (t Treatment) SkipsBodies() bool {
 	return t == TreatmentIndexNamesOnly || t == TreatmentExclude
 }
 
+// Treatment authorities, as the policy writes them on a row.
+const (
+	// AuthorityAccessRestriction is an operator's hard access limit.
+	AuthorityAccessRestriction = "/access_restriction"
+	// AuthorityOperator is an operator's operational choice.
+	AuthorityOperator = "/operator"
+	// AuthorityInferred is orientation's inference from measurements.
+	AuthorityInferred = "/inferred"
+)
+
 // ErrTreatmentIdentity is the view's refusal of an artifact written for a
 // different workspace or schema: a copied artifact installs nothing.
 var ErrTreatmentIdentity = errors.New("workspace: treatment artifact belongs to another workspace or schema")
@@ -189,6 +199,17 @@ type TreatmentDecision struct {
 	// Stale is true when the artifact's generation is not the membership's
 	// generation at the time the view was loaded.
 	Stale bool
+}
+
+// Enforced is true when a consumer must act on the decision: a body-skipping
+// treatment that an operator confirmed, over a current, unconflicted
+// artifact. An inferred treatment is only ever shadowed, a stale artifact
+// governs nothing, and a conflict keeps current behavior.
+func (d TreatmentDecision) Enforced() bool {
+	if d.Conflict || d.Stale || !d.Treatment.SkipsBodies() {
+		return false
+	}
+	return d.Authority == AuthorityOperator || d.Authority == AuthorityAccessRestriction
 }
 
 // TreatmentView loads this membership's artifact. A missing artifact is a nil

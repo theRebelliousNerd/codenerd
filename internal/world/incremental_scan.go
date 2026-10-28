@@ -46,6 +46,12 @@ type IncrementalResult struct {
 	// New fields for Mangle integration
 	ProjectLanguage string
 
+	// TreatmentFacts is the complete current set of file_metadata_only and
+	// treatment_scope rows. A delta or unchanged scan carries them here
+	// (a full scan carries them in NewFacts); applying a result replaces the
+	// kernel's rows with exactly these.
+	TreatmentFacts []core.Fact
+
 	// Orientation is the exact projection delta observed by orient.Refresh.
 	// It is present even when the workspace source census is unchanged.
 	Orientation *orient.RefreshResult `json:"-"`
@@ -103,6 +109,7 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 		return nil, memErr
 	}
 
+	treatment := newTreatmentShadow(mem)
 	currentFiles := make(map[string]os.FileInfo)
 	currentStamps := make(map[string]contentStamp)
 	var walkGens dirGenSnapshot
@@ -138,6 +145,12 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 		info, infoErr := entry.Info()
 		if infoErr != nil {
 			return infoErr
+		}
+		// A file under an operator-confirmed names-only or excluded scope is
+		// not part of the scan's file set: it is never stamped, hashed or
+		// parsed, and one that was scanned before is retired as deleted.
+		if treatment.claim(root, path, info) {
+			return nil
 		}
 		currentFiles[path] = info
 		currentStamps[path] = stampFromInfo(path, info, walkGens.of(filepath.Dir(path)))
@@ -283,6 +296,7 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 			Unchanged:      true,
 			FileCount:      fileCount,
 			DirectoryCount: dirCount,
+			TreatmentFacts: treatment.coverageFacts(),
 		}
 		if err := refreshOrientationForScan(ctx, root, res); err != nil {
 			return nil, err
@@ -580,6 +594,7 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 		FileCount:       fileCount,
 		DirectoryCount:  dirCount,
 		ProjectLanguage: globals.projectLanguage,
+		TreatmentFacts:  treatment.coverageFacts(),
 	}
 	if err := refreshOrientationForScan(ctx, root, res); err != nil {
 		return nil, err
@@ -1093,7 +1108,9 @@ func groupFactsByPath(facts []core.Fact) map[string][]core.Fact {
 	// the source, which is the file whose parse produced it and therefore the
 	// file it must be retracted with.
 	for _, f := range facts {
-		if f.Predicate == "file_topology" {
+		// Enforced-treatment rows are re-derived from every walk and never
+		// belong to a cached file.
+		if f.Predicate == "file_topology" || isTreatmentPredicate(f.Predicate) {
 			continue
 		}
 		var owner string

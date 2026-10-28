@@ -316,6 +316,12 @@ func (s *Scanner) prepareDirectoryScan(ctx context.Context, root string, options
 			return nil
 		}
 
+		// An operator-confirmed names-only or excluded scope is never hashed,
+		// read or parsed (treatment_enforce.go).
+		if shadow.claim(root, path, info) {
+			return nil
+		}
+
 		// CRITICAL FIX: Acquire semaphore BEFORE spawning goroutine
 		// This blocks filepath.Walk when worker pool is full, preventing unbounded goroutine spawning
 		select {
@@ -551,6 +557,7 @@ func (s *Scanner) prepareDirectoryScan(ctx context.Context, root string, options
 		})
 	}
 	result.Facts = append(result.Facts, detectEntryPoints(result.Facts)...)
+	result.Facts = append(result.Facts, shadow.coverageFacts()...)
 	result.TreatmentShadow = shadow.finish()
 
 	elapsed := timer.Stop()

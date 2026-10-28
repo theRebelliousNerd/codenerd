@@ -24,10 +24,26 @@ Decl directory(Path, Name) bound [/string, /string].
 # same package/directory instead of forming repo-wide Cartesian products.
 Decl file_dir(Path, Dir) bound [/string, /string].
 
-# file_exists(Path) - Derived from file_topology
+# file_metadata_only(Path, Language, LastModified, Size, Treatment) - a member
+# file the scanner deliberately did not hash, read or parse because an
+# operator-confirmed treatment (workspace.TreatmentDecision.Enforced) says
+# /index_names_only for its scope. It has no hash by design: file_topology's
+# hash slot is never forged, so an unknown body stays unknown. Re-derived by
+# every scan, never persisted.
+Decl file_metadata_only(Path, Language, LastModified, Size, Treatment) bound [/string, /name, /number, /number, /name].
+
+# treatment_scope(Dir, Treatment, Files, Bytes) - the coverage record of one
+# enforced scope: how many member files under Dir (the governing census
+# directory) were left unread, and their bytes. It is the evidence that an
+# empty search or impact answer for Dir covers names only (/index_names_only)
+# or nothing at all (/exclude); absence there is not proof of absence.
+Decl treatment_scope(Dir, Treatment, Files, Bytes) bound [/string, /name, /number, /number].
+
+# file_exists(Path) - Derived from file_topology and file_metadata_only
 # Checks if a file exists in the workspace
 Decl file_exists(Path) bound [/string].
 file_exists(Path) :- file_topology(Path, _, _, _, _).
+file_exists(Path) :- file_metadata_only(Path, _, _, _, _).
 
 # modified(FilePath) - marks a file as modified
 # Priority: 85

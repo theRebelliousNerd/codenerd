@@ -501,8 +501,9 @@ func runScanWithKernelFactory(cmd *cobra.Command, args []string, newKernel func(
 	return nil
 }
 
-// printTreatmentShadow reports what orientation's semantic treatment would
-// have skipped. Shadow only: the scan above hashed and parsed everything.
+// printTreatmentShadow reports orientation's semantic treatment: operator-
+// confirmed scopes the scan left unread, and what enforcing the inferred ones
+// would also have skipped (the scan above still hashed and parsed those).
 func printTreatmentShadow(sh *world.TreatmentShadow) {
 	if sh == nil {
 		return
@@ -518,11 +519,15 @@ func printTreatmentShadow(sh *world.TreatmentShadow) {
 	if !sh.Current {
 		stale = ", artifact is from an earlier member generation"
 	}
-	fmt.Printf("\n   Treatment shadow (not enforced%s):\n", stale)
-	fmt.Printf("     would skip %d files, %d bytes, %d hashes, %d body reads; %d files under conflicted scopes kept\n",
-		sh.Files, sh.Bytes, sh.Hashes, sh.BodyReads, sh.ConflictedFiles)
+	fmt.Printf("\n   Treatment (inferred scopes are shadow only%s):\n", stale)
+	fmt.Printf("     enforced: %d files, %d bytes left unread; shadow would skip %d more files, %d bytes, %d hashes, %d body reads; %d files under conflicted scopes kept\n",
+		sh.EnforcedFiles, sh.EnforcedBytes, sh.Files, sh.Bytes, sh.Hashes, sh.BodyReads, sh.ConflictedFiles)
 	for _, d := range sh.Dirs {
-		fmt.Printf("     %-40s %-18s %-20s %6d files %10d bytes\n", d.Dir, d.Treatment, d.Authority, d.Files, d.Bytes)
+		mode := "shadow"
+		if d.Enforced {
+			mode = "enforced"
+		}
+		fmt.Printf("     %-40s %-18s %-20s %-8s %6d files %10d bytes\n", d.Dir, d.Treatment, d.Authority, mode, d.Files, d.Bytes)
 	}
 }
 

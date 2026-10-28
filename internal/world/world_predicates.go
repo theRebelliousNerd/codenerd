@@ -51,6 +51,12 @@ var ScannerPredicates = []string{
 	"dependency_link",
 	"entry_point",
 	"project_language",
+	// Treatment coverage (treatment_enforce.go): the member files an
+	// operator-confirmed treatment kept the scan from reading. Re-derived
+	// from the walk by every scan, so a scope that stops being enforced
+	// loses its rows.
+	"file_metadata_only",
+	"treatment_scope",
 	// Test-impact file facts (test_impact_facts.go): re-derived by every
 	// full scan and per changed file by every delta scan. SessionScope
 	// must never claim these: the scope replace-set in
@@ -137,6 +143,14 @@ func ScannerReplaceSet() map[string]struct{} {
 var SnapshotGlobalPredicates = []string{
 	"directory",
 	"project_language",
+}
+
+// TreatmentPredicates are the scanner-owned rows describing enforced
+// treatment scopes. Every scan, including an unchanged one, replaces them
+// whole; they are never persisted in the world cache.
+var TreatmentPredicates = []string{
+	"file_metadata_only",
+	"treatment_scope",
 }
 
 func concatPredicates(groups ...[]string) []string {

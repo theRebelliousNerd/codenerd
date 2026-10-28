@@ -9,6 +9,7 @@ import (
 
 	"codenerd/internal/store"
 	"codenerd/internal/types"
+	"codenerd/internal/workspace"
 )
 
 // recordingKernel captures what ApplyIncrementalResult does to the kernel.
@@ -24,6 +25,7 @@ func (k *recordingKernel) RemoveFactsByPredicateSet(set map[string]struct{}) err
 	k.removedSets = append(k.removedSets, set)
 	return nil
 }
+func (k *recordingKernel) Query(string) ([]types.Fact, error) { return nil, nil }
 func (k *recordingKernel) Retract(pred string) error {
 	k.retracted = append(k.retracted, pred)
 	return nil
@@ -134,7 +136,15 @@ func TestScannerPredicates_WhenScanning_ShouldAllBeEmitted(t *testing.T) {
 	writeWorkspaceFile(t, root, "internal/core/core_test.go", "package core\n\nimport \"testing\"\n\nfunc TestDo(t *testing.T) {}\n")
 	writeWorkspaceFile(t, root, "cmd/app/main.go", "package main\n\nimport \"example.com/app/internal/core\"\n\nfunc main() { core.Do() }\n")
 
-	facts, err := NewScanner().ScanWorkspaceCtx(context.Background(), root)
+	// Treatment coverage rows exist only under an operator-confirmed scope.
+	writeWorkspaceFile(t, root, "data/rows.go", "package data\n\nfunc Rows() {}\n")
+	m, err := workspace.Open(root, []string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTreatmentArtifact(t, m, m.Generation(), workspace.AuthorityOperator)
+
+	facts, err := shadowScanner().ScanWorkspaceCtx(context.Background(), root)
 	if err != nil {
 		t.Fatal(err)
 	}

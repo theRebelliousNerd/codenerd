@@ -18,6 +18,15 @@ func ApplyIncrementalResult(kernel types.Kernel, res *IncrementalResult) error {
 			return fmt.Errorf("apply orientation refresh: kernel %T does not support transactions", kernel)
 		}
 	}
+	if !res.Full {
+		// A full result carries its treatment rows in NewFacts and clears the
+		// predicates through ScannerReplaceSet. Any other result replaces them
+		// here, even when nothing else changed: a new or removed file in an
+		// enforced scope is invisible to the change detection.
+		if err := applyTreatmentFacts(kernel, res.TreatmentFacts); err != nil {
+			return err
+		}
+	}
 	if res.Unchanged {
 		// The source world has no delta to apply. Orientation is independent:
 		// publish its exact projection change without retracting world globals.
@@ -65,6 +74,25 @@ func ApplyIncrementalResult(kernel types.Kernel, res *IncrementalResult) error {
 		return err
 	}
 	return applyOrientationDelta(kernel, res)
+}
+
+// applyTreatmentFacts replaces the kernel's enforced-treatment rows with the
+// walk's current set.
+func applyTreatmentFacts(kernel types.Kernel, facts []Fact) error {
+	for _, pred := range TreatmentPredicates {
+		if len(facts) == 0 {
+			// Nothing to assert: retract only what is there, so a scan of a
+			// workspace without enforced scopes touches nothing.
+			if held, err := kernel.Query(pred); err != nil || len(held) == 0 {
+				continue
+			}
+		}
+		_ = kernel.Retract(pred)
+	}
+	if len(facts) == 0 {
+		return nil
+	}
+	return kernel.LoadFacts(toTypesFacts(facts))
 }
 
 func applyOrientationDelta(kernel types.Kernel, res *IncrementalResult) error {

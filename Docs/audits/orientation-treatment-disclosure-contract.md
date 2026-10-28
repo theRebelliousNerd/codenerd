@@ -190,3 +190,9 @@ The shadow slice of §7 (steps 1–4, shadow only) is implemented. Hashing, pars
 - **Measured on this repository** (default bounds): 5,858 members and 387 census directories. The census and policy took about 0.13 s in total and used 1,117 of the 2,048 header reads, leaving no directory unsampled. Every `testdata` directory and `third_party` came out names-only. `internal/world/testdata` came out a conflict, because it holds Go source under a fixtures name.
 
 Not yet built: enforcement before hashing, metadata-only coverage records, invalidating body-derived rows on demotion, task-scoped promotion, the kernel projection of `tree_treatment`, and shadowing of the incremental delta scan.
+
+## Status note (2026-10-28)
+
+Fixed: operator-confirmed names-only/exclude scopes are now enforced before any hash, read or parse in the full and incremental scans, with `file_metadata_only`/`treatment_scope` coverage rows, demotion retiring prior rows, and stale/inferred/conflicted scopes left shadow (`internal/world/treatment_enforce.go`).
+Ruled out: the seven test seams (not missing wiring); inferred treatment is never enforced (audit's own rollout order).
+Left: structure index, deep scan, retrieval/embedding still read enforced files; task-scoped promotion; kernel projection of `tree_treatment`; modified-size drift of a names-only file is not refreshed on an unchanged scan.

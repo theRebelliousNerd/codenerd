@@ -22,3 +22,4 @@
   local; never restore a private directory skip list or dot-directory allowlist.
 - Default scanners read ignore patterns from the scanned workspace. Explicit
   scanner configurations use their supplied patterns; refresh on each scan tick.
+- Treatment: only an operator-confirmed, current, unconflicted names-only/exclude decision is enforced, in the walk before any hash or read, in the full and the incremental scan alike. Its `file_metadata_only`/`treatment_scope` rows come from the walk, are never persisted, and every non-full apply replaces them. Inferred treatment stays shadow.
