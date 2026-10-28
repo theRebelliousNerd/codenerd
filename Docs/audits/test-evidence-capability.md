@@ -149,3 +149,162 @@ No savings should be claimed before those measurements. More accurate attributio
 ## Handoff
 
 Do not reconnect `assertTurnTestFacts` merely to make dead-code counts fall. Preserve its current replacement. Reconcile the session/testfacts/core specifications around package-qualified, current evidence; retain the dormant-wrapper finding as supersession. The checkable exit is not “function reachable.” It is: **a genuinely new package-qualified failure cannot disappear behind an unrelated baseline failure, and the executive can explain the distinction using current host evidence.**
+
+## Research refinement — Preserve verification obligations, not merely the last passing process
+
+**Status:** source-inspected proposal, 2026-10-28. No tests, executable fixtures, model inference, implementation, benchmarks or failure injection were performed for this refinement. The sequences below are conditional source witnesses, not reproduced incidents or measured frequencies. Publishing this research does not implement or verify the proposed runtime contract.
+
+**Source freeze:** main `356f65e0e6bb639adaa90ab36212daa714114871`; feature `feat/conversation-brief` at `c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c`; research inventory `7ee5579ac456cf2a9f20d6338abbf633e74384a0`. The relevant `internal/gates/{gates,detect,run}.go`, `internal/session/{workspace_test_run,test_run_round,change_evidence}.go` and `internal/core/defaults/policy/coder_safety.mg` files have identical blob SHAs on main and feature. Citations below use these immutable source revisions.
+
+### Decision and relationship to prior work
+
+Keep the implemented package-qualified Go test facts, baseline attribution, host-only evidence predicates and post-write sequencing. Add an explicit coverage contract for the session's non-Go `/test_run` gate: a passing process must satisfy the applicable verification obligations, not erase them.
+
+The original test-evidence audit concerns whether a newly failing package-qualified test is mistaken for a pre-existing failure. Its October 28 as-built reconciliation remains valid and should be preserved. This refinement concerns a different denominator: **which checks were required, which actually ran, and which claims the final report may make**.
+
+The inspected research inventory contains adjacent work on [tool-effect validation completeness](tool-effect-receipts-and-validation-completeness.md), [judge applicability](verification-applicability-and-progressive-evidence.md), [documentation evidence](documentation-evidence-contract.md), and [planned-work conservation](planned-work-conservation.md). None of those inspected reports traces the `workspaceTestRun` adapter's loss of declared unavailable gates or its bypass by a pre-existing test receipt. Reuse their receipt and applicability concepts rather than introduce another evidence store.
+
+The [repository North Star](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/agents.md#north-star) assigns completion to Mangle and requires tests that harden the actual system. [Session guidance](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/agents.md) preserves explicit evidence, revision-bound completion and the distinction between observed outcomes and model claims. Existing workspace-gate machinery already supplies useful ingredients: stable gate IDs, scope, command, language, provenance, explicit unavailable gates and per-run results. The gap is not absence of this machinery; it is information lost when session verification consumes it.
+
+### Existing protections to retain
+
+- A tool name alone is not a test execution. `TestRun` is recorded where a process actually ran; dry-run or empty selections need not produce receipts. [Receipt definition](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/tools/test_runs.go#L9-L18).
+- Writes and test runs share a turn-owned sequence. Runs before the latest write cannot satisfy `/test_run`. [Policy](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/defaults/policy/coder_safety.mg#L515-L568).
+- The workspace detector distinguishes runnable and unavailable gates; a missing program does not become a successful `gates.Result`. [Detection partition](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/gates/gates.go#L134-L176), [runner](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/gates/run.go#L65-L110).
+- When all selected workspace gates finish conclusively, `workspaceTestRun` retains an earlier failure despite a later successful gate. The defect below is not a universal last-success-wins bug inside that loop. [Aggregation](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/workspace_test_run.go#L69-L95).
+- Verified caller acceptance is a separate completion mechanism. These findings do not demonstrate bypass of that contract, permission checks, or every independent completion obligation.
+
+### W1 — A model-selected run can suppress the workspace's checks
+
+`verifyAndRepairTestRun` calls `workspaceTestRun` only when `TestRunSinceLastWrite == nil`. It subsequently returns immediately if `/test_run` is green. A receipt therefore means both "a process ran" and "there is no need to consult the workspace's verification contract." [Caller](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/test_run_round.go#L42-L58).
+
+The typed test tool permits test filtering and records the actual resulting process. Session ingestion retains its last receipt and publishes each exit to the sequence ledger. The Mangle relation carries only turn, sequence and exit—not gate, scope or covered obligations. [Typed filtering and recording](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/tools/shell/verification.go#L193-L245), [session ingestion](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/session/executor_tools.go#L1012-L1027), [gate derivation](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/defaults/policy/coder_safety.mg#L526-L568).
+
+**Conditional witness:**
+
+1. An authorized turn changes `svc/app.py`.
+2. Its workspace declares a test command capable of detecting the introduced defect.
+3. After the write, the model invokes an authorized supported test runner with a filter selecting an unrelated passing test.
+4. The real process exits zero and produces a receipt.
+5. The forcing round does not invoke `workspaceTestRun`; the recorded post-write zero exit satisfies `/test_run`.
+
+No fabricated receipt, shell escape or permission failure is required. Other gates or a judge may still reject the task. The established finding is that this gate does not enforce the workspace-check contract its helper claims to provide.
+
+An equivalent, adequately scoped run should be reusable. The needed distinction is **matching evidence versus merely present evidence**, not "always rerun every test."
+
+### W2 — Unavailable declared gates disappear from aggregate coverage
+
+`gates.split` retains unavailable checks in `Set.Unavailable`. `workspaceTestRun` examines only `set.Gates`, selecting applicable runnable tests. It never records the applicable unavailable entries. If at least one selected test passes, and all selected runnable tests pass, it publishes a zero-exit aggregate even when another declared applicable test could not run. [Partition](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/gates/gates.go#L143-L176), [consumer](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/workspace_test_run.go#L47-L95).
+
+**Conditional witness:** declare two applicable test gates; one installed command succeeds, while the other command is absent from PATH. The detector correctly preserves the second as unavailable. The session adapter discards that distinction and can derive `/test_run /passing` from the first alone.
+
+This does **not** mean a workspace with no runnable tests directly becomes green: `len(run)==0` returns false. The loss occurs particularly in the mixed available/unavailable case. A future contract must make required versus advisory status explicit, rather than assuming every discovered check is mandatory or allowing availability to decide that status implicitly.
+
+There is a second form of loss after execution begins. If one selected gate fails, then a later gate returns `Unverified`, the adapter returns `false, ""` before storing the aggregate or publishing its sequence. Earlier output and the known failure remain local rather than reaching this receipt boundary. The caller then treats `byWorkspace=false` as the model-fallback path. [Early return](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/workspace_test_run.go#L76-L95), [fallback/recheck](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/test_run_round.go#L59-L83).
+
+An unavailable result does not itself mint green. A later passing model-selected process can do so because the required-check set and earlier failed aggregate were not retained. Use a missing workspace-relative executable as a proposed non-cancellation witness: such a command remains in runnable discovery until execution, and can fail to start after an earlier gate's failure. Avoid relying solely on cancellation, which may independently stop subsequent work.
+
+#### Recheck variant: an ignored unavailable outcome can leave a passing tool receipt current
+
+The initial workspace run can fail conclusively, leaving `byWorkspace=true`. A repair attempt may then produce a passing model-selected test receipt. The recheck invokes `workspaceTestRun` again but discards its returned boolean (`_, out := ...`). If that invocation becomes unavailable before publishing an aggregate, it leaves the newer tool receipt and sequence untouched. `testRunGatePassed` can consequently read that receipt's green result and return success for this repair gate. [Initial workspace ownership and repair recheck](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/test_run_round.go#L47-L83), [no-publication early return](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/workspace_test_run.go#L80-L95).
+
+This requires a change in availability or a later indeterminate/canceled run; it is not what happens when the workspace rerun conclusively fails. A transient launch failure is a cleaner proposed witness than cancellation because cancellation may terminate the wider task. The proven source boundary is `/test_run` and its repair result, not unconditional whole-task acceptance.
+
+#### Multi-language limit
+
+The adapter collects a union of written languages and a separate union of written directories. It selects gates whose language matches that union (or is language-free), then applies each node-scoped selected gate to the directory union. It does not retain a per-file or per-language required-coverage relation. [Selection and node expansion](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/workspace_test_run.go#L43-L77), [written-file projection](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/workspace_test_run.go#L109-L136).
+
+Do not infer that every multi-language task is affected: a workspace-wide or language-free declared check can intentionally cover several languages. The narrower concern is that one available language's pass does not prove coverage of another language with no applicable runnable check. Language labels and directory proximity are not dependency proofs. Preserve explicit unknown coverage and project-declared cross-language scope rather than inventing a universal mapping from extensions to adequate tests.
+
+### W3 — "No tests collected" is not positive test coverage
+
+Detected Python gates deliberately accept pytest exits zero and five. Session aggregation normalizes either accepted outcome into the aggregate's zero exit. [Detector](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/gates/detect.go#L132-L140), [normalization](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/workspace_test_run.go#L69-L100).
+
+That choice is understandable for traversal: a source directory without colocated tests need not be classified as containing failed tests. It is insufficient as affirmative evidence that the changed source was tested.
+
+For example, a project can put production files under `src/pkg/` and tests under a separate `tests/` directory. The detected node command targets the written directory. If that invocation collects nothing and exits five, its absence of failures is not evidence that the separate suite passed.
+
+Pytest explicitly distinguishes exit five from successful collected tests, and directory arguments constrain collection. [Official exit semantics](https://docs.pytest.org/en/stable/reference/exit-codes.html), [official selection semantics](https://docs.pytest.org/en/stable/how-to/usage.html#specifying-which-tests-to-run).
+
+Do not globally redefine exit five as a defect. Preserve a `no_tests` observation and require policy to distinguish a genuinely non-applicable check from an unresolved testing obligation. An explicit project-defined exit policy also needs its declared meaning preserved rather than silently relabeled as executed-test coverage.
+
+### W4 — The host's completion sentence overstates even correct verdicts
+
+For any write turn without an acceptance report, `appendEvidenceSummary` renders `verdictSentence`. Every `/done` result receives:
+
+> Verified by evidence: the build and the tests were both measured green after the final edit.
+
+[Renderer](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/change_evidence.go#L324-L367).
+
+But policy deliberately permits:
+
+- documentation writes without build/test obligations;
+- other-language writes with `/test_run`, not the Go build/test pair.
+
+[Obligation rules](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/defaults/policy/coder_safety.mg#L464-L481), [verification derivation](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/defaults/policy/coder_safety.mg#L666-L678).
+
+The existing `aDocumentIsDoneOnExecution` test explicitly establishes the intended documentation completion path. It was inspected, not run. [Test definition](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/test_run_gate_test.go#L151-L160).
+
+Thus the verdict may be correct while its host-authored explanation invents measurements. This does not depend on model hallucination. A stage such as `artifact_changed` can even appear beside the stronger build-and-tests sentence. The statement is conditional on reaching `/done` and having a write with no acceptance report; it is not emitted for every task.
+
+Render the actual completed obligations, explicitly distinguishing "not required" from "passed," and retain the separate caller-acceptance report path.
+
+### Proposed minimum contract
+
+Freeze a verification plan before settling the turn:
+
+- applicable gate ID, source/configuration identity and required/advisory disposition;
+- expanded command, canonical working directory and scope;
+- affected files or declared obligation coverage;
+- execution outcome: passed, failed, unavailable, canceled, indeterminate, no-tests, not-applicable;
+- source revision and evidence handle;
+- any authorized replacement relationship between an existing tool receipt and a planned gate.
+
+The host measures these fields. Mangle derives whether each required obligation is satisfied and what remains. A model's claim that an unrelated test is sufficient cannot create that relationship.
+
+Preserve these invariants:
+
+1. Discovery availability cannot shrink the required-check denominator.
+2. An existing run suppresses a planned check only when it satisfies the same obligation under an explicit matching rule.
+3. Partial execution publishes all known outcomes, including failures before unavailability.
+4. Later success supersedes an earlier failure only for the same obligation and applicable revision.
+5. No-tests remains distinct from positive execution coverage.
+6. Human-facing claims are projections of the settled evidence, not a generic sentence attached to `/done`.
+
+Keep unknowns honest. Do not install missing toolchains, broaden execution authority, waive checks or run arbitrary replacement commands merely to obtain green status. Matching a command is a useful first reference rule, not proof of semantic sufficiency: preserve the caller/project's declared contract and the existing acceptance mechanism.
+
+### Proposed verification, not executed results
+
+| Fixture | Required result |
+|---|---|
+| Unrelated passing filtered run precedes forcing | Required workspace checks still owed. |
+| Equivalent applicable run precedes forcing | Reuse without redundant execution. |
+| One declared gate passes; another is unavailable | Passing subset retained, missing obligation explicit; no complete aggregate. |
+| Earlier gate fails; later executable cannot start | Failure and unavailable outcome both survive. |
+| Later unrelated process passes after that partial run | Cannot clear the failed or missing obligation. |
+| Initial workspace failure, passing repair-tool receipt, unavailable workspace recheck | Recheck cannot reuse the tool receipt as an unqualified workspace pass; prior failure and new unavailability remain distinct. |
+| Python written directory collects no tests | No-tests classification, not positive coverage. |
+| Tests live outside written directory | Valid project test scope remains reachable. |
+| Two written languages, only one covered; explicit cross-language check control | Missing coverage remains visible in the first case; legitimate shared coverage is retained in the control. |
+| All required checks pass | Existing successful behavior preserved. |
+| Documentation-only completion | No invented build/test execution claim. |
+| Non-Go test-only completion | Names actual test evidence without claiming a build. |
+| Caller acceptance present | Existing acceptance-report semantics preserved. |
+
+Exercise the composed route—typed execution receipts → post-edit scheduler → workspace discovery/runner → kernel closure → final rendering—not only direct helper tests. Existing [workspace tests](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/workspace_test_run_test.go) demonstrate direct helper success, failure and unavailable behavior; those inspected fixtures do not establish the pre-existing-receipt or mixed-availability contracts above. This is not a claim that every other test in the repository was searched or run.
+
+### Cost and research discipline
+
+Compare three alternatives at identical tasks, revisions and authority:
+
+1. Current aggregate receipt.
+2. Always execute the complete applicable workspace plan; simplest correctness reference.
+3. Obligation-preserving plan with sound reuse of matching receipts.
+
+Measure false completion, false rejection, unresolved obligations, actual regression detection, test CPU/wall time, discovery cost, retained receipt bytes, model repair calls, all token usage and human recovery. More formerly accepted tasks may correctly become unverified; that is not automatically a capability improvement unless recovery is also useful. Include all attempted and canceled checks, and do not subtract failed paid model requests from the cost denominator. Provider cache-read/write and reasoning subcounts must remain non-additive when already included in token totals.
+
+Gate/node receipts can be bounded metadata with full output behind recoverable handles. Avoid adding every log to active model context. Matching and provenance have costs; require measured end-to-end savings before claiming that richer reuse beats the simpler reference. A conservative initial matcher can trade additional test execution for easier qualification; a more selective matcher needs explicit dependency and invalidation evidence.
+
+Regression-test-selection research supports retaining dependency evidence when choosing fewer tests; it does not justify accepting any passing subset. Ekstazi's dynamic file-dependency approach is a relevant precedent, not a performance guarantee for CodeNERD's polyglot runtime. [Primary paper](https://mir.cs.illinois.edu/marinov/publications/GligoricETAL15PracticalRTS.pdf).
+
+**Checkable exit:** every applicable required verification obligation has an explicit current disposition, unrelated success cannot erase missing or failed evidence, and the final report claims only measurements the host actually possesses.
