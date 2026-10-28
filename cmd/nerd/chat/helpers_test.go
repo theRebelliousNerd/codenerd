@@ -665,10 +665,10 @@ func TestHardWrap(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := hardWrap(tt.input, tt.width)
+			result := wrapText(tt.input, tt.width)
 			if tt.wantOK && result == "" && tt.input != "" && tt.width >= 1 {
 				// For non-empty input with valid width, should get non-empty result
-				t.Logf("hardWrap(%q, %d) returned empty string", tt.input, tt.width)
+				t.Logf("wrapText(%q, %d) returned empty string", tt.input, tt.width)
 			}
 		})
 	}
