@@ -80,11 +80,7 @@ func (e *Executor) syncTestGateFacts(turn types.MangleAtom, result *ExecutionRes
 			})
 		}
 	}
-	if result.TestCheck.Ran && result.TestCheck.Result != nil {
-		for _, fact := range turnScopedTestFacts(turn, result.TestCheck.Result) {
-			e.assertTurnFact(fact)
-		}
-	}
+	e.assertTurnTestFacts(turn, result)
 	// The importer run is the other measurement of this same gate.
 	e.syncImporterGateFacts(turn, result)
 }
