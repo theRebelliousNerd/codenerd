@@ -192,6 +192,11 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m, cmd = m.approvePendingWork()
 		return m, cmd
 
+	case learningCorrectionMsg:
+		// The kernel derived this turn as a correction to the last one
+		// (jev_correction.go); the learning loop runs in its place.
+		return m.triggerLearningLoop(msg.input)
+
 	case responseMsg:
 		m.isLoading = false
 		m.turnCount++

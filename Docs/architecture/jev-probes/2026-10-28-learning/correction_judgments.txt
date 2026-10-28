@@ -1,0 +1,7 @@
+correction probe: 17 cases, thresholds yes>=0.70 no<=0.30
+corrects_last_turn         right  14  wrong  0  unsettled  3
+all right 14 of 17
+misses (x wrong, ~ unsettled):
+  ~ own-bug-wrong            corrects_last_turn         p=0.32 want=false  "thanks. now Mean is wrong too - TestMean says 6 instead of 4, fix it"
+  ~ tests-wrong              corrects_last_turn         p=0.58 want=false  "the expected values in stats_test.go are wrong, update them to match the spec"
+  ~ question-wrong           corrects_last_turn         p=0.47 want=false  "what's wrong with returning an error instead?"

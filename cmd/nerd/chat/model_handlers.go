@@ -179,11 +179,6 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 	m.isLoading = true
 	m.beginLiveTurn("Thinking...")
 
-	// Check for negative feedback auto-trigger
-	if isNegativeFeedback(input) {
-		return m.triggerLearningLoop(input)
-	}
-
 	// Check for dream state learning confirmation (§8.3.1)
 	if m.dreamCollector != nil && isDreamConfirmation(input) {
 		return m.handleDreamLearningConfirmation(input)

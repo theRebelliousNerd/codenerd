@@ -104,13 +104,6 @@ func TestExtractClarificationQuestion(t *testing.T) {
 }
 
 func TestFeedbackDetectors(t *testing.T) {
-	if !isNegativeFeedback("Bad bot, wrong answer") {
-		t.Fatal("expected negative feedback to be detected")
-	}
-	if isNegativeFeedback("looks good") {
-		t.Fatal("did not expect negative feedback")
-	}
-
 	if !isDreamConfirmation("Yes, do that") {
 		t.Fatal("expected dream confirmation to be detected")
 	}
@@ -126,15 +119,6 @@ func TestFeedbackDetectors(t *testing.T) {
 // do NOT trigger on natural conversational input that happens to
 // contain trigger substrings (the bug that word-boundary matching fixes).
 func TestFeedbackDetectors_FalsePositives(t *testing.T) {
-	// "fail" as substring within a word — should NOT trigger
-	if isNegativeFeedback("The failsafe mechanism caught the error") {
-		t.Error("isNegativeFeedback false-positive: 'failsafe'")
-	}
-	// "stop" as substring within a word — should NOT trigger
-	if isNegativeFeedback("I need a stopwatch function") {
-		t.Error("isNegativeFeedback false-positive: 'stopwatch'")
-	}
-
 	// "correct" embedded as substring in "incorrect" — should NOT trigger
 	if isDreamConfirmation("this is incorrect behavior") {
 		t.Error("isDreamConfirmation false-positive: 'incorrect' containing 'correct'")

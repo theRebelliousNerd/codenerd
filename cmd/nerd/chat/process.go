@@ -175,8 +175,10 @@ func (m Model) processInput(input string) tea.Cmd {
 		// Jev's judgments run beside perception (jev_turn.go). A go-ahead turn
 		// asks none: the held intent is the request, not the word "go".
 		var judged <-chan judgedTurn
+		var correction <-chan judgedCorrection
 		if !reusedIntent {
 			judged = m.startTurnJudgments(ctx, input, historyForPerception)
+			correction = m.startCorrectionJudgment(ctx, input)
 		}
 
 		// Prefer the always-on PerceptionFirewall system shard when available.
@@ -210,6 +212,15 @@ func (m Model) processInput(input string) tea.Cmd {
 			m.recordBrief(intent.Brief)
 		}
 		m.recordTurnJudgments(ctx, judged)
+		// A correction to codeNERD's last turn runs the learning loop in place
+		// of the turn, when the kernel derives one (jev_correction.go,
+		// policy/jev_learning.mg). A go-ahead turn is not a correction.
+		if !reusedIntent {
+			if source, ok := m.recordCorrection(ctx, input, correction); ok {
+				logging.Routing("[processInput] learning_correction(/%s): the learning loop replaces the turn", source)
+				return learningCorrectionMsg{input: input, source: source}
+			}
+		}
 		// The limit the user put on this request (read-only, dry run, what-if,
 		// confirm first) rides the turn's context, so every delegation,
 		// preset task and subagent this turn starts runs under it and none can

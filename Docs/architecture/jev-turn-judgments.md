@@ -171,7 +171,47 @@ is never a "no": each use below names its fallback, and the fallback is logged.
 
 ### Correction judgment: switch `correction_judgments`
 
-Being built (2026-10-28).
+Whether the user's latest message corrects codeNERD's last turn. It decides
+whether the learning loop (`triggerLearningLoop`, the taxonomy critic) runs in
+place of the turn. Until 2026-10-28 `handleSubmit` matched keywords before
+perception, so a short "wrong" or "mistake" hijacked the turn whatever it meant.
+
+- Question: `internal/learnjudge/correction.go`. One Noul, `corrects_last_turn`:
+  "In `message`, is the user telling codeNERD that something in
+  `codenerd_reply` was wrong?" The state is the request codeNERD's last turn
+  answered, that reply (bounded at 24000 bytes, head and tail, with
+  `codenerd_reply_omitted_bytes` when cut), and the message. With no reply yet
+  there is nothing to correct: nothing is asked and nothing is learned.
+- Call: `startCorrectionJudgment` beside perception (`cmd/nerd/chat/jev_correction.go`),
+  bounded by `turn_judgment_timeout`; `recordCorrection` after the turn
+  judgments land, before routing. It is a separate request from the turn
+  judgments (a follow-up could fold it in, since the state overlaps).
+- Facts: `correction_judgment(Percent)`; `correction_rebuke_phrase()` when
+  `perception.IsRebuke` matches (the old keyword reading, kept as fallback
+  evidence). Both are retracted every turn.
+- Rule: `learning_correction(Source)` (`policy/jev_learning.mg`):
+
+  | Jev judgment | Rebuke phrase | `learning_correction` |
+  |---|---|---|
+  | at or above yes | any | `/jev`: the learning loop runs |
+  | below yes (no or unsettled) | any | none: the turn routes as usual |
+  | none (off, switched off, failed, timed out) | yes | `/rebuke_phrase` |
+  | none | no | none |
+
+- What the user sees: "stop", "the tests are wrong, fix them" or "what's wrong
+  with X?" route as ordinary turns; "no, I said Max, not Min" starts the
+  learning loop with no rebuke word in it. Every fallback logs why
+  (`correction: no Jev judgment ...`, `correction_judgments is off`).
+- Probe (`jev-1.14.0`, 17 cases, `jev-probes/2026-10-28-learning/correction_judgments`):
+  14 right, 0 wrong, 3 unsettled. The unsettled ones are messages about code
+  that use "wrong" ("the expected values in stats_test.go are wrong", in a file
+  codeNERD had just edited, 0.58; "what's wrong with returning an error
+  instead?", 0.47; a new bug report after "thanks", 0.32). Unsettled learns
+  nothing, so each routes as an ordinary turn. "stop" scored 0.02.
+- Tests: `TestCorrection_TruthTable` (every row, Jev failing, switch off, no
+  Jev), `TestCorrection_FirstTurnAsksNothing`, `TestLastExchange`
+  (`cmd/nerd/chat/jev_correction_test.go`); `internal/learnjudge/correction_test.go`;
+  `TestIsRebuke` (`internal/perception/rebuke_test.go`).
 
 ### Task verdicts: switch `task_verdicts`
 

@@ -464,44 +464,6 @@ func TestIsDreamExecutionTrigger(t *testing.T) {
 	}
 }
 
-func TestIsNegativeFeedback(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected bool
-	}{
-		{"bad bot", "bad bot", true},
-		{"wrong", "wrong", true},
-		{"no that's not right", "no that's not right", true},
-		{"you didn't", "you didn't do what I asked", true},
-		{"incorrect", "that's incorrect", true},
-		{"mistake", "you made a mistake", true},
-		{"case insensitive", "WRONG!", true},
-		{"phrase at any length", "no that's not right, Max panics on an empty slice rather than returning zero", true},
-
-		// Negative cases
-		// A bare stop is the user stopping running work, not a rebuke.
-		{"stop", "stop", false},
-		{"stop doing that", "stop doing that", false},
-		{"fail is a report", "the tests fail", false},
-		// A request that mentions a failure is a task, not a complaint.
-		{"long request mentioning wrong", "Mean in stats.go is wrong - go test says TestMean fails and it returns 6 instead of 4", false},
-		{"empty", "", false},
-		{"random", "hello world", false},
-		{"positive", "good job", false},
-		{"correct", "correct", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := isNegativeFeedback(tt.input)
-			if result != tt.expected {
-				t.Errorf("isNegativeFeedback(%q) = %v, want %v", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
 // Note: TestExtractClarificationQuestion and TestExtractCorrectionContent are in model_helpers_test.go
 
 func TestExtractFindings(t *testing.T) {
