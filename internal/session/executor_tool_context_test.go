@@ -13,6 +13,9 @@ import (
 )
 
 func TestCompilationContextUsesPermittedToolEnvelope(t *testing.T) {
+	// The compile lists what the request can carry, so the granted tools
+	// need their backends, as boot hydration registers them (tool_offer.go).
+	registerProductionTools(t)
 	k, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
