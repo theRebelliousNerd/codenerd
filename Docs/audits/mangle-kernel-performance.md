@@ -162,6 +162,145 @@ A staged future rollout should first compare selected pure/replayable workloads 
 
 These are research work items, not adopted repository gap IDs. The practical order is measurement plus the smallest index-preserving clone experiment, then preparation and retraction access paths. Keep the executive in Mangle. Make it do less irrelevant work, not less required reasoning.
 
+## As built (2026-10-27)
+
+Already on main before this pass: `9dc23e1e` (clean-parent clones copy the evaluated store; dream checks use `EvaluatePending`) and `da587e91` (incremental dedupe-index removal on retract).
+
+**Implemented**
+
+- **KERNEL-PERF-04, compiled retractions.** `internal/core/kernel_retract_plan.go`: `compileRetractions` turns a transaction's whole-predicate, predicate-set, first-argument and exact retractions into one `retractionPlan`; `KernelTransaction.Commit` (`kernel_transactions.go`) compacts the EDB once with `plan.keeps`, and skips the pass when no named predicate has rows. Hash keys (`valueKey`, allocation-free) only select candidates; every match is confirmed with `argsEqual`/`argsSliceEqual`, so the cross-type semantics are unchanged (unkeyable values go to a linear list; `-0` keys with `0`). Transaction contract unchanged: retractions before assertions, partial assertion rejection, publish after unlock.
+- **KERNEL-PERF-03, cone preparation.** `kernel_edb_index.go`: the dedupe index is now `edbIndex`, bucketed by predicate (canonical key → stored `Fact`) with a monotone per-name arity history, maintained by every admit, retract, heartbeat replace, boot inject, clear and clone. `kernel_cone_plan.go`: `coneIndex` (built after stratification, shared through the compiled-program cache) carries `rulesByHead`, `strataByPred` and per-name program symbols, and a bounded (256) cache of immutable `conePlan`s keyed by the written-predicate set. `evaluateConeLocked` removes old rows by symbol (program symbols ∪ EDB arity history) instead of `ListPredicates`, restores only touched EDB buckets, and hands the engine the plan's rules and strata in original program order.
+- **KERNEL-PERF-02, clone representation.** `Clone` shares the immutable stored facts (the per-fact deep copy is gone) and clones the index structure; `copyFactStore(src, dst)` copies into a simple store.
+- **KERNEL-PERF-01, attribution.** `EvaluationStats` (`kernel_types.go`) records mode, store kind, prepare vs engine time, touched/removed/restored counts, rules, strata, and why a named write fell back to the full path (`coneIneligibilityLocked`). `Dreamer.evaluateProjection` logs clone time plus these per check.
+- Found along the way: `rebuildProgram` cleared `policyDirty` and installed the new `programInfo` before stratifying, so a non-stratifiable program left new rules beside old strata. It now installs nothing until stratification succeeds.
+
+**Measured** (`internal/core/kernel_perf_bench_test.go`, `-benchtime=30x`, median of 3, shared workstation; before = this branch's base, after = this commit):
+
+| Benchmark | Before | After |
+|---|---|---|
+| `TransactionMixedRetractions` 60k EDB, 1,000 exact + 20 first-arg + 1 predicate | 538 ms | 6.9 ms |
+| same, 50 exact | 34.1 ms | 6.1 ms |
+| `ConeSmallWrite` one-rule cone, 60k EDB | 754 µs | 126 µs |
+| `ConeSmallWrite`, 1.5k EDB | 80 µs | 73 µs |
+| `DreamCloneConeEvaluation` clone + stage + cone + read, 60k EDB | 75.4 ms, 141k allocs | 67.5 ms, 81k allocs |
+| same, 1.5k EDB | 1.03 ms, 3.9k allocs | 0.93 ms, 2.4k allocs |
+
+Equivalence, not just speed: `kernel_perf_test.go` checks cone results against a fresh full fixpoint after asserts, a negated premise turning true and retractions, on both store kinds and on clones (`TestCloneStoreKindAndConeEquivalence`), the retracted-undeclared-arity case (`TestConeRemovesRetractedUndeclaredArity`), plan selection against a whole-program scan on the production corpus (`TestConePlanMatchesProgramScanOnProductionCorpus`), compiled retractions against sequential passes over a cross-type value zoo with index parity (`TestCompiledRetractionsMatchSequentialPasses`), and transaction fixpoint equivalence.
+
+**Ruled differently**
+
+- Clone stores stay simple. `BenchmarkCloneStoreKind` (copy + cone + read, timed together) measured an indexed copy at 1.6 vs 0.8 ms (synthetic 1.5k EDB), 96 vs 63 ms (synthetic 60k EDB, a bound join that the index does help), and 26.8 vs 13.3 ms (production corpus, dream projection). Building argument indexes per clone costs more than the joins it saves.
+- Plans cache the physical selection only (rules, strata, touched names). They don't cache results or permission answers. Program identity is implicit: the cache lives on that program's `coneIndex`. The bound is an internal constant like `compiledProgramCacheMax`, not a user setting.
+- `RetractExactFactsBatch` keeps its canonical-key identity; the transaction keeps `argsEqual` identity. Each public API's semantics are unchanged.
+
+**Deferred**
+
+- KERNEL-PERF-06 overlays: the 60k-EDB profile now shows store copy plus GC dominating a dream check (the cone itself is small), which is the evidence §3 asked for. The masking, tombstone and lifetime design is still unbuilt.
+- KERNEL-PERF-05 smallest-bound-bucket lookup: this is an upstream `factstore` change. Also upstream, `EvalStratifiedProgramWithStats` copies every Decl and rebuilds per-stratum EDB sets on each call, a cost proportional to the program rather than to the cone.
+- Lock wait/hold, peak memory and external-call timing in `EvaluationStats`. Per-stratum engine durations are summed, not exposed.
+
+## Post-implementation refinement: stored-fact ownership must support shared kernel clones
+
+**Recommendation:** preserve the implemented clone and predicate-index optimizations, but establish immutable ownership of retained facts at admission and snapshot boundaries. The present implementation shares mutable argument storage with callers. Under an explicit external-API mutation sequence, this can desynchronize EDB rows, canonical index keys and evaluated atoms—and let cone restoration reintroduce a retracted row.
+
+**Evidence boundary:** static source inspection only. No implementation, tests, inference, profiling or benchmarks were executed. **No production caller that mutates an admitted argument or exported snapshot was established.** This is a source-derived API correctness finding, not an observed production incident or authorization bypass.
+
+At the final branch check, main was `356f65e0e6bb639adaa90ab36212daa714114871`, feature `feat/conversation-brief` was `c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c`, research was `a636eed04b7650ea4037c9494d86e7337d4df6b3`, and historical research was `c592ff223cd207fca4c29ae793d5eba57aa4781d`. All cited kernel ownership/index/evaluation files and the system adapter have identical main/feature blobs. The `Fact` conversion section is also identical, although the surrounding `types.go` file differs.
+
+### What already works—and the missing precondition
+
+The [performance audit’s as-built section](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/Docs/audits/mangle-kernel-performance.md#as-built-2026-10-27) records predicate-bucketed EDB access, compiled retractions, cached cone plans and shared stored facts. Those improvements should not be described as missing or discarded without cost evidence.
+
+Their ownership precondition is not fully enforced:
+
+| Boundary | Source-grounded behavior |
+|---|---|
+| Input admission | `internFact` allocates an argument slice only when a top-level argument is a plain `string` or `MangleAtom`. Otherwise it returns the original slice. Even its copying path leaves nested mutable values shared. [Source](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_facts_intern.go#L19-L63) |
+| Retained representations | Admission computes a canonical key, converts the fact, then retains the raw `Fact` in both `k.facts` and the index. [Source](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_facts.go#L446-L490) |
+| Snapshot export | `GetBaseFacts` copies only the outer `[]Fact`; each `Args` slice still references internal storage. The iterator yields stored `Fact` values directly. [Accessor](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_accessors.go#L5-L16), [iterator](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_facts.go#L1306-L1329) |
+| Clone | `cloneLocked` copies outer fact slices; the argument values remain shared. The index clone copies maps, not the nested contents of their `Fact` values. [Kernel clone](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_eval.go#L507-L580), [index clone](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_edb_index.go#L82-L95) |
+
+The distinction matters: **the kernel not modifying a stored fact does not make that fact immutable if another owner can modify its backing storage.** The Go specification describes slices as references to underlying arrays; copying a struct containing a slice does not independently copy that array. [Go specification](https://go.dev/ref/spec#Slice_types), [Go’s slice explanation](https://go.dev/blog/slices-intro)
+
+### Concrete API witness—unrun
+
+Use a minimal, successfully analyzed kernel with:
+
+- Numeric `probe/1` and `seen/1` declarations.
+- A rule deriving `seen(N)` from `probe(N)`.
+- No initial `probe` fact.
+- Provenance disabled, no intervening program change, and otherwise ordinary cone eligibility.
+
+Then:
+
+1. Assert `probe(1)` using a caller-retained numeric-only argument slice. Materialize the kernel successfully.
+2. Optionally clone it while clean.
+3. Change the retained argument element from integer `1` to integer `2`, without invoking a kernel mutation method. An independent variant obtains the row through `GetBaseFacts` and changes that returned row’s `Args[0]`.
+4. The raw EDB row and index’s stored `Fact` now contain `2`; the index key remains the previously computed `probe(1)`; the evaluated store still contains the atom for `1`. A previously created clone shares the altered argument storage. This external assignment invokes no generation or dirty-state update.
+5. Call `RetractExactFact` for `probe(2)`. Its scan matches and removes the raw EDB row. However, compaction attempts to remove the index entry under the row’s **current** canonical key, `probe(2)`. The surviving entry is still keyed by `probe(1)`. Index removal simply returns when the requested key is absent. [Retraction](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_facts.go#L917-L949), [compaction](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_facts.go#L790-L822), [index removal](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_edb_index.go#L59-L69)
+6. On the next eligible cone evaluation, the kernel removes touched store rows and restores EDB facts from the index bucket. The surviving entry supplies the altered `probe(2)`, and the rule can derive `seen(2)`—despite the successful retraction and reduced `FactCount`. [Cone eligibility and restoration](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_eval_cone.go#L247-L347)
+
+This sequence establishes the conditional mechanism from source; it is **not an executed reproduction**. Forcing a full evaluation is an important control: it repopulates from `k.facts`, not the stale predicate bucket, so it does not demonstrate the same immediate resurrection. It also does not itself establish that the stale dedupe index was repaired.
+
+### Scope and controls
+
+- The numeric-only witness does not depend on malformed values, concurrency, external predicates, failed evaluation or missed reset invalidation.
+- Some inputs are already protected at the top level: string/name interning copies their argument array; the special sanitizer copies arguments for three named priority predicates. Neither is general recursive ownership. [Sanitizer](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_facts.go#L1195-L1203)
+- `Query` and `QueryAll` construct fresh public argument slices from AST atoms. They are **not** the raw aliasing accessor in this finding. [Readback conversion](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_query.go#L406-L448)
+- Container inputs are genuinely supported: specified map/slice shapes are JSON-encoded into string atoms while the raw container remains in the retained fact.
+- Do **not** claim pointers are uniformly rejected. The fallback accepts other JSON-encodable values when their encoding is nonempty and neither `null` nor `{}`; this can include nonnil pointers to exported-field structures. Explicit nil and unsupported/unencodable values are rejected. [Conversion](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/types/types.go#L219-L325)
+- A top-level argument copy alone does not isolate nested maps, slices, pointers or custom JSON-backed objects.
+
+Real consumers make the contract consequential, without establishing that they currently mutate shared values: Dreamer uses `Clone` for projected safety evaluation; JIT creates private compilation scopes with `CloneWithIdentity`; snapshot export calls `GetBaseFacts`. [Dreamer](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/dreamer.go#L288-L315), [JIT scope](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/system/factory_adapters.go#L124-L138), [export](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/cmd/nerd/cmd_snapshot.go#L144-L175)
+
+### Proposed ownership contract
+
+After successful admission, later changes to caller-owned objects must not change the admitted fact. Exported snapshots must not provide writable access to retained state. Internal clones may then safely share genuinely immutable representations.
+
+Compare two bounded designs:
+
+1. **Owned raw facts:** recursively snapshot the supported input shapes at admission; independently copy mutable output structures at snapshot export. Explicitly define treatment of fallback/custom JSON values rather than assuming arbitrary Go graphs can safely be deep-copied.
+2. **Immutable admitted representation:** retain a canonical typed/serialized value as authoritative, and construct public views from it. Preserve Name/String identity, declaration-directed adaptation and existing raw-export compatibility—or document and validate a migration.
+
+Do not merely increment the generation: an untracked external assignment cannot reliably trigger that increment, and a new generation would not repair an already mismatched index key. Do not restore per-fact deep copying on every Dreamer clone as the first response; ownership at admission/export can preserve cheap internal sharing.
+
+### Proposed evaluation—none executed
+
+| Fixture | Required observations |
+|---|---|
+| Numeric-only caller arguments changed after admission | EDB, evaluated facts, index and identity remain consistent with the admitted value. |
+| Returned `GetBaseFacts` arguments changed | Neither parent nor clone changes. |
+| Iterator-retained arguments changed after iteration | Same isolation; distinguish replacing the outer `Fact` from changing its backing arguments. |
+| String/name input control | Existing top-level protection remains; nested mutable values still receive coverage. |
+| Containers and accepted JSON-backed pointers | Capture admitted content once; subsequent caller mutation cannot alter retained truth. |
+| Explicit nil, cycles and unencodable values | Existing rejection behavior remains clear; no panic or partial ownership transfer. |
+| Exact/first-argument/predicate/batched retractions | No stale bucket entry, resurrection or false duplicate; index agrees with canonical EDB. |
+| Clean clone, dirty clone, cone and forced-full paths | Snapshot isolation and successful closure equivalence hold across representations. |
+| Normal `Query`/`QueryAll` result mutation | Already-correct readback isolation remains. |
+
+The current iterator “copy” test replaces an outer slice element and checks only the count; it does not mutate nested arguments. The interning test explicitly expects numeric-only arguments to retain their original backing array. These definitions show where future coverage must change; they were not run here. [Snapshot test](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_facts_gaps_test.go#L456-L470), [interning tests](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_facts_intern_test.go)
+
+Measure admission allocations/bytes, container serialization, snapshot-export cost, clone latency, cone preparation, GC and retained memory. Compare current behavior, admission/export ownership and immutable normalized storage separately. Include string-heavy production facts, numeric-only facts, nested values and repeated clones; charge copying where it actually occurs. No speedup or end-to-end token saving is established.
+
+**Nonduplication:** this refines the implemented performance audit’s immutable-fact assumption. It is distinct from its failed-evaluation publication appendix and the fresh JIT audit’s reset/staged/heartbeat generation omissions: here a caller-held alias changes data outside any kernel mutation API.
+
+**Checkable exit:** all admitted values and exported snapshots have explicit ownership semantics; external mutation cannot change retained facts; canonical keys, EDB rows and evaluated facts stay aligned; retractions cannot restore a removed row from an alias-corrupted index; internal clone sharing retains its measured benefits.
+
+
+## 2026-10-28: make explanation budgets end-to-end, not just envelope targets
+
+**Status:** source-predicted risk; no workload, tests or model execution performed. Main `356f65e0e6bb639adaa90ab36212daa714114871` and feature `c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c` share the inspected envelope, provenance, command and renderer blobs. Existing opt-in recording, proof/depth limits, node/edge pruning, partial markers and isolated proof facts are real protections. This refines their scope, not a claim that provenance is absent.
+
+The synchronous [`/explain` handler](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/cmd/nerd/chat/commands_handlers_misc.go#L67-L125) forces evaluation, requests an envelope and renders it into chat. [Default settings](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/config/explain.go#L5-L27) specify three proofs, depth 32, 400 nodes, 800 edges and 64 KiB of proof-fact strings.
+
+1. [Envelope extraction](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_explanation.go#L83-L118) holds the kernel's exclusive lock and builds the upstream derivation before it applies node, edge and byte limits. The [adapter](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_provenance.go#L93-L119) passes proof and depth bounds upstream, not the envelope's other limits. The upstream [aggregate builder](https://github.com/google/mangle/blob/7cd2543ac1817f8b92d42efe3c6ef82dededbeeb/provenance/recorder.go#L372-L409) visits its input facts; existing [count policies](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/defaults/policy/intelligence.mg#L305-L333) establish relevant shapes, not a measured production workload.
+2. The byte budget is a **soft target**. [Bounding](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_explanation.go#L120-L202) may return an oversized store when shrinking reaches one node or its retry ceiling, while setting truncation and reporting actual bytes. The bounded copy also allocates a premise slice at the source width before edge pruning. Even a positive one-byte setting cannot contain the metadata row.
+3. The [chat renderer](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/cmd/nerd/chat/cmd_explain.go#L47-L98) recursively prints shared DAG nodes on every occurrence without a visited set or a separate output-byte limit. A bounded distinct-node graph can therefore expand substantially as a tree. The upstream [DAG printer](https://github.com/google/mangle/blob/7cd2543ac1817f8b92d42efe3c6ef82dededbeeb/provenance/facts.go#L135-L173) illustrates a print-once-and-reference representation. No observed stall, crash or token cost is asserted.
+
+**Proposed contract.** Separately budget recording, extraction visits/allocations, serialized proof facts and final rendered bytes. Stop extraction before allocating omitted structure, and carry explicit partial/omission metadata. Either make the byte limit hard, including metadata and an indivisible oversized root, or name it as a soft target. Render each shared node once and refer to IDs on later edges. Preserve epoch consistency and source ownership if reducing kernel lock duration; never expose mutable recording state to achieve that reduction.
+
+**Future evaluation, not run.** Use a wide aggregate, oversized single fact and rule, a diamond DAG with repeated sharing, a budget below minimum metadata, multiple proofs sharing support and complete small proofs. Assert extraction visit/allocation limits, truthful omission attribution, hard or explicitly soft byte behavior, rendered-output limits, small-proof parity and unchanged execution facts. Independently account for recording, extraction, pruning retries, serialization, rendering, lock duration, peak memory, output tokens and retrieval/continuation of omitted proof. Compare equal evidence fidelity, not only smaller output. The current [budget test](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/kernel_explanation_test.go#L68-L103) checks reduction rather than a strict maximum.
+
 ## Follow-up: failed evaluation is not a readable snapshot
 
 **Research status: source-supported failure mode; not implemented or reproduced here.** This follow-up inspected `main` at `356f65e0e6bb639adaa90ab36212daa714114871` and `feat/conversation-brief` at `c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c` on 2026-10-28. The latter was 27 commits ahead with the former as its merge base. `kernel_facts.go`, `kernel_eval.go`, `kernel_eval_cone.go`, and `kernel_query.go` have the same contents on those pins. No code, tests, inference, profiling or benchmarks were run.

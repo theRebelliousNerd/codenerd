@@ -165,3 +165,159 @@ All four P1 seams were confirmed against current source before building (pending
 - Crash-durable outbox for accepted-but-unpersisted records: a hard crash still loses the in-memory queue; graceful close drains it.
 - Cross-process judging of the same unevaluated record is not claimed (generation is).
 - `StrategyStore.RecordOutcome` remains non-idempotent itself; the queue calls it only on first persistence of an event.
+
+## Appendix Preserving served candidate identity through exposure accounting
+
+**Recommendation:** extend the implemented lifecycle ledger with compilation-owned candidate receipts. Exposure and credit must identify the evolved candidate version actually included in the model request, not whichever candidate currently has the same string ID when the recording worker runs. Keep the existing quarantine, trial admission, private-kernel compilation, source precedence, bounded recording queue, and idempotent ledger. The gap is the identity handoff between them.
+
+**Evidence boundary:** static source inspection on 2026-10-28 at main `356f65e0e6bb639adaa90ab36212daa714114871`. The relevant compiler source collection, evolved manager, section expansion, generator, candidate lifecycle, recording, ledger, and factory-learning files were individually compared with `feat/conversation-brief` at `c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c` and had identical contents. No implementation, tests, model inference, profiling, or production experiments were run. Counterexamples below are proposed source-derived sequences, not reproduced incidents.
+
+The current audit's [as-built section][lineage-as-built] already claims exact-version trial admission and attribution. Its counterparts on [the current research branch][lineage-current-research] and [the older research branch][lineage-historical-research] were also inspected. The March QA report already identifies duplicate IDs overwriting the candidate file/map and losing the old mutable counters; that overwrite is not a new discovery here. The new trace follows source precedence and the subsequently implemented versioned ledger: an unserved candidate can now receive a different source's exposure, or a served version can disappear/change identity at the recording boundary. [Historical collision report][lineage-prior-collision]
+
+This appendix identifies concrete conformance gaps in the implemented handoff; it does not present versioned evidence accounting as a new design. The generation-aware JIT audit's snapshot, source-vector, vector-scope, and degradation findings concern different boundaries. Likewise, the historical section-admission finding concerns post-selection eligibility, not ownership of exposure evidence.
+
+### The working protections and the missing handoff
+
+When a compiler and judge client are available and evolver initialization succeeds, the normal production factory registers an `EvolvedAtomManager`, installs the trial fact sink when a kernel is present, and connects the turn recorder when the session executor is present. A quarantined candidate is returned by `GetMatching` only when the private kernel admits its exact hash; the trial copy is made nonmandatory. These protections are real and must remain. Recording is not evidence that automatic generation is enabled; the witnesses require an existing/generated candidate, not an assertion that every default session generates one. [Factory wiring][lineage-factory], [candidate admission][lineage-serving]
+
+The downstream path loses information:
+
+| Boundary | Inspected behavior |
+|---|---|
+| Canonical candidate collection | Embedded atoms win, then project and selected-expert atoms; later duplicate IDs, including evolved atoms, are discarded. This correctly prevents a generated duplicate from overriding a built-in. [Source][lineage-precedence] |
+| Compilation to turn observation | `turnAtomIDs` projects `CompilationResult.IncludedAtoms` to bare IDs. It does not retain candidate origin or the admitted candidate hash. [Source][lineage-turn-ids] |
+| Turn observation to asynchronous recording | `executionRecordFor` copies those IDs, and `RecordTurn` enqueues the record. The ordinary session path does not fill the optional `ExecutionRecord.PromptManifest` here. [Conversion][lineage-record-conversion], [queue admission][lineage-queue] |
+| Exposure reconstruction | After persisting the observation, `recordExecution` calls `candidateRefs(exec.AtomIDs)`. That helper looks up each ID in the current `pe.evolvedAtoms` map and computes the hash of its current body. It neither checks which source won compilation nor consumes an immutable served-version receipt. [Recording][lineage-recording], [lookup][lineage-current-lookup] |
+| Durable attribution | `RecordExposures` inserts the supplied version, and `ApplyCredit` credits versions from those exposure rows. The ledger faithfully preserves the identity it is given; it cannot repair a wrong identity upstream. [Ledger][lineage-ledger] |
+
+`ExecutionRecord` does have an optional prompt manifest, so this is not a claim that no manifest type exists. The current `AtomManifestEntry` contains ID, category, source, scores and render mode, but no exact evolved-candidate version, and `candidateRefs` does not read it. A context/cache hash identifies a compilation context; it is not a per-candidate provenance receipt. [Record type][lineage-record-type], [manifest type][lineage-manifest]
+
+### Counterexample one A candidate receives credit for a different source with the same ID
+
+The generator accepts an explicit YAML atom ID unchanged; it generates an `evolved/...` UUID only when the ID is empty. Publication persists the candidate and assigns it into `pe.evolvedAtoms[ID]` without a collision check at these sites. [Generator][lineage-generator-id], [publication][lineage-generation-publication], [storage][lineage-candidate-storage]
+
+Proposed fixture:
+
+1. Create an ordinary built-in or project atom with ID `x` that is actually selected and emitted for a qualifying turn.
+2. Generate and store a distinct evolved candidate also named `x`. Keep it quarantined with no approved trial. An explicit generator-returned ID takes this path; no same-ID mutation during the turn is required.
+3. Compile and finish the turn. Quarantine correctly excludes the evolved candidate. Even if it were trial-admitted or promoted, canonical source precedence would still retain the earlier atom rather than the duplicate evolved body.
+4. Let the normal recorder process the resulting `AtomIDs`, which contain `x` because the earlier source was served.
+5. `candidateRefs` finds the quarantined entry at `pe.evolvedAtoms[x]` and records its version as exposed. If the persisted event receives a qualifying verdict, the ledger can credit that version despite its body never reaching the model.
+
+The conditions matter: the colliding earlier-source atom must actually survive selection and fitting; the turn must enter the learning recorder; the evolved entry must still be present when lookup occurs; and the relevant persistence operations must succeed. A unique evolved ID is the natural negative control. An omitted earlier-source atom produces no ID and therefore no collision exposure.
+
+**Bounded consequence:** false exposure, incorrect success/failure evidence, and potentially misleading version-specific trial counts. This does not show that the quarantined instruction executes or that execution permissions widen. The existing precedence and quarantine checks still protect prompt content. `AutoPromote` defaults to false, and the normal JSON configuration mapping does not expose an `AutoPromote` field; false credit must not be described as automatic deployment through ordinary settings. Any consequence involving operator promotion or a nondefault API configuration needs its own evidence. [Default and mapping][lineage-default-promotion]
+
+Independent review confirmed this collision-lineage distinction and the automatic-promotion qualification. The relevant repair is not to weaken canonical precedence so the credited candidate becomes the one served.
+
+### Counterexample two Rejection can erase an exposure that already happened
+
+`RejectAtom` moves a pending candidate into the rejected directory and deletes its current map entry before publishing the reduced trial set. That correctly prevents future ordinary admission. It does not undo a model request that already carried the candidate. [Rejection][lineage-rejection]
+
+Proposed fixture:
+
+1. Approve a trial of candidate `x` at version `v`; compile a request that actually includes it under the existing admission and budget rules.
+2. Before the finished-turn observation is processed, reject `x`. The turn can still be in flight or its record can already be waiting in the bounded recording queue.
+3. Process the successful or failed observation.
+
+The current map no longer contains `x`, so `candidateRefs` emits no reference. `RecordExposures` returns successfully for an empty reference list. The historical exposure is absent even though the request carried the instruction. This is an accounting loss, not a claim that rejection should permit another exposure or that an in-flight request is guaranteed to be canceled. [Current lookup][lineage-current-lookup], [empty exposure behavior][lineage-ledger]
+
+A related conditional case is same-ID replacement: a later generation may supply an existing explicit ID, and `storeEvolvedAtom` replaces the map entry. If the earlier version was served but recording happens after replacement, the current lookup can attribute that old exposure to the new version. The generator permits the necessary ID shape; occurrence frequency is not established. There is no inspected evolved-atom `RefineAtom` path, and strategy refinement must not be substituted as evidence of one.
+
+The ledger's first-write rule makes source identity especially important. `candidate_exposures` is keyed by event and candidate ID, and insertion is `INSERT OR IGNORE`: a mistaken first version is not corrected by replay with another version. This is a useful idempotency property for matching receipts, but it needs a separate conflicting-receipt result rather than silently treating different lineage as the same observation. [Ledger schema and insertion][lineage-ledger-schema]
+
+### Related exact-version gap Section metadata is not in the candidate digest
+
+`EvolvedCandidateHash` includes content, selectors, priority, mandatory/exclusive status, dependencies, conflicts and tool requirements. It omits `SectionOf` and `SectionOrder`, although `expandSections` uses them to bring sections into the selected set and calculate their scores relative to the selected head. `ApproveTrial` pins this hash, and `GetMatching` compares the loaded candidate against it. [Hash][lineage-hash], [section fields][lineage-section-fields], [expansion][lineage-expansion], [trial approval][lineage-approval]
+
+A section-order-only edit therefore keeps the same hash while potentially changing ranking and tight-budget inclusion. An adequate fixture uses a valid persisted evolved wrapper, holds body/selectors/dependencies constant, changes only its positive `SectionOrder`, and places another optional atom at a score/budget boundary where that order affects which instruction fits. The old trial envelope still names the unchanged hash. A source reload moves the evolved-source generation and prevents stale-cache reuse, but it does not revoke the old trial authorization because the candidate digest is unchanged.
+
+Preserve the reviewer qualifications:
+
+- The current atom generator does not populate section fields. This witness requires supplied or edited persisted-wrapper metadata, or another explicitly established producer; it is not evidence that ordinary generation already emits such candidates.
+- Canonical YAML/database handling can add `SectionOf` to `DependsOn`. Since dependencies are hashed, changing a head and also changing that implied dependency can change the digest. The independent `SectionOrder` omission remains the clean witness.
+- The evolved-wrapper loader unmarshals `PromptAtom` directly and applies its own validation/normalization; do not assume it uses the canonical YAML section-enrichment path.
+- A section-free candidate, an unchanged order, or an ample budget that retains every affected atom is a negative control for output differences. Equal digest despite changed serving metadata is still the narrower identity discrepancy.
+
+The existing [hash test][lineage-hash-test] correctly checks content and selector changes and intentionally excludes derived bookkeeping fields. Extend that contract rather than invalidating all harmless metadata changes. This is a digest-completeness refinement adjacent to receipt lineage, not a repeat of the earlier post-Mangle section-gating audit.
+
+### Proposed contract and bounded repair
+
+Names below are design notation, not existing APIs.
+
+```text
+ServedCandidateReceipt:
+  request or exposure event identity
+  canonical source kind and source identity
+  candidate ID and admitted candidate version
+  selected rendering mode and emitted-fragment identity
+  inclusion disposition
+```
+
+1. Preserve evolved origin and the approved candidate hash when an admitted candidate enters compilation. Carry that metadata through precedence, selection, fitting, cache reuse and private-result copying. Create a served receipt only for the candidate that actually survives into the outgoing request.
+2. Keep the admitted hash distinct from rendered-fragment identity. Trial admission makes an optional copy, and budget fitting may choose concise/min content. Rehashing such a presentation copy can produce a different value from the authorized candidate. Carry the original admitted version and separately record which rendering was emitted.
+3. Hand immutable receipts to the session/delegated execution record and bounded queue. Recording must not resolve historical identity through a mutable current-candidate map. Rejection changes future eligibility, not past exposure. Unknown or deleted current candidates retain their historical receipt rather than losing the observation.
+4. Distinguish ordinary-source atoms from evolved candidates even if string IDs collide. Rejecting generator collisions or enforcing a namespace is useful defense in depth, but is not a replacement for receipt provenance: a later rename/reload or legacy collision must not corrupt history.
+5. Persist the receipt with the observation or with an explicitly recoverable idempotent handoff. Duplicate identical receipts remain no-ops; the same event/candidate carrying conflicting source/version identity must produce an observable reconciliation result. Decide explicitly whether one event may contain multiple actual versions; do not silently force that case into the current one-version primary key.
+6. Complete the semantic candidate digest with fields that affect admission or composition, including section order. Version the digest contract and specify treatment of outstanding trial envelopes during migration. Do not silently bless a changed digest under an old approval.
+7. Continue deriving trial eligibility in Mangle. Go's role is faithful identity capture and durable transport, not deciding that a candidate deserves exposure, success credit or promotion.
+
+The minimum useful change is a per-included-candidate identity sidecar, not a large general execution-receipt platform. Existing ledger tables and private compilation results provide much of the infrastructure. A later full provenance receipt can extend this seam without delaying the concrete invariants.
+
+The [End-to-End Arguments in System Design](https://web.mit.edu/saltzer/www/publications/endtoend/endtoend.pdf) motivates checking application-specific delivery at the endpoint that can identify the actual served candidate. This is a design inference, not proof of measured outcomes in CodeNERD.
+
+### Costs and proposed evaluation
+
+For `k` actually included evolved candidates, a compact receipt adds O(k) records per relevant request or exposure event. Avoid copying whole candidate bodies into every event: retain an immutable content-addressed candidate record and small source/version references, with a declared retention policy. Hashing already occurs at candidate loading/approval; propagate the captured hash rather than recomputing all bodies on the turn's recording path.
+
+The costs are schema/serialization migration, cache-result sidecar ownership, session and delegated producer wiring, conflict diagnostics, and retention of rejected or superseded candidate identities. Queue memory increases with receipt size; persistence may need one additional transactional write or a widened existing write. Digest changes can invalidate outstanding approvals and require renewed operator review. None of these costs is justified by a claimed token saving: the primary benefit is trustworthy learning evidence and avoiding decisions based on exposure that did not occur.
+
+**Proposed checks, all unrun:**
+
+| Fixture | Required observation |
+|---|---|
+| Quarantined evolved ID collides with an emitted embedded/project atom; no trial exists | The ordinary atom's receipt is retained; evolved candidate receives neither exposure nor credit. |
+| Trial-admitted or promoted duplicate loses canonical precedence | No evolved exposure is inferred merely from the winning source's identical ID. |
+| Unique admitted candidate actually emitted | One correctly versioned exposure; existing verdict supersession and duplicate-event behavior preserved. |
+| Eligible candidate omitted by budget, conflict or missing prerequisite | No served exposure; eligibility is not credited as use. |
+| Request includes trial candidate, then operator rejects before queue drain | Historical exposure retains the exact served version; future admission remains denied. |
+| Explicit same-ID generation replaces the candidate before recording | Old request credits old version only; new version begins with its own evidence. |
+| Same event replay with identical versus conflicting receipt | Identical replay is idempotent; conflicting lineage is observable, not silently ignored. |
+| Cache hit, shared compile, optional trial copy and concise/min rendering | Source and admitted version remain intact; rendered identity describes the actual fragment. |
+| Persisted wrapper changes only positive section order | Candidate semantic digest changes; old trial envelope cannot authorize changed composition. |
+| Canonical section-head change that also changes DependsOn | Already-hashed dependency behavior remains effective; do not misdiagnose it as an unchanged-version case. |
+| Content-free bookkeeping or normalized selector spelling changes | Intentional hash stability from existing tests remains. |
+| No evolved candidates, normal disabled-auto-promotion configuration | Negligible extra payload; no invented promotion or authority behavior. |
+
+Start with deterministic real-kernel compilation and SQLite ledger fixtures, including the normal factory/session recorder and delegated producer paths. Direct hash or ledger tests alone cannot establish that the version served was the version recorded. Use controllable worker barriers for the rejection/replacement sequence rather than timing sleeps. Inspect existing test definitions as controls, not as evidence these new sequences pass.
+
+Measure wrong-source/wrong-version credits, missing actual exposures, conflicting receipts, queue admission/drain outcomes, bytes per event, write latency, allocations, retained candidate metadata and end-to-end recording delay. Later model studies should hold task/model/tools/budget/verdict criteria fixed and evaluate whether corrected evidence changes candidate decisions and verified task quality. Include failed and omitted candidates; a cleaner-looking success rate after dropping difficult evidence is not an improvement.
+
+**Checkable exit:** every exposure row names the actual evolved source and admitted version in the outgoing request; an ID collision cannot credit an unserved candidate; rejection or replacement cannot rewrite historical lineage; and composition metadata cannot change under the same exact-version approval.
+
+[lineage-as-built]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/Docs/audits/prompt-evolution-lifecycle-and-evidence-accounting.md#as-built-2026-10-27
+[lineage-current-research]: https://github.com/theRebelliousNerd/codenerd/blob/0c38d4fc987213a17f6570cc7d8dae34c87d8ace/Docs/audits/prompt-evolution-lifecycle-and-evidence-accounting.md
+[lineage-historical-research]: https://github.com/theRebelliousNerd/codenerd/blob/c592ff223cd207fca4c29ae793d5eba57aa4781d/Docs/audits/prompt-evolution-lifecycle-and-evidence-accounting.md
+[lineage-factory]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/system/factory_learning.go#L85-L151
+[lineage-serving]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/evolved_atoms.go#L278-L310
+[lineage-precedence]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_sources.go#L33-L104
+[lineage-turn-ids]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/executor_learning.go#L174-L190
+[lineage-record-conversion]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/system/factory_learning.go#L268-L317
+[lineage-queue]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/system/factory_learning.go#L226-L244
+[lineage-recording]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/autopoiesis/prompt_evolution/evolver_recording.go#L190-L222
+[lineage-current-lookup]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/autopoiesis/prompt_evolution/evolver_recording.go#L279-L313
+[lineage-ledger]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/autopoiesis/prompt_evolution/evidence_ledger.go#L150-L221
+[lineage-record-type]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/autopoiesis/prompt_evolution/types.go#L118-L156
+[lineage-manifest]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/manifest.go#L7-L30
+[lineage-generator-id]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/autopoiesis/prompt_evolution/atom_generator.go#L226-L282
+[lineage-generation-publication]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/autopoiesis/prompt_evolution/evolver_cycle.go#L244-L277
+[lineage-candidate-storage]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/autopoiesis/prompt_evolution/evolver_candidates.go#L43-L70
+[lineage-rejection]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/autopoiesis/prompt_evolution/evolver_candidates.go#L151-L167
+[lineage-ledger-schema]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/autopoiesis/prompt_evolution/evidence_ledger.go#L46-L65
+[lineage-hash]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/evolved_atoms.go#L57-L112
+[lineage-section-fields]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/atoms.go#L215-L223
+[lineage-expansion]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/sections.go#L33-L116
+[lineage-approval]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/autopoiesis/prompt_evolution/evolver_candidates.go#L277-L315
+[lineage-hash-test]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/evolved_lifecycle_test.go#L108-L130
+[lineage-prior-collision]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/.quality_assurance/autopoiesis/2026-03-28_10-00-EST_prompt_evolver_boundary_analysis.md#L360-L369
+[lineage-default-promotion]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/autopoiesis/prompt_evolution/evolver.go#L80-L128
