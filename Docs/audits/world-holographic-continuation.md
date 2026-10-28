@@ -78,3 +78,9 @@ Required fixtures: equal basenames in different directories; same method name on
 ## What should not be re-opened as a missing feature
 
 Current source already attaches impact priorities on the normal context path, supplies session/spawner integration, exposes revision-bearing element reads, and has budgeted holographic rendering. Historical documents can motivate the design, but their old “unwired” descriptions must not be reused as current findings. This review establishes source wiring only; runtime effectiveness and the proposed identity bridge remain unmeasured.
+
+## As built (2026-10-28)
+
+- **Identity in the prompt.** The impact-prioritized caller section (`HolographicProvider.promptSection`, `internal/world/holographic.go`) renders each caller as `name` — `workspace/relative/path:start-end` (`HolographicProvider.workspaceRel`), not the file basename. A header line gives the read-back form once: `get_element path=<path> ref=<name>`. Putting it on every line instead nearly doubled each line's bytes and halved how many callers a budget admits. Test: `TestWorkspaceRel_SameBasenameStaysDistinct`.
+- **Legacy helpers deleted.** `HolographicProvider.fetchFunctionBody` and `extractLineRange` had no production caller; `get_element` is the live hydration path. The size and path-containment guards they shared live in `callerSpan`, and their tests now exercise them through `locateCallerLines`.
+- **Deferred:** typed `ImpactCandidate` handles carrying graph generation and evidence IDs, and policy-selected inspection obligations. They need the structure-coverage generation (`Docs/audits/structure-coverage-and-refactor-preconditions.md`, built) to be joined into impact facts, and a paired task study to show that the selection beats the current ranking.

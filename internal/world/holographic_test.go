@@ -15,7 +15,6 @@ import (
 
 	"codenerd/internal/core"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -346,10 +345,7 @@ def foo() {
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	body, err := h.extractLineRange(content, start, end)
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	body := strings.Join(strings.Split(content, "\n")[start-1:end], "\n")
 	if !strings.Contains(body, "return false") {
 		t.Errorf("Limitation changed! Expected it to match the comment. Got: %s", body)
 	}
@@ -384,55 +380,6 @@ func TestBuildGoContext_MassivePackageDir(t *testing.T) {
 	}
 	if len(ctx.PackageSiblings) != 1000 {
 		t.Logf("Got %d siblings, handles large directories safely", len(ctx.PackageSiblings))
-	}
-}
-
-func TestFetchFunctionBody_MassiveFile(t *testing.T) {
-	dir := t.TempDir()
-	hugeFile := filepath.Join(dir, "huge.go")
-
-	f, err := os.Create(hugeFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.WriteString("package huge\n")
-	for range 50000 {
-		f.WriteString("// Pad pad pad pad pad pad pad pad\n")
-	}
-	f.WriteString("func targetFunc() {}\n")
-	f.Close()
-
-	h := &HolographicProvider{}
-	cache := newFileContentCache()
-	body, err := h.fetchFunctionBody(hugeFile, "targetFunc", cache)
-	if err != nil {
-		t.Fatalf("Failed to fetch function from massive file: %v", err)
-	}
-	if !strings.Contains(body, "targetFunc") {
-		t.Error("Did not find target function in massive file")
-	}
-}
-
-func TestExtractLineRange_HugeFunction(t *testing.T) {
-	h := &HolographicProvider{}
-	var sb strings.Builder
-	for i := range 5000 {
-		sb.WriteString(fmt.Sprintf("line %d\n", i+1))
-	}
-
-	result, err := h.extractLineRange(sb.String(), 1, 5000)
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-
-	if strings.Contains(result, "(truncated)") {
-		t.Fatalf("a long range was cut: %d bytes", len(result))
-	}
-	// Join puts the newline between lines, so the last line has no trailing
-	// newline. 5000 lines, first and last intact, is the whole range.
-	lines := strings.Split(result, "\n")
-	if len(lines) != 5000 || lines[0] != "line 1" || lines[4999] != "line 5000" {
-		t.Fatalf("range did not contain the whole function, lines=%d", len(lines))
 	}
 }
 
@@ -694,113 +641,6 @@ func TestBuildWithImpactPrioritiesNoKernel(t *testing.T) {
 	}
 }
 
-// REMEDIATED: TEST_GAP: Large File Handling (OOM Risk)
-// fetchFunctionBody uses os.ReadFile which reads the entire file into memory.
-// We need a test that mocks a large file (e.g., via a mocked file system interface)
-// or generates a temporary large file to verify that the system handles it gracefully
-// (e.g., returns error or truncates reading) instead of crashing with OOM.
-
-func TestExtractLineRange(t *testing.T) {
-	h := &HolographicProvider{}
-
-	testContent := "line1\nline2\nline3\nline4\nline5"
-
-	tests := []struct {
-		name      string
-		content   string
-		startLine int
-		endLine   int
-		wantErr   bool
-		want      string
-	}{
-		{
-			name:      "full_range",
-			content:   testContent,
-			startLine: 1,
-			endLine:   5,
-			wantErr:   false,
-			want:      "line1\nline2\nline3\nline4\nline5",
-		},
-		{
-			name:      "partial_range",
-			content:   testContent,
-			startLine: 2,
-			endLine:   4,
-			wantErr:   false,
-			want:      "line2\nline3\nline4",
-		},
-		{
-			name:      "invalid_range",
-			content:   testContent,
-			startLine: 10,
-			endLine:   5,
-			wantErr:   true,
-		},
-		{
-			name:      "empty_content_string",
-			content:   "",
-			startLine: 1,
-			endLine:   1,
-			wantErr:   false,
-			want:      "",
-		},
-		{
-			name:      "start_line_lt_0",
-			content:   testContent,
-			startLine: -5,
-			endLine:   3,
-			wantErr:   false,
-			want:      "line1\nline2\nline3",
-		},
-		{
-			name:      "start_line_eq_0",
-			content:   testContent,
-			startLine: 0,
-			endLine:   3,
-			wantErr:   false,
-			want:      "line1\nline2\nline3",
-		},
-		{
-			name:      "end_line_beyond_string_length",
-			content:   testContent,
-			startLine: 1,
-			endLine:   999999,
-			wantErr:   false,
-			want:      "line1\nline2\nline3\nline4\nline5",
-		},
-		{
-			name:      "long_range_missing_trailing",
-			content:   strings.Repeat("line\n", 60) + "line61",
-			startLine: 1,
-			endLine:   62,
-			wantErr:   false,
-			want:      strings.Repeat("line\n", 60) + "line61",
-		},
-		{
-			name:      "long_range_present_trailing",
-			content:   strings.Repeat("line\n", 60),
-			startLine: 1,
-			endLine:   61,
-			wantErr:   false,
-			want:      strings.Repeat("line\n", 60),
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := h.extractLineRange(tt.content, tt.startLine, tt.endLine)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("extractLineRange() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !tt.wantErr && got != tt.want {
-				if diff := cmp.Diff(tt.want, got); diff != "" {
-					t.Errorf("extractLineRange() mismatch (-want +got):\n%s", diff)
-				}
-			}
-		})
-	}
-}
 func TestFindFunctionEnd(t *testing.T) {
 
 	h := &HolographicProvider{}
@@ -1025,7 +865,7 @@ func TestGetContextWithContext_Cancellation(t *testing.T) {
 	}
 }
 
-func TestFetchFunctionBody_LargeFileHandling(t *testing.T) {
+func TestLocateCallerLines_LargeFileHandling(t *testing.T) {
 	dir := t.TempDir()
 	largeFile := filepath.Join(dir, "large_file.go")
 
@@ -1037,19 +877,19 @@ func TestFetchFunctionBody_LargeFileHandling(t *testing.T) {
 	}
 
 	h := NewHolographicProvider(nil, dir)
-	_, err = h.fetchFunctionBody("large_file.go", "Func", nil)
+	_, _, err = h.locateCallerLines("large_file.go", "Func", nil)
 	if err == nil || !strings.Contains(err.Error(), "file too large") {
 		t.Errorf("Expected 'file too large' error, got: %v", err)
 	}
 }
 
-func TestFetchFunctionBody_PathTraversalGuard(t *testing.T) {
+func TestLocateCallerLines_PathTraversalGuard(t *testing.T) {
 	dir := t.TempDir()
 
 	h := NewHolographicProvider(nil, dir)
 
 	// Try a path traversal attempt outside the workspace
-	_, err := h.fetchFunctionBody("../outside.go", "Func", nil)
+	_, _, err := h.locateCallerLines("../outside.go", "Func", nil)
 	if err == nil || !strings.Contains(err.Error(), "security violation") {
 		t.Errorf("Expected 'security violation' error, got: %v", err)
 	}
@@ -1285,12 +1125,12 @@ func TestCallerView_LongFunctionIsASpanNotAPrefix(t *testing.T) {
 	}
 
 	h := NewHolographicProvider(nil, dir)
-	body, err := h.fetchFunctionBody(file, "Big", newFileContentCache())
+	start, end, err := h.locateCallerLines(file, "Big", newFileContentCache())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(body, "_ = 79") || strings.Contains(body, "(truncated)") {
-		t.Fatalf("fetched body is not the whole function:\n%s", body)
+	if start != 3 || end != 84 {
+		t.Fatalf("span = %d-%d, want the whole function 3-84", start, end)
 	}
 
 	resolved, err := h.ResolvePrioritizedCallers(context.Background(), []PrioritizedCaller{{

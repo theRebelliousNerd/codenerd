@@ -379,18 +379,7 @@ func newFileContentCache() *fileContentCache {
 	}
 }
 
-// fetchFunctionBody retrieves the whole body of a function from a file.
-// Uses AST parsing for Go files, falls back to regex for other languages.
-// The returned text is the span locateCallerLines names; it is not cut.
-func (h *HolographicProvider) fetchFunctionBody(file, funcName string, cache *fileContentCache) (string, error) {
-	content, _, start, end, err := h.callerSpan(file, funcName, cache)
-	if err != nil {
-		return "", err
-	}
-	return h.extractLineRange(content, start, end)
-}
-
-// locateCallerLines is the model-view half of fetchFunctionBody: the 1-based
+// locateCallerLines resolves a caller to its 1-based
 // inclusive line span, without copying the source onto the caller.
 func (h *HolographicProvider) locateCallerLines(file, funcName string, cache *fileContentCache) (start, end int, err error) {
 	_, _, start, end, err = h.callerSpan(file, funcName, cache)
@@ -674,28 +663,6 @@ func (h *HolographicProvider) findFunctionEnd(lines []string, startIdx int) int 
 		return startIdx
 	}
 	return len(lines) - 1
-}
-
-// extractLineRange returns the requested lines whole. startLine and endLine
-// are 1-based, endLine inclusive. A range is not shortened: the caller view
-// names a span, and a body fetched for a test is the whole span.
-func (h *HolographicProvider) extractLineRange(content string, startLine, endLine int) (string, error) {
-	lines := strings.Split(content, "\n")
-
-	startIdx := startLine - 1
-	endIdx := endLine
-
-	if startIdx < 0 {
-		startIdx = 0
-	}
-	if endIdx > len(lines) {
-		endIdx = len(lines)
-	}
-	if startIdx >= endIdx {
-		return "", fmt.Errorf("invalid line range: %d-%d", startLine, endLine)
-	}
-
-	return strings.Join(lines[startIdx:endIdx], "\n"), nil
 }
 
 // FormatWithPriorities formats the holographic context with priority annotations.

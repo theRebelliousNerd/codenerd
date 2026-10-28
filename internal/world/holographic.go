@@ -536,13 +536,25 @@ func (h *HolographicProvider) promptSection(ctx context.Context, filePath string
 	if len(hc.PrioritizedCallers) > 0 {
 		substantive = true
 		b.WriteString("### Callers (impact-prioritized)\n\n")
+		b.WriteString("Each is `name` — `path[:lines]`; read one whole with `get_element path=<path> ref=<name>`.\n\n")
 		lines := make([]string, 0, len(hc.PrioritizedCallers))
 		for _, c := range hc.PrioritizedCallers {
 			var lb strings.Builder
+			// The full workspace-relative path and span, not the basename:
+			// two packages can hold the same file name and the same method
+			// name, and a display label is not an address the model can hand
+			// back to get_element (Docs/audits/world-holographic-continuation.md).
+			rel := h.workspaceRel(c.File)
 			lb.WriteString("- `")
 			lb.WriteString(c.Name)
 			lb.WriteString("` — `")
-			lb.WriteString(filepath.Base(c.File))
+			lb.WriteString(rel)
+			if c.StartLine > 0 {
+				fmt.Fprintf(&lb, ":%d", c.StartLine)
+				if c.EndLine > c.StartLine {
+					fmt.Fprintf(&lb, "-%d", c.EndLine)
+				}
+			}
 			lb.WriteString("`")
 			if c.Priority != 0 {
 				fmt.Fprintf(&lb, " (priority %d", c.Priority)
@@ -821,6 +833,17 @@ func writeCallerRemainder(b *strings.Builder, omittedCallers, matchingEdges, sto
 // importerReadArg is the package argument importers_of resolves: the module
 // import path when go.mod can name it, otherwise the package clause, otherwise
 // the directory.
+// workspaceRel is path relative to the provider's workspace, slash-separated;
+// a path outside it (or with no workspace) stays as given.
+func (h *HolographicProvider) workspaceRel(path string) string {
+	if h.workDir != "" && filepath.IsAbs(path) {
+		if rel, err := filepath.Rel(h.workDir, path); err == nil && !strings.HasPrefix(rel, "..") {
+			return filepath.ToSlash(rel)
+		}
+	}
+	return filepath.ToSlash(path)
+}
+
 func (h *HolographicProvider) importerReadArg(filePath string, hc *HolographicContext) string {
 	if arg := h.packageImportPath(filePath); arg != "" {
 		return arg

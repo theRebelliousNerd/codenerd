@@ -215,3 +215,18 @@ func TestBudgetedCallers_DeciderFailureWithholdsBehindRemainder(t *testing.T) {
 		t.Fatalf("missing the withholding remainder %q:\n%s", want, section)
 	}
 }
+
+// Callers are addressed by workspace-relative path, not basename: two
+// packages that each hold a store.go are two different files.
+func TestWorkspaceRel_SameBasenameStaysDistinct(t *testing.T) {
+	root := t.TempDir()
+	h := NewHolographicProvider(nil, root)
+	a := h.workspaceRel(filepath.Join(root, "internal", "a", "store.go"))
+	b := h.workspaceRel(filepath.Join(root, "internal", "b", "store.go"))
+	if a != "internal/a/store.go" || b != "internal/b/store.go" {
+		t.Fatalf("workspaceRel = %q, %q; want the full relative paths", a, b)
+	}
+	if got := h.workspaceRel("internal/c/store.go"); got != "internal/c/store.go" {
+		t.Fatalf("relative input = %q, want unchanged", got)
+	}
+}
