@@ -5,7 +5,10 @@ package chat
 import (
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/config"
+	"codenerd/internal/logging"
 	coresys "codenerd/internal/system"
+	"codenerd/internal/turnjudge"
+	"codenerd/internal/typesafe"
 
 	// Domain shards removed - JIT clean loop handles these via prompt atoms:
 	// "codenerd/internal/shards/coder"
@@ -155,6 +158,16 @@ func InitChat(cfg Config) Model {
 	// via the effective logging config, debug logging at boot.
 	debugSelfOn := appCfg.DebugSelfMode()
 
+	// Jev's turn judgments are on when the typesafe section is configured.
+	// A section that cannot resolve leaves them off and says why; the chat
+	// works as before without them.
+	var jev turnjudge.Asker
+	if client, err := typesafe.FromConfig(appCfg.TypeSafe); err != nil {
+		logging.Get(logging.CategoryBoot).Warn("Jev judgments off: %v", err)
+	} else if client != nil {
+		jev = client
+	}
+
 	// Return the model in "Booting" state
 	return Model{
 		textarea:     ta,
@@ -194,6 +207,7 @@ func InitChat(cfg Config) Model {
 		workspace:           workspace,
 		DisableSystemShards: cfg.DisableSystemShards,
 		yoloFlag:            cfg.Yolo || debugSelfOn,
+		jev:                 jev,
 		background:          newBackgroundJobs(),
 		apiKeyFlag:          cfg.APIKey,
 		selfDebug:           newSelfDebugWatcher(),

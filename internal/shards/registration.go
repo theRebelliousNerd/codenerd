@@ -533,6 +533,12 @@ func SharedPredicates() []string {
 		"brief_decision",
 		"brief_open_question",
 		"brief_marked_ready",
+		// Jev's turn judgments (jev_evidence.mg) feed the clarify, approve and
+		// self-diagnosis lanes, which derive in every shard; background_job
+		// feeds stop_background_requested beside them.
+		"jev_judgment",
+		"jev_judgment_about",
+		"background_job",
 		"action_verified",
 		"shard_context_refreshed",
 		"shadow_state",

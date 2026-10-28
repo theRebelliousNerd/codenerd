@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -39,19 +40,24 @@ type backgroundJob struct {
 type backgroundJobs struct {
 	mu      sync.Mutex
 	running map[string]backgroundJob
+	cancel  map[string]context.CancelFunc
 }
 
 func newBackgroundJobs() *backgroundJobs {
-	return &backgroundJobs{running: map[string]backgroundJob{}}
+	return &backgroundJobs{running: map[string]backgroundJob{}, cancel: map[string]context.CancelFunc{}}
 }
 
-func (b *backgroundJobs) add(job backgroundJob) {
+// add records a running job and the cancel that stops it.
+func (b *backgroundJobs) add(job backgroundJob, cancel context.CancelFunc) {
 	if b == nil {
 		return
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.running[job.ID] = job
+	if cancel != nil {
+		b.cancel[job.ID] = cancel
+	}
 }
 
 func (b *backgroundJobs) remove(id string) {
@@ -60,7 +66,26 @@ func (b *backgroundJobs) remove(id string) {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if cancel, ok := b.cancel[id]; ok {
+		cancel()
+		delete(b.cancel, id)
+	}
 	delete(b.running, id)
+}
+
+// cancelAll stops every running job; each still reports back, as stopped.
+func (b *backgroundJobs) cancelAll() []backgroundJob {
+	if b == nil {
+		return nil
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var stopped []backgroundJob
+	for id, cancel := range b.cancel {
+		cancel()
+		stopped = append(stopped, b.running[id])
+	}
+	return stopped
 }
 
 // list is the running jobs, oldest first.
@@ -109,13 +134,14 @@ func backgroundStartSurface(response string, job backgroundJob) string {
 // startBackground records the job, marks it in the kernel, and returns the
 // command that runs it.
 func (m Model) startBackground(job backgroundJob, input string) tea.Cmd {
-	m.background.add(job)
+	parent := m.shutdownCtx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
+	m.background.add(job, cancel)
 	m.assertBackgroundJob(job, "/running")
 	return func() tea.Msg {
-		ctx := m.shutdownCtx
-		if ctx == nil {
-			ctx = context.Background()
-		}
 		ret, err := m.spawnTaskWithContext(ctx, job.Shard, job.Task, m.buildSessionContext(ctx), types.PriorityNormal)
 		result := ret.Output
 		var facts []core.Fact
@@ -146,6 +172,10 @@ func (m Model) finishBackground(msg backgroundDoneMsg) (Model, tea.Cmd) {
 		}
 	}
 	elapsed := time.Since(msg.Job.Started).Round(time.Second)
+	if msg.Err != nil && errors.Is(msg.Err, context.Canceled) {
+		m.assertBackgroundJob(msg.Job, "/failed")
+		return m.pushAssistantMsg(fmt.Sprintf("**Stopped background %s** after %s, as you asked: %s", msg.Job.Shard, elapsed, oneLine(msg.Job.Task))), nil
+	}
 	if msg.Err != nil {
 		m.assertBackgroundJob(msg.Job, "/failed")
 		return m.pushAssistantMsg(fmt.Sprintf("**Background %s failed** after %s: %s\n\nTask: %s", msg.Job.Shard, elapsed, msg.Err, oneLine(msg.Job.Task))), nil

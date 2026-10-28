@@ -2,6 +2,7 @@ package chat
 
 import (
 	"codenerd/internal/approval"
+	"codenerd/internal/turnjudge"
 	"context"
 	"sync"
 	"time"
@@ -304,7 +305,10 @@ type Model struct {
 	goAheadWork *pendingWork
 	// background is the read-only work running off the turn (background.go),
 	// shared across Model copies.
-	background            *backgroundJobs
+	background *backgroundJobs
+	// jev asks the turn's typed judgments (jev_turn.go); nil when the
+	// typesafe config section is absent.
+	jev                   turnjudge.Asker
 	lastDreamHypothetical string // Track last dream state hypothetical for learning follow-up
 
 	// Session State

@@ -16,7 +16,11 @@ Decl brief_has_open_question() bound [].
 Decl brief_ready() bound [].
 
 brief_present() :- brief_goal(Goal).
-brief_has_open_question() :- brief_open_question(Question).
+# An open question the user's latest message answers (Jev's judgment,
+# jev_evidence.mg) no longer holds the work.
+brief_has_open_question() :-
+    brief_open_question(Question),
+    !brief_question_answered(Question).
 
 # Ready is the agent's judgment, never against an open question it still
 # holds: a brief that names one is not ready whatever it claims.

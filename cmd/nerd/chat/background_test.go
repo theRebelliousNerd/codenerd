@@ -39,7 +39,7 @@ func TestBackground_MutationNeverRunsInTheBackground(t *testing.T) {
 func TestBackground_JobIsGroundedWhileRunningAndClearedAfter(t *testing.T) {
 	m := admissionModel(t, config.WorkModePropose, nil)
 	job := backgroundJob{ID: "bg-1", Shard: "reviewer", Task: "review internal/auth", Started: time.Now()}
-	m.background.add(job)
+	m.background.add(job, nil)
 	m.assertBackgroundJob(job, "/running")
 	if !strings.Contains(injectedLines(t, m), "background reviewer shard is already working on: review internal/auth") {
 		t.Fatalf("a running job is not named to the model:\n%s", injectedLines(t, m))
@@ -64,7 +64,7 @@ func TestBackground_JobIsGroundedWhileRunningAndClearedAfter(t *testing.T) {
 func TestBackground_FailureIsReported(t *testing.T) {
 	m := admissionModel(t, config.WorkModePropose, nil)
 	job := backgroundJob{ID: "bg-2", Shard: "researcher", Task: "find the retry policy", Started: time.Now()}
-	m.background.add(job)
+	m.background.add(job, nil)
 	m, _ = m.finishBackground(backgroundDoneMsg{Job: job, Err: errors.New("spawn refused")})
 	if last := m.history[len(m.history)-1].Content; !strings.Contains(last, "failed") || !strings.Contains(last, "spawn refused") {
 		t.Fatalf("failure message: %q", last)

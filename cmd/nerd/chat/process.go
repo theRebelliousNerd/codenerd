@@ -171,6 +171,13 @@ func (m Model) processInput(input string) tea.Cmd {
 			intent = m.goAheadWork.Intent
 		}
 
+		// Jev's judgments run beside perception (jev_turn.go). A go-ahead turn
+		// asks none: the held intent is the request, not the word "go".
+		var judged <-chan judgedTurn
+		if !reusedIntent {
+			judged = m.startTurnJudgments(ctx, input, historyForPerception)
+		}
+
 		// Prefer the always-on PerceptionFirewall system shard when available.
 		// This ensures Perception emits canonical facts (user_intent, processed_intent,
 		// focus_resolution, ambiguity_flag) into the shared kernel and uses JIT prompts.
@@ -200,6 +207,10 @@ func (m Model) processInput(input string) tea.Cmd {
 		// reads it (brief.mg); a go-ahead run keeps the brief it was held under.
 		if !reusedIntent {
 			m.recordBrief(intent.Brief)
+		}
+		m.recordTurnJudgments(ctx, judged)
+		for _, job := range m.stopRequestedBackground() {
+			warnings = append(warnings, fmt.Sprintf("Stopping background %s: %s", job.Shard, oneLine(job.Task)))
 		}
 		m.ReportStatus(fmt.Sprintf("Orient: %s", intent.Verb))
 		// Log rich perception result with routing-actionable data.
