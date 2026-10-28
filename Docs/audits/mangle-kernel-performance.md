@@ -161,3 +161,40 @@ A staged future rollout should first compare selected pure/replayable workloads 
 | KERNEL-PERF-06 | Consider immutable overlays only if needed | Parent isolation, masking, deduplication, external observation and memory lifetime contracts demonstrated before claiming copy avoidance. |
 
 These are research work items, not adopted repository gap IDs. The practical order is measurement plus the smallest index-preserving clone experiment, then preparation and retraction access paths. Keep the executive in Mangle. Make it do less irrelevant work, not less required reasoning.
+
+## As built (2026-10-27)
+
+Already on main before this pass: `9dc23e1e` (clean-parent clones copy the evaluated store; dream checks use `EvaluatePending`) and `da587e91` (incremental dedupe-index removal on retract).
+
+**Implemented**
+
+- **KERNEL-PERF-04, compiled retractions.** `internal/core/kernel_retract_plan.go`: `compileRetractions` turns a transaction's whole-predicate, predicate-set, first-argument and exact retractions into one `retractionPlan`; `KernelTransaction.Commit` (`kernel_transactions.go`) compacts the EDB once with `plan.keeps`, and skips the pass when no named predicate has rows. Hash keys (`valueKey`, allocation-free) only select candidates; every match is confirmed with `argsEqual`/`argsSliceEqual`, so the cross-type semantics are unchanged (unkeyable values go to a linear list; `-0` keys with `0`). Transaction contract unchanged: retractions before assertions, partial assertion rejection, publish after unlock.
+- **KERNEL-PERF-03, cone preparation.** `kernel_edb_index.go`: the dedupe index is now `edbIndex`, bucketed by predicate (canonical key → stored `Fact`) with a monotone per-name arity history, maintained by every admit, retract, heartbeat replace, boot inject, clear and clone. `kernel_cone_plan.go`: `coneIndex` (built after stratification, shared through the compiled-program cache) carries `rulesByHead`, `strataByPred` and per-name program symbols, and a bounded (256) cache of immutable `conePlan`s keyed by the written-predicate set. `evaluateConeLocked` removes old rows by symbol (program symbols ∪ EDB arity history) instead of `ListPredicates`, restores only touched EDB buckets, and hands the engine the plan's rules and strata in original program order.
+- **KERNEL-PERF-02, clone representation.** `Clone` shares the immutable stored facts (the per-fact deep copy is gone) and clones the index structure; `copyFactStore(src, dst)` copies into a simple store.
+- **KERNEL-PERF-01, attribution.** `EvaluationStats` (`kernel_types.go`) records mode, store kind, prepare vs engine time, touched/removed/restored counts, rules, strata, and why a named write fell back to the full path (`coneIneligibilityLocked`). `Dreamer.evaluateProjection` logs clone time plus these per check.
+- Found along the way: `rebuildProgram` cleared `policyDirty` and installed the new `programInfo` before stratifying, so a non-stratifiable program left new rules beside old strata. It now installs nothing until stratification succeeds.
+
+**Measured** (`internal/core/kernel_perf_bench_test.go`, `-benchtime=30x`, median of 3, shared workstation; before = this branch's base, after = this commit):
+
+| Benchmark | Before | After |
+|---|---|---|
+| `TransactionMixedRetractions` 60k EDB, 1,000 exact + 20 first-arg + 1 predicate | 538 ms | 6.9 ms |
+| same, 50 exact | 34.1 ms | 6.1 ms |
+| `ConeSmallWrite` one-rule cone, 60k EDB | 754 µs | 126 µs |
+| `ConeSmallWrite`, 1.5k EDB | 80 µs | 73 µs |
+| `DreamCloneConeEvaluation` clone + stage + cone + read, 60k EDB | 75.4 ms, 141k allocs | 67.5 ms, 81k allocs |
+| same, 1.5k EDB | 1.03 ms, 3.9k allocs | 0.93 ms, 2.4k allocs |
+
+Equivalence, not just speed: `kernel_perf_test.go` checks cone results against a fresh full fixpoint after asserts, a negated premise turning true and retractions, on both store kinds and on clones (`TestCloneStoreKindAndConeEquivalence`), the retracted-undeclared-arity case (`TestConeRemovesRetractedUndeclaredArity`), plan selection against a whole-program scan on the production corpus (`TestConePlanMatchesProgramScanOnProductionCorpus`), compiled retractions against sequential passes over a cross-type value zoo with index parity (`TestCompiledRetractionsMatchSequentialPasses`), and transaction fixpoint equivalence.
+
+**Ruled differently**
+
+- Clone stores stay simple. `BenchmarkCloneStoreKind` (copy + cone + read, timed together) measured an indexed copy at 1.6 vs 0.8 ms (synthetic 1.5k EDB), 96 vs 63 ms (synthetic 60k EDB, a bound join that the index does help), and 26.8 vs 13.3 ms (production corpus, dream projection). Building argument indexes per clone costs more than the joins it saves.
+- Plans cache the physical selection only (rules, strata, touched names). They don't cache results or permission answers. Program identity is implicit: the cache lives on that program's `coneIndex`. The bound is an internal constant like `compiledProgramCacheMax`, not a user setting.
+- `RetractExactFactsBatch` keeps its canonical-key identity; the transaction keeps `argsEqual` identity. Each public API's semantics are unchanged.
+
+**Deferred**
+
+- KERNEL-PERF-06 overlays: the 60k-EDB profile now shows store copy plus GC dominating a dream check (the cone itself is small), which is the evidence §3 asked for. The masking, tombstone and lifetime design is still unbuilt.
+- KERNEL-PERF-05 smallest-bound-bucket lookup: this is an upstream `factstore` change. Also upstream, `EvalStratifiedProgramWithStats` copies every Decl and rebuilds per-stratum EDB sets on each call, a cost proportional to the program rather than to the cone.
+- Lock wait/hold, peak memory and external-call timing in `EvaluationStats`. Per-stratum engine durations are summed, not exposed.

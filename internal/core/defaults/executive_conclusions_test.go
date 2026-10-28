@@ -137,6 +137,40 @@ func mangleRules(t *testing.T, corpusDir string) []mgRule {
 	return rules
 }
 
+var inclusionBlockRe = regexp.MustCompile(`inclusion\s*\[([^\]]*)\]`)
+
+// inclusionRoots names every predicate a Decl's inclusion [...] constraint
+// reads.
+func inclusionRoots(t *testing.T, corpusDir string) map[string]struct{} {
+	t.Helper()
+	out := make(map[string]struct{})
+	err := filepath.WalkDir(corpusDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".mg") {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		for _, l := range strings.Split(string(data), "\n") {
+			l = strings.SplitN(l, "#", 2)[0]
+			if !strings.HasPrefix(strings.TrimSpace(l), "Decl") {
+				continue
+			}
+			for _, block := range inclusionBlockRe.FindAllStringSubmatch(l, -1) {
+				for _, m := range starvedAtomRe.FindAllStringSubmatch(block[1], -1) {
+					out[m[1]] = struct{}{}
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk corpus: %v", err)
+	}
+	return out
+}
+
 // predicateFromExpr names the predicate an argument asks for: a string literal
 // ("p" or "p(X)"), a const holding one, a Sprintf template starting with one,
 // a concatenation starting with one, or (SubscribeToFacts) a literal list.
@@ -726,6 +760,11 @@ func currentUnconsumedConclusions(t *testing.T) []string {
 	roots := goQueryRoots(t, root)
 	if len(roots) == 0 {
 		t.Fatal("no query root found in production Go; the liveness measurement has nothing to start from")
+	}
+	// A predicate an inclusion constraint names is read by the kernel's
+	// inclusion checker at the batch boundary (core/kernel_inclusion.go).
+	for p := range inclusionRoots(t, filepath.Join(root, "internal", "core", "defaults")) {
+		roots[p] = struct{}{}
 	}
 	live := liveConclusions(rules, roots)
 	routed := routedActions(t, root)

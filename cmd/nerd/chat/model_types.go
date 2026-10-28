@@ -35,7 +35,6 @@ import (
 	"codenerd/internal/world"
 
 	"charm.land/glamour/v2"
-	"codeberg.org/TauCeti/mangle-go/provenance"
 	"github.com/charmbracelet/bubbles/filepicker"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -601,7 +600,7 @@ type chatKernel interface {
 	LoadFactsFromFile(path string) error
 	AssertString(fact string) error
 	TraceQuery(ctx context.Context, query string) (*mangle.DerivationTrace, error)
-	Explain(goal string, opts core.ExplainOptions) ([]*provenance.ProofNode, error)
+	ExplainEnvelope(goal string, opts core.ExplainOptions) (*core.ExplanationEnvelope, error)
 	EnableProvenance()
 	DisableProvenance()
 	IsProvenanceEnabled() bool

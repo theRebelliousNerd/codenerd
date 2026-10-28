@@ -35,7 +35,7 @@ func newTracedKernel(t *testing.T, program string, facts []Fact) *RealKernel {
 
 	k := &RealKernel{
 		facts:       make([]Fact, 0, len(facts)),
-		factIndex:   make(map[string]struct{}),
+		factIndex:   newEDBIndex(),
 		store:       factstore.NewSimpleInMemoryStore(),
 		policyDirty: true,
 	}

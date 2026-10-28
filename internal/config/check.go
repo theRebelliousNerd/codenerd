@@ -359,6 +359,11 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		out = append(out, c.Routing.Check("routing")...)
 	}
 
+	// --- explain ---
+	if c.Explain != nil {
+		out = append(out, c.Explain.Check("explain")...)
+	}
+
 	// --- ui ---
 	if c.UI != nil {
 		out = append(out, c.UI.Check("ui")...)

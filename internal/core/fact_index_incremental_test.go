@@ -23,15 +23,14 @@ func TestFactIndexFollowsRetractionsIncrementally(t *testing.T) {
 	check := func(stage string) {
 		t.Helper()
 		k.mu.Lock()
-		got := make(map[string]struct{}, len(k.factIndex))
-		for key := range k.factIndex {
-			got[key] = struct{}{}
-		}
+		got := k.factIndex.buckets
+		gotSize := k.factIndex.len()
 		k.rebuildFactIndexLocked()
-		want := k.factIndex
+		want := k.factIndex.buckets
+		wantSize := k.factIndex.len()
 		k.mu.Unlock()
-		if !reflect.DeepEqual(got, want) {
-			t.Fatalf("%s: incremental index has %d keys, a rebuild has %d", stage, len(got), len(want))
+		if !reflect.DeepEqual(got, want) || gotSize != wantSize {
+			t.Fatalf("%s: incremental index has %d facts, a rebuild has %d", stage, gotSize, wantSize)
 		}
 	}
 	check("after load")

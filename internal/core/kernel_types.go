@@ -47,12 +47,12 @@ type LearnedRuleInterceptor interface {
 type RealKernel struct {
 	mu                sync.RWMutex
 	facts             []Fact
-	cachedAtoms       []ast.Atom          // OPTIMIZATION: Cached Mangle atoms to avoid O(N) ToAtom() conversions
-	atomCacheStale    bool                // cachedAtoms were built without Decls (pre-first-eval) or under an older policy; force one reconversion
-	factIndex         map[string]struct{} // Canonical fact set for deduplication
-	bootFacts         []Fact              // EDB facts extracted from hybrid .mg data sections
-	bootIntents       []HybridIntent      // Canonical intents extracted from hybrid .mg files
-	bootPrompts       []HybridPrompt      // Prompt atoms extracted from hybrid .mg files
+	cachedAtoms       []ast.Atom     // OPTIMIZATION: Cached Mangle atoms to avoid O(N) ToAtom() conversions
+	atomCacheStale    bool           // cachedAtoms were built without Decls (pre-first-eval) or under an older policy; force one reconversion
+	factIndex         *edbIndex      // Canonical fact set for deduplication, bucketed by predicate (kernel_edb_index.go)
+	bootFacts         []Fact         // EDB facts extracted from hybrid .mg data sections
+	bootIntents       []HybridIntent // Canonical intents extracted from hybrid .mg files
+	bootPrompts       []HybridPrompt // Prompt atoms extracted from hybrid .mg files
 	store             factstore.FactStore
 	programInfo       *analysis.ProgramInfo
 	strata            []analysis.Nodeset       // Cached stratification for EvalStratifiedProgramWithStats
@@ -76,6 +76,10 @@ type RealKernel struct {
 	// successfully" seconds later. Zero value is false, so every other kernel
 	// keeps logging these at ERROR.
 	sandbox bool
+
+	// admission caches the compiled Decl type checks of programInfo, per
+	// predicate, filled lazily (kernel_fact_decl.go). A clone starts empty.
+	admission *admissionSchema
 
 	// undeclared tracks predicates already reported by warnIfUndeclaredLocked,
 	// so each is named once per process instead of on every assert.
@@ -117,6 +121,20 @@ type RealKernel struct {
 	// EnableProvenance(). The recorder is reset at the start of every
 	// evaluate() to bound memory usage.
 	proofRecorder *provenance.MemoryRecorder
+	// recorderEpoch identifies the evaluation proofRecorder belongs to, for
+	// ExplanationEnvelope (kernel_explanation.go): armed is the empty recorder
+	// EnableProvenance installed (no pass recorded yet), seen/generation
+	// number each recorder an evaluation installs.
+	recorderEpoch struct {
+		armed, seen *provenance.MemoryRecorder
+		generation  uint64
+	}
+	// digest caches the sha256 of the program text programInfo was analyzed
+	// from (programDigestLocked).
+	digest struct {
+		info *analysis.ProgramInfo
+		hex  string
+	}
 
 	lastEvaluation EvaluationStats
 
@@ -127,10 +145,32 @@ type RealKernel struct {
 	instanceID atomic.Uint64
 }
 
-// EvaluationStats describes the cost of the most recent evaluate().
+// EvaluationStats describes the cost of the most recent evaluate(), split so
+// a slow evaluation can be attributed: preparing the store (full: building it
+// from the EDB; cone: removing the touched rows and restoring their EDB) versus
+// the engine's fixpoint. Durations are disjoint spans of Duration.
 type EvaluationStats struct {
 	InputFacts int
 	Duration   time.Duration
+
+	Mode            string // "full" or "cone"
+	ConeFallback    string // why a named write set ran the full path; "" otherwise
+	StoreKind       string // "simple" or "indexed": the store the engine ran against
+	PrepareDuration time.Duration
+	EngineDuration  time.Duration
+	Touched         int // cone: predicates whose rows were replaced
+	RemovedFacts    int // cone: store rows removed before re-derivation
+	RestoredFacts   int // cone: EDB rows put back
+	Rules           int // rules the engine was given
+	Strata          int // strata the engine was given
+}
+
+// storeKind names a fact store's physical kind for EvaluationStats.
+func storeKind(s factstore.FactStore) string {
+	if _, ok := s.(*factstore.MultiIndexedArrayInMemoryStore); ok {
+		return "indexed"
+	}
+	return "simple"
 }
 
 func (k *RealKernel) LastEvaluation() EvaluationStats {

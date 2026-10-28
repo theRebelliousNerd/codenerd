@@ -1,10 +1,7 @@
 package core
 
 import (
-	"errors"
 	"testing"
-
-	"codeberg.org/TauCeti/mangle-go/provenance"
 )
 
 // twoShardCortex is a Cortex whose shards each own one base predicate and
@@ -100,12 +97,15 @@ func TestCortexKernel_ExplainFindsTheProofInItsShard(t *testing.T) {
 	if err := c.AssertString("beta(/c)"); err != nil {
 		t.Fatal(err)
 	}
-	proofs, err := c.Explain("gamma(/c)", ExplainOptions{})
-	if err != nil || len(proofs) == 0 {
-		t.Fatalf("Explain(gamma(/c)) = %v, %v; want a proof from the shard that owns beta", proofs, err)
+	env, err := c.ExplainEnvelope("gamma(/c)", ExplainOptions{})
+	if err != nil || len(env.Proofs) == 0 {
+		t.Fatalf("ExplainEnvelope(gamma(/c)) = %v, %v; want a proof from the shard that owns beta", env, err)
 	}
-	if _, err := c.Explain("gamma(/never)", ExplainOptions{}); !errors.Is(err, provenance.ErrNoProof) {
-		t.Errorf("Explain of an underived goal = %v, want ErrNoProof", err)
+	if !env.RecordedThisEpoch || env.ProgramDigest == "" {
+		t.Errorf("envelope not stamped with its epoch: recorded=%v digest=%q", env.RecordedThisEpoch, env.ProgramDigest)
+	}
+	if never, err := c.ExplainEnvelope("gamma(/never)", ExplainOptions{}); err != nil || len(never.Proofs) != 0 {
+		t.Errorf("ExplainEnvelope of an underived goal = %v, %v; want an envelope without proofs", never, err)
 	}
 	c.DisableProvenance()
 	if c.IsProvenanceEnabled() {

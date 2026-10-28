@@ -217,14 +217,14 @@ Decl ancestor(Descendant, Ancestor) bound [/string, /string].
 # ValueType: Type of value assigned (e.g., /pointer, /interface, /value, /error)
 # File: Source file path
 # Line: Line number of assignment
-Decl assigns(Var, ValueType, File, Line) bound [/string, /name, /string, /number].
+Decl assigns(Var, ValueType, File, Line) bound [/name, /name, /string, /number].
 
 # uses(File, Func, Var, Line) - Variable read sites
 # File: Source file path
 # Func: Function containing the use
 # Var: Variable being read
 # Line: Line number of use
-Decl uses(File, Func, Var, Line) bound [/string, /string, /string, /number].
+Decl uses(File, Func, Var, Line) bound [/string, /name, /name, /number].
 
 # call_arg(CallSite, ArgPos, VarRef, File, Line) - Function call argument tracking
 # CallSite: Identifier for the call (e.g., "foo.Bar")
@@ -232,7 +232,7 @@ Decl uses(File, Func, Var, Line) bound [/string, /string, /string, /number].
 # VarRef: Variable reference passed as argument
 # File: Source file path
 # Line: Line number
-Decl call_arg(CallSite, ArgPos, VarRef, File, Line) bound [/string, /number, /string, /string, /number].
+Decl call_arg(CallSite, ArgPos, VarRef, File, Line) bound [/name, /number, /name, /string, /number].
 
 # -----------------------------------------------------------------------------
 # 47.2 Guard Predicates - Two Types for Go's Idiomatic Patterns
@@ -247,14 +247,14 @@ Decl call_arg(CallSite, ArgPos, VarRef, File, Line) bound [/string, /number, /st
 # File: Source file path
 # ScopeStart: Starting line of guarded scope
 # ScopeEnd: Ending line of guarded scope
-Decl guards_block(Var, CheckType, File, ScopeStart, ScopeEnd) bound [/string, /name, /string, /number, /number].
+Decl guards_block(Var, CheckType, File, ScopeStart, ScopeEnd) bound [/name, /name, /string, /number, /number].
 
 # guards_return(Var, CheckType, File, Line) - Return-based guards (dominator guards)
 # Var: Variable being guarded
 # CheckType: Type of check (/nil_check, /zero_check, /err_check)
 # File: Source file path
 # Line: Line of the guard check (all lines after are guarded)
-Decl guards_return(Var, CheckType, File, Line) bound [/string, /name, /string, /number].
+Decl guards_return(Var, CheckType, File, Line) bound [/name, /name, /string, /number].
 
 # -----------------------------------------------------------------------------
 # 47.3 Error Handling Predicates
@@ -265,13 +265,13 @@ Decl guards_return(Var, CheckType, File, Line) bound [/string, /name, /string, /
 # File: Source file path
 # ScopeStart: Start of error handling scope
 # ScopeEnd: End of error handling scope
-Decl error_checked_block(Var, File, ScopeStart, ScopeEnd) bound [/string, /string, /number, /number].
+Decl error_checked_block(Var, File, ScopeStart, ScopeEnd) bound [/name, /string, /number, /number].
 
 # error_checked_return(Var, File, Line) - Return-based error handling
 # Var: Error variable being checked
 # File: Source file path
 # Line: Line of error check (typically: if err != nil { return err })
-Decl error_checked_return(Var, File, Line) bound [/string, /string, /number].
+Decl error_checked_return(Var, File, Line) bound [/name, /string, /number].
 
 # -----------------------------------------------------------------------------
 # 47.4 Function Metadata
@@ -461,7 +461,7 @@ Decl has_priority_boost(File) bound [/string].
 # Start: Starting line number
 # End: Ending line number
 # Used to determine scope for guard domination
-Decl function_scope(File, Func, Start, End) bound [/string, /string, /number, /number].
+Decl function_scope(File, Func, Start, End) bound [/string, /name, /number, /number].
 
 # guard_dominates(File, Func, GuardLine, EndLine) - Guard domination for early returns
 # File: Source file path
@@ -469,7 +469,7 @@ Decl function_scope(File, Func, Start, End) bound [/string, /string, /number, /n
 # GuardLine: Line of the guard check (e.g., if x == nil { return })
 # EndLine: Last line of the function (guard protects all subsequent lines)
 # Early return guards dominate all code after them in the same scope
-Decl guard_dominates(File, Func, GuardLine, EndLine) bound [/string, /string, /number, /number].
+Decl guard_dominates(File, Func, GuardLine, EndLine) bound [/string, /name, /number, /number].
 
 # safe_access(Var, AccessType, File, Line) - Language-specific safe access patterns
 # Var: Variable being accessed
@@ -481,4 +481,4 @@ Decl guard_dominates(File, Func, GuardLine, EndLine) bound [/string, /string, /n
 # File: Source file path
 # Line: Line number
 # These accesses are inherently safe by the language's semantics
-Decl safe_access(Var, AccessType, File, Line) bound [/string, /name, /string, /number].
+Decl safe_access(Var, AccessType, File, Line) bound [/name, /name, /string, /number].

@@ -289,7 +289,9 @@ func (d *Dreamer) SimulateAction(ctx context.Context, req ActionRequest) DreamRe
 func (d *Dreamer) evaluateProjection(kernel *RealKernel, actionID string, projected []Fact) (bool, string) {
 	timer := logging.StartTimer(logging.CategoryDream, "evaluateProjection")
 	logging.DreamDebug("evaluateProjection: cloning kernel for sandbox evaluation")
+	cloneStarted := time.Now()
 	clone := kernel.Clone()
+	cloneDuration := time.Since(cloneStarted)
 
 	// Assert projected facts into the sandbox clone so panic_state rules can fire.
 	// Without this, the clone has no projected_action facts for rules to match against.
@@ -311,6 +313,12 @@ func (d *Dreamer) evaluateProjection(kernel *RealKernel, actionID string, projec
 		logging.Get(logging.CategoryDream).Error("evaluateProjection: sandbox evaluation failed: %v", err)
 		timer.Stop()
 		return true, fmt.Sprintf("dream evaluation failed: %v", err)
+	}
+	// Attribute the check's cost (KERNEL-PERF-01): the clone, then the
+	// evaluation split into store preparation and the engine's fixpoint.
+	if ev := clone.LastEvaluation(); logging.IsDebugMode() {
+		logging.DreamDebug("evaluateProjection: clone=%v eval=%s store=%s prepare=%v engine=%v rules=%d strata=%d removed=%d restored=%d fallback=%q",
+			cloneDuration, ev.Mode, ev.StoreKind, ev.PrepareDuration, ev.EngineDuration, ev.Rules, ev.Strata, ev.RemovedFacts, ev.RestoredFacts, ev.ConeFallback)
 	}
 
 	// Ensure panic_state is declared (Fail Closed contract)

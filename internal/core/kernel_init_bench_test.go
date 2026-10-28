@@ -12,7 +12,7 @@ func BenchmarkLoadMangleFiles(b *testing.B) {
 		k := &RealKernel{
 			facts:             make([]Fact, 0),
 			cachedAtoms:       make([]ast.Atom, 0),
-			factIndex:         make(map[string]struct{}),
+			factIndex:         newEDBIndex(),
 			bootFacts:         make([]Fact, 0),
 			bootIntents:       make([]HybridIntent, 0),
 			bootPrompts:       make([]HybridPrompt, 0),

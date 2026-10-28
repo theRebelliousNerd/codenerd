@@ -410,9 +410,9 @@ func (k *RealKernel) ensureFactIndexLocked() {
 // rebuildFactIndexLocked rebuilds the dedupe index from current EDB.
 // Call only while holding k.mu.
 func (k *RealKernel) rebuildFactIndexLocked() {
-	k.factIndex = make(map[string]struct{}, len(k.facts))
+	k.factIndex = newEDBIndex()
 	for _, f := range k.facts {
-		k.factIndex[k.canonFact(f)] = struct{}{}
+		k.factIndex.insert(k.canonFact(f), f)
 	}
 }
 
@@ -458,7 +458,7 @@ func (k *RealKernel) addFactIfNewLockedErr(f Fact) (bool, error) {
 
 	k.ensureFactIndexLocked()
 	key := k.canonFact(f)
-	if _, ok := k.factIndex[key]; ok {
+	if k.factIndex.has(f.Predicate, key) {
 		return false, nil
 	}
 
@@ -485,7 +485,8 @@ func (k *RealKernel) addFactIfNewLockedErr(f Fact) (bool, error) {
 	} else {
 		k.cachedAtoms = nil
 	}
-	k.factIndex[key] = struct{}{}
+	k.factIndex.insert(key, f)
+	k.warnIfUndeclaredLocked(f)
 	return true, nil
 }
 
@@ -537,10 +538,6 @@ func (k *RealKernel) Assert(fact Fact) (err error) {
 	k.mu.Lock()
 
 	fact = sanitizeFactForNumericPredicates(fact)
-	if err := k.validateAgainstDeclLocked(fact); err != nil {
-		k.mu.Unlock()
-		return err
-	}
 	added, addErr := k.addFactIfNewLockedErr(fact)
 	if addErr != nil {
 		// The fact is not in the EDB and never will be. Returning nil here made
@@ -554,7 +551,6 @@ func (k *RealKernel) Assert(fact Fact) (err error) {
 		return nil
 	}
 	k.markDirtyLocked(fact.Predicate)
-	k.warnIfUndeclaredLocked(fact)
 	logging.KernelDebug("Assert: fact added successfully, total facts=%d", len(k.facts))
 	k.mu.Unlock()
 
@@ -615,8 +611,8 @@ func (k *RealKernel) assertHeartbeat(fact Fact) error {
 			}
 		}
 		k.ensureFactIndexLocked()
-		delete(k.factIndex, oldKey)
-		k.factIndex[k.canonFact(fact)] = struct{}{}
+		k.factIndex.remove(existing.Predicate, oldKey)
+		k.factIndex.insert(k.canonFact(fact), fact)
 		// Intentionally NOT setting factsDirty — existence is unchanged.
 		k.mu.Unlock()
 		return nil
@@ -667,10 +663,6 @@ func (k *RealKernel) AssertBatch(facts []Fact) (err error) {
 	addedPredicates := make(map[string]struct{}) // Track unique predicates for event bus
 	for _, fact := range facts {
 		fact = sanitizeFactForNumericPredicates(fact)
-		if err := k.validateAgainstDeclLocked(fact); err != nil {
-			rejected = append(rejected, fmt.Errorf("%s: %w", fact.String(), err))
-			continue
-		}
 		added, addErr := k.addFactIfNewLockedErr(fact)
 		if addErr != nil {
 			rejected = append(rejected, fmt.Errorf("%s: %w", fact.String(), addErr))
@@ -730,30 +722,19 @@ func (k *RealKernel) AssertString(factStr string) error {
 //
 // It distinguishes a duplicate from a capacity or encoding failure: a
 // duplicate is a nil no-op, while a rejection surfaces an error so callers
-// fail closed. The Decl check runs first so no write path can stage a fact
-// the other two would refuse.
+// fail closed. Admission against the Decl is the same one every write path
+// runs (factToAtomLocked), so no path can stage a fact another would refuse.
 func (k *RealKernel) AssertWithoutEval(fact Fact) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
 	fact = sanitizeFactForNumericPredicates(fact)
-	if err := k.validateAgainstDeclLocked(fact); err != nil {
-		return err
+	added, err := k.addFactIfNewLockedErr(fact)
+	if err != nil {
+		return fmt.Errorf("stage %s: %w", fact.Predicate, err)
 	}
-	k.ensureFactIndexLocked()
-	if _, exists := k.factIndex[k.canonFact(fact)]; exists {
-		return nil
-	}
-
-	maxFacts := k.effectiveMaxFactsLocked()
-	if len(k.facts) >= maxFacts {
-		return fmt.Errorf("EDB fact limit reached (%d/%d)", len(k.facts), maxFacts)
-	}
-	if _, err := fact.ToAtom(); err != nil {
-		return fmt.Errorf("convert %s to Mangle atom: %w", fact.Predicate, err)
-	}
-	if !k.addFactIfNewLocked(fact) {
-		return fmt.Errorf("stage %s: insertion rejected", fact.Predicate)
+	if !added {
+		return nil // duplicate: a no-op, nothing to stage
 	}
 	// Staged, not dirty: but the next evaluate(), whoever triggers it, must
 	// count this predicate as written or a cone would leave it out.
@@ -824,7 +805,7 @@ func (k *RealKernel) compactFactsLocked(keep func(Fact) bool) (removed int) {
 			// whole index after each retract re-canonicalized every
 			// remaining fact (7.9 s of one 52 s turn, measured 2026-10-27).
 			if k.factIndex != nil {
-				delete(k.factIndex, k.canonFact(f))
+				k.factIndex.remove(f.Predicate, k.canonFact(f))
 			}
 			continue
 		}

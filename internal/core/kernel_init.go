@@ -45,7 +45,7 @@ func newRealKernelBase() *RealKernel {
 	return &RealKernel{
 		facts:             make([]Fact, 0),
 		cachedAtoms:       make([]ast.Atom, 0), // OPTIMIZATION: Initialize atom cache
-		factIndex:         make(map[string]struct{}),
+		factIndex:         newEDBIndex(),
 		bootFacts:         make([]Fact, 0),
 		bootIntents:       make([]HybridIntent, 0),
 		bootPrompts:       make([]HybridPrompt, 0),
@@ -66,11 +66,9 @@ func (k *RealKernel) injectBootFacts() {
 	// rebuilding the index over every remaining fact.
 	k.rebuildFactIndexLocked()
 	for _, f := range filterBootFacts(k.bootFacts) {
-		key := k.canonFact(f)
-		if _, dup := k.factIndex[key]; dup {
+		if !k.factIndex.insert(k.canonFact(f), f) {
 			continue
 		}
-		k.factIndex[key] = struct{}{}
 		k.facts = append(k.facts, f)
 	}
 }

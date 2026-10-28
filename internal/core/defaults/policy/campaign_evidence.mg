@@ -221,7 +221,7 @@ task_evidence(TaskID, Path, /digest) :-
 # with no /doc output -- a file task, whose return is what it changed and
 # checked -- keeps its projection. Until 2026-09-23 Go pasted every edge's
 # projection beside the inlined artifact.
-Decl task_context_from(TaskID, FromID) bound [/string, /string].
+Decl task_context_from(TaskID, FromID) bound [/string, /string] inclusion [campaign_task_id(TaskID), campaign_task_id(FromID)].
 Decl task_from_inlined(TaskID, FromID) bound [/string, /string].
 Decl task_context_projection(TaskID, FromID) bound [/string, /string].
 

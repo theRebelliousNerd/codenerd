@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/transparency"
 
@@ -113,8 +112,8 @@ func (m Model) handleExplainCommand(input string, parts []string) (tea.Model, te
 			return m, nil
 		}
 	}
-	proofs, err := m.kernel.Explain(goal, core.ExplainOptions{MaxProofs: 3, MaxDepth: 32})
-	msg := explainCommandReply(goal, proofs, err)
+	env, err := m.kernel.ExplainEnvelope(goal, explainOptions(m.Config))
+	msg := explainCommandReply(goal, env, err)
 	if newlyEnabled {
 		msg.Content += "\n_provenance recording enabled for this session — disable with `/explain-off`._\n"
 	}

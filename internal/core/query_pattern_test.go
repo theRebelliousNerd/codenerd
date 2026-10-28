@@ -9,7 +9,7 @@ import (
 func TestKernelQueryPatternFiltering(t *testing.T) {
 	k := &RealKernel{
 		facts:       make([]Fact, 0),
-		factIndex:   make(map[string]struct{}),
+		factIndex:   newEDBIndex(),
 		store:       factstore.NewSimpleInMemoryStore(),
 		policyDirty: true,
 	}

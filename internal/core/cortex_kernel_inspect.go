@@ -2,11 +2,8 @@ package core
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
-
-	"codeberg.org/TauCeti/mangle-go/provenance"
 
 	"codenerd/internal/mangle"
 )
@@ -60,27 +57,6 @@ func derivationSubtree(node *mangle.DerivationNode) []*mangle.DerivationNode {
 		nodes = append(nodes, derivationSubtree(child)...)
 	}
 	return nodes
-}
-
-// Explain returns the proofs of goal from the first shard, among those a
-// Query of its predicate reads, that recorded one. provenance.ErrNoProof when
-// none did; ErrProvenanceDisabled when recording is off.
-func (c *CortexKernel) Explain(goal string, opts ExplainOptions) ([]*provenance.ProofNode, error) {
-	shards, _, err := c.readShards(goal)
-	if err != nil {
-		return nil, err
-	}
-	for _, s := range shards {
-		proofs, err := s.kernel.Explain(goal, opts)
-		if errors.Is(err, provenance.ErrNoProof) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		return proofs, nil
-	}
-	return nil, provenance.ErrNoProof
 }
 
 // EnableProvenance turns proof recording on in every shard: a goal is proved

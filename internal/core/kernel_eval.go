@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -186,15 +187,10 @@ func (k *RealKernel) rebuildProgram() error {
 	}
 	analyzeTimer.Stop()
 
-	k.programInfo = programInfo
-	k.cone = buildConeIndex(programInfo)
-	k.policyDirty = false
-	// New Decls may declare different bounds than the ones cachedAtoms were
-	// converted under, so force one reconversion. Also covers the boot case
-	// where facts were admitted before any programInfo existed.
-	k.atomCacheStale = true
-
-	// Cache stratification for EvalStratifiedProgramWithStats
+	// Cache stratification for EvalStratifiedProgramWithStats. Nothing is
+	// installed until it succeeds: a program that analyzes but does not
+	// stratify must not leave the new rules beside the old strata and cone,
+	// with policyDirty already cleared.
 	strata, predToStratum, err := analysis.Stratify(analysis.Program{
 		EdbPredicates: programInfo.EdbPredicates,
 		IdbPredicates: programInfo.IdbPredicates,
@@ -204,8 +200,15 @@ func (k *RealKernel) rebuildProgram() error {
 		logging.Get(logging.CategoryKernel).Error("rebuildProgram: stratification failed: %v", err)
 		return fmt.Errorf("failed to stratify program: %w", err)
 	}
+	k.programInfo = programInfo
+	k.policyDirty = false
+	// New Decls may declare different bounds than the ones cachedAtoms were
+	// converted under, so force one reconversion. Also covers the boot case
+	// where facts were admitted before any programInfo existed.
+	k.atomCacheStale = true
 	k.strata = strata
 	k.predToStratum = predToStratum
+	k.cone = buildConeIndex(programInfo, strata, predToStratum)
 	if cacheable {
 		storeCompiledProgram(cacheKey, compiledProgram{
 			info: programInfo, strata: strata, predToStratum: predToStratum, cone: k.cone,
@@ -255,12 +258,18 @@ func (k *RealKernel) evaluate() error {
 	}
 
 	// A write whose predicates were named re-derives only their cone.
-	if err := k.evaluateConeLocked(); err == nil {
+	named := !k.dirtyAll && len(k.dirtyPreds) > 0
+	if err := k.evaluateConeLocked(&stats); err == nil {
 		k.clearDirtyLocked()
 		return nil
 	} else if !errors.Is(err, errConeIneligible) {
 		logging.Get(logging.CategoryKernel).Warn("evaluate: cone evaluation failed, running the full fixpoint: %v", err)
+		stats.ConeFallback = err.Error()
+	} else if named {
+		stats.ConeFallback = k.coneIneligibilityLocked()
 	}
+	stats = EvaluationStats{InputFacts: stats.InputFacts, ConeFallback: stats.ConeFallback, Mode: "full"}
+	prepareStarted := time.Now()
 
 	// Create fresh store and populate with EDB facts
 	// OPTIMIZATION: Use cached atoms instead of converting every time
@@ -334,10 +343,14 @@ func (k *RealKernel) evaluate() error {
 
 	evalOpts = append(evalOpts, k.externalPredicateOptionsLocked()...)
 
+	stats.PrepareDuration = time.Since(prepareStarted)
+	stats.StoreKind = storeKind(baseStore)
+	stats.Rules, stats.Strata = len(k.programInfo.Rules), len(k.strata)
 	evalTimer := logging.StartTimer(logging.CategoryKernel, "evaluate.fixpoint")
 	engineStats, err := engine.EvalStratifiedProgramWithStats(k.programInfo, k.strata, k.predToStratum, baseStore,
 		evalOpts...)
 	evalDuration := evalTimer.Stop()
+	stats.EngineDuration = evalDuration
 
 	if err != nil {
 		logging.Get(logging.CategoryKernel).Error("evaluate: fixpoint evaluation failed: %v", err)
@@ -463,7 +476,7 @@ func (k *RealKernel) GetStore() factstore.FactStore {
 func (k *RealKernel) clearFactsLocked() {
 	k.facts = make([]Fact, 0)
 	k.cachedAtoms = make([]ast.Atom, 0) // OPTIMIZATION: Clear atom cache
-	k.factIndex = make(map[string]struct{})
+	k.factIndex = newEDBIndex()
 	k.store = factstore.NewSimpleInMemoryStore()
 	k.initialized = false
 	// factsDirty stays as-is (Clear does not set dirty): the !initialized
@@ -491,7 +504,13 @@ func (k *RealKernel) Reset() {
 	logging.KernelDebug("Kernel reset (facts cleared, policy retained)")
 }
 
-// Clone creates a deep copy of the kernel for simulation/shadow mode.
+// Clone creates an independent copy of the kernel for simulation/shadow mode.
+//
+// Writes to the clone never reach the parent and the reverse: the EDB slice,
+// dedupe index, store and dirty state are the clone's own. The stored Fact
+// values are shared, not deep-copied: the kernel never mutates a stored fact
+// (a write replaces or removes it), so a copy bought nothing but one
+// allocation per fact on every dream safety check.
 func (k *RealKernel) Clone() *RealKernel {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
@@ -501,10 +520,9 @@ func (k *RealKernel) Clone() *RealKernel {
 // cloneLocked is Clone's body; the caller holds at least k.mu.RLock.
 func (k *RealKernel) cloneLocked() *RealKernel {
 	clone := &RealKernel{
-		facts:             make([]Fact, len(k.facts)),
+		facts:             slices.Clone(k.facts),
 		cachedAtoms:       nil, // Rebuild fresh to avoid shared memory pointers
-		factIndex:         make(map[string]struct{}, len(k.factIndex)),
-		bootFacts:         make([]Fact, len(k.bootFacts)),
+		bootFacts:         slices.Clone(k.bootFacts),
 		bootIntents:       make([]HybridIntent, len(k.bootIntents)),
 		bootPrompts:       make([]HybridPrompt, len(k.bootPrompts)),
 		store:             factstore.NewSimpleInMemoryStore(), // Fresh store
@@ -544,44 +562,26 @@ func (k *RealKernel) cloneLocked() *RealKernel {
 	// cost ~2.5 s per gated action (measured 2026-10-27, 102 s over 50).
 	if k.initialized && k.store != nil && !k.factsDirty.Load() && !k.dirtyAll &&
 		len(k.dirtyPreds) == 0 && !k.policyDirty && !k.atomCacheStale {
-		if copied, ok := copyFactStore(k.store); ok {
+		// The copy is a simple store even when the parent's is indexed:
+		// rebuilding argument indexes per clone cost more than the joins it
+		// saved on every measured dream shape (BenchmarkCloneStoreKind,
+		// Docs/audits/mangle-kernel-performance.md "As built").
+		if copied, ok := copyFactStore(k.store, factstore.NewSimpleInMemoryStore()); ok {
 			clone.store = copied
 			clone.dirtyAll = false
 			clone.factsDirty.Store(false)
 		}
 	}
 
-	// Deep copy facts
-	for i, f := range k.facts {
-		clonedArgs := make([]any, len(f.Args))
-		for j, arg := range f.Args {
-			clonedArgs[j] = deepCopyArg(arg)
-		}
-		clone.facts[i] = Fact{
-			Predicate: f.Predicate,
-			Args:      clonedArgs,
-		}
+	if clone.facts == nil {
+		clone.facts = make([]Fact, 0)
 	}
-
-	// Deep copy bootFacts
-	for i, f := range k.bootFacts {
-		clonedArgs := make([]any, len(f.Args))
-		for j, arg := range f.Args {
-			clonedArgs[j] = deepCopyArg(arg)
-		}
-		clone.bootFacts[i] = Fact{
-			Predicate: f.Predicate,
-			Args:      clonedArgs,
-		}
+	if k.factIndex != nil {
+		clone.factIndex = k.factIndex.clone()
 	}
 
 	copy(clone.bootIntents, k.bootIntents)
 	copy(clone.bootPrompts, k.bootPrompts)
-
-	// Deep copy factIndex
-	for key := range k.factIndex {
-		clone.factIndex[key] = struct{}{}
-	}
 
 	// Deep copy loadedPolicyFiles
 	for key := range k.loadedPolicyFiles {
@@ -590,28 +590,6 @@ func (k *RealKernel) cloneLocked() *RealKernel {
 
 	logging.KernelDebug("Kernel cloned (facts=%d, policy=%d bytes)", len(clone.facts), len(clone.policy))
 	return clone
-}
-
-func deepCopyArg(arg any) any {
-	if arg == nil {
-		return nil
-	}
-	switch v := arg.(type) {
-	case []any:
-		res := make([]any, len(v))
-		for i, item := range v {
-			res[i] = deepCopyArg(item)
-		}
-		return res
-	case map[string]any:
-		res := make(map[string]any)
-		for k, val := range v {
-			res[k] = deepCopyArg(val)
-		}
-		return res
-	default:
-		return v
-	}
 }
 
 // ClearSchemas removes all loaded schemas, policy, and learned rules from
@@ -652,24 +630,25 @@ func (k *RealKernel) writeFailedProgramDump(programStr string) (string, error) {
 	return path, nil
 }
 
+// indexedStoreMinFacts is the store size from which evaluation uses the
+// argument-indexed store. Below it the simple store's allocation profile wins.
+const indexedStoreMinFacts = 1024
+
 // Large bound joins must not scan every row of a predicate on each premise.
 // Keep the small-store allocation profile for small kernels. The indexed array
 // implementation also checks equality within hash buckets, including collisions.
-func newEvaluationFactStore(facts int) factstore.FactStore {
-	if facts >= 1024 {
+// Both kinds support removal, which the cone evaluator relies on.
+func newEvaluationFactStore(facts int) factstore.FactStoreWithRemove {
+	if facts >= indexedStoreMinFacts {
 		return factstore.NewMultiIndexedArrayInMemoryStore()
 	}
 	return factstore.NewSimpleInMemoryStore()
 }
 
-// copyFactStore copies every atom of an evaluated store into a fresh one that
-// supports removal (the cone evaluator removes and re-derives in place). The
-// atoms themselves are immutable values and are shared.
-func copyFactStore(src factstore.FactStore) (factstore.FactStore, bool) {
-	dst := factstore.NewSimpleInMemoryStore()
-	if _, ok := any(dst).(factstore.FactStoreWithRemove); !ok {
-		return nil, false
-	}
+// copyFactStore copies every atom of an evaluated store, extensional and
+// derived, into dst, which must support removal (the cone evaluator removes
+// and re-derives in place). The atoms are immutable values and are shared.
+func copyFactStore(src factstore.FactStore, dst factstore.FactStoreWithRemove) (factstore.FactStoreWithRemove, bool) {
 	for _, sym := range src.ListPredicates() {
 		if err := src.GetFacts(ast.NewQuery(sym), func(a ast.Atom) error {
 			dst.Add(a)

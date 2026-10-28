@@ -38,13 +38,13 @@
 
 Decl test_scope(Scope).
 Decl review_type(Type).
-Decl code_modified_recently().
+Decl code_modified_recently() bound [].
 Decl code_quality_issue(Issue, Details).
 Decl complex_target(Target).
 Decl target_contains_multiple_files(Target).
 Decl target_word_count(Target, Cnt).
-Decl tests_run_recently().
-Decl test_passed_after_fix().
+Decl tests_run_recently() bound [].
+Decl test_passed_after_fix() bound [].
 Decl verb_has_specialist(Verb).
 Decl imports(Target, Path).
 Decl test_failed(Path, TestName, Reason).

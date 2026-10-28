@@ -354,7 +354,14 @@ func (o *Orchestrator) ResumeCampaign(campaignID string, policy AdmissionPolicy)
 		return report, fmt.Errorf("recovery admission of %s: %w", campaignID, err)
 	}
 
-	if err := o.kernel.LoadFacts(c.ToFacts()); err != nil {
+	facts := c.ToFacts()
+	// The plan's task and phase references are checked before the kernel
+	// sees them: a resumed snapshot is held to the same inclusion
+	// constraints as a new campaign (SetCampaign) and every sync.
+	if err := checkCampaignSnapshot(o.kernel, &c, facts); err != nil {
+		return report, fmt.Errorf("recovery admission of %s: the admitted generation's plan is inconsistent: %w", campaignID, err)
+	}
+	if err := o.kernel.LoadFacts(facts); err != nil {
 		return report, fmt.Errorf("recovery admission of %s: the kernel rejected the admitted generation: %w", campaignID, err)
 	}
 	o.campaign = &c

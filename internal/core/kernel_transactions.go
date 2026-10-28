@@ -106,46 +106,16 @@ func (tx *KernelTransaction) Commit() error {
 	timer := logging.StartTimer(logging.CategoryKernel, "Transaction.Commit")
 	defer timer.Stop()
 
+	// Phase 1: every retraction, compiled into one plan and applied in one
+	// pass over the EDB (kernel_retract_plan.go). A plan whose predicates the
+	// EDB holds no rows of removes nothing, so the pass is skipped.
 	mutated := false
-
-	// Phase 1: Retracts (by full predicate)
-	for _, pred := range tx.retractPredicates {
-		if k.compactFactsLocked(func(f Fact) bool { return f.Predicate != pred }) > 0 {
-			mutated = true
-		}
-	}
-
-	// Phase 2: Retracts (by predicate set)
-	if len(tx.retractPredicateSet) > 0 {
-		if k.compactFactsLocked(func(f Fact) bool {
-			_, ok := tx.retractPredicateSet[f.Predicate]
-			return !ok
-		}) > 0 {
-			mutated = true
-		}
-	}
-
-	// Phase 3: Retracts (by predicate + first arg)
-	for _, rf := range tx.retractFacts {
-		if k.compactFactsLocked(func(f Fact) bool {
-			if f.Predicate != rf.Predicate {
-				return true
-			}
-			if len(f.Args) > 0 && len(rf.Args) > 0 {
-				return !argsEqual(f.Args[0], rf.Args[0])
-			}
-			return true
-		}) > 0 {
-			mutated = true
-		}
-	}
-
-	// Phase 4: Retracts (exact match)
-	for _, rf := range tx.retractExactFacts {
-		if k.compactFactsLocked(func(f Fact) bool {
-			return f.Predicate != rf.Predicate || !argsSliceEqual(f.Args, rf.Args)
-		}) > 0 {
-			mutated = true
+	plan := compileRetractions(tx)
+	k.ensureFactIndexLocked()
+	for pred := range plan.predicates() {
+		if len(k.factIndex.bucket(pred)) > 0 {
+			mutated = k.compactFactsLocked(plan.keeps) > 0
+			break
 		}
 	}
 
@@ -154,7 +124,7 @@ func (tx *KernelTransaction) Commit() error {
 		k.cachedAtoms = nil // Invalidate atom cache
 	}
 
-	// Phase 5: Asserts. Rejections are collected, not swallowed: the good
+	// Phase 2: Asserts. Rejections are collected, not swallowed: the good
 	// facts still land but the caller is told which ones did not.
 	assertCount := 0
 	assertedPredicates := make(map[string]struct{})
@@ -181,7 +151,7 @@ func (tx *KernelTransaction) Commit() error {
 		len(tx.assertFacts),
 		assertCount)
 
-	// Phase 6: Single rebuild/evaluate
+	// Phase 3: Single rebuild/evaluate
 	if mutated || assertCount > 0 {
 		written := make(map[string]struct{}, len(assertedPredicates)+4)
 		for pred := range assertedPredicates {

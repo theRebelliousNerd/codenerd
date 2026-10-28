@@ -39,11 +39,16 @@ func syncCampaignFacts(kernel core.Kernel, previous, next *Campaign, revisionSum
 		return fmt.Errorf("%w: next campaign snapshot is nil", ErrInvalidConfig)
 	}
 
+	facts := next.ToFacts()
+	if err := checkCampaignSnapshot(kernel, next, facts); err != nil {
+		return err
+	}
+
 	if _, ok := kernel.(types.KernelTransactor); !ok {
 		if err := retractCampaignFacts(kernel, previous); err != nil {
 			return fmt.Errorf("retract previous campaign facts: %w", err)
 		}
-		if err := kernel.LoadFacts(next.ToFacts()); err != nil {
+		if err := kernel.LoadFacts(facts); err != nil {
 			return fmt.Errorf("load next campaign facts: %w", err)
 		}
 		if revisionSummary != "" {
@@ -59,7 +64,7 @@ func syncCampaignFacts(kernel core.Kernel, previous, next *Campaign, revisionSum
 
 	tx := types.NewKernelTx(kernel)
 	queueCampaignFactRetractions(tx, previous)
-	tx.LoadFacts(next.ToFacts())
+	tx.LoadFacts(facts)
 	if revisionSummary != "" {
 		tx.Assert(core.Fact{
 			Predicate: "plan_revision",
@@ -71,6 +76,25 @@ func syncCampaignFacts(kernel core.Kernel, previous, next *Campaign, revisionSum
 		return fmt.Errorf("sync campaign facts: %w", err)
 	}
 
+	return nil
+}
+
+// checkCampaignSnapshot checks a campaign snapshot's plan edges before it is
+// published: every task's phase, every task, phase and context dependency
+// must name a task or phase of the same plan (the inclusion constraints in
+// schemas_campaign.mg). The snapshot is the whole plan, so it is the epoch the
+// constraints are checked over. A violation quarantines it -- the kernel keeps
+// the previous plan -- and the error names each dangling edge. A dependency on
+// a task the plan does not hold used to block nothing: has_blocking_task_dep
+// found no campaign_task row for it and the dependent ran unconstrained.
+func checkCampaignSnapshot(kernel core.Kernel, c *Campaign, facts []core.Fact) error {
+	checker, ok := kernel.(types.BatchInclusionChecker)
+	if !ok {
+		return nil
+	}
+	if err := checker.CheckBatchInclusion("campaign "+c.ID, facts); err != nil {
+		return fmt.Errorf("campaign %s plan not loaded: %w", c.ID, err)
+	}
 	return nil
 }
 
