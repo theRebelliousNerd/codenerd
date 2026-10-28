@@ -138,8 +138,19 @@ type SubAgent struct {
 	// re-derive from prose what the runtime had already measured.
 	observed observation.Return
 
-	// Cancellation
-	cancel context.CancelFunc
+	// Cancellation. stopRequested latches a Stop that arrives before Run has
+	// installed cancel: Run checks it under the same lock that installs
+	// cancel, so a stop between the state transition and the install is
+	// honoured instead of lost.
+	cancel        context.CancelFunc
+	stopRequested bool
+
+	// done is closed once the terminal result is stored; onTerminal (set
+	// before Run) is called once after that, outside every lock, so the
+	// owner settles the result without anyone polling for it.
+	done       chan struct{}
+	onTerminal func()
+	finishOnce sync.Once
 }
 
 // NewSubAgent creates a new subagent with the given configuration.
@@ -174,7 +185,42 @@ func NewSubAgent(
 		conversationHistory: make([]perception.ConversationTurn, 0),
 		compressor:          NewSemanticCompressor(llmClient),
 		state:               int32(SubAgentStateIdle),
+		done:                make(chan struct{}),
 	}
+}
+
+// Done is closed when the subagent has reached a terminal state and its
+// result is readable.
+func (s *SubAgent) Done() <-chan struct{} { return s.done }
+
+// SetOnTerminal installs the owner's settlement callback. It must be set
+// before Run; it runs once, after the terminal result is stored.
+func (s *SubAgent) SetOnTerminal(fn func()) {
+	s.mu.Lock()
+	s.onTerminal = fn
+	s.mu.Unlock()
+}
+
+// finish stores the terminal result and state, closes done and runs the
+// owner's callback, exactly once.
+func (s *SubAgent) finish(result string, err error) {
+	s.finishOnce.Do(func() {
+		s.mu.Lock()
+		s.result = result
+		s.err = err
+		s.endTime = time.Now()
+		onTerminal := s.onTerminal
+		s.mu.Unlock()
+		if err != nil {
+			atomic.StoreInt32(&s.state, int32(SubAgentStateFailed))
+		} else {
+			atomic.StoreInt32(&s.state, int32(SubAgentStateCompleted))
+		}
+		close(s.done)
+		if onTerminal != nil {
+			onTerminal()
+		}
+	})
 }
 
 // SetPlannerClient forwards the high-reasoning client to this subagent's
@@ -235,6 +281,13 @@ func (s *SubAgent) Run(ctx context.Context, task string) {
 	// Create cancellable context
 	ctx, cancel := context.WithCancel(ctx)
 	s.mu.Lock()
+	if s.stopRequested {
+		s.mu.Unlock()
+		cancel()
+		logging.Session("SubAgent %s stopped before it started", s.config.Name)
+		s.finish("", fmt.Errorf("subagent %s was stopped before it started: %w", s.config.Name, context.Canceled))
+		return
+	}
 	s.cancel = cancel
 	s.startTime = time.Now()
 	s.mu.Unlock()
@@ -260,20 +313,12 @@ func (s *SubAgent) Run(ctx context.Context, task string) {
 		// executor's working archives cannot be redeemed after this.
 		s.executor.RetireWorkingScopes()
 
-		// Store results
-		s.mu.Lock()
-		s.result = result
-		s.err = err
-		s.endTime = time.Now()
-		s.mu.Unlock()
-
 		if err != nil {
-			atomic.StoreInt32(&s.state, int32(SubAgentStateFailed))
 			logging.Get(logging.CategorySession).Error("SubAgent %s failed: %v", s.config.Name, err)
 		} else {
-			atomic.StoreInt32(&s.state, int32(SubAgentStateCompleted))
 			logging.Session("SubAgent %s completed successfully", s.config.Name)
 		}
+		s.finish(result, err)
 	}()
 }
 
@@ -343,6 +388,7 @@ func capabilityHintForAgentName(name string) types.ModelCapability {
 func (s *SubAgent) Stop() error {
 	s.mu.Lock()
 	cancel := s.cancel
+	s.stopRequested = true
 	s.mu.Unlock()
 
 	if cancel != nil {
@@ -363,19 +409,11 @@ func (s *SubAgent) WaitWithContext(ctx context.Context) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		state := s.GetState()
-		if state == SubAgentStateCompleted || state == SubAgentStateFailed {
-			return s.GetResult()
-		}
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case <-ticker.C:
-		}
+	select {
+	case <-s.done:
+		return s.GetResult()
+	case <-ctx.Done():
+		return "", ctx.Err()
 	}
 }
 

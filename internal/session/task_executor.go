@@ -482,8 +482,16 @@ func (j *JITExecutor) executeAsyncInternal(ctx context.Context, req TaskRequest,
 	}
 	j.mu.Unlock()
 
-	// Start execution
-	go agent.Run(ctx, spawnReq.Task)
+	// The worker settles its own result: when it reaches a terminal state
+	// the result moves into the cache and the registry entry goes, whether
+	// or not anyone is still waiting. A waiter canceled mid-run used to leave
+	// the terminal agent in the Spawner and an incomplete placeholder here
+	// for good, because only a later poll moved it.
+	agent.SetOnTerminal(func() { j.settleTerminal(taskID, agent) })
+
+	// Run schedules the work itself; calling it directly removes a window in
+	// which the agent is registered but not yet started.
+	agent.Run(ctx, spawnReq.Task)
 
 	return taskID, nil
 }
@@ -516,38 +524,48 @@ func (j *JITExecutor) getObserved(taskID string) (observation.Return, bool, erro
 	// Check if completed
 	state := agent.GetState()
 	if state == SubAgentStateCompleted || state == SubAgentStateFailed {
-		result, resultErr := agent.GetResult()
-
-		// Use the error from GetResult, or create one if state is failed but no error
-		var err error
-		if resultErr != nil {
-			err = resultErr
-		} else if state == SubAgentStateFailed {
-			err = fmt.Errorf("subagent execution failed")
-		}
-
-		// The subagent captured its structured return at the moment its
-		// ExecutionResult was still in scope; this reads that back rather than
-		// rebuilding anything from the string, which is what makes "changed"
-		// and "verified" facts here instead of guesses.
-		observed := agent.ObservedReturn()
-		observed.Output = result
-		if observed.Failure == "" && err != nil {
-			observed.Failure = err.Error()
-		}
-		if observed.Agent == "" {
-			observed.Agent = agent.GetName()
-		}
-
-		// Cache the result, then release the spawner entry: the cache is now
-		// the durable home, so the registry need not hold the agent anymore.
-		j.cacheCompletedResult(taskID, observed, err)
-		j.spawner.Remove(taskID)
-
+		observed, err := j.settleTerminal(taskID, agent)
 		return observed, true, err
 	}
 
 	return observation.Return{}, false, nil
+}
+
+// settleTerminal moves a terminal agent's result into the completed cache
+// and releases its registry entry. The worker's own terminal callback and a
+// reader that sees the terminal state first may both call it; the cache entry
+// and the removal are idempotent.
+func (j *JITExecutor) settleTerminal(taskID string, agent *SubAgent) (observation.Return, error) {
+	state := agent.GetState()
+	result, resultErr := agent.GetResult()
+
+	// Use the error from GetResult, or create one if state is failed but no error
+	var err error
+	if resultErr != nil {
+		err = resultErr
+	} else if state == SubAgentStateFailed {
+		err = fmt.Errorf("subagent execution failed")
+	}
+
+	// The subagent captured its structured return at the moment its
+	// ExecutionResult was still in scope; this reads that back rather than
+	// rebuilding anything from the string, which is what makes "changed"
+	// and "verified" facts here instead of guesses.
+	observed := agent.ObservedReturn()
+	observed.Output = result
+	if observed.Failure == "" && err != nil {
+		observed.Failure = err.Error()
+	}
+	if observed.Agent == "" {
+		observed.Agent = agent.GetName()
+	}
+
+	// Cache the result, then release the spawner entry: the cache is now
+	// the durable home, so the registry need not hold the agent anymore.
+	j.cacheCompletedResult(taskID, observed, err)
+	j.spawner.Remove(taskID)
+
+	return observed, err
 }
 
 // cacheCompletedResult records a finished task under the completed-results
@@ -590,10 +608,19 @@ func (j *JITExecutor) waitObserved(ctx context.Context, taskID string) (observat
 		return observation.Return{}, fmt.Errorf("context is nil")
 	}
 
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-
 	for {
+		result, done, err := j.getObserved(taskID)
+		if err != nil && !done {
+			return observation.Return{}, err
+		}
+		if done {
+			return result, err
+		}
+		agent, ok := j.spawner.Get(taskID)
+		if !ok {
+			// Settled between the two reads: the next pass reads the cache.
+			continue
+		}
 		select {
 		case <-ctx.Done():
 			// Reap the subagent to prevent zombie processes burning LLM tokens.
@@ -607,14 +634,8 @@ func (j *JITExecutor) waitObserved(ctx context.Context, taskID string) (observat
 				}
 			}
 			return observation.Return{}, ctx.Err()
-		case <-ticker.C:
-			result, done, err := j.getObserved(taskID)
-			if err != nil && !done {
-				return observation.Return{}, err
-			}
-			if done {
-				return result, err
-			}
+		case <-agent.Done():
+			// Terminal: the next pass reads the settled result.
 		}
 	}
 }

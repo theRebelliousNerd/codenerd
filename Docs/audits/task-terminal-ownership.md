@@ -180,3 +180,13 @@ These are established concurrency principles adapted to a source-observed owners
 | TASK-OWNER-05 | Whole-session value | Demonstrates bounded retention and accurate partial outcomes at unchanged task quality and authority. |
 
 The first milestone is simple to state: an accepted task still has someone responsible for its final outcome after the person waiting for it has gone away.
+
+## As built (2026-10-28)
+
+- **T1, worker-owned settlement.** `SubAgent.finish` stores the terminal result, sets the state, closes `Done()`, then calls the owner's `SetOnTerminal` callback, exactly once (`sync.Once`) and outside every lock. `JITExecutor.executeAsyncInternal` installs `settleTerminal`, which caches the observed return under the completed-results bound and removes the registry entry. A waiter that cancels no longer leaves a terminal agent in the Spawner or an incomplete placeholder in the cache. `getObserved` shares `settleTerminal`; both paths are idempotent. Test: `TestJITExecutor_CanceledWaiterStillSettlesTheTask`.
+- **T2, latched stop.** `Stop` records `stopRequested` under the lock that `Run` holds while installing `cancel`. A stop that lands before the install ends the task as stopped-before-start (`context.Canceled`, state Failed, model never called), instead of running on a live context. `executeAsyncInternal` calls `Run` directly, since `Run` itself schedules the work. Test: `TestSubAgent_StopBeforeRunIsHonoured`.
+- **Waiting** is a select on `Done()` instead of a 100 ms poll, in both `SubAgent.WaitWithContext` and `JITExecutor.waitObserved`. A canceled wait still stops the task (the existing cancel-on-wait contract).
+- **Deferred:**
+  - separate "stop waiting" from "cancel task" in the API;
+  - byte budgets for terminal retention;
+  - a bounded owner context for cleanup that runs after cancellation.
