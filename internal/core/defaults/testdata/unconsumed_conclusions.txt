@@ -9,6 +9,8 @@
 # while the kernel's answer goes unread, or a rule nobody needs.
 
 unconsumed above
+unconsumed act_effect
+unconsumed act_http_effect
 unconsumed action_blocked
 unconsumed action_complete_verified
 unconsumed action_enhanced_validated

@@ -11,6 +11,7 @@
 # instance found in the 2026-09 audit turned out to be.
 
 acceptance_count
+act_batch
 action_violates
 agenda_dependency
 appeal_denial_count
@@ -29,7 +30,9 @@ coverage_goal
 coverage_metric
 derived_rule
 detected_security_flow
+dialog_policy
 element_action
+element_hydration
 failure_count_by_file
 false_positive_pattern
 file_line_count
@@ -42,6 +45,8 @@ item_retry_count
 known_cause
 nemesis_attack_run
 nesting_depth
+page_framework
+page_hydrated
 pass_count
 patch_tested
 proposed_rule
@@ -55,6 +60,7 @@ rule_outcome
 security_anomaly
 shard_family
 specialist_knowledge_updated
+storage_entry
 style_violation
 symptom
 system_invariant
