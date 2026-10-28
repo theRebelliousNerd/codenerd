@@ -4,7 +4,6 @@
 - id: "protocol/reasoning/requirements"
   category: "protocol"
   subcategory: "reasoning"
-  priority: 90
   is_mandatory: true
   content: |
     ## REASONING TRACE REQUIREMENTS
@@ -28,7 +27,6 @@
 - id: "protocol/reasoning/format"
   category: "protocol"
   subcategory: "reasoning"
-  priority: 85
   is_mandatory: true
   depends_on: ["protocol/reasoning/requirements"]
   content: |
@@ -58,7 +56,6 @@
 - id: "protocol/reasoning/verification"
   category: "protocol"
   subcategory: "reasoning"
-  priority: 80
   is_mandatory: false
   depends_on: ["protocol/reasoning/format"]
   content: |
