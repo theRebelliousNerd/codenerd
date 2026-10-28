@@ -8,7 +8,7 @@ import (
 )
 
 // The work mode (config.WorkMode) is the chat's one autonomy switch: Shift+Tab
-// cycles it, /yolo jumps to or leaves yolo, --yolo and debug_self hold yolo
+// cycles it, /yolo jumps to or leaves yolo, --yolo holds yolo
 // for the session without persisting it. The kernel sees yolo as yolo_mode.
 
 // workMode is the mode in force: session yolo wins, else the persisted mode.

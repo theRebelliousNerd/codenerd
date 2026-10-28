@@ -48,11 +48,6 @@ func TestInitChat_YoloFlagIsSessionAutonomy(t *testing.T) {
 
 	control := InitChat(Config{})
 	control.Config = config.DefaultUserConfig()
-	// The repo's own debug_self is not under test either: it grants session
-	// yolo at InitChat through the same flag field.
-	control.yoloFlag = false
-	control.yoloViaDebugSelf = false
-	control.debugSelfOwnsYolo = false
 	if control.yoloEnabled() {
 		t.Fatal("a chat launched without --yolo is autonomous")
 	}

@@ -154,10 +154,6 @@ func InitChat(cfg Config) Model {
 	transparencyCfg := appCfg.GetTransparencyConfig()
 	transparencyMgr := transparency.NewTransparencyManager(transparencyCfg)
 
-	// Debug-self implies session yolo (never persisted as work_mode yolo) and,
-	// via the effective logging config, debug logging at boot.
-	debugSelfOn := appCfg.DebugSelfMode()
-
 	// Jev's turn judgments are on when the typesafe section is configured.
 	// A section that cannot resolve leaves them off and says why; the chat
 	// works as before without them.
@@ -206,14 +202,12 @@ func InitChat(cfg Config) Model {
 		statusChan:          make(chan string, 10),
 		workspace:           workspace,
 		DisableSystemShards: cfg.DisableSystemShards,
-		yoloFlag:            cfg.Yolo || debugSelfOn,
+		yoloFlag:            cfg.Yolo,
 		jev:                 jev,
 		background:          newBackgroundJobs(),
 		turn:                newTurnState(),
 		apiKeyFlag:          cfg.APIKey,
 		selfDebug:           newSelfDebugWatcher(),
-		yoloViaDebugSelf:    debugSelfOn,
-		debugSelfOwnsYolo:   debugSelfOn && !cfg.Yolo && !appCfg.YoloMode(),
 		// Mouse capture enabled by default (Alt+M to toggle for text selection)
 		mouseEnabled: true,
 		// Shutdown coordination (pointer to sync.Once to allow Model copy without noCopy violation)

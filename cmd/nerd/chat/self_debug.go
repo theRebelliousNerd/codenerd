@@ -556,28 +556,16 @@ func (m Model) setDebugSelf(on bool) (Model, string) {
 		})
 	}
 	if !on {
-		if m.debugSelfOwnsYolo && !m.Config.YoloMode() {
-			m.yoloFlag = false
-		}
-		m.debugSelfOwnsYolo = false
-		m.yoloViaDebugSelf = false
-		m.syncWorkModeFacts()
 		m.syncSelfProblemFacts()
 		m.consumeSelfProblems()
 		m.applyLoggingIfBound()
-		return m, "Session yolo from debug_self ended (persisted yolo, if any, is untouched); debug logging now follows logging.debug_mode."
+		return m, "Debug logging now follows logging.debug_mode."
 	}
 	if m.selfDebug == nil {
 		m.selfDebug = newSelfDebugWatcher()
 	}
 	path, _, _ := logging.ProblemsSnapshot()
 	m.selfDebug.prime(path)
-	m.yoloViaDebugSelf = true
-	if !m.yoloFlag && !m.Config.YoloMode() {
-		m.debugSelfOwnsYolo = true
-	}
-	m.yoloFlag = true
-	m.syncWorkModeFacts()
 	m.syncSelfProblemFacts()
 	return m, m.activateSelfDebugCapture()
 }
@@ -596,7 +584,7 @@ func (m Model) activateSelfDebugCapture() string {
 	if m.applyLoggingIfBound() && logging.IsDebugMode() {
 		return "Log capture started for this session (debug logging implied by debug_self); restart codenerd for complete capture from boot."
 	}
-	return "Restart codenerd for log capture to start; reporting and session yolo apply immediately."
+	return "Restart codenerd for log capture to start; reporting applies immediately."
 }
 
 // applyLoggingIfBound re-applies the config's logging settings only when
@@ -617,18 +605,9 @@ func (m Model) applyLoggingIfBound() bool {
 
 func debugSelfStatusText(m Model) string {
 	if !m.debugSelfEnabled() {
-		return "Debug-self mode is OFF. Enable with `/debug-self on` (persists logging.debug_self; implies debug logging and session yolo)."
+		return "Debug-self mode is OFF. Enable with `/debug-self on` (persists logging.debug_self; implies debug logging)."
 	}
-	yoloPart := "OFF (turned off explicitly this session; debug_self remains on)"
-	switch {
-	case m.Config.YoloMode():
-		yoloPart = "ON (persisted work_mode yolo)"
-	case m.yoloEnabled() && m.yoloViaDebugSelf:
-		yoloPart = "ON (session-level via debug_self; not persisted as work_mode yolo)"
-	case m.yoloEnabled():
-		yoloPart = "ON (session-level via --yolo flag)"
-	}
-	capturePart := "NOT active yet — restart codenerd for log capture; reporting and session yolo apply immediately"
+	capturePart := "NOT active yet — restart codenerd for log capture; reporting applies immediately"
 	if logging.IsDebugMode() {
 		capturePart = "active"
 	}
@@ -636,6 +615,6 @@ func debugSelfStatusText(m Model) string {
 	if path, _, _ := logging.ProblemsSnapshot(); path != "" {
 		pathPart = "`" + path + "`"
 	}
-	return fmt.Sprintf("Debug-self mode is ON (logging.debug_self). Debug logging: implied on. Yolo: %s. Log capture: %s. Problems log: %s. New ERROR lines are injected each turn; new WARN lines arrive as a deduped digest.",
-		yoloPart, capturePart, pathPart)
+	return fmt.Sprintf("Debug-self mode is ON (logging.debug_self). Debug logging: implied on. Work mode: %s (debug-self does not change it). Log capture: %s. Problems log: %s. New ERROR lines are injected each turn; new WARN lines arrive as a deduped digest.",
+		workModeLabel(m.workMode()), capturePart, pathPart)
 }

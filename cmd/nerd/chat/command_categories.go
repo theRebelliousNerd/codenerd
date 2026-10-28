@@ -319,7 +319,7 @@ var CommandRegistry = []CommandInfo{
 	},
 	{
 		Name:        "/debug-self",
-		Description: "Toggle debug-self: surface codenerd's own new log errors/warnings each turn (implies debug logging + session yolo)",
+		Description: "Toggle debug-self: surface codenerd's own new log errors/warnings each turn (implies debug logging; the work mode is untouched)",
 		Usage:       "/debug-self [on|off|status]",
 		Category:    CategoryExpert,
 		ShowInHelp:  true,

@@ -332,20 +332,16 @@ type Model struct {
 	semanticSearcher    *retrieval.EmbeddingSemanticSearcher // Tier-4 vector cache, built lazily once embeddingEngine lands; a per-turn searcher re-embedded the corpus every turn
 	workspace           string
 	DisableSystemShards []string
-	// yoloFlag is session yolo (--yolo, debug_self), never persisted;
+	// yoloFlag is session yolo (--yolo), never persisted;
 	// apiKeyFlag is --api-key.
 	yoloFlag   bool
 	apiKeyFlag string
-	// Debug-self (self_debug.go): watcher is a pointer so its offset survives
-	// Model value copies across turns. yoloViaDebugSelf records that session
-	// yolo came (also) from debug_self; debugSelfOwnsYolo means debug_self
-	// was the sole reason yoloFlag was set, so /debug-self off may clear it.
-	// Neither ever persists work_mode yolo.
-	selfDebug         *selfDebugWatcher
-	yoloViaDebugSelf  bool
-	debugSelfOwnsYolo bool
-	browserMgr        *browser.SessionManager // Browser automation manager
-	browserCtxCancel  context.CancelFunc      // Cancels browser manager goroutine
+	// Debug-self (self_debug.go): the watcher is a pointer so its offset
+	// survives Model value copies across turns. Debug-self reports problems;
+	// it does not touch the work mode.
+	selfDebug        *selfDebugWatcher
+	browserMgr       *browser.SessionManager // Browser automation manager
+	browserCtxCancel context.CancelFunc      // Cancels browser manager goroutine
 
 	// Campaign Orchestration
 	activeCampaign       *campaign.Campaign

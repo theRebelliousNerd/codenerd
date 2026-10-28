@@ -23,7 +23,7 @@ The chat keeps the brief as facts (`brief_goal`, `brief_constraint`,
 ## Work modes (`internal/config/work_mode.go`, `policy/routing_arbitration.mg`)
 
 One switch, `work_mode` in config, is cycled by Shift+Tab, set by `/yolo`, and
-held for a session by `--yolo` or `debug_self`:
+held for a session by `--yolo` (debug-self never changes it):
 
 | Mode | Work starts | A multi-step run pauses |
 |---|---|---|
