@@ -209,6 +209,11 @@ type MemoryOperation struct {
 	Op    string `json:"op"`    // promote_to_long_term, forget, store_vector, note
 	Key   string `json:"key"`   // Fact predicate or preference key
 	Value string `json:"value"` // Fact value or preference value
+
+	// Domain is the memory a forget addresses. The host sets it from the
+	// person's own instruction; the model's JSON cannot (json:"-"), so a
+	// control packet's forget stays a session-note forget.
+	Domain MemoryDomain `json:"-"`
 }
 
 // SelfCorrection represents an internal hypothesis about errors.
