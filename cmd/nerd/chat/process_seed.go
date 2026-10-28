@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // chatIssueID is the one EDB key the chat seeds under, for the reason it
@@ -78,10 +79,6 @@ func (m *Model) seedIssueFacts(ctx context.Context, intent perception.Intent, ra
 	var bus *transparency.GlassBoxEventBus
 	if m.glassBoxEnabled {
 		bus = m.glassBoxEventBus
-	}
-
-	if m.semanticSearcher == nil && m.embeddingEngine != nil {
-		m.semanticSearcher = retrieval.NewEmbeddingSemanticSearcher(m.embeddingEngine, m.workspace)
 	}
 
 	if _, err := retrieval.SeedIssueFacts(ctx, m.kernel, retrieval.SeedRequest{
@@ -187,4 +184,18 @@ func (m Model) runClarifierShard(ctx context.Context, goal string) (string, erro
 		return "", err
 	}
 	return result, nil
+}
+
+// warmSemanticCorpus embeds the Tier-4 corpus in the background after boot.
+// Bounded so a stalled embedding backend cannot hold a goroutine forever; a
+// failure only means the first turns embed what is still missing.
+func warmSemanticCorpus(s *retrieval.EmbeddingSemanticSearcher) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	start := time.Now()
+	if err := s.Warm(ctx); err != nil {
+		logging.Get(logging.CategoryContext).Warn("semantic corpus warm-up incomplete after %s: %v", time.Since(start), err)
+		return
+	}
+	logging.Context("semantic corpus warmed in %s", time.Since(start))
 }
