@@ -13,6 +13,7 @@ import (
 
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // /debug-self turns codenerd on its own logs (stage 1: reporting only).
@@ -173,18 +174,13 @@ func (p PendingProblems) Render() string {
 	if p.Dropped > 0 || p.MoreInFile {
 		out += fmt.Sprintf("[truncated: dropped=%d moreInFile=%v]\n", p.Dropped, p.MoreInFile)
 	}
-	if len(out) > maxSelfRenderChars {
-		out = out[:maxSelfRenderChars]
-	}
-	return out
+	// The digest is bounded by design (the raw lines stay in the problems
+	// log at the recorded offset); the cut is rune-safe.
+	return types.Ellipsize(out, maxSelfRenderChars)
 }
 
 func truncateSelfSignature(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) > maxSelfSignatureChars {
-		return s[:maxSelfSignatureChars] + "~"
-	}
-	return s
+	return types.Ellipsize(strings.TrimSpace(s), maxSelfSignatureChars)
 }
 
 // shortSelfSeen reduces a "2006/01/02 15:04:05" prefix to its clock part.
@@ -417,10 +413,8 @@ func normalizeSelfSignature(msg string) string {
 	s = selfHexRe.ReplaceAllString(s, "<hex>")
 	s = selfNumRe.ReplaceAllString(s, "#")
 	s = strings.TrimSpace(selfSpaceRe.ReplaceAllString(s, " "))
-	if len(s) > 200 {
-		s = s[:200]
-	}
-	return s
+	// A dedupe key, bounded; the cut is rune-safe.
+	return types.Ellipsize(s, 200)
 }
 
 // =============================================================================

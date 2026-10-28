@@ -208,11 +208,9 @@ func textForAtomEmbedding(description, content string) string {
 	if desc != "" {
 		return desc
 	}
-	c := strings.TrimSpace(content)
-	// Rune-safe truncation: byte slicing can split a multi-byte rune and
-	// hand the embedder invalid UTF-8.
-	if r := []rune(c); len(r) > 500 {
-		return string(r[:500])
-	}
-	return c
+	// The whole content: the embedding engine chunks and pools long input
+	// (internal/embedding/long_input.go). The first 500 runes alone made an
+	// atom's vector the vector of its opening, so selection matched atoms
+	// on how they start rather than what they say.
+	return strings.TrimSpace(content)
 }

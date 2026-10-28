@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // knowledgeEmbeddingFailures counts knowledge atoms stored without a vector
@@ -442,7 +443,7 @@ func (s *LocalStore) SearchKnowledgeAtomsSemantic(ctx context.Context, query str
 	}
 
 	if len(entries) == 0 {
-		logging.StoreDebug("Semantic search returned 0 results for query: %s", truncateForLog(query, 50))
+		logging.StoreDebug("Semantic search returned 0 results for query: %s", types.Ellipsize(query, 50))
 		return nil, nil
 	}
 
@@ -474,14 +475,6 @@ func (s *LocalStore) SearchKnowledgeAtomsSemantic(ctx context.Context, query str
 	}
 
 	logging.StoreDebug("Semantic search returned %d knowledge atoms for query: %s",
-		len(atoms), truncateForLog(query, 50))
+		len(atoms), types.Ellipsize(query, 50))
 	return atoms, nil
-}
-
-// truncateForLog truncates a string for logging purposes.
-func truncateForLog(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
 }

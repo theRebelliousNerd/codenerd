@@ -447,7 +447,7 @@ func (m Model) renderCampaignPanel() string {
 
 	// Header
 	sb.WriteString("-- Campaign ---------------\n")
-	sb.WriteString(fmt.Sprintf("| %s\n", truncateString(c.Title, 22)))
+	sb.WriteString(fmt.Sprintf("| %s\n", types.Ellipsize(c.Title, 22)))
 	sb.WriteString(fmt.Sprintf("| Status: %s\n", c.Status))
 
 	// Progress
@@ -463,13 +463,13 @@ func (m Model) renderCampaignPanel() string {
 	sb.WriteString("| Phases:\n")
 	for i, phase := range c.Phases {
 		icon := getStatusIcon(string(phase.Status))
-		sb.WriteString(fmt.Sprintf("| %s %d. %s\n", icon, i+1, truncateString(phase.Name, 18)))
+		sb.WriteString(fmt.Sprintf("| %s %d. %s\n", icon, i+1, types.Ellipsize(phase.Name, 18)))
 	}
 
 	// Current task
 	if m.campaignProgress != nil && m.campaignProgress.CurrentTask != "" {
 		sb.WriteString("|\n")
-		sb.WriteString(fmt.Sprintf("| Task: %s\n", truncateString(m.campaignProgress.CurrentTask, 18)))
+		sb.WriteString(fmt.Sprintf("| Task: %s\n", types.Ellipsize(m.campaignProgress.CurrentTask, 18)))
 	}
 
 	sb.WriteString("---------------------------\n")
@@ -514,15 +514,4 @@ func getStatusIcon(status string) string {
 	default:
 		return "?"
 	}
-}
-
-// truncateString truncates a string to maxLen and adds ellipsis if needed
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
 }

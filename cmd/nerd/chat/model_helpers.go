@@ -12,6 +12,7 @@ import (
 
 	"codenerd/internal/broker"
 	"codenerd/internal/northstar"
+	"codenerd/internal/types"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -439,7 +440,9 @@ func (m *Model) buildAlignmentContext() string {
 		start := max(len(m.history)-3, 0)
 		for i := start; i < len(m.history); i++ {
 			msg := m.history[i]
-			sb.WriteString(msg.Role + ": " + truncateStr(msg.Content, 200) + "\n")
+			// Head and tail with the marker: the alignment check judges what
+			// was asked and done, and a silent 200-byte prefix hid both ends.
+			sb.WriteString(msg.Role + ": " + types.ClampText(msg.Content, 2000, msg.Role+" message") + "\n")
 		}
 		sb.WriteString("\n")
 	}
@@ -463,14 +466,6 @@ func (m *Model) buildAlignmentContext() string {
 	}
 
 	return sb.String()
-}
-
-// truncateStr truncates a string to the given length with ellipsis.
-func truncateStr(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
 }
 
 // formatAlignmentCheckResult formats an alignment check result for display.

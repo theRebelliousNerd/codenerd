@@ -968,35 +968,6 @@ func TestGroundingHelper_GetStats(t *testing.T) {
 // GROUNDING: truncateQuery
 // =============================================================================
 
-func TestTruncateQuery_WhenShort_ShouldReturnOriginal(t *testing.T) {
-	t.Parallel()
-	got := truncateQuery("short query")
-	if got != "short query" {
-		t.Errorf("expected original, got %q", got)
-	}
-}
-
-func TestTruncateQuery_WhenLong_ShouldTruncateWith3Dots(t *testing.T) {
-	t.Parallel()
-	long := strings.Repeat("x", 100)
-	got := truncateQuery(long)
-	if len(got) != 50 {
-		t.Errorf("expected 50 chars, got %d", len(got))
-	}
-	if !strings.HasSuffix(got, "...") {
-		t.Errorf("expected '...' suffix, got %q", got)
-	}
-}
-
-func TestTruncateQuery_WhenExactly50_ShouldReturnOriginal(t *testing.T) {
-	t.Parallel()
-	exact := strings.Repeat("a", 50)
-	got := truncateQuery(exact)
-	if got != exact {
-		t.Errorf("expected original 50-char string")
-	}
-}
-
 // =============================================================================
 // GROUNDING: GetDocURLsForTech
 // =============================================================================

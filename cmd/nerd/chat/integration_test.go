@@ -427,26 +427,6 @@ func TestCampaign_StatusIcons(t *testing.T) {
 	}
 }
 
-// TestCampaign_TruncateString tests string truncation
-func TestCampaign_TruncateString(t *testing.T) {
-	tests := []struct {
-		input   string
-		maxLen  int
-		wantMax int
-	}{
-		{"short", 10, 10},
-		{"this is a long string", 10, 10},
-		{"", 5, 5},
-	}
-
-	for _, tt := range tests {
-		result := truncateString(tt.input, tt.maxLen)
-		if len(result) > tt.wantMax {
-			t.Errorf("truncateString(%q, %d) len = %d, want <= %d", tt.input, tt.maxLen, len(result), tt.wantMax)
-		}
-	}
-}
-
 // ============================================================================
 // WIZARD TESTS - Tests for wizard functionality
 // ============================================================================

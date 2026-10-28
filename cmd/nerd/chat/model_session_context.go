@@ -230,11 +230,9 @@ func (m *Model) buildSessionContext(ctx context.Context) *types.SessionContext {
 	if len(m.pendingKnowledge) > 0 {
 		for _, kr := range m.pendingKnowledge {
 			if kr.Error == nil && kr.Response != "" {
-				// Truncate for context budget (full output available separately)
-				summary := kr.Response
-				if len(summary) > 500 {
-					summary = summary[:500] + "..."
-				}
+				// Bounded for the context budget, with the marker; the whole
+				// answer travels as FullOutput.
+				summary := types.ClampInline(kr.Response, 500, "specialist answer; FullOutput has the rest")
 				sessionCtx.GatheredKnowledge = append(sessionCtx.GatheredKnowledge, types.KnowledgeSummary{
 					Specialist: kr.Specialist,
 					Topic:      kr.Query,
@@ -251,11 +249,8 @@ func (m *Model) buildSessionContext(ctx context.Context) *types.SessionContext {
 	if m.toolStore != nil {
 		if recent, err := m.toolStore.GetRecent(5); err == nil {
 			for _, exec := range recent {
-				// Truncate result for context budget
-				summary := exec.Result
-				if len(summary) > 500 {
-					summary = summary[:500] + "..."
-				}
+				// Bounded for the context budget, with the marker naming the cut.
+				summary := types.ClampInline(exec.Result, 500, "tool result")
 				if exec.Error != "" {
 					summary = exec.Error
 				}
@@ -429,7 +424,7 @@ func (m *Model) querySymbolContext() []string {
 			signature, _ := fact.Args[4].(string)
 			if visibility == "/public" || visibility == "/exported" {
 				symbols = append(symbols,
-					fmt.Sprintf("%s %s: %s", symType, symbolID, truncateForContext(signature, 60)))
+					fmt.Sprintf("%s %s: %s", symType, symbolID, strings.Join(strings.Fields(signature), " ")))
 			}
 		}
 		// Stop early once we have enough public symbols
@@ -495,9 +490,9 @@ func (m *Model) queryDependencyContext(files []string) []string {
 			}
 		}
 	}
-	// Limit to 10
+	// At most 10, and say how many more there are.
 	if len(deps) > 10 {
-		deps = deps[:10]
+		deps = append(deps[:10], fmt.Sprintf("... and %d more dependency edges", len(deps)-10))
 	}
 	return deps
 }
@@ -1129,10 +1124,8 @@ func (m *Model) queryVectorMemory(ctx context.Context, sessionCtx *types.Session
 		return
 	}
 
-	// Limit query length for embedding
-	if len(query) > 500 {
-		query = query[:500]
-	}
+	// The embedding query is bounded; the cut is rune-safe.
+	query = types.Ellipsize(query, 500)
 
 	// Semantic recall from vector store
 	entries, err := m.localDB.VectorRecallSemantic(ctx, query, 5)
@@ -1143,7 +1136,8 @@ func (m *Model) queryVectorMemory(ctx context.Context, sessionCtx *types.Session
 	for _, entry := range entries {
 		if entry.Content != "" {
 			// Format as knowledge atom: "[vector] content"
-			atom := fmt.Sprintf("[memory] %s", truncateForContext(entry.Content, 200))
+			// Whole: recall returns at most 5, and half a memory is a different memory.
+			atom := fmt.Sprintf("[memory] %s", entry.Content)
 			sessionCtx.KnowledgeAtoms = append(sessionCtx.KnowledgeAtoms, atom)
 		}
 	}
@@ -1173,9 +1167,9 @@ func (m *Model) queryGraphMemory(sessionCtx *types.SessionContext) {
 		}
 	}
 
-	// Limit total dependencies
-	if len(sessionCtx.DependencyContext) > 30 {
-		sessionCtx.DependencyContext = sessionCtx.DependencyContext[:30]
+	// At most 30, and say how many more there are.
+	if n := len(sessionCtx.DependencyContext); n > 30 {
+		sessionCtx.DependencyContext = append(sessionCtx.DependencyContext[:30], fmt.Sprintf("... and %d more dependencies", n-30))
 	}
 }
 
@@ -1206,8 +1200,8 @@ func (m *Model) queryColdMemory(sessionCtx *types.SessionContext) {
 		}
 	}
 
-	// Limit total knowledge atoms
-	if len(sessionCtx.KnowledgeAtoms) > 50 {
-		sessionCtx.KnowledgeAtoms = sessionCtx.KnowledgeAtoms[:50]
+	// At most 50, and say how many more there are.
+	if n := len(sessionCtx.KnowledgeAtoms); n > 50 {
+		sessionCtx.KnowledgeAtoms = append(sessionCtx.KnowledgeAtoms[:50], fmt.Sprintf("... and %d more knowledge atoms", n-50))
 	}
 }

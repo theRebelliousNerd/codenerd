@@ -218,13 +218,12 @@ func TestVectorStats_BrokenTableIsReported(t *testing.T) {
 	}
 }
 
-// Atom text truncation must not split a multi-byte rune.
-func TestTextForAtomEmbedding_RuneSafe(t *testing.T) {
-	out := textForAtomEmbedding("", strings.Repeat("é", 600))
-	if len([]rune(out)) != 500 {
-		t.Errorf("truncated to %d runes, want 500", len([]rune(out)))
-	}
-	if !utf8.ValidString(out) {
-		t.Error("truncated text is not valid UTF-8")
+// An atom with no description embeds its whole content: the engine chunks
+// and pools long input, so nothing is cut here.
+func TestTextForAtomEmbedding_WholeContent(t *testing.T) {
+	content := strings.Repeat("é", 600)
+	out := textForAtomEmbedding("", content)
+	if out != content || !utf8.ValidString(out) {
+		t.Errorf("embedding text is %d runes, want the whole %d", len([]rune(out)), 600)
 	}
 }

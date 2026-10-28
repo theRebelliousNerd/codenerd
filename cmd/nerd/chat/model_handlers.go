@@ -727,7 +727,7 @@ func (m Model) handleDreamPlanExecution(input string) (tea.Model, tea.Cmd) {
 		if s.IsMutation {
 			mutation = " *"
 		}
-		sb.WriteString(fmt.Sprintf("| %d | %s%s | %s |\n", i+1, truncateString(s.Description, 50), mutation, s.ShardType))
+		sb.WriteString(fmt.Sprintf("| %d | %s%s | %s |\n", i+1, types.Ellipsize(s.Description, 50), mutation, s.ShardType))
 	}
 	sb.WriteString("\n_* = mutation (file change)_\n")
 

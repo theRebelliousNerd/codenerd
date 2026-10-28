@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // TraceEmbeddingCandidate represents a trace that needs descriptor or embedding updates.
@@ -292,7 +293,7 @@ func buildTraceDescriptor(c TraceEmbeddingCandidate) string {
 		intent = strings.TrimSpace(c.UserPrompt)
 	}
 	if intent != "" {
-		intent = truncateText(intent, 160)
+		intent = types.Ellipsize(intent, 160)
 		parts = append(parts, fmt.Sprintf("Intent: %s", intent))
 	}
 
@@ -317,17 +318,10 @@ func buildTraceDescriptor(c TraceEmbeddingCandidate) string {
 		keyIssue = strings.TrimSpace(c.LearningNotes[0])
 	}
 	if keyIssue != "" {
-		keyIssue = truncateText(keyIssue, 160)
+		keyIssue = types.Ellipsize(keyIssue, 160)
 		parts = append(parts, fmt.Sprintf("Key Issue: %s", keyIssue))
 	}
 
 	desc := strings.Join(parts, " | ")
 	return sanitizeDescriptor(desc)
-}
-
-func truncateText(text string, max int) string {
-	if max <= 0 || len(text) <= max {
-		return text
-	}
-	return text[:max]
 }

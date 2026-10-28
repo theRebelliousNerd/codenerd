@@ -181,7 +181,7 @@ func (m *Model) injectShardResultFacts(shardType, task string, ret observation.R
 			status,
 			"/" + shardType,
 			task,
-			truncateSummary(ret.Output, 200),
+			types.TruncateFactText(ret.Output),
 		},
 	}
 	_ = m.kernel.Assert(resultFact)

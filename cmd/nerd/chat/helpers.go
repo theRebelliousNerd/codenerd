@@ -449,17 +449,6 @@ func formatVerificationEscalation(
 	return sb.String()
 }
 
-// truncateForContext truncates a string for inclusion in context prompts.
-// Removes newlines and truncates to maxLen characters.
-func truncateForContext(s string, maxLen int) string {
-	s = strings.ReplaceAll(s, "\n", " ")
-	s = strings.ReplaceAll(s, "\r", "")
-	if len(s) > maxLen {
-		return s[:maxLen] + "..."
-	}
-	return s
-}
-
 // =============================================================================
 // JIT PROMPT COMPILER HELPERS
 // =============================================================================

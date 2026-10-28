@@ -291,7 +291,7 @@ func (s *SubAgent) Run(ctx context.Context, task string) {
 	s.cancel = cancel
 	s.startTime = time.Now()
 	s.mu.Unlock()
-	logging.Session("SubAgent %s starting task: %s", s.config.Name, truncateTask(task))
+	logging.Session("SubAgent %s starting task: %s", s.config.Name, types.Ellipsize(task, 100))
 
 	go func() {
 		// Per-agent capability hint for shared LLM clients (e.g. Codex CLI reasoning multiplexing).
@@ -545,13 +545,4 @@ func (s *SubAgent) SetCompressor(c Compressor) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.compressor = c
-}
-
-// truncateTask returns a shortened version of the task for logging.
-func truncateTask(task string) string {
-	const maxLen = 100
-	if len(task) <= maxLen {
-		return task
-	}
-	return task[:maxLen] + "..."
 }

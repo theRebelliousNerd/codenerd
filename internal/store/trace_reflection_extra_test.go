@@ -93,18 +93,4 @@ func TestTraceStore_Reflection_Extra(t *testing.T) {
 	if count != 0 {
 		t.Errorf("Expected 0 candidate backlog after update, got %d", count)
 	}
-
-	// 7. truncateText
-	trunc := truncateText("hello", 10)
-	if trunc != "hello" {
-		t.Errorf("Expected hello, got %s", trunc)
-	}
-	trunc2 := truncateText("hello world", 5)
-	if trunc2 != "hello" {
-		t.Errorf("Expected hello, got %s", trunc2)
-	}
-	trunc3 := truncateText("hello", 0)
-	if trunc3 != "hello" {
-		t.Errorf("Expected hello, got %s", trunc3)
-	}
 }

@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"context"
 	"database/sql"
 	"encoding/binary"
@@ -927,10 +928,7 @@ func (s *LocalStore) vectorRecallVec(queryText string, queryVec []float32, limit
 		logging.Store("VECTOR QUERY [vec0 ANN] -> [%q]", queryText)
 		logging.Store("SQL Executed: %s", sqlStr)
 		for i, res := range results {
-			contentStr := res.Content
-			if len(contentStr) > 100 {
-				contentStr = contentStr[:100] + "..."
-			}
+			contentStr := types.Ellipsize(res.Content, 100)
 			logging.Store("  Result %d: (dist: %.4f) -> %q", i+1, 1-res.Metadata["similarity"].(float64), contentStr)
 		}
 	} else {

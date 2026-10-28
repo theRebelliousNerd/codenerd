@@ -179,7 +179,7 @@ func (m Model) persistTurnToKnowledge(turn ctxcompress.Turn, intent perception.I
 	if intent.Category != "/query" {
 		concept := fmt.Sprintf("%s_%s", intent.Verb, intent.Category)
 		content := fmt.Sprintf("User intent: %s on %s. Response: %s",
-			intent.Verb, intent.Target, truncateForStorage(response, 500))
+			intent.Verb, intent.Target, response)
 
 		if err := m.localDB.StoreKnowledgeAtom(concept, content, 0.8); err != nil {
 			fmt.Printf("[Knowledge] Warning: Failed to store knowledge atom: %v\n", err)
@@ -188,14 +188,6 @@ func (m Model) persistTurnToKnowledge(turn ctxcompress.Turn, intent perception.I
 
 	fmt.Printf("[Knowledge] ✓ Persisted turn to knowledge.db: session=%s, turn=%d, facts=%d, mem_ops=%d\n",
 		sessionID, turnNumber, len(turn.ControlPacket.MangleUpdates), len(turn.ControlPacket.MemoryOperations))
-}
-
-// truncateForStorage truncates long strings for storage efficiency
-func truncateForStorage(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
 }
 
 // persistActivationScores logs activation scores to activation_log table

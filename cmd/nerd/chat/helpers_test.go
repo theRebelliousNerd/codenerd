@@ -122,16 +122,6 @@ func TestSearchInFiles_SkipsHiddenDirs(t *testing.T) {
 	}
 }
 
-func TestTruncateForContext(t *testing.T) {
-	if got := truncateForContext("line1\nline2\r", 20); got != "line1 line2" {
-		t.Fatalf("truncateForContext newline = %q, want %q", got, "line1 line2")
-	}
-
-	if got := truncateForContext("abcdef", 4); got != "abcd..." {
-		t.Fatalf("truncateForContext truncation = %q, want %q", got, "abcd...")
-	}
-}
-
 func TestDetectLanguage(t *testing.T) {
 	tests := []struct {
 		path string
@@ -380,32 +370,6 @@ func TestFormatScore(t *testing.T) {
 			}
 			if !hasBar {
 				t.Errorf("formatScore(%v) = %q, missing visual bar characters", tt.score, result)
-			}
-		})
-	}
-}
-
-func TestTruncateStr(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		maxLen   int
-		expected string
-	}{
-		{"empty string", "", 10, ""},
-		{"shorter than max", "hello", 10, "hello"},
-		{"exact length", "hello", 5, "hello"},
-		{"longer than max", "hello world", 5, "hello..."},
-		{"max of 1", "hello", 1, "h..."},
-		{"max of 0", "hello", 0, "..."},
-		{"unicode", "hello", 3, "hel..."},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := truncateStr(tt.input, tt.maxLen)
-			if result != tt.expected {
-				t.Errorf("truncateStr(%q, %d) = %q, want %q", tt.input, tt.maxLen, result, tt.expected)
 			}
 		})
 	}
@@ -822,30 +786,6 @@ func TestAssaultIncludesFromText_WithWorkspace(t *testing.T) {
 // ============================================================================
 // campaign.go helper tests
 // ============================================================================
-
-func TestCampaignTruncateString(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		maxLen   int
-		expected string
-	}{
-		{"empty string", "", 10, ""},
-		{"shorter than max", "hello", 10, "hello"},
-		{"exact length", "hello", 5, "hello"},
-		{"longer than max", "hello world", 5, "he..."},
-		{"max of 3", "hello", 3, "..."},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := truncateString(tt.input, tt.maxLen)
-			if len(result) > tt.maxLen && tt.maxLen >= 3 {
-				t.Errorf("truncateString(%q, %d) = %q, length %d exceeds max", tt.input, tt.maxLen, result, len(result))
-			}
-		})
-	}
-}
 
 func TestGetStatusIcon(t *testing.T) {
 	tests := []struct {

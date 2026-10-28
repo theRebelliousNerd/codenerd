@@ -310,7 +310,7 @@ Provide a comprehensive answer with specific details. If you use information fro
 
 	// Log results
 	if len(sources) > 0 {
-		logging.Researcher("Grounded research completed: %d sources used for %q", len(sources), truncateQuery(query))
+		logging.Researcher("Grounded research completed: %d sources used for %q", len(sources), types.Ellipsize(query, 50))
 	}
 
 	return result, nil
@@ -326,14 +326,6 @@ type GroundedResearchResult struct {
 	// the Gemini per-request URL limit. It is empty when everything fit;
 	// the caller decides whether to run a follow-up request with them.
 	DroppedDocURLs []string `json:"doc_urls_not_sent,omitempty"`
-}
-
-// truncateQuery truncates a query for logging.
-func truncateQuery(q string) string {
-	if len(q) > 50 {
-		return q[:47] + "..."
-	}
-	return q
 }
 
 // =============================================================================
