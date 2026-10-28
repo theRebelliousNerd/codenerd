@@ -38,6 +38,13 @@ injectable_context("*", Line) :-
 injectable_context("*", Line) :-
     brief_decision(Decision),
     Line = fn:string:concat("Brief decision: ", Decision).
+# A question the latest message answers is not shown as open: the readiness
+# rule above already stopped it holding the work, and a worker told it is
+# still open would ask it again.
 injectable_context("*", Line) :-
     brief_open_question(Question),
+    !brief_question_answered(Question),
     Line = fn:string:concat("Brief open question: ", Question).
+injectable_context("*", Line) :-
+    brief_question_answered(Question),
+    Line = fn:string:concat("Brief question the user's latest message answers: ", Question).

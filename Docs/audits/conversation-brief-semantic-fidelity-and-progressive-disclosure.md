@@ -1,7 +1,7 @@
 ---
 doc-class: deep-dive
 subsystem: perception-chat-prompt
-implementation-status: planned
+implementation-status: partially-implemented (see As-built status)
 last-verified: 2026-10-28
 verified-against: c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c
 verification-method: static-source-inspection
@@ -286,3 +286,32 @@ The feature's immediate value is conversation that shapes work before action. Th
 [prior-budget]: https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/Docs/audits/2026-09-09-system-hardening/02-PROMPT-BUDGET.md#23-kernel-injected-atoms-promptcompilergo
 [prior-window]: https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/Docs/journeys/03-knowledge-delivery-and-window.md#kernel-injected-context-atoms-the-spreading-activation-seam
 
+
+## As-built status
+
+Verified 2026-10-28 on `main` after `c28a1212` (the feature branch is merged). One narrow finding was built; the item-level redesign was not.
+
+### Claim ledger
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| B1: `Brief` is five string fields with no item identity, source, status or supersession; each update replaces the whole snapshot | Real, not built | `internal/perception/brief.go`; `writeBrief` (`cmd/nerd/chat/work_hold.go`) now swaps it in one transaction, which fixes torn publication (side-turn audit) but not semantic loss |
+| B2: brief rows are injected with the `"*"` wildcard into every shard and task clone | Real, not built | `internal/core/defaults/policy/brief.mg` `injectable_context("*", ...)` |
+| B3: rows are sorted lexicographically, capped at 60 and clamped; 60 `Brief constraint:` rows displace `Brief goal:` | Real, not built | `canonicalStringSet` (`internal/prompt/context.go:769`); row cap and clamps in the injected-context renderer (`internal/articulation/prompt_assembler.go:492`) |
+| Section 6: an answered question (Jev) stops holding work but is still injected as "Brief open question" | Real, fixed | `brief.mg:44-50`: the open-question row excludes `brief_question_answered`; an answered one renders as answered |
+| Running-background-job notification is chat-agent only | Confirmed | `background_job` injection rule (credited by the audit) |
+
+### What was built
+
+- `internal/core/defaults/policy/brief.mg`: the injected brief agrees with readiness on answered questions. Spec: `Docs/architecture/conversation-first-agent.md`, brief section.
+
+### Tests
+
+`cmd/nerd/chat/brief_answered_question_test.go`: with two open questions and a Jev judgment answering one, the answered one is not injected as open and is rendered as answered; the other stays open. `TestJevJourney_AnsweredOpenQuestionUnblocksYolo` and the work-admission tests pass.
+
+### Left open, with reasons
+
+- B3 ordering and cap: the fix belongs in the injected-context renderer (priority-aware selection instead of lexicographic order and a row cap that can drop the goal). That renderer (`internal/articulation/prompt_assembler.go`, `internal/prompt`) is under concurrent change by the articulation lane; renaming row prefixes to game the sort would be a workaround, not a fix.
+- B2 applicability: removing the wildcard would drop valid parent constraints from workers; binding brief items to a work scope needs B1's item identity first.
+- B1 item identity, source references, status and delta admission, the essential work capsule and disclosure receipts: a redesign of the brief contract (perception prompt atom, `Brief` type, policy and renderer), not built in this pass.
+- No predicate was added (only rules), so no predicate-corpus rebuild is needed for this change.

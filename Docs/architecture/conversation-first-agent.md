@@ -16,7 +16,9 @@ The chat keeps the brief as facts (`brief_goal`, `brief_constraint`,
 `brief_decision`, `brief_open_question`, `brief_marked_ready`):
 
 - `injectable_context` puts the brief in front of every shard and the main
-  agent, so big work runs from the brief.
+  agent, so big work runs from the brief. An open question Jev judges the
+  latest message to answer (`brief_question_answered`) is shown as answered,
+  not open, matching the readiness rule.
 - `brief_ready()` never holds beside an open question.
 - `/brief` shows the brief, and `/go` with nothing held starts its goal.
 
