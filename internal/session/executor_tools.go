@@ -535,7 +535,12 @@ func (e *Executor) verifyCompletedToolTurn(
 		if runErr != nil {
 			return current, toolErrs, runErr
 		}
-		if resp != nil {
+		// A round's response is the turn's answer only when it says
+		// something. An attempt ends at its write, usually tool calls with
+		// no text; that replaced the model's answer with an empty one, which
+		// articulation then parsed as an empty response (problems log
+		// 2026-10-28).
+		if resp != nil && strings.TrimSpace(resp.Text) != "" {
 			current = resp
 		}
 		if err := e.markRoundRan(result, next); err != nil {
@@ -2708,17 +2713,17 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 			}
 			receipt, err := generatedBridge.ExecuteGeneratedToolCall(toolCtx, generatedRequest)
 			if err != nil {
-				return receipt.Output, err
+				return generatedObservation(receipt), err
 			}
 			if receipt.Err() != nil {
-				return receipt.Output, &types.GeneratedExecutionError{Receipt: receipt}
+				return generatedObservation(receipt), &types.GeneratedExecutionError{Receipt: receipt}
 			}
 			if receipt.Request != generatedRequest || !receipt.ProcessStarted || !receipt.ValidationCompleted || !receipt.ValidationPassed || !receipt.Feedback.Durable ||
 				receipt.Feedback.ExecutionID != generatedRequest.Key() || receipt.Feedback.Fingerprint != generatedRequest.Fingerprint() || receipt.Feedback.Path == "" || receipt.Feedback.CommittedAt.IsZero() {
-				return receipt.Output, fmt.Errorf("generated execution returned incomplete validation or durable feedback receipt")
+				return generatedObservation(receipt), fmt.Errorf("generated execution returned incomplete validation or durable feedback receipt")
 			}
 			e.recordGoFileCreations(preGoExistence, canonicalToPhys)
-			return receipt.Output, nil
+			return generatedObservation(receipt), nil
 		}
 	}
 

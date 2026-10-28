@@ -188,6 +188,8 @@ The rounds whose obligation is a test -- `coverage`, `pinning` and `removed_test
 
 The same three rounds ask one question after an attempt: `recheckOwnTests` (`change_gates.go`) runs the turn's own packages again and reads the derived `/test` gate (`testGatePassed`), not the process exit. A failure that also fails before the turn's edits is not charged to the turn by the test gate, so it is not charged by these rounds either. Before this the `removed_tests` round read the raw exit: with the deleted test restored on the first attempt, it told the model three times that 16 pre-existing failures were its edit and gave up at the attempt cap after ~1M input tokens (problems log 2026-10-28). Pinned by `TestRemovedTestsRound_APreExistingFailureDoesNotKeepTheRoundOpen` and `TestRepairWriteGuard_TestRoundsMayExtendThePackagesTests`.
 
+A round's last response becomes the turn's answer only when it carries text (`verifyCompletedToolTurn`, `executor_tools.go`). An attempt ends at its write, usually a response of tool calls with no text; that used to replace the model's own answer, and articulation then logged "Fallback parse: empty response with no Piggyback JSON" for the empty one (problems log 2026-10-28, after the pinning and coverage rounds). Pinned by `TestRepairLoop_AToolOnlyRepairKeepsTheTurnsAnswer`.
+
 The Dreamer's refusal to delete a file under a `nerd.md` `critical:` prefix (`critical_path_missing`) agrees with these rounds: deleting a test file that existed before the turn is what `removed_tests` would then ask the model to undo.
 
 ---
