@@ -75,6 +75,14 @@ var (
 	removedLoggingKeys = map[string]string{
 		"json_format": `format: "json" is the only way to enable structured output; delete this key`,
 	}
+	// removedTopLevelKeys: keys at the root of the file. work_mode replaced
+	// continuation_mode and yolo on 2026-10-28; a binary from before that
+	// saves continuation_mode on every Shift+Tab, so a config it wrote failed
+	// the next load as an unknown field with no word of what replaced it.
+	removedTopLevelKeys = map[string]string{
+		"continuation_mode": `work_mode replaced it: 0 (auto) is "yolo", 1 (confirm each step) is "explicit", 2 (pause before mutations) is "propose"; replace the key with work_mode`,
+		"yolo":              `work_mode replaced it: yolo true is work_mode "yolo"; replace the key with work_mode`,
+	}
 )
 
 // rejectRemovedKeys fails a config load that still carries a key this
@@ -96,8 +104,13 @@ func rejectRemovedKeys(data []byte) error {
 	if err := json.Unmarshal(data, &envelope); err != nil {
 		return nil
 	}
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(data, &top); err != nil {
+		return nil
+	}
 
 	var reasons []string
+	reasons = append(reasons, removedIn("", top, removedTopLevelKeys)...)
 	reasons = append(reasons, removedIn("core_limits", envelope.CoreLimits, removedCoreLimitKeys)...)
 	reasons = append(reasons, removedIn("llm_timeouts", envelope.LLMTimeouts, removedLLMTimeoutKeys)...)
 	profiles := make([]string, 0, len(envelope.ShardProfiles))
@@ -119,7 +132,8 @@ func rejectRemovedKeys(data []byte) error {
 }
 
 // removedIn names each key of section that is in removed, in key order, as
-// "section.key is no longer a supported key: reason".
+// "section.key is no longer a supported key: reason" ("key ..." for the
+// root, section "").
 func removedIn(section string, present map[string]json.RawMessage, removed map[string]string) []string {
 	var found []string
 	for key := range present {
@@ -130,7 +144,11 @@ func removedIn(section string, present map[string]json.RawMessage, removed map[s
 	sort.Strings(found)
 	out := make([]string, 0, len(found))
 	for _, key := range found {
-		out = append(out, fmt.Sprintf("%s.%s is no longer a supported key: %s", section, key, removed[key]))
+		name := key
+		if section != "" {
+			name = section + "." + key
+		}
+		out = append(out, fmt.Sprintf("%s is no longer a supported key: %s", name, removed[key]))
 	}
 	return out
 }

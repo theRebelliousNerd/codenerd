@@ -160,3 +160,29 @@ func TestLoadUserConfig_RejectsRemovedLoggingJSONFormatKey(t *testing.T) {
 		t.Fatalf("logging.format did not load: %+v", cfg.GetLogging())
 	}
 }
+
+// work_mode replaced continuation_mode and yolo on 2026-10-28. A binary from
+// before that saved continuation_mode on every Shift+Tab, and the next load
+// failed as an unknown field with no word of the replacement (the operator's
+// own config, 2026-10-28 04:25). The refusal names each key and the
+// work_mode value it maps to; work_mode itself loads.
+func TestLoadUserConfig_RejectsTheKeysWorkModeReplaced(t *testing.T) {
+	_, err := LoadUserConfig(writeCoreLimitsTestConfig(t, `{"provider":"gemini","continuation_mode":2,"yolo":true}`))
+	if err == nil {
+		t.Fatal("continuation_mode and yolo still load")
+	}
+	for _, want := range []string{
+		"continuation_mode is no longer a supported key", `2 (pause before mutations) is "propose"`,
+		"yolo is no longer a supported key", "work_mode",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not contain %q: %v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), ".continuation_mode") || strings.Contains(err.Error(), "unknown field") {
+		t.Errorf("a root key must be named bare, before the strict decoder's generic error: %v", err)
+	}
+	if _, err := LoadUserConfig(writeCoreLimitsTestConfig(t, `{"provider":"gemini","model":"gemini-9-flash","work_mode":"propose"}`)); err != nil {
+		t.Fatalf("a config with work_mode was refused: %v", err)
+	}
+}

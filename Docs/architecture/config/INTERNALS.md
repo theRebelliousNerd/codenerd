@@ -12,7 +12,12 @@ in order:
 2. `rejectRemovedKeys` (:541-543) — renamed/retired keys fail here with the
    reason for the removal, because the strict decoder in the next step would
    otherwise report them as generic unknown fields. The comment at :536-540
-   states exactly that.
+   states exactly that. Root keys are covered too (`removedTopLevelKeys`,
+   `removed_keys.go`, as built 2026-10-28): `continuation_mode` and `yolo`,
+   which `work_mode` replaced, fail naming the `work_mode` value each maps to
+   (`continuation_mode` 0 is "yolo", 1 "explicit", 2 "propose"). A binary from
+   before `work_mode` saved `continuation_mode` on every Shift+Tab, and the
+   next load reported only `unknown field "continuation_mode"`.
 3. `decodeStrictJSON` (`persistence.go:17-33`) — unknown fields are an error.
 4. `validateExplicitCoreLimits` (:549-551) — see §2.
 5. `ValidateCoreLimits` on the resolved limits (:552-555).
