@@ -30,7 +30,6 @@ Each atom follows the standard format:
 - id: "init/phase/aspect"
   category: "init"
   subcategory: "phase_name"
-  priority: 75
   is_mandatory: true/false
   shard_types: ["/researcher"]
   init_phases: ["/phase_name"]
