@@ -51,8 +51,6 @@ func (c APIErrorCode) HTTPStatus() (int, bool) {
 	return n, true
 }
 
-const defaultSystemPrompt = "You are codeNERD. Respond in English. Be concise. When summarizing code, ground answers only in provided text. Do not claim to browse the filesystem or network; only use supplied content."
-
 // LLMClient defines the interface for LLM providers.
 // This is an alias to types.LLMClient for backward compatibility within the perception package.
 type LLMClient = types.LLMClient
@@ -102,7 +100,6 @@ type ZAIConfig struct {
 	BaseURL          string
 	Model            string
 	Timeout          time.Duration
-	SystemPrompt     string
 	DisableSemaphore bool // Set true when using external APIScheduler for concurrency control
 	MaxRetries       int
 	RetryBackoffBase time.Duration

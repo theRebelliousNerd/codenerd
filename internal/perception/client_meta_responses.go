@@ -1200,9 +1200,6 @@ func (c *OpenAICompatClient) postResponsesCompletion(ctx context.Context, system
 // Completions would drop the search tool the caller turned on.
 func (c *OpenAICompatClient) completeWithSystemGrounded(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	start := time.Now()
-	if strings.TrimSpace(systemPrompt) == "" {
-		systemPrompt = defaultSystemPrompt
-	}
 	c.clearGroundingSources()
 
 	text, reply, err := c.postResponsesCompletion(ctx, systemPrompt, userPrompt, "")

@@ -30,6 +30,7 @@ func testTaxonomyEngine(t *testing.T) *TaxonomyEngine {
 		t.Fatalf("NewTaxonomyEngine: %v", err)
 	}
 	t.Cleanup(func() { eng.StopWorker() })
+	eng.SetRolePrompts(atomRoleCompiler{t: t})
 	return eng
 }
 

@@ -104,7 +104,6 @@ func DefaultZAIConfig(apiKey string) ZAIConfig {
 		// No default model: the workspace names one in .nerd/config.json or the
 		// client factory refuses to build the client.
 		Timeout:          timeout,
-		SystemPrompt:     defaultSystemPrompt,
 		MaxRetries:       maxRetries,
 		RetryBackoffBase: retryBase,
 		RetryBackoffMax:  retryMax,
@@ -121,9 +120,6 @@ func NewZAIClientWithConfig(config ZAIConfig) *ZAIClient {
 	}
 	if config.Timeout <= 0 {
 		config.Timeout = defaults.Timeout
-	}
-	if config.SystemPrompt == "" {
-		config.SystemPrompt = defaults.SystemPrompt
 	}
 	if config.RateLimitDelay <= 0 {
 		config.RateLimitDelay = defaults.RateLimitDelay
@@ -252,19 +248,14 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 		}
 	}
 
-	if strings.TrimSpace(systemPrompt) == "" {
-		systemPrompt = defaultSystemPrompt
-	} else {
-		systemPrompt = defaultSystemPrompt + "\n" + systemPrompt
-	}
-
 	if err := c.waitForRateLimit(ctx, reqID, log, contextDeadline); err != nil {
 		return "", err
 	}
 
 	messages := make([]ZAIMessage, 0)
 
-	if systemPrompt != "" {
+	// The caller owns the system prompt: an empty one sends no system message.
+	if strings.TrimSpace(systemPrompt) != "" {
 		messages = append(messages, ZAIMessage{
 			Role:    "system",
 			Content: systemPrompt,
@@ -624,18 +615,13 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 		}
 	}
 
-	if strings.TrimSpace(systemPrompt) == "" {
-		systemPrompt = defaultSystemPrompt
-	} else {
-		systemPrompt = defaultSystemPrompt + "\n" + systemPrompt
-	}
-
 	if err := c.waitForRateLimit(ctx, reqID, log, contextDeadline); err != nil {
 		return "", err
 	}
 
 	messages := make([]ZAIMessage, 0)
-	if systemPrompt != "" {
+	// The caller owns the system prompt: an empty one sends no system message.
+	if strings.TrimSpace(systemPrompt) != "" {
 		messages = append(messages, ZAIMessage{
 			Role:    "system",
 			Content: systemPrompt,

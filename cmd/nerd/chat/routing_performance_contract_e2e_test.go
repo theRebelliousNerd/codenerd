@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -57,7 +58,15 @@ func TestE2E_RoutingPerformanceContract(t *testing.T) {
 		"surface_response": "I will explain the code structure."
 	}`)
 
+	// Perception's classification prompt is compiled from its atoms; a booted
+	// session wires the JIT assembler the same way (factory.go).
+	compiler, promptKernel := newChatTestCompiler(t)
+	assembler, err := articulation.NewPromptAssemblerWithJIT(promptKernel, compiler)
+	if err != nil {
+		t.Fatalf("NewPromptAssemblerWithJIT: %v", err)
+	}
 	tr := perception.NewUnderstandingTransducer(mockClient)
+	tr.SetPromptAssembler(articulation.NewPromptAssemblerAdapter(assembler))
 
 	startTransduction := time.Now()
 	ctx := context.Background()

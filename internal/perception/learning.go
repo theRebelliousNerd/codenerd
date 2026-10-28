@@ -12,6 +12,7 @@ import (
 	"codenerd/internal/broker"
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // learnedPatternContext bounds the semantic projection of one learned pattern
@@ -90,41 +91,45 @@ func (o PersistOutcome) String() string {
 	return fmt.Sprintf("taxonomy=%s file=%s knowledge=%s semantic=%s", o.Taxonomy, o.File, o.Knowledge, o.Semantic)
 }
 
-// CriticSystemPrompt defines the persona for the Meta-Cognitive Supervisor.
-const CriticSystemPrompt = `
-You are the Meta-Cognitive Supervisor for a coding agent.
-Your goal is to analyze RECENT CONVERSATION LOGS to find misclassifications and generate Mangle rules to fix them.
+// learningCriticRole is the role whose atoms
+// (atoms/perception/learning_critic.yaml) compile the critic's system prompt.
+// Its reply is one learned_exemplar fact or nothing, parsed by
+// ExtractFactFromResponse; the "judge" intent keeps worker intent atoms out.
+const (
+	learningCriticRole   = "learning_critic"
+	learningCriticIntent = "judge"
+)
 
-Signals of failure:
-1. User corrections: "No, I meant..." or "You got that wrong."
-2. User frustration: "Stop", "Cancel", "Bad bot".
-3. Explicit teaching: "When I say X, you should do Y."
+// SetRolePrompts wires the compiler of the learning critic's system prompt.
+// Without one LearnFromInteraction reports types.ErrRolePromptUnavailable.
+func (t *TaxonomyEngine) SetRolePrompts(rolePrompts types.RolePromptCompiler) {
+	t.mu.Lock()
+	t.rolePrompts = rolePrompts
+	t.mu.Unlock()
+}
 
-SECONDARY INSTRUCTIONS:
-If the user provides recurring constraints like "Don't forget to wire it into the TUI" or "Ensure rehydration", CAPTURE these as constraints.
-
-If a pattern is found, output a MANGLE FACT to correct it globally.
-The fact MUST be a 'learned_exemplar'.
-
-OUTPUT FORMAT (STRICT):
-- Output ONLY a single line containing the learned_exemplar fact.
-- Do NOT output JSON, commentary, analysis, code fences, or extra text.
-- Do NOT escape quotes; use raw double quotes as shown in the schema.
-- If no pattern is found, output an EMPTY response (no text).
-
-Schema:
-learned_exemplar("USER_PHRASE", /correct_verb, "correct_target", "constraint_string", CONFIDENCE).
-
-Example 1:
-User: "Nuke it." -> Agent: "???" -> User: "Nuke it means delete the database."
-Output:
-learned_exemplar("Nuke it", /delete, "database", "", 0.95).
-
-Example 2:
-User: "Add a feature." -> Agent: (Adds feature) -> User: "You forgot to wire it to the TUI."
-Output:
-learned_exemplar("Add a feature", /create, "feature", "ensure: wired to TUI", 0.90).
-`
+// criticSystemPrompt compiles the learning critic's system prompt from its
+// atoms. There is no embedded copy: no compiler, or a failed compile, is an
+// error wrapping types.ErrRolePromptUnavailable.
+func (t *TaxonomyEngine) criticSystemPrompt(ctx context.Context) (string, error) {
+	t.mu.Lock()
+	rolePrompts := t.rolePrompts
+	t.mu.Unlock()
+	if rolePrompts == nil {
+		return "", fmt.Errorf("%w: no compiler for the %s prompt", types.ErrRolePromptUnavailable, learningCriticRole)
+	}
+	system, err := rolePrompts.CompileRolePrompt(ctx, types.RolePromptRequest{Role: learningCriticRole, Intent: learningCriticIntent})
+	if err != nil {
+		if errors.Is(err, types.ErrRolePromptUnavailable) {
+			return "", err
+		}
+		return "", fmt.Errorf("%w: %s: %w", types.ErrRolePromptUnavailable, learningCriticRole, err)
+	}
+	if strings.TrimSpace(system) == "" {
+		return "", fmt.Errorf("%w: the %s prompt compiled empty", types.ErrRolePromptUnavailable, learningCriticRole)
+	}
+	return system, nil
+}
 
 // ExtractFactFromResponse parses the LLM response to find the Mangle fact.
 func ExtractFactFromResponse(response string) string {
@@ -260,6 +265,11 @@ func (t *TaxonomyEngine) LearnFromInteraction(ctx context.Context, history []Rea
 	}
 
 	// 2. Ask the Critic to evaluate
+	criticSystem, err := t.criticSystemPrompt(ctx)
+	if err != nil {
+		logging.Get(logging.CategoryPerception).Error("LearnFromInteraction: %v", err)
+		return "", fmt.Errorf("critic failed: %w", err)
+	}
 	criticInput := fmt.Sprintf("Analyze this transcript for intent failures and user corrections:\n%s", transcript.String())
 	logging.PerceptionDebug("LearnFromInteraction: calling Critic LLM (input: %d chars)", len(criticInput))
 
@@ -277,7 +287,7 @@ func (t *TaxonomyEngine) LearnFromInteraction(ctx context.Context, history []Rea
 		callCtx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	resp, err := t.client.CompleteWithSystem(WithAllowEmptyCompletion(callCtx), CriticSystemPrompt, criticInput)
+	resp, err := t.client.CompleteWithSystem(WithAllowEmptyCompletion(callCtx), criticSystem, criticInput)
 	llmTimer.Stop()
 
 	if err != nil {

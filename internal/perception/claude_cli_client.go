@@ -131,11 +131,10 @@ func (c *ClaudeCodeCLIClient) Complete(ctx context.Context, prompt string) (stri
 }
 
 // CompleteWithSystem sends a prompt with an optional system message to Claude Code CLI.
-// The system prompt is passed via --system-prompt flag for proper handling.
+// The system prompt is passed via --system-prompt flag for proper handling. The
+// caller owns the system prompt: an empty one passes no flag, and the client
+// never substitutes text of its own.
 func (c *ClaudeCodeCLIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-	if strings.TrimSpace(systemPrompt) == "" {
-		systemPrompt = defaultSystemPrompt
-	}
 	opts := &ExecutionOptions{
 		SystemPrompt: systemPrompt,
 	}
@@ -288,7 +287,7 @@ func (c *ClaudeCodeCLIClient) buildArgs(model string, opts *ExecutionOptions) []
 	args = append(args, "--output-format", "json")
 
 	// System prompt REPLACES Claude Code instructions (not appends)
-	if opts != nil && opts.SystemPrompt != "" {
+	if opts != nil && strings.TrimSpace(opts.SystemPrompt) != "" {
 		args = append(args, "--system-prompt", opts.SystemPrompt)
 	}
 

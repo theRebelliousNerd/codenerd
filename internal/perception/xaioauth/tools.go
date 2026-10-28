@@ -19,10 +19,6 @@ func (c *Client) CompleteWithToolResults(ctx context.Context, systemPrompt strin
 		ctx, cancel = context.WithTimeout(ctx, c.cfg.Timeout)
 		defer cancel()
 	}
-	if strings.TrimSpace(systemPrompt) == "" {
-		systemPrompt = "You are codeNERD. Respond in English. Be concise."
-	}
-
 	c.rateLimitPace()
 
 	msgs, err := mapHistoryToChatMessages(systemPrompt, history)
@@ -57,6 +53,17 @@ func (c *Client) CompleteWithToolResults(ctx context.Context, systemPrompt strin
 // between two tool calls collapses ahead of both, and there is no request-side
 // field for reasoning, so thinking blocks are counted out here rather than
 // folded into the prose. See BlockFidelity in internal/perception.
+// systemAndUserChatMessages is the chat body of a single-turn call. The caller
+// owns the system prompt: a blank one sends no system message, and the client
+// substitutes no text of its own.
+func systemAndUserChatMessages(systemPrompt, userPrompt string) []chatMessage {
+	msgs := make([]chatMessage, 0, 2)
+	if strings.TrimSpace(systemPrompt) != "" {
+		msgs = append(msgs, chatMessage{Role: "system", Content: systemPrompt})
+	}
+	return append(msgs, chatMessage{Role: "user", Content: userPrompt})
+}
+
 func mapHistoryToChatMessages(systemPrompt string, history []types.Message) ([]chatMessage, error) {
 	msgs := make([]chatMessage, 0, len(history)+1)
 	if strings.TrimSpace(systemPrompt) != "" {
@@ -197,10 +204,6 @@ func (c *Client) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt
 		defer cancel()
 	}
 
-	if strings.TrimSpace(systemPrompt) == "" {
-		systemPrompt = "You are codeNERD. Respond in English. Be concise."
-	}
-
 	c.rateLimitPace()
 
 	model, err := requestModel(c.cfg.Model)
@@ -208,11 +211,8 @@ func (c *Client) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt
 		return nil, err
 	}
 	reqBody := chatRequest{
-		Model: model,
-		Messages: []chatMessage{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: userPrompt},
-		},
+		Model:       model,
+		Messages:    systemAndUserChatMessages(systemPrompt, userPrompt),
 		Tools:       mapToolsToChatTools(tools),
 		ToolChoice:  "auto",
 		MaxTokens:   c.cfg.MaxOutputTokens,

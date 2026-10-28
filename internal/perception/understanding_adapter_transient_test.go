@@ -46,7 +46,7 @@ func TestParseIntentWithContext_TransientFailureMarksIntent(t *testing.T) {
 	// wraps that again. errors.Is must see through both %w layers.
 	wrapped := fmt.Errorf("max retries exceeded: %w", ErrLLMUnavailable)
 	client := &transientErrLLMClient{err: wrapped}
-	tr := NewUnderstandingTransducer(client).(*UnderstandingTransducer)
+	tr := newCompiledUnderstandingTransducer(t, client).(*UnderstandingTransducer)
 
 	intent, err := tr.ParseIntentWithContext(context.Background(), "what is the jit system?", nil)
 	if err != nil {
@@ -73,7 +73,7 @@ func TestParseIntentWithContext_TransientFailureMarksIntent(t *testing.T) {
 // derives a blocker rather than claiming the model was overloaded.
 func TestParseIntentWithContext_NonTransientErrorNotMarked(t *testing.T) {
 	client := &transientErrLLMClient{err: errors.New("malformed JSON from model")}
-	tr := NewUnderstandingTransducer(client).(*UnderstandingTransducer)
+	tr := newCompiledUnderstandingTransducer(t, client).(*UnderstandingTransducer)
 
 	intent, err := tr.ParseIntentWithContext(context.Background(), "refactor the parser", nil)
 	if err != nil {

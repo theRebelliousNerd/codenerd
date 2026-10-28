@@ -88,17 +88,10 @@ func (c *XAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 		return "", fmt.Errorf("API key not configured")
 	}
 
-	if strings.TrimSpace(systemPrompt) == "" {
-		systemPrompt = defaultSystemPrompt
-	}
-
 	// Rate limiting
 	c.rateLimit()
 
-	messages := []XAIMessage{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: userPrompt},
-	}
+	messages := systemAndUserMessages(systemPrompt, userPrompt)
 
 	reqBody := XAIRequest{
 		Model:       c.model,

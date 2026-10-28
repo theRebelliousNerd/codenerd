@@ -74,6 +74,7 @@ func perceiveWith(t *testing.T, client stubLLMClient, input string) (*core.RealK
 	shard := NewPerceptionFirewallShard()
 	shard.SetParentKernel(kernel)
 	shard.SetLLMClient(client)
+	attachPerceptionPrompt(t, shard)
 	intent, err := shard.Perceive(ctx, input, nil)
 	if err != nil {
 		t.Fatalf("Perceive error = %v", err)
@@ -197,6 +198,7 @@ func TestPerception_LowConfidence_EmitsHeuristicLow(t *testing.T) {
 	shard := NewPerceptionFirewallShard()
 	shard.SetParentKernel(kernel)
 	shard.SetLLMClient(stubLLMClient{response: lowConfJSON})
+	attachPerceptionPrompt(t, shard)
 
 	if _, err := shard.Perceive(ctx, "hmm something", nil); err != nil {
 		t.Fatalf("Perceive error = %v", err)

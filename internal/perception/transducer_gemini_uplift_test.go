@@ -65,7 +65,7 @@ func (c *schemaGeminiStub) GetThinkingLevel() string    { return "high" }
 
 func geminiTestBase(t *testing.T, client LLMClient, kernel *core.RealKernel) *UnderstandingTransducer {
 	t.Helper()
-	base, ok := NewUnderstandingTransducer(client).(*UnderstandingTransducer)
+	base, ok := newCompiledUnderstandingTransducer(t, client).(*UnderstandingTransducer)
 	if !ok {
 		t.Fatalf("NewUnderstandingTransducer returned %T, want *UnderstandingTransducer", base)
 	}

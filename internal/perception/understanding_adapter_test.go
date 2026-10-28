@@ -129,7 +129,7 @@ func TestUnderstandingTransducer_ParseIntent_HappyPath(t *testing.T) {
 		},
 	}
 
-	tr := NewUnderstandingTransducer(mockClient)
+	tr := newCompiledUnderstandingTransducer(t, mockClient)
 
 	// Call ParseIntentWithContext
 	intent, err := tr.ParseIntentWithContext(context.Background(), "implement a new feature", nil)
@@ -163,7 +163,7 @@ func TestUnderstandingTransducer_ParseIntent_EmptyString(t *testing.T) {
 		},
 	}
 
-	tr := NewUnderstandingTransducer(mockClient)
+	tr := newCompiledUnderstandingTransducer(t, mockClient)
 
 	// Call ParseIntentWithContext with empty string
 	intent, err := tr.ParseIntentWithContext(context.Background(), "", nil)
@@ -421,7 +421,7 @@ func TestUnderstandingTransducer_ParseIntent_NilHistory(t *testing.T) {
 			return `{"understanding":{"action_type":"chat"},"surface_response":"hi"}`, nil
 		},
 	}
-	tr := NewUnderstandingTransducer(mockClient)
+	tr := newCompiledUnderstandingTransducer(t, mockClient)
 	_, err := tr.ParseIntentWithContext(context.Background(), "hello", nil)
 	if err != nil {
 		t.Errorf("ParseIntentWithContext failed with nil history: %v", err)
@@ -439,7 +439,7 @@ func TestUnderstandingTransducer_MalformedJSON(t *testing.T) {
 			return `this is not json`, nil
 		},
 	}
-	tr := NewUnderstandingTransducer(mockClient)
+	tr := newCompiledUnderstandingTransducer(t, mockClient)
 	intent, err := tr.ParseIntentWithContext(context.Background(), "do something", nil)
 	if err != nil {
 		t.Errorf("Expected graceful degradation, got error: %v", err)
@@ -463,7 +463,7 @@ func TestUnderstandingTransducer_ParseIntent_LargeInput(t *testing.T) {
 			return `{"understanding":{"action_type":"chat"},"surface_response":"hi"}`, nil
 		},
 	}
-	tr := NewUnderstandingTransducer(mockClient)
+	tr := newCompiledUnderstandingTransducer(t, mockClient)
 	largeInput := strings.Repeat("A", 100000)
 	_, err := tr.ParseIntentWithContext(context.Background(), largeInput, nil)
 	if err != nil {

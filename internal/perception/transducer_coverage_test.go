@@ -1819,6 +1819,7 @@ func TestTaxonomyEngine_LearnFromInteraction_WhenCriticFindsPattern_ShouldReturn
 		t.Skip("Skipping due to taxonomy engine init failure")
 	}
 	defer eng.StopWorker()
+	eng.SetRolePrompts(atomRoleCompiler{t: t})
 
 	eng.client = &mockClient{
 		completeFunc: func(ctx context.Context, prompt string) (string, error) {
@@ -1846,6 +1847,7 @@ func TestTaxonomyEngine_LearnFromInteraction_WhenCriticReturnsEmpty_ShouldReturn
 		t.Skip("Skipping due to taxonomy engine init failure")
 	}
 	defer eng.StopWorker()
+	eng.SetRolePrompts(atomRoleCompiler{t: t})
 
 	eng.client = &mockClient{
 		completeFunc: func(ctx context.Context, prompt string) (string, error) {
@@ -1872,6 +1874,7 @@ func TestTaxonomyEngine_LearnFromInteraction_WhenLongHistory_ShouldTruncate(t *t
 		t.Skip("Skipping due to taxonomy engine init failure")
 	}
 	defer eng.StopWorker()
+	eng.SetRolePrompts(atomRoleCompiler{t: t})
 
 	callCount := 0
 	eng.client = &mockClient{

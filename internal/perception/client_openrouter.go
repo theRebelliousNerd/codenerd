@@ -88,10 +88,6 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 		return "", fmt.Errorf("API key not configured")
 	}
 
-	if strings.TrimSpace(systemPrompt) == "" {
-		systemPrompt = defaultSystemPrompt
-	}
-
 	isPiggyback := strings.Contains(systemPrompt, "control_packet") ||
 		strings.Contains(systemPrompt, "surface_response") ||
 		strings.Contains(userPrompt, "PiggybackEnvelope") ||
@@ -100,10 +96,7 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 	// Rate limiting
 	c.rateLimit()
 
-	messages := []OpenRouterMessage{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: userPrompt},
-	}
+	messages := systemAndUserMessages(systemPrompt, userPrompt)
 
 	reqBody := OpenRouterRequest{
 		Model:       c.model,
@@ -236,10 +229,6 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 			return
 		}
 
-		if strings.TrimSpace(systemPrompt) == "" {
-			systemPrompt = defaultSystemPrompt
-		}
-
 		isPiggyback := strings.Contains(systemPrompt, "control_packet") ||
 			strings.Contains(systemPrompt, "surface_response") ||
 			strings.Contains(userPrompt, "PiggybackEnvelope") ||
@@ -248,10 +237,7 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 		// Rate limiting
 		c.rateLimit()
 
-		messages := []OpenRouterMessage{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: userPrompt},
-		}
+		messages := systemAndUserMessages(systemPrompt, userPrompt)
 
 		reqBody := OpenRouterRequest{
 			Model:       c.model,

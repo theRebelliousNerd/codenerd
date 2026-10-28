@@ -6,7 +6,7 @@ import (
 )
 
 func TestThinkingClient_ParseIntent(t *testing.T) {
-	tc := NewUnderstandingTransducer(&textGeminiClient{response: geminiSchemaEnvelope}).(*UnderstandingTransducer)
+	tc := newCompiledUnderstandingTransducer(t, &textGeminiClient{response: geminiSchemaEnvelope}).(*UnderstandingTransducer)
 	ctx := context.Background()
 	_, err := tc.ParseIntent(ctx, "hello")
 	if err != nil {
@@ -15,7 +15,7 @@ func TestThinkingClient_ParseIntent(t *testing.T) {
 }
 
 func TestThinkingClient_ParseIntentWithContext(t *testing.T) {
-	tc := NewUnderstandingTransducer(&textGeminiClient{response: geminiSchemaEnvelope}).(*UnderstandingTransducer)
+	tc := newCompiledUnderstandingTransducer(t, &textGeminiClient{response: geminiSchemaEnvelope}).(*UnderstandingTransducer)
 	ctx := context.Background()
 	_, err := tc.ParseIntentWithContext(ctx, "hello", nil)
 	if err != nil {

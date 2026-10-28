@@ -69,6 +69,17 @@ func MapOpenAIToolCallsToInternal(calls []OpenAIToolCall) ([]ToolCall, error) {
 	return result, nil
 }
 
+// systemAndUserMessages is the two-message chat body of a single-turn call.
+// The caller owns the system prompt: a blank one sends no system message, and
+// no client substitutes text of its own.
+func systemAndUserMessages(systemPrompt, userPrompt string) []OpenAIMessage {
+	msgs := make([]OpenAIMessage, 0, 2)
+	if strings.TrimSpace(systemPrompt) != "" {
+		msgs = append(msgs, OpenAIMessage{Role: "system", Content: systemPrompt})
+	}
+	return append(msgs, OpenAIMessage{Role: "user", Content: userPrompt})
+}
+
 // MapTypesHistoryToOpenAIMessages converts the multi-turn tool-calling history
 // used by types.ToolResultsProvider into OpenAI-compatible chat messages.
 //

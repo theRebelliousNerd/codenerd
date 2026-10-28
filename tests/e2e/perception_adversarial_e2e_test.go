@@ -48,7 +48,7 @@ The actual answer is:
 }`
 
 	mockClient := newPCEMockClient(decoyResponse)
-	tr := perception.NewUnderstandingTransducer(mockClient)
+	tr := newPerceptionTransducer(t, mockClient)
 
 	intent, err := tr.ParseIntentWithContext(context.Background(),
 		"Explain how the retry loop works", nil)
@@ -114,7 +114,7 @@ func TestE2E_Perception_Adversarial_OutOfVocabulary(t *testing.T) {
 		t.Fatalf("Kernel creation failed: %v", err)
 	}
 
-	tr := perception.NewUnderstandingTransducer(mockClient)
+	tr := newPerceptionTransducer(t, mockClient)
 	if ut, ok := tr.(*perception.UnderstandingTransducer); ok {
 		ut.SetKernel(kernel)
 	}
@@ -176,7 +176,7 @@ func TestE2E_Perception_Adversarial_MangleInjection(t *testing.T) {
 		t.Fatalf("Kernel creation failed: %v", err)
 	}
 
-	tr := perception.NewUnderstandingTransducer(mockClient)
+	tr := newPerceptionTransducer(t, mockClient)
 	if ut, ok := tr.(*perception.UnderstandingTransducer); ok {
 		ut.SetKernel(kernel)
 	}
@@ -251,7 +251,7 @@ func TestE2E_Perception_Adversarial_InputTruncation(t *testing.T) {
 		`{"understanding":{"primary_intent":"fix","semantic_type":"state","action_type":"modify","domain":"general","scope":{"level":"file","target":"auth.go"},"user_constraints":[],"implicit_assumptions":[],"confidence":0.7,"signals":{"is_question":false,"is_hypothetical":false,"is_multi_step":false,"is_negated":false,"requires_confirmation":false,"urgency":"normal"},"suggested_approach":{"mode":"normal","primary_shard":"coder","tools_needed":[],"context_needed":[]}},"surface_response":"OK"}`,
 	)
 
-	tr := perception.NewUnderstandingTransducer(mockClient)
+	tr := newPerceptionTransducer(t, mockClient)
 
 	// 100KB input with meaningful prefix and suffix
 	hugeInput := "Fix " + strings.Repeat("X", 100000) + " in auth.go"

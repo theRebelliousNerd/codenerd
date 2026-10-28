@@ -91,10 +91,6 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		return "", fmt.Errorf("API key not configured")
 	}
 
-	if strings.TrimSpace(systemPrompt) == "" {
-		systemPrompt = defaultSystemPrompt
-	}
-
 	isPiggyback := !types.IsStructuredOutputOnlyCtx(ctx) &&
 		(strings.Contains(systemPrompt, "control_packet") ||
 			strings.Contains(systemPrompt, "surface_response") ||
@@ -104,10 +100,7 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 	// Rate limiting
 	c.rateLimit()
 
-	messages := []OpenAIMessage{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: userPrompt},
-	}
+	messages := systemAndUserMessages(systemPrompt, userPrompt)
 
 	reqBody := OpenAIRequest{
 		Model:       c.model,
@@ -237,10 +230,6 @@ func (c *OpenAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 			return
 		}
 
-		if strings.TrimSpace(systemPrompt) == "" {
-			systemPrompt = defaultSystemPrompt
-		}
-
 		isPiggyback := !types.IsStructuredOutputOnlyCtx(ctx) &&
 			(strings.Contains(systemPrompt, "control_packet") ||
 				strings.Contains(systemPrompt, "surface_response") ||
@@ -250,10 +239,7 @@ func (c *OpenAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 		// Rate limiting
 		c.rateLimit()
 
-		messages := []OpenAIMessage{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: userPrompt},
-		}
+		messages := systemAndUserMessages(systemPrompt, userPrompt)
 
 		reqBody := OpenAIRequest{
 			Model:       c.model,

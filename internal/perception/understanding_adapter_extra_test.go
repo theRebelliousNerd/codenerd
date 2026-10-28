@@ -19,7 +19,7 @@ func (m *mockPerceptionPromptAssembler) JITReady() bool {
 
 func TestUnderstandingTransducer_SettersAndGetters(t *testing.T) {
 	mockClient := &baseMockLLMClient{}
-	tr := NewUnderstandingTransducer(mockClient).(*UnderstandingTransducer)
+	tr := newCompiledUnderstandingTransducer(t, mockClient).(*UnderstandingTransducer)
 
 	// SetPromptAssembler
 	pa := &mockPerceptionPromptAssembler{}
@@ -89,7 +89,7 @@ func TestUnderstandingTransducer_IsQuestionMapping(t *testing.T) {
 
 func TestUnderstandingTransducer_ResolveFocus(t *testing.T) {
 	mockClient := &baseMockLLMClient{}
-	tr := NewUnderstandingTransducer(mockClient).(*UnderstandingTransducer)
+	tr := newCompiledUnderstandingTransducer(t, mockClient).(*UnderstandingTransducer)
 
 	ctx := context.Background()
 
@@ -116,7 +116,7 @@ func TestUnderstandingTransducer_ParseIntentWithGCD(t *testing.T) {
 	// Not easily testable without mocking LLM responses which is complex here,
 	// but we can check empty input fallback.
 	mockClient := &baseMockLLMClient{}
-	tr := NewUnderstandingTransducer(mockClient).(*UnderstandingTransducer)
+	tr := newCompiledUnderstandingTransducer(t, mockClient).(*UnderstandingTransducer)
 	ctx := context.Background()
 
 	intent, updates, err := tr.ParseIntentWithGCD(ctx, "   ", nil, 3)

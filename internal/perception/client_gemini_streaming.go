@@ -43,6 +43,16 @@ func (c *GeminiClient) CompleteWithStreamingAndThoughts(ctx context.Context, sys
 // runStreamingRequest is the unified streaming engine for Gemini, shared by
 // both public methods. Thinking parts go to w's thoughts channel when the
 // writer has one and are dropped otherwise; they never reach content.
+// geminiSystemInstruction is the systemInstruction of a single-turn request.
+// The caller owns the system prompt: a blank one sends none (the field is
+// omitzero), and no client substitutes text of its own.
+func geminiSystemInstruction(systemPrompt string) *GeminiContent {
+	if strings.TrimSpace(systemPrompt) == "" {
+		return nil
+	}
+	return &GeminiContent{Parts: []GeminiPart{{Text: systemPrompt}}}
+}
+
 func (c *GeminiClient) runStreamingRequest(ctx context.Context, systemPrompt, userPrompt string, _ bool, w *types.StreamWriter) {
 	defer w.Close()
 
@@ -63,10 +73,6 @@ func (c *GeminiClient) runStreamingRequest(ctx context.Context, systemPrompt, us
 		return
 	}
 
-	if strings.TrimSpace(systemPrompt) == "" {
-		systemPrompt = defaultSystemPrompt
-	}
-
 	isPiggyback := strings.Contains(systemPrompt, "control_packet") ||
 		strings.Contains(systemPrompt, "surface_response") ||
 		strings.Contains(userPrompt, "PiggybackEnvelope") ||
@@ -82,9 +88,7 @@ func (c *GeminiClient) runStreamingRequest(ctx context.Context, systemPrompt, us
 				Parts: []GeminiPart{{Text: userPrompt}},
 			},
 		},
-		SystemInstruction: &GeminiContent{
-			Parts: []GeminiPart{{Text: systemPrompt}},
-		},
+		SystemInstruction: geminiSystemInstruction(systemPrompt),
 		GenerationConfig: GeminiGenerationConfig{
 			Temperature:     types.TemperatureFor(ctx, 1.0),
 			MaxOutputTokens: c.maxOutputTokens,

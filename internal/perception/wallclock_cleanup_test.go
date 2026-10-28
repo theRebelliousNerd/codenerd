@@ -51,7 +51,7 @@ func TestConsolidationWorker_CriticBoundIsPerCallNotJobClock(t *testing.T) {
 	config.SetLLMTimeouts(configured)
 
 	client := &criticDeadlineClient{got: make(chan context.Context, 1)}
-	cw := NewConsolidationWorker(&TaxonomyEngine{client: client})
+	cw := NewConsolidationWorker(&TaxonomyEngine{client: client, rolePrompts: atomRoleCompiler{t: t}})
 	cw.Start()
 	t.Cleanup(cw.Stop)
 	cw.Enqueue([]ReasoningTrace{{

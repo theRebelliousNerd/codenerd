@@ -128,8 +128,9 @@ func (c *AnthropicClient) request(ctx context.Context, system string, messages [
 	if model == "" {
 		return AnthropicRequest{}, fmt.Errorf("no model configured for Anthropic")
 	}
+	// The caller owns the system prompt: a blank one sends no system field.
 	if strings.TrimSpace(system) == "" {
-		system = defaultSystemPrompt
+		system = ""
 	}
 	req := AnthropicRequest{Model: model, MaxTokens: c.maxOutputTokens, System: system, Messages: messages, Tools: tools}
 	if c.options.Thinking != "" {

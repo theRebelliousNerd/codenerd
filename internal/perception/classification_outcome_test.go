@@ -218,7 +218,7 @@ func TestEveryEntryPointRunsTheSameSchemaOperation(t *testing.T) {
 	for name, call := range entries {
 		t.Run(name, func(t *testing.T) {
 			client := &planClient{schemaCapable: true, schemaResp: admissionEnvelope}
-			tr := NewUnderstandingTransducer(client)
+			tr := newCompiledUnderstandingTransducer(t, client)
 			intent, err := call(tr)
 			if err != nil {
 				t.Fatal(err)
@@ -235,7 +235,7 @@ func TestEveryEntryPointRunsTheSameSchemaOperation(t *testing.T) {
 
 func TestNonThinkingClientUsesTheGenericOperation(t *testing.T) {
 	plain := &genericCountingClient{response: admissionEnvelope}
-	intent, err := NewUnderstandingTransducer(plain).ParseIntentWithContext(context.Background(), "investigate x.go", nil)
+	intent, err := newCompiledUnderstandingTransducer(t, plain).ParseIntentWithContext(context.Background(), "investigate x.go", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,35 +259,35 @@ func TestSchemaFailureTransitionsAreCauseAware(t *testing.T) {
 	ctx := context.Background()
 	t.Run("authentication does not reach free-form", func(t *testing.T) {
 		client := &planClient{schemaCapable: true, schemaErr: errors.New("API request failed with status 401"), freeResp: admissionEnvelope}
-		intent, _ := NewUnderstandingTransducer(client).ParseIntentWithContext(ctx, "x", nil)
+		intent, _ := newCompiledUnderstandingTransducer(t, client).ParseIntentWithContext(ctx, "x", nil)
 		if client.freeCalls != 0 || intent.Outcome.Failure != FailureAuth || intent.Outcome.Attempts != 1 {
 			t.Fatalf("free=%d outcome=%+v; a terminal cause must not spend a second send", client.freeCalls, intent.Outcome)
 		}
 	})
 	t.Run("cancellation does not reach free-form", func(t *testing.T) {
 		client := &planClient{schemaCapable: true, schemaErr: fmt.Errorf("send: %w", context.Canceled), freeResp: admissionEnvelope}
-		intent, _ := NewUnderstandingTransducer(client).ParseIntentWithContext(ctx, "x", nil)
+		intent, _ := newCompiledUnderstandingTransducer(t, client).ParseIntentWithContext(ctx, "x", nil)
 		if client.freeCalls != 0 || intent.Outcome.Disposition != ClassificationCanceled {
 			t.Fatalf("free=%d outcome=%+v", client.freeCalls, intent.Outcome)
 		}
 	})
 	t.Run("an outage after the adapter's retries does not reach free-form", func(t *testing.T) {
 		client := &planClient{schemaCapable: true, schemaErr: errors.New("transient server error (503)"), freeResp: admissionEnvelope}
-		intent, _ := NewUnderstandingTransducer(client).ParseIntentWithContext(ctx, "x", nil)
+		intent, _ := newCompiledUnderstandingTransducer(t, client).ParseIntentWithContext(ctx, "x", nil)
 		if client.freeCalls != 0 || !intent.Outcome.Retryable() {
 			t.Fatalf("free=%d outcome=%+v", client.freeCalls, intent.Outcome)
 		}
 	})
 	t.Run("a generic rejected request is not a missing capability", func(t *testing.T) {
 		client := &planClient{schemaCapable: true, schemaErr: errors.New("API request failed with status 400"), freeResp: admissionEnvelope}
-		intent, _ := NewUnderstandingTransducer(client).ParseIntentWithContext(ctx, "x", nil)
+		intent, _ := newCompiledUnderstandingTransducer(t, client).ParseIntentWithContext(ctx, "x", nil)
 		if client.freeCalls != 0 || intent.Outcome.Failure != FailureInvalidRequest {
 			t.Fatalf("free=%d outcome=%+v", client.freeCalls, intent.Outcome)
 		}
 	})
 	t.Run("a client that cannot enforce a schema falls to free-form", func(t *testing.T) {
 		client := &planClient{schemaCapable: true, schemaErr: core.ErrSchemaNotSupported, freeResp: admissionEnvelope}
-		intent, _ := NewUnderstandingTransducer(client).ParseIntentWithContext(ctx, "x", nil)
+		intent, _ := newCompiledUnderstandingTransducer(t, client).ParseIntentWithContext(ctx, "x", nil)
 		if client.schemaCalls != 1 || client.freeCalls != 1 || intent.Outcome.Method != MethodFreeForm || intent.Outcome.Attempts != 2 {
 			t.Fatalf("schema=%d free=%d outcome=%+v", client.schemaCalls, client.freeCalls, intent.Outcome)
 		}
@@ -297,14 +297,14 @@ func TestSchemaFailureTransitionsAreCauseAware(t *testing.T) {
 	})
 	t.Run("a schema answer that is not a classification falls to free-form once", func(t *testing.T) {
 		client := &planClient{schemaCapable: true, schemaResp: `{"unrelated":true}`, freeResp: admissionEnvelope}
-		intent, _ := NewUnderstandingTransducer(client).ParseIntentWithContext(ctx, "x", nil)
+		intent, _ := newCompiledUnderstandingTransducer(t, client).ParseIntentWithContext(ctx, "x", nil)
 		if client.schemaCalls != 1 || client.freeCalls != 1 || intent.Outcome.Disposition != ClassificationAdmitted || intent.Outcome.Attempts != 2 {
 			t.Fatalf("schema=%d free=%d outcome=%+v", client.schemaCalls, client.freeCalls, intent.Outcome)
 		}
 	})
 	t.Run("both methods unreadable ends in an invalid response after two attempts", func(t *testing.T) {
 		client := &planClient{schemaCapable: true, schemaResp: `{"unrelated":true}`, freeResp: `{"weather":"sunny"}`}
-		intent, _ := NewUnderstandingTransducer(client).ParseIntentWithContext(ctx, "x", nil)
+		intent, _ := newCompiledUnderstandingTransducer(t, client).ParseIntentWithContext(ctx, "x", nil)
 		if client.schemaCalls != 1 || client.freeCalls != 1 {
 			t.Fatalf("schema=%d free=%d; the plan is bounded", client.schemaCalls, client.freeCalls)
 		}
@@ -322,7 +322,7 @@ func TestSchemaFailureTransitionsAreCauseAware(t *testing.T) {
 // interpretation: the review witness through the public entry point.
 func TestMalformedEnvelopeIsNotAnAdmittedInterpretation(t *testing.T) {
 	client := &genericCountingClient{response: `{"understanding":{"primary_intent":"investigate","semantic_type":"location","action_type":["investigate"],"domain":"general","confidence":0.9},"surface_response":"I will investigate."}`}
-	intent, err := NewUnderstandingTransducer(client).ParseIntentWithContext(context.Background(), "investigate x.go", nil)
+	intent, err := newCompiledUnderstandingTransducer(t, client).ParseIntentWithContext(context.Background(), "investigate x.go", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

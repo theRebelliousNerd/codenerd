@@ -35,6 +35,7 @@ func TestPerceptionFirewall_PublishesRoutingAndCarriesTheRestriction(t *testing.
 	shard := NewPerceptionFirewallShard()
 	shard.SetParentKernel(kernel)
 	shard.SetLLMClient(stubLLMClient{response: hypotheticalModifyEnvelope})
+	attachPerceptionPrompt(t, shard)
 
 	intent, err := shard.Perceive(ctx, "what would happen if we modified retryLoop? don't change anything, check with me first", nil)
 	if err != nil {

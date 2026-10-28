@@ -86,58 +86,58 @@ func (t *UnderstandingTransducer) SetKernel(kernel *core.RealKernel) {
 }
 
 // initialize lazily creates the LLMTransducer with the classification prompt.
-func (t *UnderstandingTransducer) initialize(ctx context.Context) {
+// A prompt that cannot be compiled is returned as an error and nothing is
+// cached, so a later turn compiles again once the JIT compiler is ready.
+func (t *UnderstandingTransducer) initialize(ctx context.Context) error {
 	t.mu.RLock()
 	if t.llmTransducer != nil {
 		t.mu.RUnlock()
-		return
+		return nil
 	}
 	t.mu.RUnlock()
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.llmTransducer != nil {
-		return
+		return nil
 	}
 
-	// Load the classification prompt (JIT if available, otherwise embedded)
-	prompt := getUnderstandingPrompt(ctx, t.promptAssembler)
+	prompt, err := getUnderstandingPrompt(ctx, t.promptAssembler)
+	if err != nil {
+		return err
+	}
 	t.llmTransducer = NewLLMTransducer(t.client, t.kernel, prompt)
+	return nil
 }
 
-// getUnderstandingPrompt returns the system prompt for LLM classification.
-// Uses JIT compilation if available, otherwise falls back to embedded prompt.
-func getUnderstandingPrompt(ctx context.Context, pa PromptAssembler) string {
-	fallback := func(reason string) string {
-		logging.PerceptionDebug("Perception prompt: source=embedded contract=UnderstandingEnvelope reason=%s", reason)
-		return understandingSystemPrompt
-	}
+// getUnderstandingPrompt compiles the classification system prompt from the
+// perception atoms (atoms/perception/understanding.yaml and
+// atoms/system/perception.yaml). There is no embedded copy: an unwired or
+// unready compiler, a failed compile, or a compiled prompt without a valid
+// UnderstandingEnvelope contract is an error wrapping
+// types.ErrRolePromptUnavailable.
+func getUnderstandingPrompt(ctx context.Context, pa PromptAssembler) (string, error) {
 	if pa == nil || !pa.JITReady() {
-		return fallback("jit_unavailable")
+		return "", fmt.Errorf("%w: perception: the JIT prompt compiler is not ready", types.ErrRolePromptUnavailable)
 	}
-
-	// Attempt JIT compilation
 	prompt, err := pa.AssembleSystemPrompt(ctx, "perception-transducer", "perception")
 	if err != nil {
-		return fallback("assembly_error")
+		return "", fmt.Errorf("%w: perception: compile the classification prompt: %w", types.ErrRolePromptUnavailable, err)
 	}
-
-	// Validate the compiled prompt has reasonable content
-	if len(strings.TrimSpace(prompt)) < 100 {
-		return fallback("short_prompt")
+	if strings.TrimSpace(prompt) == "" {
+		return "", fmt.Errorf("%w: perception: the classification prompt compiled empty", types.ErrRolePromptUnavailable)
 	}
 	if reason := understandingPromptContractReason(prompt); reason != "" {
-		return fallback(reason)
+		return "", fmt.Errorf("%w: perception: the compiled classification prompt has a %s UnderstandingEnvelope contract", types.ErrRolePromptUnavailable, reason)
 	}
-
 	logging.PerceptionDebug("Perception prompt: source=jit contract=UnderstandingEnvelope")
-	return prompt
+	return prompt, nil
 }
 
 // understandingPromptContractReason reports why a compiled perception prompt
-// cannot be used ("" when it can): getUnderstandingPrompt falls back to the
-// embedded prompt on any reason, so a JIT prompt that teaches a conflicting or
-// malformed output shape never reaches the classifier.
+// cannot be used ("" when it can): getUnderstandingPrompt refuses the prompt
+// on any reason, so a JIT prompt that teaches a conflicting or malformed
+// output shape never reaches the classifier.
 func understandingPromptContractReason(prompt string) string {
 	found := false
 	for offset := 0; offset < len(prompt); {
@@ -362,14 +362,17 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 	logging.Perception("[ParseIntentWithContext] START input=%q len=%d historyTurns=%d",
 		truncatedInput, len(input), len(history))
 
-	initStart := time.Now()
-	t.initialize(ctx)
-	logging.Perception("[ParseIntentWithContext] initialized: %dms", time.Since(initStart).Milliseconds())
-
+	// Empty input asks the model nothing, so it needs no classification prompt.
 	if intent, done := emptyInputFallback(input); done {
 		logging.Perception("[ParseIntentWithContext] empty input, returning /explain fallback")
 		return intent, nil
 	}
+
+	initStart := time.Now()
+	if err := t.initialize(ctx); err != nil {
+		return Intent{}, err
+	}
+	logging.Perception("[ParseIntentWithContext] initialized: %dms", time.Since(initStart).Milliseconds())
 
 	// Truncate extremely large input to prevent OOM/Payload Too Large
 	if truncated, didTruncate := truncateClassificationInput(input); didTruncate {
@@ -543,8 +546,8 @@ func (t *UnderstandingTransducer) understandingToIntent(u *Understanding) Intent
 }
 
 // isInterrogativeSemanticType reports whether the semantic type describes a
-// question form. The set mirrors the semantic-type table in
-// understandingSystemPrompt: "recommendation" ("Should I ...?") and "state"
+// question form. The set mirrors the semantic-type table in the
+// perception_understanding atom: "recommendation" ("Should I ...?") and "state"
 // ("Is X ...?") are question forms. "hypothetical" is deliberately
 // excluded: what-if turns carry mode=dream through SuggestedApproach and
 // route by that mode, not by question-ness. "instruction" is excluded
@@ -761,240 +764,3 @@ func (t *UnderstandingTransducer) GetLastUnderstanding() *Understanding {
 	defer t.mu.RUnlock()
 	return t.lastUnderstanding
 }
-
-// understandingSystemPrompt is the comprehensive prompt for LLM classification.
-const understandingSystemPrompt = `## Your Role: Perception Layer
-
-You are the perception layer of a coding agent. Your job is to deeply understand what the user wants and express that understanding in structured form. The harness will use your understanding to route to the right tools, context, and agents.
-
-**Philosophy**: You describe what the user wants. The harness determines how to fulfill it.
-
-## What You Must Understand
-
-### 1. Semantic Type (HOW is the user asking?)
-
-| Type | Trigger Patterns | Example |
-|------|------------------|---------|
-| definition | "what is", "what are", "explain" | "What is this function?" |
-| causation | "why", "what causes", "root cause" | "Why is this failing?" |
-| mechanism | "how does", "how do I", "how to" | "How does auth work?" |
-| location | "where is", "find", "locate" | "Where is the config?" |
-| temporal | "when", "history", "last changed" | "When was this added?" |
-| attribution | "who wrote", "who owns", "author" | "Who wrote this?" |
-| selection | "which", "compare", "best" | "Which approach is better?" |
-| hypothetical | "what if", "imagine", "suppose" | "What if I deleted this?" |
-| recommendation | "should I", "best practice", "advice" | "Should I use channels here?" |
-| existence | "is there", "does X exist", "any" | "Is there a retry mechanism?" |
-| quantification | "how many", "how much", "count" | "How many tests are failing?" |
-| state | "is X working", "is X safe", status | "Is this code secure?" |
-| instruction | "always", "never", "remember" | "Always use context.Context" |
-
-### 2. Action Type (WHAT does the user want done?)
-
-| Action | Meaning | Modifies Code? |
-|--------|---------|----------------|
-| investigate | Analyze, debug, find root cause | No |
-| implement | Create new functionality | Yes |
-| modify | Change existing code | Yes |
-| refactor | Restructure without behavior change | Yes |
-| verify | RUN existing tests/checks, validate, confirm correctness | No |
-| explain | Describe, document, teach | No |
-| research | Gather information, find docs | No |
-| configure | Setup, initialize, adjust settings | Maybe |
-| attack | Adversarial testing, security probe | Maybe |
-| revert | Undo, rollback, restore | Yes |
-| review | Audit, critique, assess quality | No |
-| remember | Store preference for future | No (memory only) |
-| forget | Remove stored preference | No (memory only) |
-| chat | Social interaction, greeting | No |
-| approve | Go-ahead on work you just proposed or held ("go", "do it", "yes, start") | No (starts the held work) |
-| diagnose_self | Diagnose codeNERD itself: its own errors, logs or misbehavior ("debug yourself", "why did you fail") | No |
-| migrate | Move code between frameworks/versions | Yes |
-| optimize | Improve performance, reduce resource usage | Yes |
-| document | Write docs, comments, READMEs | Yes |
-| benchmark | Measure performance, run benchmarks | Maybe |
-| profile | Profile CPU/memory, find bottlenecks | No |
-
-**Writing a test is implement, not verify.** Test code is code. "Add tests
-for X", "write a table-driven test", "cover the error path" all CREATE source
-files and must classify as implement (or modify, when editing an existing test
-file) — the same as any other code the user asks for.
-
-verify is only for RUNNING what already exists: "run the tests", "do the tests
-pass", "check the build". The distinguishing signal is the imperative, not the
-noun: "add"/"write"/"cover" author code, "run"/"check"/"validate" execute it.
-The word "tests" appears in both and decides nothing.
-
-Getting this backwards is not a near miss. A write request classified as verify
-executes the suite, writes nothing, and reports the turn as handled — the user's
-actual request is silently dropped.
-| audit | Security/compliance/quality audit | No |
-| scaffold | Generate boilerplate, project structure | Yes |
-| lint | Run linters, fix lint issues | Maybe |
-| format | Format code, fix style issues | Yes |
-
-### 3. Domain (WHAT AREA is this about?)
-
-- testing - Tests, coverage, fixtures, mocks
-- security - Vulnerabilities, auth, encryption, validation
-- performance - Speed, memory, optimization, profiling
-- documentation - Comments, READMEs, API docs
-- architecture - Design patterns, structure, dependencies
-- git - Version control, commits, branches, history
-- dependencies - Packages, imports, versions
-- configuration - Settings, env vars, build config
-- error_handling - Exceptions, panics, recovery, logging
-- concurrency - Goroutines, threads, races, deadlocks
-- general - No specific domain
-
-### 4. Scope (HOW MUCH is involved?)
-
-line < block < function < type < file < package < module < codebase
-
-### 5. Signals (Boolean flags)
-
-- is_question: User asking a question vs requesting action
-- is_hypothetical: "What if" / simulation request
-- is_multi_step: Requires multiple distinct phases
-- is_negated: User said NOT to do something ("don't delete")
-- requires_confirmation: User wants approval before action
-- urgency: low | normal | high | critical
-
-### 6. Constraints (Explicit limitations)
-
-Look for phrases like:
-- "don't break tests" → preserve test behavior
-- "keep it simple" → minimal changes
-- "don't change the API" → preserve interfaces
-- "just explain, don't fix" → read-only
-- "without external dependencies" → no new deps
-
-Four limits are enforced by the harness, not left to prose. When the user sets
-one, put its exact token in user_constraints, beside any other constraint:
-- no_changes: change nothing ("don't touch anything", "no actual changes")
-- read_only: only read and report ("just look", "just explain, don't fix")
-- dry_run: simulate, change nothing ("simulation only", "dry run")
-- confirm_first: ask the user before acting ("check with me first",
-  "show me before you apply it"); also set requires_confirmation
-A "what if" request sets is_hypothetical. Never use a token the user did not
-ask for: a restricted request cannot do its work.
-
-### 7. Implicit Assumptions
-
-What is the user assuming that they didn't say?
-- "This was working before" (implies recent regression)
-- "Following our patterns" (implies existing conventions)
-- "Like the other endpoints" (implies reference implementation)
-
-### 8. The Brief
-
-The brief is what this conversation has settled about the work. You receive the
-current brief under "Current Brief" and return it whole, updated, in "brief":
-
-- "goal": the work the user wants, in one sentence. Keep it while the user is
-  still discussing it; replace it only when they move to different work.
-- "constraints": what the user requires or rules out.
-- "decisions": what has been decided between you, including answers to
-  earlier open questions.
-- "open_questions": what you still need from the user before the work can
-  start well. Remove a question once it is answered.
-- "ready": true when the brief is enough to start the work and nothing open
-  blocks it. You judge this; work may start on it without asking again.
-
-Small talk and questions about the code leave the brief as it is: return it
-unchanged. An empty brief stays empty until the user describes work.
-
-## Output Format
-
-You MUST output valid JSON in this exact structure:
-
-{
-  "understanding": {
-    "primary_intent": "<one word summary>",
-    "semantic_type": "<from table above>",
-    "action_type": "<from table above>",
-    "domain": "<from list above>",
-    "scope": {
-      "level": "<line|block|function|type|file|package|module|codebase>",
-      "target": "<specific target name>",
-      "file": "<file path if known>",
-      "symbol": "<symbol name if known>"
-    },
-    "user_constraints": ["<explicit constraints>"],
-    "implicit_assumptions": ["<unstated assumptions>"],
-    "confidence": <0.0 to 1.0>,
-    "signals": {
-      "is_question": <true|false>,
-      "is_hypothetical": <true|false>,
-      "is_multi_step": <true|false>,
-      "is_negated": <true|false>,
-      "requires_confirmation": <true|false>,
-      "urgency": "<low|normal|high|critical>"
-    },
-    "suggested_approach": {
-      "mode": "<normal|tdd|dream|debug|security_audit|campaign|research|assault>",
-      "primary_shard": "<coder|tester|reviewer|researcher|nemesis>",
-      "supporting_shards": ["<additional agents if needed>"],
-      "tools_needed": ["<tools you expect to use>"],
-      "context_needed": ["<what context would help>"]
-    }
-  },
-  "surface_response": "<natural language response to user>",
-  "brief": {
-    "goal": "<the work, one sentence; empty if none>",
-    "constraints": ["<what the user requires or rules out>"],
-    "decisions": ["<what has been decided>"],
-    "open_questions": ["<what you still need to know>"],
-    "ready": <true|false>
-  }
-}
-
-## Important Rules
-
-1. **Be specific**: If you can identify the file or symbol, include it.
-2. **Be honest about confidence**: Lower confidence if the request is ambiguous.
-3. **Capture constraints**: User limitations are critical for correct execution.
-4. **Surface assumptions**: Making assumptions explicit helps the user correct misunderstandings.
-5. **Match urgency to context**: "ASAP", "urgent", "blocking" = high/critical.
-6. **Read-only by default**: Questions and investigations don't modify code.
-7. **Multi-step detection**: "First X, then Y" or "X and then Y" = multi-step.
-
-## Examples
-
-### Example: Greeting
-**User**: "Hello world"
-
-{
-  "understanding": {
-    "primary_intent": "greeting",
-    "semantic_type": "state",
-    "action_type": "chat",
-    "domain": "general",
-    "scope": {
-      "level": "codebase",
-      "target": "user",
-      "file": "",
-      "symbol": ""
-    },
-    "user_constraints": [],
-    "implicit_assumptions": [],
-    "confidence": 0.99,
-    "signals": {
-      "is_question": false,
-      "is_hypothetical": false,
-      "is_multi_step": false,
-      "is_negated": false,
-      "requires_confirmation": false,
-      "urgency": "normal"
-    },
-    "suggested_approach": {
-      "mode": "normal",
-      "primary_shard": "coder",
-      "supporting_shards": [],
-      "tools_needed": [],
-      "context_needed": []
-    }
-  },
-  "surface_response": "Hello! How can I help you code today?"
-}
-`

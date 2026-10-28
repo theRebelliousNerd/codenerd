@@ -47,12 +47,6 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 			return
 		}
 
-		if strings.TrimSpace(systemPrompt) == "" {
-			systemPrompt = defaultSystemPrompt
-		} else {
-			systemPrompt = defaultSystemPrompt + "\n" + systemPrompt
-		}
-
 		maxRetries := c.maxRetries
 		if maxRetries <= 0 {
 			maxRetries = 3
@@ -123,7 +117,8 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 			}
 
 			messages := make([]ZAIMessage, 0)
-			if systemPrompt != "" {
+			// The caller owns the system prompt: an empty one sends none.
+			if strings.TrimSpace(systemPrompt) != "" {
 				messages = append(messages, ZAIMessage{
 					Role:    "system",
 					Content: systemPrompt,

@@ -6,6 +6,12 @@ description: Prompt for LLM-first intent classification
 # This prompt instructs the LLM to deeply understand user intent
 # and output a structured Understanding for harness routing.
 #
+# This atom is the only source of the classification prompt: the embedded Go
+# copy (understandingSystemPrompt) and its fallback were deleted 2026-10-28,
+# after its F-PERC-1 test-writing rule and extra action rows moved here. A
+# compile that cannot produce a valid UnderstandingEnvelope contract is an
+# error the transducer's caller reports.
+#
 # Gated to the transducer's own compile. getUnderstandingPrompt (see
 # internal/perception/understanding_adapter.go) calls
 # AssembleSystemPrompt(ctx, "perception-transducer", "perception"), which the
@@ -54,7 +60,7 @@ content: |
   | `implement` | Create new functionality | Yes |
   | `modify` | Change existing code | Yes |
   | `refactor` | Restructure without behavior change | Yes |
-  | `verify` | Test, validate, check correctness | Maybe (writes tests) |
+  | `verify` | RUN existing tests/checks, validate, confirm correctness | No |
   | `explain` | Describe, document, teach | No |
   | `research` | Gather information, find docs | No |
   | `configure` | Setup, initialize, adjust settings | Maybe |
@@ -66,6 +72,29 @@ content: |
   | `chat` | Social interaction, greeting | No |
   | `approve` | Go-ahead on work you just proposed or held ("go", "do it", "yes, start") | No (starts the held work) |
   | `diagnose_self` | Diagnose codeNERD itself: its own errors, logs or misbehavior ("debug yourself", "why did you fail") | No |
+  | `migrate` | Move code between frameworks/versions | Yes |
+  | `optimize` | Improve performance, reduce resource usage | Yes |
+  | `document` | Write docs, comments, READMEs | Yes |
+  | `benchmark` | Measure performance, run benchmarks | Maybe |
+  | `profile` | Profile CPU/memory, find bottlenecks | No |
+  | `audit` | Security/compliance/quality audit | No |
+  | `scaffold` | Generate boilerplate, project structure | Yes |
+  | `lint` | Run linters, fix lint issues | Maybe |
+  | `format` | Format code, fix style issues | Yes |
+
+  **Writing a test is implement, not verify.** Test code is code. "Add tests
+  for X", "write a table-driven test", "cover the error path" all CREATE source
+  files and must classify as implement (or modify, when editing an existing test
+  file) — the same as any other code the user asks for.
+
+  verify is only for RUNNING what already exists: "run the tests", "do the tests
+  pass", "check the build". The distinguishing signal is the imperative, not the
+  noun: "add"/"write"/"cover" author code, "run"/"check"/"validate" execute it.
+  The word "tests" appears in both and decides nothing.
+
+  Getting this backwards is not a near miss. A write request classified as verify
+  executes the suite, writes nothing, and reports the turn as handled — the user's
+  actual request is silently dropped.
 
   ### 3. Domain (WHAT AREA is this about?)
 

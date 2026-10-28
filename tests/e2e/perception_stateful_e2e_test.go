@@ -36,7 +36,7 @@ func TestE2E_Perception_Stateful_StabilityBypassTopicShift(t *testing.T) {
 		t.Fatalf("Kernel creation failed: %v", err)
 	}
 
-	tr := perception.NewUnderstandingTransducer(mockClient)
+	tr := newPerceptionTransducer(t, mockClient)
 	if ut, ok := tr.(*perception.UnderstandingTransducer); ok {
 		ut.SetKernel(kernel)
 	}
@@ -120,7 +120,7 @@ func TestE2E_Perception_Stateful_ConcurrentIsolation(t *testing.T) {
 	}
 
 	mockClient := newPCEMockClient(responses...)
-	tr := perception.NewUnderstandingTransducer(mockClient)
+	tr := newPerceptionTransducer(t, mockClient)
 
 	var wg sync.WaitGroup
 	var panicCount int64
@@ -181,7 +181,7 @@ func TestE2E_Perception_Stateful_HistoryWindowTrimming(t *testing.T) {
 	mockClient := newPCEMockClient(
 		`{"understanding":{"primary_intent":"explain","semantic_type":"definition","action_type":"explain","domain":"general","scope":{"level":"codebase","target":"system"},"user_constraints":[],"implicit_assumptions":[],"confidence":0.8,"signals":{"is_question":true,"is_hypothetical":false,"is_multi_step":false,"is_negated":false,"requires_confirmation":false,"urgency":"normal"},"suggested_approach":{"mode":"normal","primary_shard":"reviewer","tools_needed":[],"context_needed":[]}},"surface_response":"OK"}`,
 	)
-	tr := perception.NewUnderstandingTransducer(mockClient)
+	tr := newPerceptionTransducer(t, mockClient)
 
 	// Build 10 history turns
 	var history []perception.ConversationTurn
@@ -233,7 +233,7 @@ func TestE2E_Perception_Stateful_RoutingFactAccumulation(t *testing.T) {
 		t.Fatalf("Kernel creation failed: %v", err)
 	}
 
-	tr := perception.NewUnderstandingTransducer(mockClient)
+	tr := newPerceptionTransducer(t, mockClient)
 	if ut, ok := tr.(*perception.UnderstandingTransducer); ok {
 		ut.SetKernel(kernel)
 	}

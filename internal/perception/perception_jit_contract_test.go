@@ -3,6 +3,7 @@ package perception_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -207,6 +208,11 @@ func TestPerceptionJIT_ProductionBridgeUsesCanonicalContract(test *testing.T) {
 	if !strings.Contains(client.system, `"target": "<specific target>"`) {
 		test.Fatal("canonical nested scope.target did not reach the model")
 	}
+	// F-PERC-1: the test-writing rule moved from the deleted Go prompt into
+	// perception_understanding; it must reach the classifier.
+	if !strings.Contains(client.system, "Writing a test is implement, not verify") {
+		test.Fatal("the F-PERC-1 test-writing rule did not reach the model")
+	}
 }
 
 func TestPerceptionJIT_FirewallBridgeKeepsCanonicalClosure(test *testing.T) {
@@ -229,7 +235,10 @@ func TestPerceptionJIT_FirewallBridgeKeepsCanonicalClosure(test *testing.T) {
 	}
 }
 
-func TestPerceptionJIT_ProductionBridgeFallsBackForInvalidContracts(test *testing.T) {
+// A compiled prompt without a valid UnderstandingEnvelope contract is refused:
+// there is no embedded prompt to send instead, so the turn reports an error
+// wrapping types.ErrRolePromptUnavailable and the model is never asked.
+func TestPerceptionJIT_ProductionBridgeRefusesInvalidContracts(test *testing.T) {
 	base := loadPerceptionJITCorpus(test)
 	piggyback, exists := base.Get("protocol/piggyback/envelope")
 	if !exists {
@@ -259,15 +268,35 @@ func TestPerceptionJIT_ProductionBridgeFallsBackForInvalidContracts(test *testin
 				atoms = append(atoms, atom)
 			}
 			compiler, assembler, kernel := newPerceptionJITBridge(test, prompt.NewEmbeddedCorpus(atoms))
-			client := capturePerceptionRequest(test, assembler, kernel)
-			result := compiler.GetLastResult()
-			if result == nil {
-				test.Fatal("no JIT result; this control must exercise adapter rejection, not a compiler error")
+			client := &perceptionRequestCapture{}
+			transducer := perception.NewUnderstandingTransducer(client)
+			transducer.SetPromptAssembler(articulation.NewPromptAssemblerAdapter(assembler))
+			transducer.(perception.TransducerWithKernel).SetKernel(kernel)
+			_, err := transducer.ParseIntentWithContext(context.Background(), "Explain calculator.Sum.", nil)
+			if !errors.Is(err, types.ErrRolePromptUnavailable) {
+				test.Fatalf("err = %v, want ErrRolePromptUnavailable", err)
 			}
-			if client.system == result.Prompt || !strings.HasPrefix(client.system, "## Your Role: Perception Layer") {
-				test.Fatal("invalid compiled contract reached the model instead of the intentional embedded fallback")
+			if compiler.GetLastResult() == nil {
+				test.Fatal("no JIT result; this control must exercise contract rejection, not a compiler error")
+			}
+			if client.calls != 0 {
+				test.Fatalf("the model was asked %d times under a refused prompt", client.calls)
 			}
 		})
+	}
+}
+
+// Without a ready JIT compiler there is no classification prompt: the turn
+// reports the error instead of classifying under different text.
+func TestPerceptionJIT_NoAssemblerIsUnavailable(test *testing.T) {
+	client := &perceptionRequestCapture{}
+	transducer := perception.NewUnderstandingTransducer(client)
+	_, err := transducer.ParseIntentWithContext(context.Background(), "Explain calculator.Sum.", nil)
+	if !errors.Is(err, types.ErrRolePromptUnavailable) {
+		test.Fatalf("err = %v, want ErrRolePromptUnavailable", err)
+	}
+	if client.calls != 0 {
+		test.Fatalf("the model was asked %d times without a classification prompt", client.calls)
 	}
 }
 

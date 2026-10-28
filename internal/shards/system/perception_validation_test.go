@@ -49,6 +49,7 @@ func TestPerceptionUnknownVerbEmitsIntentUnmapped(t *testing.T) {
 	shard := NewPerceptionFirewallShard()
 	shard.SetParentKernel(kernel)
 	shard.SetLLMClient(stubLLMClient{response: intentJSON})
+	attachPerceptionPrompt(t, shard)
 
 	intent, err := shard.Perceive(ctx, "remember that I prefer tabs", nil)
 	if err != nil {

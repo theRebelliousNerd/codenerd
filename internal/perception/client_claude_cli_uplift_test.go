@@ -225,9 +225,9 @@ func TestClaudeCLI_CancelledContextFailsFast(t *testing.T) {
 	}
 }
 
-// An empty system prompt gets codeNERD's default like every API engine,
-// rather than leaving the CLI on its own agentic instructions.
-func TestClaudeCLI_EmptySystemGetsDefault(t *testing.T) {
+// The caller owns the system prompt: an empty one passes no --system-prompt
+// flag, and the client does not invent one.
+func TestClaudeCLI_EmptySystemSendsNone(t *testing.T) {
 	dir := installFakeCLI(t, "claude")
 	t.Setenv("PATH", prependPath(dir, os.Getenv("PATH")))
 	t.Setenv("CLAUDE_TEST_MODE", "ok")
@@ -236,11 +236,7 @@ func TestClaudeCLI_EmptySystemGetsDefault(t *testing.T) {
 	if _, err := claudeTestClient().Complete(context.Background(), "hi"); err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
-	argsLog := readLog(t, dir, "args.log")
-	if !strings.Contains(argsLog, "--system-prompt") {
-		t.Fatalf("argv lacks --system-prompt:\n%s", argsLog)
-	}
-	if !strings.Contains(argsLog, defaultSystemPrompt) {
-		t.Error("argv --system-prompt is not codeNERD's default")
+	if argsLog := readLog(t, dir, "args.log"); strings.Contains(argsLog, "--system-prompt") {
+		t.Fatalf("argv carries a --system-prompt the caller did not supply:\n%s", argsLog)
 	}
 }

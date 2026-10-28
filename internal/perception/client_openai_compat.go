@@ -701,16 +701,9 @@ func (c *OpenAICompatClient) CompleteWithSystem(ctx context.Context, systemPromp
 	}
 	c.clearGroundingSources()
 	start := time.Now()
-	if strings.TrimSpace(systemPrompt) == "" {
-		systemPrompt = defaultSystemPrompt
-	}
-
 	piggyback := isPiggybackPrompt(ctx, systemPrompt, userPrompt)
 
-	reqBody := c.buildRequest(ctx, []OpenAIMessage{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: userPrompt},
-	}, c.enableThinking)
+	reqBody := c.buildRequest(ctx, systemAndUserMessages(systemPrompt, userPrompt), c.enableThinking)
 
 	if piggyback {
 		reqBody.ResponseFormat = c.piggybackResponseFormat()
@@ -829,9 +822,6 @@ func (c *OpenAICompatClient) CompleteWithStreaming(ctx context.Context, systemPr
 			if err := c.admit(ctx, systemPrompt, userTurn(userPrompt), nil); err != nil {
 				return "", err
 			}
-			if strings.TrimSpace(systemPrompt) == "" {
-				systemPrompt = defaultSystemPrompt
-			}
 			return c.completeWithSystemGrounded(ctx, systemPrompt, userPrompt)
 		})
 	}
@@ -851,17 +841,11 @@ func (c *OpenAICompatClient) CompleteWithStreaming(ctx context.Context, systemPr
 		}
 
 		start := time.Now()
-		if strings.TrimSpace(systemPrompt) == "" {
-			systemPrompt = defaultSystemPrompt
-		}
 		c.clearGroundingSources()
 
 		piggyback := isPiggybackPrompt(ctx, systemPrompt, userPrompt)
 
-		reqBody := c.buildRequest(ctx, []OpenAIMessage{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: userPrompt},
-		}, enableThinking || c.enableThinking)
+		reqBody := c.buildRequest(ctx, systemAndUserMessages(systemPrompt, userPrompt), enableThinking || c.enableThinking)
 		reqBody.Stream = true
 		reqBody.StreamOptions = &OpenAIStreamOptions{IncludeUsage: true}
 		if piggyback {
@@ -964,14 +948,7 @@ func (c *OpenAICompatClient) CompleteWithTools(ctx context.Context, systemPrompt
 	if err := c.admit(ctx, systemPrompt, userTurn(userPrompt), tools); err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(systemPrompt) == "" {
-		systemPrompt = defaultSystemPrompt
-	}
-
-	messages := []OpenAIMessage{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: userPrompt},
-	}
+	messages := systemAndUserMessages(systemPrompt, userPrompt)
 	if err := c.validateMetaTools(tools, messages); err != nil {
 		return nil, err
 	}

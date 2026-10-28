@@ -33,6 +33,9 @@ type TaxonomyEngine struct {
 	// so a one-shot load is correct.
 	schemasLoaded bool
 	regexCache    map[string]*regexp.Regexp
+
+	// rolePrompts compiles the learning critic's system prompt.
+	rolePrompts types.RolePromptCompiler
 }
 
 // taxonomySchemaFiles returns the ordered list of embedded schema/logic files

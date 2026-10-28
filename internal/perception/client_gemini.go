@@ -478,10 +478,6 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 	cachedContent := c.cachedContentName
 	c.mu.Unlock()
 
-	if strings.TrimSpace(systemPrompt) == "" {
-		systemPrompt = defaultSystemPrompt
-	}
-
 	// If using cached content, we generally shouldn't send system instructions again
 	// if they were part of the cache. For now, we'll leave it as is,
 	// assuming the API handles overrides or the user knows what they are doing.
@@ -500,9 +496,7 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 				Parts: []GeminiPart{{Text: userPrompt}},
 			},
 		},
-		SystemInstruction: &GeminiContent{
-			Parts: []GeminiPart{{Text: systemPrompt}},
-		},
+		SystemInstruction: geminiSystemInstruction(systemPrompt),
 		GenerationConfig: GeminiGenerationConfig{
 			Temperature:     types.TemperatureFor(ctx, 1.0),
 			MaxOutputTokens: c.maxOutputTokens,
@@ -770,10 +764,6 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 		}
 	}
 
-	if strings.TrimSpace(systemPrompt) == "" {
-		systemPrompt = defaultSystemPrompt
-	}
-
 	// Rate limiting
 	c.rateLimit()
 
@@ -784,9 +774,7 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 				Parts: []GeminiPart{{Text: userPrompt}},
 			},
 		},
-		SystemInstruction: &GeminiContent{
-			Parts: []GeminiPart{{Text: systemPrompt}},
-		},
+		SystemInstruction: geminiSystemInstruction(systemPrompt),
 		GenerationConfig: GeminiGenerationConfig{
 			Temperature:      types.TemperatureFor(ctx, 1.0),
 			MaxOutputTokens:  c.maxOutputTokens,

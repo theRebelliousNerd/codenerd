@@ -88,16 +88,9 @@ func (c *Client) CompleteWithSystem(ctx context.Context, systemPrompt, userPromp
 	logging.PerceptionDebug("[XAI-OAuth] CompleteWithSystem: model=%s system_len=%d user_len=%d",
 		c.cfg.Model, len(systemPrompt), len(userPrompt))
 
-	if strings.TrimSpace(systemPrompt) == "" {
-		systemPrompt = "You are codeNERD. Respond in English. Be concise. When summarizing code, ground answers only in provided text."
-	}
-
 	c.rateLimitPace()
 
-	messages := []chatMessage{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: userPrompt},
-	}
+	messages := systemAndUserChatMessages(systemPrompt, userPrompt)
 
 	text, err := c.chatOnce(ctx, c.cfg.Model, messages, nil)
 	if err != nil {

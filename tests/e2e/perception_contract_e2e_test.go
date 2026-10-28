@@ -151,7 +151,7 @@ func TestE2E_Perception_ReadOnlySecurityReview(t *testing.T) {
 		t.Fatalf("Failed to create kernel: %v", err)
 	}
 
-	tr := perception.NewUnderstandingTransducer(mockClient)
+	tr := newPerceptionTransducer(t, mockClient)
 	// Wire kernel for routing derivation
 	if ut, ok := tr.(*perception.UnderstandingTransducer); ok {
 		ut.SetKernel(kernel)
@@ -293,7 +293,7 @@ func TestE2E_Perception_RoutingFactIsolationBetweenTurns(t *testing.T) {
 		t.Fatalf("Failed to create kernel: %v", err)
 	}
 
-	tr := perception.NewUnderstandingTransducer(mockClient)
+	tr := newPerceptionTransducer(t, mockClient)
 	if ut, ok := tr.(*perception.UnderstandingTransducer); ok {
 		ut.SetKernel(kernel)
 	}
@@ -392,7 +392,7 @@ func TestE2E_Perception_PromptConstruction_AmbientContext(t *testing.T) {
 		t.Fatalf("Failed to create kernel: %v", err)
 	}
 
-	tr := perception.NewUnderstandingTransducer(mockClient)
+	tr := newPerceptionTransducer(t, mockClient)
 	if ut, ok := tr.(*perception.UnderstandingTransducer); ok {
 		ut.SetKernel(kernel)
 		ut.SetStrategicContext("This project uses the Mangle deductive engine for safety.")
@@ -507,7 +507,7 @@ func TestE2E_Perception_HypotheticalForcesDreamMode(t *testing.T) {
 		t.Fatalf("Failed to create kernel: %v", err)
 	}
 
-	tr := perception.NewUnderstandingTransducer(mockClient)
+	tr := newPerceptionTransducer(t, mockClient)
 	if ut, ok := tr.(*perception.UnderstandingTransducer); ok {
 		ut.SetKernel(kernel)
 	}
@@ -593,7 +593,7 @@ func TestE2E_Perception_RememberForgetMemoryOperations(t *testing.T) {
 	}`
 
 	mockClient := newPCEMockClient(rememberResp, forgetResp)
-	tr := perception.NewUnderstandingTransducer(mockClient)
+	tr := newPerceptionTransducer(t, mockClient)
 	ctx := context.Background()
 
 	// --- Remember ---
