@@ -490,9 +490,23 @@ func DefaultStyles() Styles {
 //go:embed logo.txt
 var logoArt string
 
-// Logo returns the codeNERD ASCII logo
+// logoNerdColumn is the rune column where NERD starts in logo.txt: the
+// brand is codeNERD, so "code" renders in the secondary color and "NERD" in
+// the primary one. TestLogoArt pins the grid this depends on.
+const logoNerdColumn = 38
+
+// Logo returns the codeNERD block logo.
 func Logo(s Styles) string {
-	return s.Text.Title.Foreground(s.Theme.Primary()).Render(logoArt)
+	code := s.Text.Title.Foreground(s.Theme.Secondary())
+	nerd := s.Text.Title.Foreground(s.Theme.Primary())
+	lines := strings.Split(strings.TrimRight(logoArt, "\n"), "\n")
+	out := make([]string, len(lines))
+	for i, line := range lines {
+		runes := []rune(line)
+		split := min(logoNerdColumn, len(runes))
+		out[i] = code.Render(string(runes[:split])) + nerd.Render(string(runes[split:]))
+	}
+	return strings.Join(out, "\n")
 }
 
 // Divider returns a horizontal divider

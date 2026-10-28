@@ -1518,7 +1518,7 @@ func TestOnboardingWizardState(t *testing.T) {
 // The boot screen's title is the embedded ASCII logo when the terminal has
 // room for it, and the one-line title when it does not.
 func TestRenderBootScreen_LogoWhenItFits(t *testing.T) {
-	logoLine := `| (__/ _ \/ _`
+	logoLine := "██╔═══██╗"
 
 	roomy := NewTestModel(WithSize(100, 50))
 	roomy.isBooting = true

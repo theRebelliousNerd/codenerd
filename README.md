@@ -1,21 +1,19 @@
 <div align="center">
 
 ```
- ▄████████  ▄██████▄  ████████▄     ▄████████ ███▄▄▄▄      ▄████████    ▄████████ ████████▄
-███    ███ ███    ███ ███   ▀███   ███    ███ ███▀▀▀██▄   ███    ███   ███    ███ ███   ▀███
-███    █▀  ███    ███ ███    ███   ███    █▀  ███   ███   ███    █▀    ███    ███ ███    ███
-███        ███    ███ ███    ███  ▄███▄▄▄     ███   ███  ▄███▄▄▄      ▄███▄▄▄▄██▀ ███    ███
-███        ███    ███ ███    ███ ▀▀███▀▀▀     ███   ███ ▀▀███▀▀▀     ▀▀███▀▀▀▀▀   ███    ███
-███    █▄  ███    ███ ███    ███   ███    █▄  ███   ███   ███    █▄  ▀███████████ ███    ███
-███    ███ ███    ███ ███   ▄███   ███    ███ ███   ███   ███    ███   ███    ███ ███   ▄███
-████████▀   ▀██████▀  ████████▀    ██████████  ▀█   █▀    ██████████   ███    ███ ████████▀
-                                                                       ███    ███
-            ─────────────  the model imagines  ·  the kernel decides  ─────────────
+ ██████╗  ██████╗  ██████╗  ███████╗  ███╗   ██╗ ███████╗ ██████╗  ██████╗
+██╔════╝ ██╔═══██╗ ██╔══██╗ ██╔════╝  ████╗  ██║ ██╔════╝ ██╔══██╗ ██╔══██╗
+██║      ██║   ██║ ██║  ██║ █████╗    ██╔██╗ ██║ █████╗   ██████╔╝ ██║  ██║
+██║      ██║   ██║ ██║  ██║ ██╔══╝    ██║╚██╗██║ ██╔══╝   ██╔══██╗ ██║  ██║
+╚██████╗ ╚██████╔╝ ██████╔╝ ███████╗  ██║ ╚████║ ███████╗ ██║  ██║ ██████╔╝
+ ╚═════╝  ╚═════╝  ╚═════╝  ╚══════╝  ╚═╝  ╚═══╝ ╚══════╝ ╚═╝  ╚═╝ ╚═════╝
+
+──────────────── the model imagines  ·  the kernel decides ────────────────
 ```
 
 ## Logic determines reality. The model merely describes it.
 
-[![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.27.3+-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
 [![Kernel](https://img.shields.io/badge/Executive-Google_Mangle-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://github.com/google/mangle)
 [![Paradigm](https://img.shields.io/badge/Neuro--Symbolic-8B5CF6?style=for-the-badge)](#part-ii--the-inversion)
 [![Status](https://img.shields.io/badge/Status-Experimental-F59E0B?style=for-the-badge)](#part-vii--where-it-stands)

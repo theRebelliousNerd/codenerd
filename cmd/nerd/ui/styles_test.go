@@ -67,3 +67,21 @@ func TestLogo(t *testing.T) {
 		t.Errorf("Logo() expected multiple lines, got %d", strings.Count(logo, "\n"))
 	}
 }
+
+// TestLogoArt pins the logo's grid: six rows, nothing wider than 80 columns,
+// and a blank gap where "code" ends and "NERD" begins.
+func TestLogoArt(t *testing.T) {
+	lines := strings.Split(strings.TrimRight(logoArt, "\n"), "\n")
+	if len(lines) != 6 {
+		t.Fatalf("logo has %d rows, want 6", len(lines))
+	}
+	for i, line := range lines {
+		runes := []rune(line)
+		if len(runes) > 80 {
+			t.Errorf("row %d is %d columns, want <= 80", i, len(runes))
+		}
+		if len(runes) > logoNerdColumn && (runes[logoNerdColumn-1] != ' ' || runes[logoNerdColumn-2] != ' ') {
+			t.Errorf("row %d has no gap before column %d: %q", i, logoNerdColumn, string(runes))
+		}
+	}
+}
