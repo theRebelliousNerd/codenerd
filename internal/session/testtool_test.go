@@ -34,9 +34,22 @@ func registerTestTool(t *testing.T, tool *tools.Tool) {
 	if tool == nil {
 		t.Fatal("registerTestTool: nil tool")
 	}
+	// The test owns the name for its duration: a tool already registered
+	// under it (another test's production registration, a boot path) is set
+	// aside and restored at cleanup, so the result does not depend on which
+	// test ran first in the process.
+	name := tool.Name
+	original := tools.Global().Get(name)
+	if original != nil {
+		tools.Global().Unregister(name)
+	}
 	if err := tools.Global().Register(tool); err != nil {
 		t.Fatalf("register test tool %q: %v", tool.Name, err)
 	}
-	name := tool.Name
-	t.Cleanup(func() { tools.Global().Unregister(name) })
+	t.Cleanup(func() {
+		tools.Global().Unregister(name)
+		if original != nil {
+			_ = tools.Global().Register(original)
+		}
+	})
 }
