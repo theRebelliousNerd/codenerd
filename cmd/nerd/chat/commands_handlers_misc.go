@@ -7,6 +7,7 @@ import (
 
 	"codenerd/internal/logging"
 	"codenerd/internal/transparency"
+	"codenerd/internal/types"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -399,13 +400,13 @@ func (m Model) handleCmdBrowser(input string, parts []string) (tea.Model, tea.Cm
 				if url == "" {
 					url = "-"
 				} else {
-					url = browserTruncate(url, 60)
+					url = types.Ellipsize(url, 60)
 				}
 				title := s.Title
 				if title == "" {
 					title = "-"
 				} else {
-					title = browserTruncate(title, 40)
+					title = types.Ellipsize(title, 40)
 				}
 				age := "unknown"
 				if !s.LastActive.IsZero() {
@@ -421,14 +422,4 @@ func (m Model) handleCmdBrowser(input string, parts []string) (tea.Model, tea.Cm
 	m.viewport.GotoBottom()
 	m.textarea.Reset()
 	return m, nil
-}
-
-func browserTruncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
 }

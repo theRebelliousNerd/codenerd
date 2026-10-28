@@ -9,6 +9,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"codenerd/internal/types"
 	"codenerd/internal/usage"
 
 	"github.com/spf13/cobra"
@@ -137,7 +138,7 @@ func renderUsageGroup(out *os.File, title string, data map[string]usage.TokenCou
 	for _, k := range shown {
 		c := data[k]
 		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n",
-			truncateName(k, 32), humanInt(c.Input), humanInt(c.Output), humanInt(c.Total), formatUSD(c.Cost))
+			types.Ellipsize(k, 32), humanInt(c.Input), humanInt(c.Output), humanInt(c.Total), formatUSD(c.Cost))
 	}
 	w.Flush()
 	if dropped := len(keys) - len(shown); dropped > 0 {
@@ -169,9 +170,9 @@ func renderUsageEvents(out io.Writer, events []usage.UsageEvent) {
 			shard = ev.ShardType
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			ev.Timestamp.Local().Format("2006-01-02 15:04:05"), truncateName(ev.Model, 32), ev.Provider,
+			ev.Timestamp.Local().Format("2006-01-02 15:04:05"), types.Ellipsize(ev.Model, 32), ev.Provider,
 			humanInt(int64(ev.InputTokens)), humanInt(int64(ev.OutputTokens)), formatUSD(ev.CostUSD),
-			truncateName(shard, 24), ev.OperationType)
+			types.Ellipsize(shard, 24), ev.OperationType)
 	}
 	w.Flush()
 }
@@ -206,16 +207,6 @@ func humanInt(n int64) string {
 		return "-" + b.String()
 	}
 	return b.String()
-}
-
-func truncateName(s string, limit int) string {
-	if len(s) <= limit {
-		return s
-	}
-	if limit <= 3 {
-		return s[:limit]
-	}
-	return s[:limit-3] + "..."
 }
 
 func init() {

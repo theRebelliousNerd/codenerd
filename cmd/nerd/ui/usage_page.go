@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"codenerd/internal/types"
 	"codenerd/internal/usage"
 	"fmt"
 	"sort"
@@ -90,7 +91,7 @@ func (m *UsagePageModel) UpdateContent() {
 		for _, k := range keys {
 			c := data[k]
 			t.AddRow(
-				truncate(k, 20),
+				types.Ellipsize(k, 20),
 				fmt.Sprintf("%d", c.Input),
 				fmt.Sprintf("%d", c.Output),
 				fmt.Sprintf("%d", c.Total),
@@ -121,13 +122,6 @@ func formatCost(cost float64) string {
 	default:
 		return fmt.Sprintf("$%.2f", cost)
 	}
-}
-
-func truncate(s string, l int) string {
-	if len(s) > l {
-		return s[:l-3] + "..."
-	}
-	return s
 }
 
 // Update handles messages.

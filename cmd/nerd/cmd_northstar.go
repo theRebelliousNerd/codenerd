@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"codenerd/internal/northstar"
+	"codenerd/internal/types"
 
 	"github.com/spf13/cobra"
 )
@@ -711,11 +712,7 @@ func sortedKeys(m map[string]int) []string {
 }
 
 func truncateForCLI(s string, maxLen int) string {
-	s = strings.ReplaceAll(strings.TrimSpace(s), "\n", " ")
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "…"
+	return types.Ellipsize(strings.ReplaceAll(strings.TrimSpace(s), "\n", " "), maxLen)
 }
 
 // generateNorthstarMarkdown creates a markdown document from the vision.

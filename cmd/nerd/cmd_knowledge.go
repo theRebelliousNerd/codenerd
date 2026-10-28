@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	coresys "codenerd/internal/system"
+	"codenerd/internal/types"
 
 	"github.com/spf13/cobra"
 )
@@ -90,10 +91,10 @@ func runKnowledgeList(cmd *cobra.Command, args []string) error {
 		if concept == "" {
 			// Corpus atoms carry their subject in the content, not always in a
 			// concept tag; showing "(unknown)" for all of them hides the entry.
-			concept = truncateStr(strings.TrimSpace(strings.ReplaceAll(atom.Content, "\n", " ")), 48)
+			concept = types.Ellipsize(strings.TrimSpace(strings.ReplaceAll(atom.Content, "\n", " ")), 48)
 		}
 		created := atom.CreatedAt.Format("2006-01-02 15:04")
-		fmt.Printf("%2d. %-50s  %s\n", i+1, truncateStr(concept, 50), created)
+		fmt.Printf("%2d. %-50s  %s\n", i+1, types.Ellipsize(concept, 50), created)
 	}
 
 	fmt.Println(strings.Repeat("─", 60))
@@ -149,14 +150,6 @@ func runKnowledgeSearch(cmd *cobra.Command, args []string) error {
 // it here would silently drop the answer the search just found.
 func formatKnowledgeSearchHit(i int, concept, content string) string {
 	return fmt.Sprintf("\n### %d. %s\n%s\n%s", i, concept, strings.Repeat("─", 40), content)
-}
-
-// truncateStr truncates a string with ellipsis
-func truncateStr(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max-3] + "..."
 }
 
 func init() {
