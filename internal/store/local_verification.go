@@ -12,59 +12,61 @@ import (
 // =============================================================================
 
 // VerificationRecord represents a stored verification attempt.
+//
+// Success and Reason are the kernel's disposition of the attempt. The Judge*
+// fields are the judge's own judgment beside it, unedited: the contract its
+// reply was held to, the status it claimed, the status the host stood behind
+// after grounding it in the evidence packet ("unavailable" when no judgment
+// could be had), and its explanation. Until 2026-10-27 only the disposition
+// was kept, under a reason the verifier had rewritten, so a calibration
+// reader could not recover what the judge actually said.
 type VerificationRecord struct {
-	ID             int64
-	SessionID      string
-	TurnNumber     int
-	Task           string
-	ShardType      string
-	AttemptNumber  int
-	Success        bool
-	Confidence     float64
-	Reason         string
-	ViolationsJSON string
-	CorrectiveJSON string
-	EvidenceJSON   string
-	ResultHash     string
-	CreatedAt      time.Time
+	ID               int64
+	SessionID        string
+	TurnNumber       int
+	Task             string
+	ShardType        string
+	AttemptNumber    int
+	Success          bool
+	Confidence       float64
+	Reason           string
+	ViolationsJSON   string
+	CorrectiveJSON   string
+	EvidenceJSON     string
+	ResultHash       string
+	JudgeContract    string
+	JudgeClaimed     string
+	JudgeStatus      string
+	JudgeExplanation string
+	CreatedAt        time.Time
 }
 
 // StoreVerification records a verification attempt for learning.
-func (s *LocalStore) StoreVerification(
-	sessionID string,
-	turnNumber int,
-	task string,
-	shardType string,
-	attemptNumber int,
-	success bool,
-	confidence float64,
-	reason string,
-	violationsJSON string,
-	correctiveJSON string,
-	evidenceJSON string,
-	resultHash string,
-) error {
+func (s *LocalStore) StoreVerification(rec VerificationRecord) error {
 	timer := logging.StartTimer(logging.CategoryStore, "StoreVerification")
 	defer timer.Stop()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	logging.StoreDebug("Storing verification: session=%s turn=%d shard=%s attempt=%d success=%v confidence=%.2f",
-		sessionID, turnNumber, shardType, attemptNumber, success, confidence)
+	logging.StoreDebug("Storing verification: session=%s turn=%d shard=%s attempt=%d success=%v judge=%s confidence=%.2f",
+		rec.SessionID, rec.TurnNumber, rec.ShardType, rec.AttemptNumber, rec.Success, rec.JudgeStatus, rec.Confidence)
 
 	_, err := s.db.Exec(
 		`INSERT INTO task_verifications
-		 (session_id, turn_number, task, shard_type, attempt_number, success, confidence, reason, quality_violations, corrective_action, evidence, result_hash)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		sessionID, turnNumber, task, shardType, attemptNumber, success, confidence, reason, violationsJSON, correctiveJSON, evidenceJSON, resultHash,
+		 (session_id, turn_number, task, shard_type, attempt_number, success, confidence, reason, quality_violations, corrective_action, evidence, result_hash,
+		  judge_contract, judge_claimed, judge_status, judge_explanation)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		rec.SessionID, rec.TurnNumber, rec.Task, rec.ShardType, rec.AttemptNumber, rec.Success, rec.Confidence, rec.Reason,
+		rec.ViolationsJSON, rec.CorrectiveJSON, rec.EvidenceJSON, rec.ResultHash,
+		rec.JudgeContract, rec.JudgeClaimed, rec.JudgeStatus, rec.JudgeExplanation,
 	)
 	if err != nil {
-		logging.Get(logging.CategoryStore).Error("Failed to store verification: session=%s turn=%d: %v", sessionID, turnNumber, err)
+		logging.Get(logging.CategoryStore).Error("Failed to store verification: session=%s turn=%d: %v", rec.SessionID, rec.TurnNumber, err)
 		return err
 	}
 
-	logging.StoreDebug("Verification stored: session=%s turn=%d shard=%s success=%v", sessionID, turnNumber, shardType, success)
+	logging.StoreDebug("Verification stored: session=%s turn=%d shard=%s success=%v", rec.SessionID, rec.TurnNumber, rec.ShardType, rec.Success)
 	return nil
 }
 
@@ -83,7 +85,8 @@ func (s *LocalStore) GetVerificationHistory(sessionID string, limit int) ([]Veri
 	logging.StoreDebug("Retrieving verification history: session=%s limit=%d", sessionID, limit)
 
 	rows, err := s.db.Query(
-		`SELECT id, session_id, turn_number, task, shard_type, attempt_number, success, confidence, reason, quality_violations, corrective_action, evidence, result_hash, created_at
+		`SELECT id, session_id, turn_number, task, shard_type, attempt_number, success, confidence, reason, quality_violations, corrective_action, evidence, result_hash,
+		        COALESCE(judge_contract, ''), COALESCE(judge_claimed, ''), COALESCE(judge_status, ''), COALESCE(judge_explanation, ''), created_at
 		 FROM task_verifications
 		 WHERE session_id = ?
 		 ORDER BY created_at DESC
@@ -102,7 +105,8 @@ func (s *LocalStore) GetVerificationHistory(sessionID string, limit int) ([]Veri
 		if err := rows.Scan(
 			&rec.ID, &rec.SessionID, &rec.TurnNumber, &rec.Task, &rec.ShardType,
 			&rec.AttemptNumber, &rec.Success, &rec.Confidence, &rec.Reason,
-			&rec.ViolationsJSON, &rec.CorrectiveJSON, &rec.EvidenceJSON, &rec.ResultHash, &rec.CreatedAt,
+			&rec.ViolationsJSON, &rec.CorrectiveJSON, &rec.EvidenceJSON, &rec.ResultHash,
+			&rec.JudgeContract, &rec.JudgeClaimed, &rec.JudgeStatus, &rec.JudgeExplanation, &rec.CreatedAt,
 		); err != nil {
 			continue
 		}

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/evidence"
 	"codenerd/internal/observation"
 )
 
@@ -157,5 +158,22 @@ func TestObservedReturn_OwnPassOverRedImporters_IsNotTestsOK(t *testing.T) {
 	got = observedReturn("coder", "task", res)
 	if got.Tests == nil || !got.Tests.OK || got.Tests.Outcome != string(VerifyPassed) {
 		t.Fatalf("own pass and importer pass must be tests OK, got %+v", got.Tests)
+	}
+}
+
+// The closing evidence's snapshot crosses the boundary, so a consumer handing
+// the evidence on (the delegation judge) can say which revision it describes:
+// a verified acceptance report's, else the gates' green snapshot, else none.
+func TestObservedReturn_CarriesTheClosingSnapshot(t *testing.T) {
+	if got := observedReturn("coder", "t", &ExecutionResult{ChecksSnapshot: "gates"}).Snapshot; got != "gates" {
+		t.Fatalf("snapshot = %q, want the gates' snapshot", got)
+	}
+	verified := &ExecutionResult{ChecksSnapshot: "gates", Acceptance: &evidence.Report{Status: "verified", After: "accepted"}}
+	if got := observedReturn("coder", "t", verified).Snapshot; got != "accepted" {
+		t.Fatalf("snapshot = %q, want the verified acceptance report's", got)
+	}
+	stale := &ExecutionResult{Acceptance: &evidence.Report{Status: "unverified", After: "stale"}}
+	if got := observedReturn("coder", "t", stale).Snapshot; got != "" {
+		t.Fatalf("snapshot = %q, want none: an unverified report's snapshot binds nothing", got)
 	}
 }

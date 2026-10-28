@@ -366,14 +366,54 @@ delegation_judge_rubric(Root, /implementation) :-
     delegation_request(Root, Persona, Cap),
     !analysis_persona(Persona).
 
+# The judge's verdict is asserted only after the host held its reply to the
+# judge/v2 contract and grounded it in the attempt's frozen evidence packet
+# (internal/verification/judge_contract.go): /pass, /defect (cited evidence the
+# packet still supports), or /insufficient_evidence (including a defect whose
+# citations resolved to nothing, and a bare suspicion). A reply that broke the
+# contract never becomes a verdict: the judge was unavailable, and the
+# delegation fails closed without re-running the worker. Until 2026-10-27 the
+# verdict was /pass or /fail from an unvalidated reply, so "{}" was a failure
+# at confidence 0 and an omitted confidence a genuine one.
+config_param_required(/delegation, /delegation_judge_evidence_rounds).
+
 judge_rejects(Root, A) :-
-    judge_verdict(Root, A, /fail, Confidence),
+    judge_verdict(Root, A, /defect, Confidence),
     config_param(/delegation_judge_reject_confidence, Min),
     Confidence >= Min.
 
+# The judge could not settle the attempt from the evidence. That is the
+# judge's limit, not the worker's defect: it is never a retry.
+judge_unresolved(Root, A) :-
+    judge_verdict(Root, A, /insufficient_evidence, Confidence).
+
+# A further round over the same frozen packet, supplying the evidence the
+# judge requested (judge_evidence_requested: the host found it can expand at
+# least one requested item), while the rounds used are within
+# delegation.judge_evidence_rounds. judge_round(Root, A, R) is each round the
+# judge was asked, from 1.
+judge_last_round(Root, A, Last) :-
+    judge_round(Root, A, R)
+    |> do fn:group_by(Root, A), let Last = fn:max(R).
+
+judge_may_acquire(Root, A) :-
+    judge_unresolved(Root, A),
+    judge_evidence_requested(Root, A),
+    judge_last_round(Root, A, Last),
+    config_param(/delegation_judge_evidence_rounds, Rounds),
+    Last <= Rounds.
+
 delegation_attempt_accepted(Root, A) :-
     delegation_attempt(Root, A, /done),
-    !judge_rejects(Root, A).
+    !judge_rejects(Root, A),
+    !judge_unresolved(Root, A).
+
+# Not accepted for a reason the worker owns: its turn did not end /done, or
+# the judge grounded a defect at the threshold.
+delegation_attempt_failed(Root, A) :-
+    delegation_attempt(Root, A, Outcome),
+    !delegation_attempt_accepted(Root, A),
+    !judge_unresolved(Root, A).
 
 delegation_attempt_count(Root, N) :-
     delegation_attempt(Root, A, Outcome)
@@ -383,18 +423,26 @@ delegation_move(Root, A, /accept) :-
     delegation_attempt_accepted(Root, A).
 
 delegation_move(Root, A, /retry) :-
-    delegation_attempt(Root, A, Outcome),
-    !delegation_attempt_accepted(Root, A),
+    delegation_attempt_failed(Root, A),
     delegation_attempt_count(Root, N),
     delegation_request(Root, Persona, Cap),
     N < Cap.
 
 delegation_move(Root, A, /escalate) :-
-    delegation_attempt(Root, A, Outcome),
-    !delegation_attempt_accepted(Root, A),
+    delegation_attempt_failed(Root, A),
     delegation_attempt_count(Root, N),
     delegation_request(Root, Persona, Cap),
     N >= Cap.
+
+delegation_move(Root, A, /acquire_evidence) :-
+    judge_may_acquire(Root, A).
+
+# Out of evidence rounds, or nothing requested the host can supply: the
+# attempt cannot be verified. Unknown is never accepted, and the worker is
+# not paid to repair the judge.
+delegation_move(Root, A, /unverifiable) :-
+    judge_unresolved(Root, A),
+    !judge_may_acquire(Root, A).
 
 # ONE PERSONA -> VERB TABLE (sweep finding F6). A persona name ("coder", or
 # "/coder" from a delegate_task fact) becomes the verb its turn runs, and the

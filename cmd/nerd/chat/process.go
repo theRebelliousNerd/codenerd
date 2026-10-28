@@ -480,7 +480,7 @@ func (m Model) processInput(input string) tea.Cmd {
 					Task:        task,
 					Persona:     shardType,
 					MaxAttempts: m.shardMaxRetries(shardType),
-					Params:      m.Config.GetDelegationConfig().Params(),
+					Config:      m.Config.GetDelegationConfig(),
 					// The blackboard and priority the unverified path uses.
 					SessionContext: sessionCtx,
 					Priority:       types.PriorityHigh,
@@ -511,7 +511,7 @@ func (m Model) processInput(input string) tea.Cmd {
 					}
 					return errorMsg(fmt.Errorf("verified execution failed: %w", verifyErr))
 				}
-				if verdict == nil || !verdict.Success {
+				if verdict == nil || !verdict.Accepted {
 					response := formatUnverifiedDelegationResponse(intent, shardType, "the verifier returned no successful verdict", true)
 					return assistantMsg{
 						Surface:     m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)),

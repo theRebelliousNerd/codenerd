@@ -1,7 +1,7 @@
 ---
 doc-class: deep-dive
 subsystem: verification
-implementation-status: planned
+implementation-status: partial
 last-verified: 2026-10-27
 verified-against: e16f5a3ac94e9b5887039bb5ce96832dfcf5b74a
 supersedes: []
@@ -188,3 +188,22 @@ Before implementation, reconcile these findings into the verification/observatio
 
 No code or tests were changed by this document.
 
+
+## As built (2026-10-27)
+
+**Implemented:**
+
+- Reply contract `judge/v2`: `parseJudgment`, `rejectDuplicateKeys`, `Judgment`, `JudgeStatus` (`internal/verification/judge_contract.go`). The reply must be a single non-null object with no unknown or duplicate keys and no trailing value. `contract`, `status`, `confidence` and `explanation` are required, and presence is tracked apart from zero. Confidence must be in [0,1] and is refused rather than clamped. Violation and corrective types must be known. Contradictory combinations are refused, and so is a reply over `delegation.judge_reply_bytes`. A broken reply fails the delegation closed and the worker is never rerun.
+- Evidence packet: `buildEvidencePacket`, `EvidencePacket`, `EvidenceItem` (`internal/verification/evidence_packet.go`). The packet holds the kernel verdict and missing obligations, stage, acceptance, each check with its own source, changed files as bounded diffs with before/after sha256 identities, findings, untested paths, notes, and the worker narrative labelled `reported`. It is bounded by `delegation.judge_evidence_bytes`. `observation.Return.Snapshot` now carries the closing evidence snapshot (`observedReturn`).
+- Grounding: `Judgment.ground` resolves citations against the frozen packet and checks file freshness. A defect with no usable citation, or one that only labels a suspicion, becomes `insufficient_evidence`; `Claimed` and `Downgraded` keep what the judge said.
+- Decision/retry algorithm in policy (`delegation.mg`): `judge_verdict` is /pass, /defect or /insufficient_evidence. New moves are `/acquire_evidence` (`judge_may_acquire`, bounded by `delegation.judge_evidence_rounds`; the host expands the requested elided items over the same packet) and `/unverifiable` (fail closed, no worker rerun). `delegation_attempt_failed` keeps judge limits out of retry/escalate. `TaskVerifier.judge` runs the rounds. A retry carries the grounded defect and the cited evidence IDs (`retryTask`, `VerificationResult.CitedEvidence`).
+- Raw judgment vs disposition: `VerificationResult{Accepted, Reason, Judgment, Evidence}`, so the judgment is never edited. `task_verifications` gains `judge_contract`, `judge_claimed`, `judge_status` and `judge_explanation` (migration plus schema), and `StoreVerification` takes a `VerificationRecord`.
+- JIT atoms `eval/delegation_judge/*` teach the packet and contract. The shipped prompt-corpus seed was refreshed for both atoms; their embeddings are null until re-embedded.
+
+**Ruled differently:**
+
+- The judge's evidence requests are limited to the packet's elided items (full post-change content of a changed file, re-checked fresh at expansion). No arbitrary path reads: anything else would need a new permission path.
+- `CorrectiveAction.ShardHint` was removed, so a reply naming a shard is refused: who retries belongs to the persona, not the judge (F5).
+- A defect citing only the worker's narrative is grounded. It is packet evidence, labelled reported, and for the review rubric it is the very thing being judged.
+
+**Deferred:** toolchain/config/environment identities per check receipt (the observed `Verification` carries none, and none are invented), and the complete-system and calibration evaluation in section 6, which needs live models and held-out tasks. The cheap socket-level cases (empty/null/missing-field/duplicate/out-of-range replies, omitted vs genuine low confidence, stale citation after a concurrent edit, evidence acquisition) are implemented as tests in `internal/verification/*_test.go`.

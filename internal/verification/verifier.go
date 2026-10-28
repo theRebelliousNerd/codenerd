@@ -1,15 +1,19 @@
 // Package verification runs a chat delegation to its end: it spawns the
 // persona's turn, reads the turn's kernel verdict, has an LLM judge look at an
-// attempt the kernel called done, and asks the kernel what happens next
-// (delegation_move, policy/delegation.mg): accept, retry carrying why, or
-// escalate at the persona's cap. The kernel's verdict decides; the judge can
-// only withhold (sweep finding F5).
+// attempt the kernel called done -- over a host-built evidence packet, under a
+// reply contract -- and asks the kernel what happens next (delegation_move,
+// policy/delegation.mg): accept, retry carrying the grounded defect, escalate
+// at the persona's cap, ask the judge again with the evidence it requested, or
+// fail closed when the attempt cannot be verified. The kernel's verdict
+// decides; the judge can only withhold (sweep finding F5), and a judge that
+// fails is never repaired by re-running the worker.
 package verification
 
 import (
 	"codenerd/internal/broker"
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/observation"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/session"
@@ -21,6 +25,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -30,9 +36,10 @@ import (
 var ErrMaxRetriesExceeded = errors.New("max retries exceeded - escalating to user")
 
 // ErrVerificationUnavailable is returned when verification itself could not
-// run (LLM failure, timeout, malformed judgment, missing client). It is a
-// fail-closed signal: the shard result is NOT verified and must not be
-// treated as a success. Callers should use errors.Is to detect it.
+// run or could not settle the attempt (LLM failure, a reply that broke the
+// judge contract, missing client, evidence the judge could not get). It is a
+// fail-closed signal: the shard result is NOT verified and must not be treated
+// as a success. Callers should use errors.Is to detect it.
 var ErrVerificationUnavailable = errors.New("verification unavailable")
 
 // QualityViolation represents a type of corner-cutting detected in code.
@@ -62,22 +69,30 @@ const (
 )
 
 // CorrectiveAction is the judge's suggested next step for a failed attempt.
+// It names no shard: who retries is the persona's, not the judge's (F5).
 type CorrectiveAction struct {
-	Type      CorrectiveType `json:"type"`
-	Query     string         `json:"query"`
-	Reason    string         `json:"reason"`
-	ShardHint string         `json:"shard_hint,omitempty"` // Suggested shard to use
+	Type   CorrectiveType `json:"type"`
+	Query  string         `json:"query"`
+	Reason string         `json:"reason"`
 }
 
-// VerificationResult contains the outcome of verifying a task result.
+// VerificationResult is how a delegation ended: the kernel's disposition of
+// its last attempt and, separately, the judge's own judgment of it.
+//
+// Until 2026-10-27 one struct was both: the verifier rewrote the judge's
+// reason and set Success over a below-threshold objection, so a reader of the
+// result could not tell the judge's word from the kernel's.
 type VerificationResult struct {
-	Success           bool               `json:"success"`
-	Confidence        float64            `json:"confidence"`
-	Reason            string             `json:"reason"`
-	Suggestions       []string           `json:"suggestions,omitempty"`
-	Evidence          []string           `json:"evidence,omitempty"`
-	QualityViolations []QualityViolation `json:"quality_violations,omitempty"`
-	CorrectiveAction  *CorrectiveAction  `json:"corrective_action,omitempty"`
+	// Accepted is the kernel's disposition (delegation_move /accept).
+	Accepted bool
+	// Reason is why, in the disposition's terms.
+	Reason string
+	// Judgment is the judge's host-validated, grounded judgment of the
+	// attempt, never edited by the disposition. Nil when no judge was due or
+	// none could be had.
+	Judgment *Judgment
+	// Evidence is the packet the judge was shown; a retry cites its items.
+	Evidence *EvidencePacket
 }
 
 // Kernel is what a delegation needs of the kernel: to assert its facts, ask
@@ -177,9 +192,9 @@ type Delegation struct {
 	// MaxAttempts is the persona's attempt cap,
 	// shard_profiles.<persona>.max_retries.
 	MaxAttempts int
-	// Params are the delegation section's thresholds
-	// (config.DelegationConfig.Params).
-	Params []config.Param
+	// Config is the delegation section: the thresholds the kernel decides
+	// with (Params) and the bounds on the judge's evidence and reply.
+	Config config.DelegationConfig
 	// SessionContext is what every attempt's turn is handed: the chat's
 	// blackboard for this delegation (prior shard results, the turn's
 	// context), the same one an unverified delegation runs with. Nil runs
@@ -192,17 +207,20 @@ type Delegation struct {
 
 // VerifyWithRetry runs a delegation to its end. Each attempt spawns the
 // persona's turn through the observed executor, so the turn's kernel verdict
-// comes back typed; that verdict, and the LLM judge's view of an attempt the
-// kernel called done, are asserted, and the kernel derives the move
-// (delegation_move): accept, retry with why the attempt was not accepted, or
-// escalate at the persona's cap (ErrMaxRetriesExceeded). The judge can only
-// withhold. A judge that cannot run fails the delegation closed
-// (ErrVerificationUnavailable): retrying cannot fix it.
+// and its evidence come back typed; that verdict, and the judge's grounded
+// judgment of an attempt the kernel called done, are asserted, and the kernel
+// derives the move (delegation_move): accept; retry carrying the grounded
+// defect; escalate at the persona's cap (ErrMaxRetriesExceeded); or, when the
+// judge cannot settle the attempt, fail closed (ErrVerificationUnavailable).
+// The judge can only withhold, and a judge that cannot run or broke its reply
+// contract fails the delegation closed: retrying the worker cannot fix it.
 //
 // Until 2026-09-23 the attempts went through the string-only executor, which
 // dropped the verdict, so a turn the kernel ended /unverified completed the
 // request on the judge's word; an LLM advisor picked who retried, and a retry
-// without a corrective action re-ran the task with no word of why.
+// without a corrective action re-ran the task with no word of why. Until
+// 2026-10-27 the judge read the task and the prose alone, and any JSON that
+// decoded was a judgment.
 func (v *TaskVerifier) VerifyWithRetry(ctx context.Context, d Delegation) (string, *VerificationResult, error) {
 	v.mu.RLock()
 	te, k := v.taskExecutor, v.kernel
@@ -217,7 +235,8 @@ func (v *TaskVerifier) VerifyWithRetry(ctx context.Context, d Delegation) (strin
 	if d.MaxAttempts < 1 {
 		return "", nil, fmt.Errorf("no attempt cap for %s: shard_profiles.%s.max_retries must be at least 1", d.Persona, d.Persona)
 	}
-	if err := config.EnsureParams(k, d.Params); err != nil {
+	d.Config = d.Config.WithDefaults()
+	if err := config.EnsureParams(k, d.Config.Params()); err != nil {
 		return "", nil, fmt.Errorf("assert the delegation thresholds: %w", err)
 	}
 
@@ -248,7 +267,7 @@ func (v *TaskVerifier) VerifyWithRetry(ctx context.Context, d Delegation) (strin
 			return ret.Output, nil, fmt.Errorf("assert attempt %d: %w", attempt, err)
 		}
 
-		verdict := turnVerdict(ret.Outcome, ret.Missing)
+		verdict := &VerificationResult{Reason: turnReason(ret.Outcome, ret.Missing)}
 		due, err := derivedFor(k, "delegation_judge_due", root, attempt)
 		if err != nil {
 			return ret.Output, verdict, err
@@ -258,20 +277,14 @@ func (v *TaskVerifier) VerifyWithRetry(ctx context.Context, d Delegation) (strin
 			if err != nil || len(rubric) != 1 {
 				return ret.Output, verdict, fmt.Errorf("the kernel derived %d judge rubrics for %s (%v)", len(rubric), root, err)
 			}
-			judged, jerr := v.verifyTask(ctx, d.Task, ret.Output, rubric[0])
+			judgment, packet, jerr := v.judge(ctx, k, root, attempt, d, ret, rubric[0])
+			verdict.Evidence = packet
 			if jerr != nil {
-				verdict = &VerificationResult{
-					Success:    false,
-					Confidence: 0,
-					Reason:     fmt.Sprintf("verification unavailable: %v", jerr),
-				}
-				v.storeVerification(d.Task, d.Persona, verdict, int(attempt-1), false)
+				verdict.Reason = fmt.Sprintf("verification unavailable: %v", jerr)
+				v.storeVerification(d, verdict, attempt, jerr)
 				return ret.Output, verdict, fmt.Errorf("shard result could not be verified (%v): %w", jerr, ErrVerificationUnavailable)
 			}
-			verdict = judged
-			if err := k.Assert(types.Fact{Predicate: "judge_verdict", Args: []any{root, attempt, judgeAtom(judged), percent(judged.Confidence)}}); err != nil {
-				return ret.Output, verdict, fmt.Errorf("assert the judgment of attempt %d: %w", attempt, err)
-			}
+			verdict.Judgment = judgment
 		}
 
 		moves, err := derivedFor(k, "delegation_move", root, attempt)
@@ -283,39 +296,137 @@ func (v *TaskVerifier) VerifyWithRetry(ctx context.Context, d Delegation) (strin
 		}
 		switch moves[0] {
 		case "/accept":
-			if !verdict.Success {
-				// The kernel accepted over a judge below
-				// delegation.judge_reject_confidence.
-				verdict.Reason = fmt.Sprintf("accepted: the turn ended /done; the judge's objection (%.0f%% confidence) is below delegation.judge_reject_confidence: %s", verdict.Confidence*100, verdict.Reason)
-				verdict.Success = true
-			}
-			v.storeVerification(d.Task, d.Persona, verdict, int(attempt-1), true)
+			verdict.Accepted = true
+			verdict.Reason = acceptReason(verdict)
+			v.storeVerification(d, verdict, attempt, nil)
 			return ret.Output, verdict, nil
 		case "/escalate":
-			v.storeVerification(d.Task, d.Persona, verdict, int(attempt-1), false)
+			verdict.Reason = rejectReason(verdict)
+			v.storeVerification(d, verdict, attempt, nil)
 			return ret.Output, verdict, ErrMaxRetriesExceeded
 		case "/retry":
-			v.storeVerification(d.Task, d.Persona, verdict, int(attempt-1), false)
+			verdict.Reason = rejectReason(verdict)
+			v.storeVerification(d, verdict, attempt, nil)
 			task = retryTask(d.Task, verdict)
+		case "/unverifiable":
+			verdict.Reason = unverifiableReason(verdict)
+			v.storeVerification(d, verdict, attempt, nil)
+			return ret.Output, verdict, fmt.Errorf("%s: %w", verdict.Reason, ErrVerificationUnavailable)
 		default:
 			return ret.Output, verdict, fmt.Errorf("the kernel derived an unknown move %s for %s", moves[0], root)
 		}
 	}
 }
 
-// turnVerdict is what the turn's kernel verdict says, before any judge.
-func turnVerdict(outcome string, missing []string) *VerificationResult {
-	if outcome == "/done" {
-		return &VerificationResult{Success: true, Confidence: 1, Reason: "the turn ended /done"}
+// judge asks the LLM judge about one done attempt, over the attempt's frozen
+// evidence packet, and asserts each round's grounded verdict. While the kernel
+// derives /acquire_evidence -- the judge asked for packet evidence the host
+// can supply, within delegation.judge_evidence_rounds -- it asks again with
+// that evidence expanded, over the same packet. A judge that cannot be had (no
+// client, a failed call, a reply that breaks the contract) is an error: the
+// caller fails closed, and the worker is not re-run for it.
+func (v *TaskVerifier) judge(ctx context.Context, k Kernel, root string, attempt int64, d Delegation, ret observation.Return, rubric string) (*Judgment, *EvidencePacket, error) {
+	packet := buildEvidencePacket(attempt, rubric, ret, *d.Config.JudgeEvidenceBytes)
+	if v.client == nil {
+		return nil, packet, ErrVerificationUnavailable
 	}
-	if outcome == "" {
-		return &VerificationResult{Reason: "the turn returned no verdict"}
+	systemPrompt, err := v.judgeSystemPrompt(ctx, rubric)
+	if err != nil {
+		return nil, packet, err
+	}
+	userPrompt := packet.render(d.Task)
+	for round := int64(1); ; round++ {
+		reply, err := v.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		if err != nil {
+			return nil, packet, fmt.Errorf("verification LLM call failed: %w", err)
+		}
+		judgment, err := parseJudgment(reply, *d.Config.JudgeReplyBytes)
+		if err != nil {
+			return nil, packet, fmt.Errorf("the judgment broke the %s contract: %w", JudgeContract, err)
+		}
+		judgment.ground(packet)
+		if err := assertJudgment(k, root, attempt, round, judgment); err != nil {
+			return nil, packet, err
+		}
+		moves, err := derivedFor(k, "delegation_move", root, attempt)
+		if err != nil {
+			return nil, packet, err
+		}
+		if !slices.Contains(moves, "/acquire_evidence") {
+			return judgment, packet, nil
+		}
+		userPrompt += "\n\n" + packet.expand(judgment.Expandable)
+	}
+}
+
+// assertJudgment asserts one judge round: the round, the grounded verdict
+// (replacing the previous round's), and whether it requested evidence the
+// host can supply.
+func assertJudgment(k Kernel, root string, attempt, round int64, j *Judgment) error {
+	for _, p := range []string{"judge_verdict", "judge_evidence_requested"} {
+		if err := k.RetractFact(types.Fact{Predicate: p, Args: []any{root}}); err != nil {
+			return fmt.Errorf("retract the previous round's %s: %w", p, err)
+		}
+	}
+	facts := []types.Fact{
+		{Predicate: "judge_round", Args: []any{root, attempt, round}},
+		{Predicate: "judge_verdict", Args: []any{root, attempt, types.MangleAtom(j.Status.Atom()), percent(j.Confidence)}},
+	}
+	if len(j.Expandable) > 0 {
+		facts = append(facts, types.Fact{Predicate: "judge_evidence_requested", Args: []any{root, attempt}})
+	}
+	for _, f := range facts {
+		if err := k.Assert(f); err != nil {
+			return fmt.Errorf("assert %s for attempt %d: %w", f.Predicate, attempt, err)
+		}
+	}
+	return nil
+}
+
+// turnReason is what the turn's kernel verdict says, before any judge.
+func turnReason(outcome string, missing []string) string {
+	switch outcome {
+	case "/done":
+		return "the turn ended /done"
+	case "":
+		return "the turn returned no verdict"
 	}
 	reason := "the turn ended " + outcome
 	if why := session.DescribeMissingEvidence(missing); why != "" {
 		reason += ": " + why
 	}
-	return &VerificationResult{Reason: reason}
+	return reason
+}
+
+// acceptReason says why the kernel accepted, naming an objection it stood
+// over. The judgment itself is left as the judge gave it.
+func acceptReason(r *VerificationResult) string {
+	if j := r.Judgment; j != nil && j.Status == JudgeDefect {
+		return fmt.Sprintf("accepted: the turn ended /done; the judge's grounded defect (%.0f%% confidence) is below delegation.judge_reject_confidence: %s", j.Confidence*100, j.Explanation)
+	}
+	return r.Reason
+}
+
+// rejectReason says why an attempt was not accepted: the judge's grounded
+// defect when it withheld a done turn, else the turn's own verdict.
+func rejectReason(r *VerificationResult) string {
+	if j := r.Judgment; j != nil && j.Status == JudgeDefect {
+		return fmt.Sprintf("the judge grounded a defect (%.0f%% confidence): %s", j.Confidence*100, j.Explanation)
+	}
+	return r.Reason
+}
+
+// unverifiableReason says why the judge could not settle the attempt.
+func unverifiableReason(r *VerificationResult) string {
+	j := r.Judgment
+	if j == nil {
+		return "unverifiable: the judge could not settle the attempt"
+	}
+	why := j.Explanation
+	if j.Downgraded != "" {
+		why = j.Downgraded + "; " + why
+	}
+	return "unverifiable: the judge had insufficient evidence: " + why
 }
 
 func outcomeAtom(outcome string) types.MangleAtom {
@@ -329,19 +440,10 @@ func personaAtom(persona string) types.MangleAtom {
 	return types.MangleAtom("/" + strings.TrimPrefix(strings.TrimSpace(persona), "/"))
 }
 
-// judgeAtom is the judge's verdict: a pass is a success with no quality
-// violation.
-func judgeAtom(judged *VerificationResult) types.MangleAtom {
-	if judged.Success && len(judged.QualityViolations) == 0 {
-		return types.MangleAtom("/pass")
-	}
-	return types.MangleAtom("/fail")
-}
-
 // percent is a 0-1 confidence as an integer percent: Mangle compares
-// integers only.
+// integers only. The contract has already refused one outside [0,1].
 func percent(confidence float64) int64 {
-	return int64(min(max(confidence, 0), 1) * 100)
+	return int64(math.Round(confidence * 100))
 }
 
 // derivedFor returns the last argument of every row of predicate whose first
@@ -370,157 +472,119 @@ func derivedFor(k Kernel, predicate, root string, attempt int64) ([]string, erro
 // forgetDelegation retracts a finished delegation's facts: they describe
 // attempts that are over.
 func forgetDelegation(k Kernel, root string) {
-	for _, p := range []string{"delegation_request", "delegation_attempt", "judge_verdict"} {
+	for _, p := range []string{"delegation_request", "delegation_attempt", "judge_verdict", "judge_round", "judge_evidence_requested"} {
 		if err := k.RetractFact(types.Fact{Predicate: p, Args: []any{root}}); err != nil {
 			logging.SystemShardsWarn("retract %s for %s: %v", p, root, err)
 		}
 	}
 }
 
-// verifyTask asks the LLM judge whether an attempt did the task properly,
-// with the rubric the kernel chose (delegation_judge_rubric: /review for an
-// analysis persona, /implementation otherwise). A judgment that cannot be
-// had -- no client, a failed call, a malformed answer -- is an error: the
-// caller fails closed. Until 2026-09-23 a malformed answer fell back to a
-// keyword scan of the output for "todo" and "mock", which could pass it,
-// and the rubric was picked by keywords in the task text.
-func (v *TaskVerifier) verifyTask(ctx context.Context, task, result, rubric string) (*VerificationResult, error) {
-	if v.client == nil {
-		return nil, ErrVerificationUnavailable
-	}
-
-	systemPrompt, err := v.judgeSystemPrompt(ctx, rubric)
-	if err != nil {
-		return nil, err
-	}
-
-	userPrompt := fmt.Sprintf(`## Task
-%s
-
-## Result to Verify
-%s
-
-Analyze this result for quality violations and determine if the task was completed properly.`, task, result)
-
-	response, err := v.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
-	if err != nil {
-		return nil, fmt.Errorf("verification LLM call failed: %w", err)
-	}
-
-	verification, parseErr := parseVerificationResponse(response)
-	if parseErr != nil {
-		return nil, fmt.Errorf("the judgment was malformed: %w", parseErr)
-	}
-	return verification, nil
-}
-
 // retryTask is the task a retry runs: the original, and why the attempt
-// before it was not accepted -- the verdict's reason, violations and evidence,
-// and the judge's suggested next step, as words. The judge's corrective action
-// is advice to the next attempt, not an action: until 2026-09-23 the verifier
-// ran it, spawning a specialist chosen by a keyword table or generating a tool
-// through autopoiesis on the judge's say-so, and the judge can only withhold
-// (F5). The persona's own compile carries the quality rules the retry used to
-// restate here as a Go-written "IMPORTANT" list.
-func retryTask(originalTask string, verification *VerificationResult) string {
-	var builder strings.Builder
-	builder.WriteString(originalTask)
-	if verification == nil {
-		return builder.String()
+// before it was not accepted -- the turn's verdict, or the judge's grounded
+// defect with the packet evidence it cites and its suggested next step, as
+// words. The judge's corrective action is advice to the next attempt, not an
+// action: until 2026-09-23 the verifier ran it, and the judge can only
+// withhold (F5). The persona's own compile carries the quality rules.
+func retryTask(originalTask string, r *VerificationResult) string {
+	var b strings.Builder
+	b.WriteString(originalTask)
+	if r == nil {
+		return b.String()
 	}
-	if verification.Reason != "" {
-		builder.WriteString("\n\n## Previous Attempt Failed\n")
-		builder.WriteString(verification.Reason)
+	if r.Reason != "" {
+		b.WriteString("\n\n## Previous Attempt Not Accepted\n")
+		b.WriteString(r.Reason)
 	}
-	if len(verification.QualityViolations) > 0 {
-		builder.WriteString("\n\n## Quality Issues to Fix\n")
-		for _, v := range verification.QualityViolations {
-			builder.WriteString(fmt.Sprintf("- %s\n", v))
+	j := r.Judgment
+	if j == nil || j.Status != JudgeDefect {
+		return b.String()
+	}
+	if len(j.Violations) > 0 {
+		b.WriteString("\n\n## Quality Issues to Fix\n")
+		for _, v := range j.Violations {
+			fmt.Fprintf(&b, "- %s\n", v)
 		}
 	}
-	if len(verification.Evidence) > 0 {
-		builder.WriteString("\n## Specific Problems\n")
-		for _, e := range verification.Evidence {
-			builder.WriteString(fmt.Sprintf("- %s\n", e))
+	if cited := r.CitedEvidence(); len(cited) > 0 {
+		b.WriteString("\n## Evidence the Review Cites\n")
+		for _, c := range cited {
+			fmt.Fprintf(&b, "- %s\n", c)
 		}
 	}
-	if a := verification.CorrectiveAction; a != nil && strings.TrimSpace(a.Query) != "" {
-		builder.WriteString("\n## Suggested Next Step (from the review)\n")
-		builder.WriteString(fmt.Sprintf("%s: %s", a.Type, a.Query))
+	if a := j.CorrectiveAction; a != nil && strings.TrimSpace(a.Query) != "" {
+		b.WriteString("\n## Suggested Next Step (from the review)\n")
+		fmt.Fprintf(&b, "%s: %s", a.Type, a.Query)
 		if a.Reason != "" {
-			builder.WriteString(" -- " + a.Reason)
+			b.WriteString(" -- " + a.Reason)
 		}
-		builder.WriteString("\n")
+		b.WriteString("\n")
 	}
-	return builder.String()
+	return b.String()
 }
 
-// storeVerification persists verification results for learning.
-func (v *TaskVerifier) storeVerification(
-	task string,
-	shardType string,
-	verification *VerificationResult,
-	attempt int,
-	success bool,
-) {
-	if v.localDB == nil {
+// CitedEvidence is each grounded citation as "[ID] label": the packet
+// evidence the judge's defect stands on.
+func (r *VerificationResult) CitedEvidence() []string {
+	if r == nil || r.Judgment == nil {
+		return nil
+	}
+	var out []string
+	for _, id := range r.Judgment.Grounded {
+		if it, ok := r.Evidence.item(id); ok {
+			out = append(out, fmt.Sprintf("[%s] %s", id, it.Label))
+		}
+	}
+	return out
+}
+
+// storeVerification persists an attempt's disposition and, beside it, the
+// judge's own judgment -- its contract, its claimed and grounded status, its
+// confidence and explanation -- so a calibration reader never reconstructs the
+// judge's word from a disposition's reason. unavailable is why no judgment
+// could be had, when none could.
+func (v *TaskVerifier) storeVerification(d Delegation, r *VerificationResult, attempt int64, unavailable error) {
+	if v.localDB == nil || r == nil {
 		return
 	}
-
 	v.mu.RLock()
-	sessionID := v.sessionID
-	turnCount := v.turnCount
+	sessionID, turnCount := v.sessionID, v.turnCount
 	v.mu.RUnlock()
 
-	// Convert to JSON for storage
-	violationsJSON, err := json.Marshal(verification.QualityViolations)
-	if err != nil {
-		logging.SystemShardsWarn("failed to marshal quality violations: %v", err)
+	taskHash := sha256.Sum256([]byte(d.Task))
+	rec := store.VerificationRecord{
+		SessionID:     sessionID,
+		TurnNumber:    turnCount,
+		Task:          d.Task,
+		ShardType:     d.Persona,
+		AttemptNumber: int(attempt - 1),
+		Success:       r.Accepted,
+		Reason:        r.Reason,
+		ResultHash:    hex.EncodeToString(taskHash[:]),
 	}
-	evidenceJSON, err := json.Marshal(verification.Evidence)
-	if err != nil {
-		logging.SystemShardsWarn("failed to marshal evidence: %v", err)
+	marshal := func(what string, x any) string {
+		data, err := json.Marshal(x)
+		if err != nil {
+			logging.SystemShardsWarn("failed to marshal %s: %v", what, err)
+		}
+		return string(data)
 	}
-	correctiveJSON, err := json.Marshal(verification.CorrectiveAction)
-	if err != nil {
-		logging.SystemShardsWarn("failed to marshal corrective action: %v", err)
+	if j := r.Judgment; j != nil {
+		rec.Confidence = j.Confidence
+		rec.ViolationsJSON = marshal("quality violations", j.Violations)
+		rec.CorrectiveJSON = marshal("corrective action", j.CorrectiveAction)
+		rec.EvidenceJSON = marshal("cited evidence", r.CitedEvidence())
+		rec.JudgeContract = j.Contract
+		rec.JudgeClaimed = string(j.Claimed)
+		rec.JudgeStatus = string(j.Status)
+		rec.JudgeExplanation = j.Explanation
+	} else {
+		rec.ViolationsJSON, rec.CorrectiveJSON, rec.EvidenceJSON = "null", "null", "null"
+		if unavailable != nil {
+			rec.JudgeStatus = "unavailable"
+			rec.JudgeExplanation = unavailable.Error()
+		}
 	}
-
-	// Hash the task for dedup
-	taskHash := sha256.Sum256([]byte(task))
-	taskHashHex := hex.EncodeToString(taskHash[:])
-
-	if err := v.localDB.StoreVerification(
-		sessionID,
-		turnCount,
-		task,
-		shardType,
-		attempt,
-		success,
-		verification.Confidence,
-		verification.Reason,
-		string(violationsJSON),
-		string(correctiveJSON),
-		string(evidenceJSON),
-		taskHashHex,
-	); err != nil {
+	if err := v.localDB.StoreVerification(rec); err != nil {
 		logging.StoreError("failed to store verification result: %v", err)
 	}
-}
-
-// parseVerificationResponse parses the LLM's JSON response.
-func parseVerificationResponse(response string) (*VerificationResult, error) {
-	// Clean up response - remove markdown code blocks if present
-	response = strings.TrimSpace(response)
-	response = strings.TrimPrefix(response, "```json")
-	response = strings.TrimPrefix(response, "```")
-	response = strings.TrimSuffix(response, "```")
-	response = strings.TrimSpace(response)
-
-	var result VerificationResult
-	if err := json.Unmarshal([]byte(response), &result); err != nil {
-		return nil, fmt.Errorf("failed to parse verification JSON: %w", err)
-	}
-
-	return &result, nil
 }

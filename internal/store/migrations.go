@@ -72,6 +72,12 @@ var pendingMigrations = []Migration{
 	{"reasoning_traces", "embedding_model_id", "TEXT"},
 	{"reasoning_traces", "embedding_dim", "INTEGER"},
 	{"reasoning_traces", "embedding_task", "TEXT"},
+	// The judge's own judgment beside the kernel's disposition
+	// (internal/verification, storeVerification).
+	{"task_verifications", "judge_contract", "TEXT"},
+	{"task_verifications", "judge_claimed", "TEXT"},
+	{"task_verifications", "judge_status", "TEXT"},
+	{"task_verifications", "judge_explanation", "TEXT"},
 	// Learning store reflection columns
 	{"learnings", "semantic_handle", "TEXT"},
 	{"learnings", "handle_version", "INTEGER DEFAULT 0"},

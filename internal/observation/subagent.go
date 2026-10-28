@@ -142,6 +142,14 @@ type Return struct {
 	// otherwise green turns are /unverified rather than /done.
 	Acceptance *Acceptance `json:"acceptance,omitempty"`
 
+	// Snapshot is the workspace identity the turn's closing evidence was
+	// bound to: the acceptance report's after-snapshot, or the snapshot the
+	// mechanical gates were measured green on. Empty means no closing
+	// evidence was bound to one revision -- not that the workspace is
+	// unchanged. A consumer handing the evidence on (the delegation judge)
+	// says which revision it describes, and never invents one.
+	Snapshot string `json:"snapshot,omitempty"`
+
 	// Untested is the production files this turn wrote with no test file
 	// alongside them. It is carried as a field rather than only as the Note
 	// built from it because a consumer deriving "this needs tests" must join

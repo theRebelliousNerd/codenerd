@@ -61,7 +61,7 @@ func TestLocalStore_TraceDelegations(t *testing.T) {
 		t.Fatalf("failed to create task_verifications table: %v", err)
 	}
 
-	err = s.StoreVerification("session-1", 1, "task-1", "coder", 1, false, 0.9, "reason", "[\"violation-1\"]", "corrective", "evidence", "hash")
+	err = s.StoreVerification(VerificationRecord{SessionID: "session-1", TurnNumber: 1, Task: "task-1", ShardType: "coder", AttemptNumber: 1, Confidence: 0.9, Reason: "reason", ViolationsJSON: "[\"violation-1\"]", CorrectiveJSON: "corrective", EvidenceJSON: "evidence", ResultHash: "hash"})
 	if err != nil {
 		t.Errorf("expected no error from StoreVerification, got %v", err)
 	}
