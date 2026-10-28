@@ -467,6 +467,14 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 	return intent, nil
 }
 
+// abbreviatesFile reports whether target is a shortened spelling of file: the
+// file's slash-normalized path ends with it.
+func abbreviatesFile(target, file string) bool {
+	t := strings.TrimSpace(strings.ReplaceAll(target, "\\", "/"))
+	f := strings.ReplaceAll(file, "\\", "/")
+	return t != "" && t != f && strings.HasSuffix(f, t)
+}
+
 // understandingToIntent converts the new Understanding to legacy Intent.
 // This enables gradual migration without breaking existing code.
 func (t *UnderstandingTransducer) understandingToIntent(u *Understanding) Intent {
@@ -486,10 +494,14 @@ func (t *UnderstandingTransducer) understandingToIntent(u *Understanding) Intent
 	// Map semantic_type to category
 	category := t.mapSemanticToCategory(u.SemanticType, u.ActionType)
 
-	// Build target from scope
+	// Build target from scope. A target the file's path ends with is that
+	// file abbreviated, and the file is the name a tool can open: a delegated
+	// "research problems.log" sent read_file after a file that does not exist,
+	// while scope.file held the run's real .nerd/logs/<run>_problems.log
+	// (problems log 2026-10-28).
 	target := u.Scope.Target
-	if target == "" && u.Scope.File != "" {
-		target = u.Scope.File
+	if file := u.Scope.File; file != "" && (target == "" || abbreviatesFile(target, file)) {
+		target = file
 	}
 	if target == "" && u.Scope.Symbol != "" {
 		target = u.Scope.Symbol

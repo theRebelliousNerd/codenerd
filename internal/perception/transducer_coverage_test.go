@@ -1500,6 +1500,29 @@ func TestUnderstandingTransducer_UnderstandingToIntent_WhenFileTarget_ShouldFall
 	}
 }
 
+// A target the scope's file path ends with is that file abbreviated; the
+// intent carries the file, the name a tool can open. Problems log
+// 2026-10-28: target "problems.log" with scope.file the run's real log
+// delegated "research problems.log", and read_file found no such file. A
+// target that is not the file's tail is the user's own words and stays.
+func TestUnderstandingTransducer_UnderstandingToIntent_WhenTargetAbbreviatesFile_ShouldUseFile(t *testing.T) {
+	t.Parallel()
+
+	tr := &UnderstandingTransducer{}
+	const log = "/ws/.nerd/logs/20261028_061954_ce0756_problems.log"
+	for _, tc := range []struct{ target, file, want string }{
+		{"problems.log", log, log},
+		{"bar.go", "internal/foo/bar.go", "internal/foo/bar.go"},
+		{"login bug", "internal/auth/auth.go", "login bug"},
+		{"internal/foo/bar.go", "internal/foo/bar.go", "internal/foo/bar.go"},
+	} {
+		u := &Understanding{ActionType: "research", Domain: "general", Scope: Scope{Level: "file", Target: tc.target, File: tc.file}}
+		if got := tr.understandingToIntent(u).Target; got != tc.want {
+			t.Errorf("target %q, file %q: Target = %q, want %q", tc.target, tc.file, got, tc.want)
+		}
+	}
+}
+
 func TestUnderstandingTransducer_UnderstandingToIntent_WhenSymbolTarget_ShouldFallback(t *testing.T) {
 	t.Parallel()
 

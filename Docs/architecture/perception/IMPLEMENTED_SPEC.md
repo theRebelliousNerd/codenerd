@@ -237,7 +237,7 @@ Envelope: `UnderstandingEnvelope{understanding, surface_response}`.
 5. `SharedSemanticClassifier.Classify` (optional; failures non-fatal).  
 6. `llmTransducer.Understand(...)` with history, matches, session ambient, strategic context.  
 7. On error: return degraded `/explain` with **nil error** (contract); carry the typed cause in `Intent.Outcome`.  
-8. Cache last understanding; `understandingToIntent` maps action→verb, semantic→category, carries `IsQuestion`.
+8. Cache last understanding; `understandingToIntent` maps action→verb, semantic→category, carries `IsQuestion`. The intent's `Target` is `scope.target`, except that `scope.file` replaces it when the target is empty or abbreviates the file (the file's slash-normalized path ends with it, `abbreviatesFile`): a delegated task then names the file a tool can open. As built 2026-10-28, after "research problems.log" sent `read_file` after a file that does not exist while `scope.file` held the run's `.nerd/logs/<run>_problems.log`.
 
 ### 4.5 `LLMTransducer.Understand` (`transducer_llm.go`)
 
