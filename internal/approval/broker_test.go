@@ -379,7 +379,13 @@ func TestJournal_RestartReconcilesWithoutInventingDecisions(t *testing.T) {
 	_ = done.DispatchStarted()
 	done.Finish(nil)
 	pendingReq, _ := startAwait(t, context.Background(), b, h, "exec-pending", testSubject())
-	// Simulate the crash: no Close, the process is gone. Append a torn line.
+	// Simulate the crash: no Close, the process is gone. A dead process holds no
+	// handle, and on Windows the restart's compaction renames over the journal,
+	// which fails while the old process's handle is open; so the handle goes
+	// without the broker's shutdown transitions. Append a torn line.
+	if err := b.journal.close(); err != nil {
+		t.Fatal(err)
+	}
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		t.Fatal(err)

@@ -39,6 +39,7 @@ func newPolicyFailureOrchestrator(t *testing.T, edit func(*config.CampaignConfig
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)
 	}
+	t.Cleanup(func() { _ = orch.Close() })
 	task.PhaseID = "/phase_failure_policy"
 	task.Status = TaskPending
 	now := time.Now()
@@ -236,6 +237,7 @@ func newFailureTestOrchestrator(t *testing.T, maxRetries int) (*Orchestrator, *M
 	if err != nil {
 		t.Fatalf("NewOrchestrator() error = %v", err)
 	}
+	t.Cleanup(func() { _ = orch.Close() })
 
 	now := time.Now()
 	orch.campaign = &Campaign{

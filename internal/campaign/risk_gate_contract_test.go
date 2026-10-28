@@ -63,6 +63,7 @@ func riskContractOrchestrator(t *testing.T, kernel core.Kernel, c *Campaign) *Or
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)
 	}
+	t.Cleanup(func() { _ = orch.Close() })
 	orch.campaign = c
 	return orch
 }

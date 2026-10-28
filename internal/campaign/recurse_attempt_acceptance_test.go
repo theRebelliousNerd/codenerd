@@ -101,6 +101,7 @@ func attemptOrchestrator(t *testing.T, ws string, a RecurseAttempt) *Orchestrato
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)
 	}
+	t.Cleanup(func() { _ = orch.Close() })
 	camp := RecurseAttemptCampaign(ws, a)
 	camp.Phases[0].Status, camp.Phases[0].Tasks[0].Status = PhaseCompleted, TaskCompleted
 	camp.CompletedPhases, camp.CompletedTasks = 1, 1

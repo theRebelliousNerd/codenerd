@@ -92,6 +92,7 @@ func TestCampaignSlashPauseResumeControlsLiveOrchestrator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create orchestrator: %v", err)
 	}
+	t.Cleanup(func() { _ = orch.Close() })
 
 	c := &campaign.Campaign{
 		ID: "/campaign_chat_control", Type: campaign.CampaignTypeCustom,
@@ -211,6 +212,7 @@ func TestCampaignSlashPauseResumeDoNotClaimMissingTransitions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("create orchestrator: %v", err)
 		}
+		t.Cleanup(func() { _ = orch.Close() })
 		m := NewTestModel()
 		m.workspace = workspace
 		m.activeCampaign = &campaign.Campaign{ID: "/campaign_missing_state", Status: campaign.StatusPaused}

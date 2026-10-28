@@ -510,6 +510,12 @@
 
     **Derivation**:
     ```mangle
+    Decl safe_action(ActionType) bound [/name].
+    Decl dangerous_action(ActionType) bound [/name].
+    Decl human_approvable(ActionType) bound [/name].
+    Decl dangerous_content(ActionType, Payload) bound [/name, /string].
+    Decl pending_action(ActionID, ActionType, Target, Payload, Timestamp) bound [/string, /name, /string, /string, /number].
+    Decl human_approval_granted(ActionID, ActionType, Target, Payload, RequestDigest) bound [/string, /name, /string, /string, /string].
     permitted(ActionType, Target, Payload) :-
         safe_action(ActionType),
         pending_action(_, ActionType, Target, Payload, _).

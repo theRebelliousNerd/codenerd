@@ -286,7 +286,6 @@ func TestE2E_Perception_Adversarial_InputTruncation(t *testing.T) {
 	t.Logf("Prompt length: %d, Target length: %d", len(prompt), len(intent.Target))
 }
 
-
 // TODO: Null/Undefined/Empty Vectors
 // - Empty JSON / Empty Strings: What happens if the LLM returns `{"understanding": {"primary_intent": "", "semantic_type": "", "action_type": ""}}`? Does the system fallback correctly, or does it try to route an empty verb?
 // - Null Values: What if the LLM returns `{"understanding": {"primary_intent": null}}`? In Go, depending on the unmarshaling logic, this might cause a panic if not handled correctly or default to an empty string.

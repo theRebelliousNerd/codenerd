@@ -27,6 +27,7 @@ func TestDurablePauseSurvivesSnapshotSaveAndStopsRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = o.Close() })
 	o.campaign = &Campaign{ID: "/campaign_pause", Type: CampaignTypeCustom, Title: "Pause owner", Goal: "wait", Status: StatusActive, TotalTasks: 1, TotalPhases: 1, Phases: []Phase{{ID: "/phase_wait", Status: PhasePending, Tasks: []Task{{ID: "/task_wait", Type: TaskTypeResearch, Status: TaskPending}}}}}
 	if err := RequestPause(root, o.campaign.ID); err != nil {
 		t.Fatal(err)

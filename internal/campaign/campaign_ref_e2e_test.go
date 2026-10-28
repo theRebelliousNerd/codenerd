@@ -82,6 +82,7 @@ func campaignRefOrchestrator(t *testing.T, kernel core.Kernel, c *Campaign) (*Or
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)
 	}
+	t.Cleanup(func() { _ = orch.Close() })
 	// Replan needs a live LLM and is irrelevant to the policy contract.
 	orch.replanner = nil
 	if err := orch.SetCampaign(c); err != nil {

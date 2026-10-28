@@ -152,11 +152,15 @@ func (p *PathPolicy) ResolveForUpload(requested string) (string, error) {
 		return "", err
 	}
 	// Check the alias as well so a dot path cannot disguise an ordinary file.
-	// Different spellings of the workspace itself still share its resolved root.
-	for _, root := range []string{p.baseDir, base} {
-		if !pathWithin(root, target) {
-			continue
-		}
+	// Every spelling of the workspace itself shares its resolved root: a
+	// symlink, a different case, a Windows 8.3 short name. So the spelled
+	// path is measured from each of its own ancestors that is the workspace,
+	// not from the one spelling the policy was built with.
+	spelled, err := workspaceSpellings(target, base)
+	if err != nil {
+		return "", err
+	}
+	for _, root := range spelled {
 		relative, err := filepath.Rel(root, target)
 		if err != nil {
 			return "", fmt.Errorf("resolve browser upload alias under workspace: %w", err)
@@ -173,6 +177,24 @@ func (p *PathPolicy) ResolveForUpload(requested string) (string, error) {
 		return "", errors.New("browser upload path is not a regular file")
 	}
 	return resolved, nil
+}
+
+// workspaceSpellings returns the ancestors of target (target itself excluded)
+// that name the same directory as workspace, however they spell it.
+func workspaceSpellings(target, workspace string) ([]string, error) {
+	workspaceInfo, err := os.Stat(workspace)
+	if err != nil {
+		return nil, fmt.Errorf("inspect browser upload workspace: %w", err)
+	}
+	var spelled []string
+	for ancestor := filepath.Dir(target); ; ancestor = filepath.Dir(ancestor) {
+		if info, err := os.Stat(ancestor); err == nil && os.SameFile(info, workspaceInfo) {
+			spelled = append(spelled, ancestor)
+		}
+		if parent := filepath.Dir(ancestor); parent == ancestor {
+			return spelled, nil
+		}
+	}
 }
 
 func validateUploadRelativePath(relative string) error {
