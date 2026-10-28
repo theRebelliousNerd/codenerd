@@ -132,6 +132,10 @@ type StructureIndex struct {
 	// deficits are what the last refresh could not observe. The entries they
 	// cover are kept as they were last observed, never deleted for it.
 	deficits []StructDeficit
+	// secretFiles counts, per language, the source files the last refresh
+	// left unparsed because execution.secret_paths names them. They may use
+	// anything, so a use search cannot call its answer complete (Uses).
+	secretFiles map[string]int
 }
 
 // NewStructureIndex creates an empty index; the first query fills it.

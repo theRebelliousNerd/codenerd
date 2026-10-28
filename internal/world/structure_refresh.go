@@ -184,6 +184,7 @@ func (s *StructureIndex) refreshLocked(ctx context.Context) (StructureStats, err
 	seen := make(map[string]struct{}, len(s.files))
 	fingerprintUpdates := make(map[string]string)
 	deficits := make(deficitSet)
+	secretFiles := make(map[string]int)
 	var generations dirGenSnapshot
 	now := time.Now().UnixNano()
 
@@ -237,6 +238,7 @@ func (s *StructureIndex) refreshLocked(ctx context.Context) (StructureStats, err
 		// signatures, doc lines and literals would reach the model through
 		// find_symbol, package_outline and find_text as surely as a read.
 		if tools.IsSecretPath(canonical) {
+			secretFiles[codemodel.LanguageOf(name)]++
 			return nil
 		}
 		info, err := d.Info()
@@ -258,6 +260,7 @@ func (s *StructureIndex) refreshLocked(ctx context.Context) (StructureStats, err
 			}
 			targetCanonical := types.CanonicalPath(s.root, resolved)
 			if tools.IsSecretPath(targetCanonical) {
+				secretFiles[codemodel.LanguageOf(name)]++
 				return nil
 			}
 			targetMember, admitErr := mem.Admit(resolved, false)
@@ -393,6 +396,7 @@ func (s *StructureIndex) refreshLocked(ctx context.Context) (StructureStats, err
 		s.generation++
 	}
 	s.deficits = observed
+	s.secretFiles = secretFiles
 
 	stats := StructureStats{Files: len(s.files), Reparsed: reparsed, RefreshTook: time.Since(started), Generation: s.generation, Deficits: observed}
 	for _, f := range s.files {

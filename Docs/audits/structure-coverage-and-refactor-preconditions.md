@@ -244,3 +244,9 @@ Each finding was first reproduced by a failing test through the registered tools
 - Secret-path exclusions are not yet reported as domain exclusions to `Uses`; a use inside a secret file stays invisible, as before.
 - Writers outside codedom are not serialized by `commitMu`; the dependency check narrows, but does not close, that window. No atomicity is claimed.
 - Type-aware escalation (variant D), the paired task study (STRUCT-EVIDENCE-05) and scale/latency measurement need live models or benchmarks.
+
+## Status note (2026-10-28)
+
+Re-verified on main: S1-S4 tests pass in `internal/world` and `internal/tools/codedom`. Fixed now: a Go/Mangle file excluded by `execution.secret_paths` is a counted (path-free) deficit of `Uses`, so delete/repoint refuse instead of treating an invisible user as absent (`structure_queries.go`, `structure_refresh.go`).
+Ruled out: retained result paging and a workspace epoch (earlier rulings stand).
+Left: Mangle-derived sufficiency obligations (no consumer beyond the host refusal), type-aware escalation and the paired study (need live models); writers outside codedom are not serialized by `commitMu`.

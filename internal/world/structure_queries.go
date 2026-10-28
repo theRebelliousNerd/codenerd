@@ -375,6 +375,14 @@ func (s *StructureIndex) usesOnce(ctx context.Context, ref string) (*StructSymbo
 		return nil, nil, stats, nil, ambiguityError(ref, matches)
 	}
 	target := matches[0]
+	// A secret-path file is never parsed, so a use inside it is invisible. It
+	// is named by count only: its path is not the model's to learn here.
+	if n := s.secretFiles[target.lang]; n > 0 {
+		stats.Deficits = append(stats.Deficits, StructDeficit{
+			Path:   "(execution.secret_paths)",
+			Reason: fmt.Sprintf("%d %s source file(s) are excluded as secret paths, so their uses cannot be found", n, target.lang),
+		})
+	}
 
 	if target.lang == codemodel.LangMangle {
 		defer s.mu.Unlock()

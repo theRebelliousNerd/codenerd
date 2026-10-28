@@ -216,3 +216,30 @@ func TestStructureEvidence_GenerationMovesOnlyWithTheSource(t *testing.T) {
 		t.Fatalf("a file that is really gone is removed, not retained: %+v", syms)
 	}
 }
+
+// A Go file named by execution.secret_paths is never parsed, so a use inside
+// it is invisible: the Uses answer says so, by count and not by path, and a
+// workspace without one is unaffected.
+func TestStructureEvidence_UsesNamesSecretPathExclusionAsADeficit(t *testing.T) {
+	root, idx := newStructFixture(t)
+	ctx := context.Background()
+	_, _, stats, err := idx.Uses(ctx, "lib.Build")
+	if err != nil || len(stats.Deficits) != 0 {
+		t.Fatalf("control: no secret file, no deficit: %+v %v", stats.Deficits, err)
+	}
+
+	secretPath := writeStructFile(t, root, ".env", "package app\n\nimport \"fixture/lib\"\n\nfunc Hidden() { lib.Build() }\n")
+	if err := os.Symlink(secretPath, filepath.Join(root, "hidden.go")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	_, uses, stats, err := idx.Uses(ctx, "lib.Build")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stats.Deficits) != 1 || stats.Deficits[0].Path != "(execution.secret_paths)" {
+		t.Fatalf("the unparsed secret file is a deficit of the use search: %+v (uses %+v)", stats.Deficits, uses)
+	}
+	if strings.Contains(stats.Deficits[0].Reason, "hidden.go") || strings.Contains(stats.Deficits[0].Reason, ".env") {
+		t.Fatalf("the deficit must not name the secret path: %q", stats.Deficits[0].Reason)
+	}
+}
