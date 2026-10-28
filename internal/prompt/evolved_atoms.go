@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"codenerd/internal/logging"
 
@@ -24,8 +25,10 @@ type EvolvedAtomManager struct {
 	atoms     []*PromptAtom
 	atomsByID map[string]*PromptAtom
 
-	// Last refresh time for cache invalidation
-	lastRefresh int64
+	// generation advances after every Reload, once the new set is visible.
+	// The JIT compiler folds it into its source vector so a prompt compiled
+	// from one evolved set is never served as current for another.
+	generation atomic.Uint64
 }
 
 // NewEvolvedAtomManager creates a new evolved atom manager.
@@ -61,8 +64,20 @@ func (eam *EvolvedAtomManager) Reload() error {
 	promotedDir := filepath.Join(eam.evolvedDir, "promoted")
 	eam.loadFromDir(promotedDir)
 
+	// Advance after the new set is in place (still under the write lock), so
+	// a reader that observes the new generation also observes the new atoms.
+	eam.generation.Add(1)
 	logging.JITDebug("Evolved atoms reloaded: count=%d", len(eam.atoms))
 	return nil
+}
+
+// Generation identifies the in-memory evolved set. It changes on every
+// Reload; two reads returning the same value saw the same atoms.
+func (eam *EvolvedAtomManager) Generation() uint64 {
+	if eam == nil {
+		return 0
+	}
+	return eam.generation.Load()
 }
 
 // loadFromDir loads atoms from a directory.
