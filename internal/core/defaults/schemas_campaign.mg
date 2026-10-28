@@ -521,6 +521,16 @@ Decl campaign_risk_classification_ready(CampaignID) bound [/string].
 #        /storage_unreadable | /legacy_unjournaled
 Decl campaign_recovery_class(CampaignID, Class) bound [/string, /name].
 
+# campaign_storage_uncertain(CampaignID, Checkpoint) - observed: the campaign's
+# last snapshot write failed (Checkpoint names the write), so progress since the
+# last durable generation exists only in memory. Asserted by the orchestrator on
+# a failed write and retracted by the next write that lands. See
+# policy/campaign_tasks.mg: new mutation dispatch holds while it stands.
+Decl campaign_storage_uncertain(CampaignID, Checkpoint) bound [/string, /string].
+
+# campaign_storage_hold() - derived helper: some campaign's storage is uncertain
+Decl campaign_storage_hold() bound [].
+
 # campaign_recovery_adopt(CampaignID) - operator policy: adopt a snapshot the
 # journal does not vouch for (nerd campaign resume --adopt-snapshot)
 Decl campaign_recovery_adopt(CampaignID) bound [/string].

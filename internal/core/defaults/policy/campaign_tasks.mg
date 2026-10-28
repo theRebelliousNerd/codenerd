@@ -89,10 +89,18 @@ phase_has_backoff_task(PhaseID) :-
     campaign_task(TaskID, PhaseID, _, /pending, _),
     task_in_backoff(TaskID).
 
+# Storage uncertainty holds new dispatch. A campaign whose last snapshot write
+# failed is running from memory only: a task started now adds work a crash would
+# roll back with no record of why. Tasks already running finish, and pause and
+# cancel stay available; the next write that lands retracts the observation.
+campaign_storage_hold() :-
+    campaign_storage_uncertain(_, _).
+
 # Eligible tasks: highest-priority pending tasks in the current phase without blockers or conflicts
 eligible_task(TaskID) :-
     current_phase(PhaseID),
     campaign_task(TaskID, PhaseID, _, /pending, _),
+    !campaign_storage_hold(),
     !task_in_backoff(TaskID),
     !has_blocking_task_dep(TaskID),
     !has_earlier_task(TaskID, PhaseID),
@@ -110,6 +118,14 @@ has_next_campaign_task() :-
 # This prevents transient lock contention from being misclassified as hard blocking.
 has_next_campaign_task() :-
     phase_has_backoff_task(_).
+
+# A storage hold is a wait, not a block: the pending work is intact and the
+# next successful write releases it. Without this the campaign would derive
+# /all_tasks_blocked and fail on a disk that may recover.
+has_next_campaign_task() :-
+    campaign_storage_hold(),
+    current_phase(PhaseID),
+    campaign_task(_, PhaseID, _, /pending, _).
 
 
 # Derive next_action based on campaign task type

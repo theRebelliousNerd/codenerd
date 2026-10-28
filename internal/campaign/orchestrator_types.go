@@ -104,6 +104,9 @@ type Orchestrator struct {
 	// reconcileJournalLocked has re-read the journal and re-synced it. Guarded
 	// by mu, like every journal append.
 	journalUncertain bool
+	// storageHeld is set while campaign_storage_uncertain stands in the kernel
+	// (storage_hold.go). Guarded by mu.
+	storageHeld bool
 
 	// owner is the cross-process ownership lock of the campaign this
 	// orchestrator publishes (campaign_owner.go). Released by Close.

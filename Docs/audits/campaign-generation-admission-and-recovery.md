@@ -167,3 +167,6 @@ All four buildable gaps are implemented. The one production resume door is `Resu
 - **A system-runner door test.** Booting `startCampaign` needs a full shard stack; the door is covered by the shared `ResumeCampaign` tests plus the build.
 
 **Tests:** `internal/campaign/recovery_admission_test.go` covers committed, prepared, previous, the conflict refusal and its adoption, unreadable storage, legacy import, replacement leftovers, the damaged-journal preservation, the owner lock, the `SetCampaign` refusal, the open failure and the torn write. `cmd/nerd/cmd_campaign_resume_select_test.go` covers the single-door AST check and leftover discovery.
+
+> **Closing note (2026-10-28).** All four gaps were built earlier (`ResumeCampaign`, owner lock, uncertain-append reconcile, damaged-journal preservation); re-verified on main. New this pass: kernel storage hold, so a failed snapshot write holds new dispatch as a wait and a landed write releases it (`storage_hold.go`, `policy/campaign_tasks.mg`, `TestStorageHold_*`).
+> Ruled out: failing the campaign on a storage error (the disk may recover) and a Go-side mirror of the hold. Left: `.damaged-*` retention cap, effect-receipt join, real-filesystem fault injection, a system-runner door test.

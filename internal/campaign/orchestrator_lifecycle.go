@@ -133,7 +133,10 @@ func (o *Orchestrator) persistCampaign(checkpoint string) {
 			"Campaign snapshot at %q failed; campaign %s is running from memory only: %v",
 			checkpoint, campaignID, err)
 		o.emitEvent(EventSnapshotWriteFailed, "", "", checkpoint+": "+err.Error(), nil)
+		o.holdForStorage(checkpoint)
+		return
 	}
+	o.releaseStorageHold()
 }
 
 // resetInProgress clears in-flight task/phase states after restarts so work can resume.
