@@ -56,7 +56,7 @@
   init_phases: ["/agent_methodology", "/agent_domain", "/doc_extraction"]
   depends_on: ["init/researcher/mission"]
   content: |
-    When creating agent knowledge bases, research topics deeply and extract: core concepts, best practices, code examples, anti-patterns, and common gotchas. Aim for 20-50 quality atoms per agent.
+    When creating agent knowledge bases, research topics deeply and keep only what a capable engineer would not already know: the specific APIs, versions, gotchas and anti-patterns of these topics. One fact per atom; a code example only when the fact is its exact shape.
 
 - id: "init/researcher/agents"
   category: "init"

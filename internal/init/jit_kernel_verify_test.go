@@ -165,8 +165,8 @@ func TestInitPrompt_IsCompiledFromTheInitAtoms(t *testing.T) {
 		"project_tools":  "Choose which of this repository's own commands",
 		// The three agent-knowledge calls share the knowledge-base guidance
 		// and each carries its own instruction.
-		"agent_methodology": "You are generating the methodology prompt atom",
-		"agent_domain":      "You are generating the domain prompt atom",
+		"agent_methodology": "Write the methodology atoms for the specialist",
+		"agent_domain":      "Write the domain atoms for the specialist",
 		"doc_extraction":    "Extract key knowledge atoms from the documentation chunk",
 	}
 	const kbGuidance = "When creating agent knowledge bases"
