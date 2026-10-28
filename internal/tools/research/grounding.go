@@ -9,7 +9,6 @@ package research
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"codenerd/internal/logging"
@@ -275,57 +274,6 @@ func (h *GroundingHelper) CompleteWithSystemAndGrounding(ctx context.Context, sy
 
 	sources := h.CaptureGroundingSources()
 	return response, sources, nil
-}
-
-// GroundedResearch performs research with optimal grounding configuration.
-// Enables Google Search, optionally adds documentation URLs, performs the query,
-// and returns results with sources.
-func (h *GroundingHelper) GroundedResearch(ctx context.Context, query string, docURLs []string) (*GroundedResearchResult, error) {
-	// Enable grounding
-	h.EnableGoogleSearch()
-	var dropped []string
-	if len(docURLs) > 0 {
-		dropped = h.EnableURLContext(docURLs)
-	}
-
-	// Build research prompt
-	prompt := fmt.Sprintf(`Research the following topic and provide accurate, up-to-date information.
-
-Topic: %s
-
-Provide a comprehensive answer with specific details. If you use information from web searches or documentation, ensure accuracy.`, query)
-
-	response, sources, err := h.CompleteWithGrounding(ctx, prompt)
-	if err != nil {
-		return nil, fmt.Errorf("grounded research failed: %w", err)
-	}
-
-	result := &GroundedResearchResult{
-		Query:          query,
-		Response:       response,
-		Sources:        sources,
-		DocURLs:        docURLs,
-		DroppedDocURLs: dropped,
-	}
-
-	// Log results
-	if len(sources) > 0 {
-		logging.Researcher("Grounded research completed: %d sources used for %q", len(sources), types.Ellipsize(query, 50))
-	}
-
-	return result, nil
-}
-
-// GroundedResearchResult contains the results of a grounded research query.
-type GroundedResearchResult struct {
-	Query    string   `json:"query"`
-	Response string   `json:"response"`
-	Sources  []string `json:"sources"`
-	DocURLs  []string `json:"doc_urls_provided"`
-	// DroppedDocURLs names the provided URLs withheld from the request by
-	// the Gemini per-request URL limit. It is empty when everything fit;
-	// the caller decides whether to run a follow-up request with them.
-	DroppedDocURLs []string `json:"doc_urls_not_sent,omitempty"`
 }
 
 // =============================================================================

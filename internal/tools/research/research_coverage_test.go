@@ -879,68 +879,6 @@ func TestGroundingHelper_CompleteWithSystemAndGrounding_WhenError(t *testing.T) 
 }
 
 // =============================================================================
-// GROUNDING: GroundedResearch
-// =============================================================================
-
-func TestGroundingHelper_GroundedResearch_WhenSuccess(t *testing.T) {
-	t.Parallel()
-	client := &mockGroundingClient{
-		mockLLMClient:    mockLLMClient{completeResponse: "researched answer"},
-		lastGroundingSrc: []string{"https://research.com"},
-	}
-	helper := NewGroundingHelper(client)
-
-	result, err := helper.GroundedResearch(context.Background(), "test query", []string{"https://doc.com"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Query != "test query" {
-		t.Errorf("expected query 'test query', got %q", result.Query)
-	}
-	if result.Response != "researched answer" {
-		t.Errorf("expected response 'researched answer', got %q", result.Response)
-	}
-	if len(result.Sources) != 1 {
-		t.Errorf("expected 1 source, got %d", len(result.Sources))
-	}
-	if len(result.DocURLs) != 1 {
-		t.Errorf("expected 1 doc URL, got %d", len(result.DocURLs))
-	}
-}
-
-func TestGroundingHelper_GroundedResearch_WhenNoDocURLs(t *testing.T) {
-	t.Parallel()
-	client := &mockGroundingClient{
-		mockLLMClient: mockLLMClient{completeResponse: "no docs answer"},
-	}
-	helper := NewGroundingHelper(client)
-
-	result, err := helper.GroundedResearch(context.Background(), "topic", nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Response != "no docs answer" {
-		t.Errorf("unexpected response: %q", result.Response)
-	}
-}
-
-func TestGroundingHelper_GroundedResearch_WhenError_ShouldReturnWrappedError(t *testing.T) {
-	t.Parallel()
-	client := &mockGroundingClient{
-		mockLLMClient: mockLLMClient{completeErr: fmt.Errorf("network error")},
-	}
-	helper := NewGroundingHelper(client)
-
-	_, err := helper.GroundedResearch(context.Background(), "query", nil)
-	if err == nil {
-		t.Error("expected error")
-	}
-	if !strings.Contains(err.Error(), "grounded research failed") {
-		t.Errorf("expected wrapped error, got: %v", err)
-	}
-}
-
-// =============================================================================
 // GROUNDING: GetStats
 // =============================================================================
 

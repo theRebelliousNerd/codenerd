@@ -1,8 +1,6 @@
 package research
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"testing"
 )
@@ -93,35 +91,6 @@ func TestSetURLContextURLs_WhenNilController_ReturnsNil(t *testing.T) {
 	}
 }
 
-func TestGroundedResearch_WhenOverLimit_NamesURLsNotSent(t *testing.T) {
-	client := &groundingClient{}
-	helper := NewGroundingHelper(client)
-
-	docURLs := makeDocURLs(maxURLContextURLs + 3)
-	result, err := helper.GroundedResearch(context.Background(), "topic", docURLs)
-	if err != nil {
-		t.Fatalf("GroundedResearch: %v", err)
-	}
-	if len(result.DocURLs) != len(docURLs) {
-		t.Fatalf("DocURLs should still name everything provided, got %d", len(result.DocURLs))
-	}
-	if len(result.DroppedDocURLs) != 3 || result.DroppedDocURLs[0] != docURLs[maxURLContextURLs] {
-		t.Fatalf("DroppedDocURLs = %v, want the 3 withheld URLs", result.DroppedDocURLs)
-	}
-	encoded, err := json.Marshal(result)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	var wire map[string]any
-	if err := json.Unmarshal(encoded, &wire); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	notSent, _ := wire["doc_urls_not_sent"].([]any)
-	if len(notSent) != 3 || notSent[0] != docURLs[maxURLContextURLs] {
-		t.Fatalf("doc_urls_not_sent = %v, want the 3 withheld URLs", wire["doc_urls_not_sent"])
-	}
-}
-
 // The catalog is a package global. This test swaps it and restores on the
 // way out; it stays sequential so it does not overlap tests that read the
 // real map after t.Parallel.
@@ -174,16 +143,5 @@ func TestSetURLContextURLs_WithinLimitClearsPriorDrops(t *testing.T) {
 	}
 	if stats := helper.GetStats(); stats.TotalURLsDropped != 4 {
 		t.Fatalf("TotalURLsDropped = %d, want the earlier withhold kept in the counter", stats.TotalURLsDropped)
-	}
-}
-
-func TestGroundedResearch_WhenWithinLimit_OmitsNotSent(t *testing.T) {
-	helper := NewGroundingHelper(&groundingClient{})
-	result, err := helper.GroundedResearch(context.Background(), "topic", makeDocURLs(2))
-	if err != nil {
-		t.Fatalf("GroundedResearch: %v", err)
-	}
-	if len(result.DroppedDocURLs) != 0 {
-		t.Fatalf("expected no dropped URLs, got %v", result.DroppedDocURLs)
 	}
 }

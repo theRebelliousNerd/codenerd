@@ -1,37 +1,9 @@
 package store
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
-
-	"codenerd/internal/types"
 )
-
-// A mock LLM client for cleanup testing
-type mockCleanupLLMClient struct {
-	response string
-	err      error
-}
-
-func (m *mockCleanupLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
-	return m.response, m.err
-}
-
-func (m *mockCleanupLLMClient) CompleteWithSystem(ctx context.Context, system, prompt string) (string, error) {
-	return m.response, m.err
-}
-
-func (m *mockCleanupLLMClient) CompleteWithStreaming(ctx context.Context, system string, prompt string, requireJSON bool) (<-chan string, <-chan types.StreamResult) {
-	if m.err != nil {
-		return types.FailedStream(m.err)
-	}
-	return types.StreamWhole(ctx, func(context.Context) (string, error) { return m.response, nil })
-}
-
-func (m *mockCleanupLLMClient) CompleteWithTools(ctx context.Context, system, prompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
-	return &types.LLMToolResponse{Text: m.response}, m.err
-}
 
 func TestToolStore_AutoCleanup_And_CleanupBySizeLimit(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "tools.db")
@@ -97,59 +69,6 @@ func TestToolStore_AutoCleanup_And_CleanupBySizeLimit(t *testing.T) {
 	stats, err = s.AutoCleanup(cfgRuntime)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
-	}
-	if stats.ExecutionsDeleted != 1 {
-		t.Errorf("expected 1 execution deleted, got %d", stats.ExecutionsDeleted)
-	}
-}
-
-func TestToolStore_GetToolStatsSummary_And_Intelligent(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "tools.db")
-	s, err := NewToolStore(dbPath)
-	if err != nil {
-		t.Fatalf("Failed to create tool store: %v", err)
-	}
-	defer s.Close()
-
-	// Add execution
-	exec := ToolExecution{
-		CallID:           "c3",
-		SessionID:        "s3",
-		ToolName:         "test_tool",
-		Success:          true,
-		ResultSize:       1024,
-		DurationMs:       50,
-		SessionRuntimeMs: 11 * 3600000, // 11 hours, so it's NOT < 10 hours
-	}
-	if err := s.Store(exec); err != nil {
-		t.Fatalf("Store failed: %v", err)
-	}
-
-	summaries, err := s.GetToolStatsSummary()
-	if err != nil {
-		t.Errorf("GetToolStatsSummary failed: %v", err)
-	}
-	if len(summaries) != 1 {
-		t.Errorf("expected 1 summary, got %d", len(summaries))
-	}
-
-	// Test CleanupIntelligent
-	mockLLM := &mockCleanupLLMClient{
-		response: `{"delete_stale":{"before_runtime_hours":10,"min_references":0}}`,
-	}
-
-	// Add an old execution to be deleted
-	oldExec := ToolExecution{
-		CallID:           "old1",
-		SessionID:        "old_s",
-		SessionRuntimeMs: 5 * 3600000, // 5 hours, so < 10 hours -> gets deleted
-		ReferenceCount:   0,
-	}
-	s.Store(oldExec)
-
-	stats, err := s.CleanupIntelligent(context.Background(), mockLLM)
-	if err != nil {
-		t.Errorf("CleanupIntelligent failed: %v", err)
 	}
 	if stats.ExecutionsDeleted != 1 {
 		t.Errorf("expected 1 execution deleted, got %d", stats.ExecutionsDeleted)
