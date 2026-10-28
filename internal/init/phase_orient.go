@@ -27,8 +27,8 @@ type plannerCompleter struct {
 
 func (r plannerCompleter) CompleteWithSystem(ctx context.Context, system, user string) (string, error) {
 	return r.owner.withJITPrompt(ctx, initCall{slot: slotPlanner, phase: r.phase, task: user, system: system},
-		func(ctx context.Context, client perception.LLMClient, prompt string) (string, error) {
-			return client.CompleteWithSystem(ctx, prompt, user)
+		func(ctx context.Context, client perception.LLMClient, system string) (string, error) {
+			return client.CompleteWithSystem(ctx, system, user)
 		})
 }
 

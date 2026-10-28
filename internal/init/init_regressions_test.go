@@ -209,8 +209,8 @@ func TestDocumentRefresh_ExtractsIncrementallyOnTheRightClients(t *testing.T) {
 	_ = first.Close()
 
 	extractReply := `[{"concept":"architecture/evidence","content":"Decisions come from repository evidence.","confidence":0.9}]`
-	main := &identifiedClient{provider: "meta", model: "worker-model", reply: func(_, user string) (string, error) {
-		if strings.Contains(user, "Extract key knowledge atoms") {
+	main := &identifiedClient{provider: "meta", model: "worker-model", reply: func(system, _ string) (string, error) {
+		if strings.Contains(system, "Extract key knowledge atoms") {
 			return extractReply, nil
 		}
 		return "", nil

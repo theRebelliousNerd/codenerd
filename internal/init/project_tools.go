@@ -144,8 +144,8 @@ func (i *Initializer) selectProjectTools(ctx context.Context, nerdDir string, pr
 func (i *Initializer) chooseProjectTools(ctx context.Context, profile ProjectProfile, candidates []projectCommand) ([]ToolDefinition, int, error) {
 	task := projectToolsTask(profile, candidates)
 	response, err := i.withJITPrompt(ctx, initCall{slot: slotPlanner, phase: "project_tools", task: task, profile: &profile},
-		func(ctx context.Context, client perception.LLMClient, prompt string) (string, error) {
-			return client.Complete(ctx, prompt)
+		func(ctx context.Context, client perception.LLMClient, system string) (string, error) {
+			return client.CompleteWithSystem(ctx, system, task)
 		})
 	if err != nil {
 		return nil, 0, fmt.Errorf("project tool selection request failed: %w", err)
@@ -163,21 +163,10 @@ func projectToolsTask(profile ProjectProfile, candidates []projectCommand) strin
 			}
 		}
 	}
-	return fmt.Sprintf(`Choose which of this repository's own commands an AI coding agent working in it should be able to run as tools.
-
-Project: language %s, build system %s.
-
-Every candidate is a command the repository declares, with where it is declared and what it runs:
-%s
-Rules:
-- Choose only commands from the list, copied exactly. Never invent, combine or edit a command.
-- Choose commands that build, test, lint, format, type-check, generate code, manage dependencies or run the project locally.
-- Do not choose commands that deploy, release, publish, push, upload, delete data, or need credentials or a remote service.
-- Prefer the command the repository's own developers run; skip near-duplicates.
-
-Respond with JSON only:
-{"tools":[{"command":"<exact candidate command>","name":"<short snake_case name>","category":"%s","description":"<one sentence: what the command does in this repository>"}]}
-An empty list is a valid answer.`,
+	// The instruction and reply contract are the init/researcher/project_tools
+	// atom; the request is the project, the candidates and the categories
+	// parseProjectToolChoice accepts.
+	return fmt.Sprintf("Project: language %s, build system %s.\n\nCandidates:\n%s\nCategories: %s\n",
 		profileValue(profile.Language), profileValue(profile.BuildSystem), list.String(), strings.Join(projectToolCategories, "|"))
 }
 

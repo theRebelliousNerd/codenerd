@@ -309,16 +309,12 @@ with clear objectives, focus patterns, and success criteria. Execute precisely.`
 // are wrapped distinctly so callers fall back to the generic (static)
 // template with a clear reason while preserving
 // errors.Is(err, context.DeadlineExceeded) and errors.Is(err, context.Canceled).
-func (i *Initializer) generateAgentAtomContent(ctx context.Context, agent RecommendedAgent, kind, task string) (string, error) {
+func (i *Initializer) generateAgentAtomContent(ctx context.Context, agent RecommendedAgent, kind, phase, task string) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", fmt.Errorf("%s generation for %q skipped, parent context done, falling back to generic template: %w", kind, agent.Name, err)
 	}
-	res, err := i.withJITPrompt(ctx, initCall{slot: slotPlanner, phase: "kb_agent", task: task},
-		func(callCtx context.Context, client perception.LLMClient, compiledPrompt string) (string, error) {
-			systemPrompt := strings.TrimSuffix(compiledPrompt, "\n\nTask: "+task)
-			if systemPrompt == compiledPrompt {
-				systemPrompt = strings.TrimSuffix(compiledPrompt, "\nTask: "+task)
-			}
+	res, err := i.withJITPrompt(ctx, initCall{slot: slotPlanner, phase: phase, task: task},
+		func(callCtx context.Context, client perception.LLMClient, systemPrompt string) (string, error) {
 			return client.CompleteWithSystem(callCtx, systemPrompt, task)
 		})
 	if err != nil {
@@ -336,20 +332,24 @@ func (i *Initializer) generateAgentAtomContent(ctx context.Context, agent Recomm
 	return strings.TrimSpace(res), nil
 }
 
-// generateMethodologyContent asks the LLM for agent-specific methodology markdown.
-// The prompt is deliberately specific to this agent's domain and forbids generic advice.
+// generateMethodologyContent asks the LLM for agent-specific methodology
+// markdown. The instruction is the init/researcher/agent_methodology atom; the
+// request carries the agent and the section limit.
 func (i *Initializer) generateMethodologyContent(ctx context.Context, agent RecommendedAgent) (string, error) {
-	topicsStr := strings.Join(agent.Topics, ", ")
-	task := fmt.Sprintf("You are generating the methodology prompt atom for the specialist agent %q whose role is %q and whose research topics are %q.\n\nWrite the markdown content for the methodology atom. Explain how THIS specialist approaches problems in its domain: its analysis approach, implementation standards, and quality assurance practices, tailored specifically to %s.\n\nRequirements:\n- Be specific to this agent's domain; do NOT give generic software-engineering advice.\n- The answer must be specific enough that it would be incorrect for a different specialist (for example, a Go concurrency expert vs a Cobra CLI expert vs a Mangle/Datalog logic expert).\n- Do NOT include YAML front matter or atom headers; only output the markdown body that will be placed inside the YAML 'content: |' block.\n- Keep it concise but thorough, using markdown headings and bullet points.\n- Structure it as several short '## ' sections, one idea per section, each section at most %d characters: every section becomes its own prompt atom and is selected and embedded independently, so each must make sense on its own and none may be a monolith.\n- Generic software-engineering advice is not acceptable.", agent.Name, agent.Description, topicsStr, topicsStr, i.atomMaxChars())
-	return i.generateAgentAtomContent(ctx, agent, "methodology", task)
+	return i.generateAgentAtomContent(ctx, agent, "methodology", "agent_methodology", i.agentPromptRequest(agent))
 }
 
-// generateDomainContent asks the LLM for agent-specific domain markdown.
-// The prompt demands concrete concepts, real pitfalls and practices for this specialist.
+// generateDomainContent asks the LLM for agent-specific domain markdown. The
+// instruction is the init/researcher/agent_domain atom; the request carries
+// the agent and the section limit.
 func (i *Initializer) generateDomainContent(ctx context.Context, agent RecommendedAgent) (string, error) {
-	topicsStr := strings.Join(agent.Topics, ", ")
-	task := fmt.Sprintf("You are generating the domain prompt atom for the specialist agent %q whose role is %q and whose research topics are %q.\n\nWrite the markdown content for the domain atom. Describe the concrete concepts, real pitfalls, and best practices that matter for those specific topics: %s.\n\nRequirements:\n- Cover Key Concepts (specific patterns, frameworks, or language features for this domain), Common Pitfalls (real gotchas and anti-patterns for these topics), Best Practices (domain-specific guidelines), and Resources.\n- Be specific to this agent's domain; do NOT give generic software-engineering advice.\n- The answer must be specific enough that it would be incorrect for a different specialist.\n- Do NOT include YAML front matter or atom headers; only output the markdown body for the YAML 'content: |' block.\n- Use markdown headings and bullet points.\n- Write many short '## ' or '### ' sections, one concept, pitfall, or practice per section, each section at most %d characters: every section becomes its own prompt atom and is selected and embedded independently, so each must make sense on its own and none may be a monolith. Prefer twenty small sections over four large ones.\n- Generic software-engineering advice is not acceptable.", agent.Name, agent.Description, topicsStr, topicsStr, i.atomMaxChars())
-	return i.generateAgentAtomContent(ctx, agent, "domain", task)
+	return i.generateAgentAtomContent(ctx, agent, "domain", "agent_domain", i.agentPromptRequest(agent))
+}
+
+// agentPromptRequest is the data of a specialist prompt-atom request.
+func (i *Initializer) agentPromptRequest(agent RecommendedAgent) string {
+	return fmt.Sprintf("Specialist agent: %q\nRole: %q\nResearch topics: %q\nSection limit: %d characters",
+		agent.Name, agent.Description, strings.Join(agent.Topics, ", "), i.atomMaxChars())
 }
 
 // formatDomainExpertise formats the topics as a bulleted list for the identity atom.

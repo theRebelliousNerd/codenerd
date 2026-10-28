@@ -2,24 +2,14 @@ package init
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
-)
 
-// TestIsExpertInitPhase verifies expert-phase classification.
-func TestIsExpertInitPhase(t *testing.T) {
-	expertPhases := []string{"agents", "/agents", "kb_agent", "/kb_agent", "kb_complete"}
-	for _, phase := range expertPhases {
-		if !isExpertInitPhase(phase) {
-			t.Errorf("expected phase %q to be expert phase", phase)
-		}
-	}
-	nonExpert := []string{"analysis", "profile", "facts", "setup", ""}
-	for _, phase := range nonExpert {
-		if isExpertInitPhase(phase) {
-			t.Errorf("expected phase %q NOT to be expert phase", phase)
-		}
-	}
-}
+	"codenerd/internal/core"
+	"codenerd/internal/perception"
+	"codenerd/internal/types"
+)
 
 // TestVerifyJITKernelLoaded_DuringExpertInit verifies the kernel loads during
 // expert initialization: NewInitializer must produce a booted kernel and the
@@ -118,10 +108,9 @@ func TestVerifyJITKernelLoaded_NilKernelFails(t *testing.T) {
 	}
 }
 
-// An expert phase that cannot use the JIT kernel still gets a prompt, but the
-// fallback is recorded for the init result instead of logged at debug; a
-// routine phase's fallback is not.
-func TestAssembleJITPrompt_ExpertFallbackIsReported(t *testing.T) {
+// Without the JIT kernel no init prompt can be compiled, and the call fails
+// before any provider attempt: there is no static prompt to send instead.
+func TestInitPrompt_NoKernelIsAnErrorNotAFallback(t *testing.T) {
 	cfg := DefaultInitConfig(t.TempDir())
 	cfg.LLMClient = &MockLLMClient{}
 	cfg.Interactive = false
@@ -135,12 +124,94 @@ func TestAssembleJITPrompt_ExpertFallbackIsReported(t *testing.T) {
 	defer func() { init.kernel = live }()
 
 	for _, phase := range []string{"analysis", "agents"} {
-		prompt := init.assembleJITPrompt(t.Context(), init.route(slotPlanner), phase, "build the team", nil)
-		if prompt != init.buildFallbackPrompt(phase, "build the team") {
-			t.Fatalf("phase %s: got %q; want the static fallback", phase, prompt)
+		if _, err := init.compileInitSystemPrompt(t.Context(), init.route(slotPlanner), phase, "build the team", nil); !errors.Is(err, types.ErrRolePromptUnavailable) {
+			t.Fatalf("phase %s: err = %v, want ErrRolePromptUnavailable", phase, err)
 		}
 	}
-	if got := init.snapshotLLMMetrics().StaticPromptPhases; len(got) != 1 || got[0] != "agents" {
-		t.Fatalf("StaticPromptPhases = %v, want [agents]", got)
+	_, err = init.withJITPrompt(t.Context(), initCall{slot: slotPlanner, phase: "agents", task: "build the team"},
+		func(context.Context, perception.LLMClient, string) (string, error) {
+			t.Fatal("the model was asked without a compiled prompt")
+			return "", nil
+		})
+	if !errors.Is(err, types.ErrRolePromptUnavailable) {
+		t.Fatalf("withJITPrompt err = %v, want ErrRolePromptUnavailable", err)
 	}
+	if metrics := init.snapshotLLMMetrics(); metrics.Attempts != 0 {
+		t.Fatalf("attempts = %d, want 0: no provider was called", metrics.Attempts)
+	}
+}
+
+// Every phase init sends a compiled prompt for is compiled from the
+// init/researcher/* atoms: the persona, the phase's own guidance where it has
+// one, no shard-turn protocol, and never the task, which is the user message.
+func TestInitPrompt_IsCompiledFromTheInitAtoms(t *testing.T) {
+	cfg := DefaultInitConfig(t.TempDir())
+	cfg.LLMClient = &MockLLMClient{}
+	cfg.Interactive = false
+	init, err := NewInitializer(cfg)
+	if err != nil {
+		t.Fatalf("NewInitializer failed: %v", err)
+	}
+	defer init.Close()
+
+	const task = "TASK-SENTINEL build the team"
+	phaseGuidance := map[string]string{
+		"analysis":       "When analyzing codebases during initialization",
+		"profile":        "When generating project profiles",
+		"facts":          "When generating Mangle facts",
+		"agents":         "When recommending agents",
+		"kb_complete":    "You are synthesizing extracted knowledge into strategic understanding.",
+		"domain_experts": "Propose the domain experts this project needs",
+		"project_tools":  "Choose which of this repository's own commands",
+		// The three agent-knowledge calls share the knowledge-base guidance
+		// and each carries its own instruction.
+		"agent_methodology": "You are generating the methodology prompt atom",
+		"agent_domain":      "You are generating the domain prompt atom",
+		"doc_extraction":    "Extract key knowledge atoms from the documentation chunk",
+	}
+	const kbGuidance = "When creating agent knowledge bases"
+	for phase, guidance := range phaseGuidance {
+		t.Run(phase, func(t *testing.T) {
+			got, err := init.compileInitSystemPrompt(t.Context(), init.route(slotPlanner), phase, task, nil)
+			if err != nil {
+				t.Fatalf("compileInitSystemPrompt(%s): %v", phase, err)
+			}
+			if !strings.Contains(got, "You are the ResearcherShard, a deep research specialist.") {
+				t.Errorf("the %s prompt lacks the init persona", phase)
+			}
+			if !strings.Contains(got, guidance) {
+				t.Errorf("the %s prompt lacks its phase guidance %q", phase, guidance)
+			}
+			if wantKB := strings.HasPrefix(phase, "agent_") || phase == "doc_extraction"; strings.Contains(got, kbGuidance) != wantKB {
+				t.Errorf("the %s prompt carries the knowledge-base guidance = %v, want %v", phase, !wantKB, wantKB)
+			}
+			for other, otherGuidance := range phaseGuidance {
+				if other != phase && strings.Contains(got, otherGuidance) {
+					t.Errorf("the %s prompt carries the %s guidance", phase, other)
+				}
+			}
+			for _, leaked := range []string{"TASK-SENTINEL", "OUTPUT PROTOCOL: PIGGYBACK ENVELOPE", "CONTROL-PACKET FIELD ORDER"} {
+				if strings.Contains(got, leaked) {
+					t.Errorf("the %s prompt carries %q", phase, leaked)
+				}
+			}
+		})
+	}
+	// A phase no init atom is gated to has no persona: an error, not a
+	// prompt without one.
+	if _, err := init.compileInitSystemPrompt(t.Context(), init.route(slotPlanner), "not_a_phase", task, nil); !errors.Is(err, types.ErrRolePromptUnavailable) {
+		t.Fatalf("unknown phase err = %v, want ErrRolePromptUnavailable", err)
+	}
+}
+
+// withInitKernel gives a hand-built Initializer the booted kernel its JIT
+// prompt compile needs, as NewInitializer does.
+func withInitKernel(t *testing.T, i *Initializer) *Initializer {
+	t.Helper()
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel: %v", err)
+	}
+	i.kernel = kernel
+	return i
 }

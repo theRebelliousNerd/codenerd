@@ -120,7 +120,7 @@ func TestRunPhase7e_PlannerChoosesDeclaredCommandsAndReusesUnchanged(t *testing.
 	}}
 	var out bytes.Buffer
 	newInit := func() *Initializer {
-		return &Initializer{config: InitConfig{Workspace: ws, LLMClient: main, PlannerClient: planner}, out: &out}
+		return withInitKernel(t, &Initializer{config: InitConfig{Workspace: ws, LLMClient: main, PlannerClient: planner}, out: &out})
 	}
 	profile := ProjectProfile{Name: "probe", Language: "go", BuildSystem: "makefile"}
 

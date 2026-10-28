@@ -5,6 +5,7 @@ package init
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"codenerd/internal/northstar"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
+	"codenerd/internal/types"
 )
 
 // initJITKernelAdapter adapts *core.RealKernel to prompt.KernelQuerier.
@@ -165,23 +167,10 @@ func (a *initJITKernelAdapter) NewCompilationScope() (prompt.KernelCompilationSc
 	}, nil
 }
 
-// isExpertInitPhase reports whether an init phase initializes experts
-// (Type 3 / persistent specialist agents). These are the phases where the
-// JIT kernel must be loaded: rule-based skeleton selection degrades to
-// fallback prompts when the kernel is missing.
-func isExpertInitPhase(phase string) bool {
-	switch strings.TrimPrefix(strings.ToLower(strings.TrimSpace(phase)), "/") {
-	case "agents", "kb_agent", "kb_complete":
-		return true
-	default:
-		return false
-	}
-}
-
 // verifyJITKernelLoaded checks that the init kernel booted and can serve
-// queries. It is called before wiring the kernel into the JIT compiler and
-// again on the expert phases so a regressed init path fails loudly instead
-// of silently falling back to static prompts.
+// queries. It is called before wiring the kernel into the JIT compiler, so a
+// regressed init path fails loudly: rule-based skeleton selection needs a
+// kernel, and there is no static prompt to compile without one.
 func (i *Initializer) verifyJITKernelLoaded(phase string) error {
 	if i == nil || i.kernel == nil {
 		return fmt.Errorf("init kernel is nil (phase %q)", phase)
@@ -198,51 +187,44 @@ func (i *Initializer) verifyJITKernelLoaded(phase string) error {
 	return nil
 }
 
-// assembleJITPrompt compiles the system prompt for one init phase, for the
-// client route will send it to: the compile carries that client's provider and
-// model, so pinned atoms match the model that reads them, and its input cap
-// bounds the budget. A compile that cannot run falls back to the phase's
-// static prompt.
-func (i *Initializer) assembleJITPrompt(ctx context.Context, route llmRoute, phase, task string, profile *ProjectProfile) string {
-	// Expert phases re-check the kernel: a persistent specialist built from
-	// the static fallback is measurably worse, so it must not happen silently.
-	if isExpertInitPhase(phase) {
-		if err := i.verifyJITKernelLoaded(phase); err != nil {
-			return i.staticFallbackPrompt(phase, task, err)
-		}
-	}
+// initAtomPrefix is the corpus slice init compiles from
+// (atoms/init/researcher_guidance.yaml).
+const initAtomPrefix = "init/researcher/"
 
+// initMissionAtom is the persona every init compile must carry.
+const initMissionAtom = "init/researcher/mission"
+
+// compileInitSystemPrompt compiles the system prompt for one init phase, for
+// the client route will send it to: the compile carries that client's provider
+// and model, so pinned atoms match the model that reads them, and its input cap
+// bounds the budget. The task steers retrieval only; it is the user message,
+// never part of the system prompt. A compile that cannot run, or that comes
+// back without the init persona, is an error wrapping
+// types.ErrRolePromptUnavailable: there is no static prompt to send instead.
+func (i *Initializer) compileInitSystemPrompt(ctx context.Context, route llmRoute, phase, task string, profile *ProjectProfile) (string, error) {
 	jitCompiler, err := i.createJITCompiler()
 	if err != nil {
-		return i.staticFallbackPrompt(phase, task, fmt.Errorf("create JIT compiler: %w", err))
+		return "", fmt.Errorf("%w: init phase %s: create JIT compiler: %w", types.ErrRolePromptUnavailable, phase, err)
 	}
-
 	cc := initCompilationContext(route, phase, task, profile)
 	result, err := jitCompiler.Compile(ctx, cc)
 	if err != nil {
-		return i.staticFallbackPrompt(phase, task, fmt.Errorf("compile: %w", err))
+		return "", fmt.Errorf("%w: init phase %s: compile: %w", types.ErrRolePromptUnavailable, phase, err)
 	}
-
+	if result == nil || strings.TrimSpace(result.Prompt) == "" {
+		return "", fmt.Errorf("%w: init phase %s compiled an empty prompt", types.ErrRolePromptUnavailable, phase)
+	}
+	if !slices.ContainsFunc(result.IncludedAtoms, func(atom *prompt.PromptAtom) bool { return atom.ID == initMissionAtom }) {
+		return "", fmt.Errorf("%w: init phase %s compiled without %s (is the phase in its init_phases?)", types.ErrRolePromptUnavailable, phase, initMissionAtom)
+	}
 	logging.Boot("JIT compiled prompt for init phase %s (%s client %s): %d bytes, %d atoms",
 		phase, route.slot, formatLLMIdentity(route.provider, route.model), len(result.Prompt), result.AtomsIncluded)
-	return fmt.Sprintf("%s\n\nTask: %s", result.Prompt, task)
+	return result.Prompt, nil
 }
 
-// staticFallbackPrompt returns the phase's static prompt. For an expert phase
-// the fallback is warned about and recorded for the init result; for the
-// others it is routine and stays at boot level.
-func (i *Initializer) staticFallbackPrompt(phase, task string, cause error) string {
-	if isExpertInitPhase(phase) {
-		logging.Get(logging.CategoryBoot).Warn("init phase %s is building experts from the static fallback prompt: %v", phase, cause)
-		i.recordStaticPrompt(phase)
-	} else {
-		logging.Boot("JIT prompt unavailable for init phase %s (%v), using fallback", phase, cause)
-	}
-	return i.buildFallbackPrompt(phase, task)
-}
-
-// createJITCompiler creates a JIT prompt compiler for init phases.
-// This is a lazy initialization - we only create it when needed.
+// createJITCompiler creates the init JIT prompt compiler over the
+// init/researcher/* atoms of the embedded corpus, on the initializer's kernel.
+// It is created on first use and cached.
 func (i *Initializer) createJITCompiler() (*prompt.JITPromptCompiler, error) {
 	i.jitMu.Lock()
 	defer i.jitMu.Unlock()
@@ -255,154 +237,33 @@ func (i *Initializer) createJITCompiler() (*prompt.JITPromptCompiler, error) {
 	if err := i.verifyJITKernelLoaded("createJITCompiler"); err != nil {
 		return nil, err
 	}
-	// Create init-specific atoms
-	// These are hardcoded for now - in production, these would come from an embedded corpus
-	atoms := []*prompt.PromptAtom{
-		prompt.NewPromptAtom(
-			"init_analysis_guidance",
-			prompt.CategoryInit,
-			"When analyzing codebases during initialization, focus on: language detection, framework identification, dependency mapping, and architectural patterns. Provide concise 2-3 sentence summaries.",
-		),
-		prompt.NewPromptAtom(
-			"init_profile_guidance",
-			prompt.CategoryInit,
-			"When generating project profiles, extract: project name, language, framework, build system, entry points, test directories, and architectural patterns. Structure as JSON-compatible data.",
-		),
-		prompt.NewPromptAtom(
-			"init_facts_guidance",
-			prompt.CategoryInit,
-			"When generating Mangle facts, use proper syntax: predicates are lowercase_with_underscores, name constants start with /, strings are quoted, statements end with periods. Example: project_language(/go).",
-		),
-		prompt.NewPromptAtom(
-			"init_kb_agent_guidance",
-			prompt.CategoryInit,
-			"When creating agent knowledge bases, research topics deeply and extract: core concepts, best practices, code examples, anti-patterns, and common gotchas. Aim for 20-50 quality atoms per agent.",
-		),
-		prompt.NewPromptAtom(
-			"init_agents_guidance",
-			prompt.CategoryInit,
-			"When recommending agents, analyze project dependencies and architecture. Suggest language experts, framework experts, and domain specialists. Prioritize agents that provide high-value knowledge.",
-		),
-		prompt.NewPromptAtom(
-			"researcher_core_mission",
-			prompt.CategoryIdentity,
-			"You are the ResearcherShard, a deep research specialist. Your purpose: gather knowledge from documentation, analyze codebases, and build knowledge bases for specialist agents. Prioritize accuracy, relevance, and conciseness.",
-		),
+	embedded, err := prompt.LoadEmbeddedCorpus()
+	if err != nil {
+		return nil, fmt.Errorf("load embedded prompt corpus: %w", err)
+	}
+	var atoms []*prompt.PromptAtom
+	for _, atom := range embedded.All() {
+		if strings.HasPrefix(atom.ID, initAtomPrefix) {
+			atoms = append(atoms, atom)
+		}
+	}
+	if len(atoms) == 0 {
+		return nil, fmt.Errorf("the embedded corpus has no %s* atoms", initAtomPrefix)
 	}
 
-	// Configure atom selectors
-	atoms[0].Subcategory = "init"
-	atoms[0].InitPhases = []string{"/analysis"}
-	atoms[0].ShardTypes = []string{"/researcher"}
-
-	atoms[1].Subcategory = "init"
-	atoms[1].InitPhases = []string{"/profile"}
-	atoms[1].ShardTypes = []string{"/researcher"}
-
-	atoms[2].Subcategory = "init"
-	atoms[2].InitPhases = []string{"/facts"}
-	atoms[2].ShardTypes = []string{"/researcher"}
-	atoms[2].IsMandatory = true
-
-	atoms[3].Subcategory = "init"
-	atoms[3].InitPhases = []string{"/kb_agent"}
-	atoms[3].ShardTypes = []string{"/researcher"}
-
-	atoms[4].Subcategory = "init"
-	atoms[4].InitPhases = []string{"/agents"}
-	atoms[4].ShardTypes = []string{"/researcher"}
-
-	atoms[5].Subcategory = "mission"
-	atoms[5].ShardTypes = []string{"/researcher"}
-	atoms[5].IsMandatory = true
-
-	// Create embedded corpus
-	corpus := prompt.NewEmbeddedCorpus(atoms)
-
-	// Restore the JIT kernel in the init path: wire the initializer's live
-	// Mangle kernel through the adapter so rule-based skeleton selection
-	// (selector.go runSelection/querySkeletonAtoms) has a kernel to query. Without this,
-	// every init compile runs without Mangle rules and silently degrades.
-	opts := []prompt.CompilerOption{
-		prompt.WithEmbeddedCorpus(corpus),
-	}
-	opts = append(opts, prompt.WithKernel(newInitJITKernelAdapter(i.kernel)))
-
-	// Create JIT compiler with embedded corpus (+ kernel when available)
-	compiler, err := prompt.NewJITPromptCompiler(opts...)
+	// The initializer's live Mangle kernel, through the adapter, is what
+	// rule-based skeleton selection (selector.go runSelection /
+	// querySkeletonAtoms) queries.
+	compiler, err := prompt.NewJITPromptCompiler(
+		prompt.WithEmbeddedCorpus(prompt.NewEmbeddedCorpus(atoms)),
+		prompt.WithKernel(newInitJITKernelAdapter(i.kernel)),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create JIT compiler: %w", err)
 	}
 
 	i.jitCompiler = compiler
 	return compiler, nil
-}
-
-// buildFallbackPrompt creates a simple fallback prompt when JIT is unavailable.
-func (i *Initializer) buildFallbackPrompt(phase, task string) string {
-	basePrompt := `You are the ResearcherShard, a deep research specialist for codeNERD.
-
-Your purpose: gather knowledge from documentation, analyze codebases, and build knowledge bases for specialist agents.
-
-Core principles:
-- Prioritize accuracy over speed
-- Extract concrete, actionable knowledge
-- Provide concise summaries (2-3 sentences)
-- Focus on what's most useful for an AI coding agent
-`
-
-	// Phase-specific guidance
-	phaseGuidance := map[string]string{
-		"analysis": `
-When analyzing codebases:
-- Detect language, framework, and build system
-- Identify architectural patterns
-- Map key dependencies
-- Locate entry points and test directories
-- Provide a concise 2-3 sentence summary
-`,
-		"profile": `
-When generating project profiles:
-- Extract project metadata (name, language, framework)
-- Identify build system and architecture
-- List key dependencies with versions
-- Structure as JSON-compatible data
-`,
-		"facts": `
-When generating Mangle facts:
-- Use proper syntax: lowercase_predicates, /name_constants, "quoted strings", ending periods
-- Example: project_language(/go).
-- Include project identity, language, framework, patterns
-`,
-		"agents": `
-When recommending agents:
-- Analyze project dependencies and tech stack
-- Suggest language experts (GoExpert, PythonExpert, etc.)
-- Suggest framework experts (WebAPIExpert, FrontendExpert, etc.)
-- Suggest domain specialists (SecurityAuditor, TestArchitect, etc.)
-- Prioritize high-value knowledge sources
-`,
-		"kb_agent": `
-When creating agent knowledge bases:
-- Research topics deeply (20-50 atoms per agent)
-- Extract: core concepts, best practices, code examples, anti-patterns
-- Focus on what makes the agent valuable
-- Maintain high quality (score >= 0.5)
-`,
-		"kb_complete": `
-When completing knowledge base creation:
-- Ensure comprehensive coverage of agent's domain
-- Verify atom quality (no duplicates, high relevance)
-- Provide summary of knowledge coverage
-`,
-	}
-
-	guidance := phaseGuidance[phase]
-	if guidance == "" {
-		guidance = "\n(No specific phase guidance available)\n"
-	}
-
-	return fmt.Sprintf("%s%s\nTask: %s", basePrompt, guidance, task)
 }
 
 // initCall is one init model request.
@@ -429,8 +290,10 @@ type initCall struct {
 // system prompt for that client, bounds the request by InitConfig.Timeout
 // (zero: llm_timeouts.per_call_timeout, read when the call is made), and
 // records one outcome per provider attempt against the serving client. The
-// handler is given the routed client, so a call cannot reach a different one.
-func (i *Initializer) withJITPrompt(ctx context.Context, call initCall, handler func(ctx context.Context, client perception.LLMClient, prompt string) (string, error)) (string, error) {
+// handler is given the routed client and the system prompt; it sends
+// call.task as the user message. A prompt that cannot be compiled is an error
+// and no provider attempt.
+func (i *Initializer) withJITPrompt(ctx context.Context, call initCall, handler func(ctx context.Context, client perception.LLMClient, systemPrompt string) (string, error)) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -438,9 +301,13 @@ func (i *Initializer) withJITPrompt(ctx context.Context, call initCall, handler 
 	if route.client == nil {
 		return "", fmt.Errorf("init phase %s: no LLM client is configured", call.phase)
 	}
-	prompt := call.system
-	if strings.TrimSpace(prompt) == "" && !call.query {
-		prompt = i.assembleJITPrompt(ctx, route, call.phase, call.task, call.profile)
+	systemPrompt := call.system
+	if strings.TrimSpace(systemPrompt) == "" && !call.query {
+		compiled, err := i.compileInitSystemPrompt(ctx, route, call.phase, call.task, call.profile)
+		if err != nil {
+			return "", err
+		}
+		systemPrompt = compiled
 	}
 
 	// Fast-path: parent already done. Skip the provider call entirely; a
@@ -454,7 +321,7 @@ func (i *Initializer) withJITPrompt(ctx context.Context, call initCall, handler 
 	// Providers must honor cancellation. Keep their lifetime and usage
 	// accounting joined to this call rather than returning while a detached
 	// request runs.
-	response, callErr := handler(callCtx, route.client, prompt)
+	response, callErr := handler(callCtx, route.client, systemPrompt)
 	i.recordLLMCall(route, call.phase, callErr)
 	return response, callErr
 }
@@ -520,7 +387,7 @@ func initCompilationContext(route llmRoute, phase, task string, profile *Project
 	// input cap (a planner or worker slot's max_input_tokens). Reserved is a
 	// tenth of the budget: a fixed 10000 exceeded the whole budget once a
 	// capped slot or a small window floored it at config.MinPromptTokens, and
-	// Validate then failed every init compile into the static fallback.
+	// Validate then failed every init compile.
 	cc.TokenBudget, cc.ReservedTokens = northstar.CompileTokenBudget(route.window)
 
 	// Use task as semantic query for vector search

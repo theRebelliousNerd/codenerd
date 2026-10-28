@@ -174,7 +174,7 @@ func TestWithJITPromptRecordsProviderFailure(t *testing.T) {
 	initializer := &Initializer{config: InitConfig{LLMClient: &identifiedClient{provider: "test-provider", model: "test-model"}}}
 	wantErr := errors.New("provider unavailable")
 
-	_, gotErr := initializer.withJITPrompt(context.Background(), initCall{slot: slotMain, phase: "analysis", task: "test metrics"},
+	_, gotErr := initializer.withJITPrompt(context.Background(), initCall{slot: slotMain, phase: "analysis", task: "test metrics", system: "guidance"},
 		func(context.Context, perception.LLMClient, string) (string, error) { return "", wantErr })
 	if !errors.Is(gotErr, wantErr) {
 		t.Fatalf("withJITPrompt() error = %v, want %v", gotErr, wantErr)

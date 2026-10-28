@@ -33,7 +33,7 @@ func TestAgentGenerationHonorsProviderAndParentDeadlines(t *testing.T) {
 	configured.PerCallTimeout = time.Minute
 	config.SetLLMTimeouts(configured)
 	c := &generationWitnessClient{}
-	i := &Initializer{config: InitConfig{LLMClient: c}}
+	i := withInitKernel(t, &Initializer{config: InitConfig{LLMClient: c}})
 	t.Cleanup(func() { _ = i.Close() })
 	before := time.Now()
 	if _, err := i.generateMethodologyContent(context.Background(), RecommendedAgent{Name: "TokenExpert"}); err != nil {
@@ -77,7 +77,7 @@ func TestAgentInitializationPreservesCuratedPromptsWithoutKnowledgeDB(t *testing
 		t.Fatal(err)
 	}
 	c := &generationWitnessClient{}
-	i := &Initializer{config: InitConfig{Workspace: root, LLMClient: c}}
+	i := withInitKernel(t, &Initializer{config: InitConfig{Workspace: root, LLMClient: c}})
 	if err := i.generateAgentPromptsYAMLWithContext(context.Background(), RecommendedAgent{Name: "TokenExpert"}); err != nil {
 		t.Fatal(err)
 	}

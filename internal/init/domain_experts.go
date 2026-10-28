@@ -146,8 +146,8 @@ func (i *Initializer) proposeDomainExperts(ctx context.Context, eng *orient.Engi
 	default:
 		route := i.route(slotPlanner)
 		response, err := i.withJITPrompt(ctx, initCall{slot: slotPlanner, phase: "domain_experts", task: task, profile: &profile},
-			func(ctx context.Context, client perception.LLMClient, prompt string) (string, error) {
-				return client.Complete(ctx, prompt)
+			func(ctx context.Context, client perception.LLMClient, system string) (string, error) {
+				return client.CompleteWithSystem(ctx, system, task)
 			})
 		if err != nil {
 			return nil, append(notes, fmt.Sprintf("Domain experts were not proposed: %v", err)), nil
@@ -241,8 +241,8 @@ func visionLines(vision *northstar.Vision) []string {
 
 func domainExpertsTask(vision *northstar.Vision, sources map[string][]string, profile ProjectProfile, stack []RecommendedAgent, bounds domainBounds) string {
 	var b strings.Builder
-	b.WriteString("Propose the domain experts this project needs for what it is trying to build.\n\n")
-	b.WriteString("A domain expert is a specialist agent with its own knowledge base. The stack experts below already cover the languages and libraries; propose experts on the problem domain, its failure modes, the risks the north star names, and the practices that keep this kind of system working.\n\n")
+	// The instruction, rules and reply contract are the
+	// init/researcher/domain_experts atom; the request is the data and limits.
 	b.WriteString("## North star\n")
 	if lines := visionLines(vision); len(lines) > 0 {
 		for _, line := range lines {
@@ -283,17 +283,8 @@ func domainExpertsTask(vision *northstar.Vision, sources map[string][]string, pr
 	for _, agent := range stack {
 		fmt.Fprintf(&b, "- %s: %s\n", agent.Name, strings.Join(agent.Topics, ", "))
 	}
-	fmt.Fprintf(&b, `
-## Rules
-- Propose at most %d experts, each with at most %d topics plus failure modes and at most %d research questions.
-- Name each expert in PascalCase (letters and digits). Reusing the exact name of an expert above extends that expert instead of adding one.
-- Every expert needs a "why" grounded in the north star or a document above, and "cites" naming its evidence: "north_star" or a document path exactly as listed. An expert with no valid citation is discarded.
-- Research questions are answered by grounded web search: make each one a concrete, searchable question. Set "fast_moving" to true when the answer changes within months (model releases, agent techniques, provider capabilities).
-- "core" may support SecurityAuditor or TestArchitect when the north star or a document calls for them, with the same why and cites.
-
-Respond with JSON only:
-{"experts":[{"name":"","mission":"","why":"","cites":[""],"topics":[""],"failure_modes":[""],"research":[{"question":"","fast_moving":false}]}],"core":[{"name":"","why":"","cites":[""]}]}
-`, bounds.maxExperts, bounds.maxTopics, bounds.maxTopics)
+	fmt.Fprintf(&b, "\n## Limits\nexperts: %d\ntopics per expert: %d\nresearch questions per expert: %d\n",
+		bounds.maxExperts, bounds.maxTopics, bounds.maxTopics)
 	return b.String()
 }
 

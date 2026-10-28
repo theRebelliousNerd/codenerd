@@ -527,11 +527,6 @@ func (i *Initializer) runPhase12PromptSync(ctx context.Context, runner *phaseRun
 
 func (i *Initializer) finalizeInitialization(runner *phaseRunner, result *InitResult, startTime time.Time, profile ProjectProfile) (*InitResult, error) {
 	result.LLMMetrics = i.snapshotLLMMetrics()
-	if phases := result.LLMMetrics.StaticPromptPhases; len(phases) > 0 {
-		result.Warnings = append(result.Warnings, fmt.Sprintf(
-			"expert agents built from static fallback prompts in phase(s) %s: the JIT kernel or compiler was unavailable",
-			strings.Join(phases, ", ")))
-	}
 	result.Warnings = append(result.Warnings, degradedEnrichmentWarnings(result.LLMMetrics)...)
 	i.captureLogProblems(result)
 	validation, validationErr := ValidateAllAgentDBs(result.NerdDir)

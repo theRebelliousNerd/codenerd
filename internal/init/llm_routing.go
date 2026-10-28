@@ -93,11 +93,6 @@ type InitLLMMetrics struct {
 	// Clients is one row per client that was sent a call, in the order each
 	// was first used.
 	Clients []InitLLMClientMetrics `json:"clients,omitzero"`
-	// StaticPromptPhases are expert phases (persistent specialist agents)
-	// whose prompts came from the static fallback because the JIT kernel or
-	// compiler was unavailable. An expert built from a fallback prompt is
-	// measurably worse, so this is reported rather than logged at debug.
-	StaticPromptPhases []string `json:"static_prompt_phases,omitzero"`
 }
 
 // InitLLMClientMetrics is one serving client's share of InitLLMMetrics.
@@ -156,7 +151,6 @@ func (i *Initializer) snapshotLLMMetrics() InitLLMMetrics {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
 	m := i.llmMetrics
-	m.StaticPromptPhases = append([]string(nil), i.llmMetrics.StaticPromptPhases...)
 	m.Clients = make([]InitLLMClientMetrics, len(i.llmMetrics.Clients))
 	for index, row := range i.llmMetrics.Clients {
 		row.Phases = append([]string(nil), row.Phases...)
@@ -166,15 +160,6 @@ func (i *Initializer) snapshotLLMMetrics() InitLLMMetrics {
 		m.Clients = nil
 	}
 	return m
-}
-
-// recordStaticPrompt notes an expert phase that fell back to a static prompt.
-func (i *Initializer) recordStaticPrompt(phase string) {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	if !slices.Contains(i.llmMetrics.StaticPromptPhases, phase) {
-		i.llmMetrics.StaticPromptPhases = append(i.llmMetrics.StaticPromptPhases, phase)
-	}
 }
 
 // degradedEnrichmentWarnings names each client whose calls failed, so a

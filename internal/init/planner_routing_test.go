@@ -64,7 +64,7 @@ func scriptedPlanner(system, user string) (string, error) {
 		return string(body), err
 	case strings.HasPrefix(user, "@@BRIEF"):
 		return `{"Mission":"Build a coding agent that wires what it writes.","Problem":"Coding agents forget to wire code and waste tokens.","Vision":"An agent whose every change is reached from a shipped entry point.","FieldSources":{"Mission":["README.md"],"Problem":["README.md"],"Vision":["README.md"]}}`, nil
-	case strings.Contains(user, "Propose the domain experts"):
+	case strings.Contains(system, "Propose the domain experts"):
 		return `{"experts":[
 			{"name":"AgentWiringExpert","mission":"Keep agent-written code reachable from shipped entry points","why":"the north star says every change must be reached","cites":["north_star"],
 			 "topics":["entry-point wiring"],"failure_modes":["code built but never called"],
@@ -74,14 +74,14 @@ func scriptedPlanner(system, user string) (string, error) {
 			{"name":"UncitedExpert","mission":"has no evidence","why":"because","cites":["nowhere.md"],"topics":["x"]},
 			{"name":"lower-case","mission":"bad name","why":"x","cites":["north_star"],"topics":["x"]}
 		],"core":[{"name":"SecurityAuditor","why":"the agent runs tools on the user's machine","cites":["north_star"]}]}`, nil
-	case strings.Contains(user, "Choose which of this repository's own commands"):
+	case strings.Contains(system, "Choose which of this repository's own commands"):
 		return `{"tools":[{"command":"make test","name":"test","category":"test","description":"Runs the fixture's tests."}]}`, nil
-	case strings.Contains(user, "methodology prompt atom"):
+	case strings.Contains(system, "methodology prompt atom"):
 		return "## Methodology\n\n- Trace every artifact to its reader before calling work done.", nil
-	case strings.Contains(user, "domain prompt atom"):
+	case strings.Contains(system, "domain prompt atom"):
 		return "## Domain\n\n- Agents fail by building code that nothing calls.", nil
 	}
-	return "", fmt.Errorf("unscripted planner request: %.120q", user)
+	return "", fmt.Errorf("unscripted planner request: %.120q / %.120q", system, user)
 }
 
 // phaseOf names the init phase one recorded request belongs to.

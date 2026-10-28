@@ -49,8 +49,17 @@ func (s *stubDistinctLLM) Complete(_ context.Context, prompt string) (string, er
 	return "generic content", nil
 }
 
+// CompleteWithSystem answers from both halves: which atom is asked for is in
+// the compiled system prompt, which agent it is for is in the request.
 func (s *stubDistinctLLM) CompleteWithSystem(_ context.Context, systemPrompt string, userPrompt string) (string, error) {
-	return s.Complete(context.Background(), userPrompt)
+	kind := "generic"
+	switch {
+	case strings.Contains(systemPrompt, "methodology prompt atom"):
+		kind = "methodology"
+	case strings.Contains(systemPrompt, "domain prompt atom"):
+		kind = "domain"
+	}
+	return s.Complete(context.Background(), kind+" "+userPrompt)
 }
 
 func (s *stubDistinctLLM) CompleteWithStreaming(_ context.Context, _ string, _ string, _ bool) (<-chan string, <-chan types.StreamResult) {
@@ -96,7 +105,7 @@ func parseAtomIDs(t *testing.T, data []byte) []string {
 func TestGenerateAgentPromptsYAML_DistinctLLMContentProducesDistinctFiles(t *testing.T) {
 	tmp := t.TempDir()
 	stub := &stubDistinctLLM{}
-	ini := &Initializer{config: InitConfig{Workspace: tmp, LLMClient: stub}}
+	ini := withInitKernel(t, &Initializer{config: InitConfig{Workspace: tmp, LLMClient: stub}})
 
 	agents := []RecommendedAgent{
 		{Name: "GoExpert", Description: "Expert in Go idioms, concurrency patterns, and standard library", Topics: []string{"go concurrency", "go error handling"}},
@@ -180,7 +189,7 @@ func TestGenerateAgentPromptsYAML_NilLLMClientFallsBackToStaticTemplate(t *testi
 func TestGenerateAgentPromptsYAML_YAMLHostileLLMOutputStillParsesWithExpectedAtomIds(t *testing.T) {
 	tmp := t.TempDir()
 	stub := &stubHostileLLM{}
-	ini := &Initializer{config: InitConfig{Workspace: tmp, LLMClient: stub}}
+	ini := withInitKernel(t, &Initializer{config: InitConfig{Workspace: tmp, LLMClient: stub}})
 
 	agent := RecommendedAgent{
 		Name:        "CobraExpert",

@@ -351,33 +351,13 @@ func (i *Initializer) extractAndStoreDocKnowledge(
 		if err := ctx.Err(); err != nil {
 			return atomCount, err
 		}
-		prompt := fmt.Sprintf(`Extract key knowledge atoms from this documentation chunk.
+		// The instruction and reply contract are the
+		// init/researcher/doc_extraction atom; the request is the chunk.
+		prompt := fmt.Sprintf("Document: %s (chunk %d/%d)\nTitle: %s\n\nContent:\n%s\n", doc.Path, chunkIdx+1, len(chunks), doc.Title, chunk)
 
-Document: %s (chunk %d/%d)
-Title: %s
-
-Content:
-%s
-
-Extract the following as JSON array:
-[
-  {"concept": "category/specific_topic", "content": "key insight or fact", "confidence": 0.0-1.0}
-]
-
-Categories to use:
-- "architecture/..." for structural patterns
-- "philosophy/..." for design principles
-- "pattern/..." for recurring patterns
-- "capability/..." for system capabilities
-- "constraint/..." for limitations or invariants
-- "integration/..." for how components connect
-
-Every atom must state something this chunk says. Be specific and extract only genuinely useful insights. Skip boilerplate. An empty array is a valid answer.
-`, doc.Path, chunkIdx+1, len(chunks), doc.Title, chunk)
-
-		response, err := i.withJITPrompt(ctx, initCall{slot: slotMain, phase: "kb_agent", task: prompt},
-			func(ctx context.Context, client perception.LLMClient, p string) (string, error) {
-				return client.Complete(ctx, p)
+		response, err := i.withJITPrompt(ctx, initCall{slot: slotMain, phase: "doc_extraction", task: prompt},
+			func(ctx context.Context, client perception.LLMClient, system string) (string, error) {
+				return client.CompleteWithSystem(ctx, system, prompt)
 			})
 		if err != nil {
 			failures = append(failures, fmt.Errorf("chunk %d/%d: %w", chunkIdx+1, len(chunks), err))
@@ -501,47 +481,14 @@ func (i *Initializer) SynthesizeFromStoredAtoms(
 	// Build synthesis context from stored atoms
 	atomsSummary, categories := buildAtomsSummary(atoms)
 
-	// Synthesis prompt
-	prompt := fmt.Sprintf(`You are synthesizing extracted knowledge into strategic understanding.
-
-## Processing Stats
-- Documents processed: %d
-- Knowledge atoms extracted: %d
-- Categories: %v
-
-%s
-
-## Task
-Synthesize these atoms into a coherent strategic knowledge structure.
-Focus on:
-1. The overarching PROJECT VISION and PHILOSOPHY
-2. Key ARCHITECTURE patterns and decisions
-3. Core CAPABILITIES and how they interconnect
-4. Important CONSTRAINTS and safety invariants
-5. How components COMMUNICATE and integrate
-
-Respond with JSON matching this structure:
-{
-  "project_vision": "synthesized vision statement",
-  "core_philosophy": "guiding principles",
-  "design_principles": ["principle 1", ...],
-  "architecture_style": "style name",
-  "key_components": [{"name": "...", "purpose": "...", "location": "...", "interfaces": "...", "depends_on": [...]}],
-  "data_flow_pattern": "how data moves",
-  "core_patterns": [{"name": "...", "description": "...", "used_in": "...", "why": "..."}],
-  "communication_flow": "how components communicate",
-  "core_capabilities": ["capability 1", ...],
-  "extension_points": ["extension 1", ...],
-  "safety_constraints": ["constraint 1", ...],
-  "limitations": ["limitation 1", ...],
-  "learning_mechanisms": ["mechanism 1", ...],
-  "future_directions": ["direction 1", ...]
-}
-`, state.TotalProcessed, len(atoms), keysFromMap(categories), atomsSummary)
+	// The instruction and reply contract are the init/researcher/kb_synthesis
+	// atom; the request is the stats and the atoms.
+	prompt := fmt.Sprintf("## Processing Stats\n- Documents processed: %d\n- Knowledge atoms extracted: %d\n- Categories: %v\n\n%s",
+		state.TotalProcessed, len(atoms), keysFromMap(categories), atomsSummary)
 
 	response, err := i.withJITPrompt(ctx, initCall{slot: slotPlanner, phase: "kb_complete", task: prompt},
-		func(ctx context.Context, client perception.LLMClient, p string) (string, error) {
-			return client.Complete(ctx, p)
+		func(ctx context.Context, client perception.LLMClient, system string) (string, error) {
+			return client.CompleteWithSystem(ctx, system, prompt)
 		})
 	if err != nil {
 		return nil, fmt.Errorf("synthesis LLM call failed: %w", err)
