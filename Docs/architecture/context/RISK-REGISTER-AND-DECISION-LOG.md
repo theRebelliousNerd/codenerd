@@ -116,7 +116,7 @@ supersedes: []
 - **Evidence (shipped).** `Compressor.getCoreFacts`
   (`internal/context/compressor.go:745`) queries the hardcoded list
   (`internal/context/compressor.go:759`
-  `permitted, dangerous_action, admin_override, security_violation,
+  `permitted, dangerous_action, human_approval_granted, security_violation,
   block_commit`) and on error warns and continues
   (`internal/context/compressor.go:761-765`), never silent
   (`04:71-83` P4). The list is hardcoded — the derivation

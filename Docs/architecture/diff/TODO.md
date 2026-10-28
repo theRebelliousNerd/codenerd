@@ -25,7 +25,7 @@ supersedes: []
 > | TODO-DIFF-03a | closed `c774044` | a deleted file renders its whole preimage under `(deleted by this turn)`; notes come from the preimage and the disk, not `FileDiff.IsNew/IsDelete`; `TestRenderFileDiff_DeleteNote` |
 > | TODO-DIFF-04a–04d | closed `c774044`, `c91c6b3` | budget is config, not constants: `session.repair_diff_file_bytes` (8192) and `repair_diff_turn_bytes` (24576); cut at line boundaries with a `[diff truncated …]` marker; files past the turn budget are named; the saved attempt patch (`turnDiffPatch`, `internal/session/buildable_tree.go:51`) stays unbounded; `TestTurnDiffSection_Budget`, `TestRepairDiffBudget_IsTheSessionSections` |
 > | TODO-DIFF-01a | already done | `TestCache_WhenVerifyEnabledAndKeyCollides_ShouldRecomputeRatherThanServeWrongDiff` (`internal/diff/word_span_test.go:94`) forces a collision and asserts the recompute and `Stats.Collisions` |
-> | TODO-DIFF-01b | decided: trusted keys are an accepted risk while diffs are display-only | witness `TestDiffImporters_AreDisplayOnly` (`internal/diff/importers_test.go`, `c774044`): every production importer of `internal/diff` (`cmd/nerd/ui`, `internal/session`) only renders diffs; a new importer fails the test until it builds its engine with `VerifyCacheContent` or is listed as display-only |
+> | TODO-DIFF-01b | decided: trusted keys are an accepted risk while diffs are display-only | witness `TestDiffImporters_AreDisplayOnlyOrDecisionSafe` (`internal/diff/importers_test.go`, `c774044`): every production importer of `internal/diff` is either display-only (`cmd/nerd/ui`, `internal/session`) or a decision importer with an engine that cannot serve a wrong cached diff (`internal/approval`, uncached; 2026-10-27); a new importer fails the test until it is classified |
 > | TODO-DIFF-05a / 05b | decided: tuning retired | both seams render for a reader (TUI approval view, repair prompt) and neither shows a need for non-default `Options`; `NewEngineWith` stays for tests and the benchmark. Reopen with a measurement, not a guess |
 > | TODO-DIFF-06b (06a out of scope) | decided: `ClearCache` stays test-only | the cache is a bounded LRU (512 entries / 32 MiB, `internal/diff/cache.go:18,23`), so no lifecycle event needs to clear it; its concurrency is pinned by `TestClearCache_ConcurrentWithComputeDiff_ShouldNotRace` (`internal/diff/cache_test.go:167`) and `TestClearCache_ShouldPreserveCumulativeCounters` (`:203`) |
 > | TODO-DIFF-07b (07a out of scope) | decided: `DiffEngineStats` stays test-only | both production engines run with `VerifyCacheContent` off, so the counter worth alerting on (`Collisions`) is always zero in production; the only caller is `TestCreateDiffFromStrings_ShouldUseTheSameEngineAsTheView` |
@@ -212,7 +212,7 @@ reused or deleted.
   `TestRepairDiffBudget_IsTheSessionSections`.
 - TODO-DIFF-01a — already covered by
   `TestCache_WhenVerifyEnabledAndKeyCollides_ShouldRecomputeRatherThanServeWrongDiff`.
-- TODO-DIFF-01b — decision with witness `TestDiffImporters_AreDisplayOnly`
+- TODO-DIFF-01b — decision with witness `TestDiffImporters_AreDisplayOnlyOrDecisionSafe`
   (`c774044`).
 - TODO-DIFF-05a, 05b — decision: tuning retired (see status table).
 - TODO-DIFF-06b — decision: `ClearCache` test-only (06a out of scope).

@@ -692,10 +692,13 @@ next_action(/escalate_to_user) :-
 ```mangle
 permitted(Action) :- safe_action(Action).
 
-permitted(Action) :-
-    dangerous_action(Action),
-    admin_override(User),
-    signed_approval(Action).
+# Request-bound human approval: one exact pending request, never an action type.
+permitted(Action, Target, Payload) :-
+    human_approvable(Action),
+    pending_action(ActionID, Action, Target, Payload, _),
+    human_approval_granted(ActionID, Action, Target, Payload, _),
+    !dangerous_content(Action, Payload),
+    !dangerous_content(Action, Target).
 
 dangerous_action(Action) :-
     action_type(Action, /exec_cmd),

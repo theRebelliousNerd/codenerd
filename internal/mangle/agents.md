@@ -100,9 +100,10 @@ the learned text.
 
 - A new `permitted` rule in the constitution is covered the moment it exists.
   Do not add its premises to a Go list.
-- A rule that requires a human's consent (`grantConsent`: `signed_approval`,
-  `admin_override`) does not put its other premises on the path. That is what
-  keeps `dangerous_action` learnable. A new consent predicate belongs on that
+- A rule that requires a human's consent (`grantConsent`:
+  `human_approval_granted`, the host-asserted approval of one exact
+  pending_action) does not put its other premises on the path; the consent
+  predicate itself always is. A new consent predicate belongs on that
   list only if it truly stands for a person's authorization; leaving one off
   only protects more.
 - Callers that know the program use `ValidateLearnedRuleProtected` with the

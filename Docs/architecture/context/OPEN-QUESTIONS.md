@@ -163,7 +163,7 @@ supersedes: []
   (`internal/context/types.go:63`) prunes kernel priorities ≤100.
 - I-04 Safety never silent-empty (P4): `getCoreFacts`
   (`internal/context/compressor.go:752-765`) Warn-continues over the hardcoded
-  list (`:759`: `permitted`, `dangerous_action`, `admin_override`,
+  list (`:759`: `permitted`, `dangerous_action`, `human_approval_granted`,
   `security_violation`, `block_commit`) — witness `T-RTN-01` failing-query
   fixture (`06:284`, `GAP-CTX-04`).
 - I-05 Replace, don't accumulate (P5): `ReplaceControlFacts`

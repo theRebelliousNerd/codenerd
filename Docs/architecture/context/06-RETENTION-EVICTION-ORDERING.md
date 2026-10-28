@@ -78,7 +78,7 @@ In the finished package:
 ### 2.2 Safety retention — always kept, hardcoded list
 
 - `internal/context/compressor.go:745-771` `getCoreFacts` — verified this
-  turn (body read). Queries `permitted, dangerous_action, admin_override,
+  turn (body read). Queries `permitted, dangerous_action, human_approval_granted,
   security_violation, block_commit` (`:759`); errors Warn-and-continue, never
   a silent empty safety block (`:761-766`).
 
