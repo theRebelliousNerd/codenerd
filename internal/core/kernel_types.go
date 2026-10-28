@@ -121,6 +121,20 @@ type RealKernel struct {
 	// EnableProvenance(). The recorder is reset at the start of every
 	// evaluate() to bound memory usage.
 	proofRecorder *provenance.MemoryRecorder
+	// recorderEpoch identifies the evaluation proofRecorder belongs to, for
+	// ExplanationEnvelope (kernel_explanation.go): armed is the empty recorder
+	// EnableProvenance installed (no pass recorded yet), seen/generation
+	// number each recorder an evaluation installs.
+	recorderEpoch struct {
+		armed, seen *provenance.MemoryRecorder
+		generation  uint64
+	}
+	// digest caches the sha256 of the program text programInfo was analyzed
+	// from (programDigestLocked).
+	digest struct {
+		info *analysis.ProgramInfo
+		hex  string
+	}
 
 	lastEvaluation EvaluationStats
 }

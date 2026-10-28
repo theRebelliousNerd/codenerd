@@ -43,6 +43,14 @@ type RuleValidator interface {
 	GetDeclaredPredicates() []string
 }
 
+// RuleCapabilityGuide is a validator that can say which Mangle features its
+// host path actually preserves (core.RealKernel's capability manifest). When
+// the validator implements it, GenerateAndValidate appends the guidance to the
+// system prompt, so a generated rule is taught only what the host enforces.
+type RuleCapabilityGuide interface {
+	GeneratedRuleGuidance() string
+}
+
 // PredicateSelectorInterface allows JIT-style context-aware predicate selection.
 type PredicateSelectorInterface interface {
 	// SelectForContext returns predicates relevant to the given context.
@@ -127,6 +135,12 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 		sessionID := fmt.Sprintf("feedback-%d", time.Now().UnixNano())
 		tracingClient.SetShardContext(sessionID, "feedback_loop", "system", sessionID, "mangle-validation")
 		defer tracingClient.ClearShardContext()
+	}
+
+	if guide, ok := validator.(RuleCapabilityGuide); ok {
+		if guidance := guide.GeneratedRuleGuidance(); guidance != "" {
+			systemPrompt = systemPrompt + "\n\n" + guidance
+		}
 	}
 
 	// Get available predicates for feedback - use JIT selector if available

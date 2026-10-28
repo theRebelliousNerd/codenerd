@@ -6,6 +6,10 @@
 // captures derivation events DURING evaluation, so let-transforms and
 // aggregations are explained correctly.
 //
+// The answer is a core.ExplanationEnvelope: bounded by the `explain` config
+// section, stamped with the program digest and recorder generation it
+// describes, and carrying each partial node's reason.
+//
 // Usage:
 //
 //	/explain next_action(/generate_tool)
@@ -22,13 +26,29 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/config"
+	"codenerd/internal/core"
+
 	"codeberg.org/TauCeti/mangle-go/provenance"
 )
 
+// explainOptions are the configured /explain bounds.
+func explainOptions(cfg *config.UserConfig) core.ExplainOptions {
+	e := cfg.GetExplainConfig()
+	return core.ExplainOptions{
+		MaxProofs: e.MaxProofs,
+		MaxDepth:  e.MaxDepth,
+		MaxNodes:  e.MaxNodes,
+		MaxEdges:  e.MaxEdges,
+		MaxBytes:  e.MaxBytes,
+	}
+}
+
 // renderExplainProofs renders a slice of provenance.ProofNode as a
 // markdown-friendly indented tree. Kept compact so the result fits in
-// the chat scrollback without overflowing.
-func renderExplainProofs(goal string, proofs []*provenance.ProofNode) string {
+// the chat scrollback without overflowing. status carries each node's
+// partial reason when the envelope knows it.
+func renderExplainProofs(goal string, proofs []*provenance.ProofNode, status map[string]core.ProofNodeStatus) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("## /explain %s\n\n", goal))
 	if len(proofs) == 0 {
@@ -40,7 +60,7 @@ func renderExplainProofs(goal string, proofs []*provenance.ProofNode) string {
 			sb.WriteString("\n---\n\n")
 		}
 		sb.WriteString(fmt.Sprintf("### Proof %d\n\n", i+1))
-		renderProofNode(&sb, p, 0)
+		renderProofNode(&sb, p, 0, status)
 	}
 	return sb.String()
 }
@@ -48,7 +68,7 @@ func renderExplainProofs(goal string, proofs []*provenance.ProofNode) string {
 // renderProofNode walks a proof DAG depth-first. Cycles are not
 // possible (the provenance builder breaks them with Partial nodes),
 // so we don't track visited IDs.
-func renderProofNode(sb *strings.Builder, p *provenance.ProofNode, depth int) {
+func renderProofNode(sb *strings.Builder, p *provenance.ProofNode, depth int, status map[string]core.ProofNodeStatus) {
 	if p == nil {
 		return
 	}
@@ -56,7 +76,7 @@ func renderProofNode(sb *strings.Builder, p *provenance.ProofNode, depth int) {
 	kindLabel := kindToLabel(p.Kind)
 	sb.WriteString(fmt.Sprintf("%s- **%s** `%s`", indent, kindLabel, p.Fact.String()))
 	if p.Partial {
-		sb.WriteString(" _(partial — max depth or transform skipped)_")
+		sb.WriteString(" _(" + partialLabel(status[p.ID].Reason) + ")_")
 	}
 	sb.WriteString("\n")
 	if p.Rule != nil && p.Kind != provenance.KindEDB {
@@ -73,7 +93,24 @@ func renderProofNode(sb *strings.Builder, p *provenance.ProofNode, depth int) {
 		sb.WriteString("\n")
 	}
 	for _, sub := range p.Premises {
-		renderProofNode(sb, sub, depth+1)
+		renderProofNode(sb, sub, depth+1, status)
+	}
+}
+
+// partialLabel says why a node is partial. A partial node is an unexpanded
+// step, not a wrong conclusion.
+func partialLabel(reason string) string {
+	switch reason {
+	case core.PartialDepthLimit:
+		return "partial — depth limit reached"
+	case core.PartialPremise:
+		return "partial — a premise is partial"
+	case core.PartialUnrepresented:
+		return "partial — a step the explainer does not represent (temporal or builtin)"
+	case core.PartialHostTruncated:
+		return "partial — cut by the explain budget"
+	default:
+		return "partial — max depth or transform skipped"
 	}
 }
 
@@ -97,16 +134,37 @@ func kindToLabel(k provenance.Kind) string {
 // explainCommandReply is the markdown blob returned to the chat
 // viewport when the user runs `/explain <goal>`. Pure rendering — the
 // caller handles the kernel evaluation and recorder lifecycle.
-func explainCommandReply(goal string, proofs []*provenance.ProofNode, err error) Message {
+func explainCommandReply(goal string, env *core.ExplanationEnvelope, err error) Message {
 	var content string
-	if err != nil {
+	switch {
+	case err != nil:
 		content = fmt.Sprintf("## /explain %s\n\n_error: %v_\n", goal, err)
-	} else {
-		content = renderExplainProofs(goal, proofs)
+	case env == nil:
+		content = renderExplainProofs(goal, nil, nil)
+	case !env.RecordedThisEpoch:
+		content = fmt.Sprintf("## /explain %s\n\n_Provenance is armed but no evaluation has been recorded yet — nothing can be said about this goal until the next evaluation._\n", goal)
+	default:
+		content = renderExplainProofs(goal, env.Proofs, env.Nodes) + explainEnvelopeFooter(env)
 	}
 	return Message{
 		Role:    "assistant",
 		Content: content,
 		Time:    time.Now(),
 	}
+}
+
+// explainEnvelopeFooter names the epoch the answer describes and what the
+// budget cut, so an answer read later cannot pass for the current world.
+func explainEnvelopeFooter(env *core.ExplanationEnvelope) string {
+	var sb strings.Builder
+	digest := env.ProgramDigest
+	if len(digest) > 12 {
+		digest = digest[:12]
+	}
+	fmt.Fprintf(&sb, "\n_epoch: program %s, recorder generation %d; %d proof facts (%d bytes)_\n",
+		digest, env.RecorderGeneration, env.ProofFactCount, env.ProofFactBytes)
+	if env.Truncated {
+		fmt.Fprintf(&sb, "_truncated: %s_\n", strings.Join(env.TruncationReasons, "; "))
+	}
+	return sb.String()
 }

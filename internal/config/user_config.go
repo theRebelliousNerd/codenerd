@@ -230,6 +230,10 @@ type UserConfig struct {
 	// interactive turn's lane with (routing.go).
 	Routing *RoutingConfig `json:"routing,omitempty"`
 
+	// Explain bounds what a "why was this derived?" answer extracts from the
+	// derivation recorder (explain.go).
+	Explain *ExplainConfig `json:"explain,omitempty"`
+
 	// Retrieval is the thresholds the kernel decides an issue-driven sparse
 	// retrieval pass's hand-off to the model with (retrieval.go).
 	Retrieval *RetrievalConfig `json:"retrieval,omitempty"`
@@ -1703,6 +1707,7 @@ func DefaultUserConfig() *UserConfig {
 	sessionCfg := DefaultSessionConfig()
 	classificationCfg := DefaultClassificationConfig()
 	routingCfg := DefaultRoutingConfig()
+	explainCfg := DefaultExplainConfig()
 	retrievalCfg := DefaultRetrievalConfig()
 	observationCfg := DefaultObservationConfig()
 	researchCfg := DefaultResearchConfig()
@@ -1736,6 +1741,7 @@ func DefaultUserConfig() *UserConfig {
 		Session:                      &sessionCfg,
 		Classification:               &classificationCfg,
 		Routing:                      &routingCfg,
+		Explain:                      &explainCfg,
 		Retrieval:                    &retrievalCfg,
 		Observation:                  &observationCfg,
 		Research:                     &researchCfg,

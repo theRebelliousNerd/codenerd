@@ -10,7 +10,8 @@
 // The recorder buffer is reset at the start of every evaluate() so its
 // memory footprint stays bounded; only the most recent fixpoint pass is
 // inspectable. Long-running sessions can therefore leave provenance on
-// without unbounded growth.
+// without unbounded growth. ExplanationEnvelope (kernel_explanation.go) is
+// the bounded, epoch-stamped form a consumer reads.
 package core
 
 import (
@@ -31,6 +32,7 @@ func (k *RealKernel) EnableProvenance() {
 	defer k.mu.Unlock()
 	if k.proofRecorder == nil {
 		k.proofRecorder = provenance.NewMemoryRecorder()
+		k.recorderEpoch.armed = k.proofRecorder
 		logging.Kernel("Provenance recording ENABLED (next evaluate will populate)")
 	}
 }
@@ -54,11 +56,16 @@ func (k *RealKernel) IsProvenanceEnabled() bool {
 }
 
 // ExplainOptions controls the depth and breadth of Explain output.
-// Zero values fall back to the provenance package defaults (3 proofs,
-// depth 32) which suit most "why was X derived?" inspections.
+// MaxProofs and MaxDepth zero values fall back to the provenance package
+// defaults. MaxNodes, MaxEdges and MaxBytes bound what ExplainEnvelope
+// extracts (config.ExplainConfig carries the configured values); zero means
+// unbounded, which only Explain's raw proofs use.
 type ExplainOptions struct {
 	MaxProofs int
 	MaxDepth  int
+	MaxNodes  int
+	MaxEdges  int
+	MaxBytes  int
 }
 
 // Explain returns proof trees for the given goal fact. The goal must be
@@ -78,7 +85,12 @@ func (k *RealKernel) Explain(goalStr string, opts ExplainOptions) ([]*provenance
 
 	k.mu.RLock()
 	defer k.mu.RUnlock()
+	return k.explainLocked(goalStr, opts)
+}
 
+// explainLocked builds the proofs of goalStr from the recorder and store of
+// the current evaluation. Call holding k.mu (read or write).
+func (k *RealKernel) explainLocked(goalStr string, opts ExplainOptions) ([]*provenance.ProofNode, error) {
 	if k.proofRecorder == nil {
 		return nil, ErrProvenanceDisabled
 	}
@@ -88,8 +100,7 @@ func (k *RealKernel) Explain(goalStr string, opts ExplainOptions) ([]*provenance
 
 	// Parse the goal. The provenance API wants an ast.Atom, not a Fact —
 	// the Mangle parser handles the round-trip for us via parse.Unit.
-	programStr := goalStr + "."
-	parsed, err := parseUnit(strings.NewReader(programStr))
+	parsed, err := parseUnit(strings.NewReader(goalStr + "."))
 	if err != nil {
 		return nil, fmt.Errorf("Explain: failed to parse goal %q: %w", goalStr, err)
 	}
@@ -98,12 +109,10 @@ func (k *RealKernel) Explain(goalStr string, opts ExplainOptions) ([]*provenance
 	}
 	goal := parsed.Clauses[0].Head
 
-	provOpts := provenance.Options{
+	proofs, err := provenance.BuildFromRecording(k.proofRecorder, k.store, goal, provenance.Options{
 		MaxProofs: opts.MaxProofs,
 		MaxDepth:  opts.MaxDepth,
-	}
-
-	proofs, err := provenance.BuildFromRecording(k.proofRecorder, k.store, goal, provOpts)
+	})
 	if err != nil {
 		return nil, err
 	}

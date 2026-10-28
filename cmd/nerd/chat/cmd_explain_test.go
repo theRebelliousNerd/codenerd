@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"codenerd/internal/core"
+
 	"codeberg.org/TauCeti/mangle-go/ast"
 	"codeberg.org/TauCeti/mangle-go/provenance"
 )
@@ -14,7 +16,7 @@ import (
 // "no proofs" path so a /explain on a fact that isn't derivable doesn't
 // emit a blank message.
 func TestRenderExplainProofs_EmptyProofs(t *testing.T) {
-	out := renderExplainProofs("next_action(/do_thing)", nil)
+	out := renderExplainProofs("next_action(/do_thing)", nil, nil)
 	require.Contains(t, out, "## /explain next_action(/do_thing)",
 		"header should echo the goal")
 	require.Contains(t, out, "No proofs found",
@@ -109,7 +111,7 @@ func TestRenderExplainProofs_AllKinds(t *testing.T) {
 	}
 
 	proofs := []*provenance.ProofNode{derivedRoot, partialRoot}
-	out := renderExplainProofs("explained_goal(/alice)", proofs)
+	out := renderExplainProofs("explained_goal(/alice)", proofs, nil)
 
 	// Header + per-proof labels.
 	require.Contains(t, out, "## /explain explained_goal(/alice)", "global header")
@@ -158,6 +160,34 @@ func TestExplainCommandReply_ErrorPath(t *testing.T) {
 	require.Contains(t, msg.Content, "## /explain permitted(/edit, \"main.go\")")
 	require.Contains(t, msg.Content, "_error: sentinel explain failure_",
 		"error message must surface to the user")
+}
+
+// The reply names the epoch it describes and what the budget cut, and says
+// "not recorded yet" rather than "no proof" when no pass was recorded.
+func TestExplainCommandReply_EnvelopeEpochAndTruncation(t *testing.T) {
+	unrecorded := explainCommandReply("g(/a)", &core.ExplanationEnvelope{Goal: "g(/a)"}, nil)
+	require.Contains(t, unrecorded.Content, "no evaluation has been recorded yet")
+
+	root := &provenance.ProofNode{
+		ID:      "/proof/root",
+		Fact:    mustParseGroundAtom(t, "g", nameConst(t, "/a")),
+		Kind:    provenance.KindDerived,
+		Partial: true,
+	}
+	env := &core.ExplanationEnvelope{
+		Goal:               "g(/a)",
+		ProgramDigest:      "0123456789abcdef0123",
+		RecorderGeneration: 4,
+		RecordedThisEpoch:  true,
+		Truncated:          true,
+		TruncationReasons:  []string{"node budget 3 reached"},
+		Proofs:             []*provenance.ProofNode{root},
+		Nodes:              map[string]core.ProofNodeStatus{root.ID: {Partial: true, Reason: core.PartialHostTruncated}},
+	}
+	out := explainCommandReply("g(/a)", env, nil).Content
+	require.Contains(t, out, "program 0123456789ab, recorder generation 4")
+	require.Contains(t, out, "truncated: node budget 3 reached")
+	require.Contains(t, out, "partial — cut by the explain budget")
 }
 
 // nameConst constructs a name-constant safely or fails the test —
