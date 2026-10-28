@@ -3,7 +3,10 @@
 # They enhance perception and never replace it. Every rule here makes the
 # system more careful or more attentive: ask before acting, recognise a
 # go-ahead, close a brief question the user has answered, start the
-# self-diagnosis chain. None starts work that the other lanes would not start.
+# self-diagnosis chain, stop background work, add a restriction; and, for
+# Jev's other uses, hand the model a file Jev judged relevant, flag a review
+# finding Jev cannot see in its code, list a problem apart as a failure
+# around codeNERD. None starts work that the other lanes would not start.
 # A turn with no judgments (Jev off, or its call failed) routes exactly as
 # before: a missing judgment is no evidence, never a "no".
 
@@ -115,3 +118,29 @@ injectable_context("*", Text) :-
 Decl jev_restriction(Kind) bound [/name].
 jev_restriction(/read_only) :- jev_yes("rules_out_changes").
 jev_restriction(/hypothetical) :- jev_yes("hypothetical").
+
+# Retrieval relevance (turnjudge.RelevanceJudge, retrieval/relevance.go):
+# context_relevance(Issue, File, Percent, Kept) is Jev's probability that
+# reading a Tier 2 candidate helps with the issue (Decl: schemas_knowledge.mg
+# 52.2). A file Jev judges relevant is handed to the model in the retrieval
+# brief whatever its keyword score: the keyword floor
+# (retrieval.brief_min_relevance) measures word overlap, Jev reads the file.
+# A file Jev judged irrelevant never reaches tiered_context_file.
+retrieval_brief_file(Issue, File, Tier, Relevance) :-
+    tiered_context_file(Issue, File, Tier, Relevance, _),
+    context_relevance(Issue, File, Percent, /true),
+    config_param(/jev_yes_percent, Yes),
+    Percent >= Yes.
+
+# Self-diagnosis triage (turnjudge.TriageProblems): Jev's probability that a
+# logged problem is a defect in codeNERD's own code. At or below no it is a
+# failure around codeNERD (network, a provider, the configuration, the
+# machine), which the chain lists apart from the defects it works first
+# (chat self_diagnosis.go). Unsettled stays a defect: it still needs a look.
+Decl self_problem_triage(Signature, Category, Percent) bound [/string, /string, /number].
+Decl self_problem_around(Signature, Category) bound [/string, /string].
+
+self_problem_around(Signature, Category) :-
+    self_problem_triage(Signature, Category, Percent),
+    config_param(/jev_no_percent, No),
+    Percent <= No.

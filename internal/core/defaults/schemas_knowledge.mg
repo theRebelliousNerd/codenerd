@@ -110,11 +110,13 @@ Decl keyword_hit(File, Keyword, Count) bound [/string, /string, /number].
 # Files identified as potentially relevant to the current issue.
 Decl candidate_file(File, RelevanceScore) bound [/string, /number].
 
-# context_relevance(File, Percent, Kept)
+# context_relevance(IssueID, File, Percent, Kept)
 # The relevance judge's probability (Jev, retrieval/relevance.go) that reading
 # a Tier 2 candidate helps with the issue; Kept is /true when it stayed in the
-# context, /false when the judgment left it out.
-Decl context_relevance(File, Percent, Kept) bound [/string, /number, /name].
+# context, /false when the judgment left it out. Keyed by issue so a task's
+# pass owns and retracts its own rows; read by retrieval_brief_file
+# (policy/jev_evidence.mg).
+Decl context_relevance(IssueID, File, Percent, Kept) bound [/string, /string, /number, /name].
 
 # file_mentioned(File, IssueID)
 # File was explicitly mentioned in the issue description.

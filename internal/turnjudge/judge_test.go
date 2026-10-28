@@ -56,10 +56,13 @@ func TestJudge_AsksEveryQuestionAndProjectsFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	qs := (*seen)["questions"].(map[string]any)
-	for _, name := range []string{ChangesFiles, WantsAnswer, NamesTarget, Hypothetical, AboutCodeNERD, WantsToStop, ApprovesHeldWork, "answered_0"} {
+	for _, name := range []string{ChangesFiles, NamesTarget, Hypothetical, AboutCodeNERD, WantsToStop, RulesOutChanges, ApprovesHeldWork, AddsToHeldWork, "answered_0"} {
 		if _, ok := qs[name]; !ok {
 			t.Errorf("question %s was not asked", name)
 		}
+	}
+	if len(qs) != 9 {
+		t.Errorf("asked %d questions, want exactly the 9 the rules read: %v", len(qs), qs)
 	}
 	if !strings.Contains(qs["answered_0"].(map[string]any)["instructions"].(string), "which algorithm?") {
 		t.Error("the open question is not inline in its judgment")

@@ -9,14 +9,14 @@ import (
 
 // Every question Jev is asked about a chat turn, in one place: the wording,
 // the criteria and the names are what an audit of this layer reads and edits.
-// Each asks one judgment a person could make at a glance from the state.
-// What the answers decide is the kernel's (policy/jev_evidence.mg), never
-// these questions'.
+// Each asks one judgment a person could make at a glance from the state, and
+// each has a rule that reads it (policy/jev_evidence.mg, side_turns.mg): a
+// question no rule reads is cost without evidence, so it is not asked.
+// What the answers decide is the kernel's, never these questions'.
 
 // Judgment names. They are the kernel's names too (jev_judgment/2).
 const (
 	ChangesFiles     = "changes_files"
-	WantsAnswer      = "wants_answer"
 	NamesTarget      = "names_target"
 	Hypothetical     = "hypothetical"
 	AboutCodeNERD    = "about_codenerd"
@@ -35,13 +35,6 @@ func fixedQuestions() map[string]typesafe.Question {
 			Criteria: &typesafe.NoulCriteria{
 				True:  "The user wants code or files written, changed, fixed, refactored, renamed or removed.",
 				False: "The user asks a question, wants something explained, found, reviewed or run, or is chatting.",
-			},
-		},
-		WantsAnswer: typesafe.Noul{
-			Instructions: "Does the user want an answer or an explanation from the assistant?",
-			Criteria: &typesafe.NoulCriteria{
-				True:  "The user asks a question, or asks for something to be explained, found or reviewed.",
-				False: "The user asks for code or files to be changed, or is only chatting.",
 			},
 		},
 		NamesTarget: typesafe.Noul{

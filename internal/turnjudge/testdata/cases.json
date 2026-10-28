@@ -4,7 +4,6 @@
   "message": "fix the nil pointer in internal/session/executor.go",
   "expect": {
    "changes_files": true,
-   "wants_answer": false,
    "names_target": true,
    "hypothetical": false,
    "about_codenerd": false,
@@ -43,7 +42,6 @@
   "message": "why is TestValidateToken failing?",
   "expect": {
    "changes_files": false,
-   "wants_answer": true,
    "names_target": true,
    "hypothetical": false
   }
@@ -53,7 +51,6 @@
   "message": "explain how internal/core/dreamer.go decides to block an action",
   "expect": {
    "changes_files": false,
-   "wants_answer": true,
    "names_target": true
   }
  },
@@ -62,7 +59,6 @@
   "message": "add table-driven tests for the retry policy",
   "expect": {
    "changes_files": true,
-   "wants_answer": false,
    "names_target": true
   }
  },
@@ -79,8 +75,7 @@
   "message": "what would happen if I deleted the caching layer?",
   "expect": {
    "changes_files": false,
-   "hypothetical": true,
-   "wants_answer": true
+   "hypothetical": true
   }
  },
  {
@@ -105,7 +100,6 @@
   "message": "review my changes in internal/approval",
   "expect": {
    "changes_files": false,
-   "wants_answer": true,
    "names_target": true
   }
  },
@@ -113,8 +107,7 @@
   "id": "where-config",
   "message": "where do we load the routing thresholds?",
   "expect": {
-   "changes_files": false,
-   "wants_answer": true
+   "changes_files": false
   }
  },
  {
@@ -122,7 +115,6 @@
   "message": "thanks, that's great",
   "expect": {
    "changes_files": false,
-   "wants_answer": false,
    "wants_to_stop": false,
    "about_codenerd": false
   }
@@ -138,8 +130,7 @@
   "id": "why-you-failed",
   "message": "why did you crash on that last edit?",
   "expect": {
-   "about_codenerd": true,
-   "wants_answer": true
+   "about_codenerd": true
   }
  },
  {
@@ -153,8 +144,7 @@
   "id": "user-bug-not-self",
   "message": "my server keeps crashing on startup, can you find out why?",
   "expect": {
-   "about_codenerd": false,
-   "wants_answer": true
+   "about_codenerd": false
   }
  },
  {
@@ -211,8 +201,7 @@
   "message": "wait, which files would that touch?",
   "held_work": "refactor internal/retry (by the coder), requested as: make the retry policy configurable",
   "expect": {
-   "approves_held_work": false,
-   "wants_answer": true
+   "approves_held_work": false
   }
  },
  {
@@ -283,8 +272,7 @@
    ]
   },
   "expect": {
-   "answered_0": false,
-   "wants_answer": true
+   "answered_0": false
   }
  },
  {
@@ -313,8 +301,7 @@
   "id": "should-i",
   "message": "should I use channels or a mutex for the job queue?",
   "expect": {
-   "changes_files": false,
-   "wants_answer": true
+   "changes_files": false
   }
  },
  {
@@ -364,7 +351,6 @@
   "message": "find every caller of ResultToFacts",
   "expect": {
    "changes_files": false,
-   "wants_answer": true,
    "names_target": true
   }
  },
@@ -380,8 +366,7 @@
   "id": "self-perf",
   "message": "you've been really slow today, what's going on with you?",
   "expect": {
-   "about_codenerd": true,
-   "wants_answer": true
+   "about_codenerd": true
   }
  },
  {

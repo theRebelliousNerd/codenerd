@@ -80,16 +80,7 @@ func (m Model) selfDiagnosisJob(ctx context.Context, shard string) (job backgrou
 		return job, false, fmt.Sprintf("%s holds nothing hot (%s): no errors, and no warning repeated often enough (logging.self_problem_warn_repeats)", path, rep.Summary())
 	}
 
-	// Jev triages, when on: defects in codeNERD's own code first, failures of
-	// its surroundings (network, providers, config, machine) listed apart.
-	defects, around := hot, []problemlog.Problem(nil)
-	if m.jev != nil && m.Config.TypeSafe.Uses().DiagnosisTriage {
-		if probs, err := turnjudge.TriageProblems(ctx, m.jev, hot); err != nil {
-			logging.Get(logging.CategoryKernel).Warn("%s jev triage failed, the log's order stands: %v", selfDebugMarker, err)
-		} else {
-			defects, around = turnjudge.SplitDefects(hot, probs, m.relevanceDrop())
-		}
-	}
+	defects, around := m.triageProblems(ctx, hot)
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "Diagnose codeNERD itself from its own problems log (%s; %s). Read-only: change nothing.\n", path, rep.Summary())
@@ -106,6 +97,43 @@ func (m Model) selfDiagnosisJob(ctx context.Context, shard string) (job backgrou
 		Started:  time.Now(),
 		FollowUp: selfDiagnosisFollowUp,
 	}, true, ""
+}
+
+// triageProblems is the chain's Jev triage, when on: Jev judges each hot
+// problem, the judgments reach the kernel (self_problem_triage), and the
+// kernel's self_problem_around lists a failure of codeNERD's surroundings
+// (network, providers, config, machine) apart from the defects worked first.
+// Off, or failed, every problem is a defect in the log's order.
+func (m Model) triageProblems(ctx context.Context, hot []problemlog.Problem) (defects, around []problemlog.Problem) {
+	if m.jev == nil || !m.Config.TypeSafe.Uses().DiagnosisTriage {
+		return hot, nil
+	}
+	log := logging.Get(logging.CategoryKernel)
+	// Last chain's judgments go first: a failed triage must not leave them
+	// splitting this one.
+	if err := m.kernel.Retract(turnjudge.TriagePredicate); err != nil {
+		log.Warn("%s jev triage not run, earlier judgments not retracted: %v", selfDebugMarker, err)
+		return hot, nil
+	}
+	probs, err := turnjudge.TriageProblems(m.jevContext(ctx), m.jev, hot)
+	if err != nil {
+		log.Warn("%s jev triage failed, the log's order stands: %v", selfDebugMarker, err)
+		return hot, nil
+	}
+	if err := config.EnsureParams(m.kernel, m.Config.TypeSafe.Params()); err != nil {
+		log.Warn("%s jev thresholds not asserted, the log's order stands: %v", selfDebugMarker, err)
+		return hot, nil
+	}
+	if err := m.kernel.AssertBatch(turnjudge.TriageFacts(hot, probs)); err != nil {
+		log.Error("%s assert jev triage: %v", selfDebugMarker, err)
+		return hot, nil
+	}
+	defects, around, err = turnjudge.SplitDefects(m.kernel, hot)
+	if err != nil {
+		log.Warn("%s jev triage unread, the log's order stands: %v", selfDebugMarker, err)
+		return hot, nil
+	}
+	return defects, around
 }
 
 // writeProblems numbers problems from after, each with its whole first message.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"codenerd/internal/config"
 	"codenerd/internal/retrieval"
 	"codenerd/internal/typesafe"
 )
@@ -19,6 +20,30 @@ type RelevanceJudge struct {
 }
 
 var _ retrieval.RelevanceJudge = RelevanceJudge{}
+
+// RelevanceUse is the retrieval relevance use resolved from the typesafe
+// section, for every retrieval pass that runs: the chat's seed and the
+// session executor's per-task brief. Judge is nil when Jev or the use is off.
+type RelevanceUse struct {
+	Judge      retrieval.RelevanceJudge
+	Drop       float64
+	PoolFactor int
+	HeadBytes  int
+}
+
+// RelevanceFor resolves the use; a nil asker is Jev off.
+func RelevanceFor(a Asker, sec *config.TypeSafeConfig) RelevanceUse {
+	uses := sec.Uses()
+	if a == nil || !uses.RetrievalRelevance {
+		return RelevanceUse{}
+	}
+	return RelevanceUse{
+		Judge:      RelevanceJudge{Asker: a, BatchSize: uses.BatchSize},
+		Drop:       sec.NoProbability(),
+		PoolFactor: uses.RelevancePoolFactor,
+		HeadBytes:  uses.RelevanceHeadBytes,
+	}
+}
 
 // Relevance returns each file's probability of helping, keyed by path. The
 // files are judged in parallel batches; any failed batch fails the whole
@@ -84,7 +109,7 @@ func (j RelevanceJudge) judgeBatch(ctx context.Context, request string, files []
 			},
 		}
 	}
-	resp, err := j.Asker.Ask(ctx, state, questions)
+	resp, err := j.Asker.Ask(typesafe.WithOperation(ctx, OpRetrievalRelevance), state, questions)
 	if err != nil {
 		return nil, err
 	}

@@ -27,6 +27,11 @@ type TypeSafeConfig struct {
 	APIKeyEnv string `json:"api_key_env,omitempty"`
 	// RequestTimeout bounds one call, retries included. Default "30s".
 	RequestTimeout string `json:"request_timeout,omitempty"`
+	// TurnJudgmentTimeout bounds a chat turn's judgments, retries included.
+	// They run beside perception and routing waits for them, so this, not
+	// RequestTimeout, is the longest Jev can hold a turn past perception.
+	// Default "5s"; a call still out at the deadline is no evidence.
+	TurnJudgmentTimeout string `json:"turn_judgment_timeout,omitempty"`
 	// LongContext sends the long-context header (262k tokens instead of 64k).
 	// Slower and less accurate; turn it on only for state that needs it.
 	LongContext bool `json:"long_context,omitempty"`
@@ -57,6 +62,8 @@ type TypeSafeConfig struct {
 // request, docs.typesafe.ai/models).
 type TypeSafeUses struct {
 	TurnJudgments, RetrievalRelevance, ReviewChecks, DiagnosisTriage bool
+	// TurnJudgmentTimeout bounds one turn's judgments (turn_judgment_timeout).
+	TurnJudgmentTimeout time.Duration
 	// RecentTurns bounds the prior turns a turn judgment sees.
 	RecentTurns int
 	// BatchSize bounds the questions in one request; batches run in parallel.
@@ -75,7 +82,8 @@ type TypeSafeUses struct {
 func DefaultTypeSafeUses() TypeSafeUses {
 	return TypeSafeUses{
 		TurnJudgments: true, RetrievalRelevance: true, ReviewChecks: true, DiagnosisTriage: true,
-		RecentTurns: 12, BatchSize: 20, RelevancePoolFactor: 6, RelevanceHeadBytes: 3000, FindingContextLines: 12,
+		TurnJudgmentTimeout: defaultTurnJudgmentTimeout,
+		RecentTurns:         12, BatchSize: 20, RelevancePoolFactor: 6, RelevanceHeadBytes: 3000, FindingContextLines: 12,
 	}
 }
 
@@ -106,6 +114,11 @@ func (c *TypeSafeConfig) Uses() TypeSafeUses {
 	set(c.RelevancePoolFactor, &u.RelevancePoolFactor)
 	set(c.RelevanceHeadBytes, &u.RelevanceHeadBytes)
 	set(c.FindingContextLines, &u.FindingContextLines)
+	// Check refuses a timeout that does not parse, and Resolve with it, so a
+	// running client never reaches here with one.
+	if d, err := parseTypeSafeDuration(c.TurnJudgmentTimeout, defaultTurnJudgmentTimeout); err == nil {
+		u.TurnJudgmentTimeout = d
+	}
 	return u
 }
 
@@ -115,18 +128,33 @@ const (
 	DefaultJudgmentNoPercent  = 30
 )
 
-// Params are the thresholds the kernel's Jev rules read, as config_param rows
-// (config_param_required(/jev, Key), policy/jev_evidence.mg). Nil-safe: the
-// rules only ever see evidence when a section exists, but the thresholds are
-// asserted whole either way.
-func (c *TypeSafeConfig) Params() []Param {
-	yes, no := DefaultJudgmentYesPercent, DefaultJudgmentNoPercent
+// thresholds are the yes and no percents, defaults applied. Nil-safe.
+func (c *TypeSafeConfig) thresholds() (yes, no int) {
+	yes, no = DefaultJudgmentYesPercent, DefaultJudgmentNoPercent
 	if c != nil && c.JudgmentYesPercent > 0 {
 		yes = c.JudgmentYesPercent
 	}
 	if c != nil && c.JudgmentNoPercent > 0 {
 		no = c.JudgmentNoPercent
 	}
+	return yes, no
+}
+
+// NoProbability is judgment_no_percent as a probability, for the one Jev
+// consumer that decides before the kernel sees its evidence: retrieval's
+// Tier 2 drop, which runs inside the tier build. Every other reading of a
+// judgment is a rule over config_param (Params).
+func (c *TypeSafeConfig) NoProbability() float64 {
+	_, no := c.thresholds()
+	return float64(no) / 100
+}
+
+// Params are the thresholds the kernel's Jev rules read, as config_param rows
+// (config_param_required(/jev, Key), policy/jev_evidence.mg). Nil-safe: the
+// rules only ever see evidence when a section exists, but the thresholds are
+// asserted whole either way.
+func (c *TypeSafeConfig) Params() []Param {
+	yes, no := c.thresholds()
 	return []Param{
 		{Key: "/jev_yes_percent", Value: int64(yes)},
 		{Key: "/jev_no_percent", Value: int64(no)},
@@ -136,7 +164,10 @@ func (c *TypeSafeConfig) Params() []Param {
 // OffWhenAbsent marks the section optional as a whole (see OptionalSection).
 func (TypeSafeConfig) OffWhenAbsent() {}
 
-const defaultTypeSafeTimeout = "30s"
+const (
+	defaultTypeSafeTimeout     = "30s"
+	defaultTurnJudgmentTimeout = 5 * time.Second
+)
 
 // ResolvedTypeSafe is runtime-only; never marshal it into diagnostics, it
 // carries the key.
@@ -198,6 +229,9 @@ func (c TypeSafeConfig) Check(prefix string) []Problem {
 	if _, err := c.timeout(); err != nil {
 		add("request_timeout", err.Error(), `a positive Go duration such as "30s", or remove the key for the default`)
 	}
+	if _, err := parseTypeSafeDuration(c.TurnJudgmentTimeout, defaultTurnJudgmentTimeout); err != nil {
+		add("turn_judgment_timeout", err.Error(), `a positive Go duration such as "5s", or remove the key for the default`)
+	}
 	return out
 }
 
@@ -205,6 +239,14 @@ func (c TypeSafeConfig) timeout() (time.Duration, error) {
 	raw := c.RequestTimeout
 	if raw == "" {
 		raw = defaultTypeSafeTimeout
+	}
+	return parseTypeSafeDuration(raw, 0)
+}
+
+// parseTypeSafeDuration reads a positive Go duration; "" is def.
+func parseTypeSafeDuration(raw string, def time.Duration) (time.Duration, error) {
+	if raw == "" {
+		return def, nil
 	}
 	d, err := time.ParseDuration(raw)
 	if err != nil {

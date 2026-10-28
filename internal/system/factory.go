@@ -2617,12 +2617,10 @@ func initFinalExecutors(bctx *bootContext) error {
 	// 2026-09-25 only the chat TUI built a retriever, and only for its
 	// compressor, so `nerd fix` and every delegated task started blind.
 	bctx.retriever = retrieval.NewSparseRetriever(retrieval.DefaultSparseRetrieverConfig(bctx.workspace))
-	if taskRetriever := retrieval.NewTaskRetriever(bctx.kernel, retrieval.TaskRetrieverConfig{
-		WorkDir:         bctx.workspace,
-		Retriever:       bctx.retriever,
-		EmbeddingEngine: bctx.embeddingEngine,
-		Params:          bctx.appCfg.GetRetrievalConfig().Params(),
-	}); taskRetriever != nil {
+	taskRetrieverCfg := taskRetrieverConfig(bctx.appCfg, bctx.workspace)
+	taskRetrieverCfg.Retriever = bctx.retriever
+	taskRetrieverCfg.EmbeddingEngine = bctx.embeddingEngine
+	if taskRetriever := retrieval.NewTaskRetriever(bctx.kernel, taskRetrieverCfg); taskRetriever != nil {
 		bctx.sessionExecutor.SetIssueRetriever(taskRetriever)
 		bctx.sessionSpawner.SetIssueRetriever(taskRetriever)
 	}

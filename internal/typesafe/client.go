@@ -81,6 +81,8 @@ func (c *Client) Model() string { return c.model }
 // Ask puts the questions about state. state is a string, an object or an
 // array. Any failure is an error and no Response; answers are read with
 // Response.Noul, Choice and Score, which fail on a missing or mistyped answer.
+// An answered call is reported to the usage tracker on ctx (usage.go), under
+// the operation WithOperation named.
 func (c *Client) Ask(ctx context.Context, state any, questions map[string]Question) (*Response, error) {
 	body, err := c.buildBody(state, questions)
 	if err != nil {
@@ -90,6 +92,7 @@ func (c *Client) Ask(ctx context.Context, state any, questions map[string]Questi
 	if err := c.do(ctx, http.MethodPost, "/v1/systemone", body, &resp); err != nil {
 		return nil, err
 	}
+	c.recordUsage(ctx, &resp)
 	return &resp, nil
 }
 

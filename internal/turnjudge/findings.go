@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"codenerd/internal/typesafe"
 	"codenerd/internal/types"
+	"codenerd/internal/typesafe"
 )
 
 // Reviewer findings checked against the code they cite (TypeSafe's citation
@@ -82,7 +82,7 @@ func CheckFindings(ctx context.Context, a Asker, workDir string, findings []Find
 					},
 				}
 			}
-			resp, err := a.Ask(ctx, map[string]any{"task": "Check reviewer findings against the code they cite."}, questions)
+			resp, err := a.Ask(typesafe.WithOperation(ctx, OpReviewChecks), map[string]any{"task": "Check reviewer findings against the code they cite."}, questions)
 			if err != nil {
 				ch <- part{err: err}
 				return

@@ -479,7 +479,7 @@ func TieredContextFacts(issueID string, tc *TieredContext, workDir string) []typ
 		}
 		facts = append(facts, types.Fact{
 			Predicate: "context_relevance",
-			Args:      []any{types.MangleString(path), types.PercentFromRatio(j.Probability), kept},
+			Args:      []any{id, types.MangleString(path), types.PercentFromRatio(j.Probability), kept},
 		})
 	}
 

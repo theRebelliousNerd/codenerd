@@ -9,17 +9,33 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
-	"codenerd/internal/retrieval"
 	"codenerd/internal/turnjudge"
 	"codenerd/internal/types"
+	"codenerd/internal/usage"
 )
 
 // Jev judgments for a chat turn (internal/turnjudge, policy/jev_evidence.mg).
-// They are asked in parallel with perception, so they cost no latency, and
-// land in the kernel before routing as evidence the rules may use to ask
-// first, recognise a go-ahead, close an answered brief question, start the
-// self-diagnosis chain, or stop background work. With Jev off, or its call
-// failed, the turn routes exactly as it would have without it.
+// They are asked in parallel with perception and land in the kernel before
+// routing as evidence the rules may use to ask first, recognise a go-ahead,
+// close an answered brief question, start the self-diagnosis chain, stop
+// background work, or add a restriction. Routing waits for them, so the call
+// is bounded by typesafe.turn_judgment_timeout: at worst a turn waits that
+// long past perception, and a call still out then is no evidence. With Jev
+// off, or its call failed, the turn routes exactly as it would have without
+// it. Every answered call is billed to the usage tracker (jevContext).
+
+// jevContext carries the session's usage tracker and identity, so a Jev
+// call's tokens are billed wherever it runs: the turn, a side turn, a
+// background review, the self-diagnosis chain.
+func (m Model) jevContext(ctx context.Context) context.Context {
+	if m.usageTracker != nil && usage.FromContext(ctx) == nil {
+		ctx = usage.NewContext(ctx, m.usageTracker)
+	}
+	if usage.SessionIDFromContext(ctx) == "" && m.sessionID != "" {
+		ctx = usage.WithSessionID(ctx, m.sessionID)
+	}
+	return ctx
+}
 
 // judgedTurn is the outcome of one turn's judgments.
 type judgedTurn struct {
@@ -43,9 +59,11 @@ func (m Model) startTurnJudgments(ctx context.Context, input string, history []p
 		in.Recent = append(in.Recent, turnjudge.Turn{From: h.Role, Text: h.Content})
 	}
 	out := make(chan judgedTurn, 1)
+	jctx, cancel := context.WithTimeout(m.jevContext(ctx), uses.TurnJudgmentTimeout)
 	go func() {
+		defer cancel()
 		began := time.Now()
-		res, err := turnjudge.Judge(ctx, m.jev, in)
+		res, err := turnjudge.Judge(jctx, m.jev, in)
 		out <- judgedTurn{result: res, err: err, took: time.Since(began)}
 	}()
 	return out
@@ -64,15 +82,19 @@ func (m Model) recordTurnJudgments(ctx context.Context, judged <-chan judgedTurn
 		return
 	}
 	var j judgedTurn
+	waitStart := time.Now()
 	select {
 	case j = <-judged:
 	case <-ctx.Done():
 		logging.Get(logging.CategoryPerception).Warn("jev: turn ended before the judgments arrived: %v", ctx.Err())
 		return
 	}
+	// waited is what Jev cost the turn's latency: the time routing sat on the
+	// judgments after perception was done.
+	waited := time.Since(waitStart).Round(time.Millisecond)
 	log := logging.Get(logging.CategoryPerception)
 	if j.err != nil {
-		log.Warn("jev: no evidence this turn (%s): %v", j.took.Round(time.Millisecond), j.err)
+		log.Warn("jev: no evidence this turn (call %s, routing waited %s): %v", j.took.Round(time.Millisecond), waited, j.err)
 		return
 	}
 	if err := config.EnsureParams(m.kernel, m.Config.TypeSafe.Params()); err != nil {
@@ -83,7 +105,7 @@ func (m Model) recordTurnJudgments(ctx context.Context, judged <-chan judgedTurn
 		log.Error("jev: assert judgments: %v", err)
 		return
 	}
-	log.Info("jev: %s in %s", j.result.Summary(), j.took.Round(time.Millisecond))
+	log.Info("jev: %s in %s (routing waited %s)", j.result.Summary(), j.took.Round(time.Millisecond), waited)
 }
 
 // describeHeldWork is the held work as a person would read it.
@@ -117,24 +139,10 @@ func (m Model) stopRequestedBackground() []backgroundJob {
 	return m.background.cancelAll()
 }
 
-// relevanceJudge is Jev's Tier 2 relevance judge, nil when Jev is off.
-func (m Model) relevanceJudge() retrieval.RelevanceJudge {
-	uses := m.Config.TypeSafe.Uses()
-	if m.jev == nil || !uses.RetrievalRelevance {
-		return nil
-	}
-	return turnjudge.RelevanceJudge{Asker: m.jev, BatchSize: uses.BatchSize}
-}
-
-// relevanceDrop is the configured "no" threshold as a probability: a file
-// judged at or below it is left out of the context.
-func (m Model) relevanceDrop() float64 {
-	for _, p := range m.Config.TypeSafe.Params() {
-		if p.Key == "/jev_no_percent" {
-			return float64(p.Value) / 100
-		}
-	}
-	return 0
+// relevanceUse is Jev's Tier 2 relevance judging for the chat's retrieval
+// seed (turnjudge.RelevanceFor); its Judge is nil when Jev or the use is off.
+func (m Model) relevanceUse() turnjudge.RelevanceUse {
+	return turnjudge.RelevanceFor(m.jev, m.Config.TypeSafe)
 }
 
 // reviewerShard is the shard whose findings are checked against their code.
@@ -157,7 +165,7 @@ func (m Model) checkReviewFindings(ctx context.Context, reviewID, result string)
 		findings = append(findings, turnjudge.Finding{File: file, Line: line, Message: msg})
 	}
 	log := logging.Get(logging.CategoryShards)
-	verdicts, err := turnjudge.CheckFindings(ctx, m.jev, m.workspace, findings,
+	verdicts, err := turnjudge.CheckFindings(m.jevContext(ctx), m.jev, m.workspace, findings,
 		turnjudge.FindingOptions{BatchSize: uses.BatchSize, ContextLines: uses.FindingContextLines})
 	if err != nil {
 		log.Warn("jev: review %s findings unchecked: %v", reviewID, err)

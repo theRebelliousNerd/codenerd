@@ -3,8 +3,15 @@
 // evidence. It enhances perception, never replaces it: perception still reads
 // the turn and the LLM still writes every reply; the kernel's rules
 // (policy/jev_evidence.mg) only ever use these judgments to ask first, to
-// recognise a go-ahead, to close an answered brief question, or to start the
-// self-diagnosis chain. A turn with no judgments routes exactly as before.
+// recognise a go-ahead, to close an answered brief question, to start the
+// self-diagnosis chain, to stop background work, or to add a restriction. A
+// turn with no judgments routes exactly as before.
+//
+// The package also holds Jev's other uses, each with its own question and its
+// own kernel fact: retrieval relevance (relevance.go), review findings checked
+// against their code (findings.go), and self-diagnosis triage (triage.go).
+// Docs/architecture/jev-turn-judgments.md lists every question, its switch
+// and its consumer.
 package turnjudge
 
 import (
@@ -38,6 +45,15 @@ type Input struct {
 	// Zero keeps them all.
 	RecentTurns int
 }
+
+// The usage tracker's operation for each use (typesafe.WithOperation), so
+// each use's cost is its own row.
+const (
+	OpTurnJudgments      = "jev_turn_judgments"
+	OpRetrievalRelevance = "jev_retrieval_relevance"
+	OpReviewChecks       = "jev_review_checks"
+	OpDiagnosisTriage    = "jev_diagnosis_triage"
+)
 
 // Asker is the Jev call (typesafe.Client.Ask).
 type Asker interface {
@@ -102,7 +118,7 @@ func Request(in Input) (state map[string]any, questions map[string]typesafe.Ques
 // an answer: the caller then has no evidence, which routes as before.
 func Judge(ctx context.Context, a Asker, in Input) (*Result, error) {
 	state, questions, about := Request(in)
-	resp, err := a.Ask(ctx, state, questions)
+	resp, err := a.Ask(typesafe.WithOperation(ctx, OpTurnJudgments), state, questions)
 	if err != nil {
 		return nil, err
 	}

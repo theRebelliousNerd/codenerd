@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"codenerd/internal/types"
 )
 
 type fakeRelevance struct {
@@ -61,17 +63,25 @@ func TestJudgeTier2_FailureKeepsKeywordRanking(t *testing.T) {
 	}
 }
 
-// The judgment reaches the kernel as context_relevance/3.
+// The judgment reaches the kernel as context_relevance/4, keyed by the issue
+// so a scoped pass owns and retracts its rows.
 func TestTieredContextFacts_EmitsRelevance(t *testing.T) {
 	tc := &TieredContext{Judged: []JudgedFile{{FilePath: "b.go", Probability: 0.95, Kept: true}, {FilePath: "a.go", Probability: 0.2}}}
 	var n int
-	for _, f := range TieredContextFacts("issue", tc, "") {
+	facts := TieredContextFacts("issue", tc, "")
+	for _, f := range facts {
 		if f.Predicate == "context_relevance" {
 			n++
+			if len(f.Args) != 4 || f.Args[0] != types.MangleString("issue") {
+				t.Fatalf("context_relevance not keyed by its issue: %v", f.Args)
+			}
 		}
 	}
 	if n != 2 {
 		t.Fatalf("context_relevance facts = %d, want 2", n)
+	}
+	if len(scopedFacts(facts)) != len(facts) {
+		t.Fatal("a scoped pass drops context_relevance")
 	}
 }
 

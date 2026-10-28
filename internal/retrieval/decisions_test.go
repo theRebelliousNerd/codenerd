@@ -2,6 +2,7 @@ package retrieval
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -175,5 +176,68 @@ func TestSupersedeIssue_LeavesOnlyTheCurrentPass(t *testing.T) {
 		if rows, _ := k.Query(predicate); len(rows) != 0 {
 			t.Errorf("%s: %d rows survived SupersedeIssue", predicate, len(rows))
 		}
+	}
+}
+
+// suffixRelevance answers each candidate by the first key its path ends with.
+type suffixRelevance struct {
+	probs map[string]float64
+	err   error
+	calls int
+}
+
+func (f *suffixRelevance) Relevance(_ context.Context, _ string, files []RelevanceCandidate) (map[string]float64, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := map[string]float64{}
+	for _, c := range files {
+		for suffix, p := range f.probs {
+			if strings.HasSuffix(c.Path, suffix) {
+				out[c.Path] = p
+			}
+		}
+	}
+	return out, nil
+}
+
+// A task's brief takes a file Jev judged relevant whatever its keyword
+// score (jev_evidence.mg); an unsettled or failed judgment leaves the keyword
+// floor in charge, and the pass's judgments leave with its release.
+func TestTaskRetriever_JevRelevantFileReachesTheBriefPastTheFloor(t *testing.T) {
+	dir := writeRefundWorkspace(t)
+	jevParams := (&config.TypeSafeConfig{}).Params()
+	for _, tc := range []struct {
+		name       string
+		judge      *suffixRelevance
+		wantLedger bool
+	}{
+		{name: "relevant", judge: &suffixRelevance{probs: map[string]float64{"refund_ledger.go": 0.95}}, wantLedger: true},
+		{name: "unsettled", judge: &suffixRelevance{probs: map[string]float64{"refund_ledger.go": 0.5}}, wantLedger: false},
+		{name: "failed", judge: &suffixRelevance{err: errors.New("jev down")}, wantLedger: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			k := newDecisionKernel(t)
+			assertIntent(t, k, "/task_intent_jev", "/mutation", "/fix", "payment_processor.go")
+			tr := NewTaskRetriever(k, TaskRetrieverConfig{
+				WorkDir:             dir,
+				Params:              append(config.RetrievalConfig{BriefMinRelevance: 101}.Params(), jevParams...),
+				Relevance:           tc.judge,
+				RelevanceDrop:       0.3,
+				RelevancePoolFactor: 6,
+			})
+			brief, release := tr.Retrieve(context.Background(), "/task_intent_jev", refundIssue)
+			if tc.judge.calls == 0 {
+				t.Fatal("the task pass never asked the relevance judge")
+			}
+			if got := strings.Contains(brief, "refund_ledger.go"); got != tc.wantLedger {
+				t.Fatalf("refund_ledger.go in brief = %v, want %v:\n%s", got, tc.wantLedger, brief)
+			}
+			release()
+			if rows, _ := k.Query("context_relevance"); len(rows) != 0 {
+				t.Fatalf("the pass's judgments outlived it: %v", rows)
+			}
+		})
 	}
 }

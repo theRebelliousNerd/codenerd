@@ -166,3 +166,38 @@ func TestTypeSafeUses_DefaultsSwitchesAndTuning(t *testing.T) {
 		t.Fatal("a negative recent_turns must be refused")
 	}
 }
+
+// The turn judgments have their own bound, shorter than a request's: routing
+// waits for them. It defaults, takes an override, and refuses nonsense.
+func TestTypeSafeUses_TurnJudgmentTimeout(t *testing.T) {
+	c := &TypeSafeConfig{Model: "m", BaseURL: "https://x", APIKey: "k"}
+	if got := c.Uses().TurnJudgmentTimeout; got != defaultTurnJudgmentTimeout {
+		t.Fatalf("default = %s, want %s", got, defaultTurnJudgmentTimeout)
+	}
+	c.TurnJudgmentTimeout = "750ms"
+	if got := c.Uses().TurnJudgmentTimeout; got != 750*time.Millisecond {
+		t.Fatalf("override = %s, want 750ms", got)
+	}
+	for _, bad := range []string{"soon", "-1s", "0s"} {
+		c.TurnJudgmentTimeout = bad
+		found := false
+		for _, p := range c.Check("typesafe") {
+			if p.Path == "typesafe.turn_judgment_timeout" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("turn_judgment_timeout %q was accepted", bad)
+		}
+	}
+}
+
+func TestTypeSafe_NoProbabilityFollowsTheThreshold(t *testing.T) {
+	var none *TypeSafeConfig
+	if got := none.NoProbability(); got != float64(DefaultJudgmentNoPercent)/100 {
+		t.Fatalf("default = %v", got)
+	}
+	if got := (&TypeSafeConfig{JudgmentNoPercent: 20}).NoProbability(); got != 0.2 {
+		t.Fatalf("configured = %v, want 0.2", got)
+	}
+}

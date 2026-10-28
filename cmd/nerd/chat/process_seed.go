@@ -81,7 +81,8 @@ func (m *Model) seedIssueFacts(ctx context.Context, intent perception.Intent, ra
 		bus = m.glassBoxEventBus
 	}
 
-	if _, err := retrieval.SeedIssueFacts(ctx, m.kernel, retrieval.SeedRequest{
+	relevance := m.relevanceUse()
+	if _, err := retrieval.SeedIssueFacts(m.jevContext(ctx), m.kernel, retrieval.SeedRequest{
 		IssueID:   chatIssueID,
 		IssueText: issueText,
 		WorkDir:   m.workspace,
@@ -92,12 +93,12 @@ func (m *Model) seedIssueFacts(ctx context.Context, intent perception.Intent, ra
 		EmbeddingEngine:  m.embeddingEngine,
 		SemanticSearcher: m.semanticSearcher,
 		// Jev, when configured, judges Tier 2's keyword candidates for
-		// relevance (turnjudge.RelevanceJudge); off, the keyword ranking
+		// relevance (turnjudge.RelevanceFor); off, the keyword ranking
 		// stands.
-		Relevance:           m.relevanceJudge(),
-		RelevanceDrop:       m.relevanceDrop(),
-		RelevancePoolFactor: m.Config.TypeSafe.Uses().RelevancePoolFactor,
-		RelevanceHeadBytes:  m.Config.TypeSafe.Uses().RelevanceHeadBytes,
+		Relevance:           relevance.Judge,
+		RelevanceDrop:       relevance.Drop,
+		RelevancePoolFactor: relevance.PoolFactor,
+		RelevanceHeadBytes:  relevance.HeadBytes,
 		Timeout:             retrieval.DefaultSeedTimeout,
 		GlassBox:            bus,
 		TurnID:              m.turnCount,

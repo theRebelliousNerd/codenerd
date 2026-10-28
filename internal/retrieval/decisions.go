@@ -55,6 +55,7 @@ var issueKeyed = map[string]int{
 	"retrieval_outcome":   0,
 	"retrieval_backend":   0,
 	"retrieval_coverage":  0,
+	"context_relevance":   0,
 }
 
 // issueKeyedKinds is each issue-keyed predicate's Decl, slot by slot: 's'
@@ -72,6 +73,7 @@ var issueKeyedKinds = map[string]string{
 	"retrieval_outcome":   "snnn",
 	"retrieval_backend":   "snnn",
 	"retrieval_coverage":  "sn##",
+	"context_relevance":   "ss#n",
 }
 
 // retypedRow restores a queried row's argument types from its Decl.
@@ -274,9 +276,18 @@ type TaskRetrieverConfig struct {
 	Retriever *SparseRetriever
 	// EmbeddingEngine is the optional Tier 4 backend.
 	EmbeddingEngine embedding.EmbeddingEngine
-	// Params are the retrieval thresholds the brief rule reads
-	// (config.RetrievalConfig.Params).
+	// Params are the thresholds the brief rules read: retrieval's
+	// (config.RetrievalConfig.Params) and, with a relevance judge, Jev's
+	// (config.TypeSafeConfig.Params), which let a file Jev judged relevant
+	// into the brief (policy/jev_evidence.mg).
 	Params []config.Param
+	// Relevance, when set, judges Tier 2's keyword candidates
+	// (turnjudge.RelevanceFor); the other three are its tuning, as in
+	// SeedRequest.
+	Relevance           RelevanceJudge
+	RelevanceDrop       float64
+	RelevancePoolFactor int
+	RelevanceHeadBytes  int
 	// Timeout bounds one pass. DefaultSeedTimeout when zero.
 	Timeout time.Duration
 }
@@ -334,14 +345,18 @@ func (t *TaskRetriever) Retrieve(ctx context.Context, intentID, taskText string)
 
 	issueID := NewTaskIssueID()
 	report, err := SeedIssueFacts(ctx, t.kernel, SeedRequest{
-		IssueID:          issueID,
-		IssueText:        taskText,
-		WorkDir:          t.cfg.WorkDir,
-		Retriever:        t.cfg.Retriever,
-		EmbeddingEngine:  t.cfg.EmbeddingEngine,
-		SemanticSearcher: t.semantic,
-		Timeout:          t.cfg.Timeout,
-		IssueScopedOnly:  true,
+		IssueID:             issueID,
+		IssueText:           taskText,
+		WorkDir:             t.cfg.WorkDir,
+		Retriever:           t.cfg.Retriever,
+		EmbeddingEngine:     t.cfg.EmbeddingEngine,
+		SemanticSearcher:    t.semantic,
+		Relevance:           t.cfg.Relevance,
+		RelevanceDrop:       t.cfg.RelevanceDrop,
+		RelevancePoolFactor: t.cfg.RelevancePoolFactor,
+		RelevanceHeadBytes:  t.cfg.RelevanceHeadBytes,
+		Timeout:             t.cfg.Timeout,
+		IssueScopedOnly:     true,
 	})
 	release := func() {
 		if rerr := RetractIssue(t.kernel, issueID); rerr != nil {
