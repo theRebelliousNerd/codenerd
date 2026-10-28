@@ -145,3 +145,89 @@ Retaining previously misclassified evidence can increase immediate context cost 
 ## Exit
 
 A successful repair conserves the meaning of observed content across bounded read, archive metadata, policy and next request: omitted or failed content never serves as a replacement witness; real coverage still enables deduplication; all bodies remain bounded/recoverable under their existing ownership; and the measured total cost is justified by verified task outcomes. The immediate architectural unit is an honest **coverage-and-outcome witness**, not another planner or a larger context window.
+
+## Appendix: bind an observation’s revision to the bytes acquired
+
+**Evidence:** static inspection only; no implementation, tests, provider inference or benchmarks executed. Main is pinned at `356f65e0e6bb639adaa90ab36212daa714114871`; feature at `c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c`. The affected `working_context.go`, `file_ops.go`, `working_set.go`, `working_set.mg`, `working_revision.go` and CodeDOM `elements.go` have identical Git blob identities across those heads. The feature’s shared executor also still runs the tool before recording its observation. [Feature boundary](https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/session/executor_tools.go#L984-L1052).
+
+### Distinct finding: a later source digest can certify earlier returned bytes
+
+The earlier findings concern coverage and outcome on an unchanged source. This appendix concerns **which source version the returned content belongs to**, even when the read succeeds and its coverage is accurate. It also differs from the historical workspace-search study’s match-versus-projection reread: this witness can use an ordinary `read_file` whose projection is already coherent, then lose the version binding during session adoption.
+
+`read_file` acquires content, constructs `precondition.Read` from that buffer, and renders the observation from it. The producer therefore possesses the bytes whose identity should date the observation. [Acquisition and projection](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/tools/core/file_ops.go#L159-L231).
+
+The shared executor receives the rendered string, settles effects and then calls `recordWorkingResult`. That recorder independently obtains `loop.set.Revision(observed)` and stores the earlier returned body with this newly sampled revision. The body is not used to establish that source revision. [Shared boundary](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/executor_tools.go#L978-L1045), [record construction](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/working_context.go#L409-L424).
+
+For a file entity, `Revision` reopens and hashes the current file. For an element, it rereads and parses current source before retrieving that element’s revision. These are valid **current-source measurements**, but they do not identify the bytes the preceding tool acquired. [Revision collection](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/context/working_revision.go#L55-L187).
+
+#### Unexecuted concurrency witness
+
+Use an authorized, small plain-text file whose entire returned content fits the projection limits:
+
+1. The registered `read_file` acquires version **A**.
+2. An external or cooperating writer atomically replaces that file with different version **B**, after acquisition but before the recorder’s revision read. The read result continues to contain A.
+3. `recordWorkingResult` samples B and saves `(body derived from A, revision hash(B))`.
+4. Leave the file at B and recall the archived observation.
+
+`Recall` compares its stored revision with a fresh current revision; both are hash(B), so its JSON reports `stale:false` while returning A’s body. The ledger likewise receives the saved B revision and current B revision. Its staleness rules do not derive stale for this mismatch; absent another independent supersession condition, the observation qualifies as live. [Recall](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/context/working_set.go#L107-L121), [fact projection](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/context/working_set.go#L243-L271), [staleness](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/context/working_set.mg#L186-L199), [liveness](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/context/working_set.mg#L272-L283).
+
+Unlike the earlier span finding, false freshness does not require compaction. Below the ceiling, `working_restate` also depends on `working_stale`, so this misbound record does not produce the correction it would produce with an acquisition-bound A revision. [Restatement rule](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/context/working_set.mg#L408-L422).
+
+The element route has the same boundary: the producer renders an element’s revision and source from its captured model, but the recorder resolves the ref again and independently measures revision afterward. An unchanged key whose body changes during that interval can be stamped with the later element revision. [Element rendering](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/tools/codedom/elements.go#L742-L813), [post-call resolution](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/working_context.go#L375-L387).
+
+#### Production concurrency scope
+
+This is **not** a claim that adjacent calls in one native tool batch execute concurrently. `executeToolBatch` iterates calls and synchronously completes `executeAndRecordToolCall` before advancing to the next call. A later write in that same batch cannot land between the preceding read and its recorder through this loop. [Sequential batch](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/executor_tools.go#L901-L937).
+
+There is nevertheless a source-supported in-process concurrency route, not only an external-editor hypothesis. Campaign scheduling launches eligible tasks in separate goroutines up to its concurrency limit. A nonmutating task with no explicit `WriteSet` returns no resolved write set, and an empty set acquires no lease. Thus a read-only task and an independently eligible writer can overlap when policy/dependencies permit both and capacity exceeds one. The writer’s write-set protection is not a reader snapshot lease. [Task scheduling](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/campaign/orchestrator_tasks.go#L229-L266), [lease acquisition](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/campaign/orchestrator_tasks.go#L459-L478), [nonmutating write-set resolution](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/campaign/orchestrator_tasks.go#L548-L573).
+
+The session invokes `guardWrite` only for write-mutation tools; the guard’s documented role is obtaining leases for mutation targets, not holding an acquired read stable until archival. Preserve that useful writer coordination. Do not call the absence of a reader lease a permission failure or assume every campaign overlaps these tasks. [Write-only guard boundary](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/executor_tools.go#L984-L1005), [guard contract](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/write_guard.go#L15-L23). The required schedule remains a conditional, unexecuted witness; a single-task or dependency-serialized campaign is a counterexample to this internal concurrency route.
+
+### Scope and safeguards
+
+- **The timing is essential.** Mutation after the record has been correctly stamped A is a control: a later B measurement should detect staleness. An unchanged source is another control.
+- No claim is made about frequency, a reproduced bad answer, or an actual user incident.
+- This is not a permission bypass or proof that stale edits will be accepted. File-read preconditions retain the captured read and compare it against bytes supplied by the editing caller. Where an edit passes and enforces that handle, this separate protection remains useful. [Captured-read retention](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/observation/precondition/precondition.go#L201-L219), [verification](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/observation/precondition/precondition.go#L222-L295).
+- A current focus view may independently expose B, but does not repair the archive’s false version binding. A later mutation may eventually make the misbound record stale, but that does not retroactively identify A.
+- A content digest identifies acquired bytes; it does not promise that those bytes remain current at delivery. The proposed contract must preserve that distinction rather than promise an atomic workspace snapshot. Capturing one buffer also does not, by itself, prove an atomic read against arbitrary in-place external writers; that stronger acquisition question is separate from attaching an unrelated later digest.
+
+### Contract extension
+
+Extend the earlier producer-owned coverage witness with **acquisition-bound source identity**:
+
+1. Carry canonical source identity, acquired source revision, projection coverage, outcome and projected-body digest together through the tool-accounting boundary.
+2. Derive the acquired revision from the exact source buffer/model used to render the result—not a subsequent reopen. The existing `precondition.Read` and CodeDOM model already supply appropriate inputs.
+3. Keep **observed revision** separate from **current revision**. Mangle should compare those measurements and derive freshness, retention and reacquisition needs.
+4. If provenance is unavailable, preserve useful historical output with an explicit unknown binding; do not substitute a later live digest as proof of acquisition.
+5. Treat reads and mutations separately. A mutation’s post-state receipt must not be substituted for the pre-state evidence from which a read or decision was made.
+6. Preserve task-local immutable archives, current permission checks and recall handles. Do not replay an effect or introduce another archive merely to recover missing metadata.
+
+This complements, rather than replaces, actual-coverage and outcome-aware supersession. It does not require serializing all reader/writer work: preserving the acquired version allows useful historical evidence and honest stale detection without a new global lock. A stronger stable-source admission requirement would be a separate policy decision, with its blocking and retry costs declared.
+
+### Proposed validation — not run
+
+Use deterministic synchronization between acquisition and recorder stamping, with the real registered producer and shared session accounting:
+
+| Fixture | Required oracle |
+|---|---|
+| Read A → replace with B → record | Archived acquired revision identifies A; current comparison identifies B; no false `stale:false`. |
+| Record A → replace with B | Existing ordinary stale detection remains correct. |
+| No source mutation | Stable observation remains current without needless reacquisition. |
+| Element key unchanged, body changed in the interval | Stored revision remains the producer’s A element revision. |
+| Unrelated element changed | Preserve existing element-level identity semantics. |
+| Delete/rename before recording | Retain acquired identity; report current absent/unavailable separately. |
+| Read precondition used after A→B | Existing stale-edit protection remains distinct and effective. |
+| Below ceiling, compaction, recall | Inspect archived metadata, derived facts and actual next-provider request separately. |
+| Eligible campaign reader without a write set plus permitted writer | Exercise the cross-task schedule; retain writer leases and existing permissions. |
+| Same native batch; concurrency limit one; hard task dependency | Do not claim an internal overlap where execution is serialized. |
+| Native and Piggyback on main/feature | Same observation meaning despite transport framing. |
+
+The existing recall test verifies restoration of original ownership, and revision tests verify changes between separately measured epochs; neither fixture shown injects mutation between producer acquisition and recorder stamping. [Recall fixture](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/working_context_test.go#L314-L365), [revision fixtures](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/context/working_revision_test.go#L119-L184).
+
+### Costs and acceptance
+
+Passing captured provenance adds metadata propagation and ownership complexity, but can avoid the recorder’s extra source read/hash or element parse. It does **not** eliminate later current-source validation. Measure acquired bytes, duplicate reads/parses, hashing, buffer lifetime, storage, kernel facts, request bytes, stale notices, recalls, repair turns and end-to-end latency.
+
+Compare current behavior, conservative unknown-provenance handling, and acquisition-bound metadata. Hold permissions, projection limits, model and acceptance criteria constant. Unknown handling may increase rereads; precise binding may reduce them. Include the source of concurrency, edit rate and serialized controls in the cohort description. If a stronger read-lease design is compared, charge contention, writer delay, cancellation and reader starvation rather than calling serialization free. Neither savings nor quality gains are established here.
+
+**Exit:** a successful observation cannot acquire a newer source revision merely because that version existed when the recorder ran; original bytes remain recoverable, current-source judgments remain separate, and existing edit and context-budget safeguards remain intact.
