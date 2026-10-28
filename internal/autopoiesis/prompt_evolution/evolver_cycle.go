@@ -234,7 +234,13 @@ func (pe *PromptEvolver) generateForGroup(ctx context.Context, cycleID string, c
 		_ = pe.ledger.RecordSpend(SpendRow{CycleID: cycleID, Category: SpendGenerate, Outcome: SpendUnusable, Units: 1})
 	}
 
-	// Per-group cap, then the cycle's remaining atom budget.
+	// The admission check, then the per-group cap and the cycle's remaining
+	// atom budget.
+	atoms, refused := pe.admitGenerated(ctx, atoms)
+	if refused > 0 {
+		result.AtomsRefused += refused
+		_ = pe.ledger.RecordSpend(SpendRow{CycleID: cycleID, Category: SpendGenerate, Outcome: SpendDiscarded, Units: refused})
+	}
 	keep := min(len(atoms), cfg.MaxAtomsPerEvolution, budget.atoms)
 	if discarded := len(atoms) - keep; discarded > 0 {
 		result.AtomsDiscarded += discarded

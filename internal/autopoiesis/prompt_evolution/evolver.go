@@ -251,6 +251,9 @@ type PromptEvolver struct {
 	// jev is Jev for the task verdict, problem type and shared-cause check
 	// (jev.go); nil when it is not configured.
 	jev *jevUse
+	// admission is the check a generated atom passes before it is stored
+	// (admission.go); nil until boot installs it.
+	admission *atomAdmission
 
 	// Lifecycle: recording queue, cycle cancellation, ordered close.
 	recorder  *recordQueue

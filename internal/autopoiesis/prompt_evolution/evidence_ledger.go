@@ -477,7 +477,8 @@ const (
 	// (unparseable, or every atom invalid).
 	SpendUnusable SpendOutcome = "unusable"
 	// SpendDiscarded counts generated candidates dropped by a per-group or
-	// per-cycle cap (Units = candidates, no call).
+	// per-cycle cap or refused by the admission check (Units = candidates,
+	// no call).
 	SpendDiscarded SpendOutcome = "discarded"
 	// SpendPublishFailed counts generated candidates whose storage failed.
 	SpendPublishFailed SpendOutcome = "publish_failed"

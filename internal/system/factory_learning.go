@@ -115,11 +115,25 @@ func initLearningLoop(bctx *bootContext) error {
 	bctx.promptEvolver = evolver
 	// Jev settles task verdicts, problem types and the evolution trigger
 	// (prompt_evolution/jev.go); without it each falls back as before.
+	var atomAsker atomjudge.Asker
 	if jev, err := typesafe.FromConfig(bctx.appCfg.TypeSafe); err != nil {
 		logging.Get(logging.CategoryBoot).Warn("Prompt evolution without Jev: %v", err)
 	} else if jev != nil {
 		evolver.SetJev(jev, bctx.appCfg.TypeSafe)
+		atomAsker = jev
 	}
+	// Every generated atom passes the admission check before it is stored:
+	// the jit.atom_max_chars bound, and Jev's atomicity reading against the
+	// shipped and evolved atoms (prompt_evolution/admission.go).
+	evolver.SetAtomAdmission(
+		atomjudge.AdmissionFor(atomAsker, bctx.appCfg.TypeSafe, bctx.appCfg.GetEffectiveJITConfig().AtomMaxChars, evolvedAtomCompare),
+		func() ([]*prompt.PromptAtom, error) {
+			corpus, err := prompt.LoadEmbeddedCorpus()
+			if err != nil {
+				return nil, err
+			}
+			return corpus.All(), nil
+		})
 
 	// Promotion is a change to the agent's own instructions, so it is recorded
 	// as a kernel fact rather than left implicit in a file on disk.

@@ -362,6 +362,7 @@ type EvolutionResult struct {
 	// no atom is generated without a pin (UnpinnedEvidenceError).
 	GroupsWithoutPin int `json:"groups_without_pin"`
 	AtomsDiscarded   int `json:"atoms_discarded"`   // generated, dropped by a cap
+	AtomsRefused     int `json:"atoms_refused"`     // generated, refused by the admission check
 	EvidenceConsumed int `json:"evidence_consumed"` // failure versions converted this cycle
 
 	// Errors
