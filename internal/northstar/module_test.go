@@ -124,8 +124,12 @@ func TestBuildAlignmentSystemPrompt_IncludesModulePurposeWhenApplies(t *testing.
 	}}
 	g.SetQuerier(q)
 
-	without := g.buildAlignmentSystemPrompt(vision)
-	with := g.buildAlignmentSystemPrompt(vision, "internal/session/executor.go")
+	withoutSystem, without := alignmentPrompts(t, g, vision)
+	withSystem, with := alignmentPrompts(t, g, vision, "internal/session/executor.go")
+	refinement := "the module\nREFINES the project vision"
+	if strings.Contains(withoutSystem, refinement) || !strings.Contains(withSystem, refinement) {
+		t.Fatalf("the module-refinement atom must be compiled exactly when a module governs the subject")
+	}
 
 	if strings.Contains(without, "Session module purpose") {
 		t.Fatalf("without module should not contain module purpose")
@@ -150,8 +154,13 @@ func TestBuildAlignmentSystemPrompt_UnchangedWhenNone(t *testing.T) {
 		Problem:    "Project problem",
 		VisionStmt: "Project vision",
 	}
-	// No querier set
-	gotNoQuerier := g.buildAlignmentSystemPrompt(vision, "internal/session/executor.go")
+	// The subject itself is in the user message, so each case is compared
+	// with the module-free prompt for the same subject: the system prompt
+	// and the vision must not change when no module governs the subject.
+	const subject = "internal/session/executor.go"
+	// Reference prompts with no module logic (no querier).
+	refSystem, reference := alignmentPrompts(t, g, vision, subject)
+	refSystemEmpty, referenceEmpty := alignmentPrompts(t, g, vision)
 	// With querier but no matching module
 	q := &fakeQuerier{facts: map[string][]types.Fact{
 		"effective_module_purpose": {
@@ -160,20 +169,17 @@ func TestBuildAlignmentSystemPrompt_UnchangedWhenNone(t *testing.T) {
 	}}
 	g2 := NewGuardian(store, DefaultGuardianConfig())
 	g2.SetQuerier(q)
-	gotNoMatch := g2.buildAlignmentSystemPrompt(vision, "internal/session/executor.go")
+	noMatchSystem, gotNoMatch := alignmentPrompts(t, g2, vision, subject)
 	// Without subject
-	gotEmptySubject := g2.buildAlignmentSystemPrompt(vision)
+	emptySystem, gotEmptySubject := alignmentPrompts(t, g2, vision)
 
-	// Reference prompt with no module logic (same as old behavior)
-	reference := g.buildAlignmentSystemPrompt(vision)
-
-	if gotNoQuerier != reference {
-		t.Fatalf("when no querier set, prompt should be unchanged")
+	if refSystem != refSystemEmpty || noMatchSystem != refSystem || emptySystem != refSystem {
+		t.Fatalf("with no module governing the subject, the compiled system prompt should not change")
 	}
 	if gotNoMatch != reference {
 		t.Fatalf("when no module governs subject, prompt should be unchanged; got diff")
 	}
-	if gotEmptySubject != reference {
+	if gotEmptySubject != referenceEmpty {
 		t.Fatalf("when subject empty, prompt should be unchanged")
 	}
 }

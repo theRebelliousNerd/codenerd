@@ -180,26 +180,7 @@ func compilePhasePrompt(ctx context.Context, phase string, target PhaseTarget) (
 		return "", fmt.Errorf("unknown northstar derivation phase %q", phase)
 	}
 	derivePromptOnce.Do(func() {
-		corpus, err := prompt.LoadEmbeddedCorpus()
-		if err != nil {
-			derivePromptErr = err
-			return
-		}
-		var atoms []*prompt.PromptAtom
-		for _, atom := range corpus.All() {
-			if strings.HasPrefix(atom.ID, "northstar/derive/") {
-				atoms = append(atoms, atom)
-			}
-		}
-		kernel, err := core.NewRealKernel()
-		if err != nil {
-			derivePromptErr = err
-			return
-		}
-		deriveCompiler, derivePromptErr = prompt.NewJITPromptCompiler(
-			prompt.WithKernel(&northstarJITKernelAdapter{kernel: kernel}),
-			prompt.WithEmbeddedCorpus(prompt.NewEmbeddedCorpus(atoms)),
-		)
+		deriveCompiler, derivePromptErr = newNorthstarAtomCompiler("northstar/derive/")
 	})
 	if derivePromptErr != nil {
 		return "", derivePromptErr

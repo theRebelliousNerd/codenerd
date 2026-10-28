@@ -133,7 +133,7 @@ func TestGuardian_QuerierWiringMakesAlignmentPromptDifference(t *testing.T) {
 
 	// Guardian without querier produces prompt without module purpose.
 	gWithout := NewGuardian(store, DefaultGuardianConfig())
-	promptWithout := gWithout.buildAlignmentSystemPrompt(vision, "internal/session/executor.go")
+	_, promptWithout := alignmentPrompts(t, gWithout, vision, "internal/session/executor.go")
 	if strings.Contains(promptWithout, "Session module purpose") {
 		t.Fatalf("without querier, prompt should not contain module purpose; got:\n%s", promptWithout)
 	}
@@ -144,7 +144,7 @@ func TestGuardian_QuerierWiringMakesAlignmentPromptDifference(t *testing.T) {
 	// Same guardian shape with querier set produces prompt containing governing module's purpose.
 	gWith := NewGuardian(store, DefaultGuardianConfig())
 	gWith.SetQuerier(q)
-	promptWith := gWith.buildAlignmentSystemPrompt(vision, "internal/session/executor.go")
+	_, promptWith := alignmentPrompts(t, gWith, vision, "internal/session/executor.go")
 	if !strings.Contains(promptWith, "Session module purpose") {
 		t.Fatalf("with querier, prompt should contain module purpose; got:\n%s", promptWith)
 	}

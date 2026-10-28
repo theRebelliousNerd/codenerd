@@ -400,9 +400,15 @@ func (g *Guardian) CheckAlignment(ctx context.Context, trigger AlignmentTrigger,
 		return check, nil
 	}
 
-	// Build the alignment prompt
-	systemPrompt := g.buildAlignmentSystemPrompt(vision, subject)
-	userPrompt := g.buildAlignmentUserPrompt(subject, context)
+	// Build the alignment prompt: no compiled prompt, no assessment.
+	systemPrompt, userPrompt, err := g.buildAlignmentPrompts(ctx, vision, subject, context)
+	if err != nil {
+		markUnknown(check, fmt.Sprintf("Alignment prompt unavailable: %v", err))
+		check.Duration = time.Since(startTime)
+		g.persistAlignmentOutcome(check, subject)
+		g.logCheck(check, "alignment prompt unavailable")
+		return check, nil
+	}
 
 	response, err := g.complete(ctx, llm, systemPrompt, userPrompt)
 	if err != nil {
@@ -467,10 +473,34 @@ func (g *Guardian) logCheck(check *AlignmentCheck, msg string) {
 	})
 }
 
-func (g *Guardian) buildAlignmentSystemPrompt(vision *Vision, subject ...string) string {
+// buildAlignmentPrompts returns one check's model input: the system prompt
+// compiled from the guardian atoms (with the module-refinement rule exactly
+// when a module northstar governs the subject) and the user message carrying
+// the data -- the project vision, that module's northstar, the subject and its
+// context.
+func (g *Guardian) buildAlignmentPrompts(ctx context.Context, vision *Vision, subject, extra string) (systemPrompt, userPrompt string, err error) {
+	module := g.moduleNorthstarSection(subject)
+	systemPrompt, err = compileAlignmentSystemPrompt(ctx, module != "")
+	if err != nil {
+		return "", "", err
+	}
 	var sb strings.Builder
-	sb.WriteString(AlignmentAtom(atomGuardianRole))
-	sb.WriteString("\n\n")
+	sb.WriteString(alignmentVisionSection(vision))
+	sb.WriteString(module)
+	sb.WriteString("## Subject to Evaluate\n")
+	sb.WriteString(subject)
+	sb.WriteString("\n")
+	if extra != "" {
+		sb.WriteString("\n## Additional Context\n")
+		sb.WriteString(extra)
+		sb.WriteString("\n")
+	}
+	return systemPrompt, sb.String(), nil
+}
+
+// alignmentVisionSection renders the project vision the check judges against.
+func alignmentVisionSection(vision *Vision) string {
+	var sb strings.Builder
 	sb.WriteString("## Project Vision\n")
 	sb.WriteString(fmt.Sprintf("**Mission:** %s\n", vision.Mission))
 	sb.WriteString(fmt.Sprintf("**Problem:** %s\n", vision.Problem))
@@ -523,66 +553,46 @@ func (g *Guardian) buildAlignmentSystemPrompt(vision *Vision, subject ...string)
 		}
 		sb.WriteString("\n")
 	}
-
-	// Module northstar refinement: when the subject lives inside a module that
-	// declares its own purpose, include that purpose and its requirements
-	// ALONGSIDE the project vision. A module refines the project northstar; it
-	// must never be able to opt out of it. When no querier is set or no module
-	// governs the subject, behaviour is exactly as before.
-	subjectStr := ""
-	if len(subject) > 0 {
-		subjectStr = subject[0]
-	}
-	var q FactQuerier
-	g.mu.RLock()
-	q = g.querier
-	g.mu.RUnlock()
-	if q != nil && strings.TrimSpace(subjectStr) != "" {
-		mod, err := ModuleForPath(q, subjectStr)
-		if err == nil && mod != "" {
-			purpose, err := EffectiveModulePurpose(q, mod)
-			if err == nil && purpose != "" {
-				sb.WriteString(fmt.Sprintf("## Module Northstar (%s)\n", mod))
-				sb.WriteString(fmt.Sprintf("**Purpose:** %s\n\n", purpose))
-				sb.WriteString(AlignmentAtom(atomGuardianModuleRefinement))
-				sb.WriteString("\n\n")
-				reqs, err := ModuleRequirementsFor(q, mod)
-				if err == nil && len(reqs) > 0 {
-					sb.WriteString("### Module Requirements\n")
-					for _, r := range reqs {
-						sev := strings.TrimSpace(r.Severity)
-						if sev != "" {
-							sev = strings.TrimPrefix(sev, "/")
-							sb.WriteString(fmt.Sprintf("- [%s/%s] %s\n", r.ID, sev, r.Statement))
-						} else {
-							sb.WriteString(fmt.Sprintf("- [%s] %s\n", r.ID, r.Statement))
-						}
-					}
-					sb.WriteString("\n")
-				}
-			}
-		}
-	}
-
-	sb.WriteString(AlignmentAtom(atomGuardianTask))
-	sb.WriteString("\n\n")
-	sb.WriteString(AlignmentAtom(atomGuardianOutputContract))
-	sb.WriteString("\n")
-
 	return sb.String()
 }
 
-func (g *Guardian) buildAlignmentUserPrompt(subject, context string) string {
-	var sb strings.Builder
-	sb.WriteString("## Subject to Evaluate\n")
-	sb.WriteString(subject)
-	sb.WriteString("\n\n")
-	if context != "" {
-		sb.WriteString("## Additional Context\n")
-		sb.WriteString(context)
-		sb.WriteString("\n\n")
+// moduleNorthstarSection renders the northstar of the module governing
+// subject, or "" when no querier is set or no module governs it. A module
+// refines the project northstar; it must never be able to opt out of it, so
+// the section is shown ALONGSIDE the vision, and its presence is what puts the
+// module-refinement rule into the compiled prompt.
+func (g *Guardian) moduleNorthstarSection(subject string) string {
+	g.mu.RLock()
+	q := g.querier
+	g.mu.RUnlock()
+	if q == nil || strings.TrimSpace(subject) == "" {
+		return ""
 	}
-	sb.WriteString(AlignmentAtom(atomGuardianUserInstruction))
+	mod, err := ModuleForPath(q, subject)
+	if err != nil || mod == "" {
+		return ""
+	}
+	purpose, err := EffectiveModulePurpose(q, mod)
+	if err != nil || purpose == "" {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("## Module Northstar (%s)\n", mod))
+	sb.WriteString(fmt.Sprintf("**Purpose:** %s\n\n", purpose))
+	reqs, err := ModuleRequirementsFor(q, mod)
+	if err == nil && len(reqs) > 0 {
+		sb.WriteString("### Module Requirements\n")
+		for _, r := range reqs {
+			sev := strings.TrimSpace(r.Severity)
+			if sev != "" {
+				sev = strings.TrimPrefix(sev, "/")
+				sb.WriteString(fmt.Sprintf("- [%s/%s] %s\n", r.ID, sev, r.Statement))
+			} else {
+				sb.WriteString(fmt.Sprintf("- [%s] %s\n", r.ID, r.Statement))
+			}
+		}
+		sb.WriteString("\n")
+	}
 	return sb.String()
 }
 

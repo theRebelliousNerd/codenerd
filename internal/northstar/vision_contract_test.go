@@ -325,7 +325,7 @@ func TestBackgroundEventHandler_UnknownIsClarifyNotProceed(t *testing.T) {
 // The alignment prompt carries each mitigation's state with its prose.
 func TestAlignmentPrompt_ShowsMitigationState(t *testing.T) {
 	g := NewGuardian(nil, DefaultGuardianConfig())
-	prompt := g.buildAlignmentSystemPrompt(validVision())
+	_, prompt := alignmentPrompts(t, g, validVision())
 	if !strings.Contains(prompt, "Mitigation (proposed): reconcile") {
 		t.Fatalf("prompt does not mark the mitigation as proposed:\n%s", prompt)
 	}

@@ -244,37 +244,36 @@ func TestCheckAlignment_WhenClientCannotSelectModel_ShouldStillComplete(t *testi
 // PROMPT ATOMIZATION
 // =============================================================================
 
-func TestAlignmentAtom_ShouldResolveEveryGuardianAtom(t *testing.T) {
-	for _, id := range AlignmentAtomIDs() {
-		if strings.TrimSpace(AlignmentAtom(id)) == "" {
-			t.Errorf("atom %q resolved to empty content", id)
-		}
-	}
-}
-
-func TestBuildAlignmentSystemPrompt_ShouldComposeFromAtoms(t *testing.T) {
+func TestBuildAlignmentPrompts_ShouldComposeFromAtomsAndData(t *testing.T) {
 	g := guardianWithVision(t, DefaultGuardianConfig())
-	prompt := g.buildAlignmentSystemPrompt(g.GetVision(), "internal/northstar/guardian.go")
+	systemPrompt, userPrompt := alignmentPrompts(t, g, g.GetVision(), "internal/northstar/guardian.go")
 
-	for _, id := range []string{atomGuardianRole, atomGuardianTask, atomGuardianOutputContract} {
-		if !strings.Contains(prompt, AlignmentAtom(id)) {
-			t.Errorf("system prompt does not contain the content of atom %q", id)
-		}
-	}
-	if !strings.Contains(prompt, "Make logic the executive") {
-		t.Error("system prompt lost the project mission")
+	if !strings.Contains(systemPrompt, "You are the Northstar Alignment Guardian") {
+		t.Error("system prompt lacks the guardian role atom")
 	}
 	// The response contract is what parseAlignmentResponse depends on.
-	if !strings.Contains(prompt, "SCORE:") || !strings.Contains(prompt, "RESULT:") {
+	if !strings.Contains(systemPrompt, "SCORE:") || !strings.Contains(systemPrompt, "RESULT:") {
 		t.Error("system prompt lost the machine-readable response contract")
+	}
+	// The vision is data: it travels in the user message, not the compile.
+	if strings.Contains(systemPrompt, "Make logic the executive") {
+		t.Error("the project mission leaked into the compiled system prompt")
+	}
+	if !strings.Contains(userPrompt, "Make logic the executive") {
+		t.Error("user message lost the project mission")
 	}
 }
 
-func TestBuildAlignmentUserPrompt_ShouldEndWithAtomInstruction(t *testing.T) {
+func TestBuildAlignmentPrompts_UserMessageCarriesSubjectAndContext(t *testing.T) {
 	g := guardianWithVision(t, DefaultGuardianConfig())
-	prompt := g.buildAlignmentUserPrompt("subject", "context")
-	if !strings.Contains(prompt, AlignmentAtom(atomGuardianUserInstruction)) {
-		t.Error("user prompt does not use the corpus instruction atom")
+	_, userPrompt, err := g.buildAlignmentPrompts(context.Background(), g.GetVision(), "the subject", "the context")
+	if err != nil {
+		t.Fatalf("buildAlignmentPrompts: %v", err)
+	}
+	for _, want := range []string{"## Subject to Evaluate\nthe subject", "## Additional Context\nthe context"} {
+		if !strings.Contains(userPrompt, want) {
+			t.Errorf("user message lacks %q:\n%s", want, userPrompt)
+		}
 	}
 }
 

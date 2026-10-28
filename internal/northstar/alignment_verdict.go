@@ -33,7 +33,7 @@ func alignmentSeverity(r AlignmentResult) int {
 }
 
 // parseAlignmentResponse reads the SCORE/RESULT/EXPLANATION/SUGGESTIONS
-// contract (atomGuardianOutputContract).
+// contract (atom northstar/guardian/output_contract).
 //
 // Rulings (NS-VISION-02):
 //   - No usable SCORE and no usable RESULT (empty, prose, garbage) is unknown.

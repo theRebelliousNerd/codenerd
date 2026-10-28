@@ -1,23 +1,22 @@
 # Northstar Guardian alignment-check atoms.
 #
-# These are the SCAFFOLDING of the Guardian's alignment prompt: the role frame,
-# the evaluation instruction, the machine-readable response contract, and the
-# module-refinement rule. Everything else in that prompt is project data (the
-# vision itself), which is assembled at call time from the knowledge store.
-#
-# They were previously string literals inside Guardian.buildAlignmentSystemPrompt,
-# which meant the one prompt in the system that decides whether work is allowed
-# to proceed was the one prompt nobody could tune, diff, or evolve. The Guardian
-# loads them by ID from the embedded corpus (internal/northstar/alignment_prompt.go)
-# and falls back to a baked-in copy only if the corpus is unavailable.
+# The Guardian's whole system prompt: the role frame, the module-refinement
+# rule, the evaluation task, the SCORE/RESULT reply contract and the closing
+# instruction. internal/northstar/alignment_prompt.go compiles them with a JIT
+# compiler over the northstar/guardian/* slice of the embedded corpus; there is
+# no Go copy and no fallback -- a failed compile leaves the check unknown. The
+# vision, the module northstar, the subject and its context are user-message
+# data. Phase /alignment_check is a project-only check; /module_alignment_check
+# adds module_refinement when a module northstar governs the subject.
 
 - id: "northstar/guardian/role"
-  category: "northstar"
+  # identity: the skeleton tier of the Guardian's compile.
+  category: "identity"
   subcategory: "guardian_alignment"
-  # Gated to a phase no shard compile ever sets: the Guardian addresses these
-  # atoms by ID, and a persona-declaring atom with no regime gate would leak
+  # Gated to phases no shard compile ever sets: only the Guardian's compile
+  # sets them, and a persona-declaring atom with no regime gate would leak
   # into every shard prompt (see TestShardGating_PersonaAtomsInCorpusAreGated).
-  northstar_phases: ["/alignment_check"]
+  northstar_phases: ["/alignment_check", "/module_alignment_check"]
   is_mandatory: true
   content: |
     You are the Northstar Alignment Guardian for a software project.
@@ -30,11 +29,10 @@
 - id: "northstar/guardian/module_refinement"
   category: "northstar"
   subcategory: "guardian_alignment"
-  # Gated to a phase no shard compile ever sets: the Guardian addresses these
-  # atoms by ID, and a persona-declaring atom with no regime gate would leak
-  # into every shard prompt (see TestShardGating_PersonaAtomsInCorpusAreGated).
-  northstar_phases: ["/alignment_check"]
-  is_mandatory: false
+  # Live only in a module check: the Guardian compiles /module_alignment_check
+  # exactly when a module northstar governs the subject.
+  northstar_phases: ["/module_alignment_check"]
+  is_mandatory: true
   depends_on: ["northstar/guardian/role"]
   content: |
     When a module northstar is shown alongside the project vision, the module
@@ -45,10 +43,10 @@
 - id: "northstar/guardian/task"
   category: "northstar"
   subcategory: "guardian_alignment"
-  # Gated to a phase no shard compile ever sets: the Guardian addresses these
-  # atoms by ID, and a persona-declaring atom with no regime gate would leak
+  # Gated to phases no shard compile ever sets: only the Guardian's compile
+  # sets them, and a persona-declaring atom with no regime gate would leak
   # into every shard prompt (see TestShardGating_PersonaAtomsInCorpusAreGated).
-  northstar_phases: ["/alignment_check"]
+  northstar_phases: ["/alignment_check", "/module_alignment_check"]
   is_mandatory: true
   depends_on: ["northstar/guardian/role"]
   content: |
@@ -70,10 +68,10 @@
 - id: "northstar/guardian/output_contract"
   category: "northstar"
   subcategory: "guardian_alignment"
-  # Gated to a phase no shard compile ever sets: the Guardian addresses these
-  # atoms by ID, and a persona-declaring atom with no regime gate would leak
+  # Gated to phases no shard compile ever sets: only the Guardian's compile
+  # sets them, and a persona-declaring atom with no regime gate would leak
   # into every shard prompt (see TestShardGating_PersonaAtomsInCorpusAreGated).
-  northstar_phases: ["/alignment_check"]
+  northstar_phases: ["/alignment_check", "/module_alignment_check"]
   is_mandatory: true
   depends_on: ["northstar/guardian/task"]
   content: |
@@ -86,10 +84,10 @@
 - id: "northstar/guardian/user_instruction"
   category: "northstar"
   subcategory: "guardian_alignment"
-  # Gated to a phase no shard compile ever sets: the Guardian addresses these
-  # atoms by ID, and a persona-declaring atom with no regime gate would leak
+  # Gated to phases no shard compile ever sets: only the Guardian's compile
+  # sets them, and a persona-declaring atom with no regime gate would leak
   # into every shard prompt (see TestShardGating_PersonaAtomsInCorpusAreGated).
-  northstar_phases: ["/alignment_check"]
+  northstar_phases: ["/alignment_check", "/module_alignment_check"]
   is_mandatory: true
   depends_on: ["northstar/guardian/output_contract"]
   content: |

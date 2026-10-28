@@ -7,3 +7,4 @@
   or closed scopes; do not bypass snapshot requirements to compile a phase.
 - Validate evidence against the full document and provenance against supplied paths. Preserve draft markers and report rejected claims, omissions and pruned links.
 - Drafting is pure. Installation preserves existing authority and writes a separate derived candidate; init/report/policy wiring belongs to the orientation lane.
+- The Guardian's alignment system prompt is compiled from `northstar/guardian/*` atoms (`alignment_prompt.go`); no Go copy, no fallback. Vision, module northstar, subject and context are user-message data.
