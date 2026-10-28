@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"codenerd/internal/config"
+	"codenerd/internal/sessionlog"
 	"codenerd/internal/types"
 )
 
@@ -220,7 +221,12 @@ func (c *ClaudeCodeCLIClient) executeCLI(ctx context.Context, prompt, model stri
 	cmd.Stderr = &stderr
 
 	// Execute the command
+	runStart := time.Now()
 	err := cmd.Run()
+	sessionlog.RecordExec(ctx, sessionlog.ExecRun{
+		Command: "claude", Args: args, Stdin: prompt, Stdout: stdout.String(), Stderr: stderr.String(),
+		ExitCode: sessionlog.ExitCode(cmd), Err: err, Started: runStart, Duration: time.Since(runStart),
+	})
 	if err != nil {
 		// Check for context cancellation
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {

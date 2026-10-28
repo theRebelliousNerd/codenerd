@@ -24,6 +24,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/projectdoc"
 	"codenerd/internal/prompt"
+	"codenerd/internal/sessionlog"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
 )
@@ -921,8 +922,23 @@ func (e *Executor) executeToolBatch(
 ) ([]types.ToolResult, []string) {
 	toolResults := make([]types.ToolResult, 0, len(calls))
 	var toolErrs []string
+	// The agent's transcript takes each result before the next call starts,
+	// so a run killed mid-batch has recorded the calls that finished.
+	transcript := sessionlog.TranscriptFrom(ctx)
+	names := make(map[string]string, len(calls))
+	for _, call := range calls {
+		names[call.ID] = call.Name
+	}
+	flushed := 0
+	flush := func() {
+		for ; flushed < len(toolResults); flushed++ {
+			r := toolResults[flushed]
+			transcript.ToolResult(ctx, names[r.ToolUseID], r.ToolUseID, r.Content, r.IsError)
+		}
+	}
 
 	for _, call := range calls {
+		flush()
 		if err := ctx.Err(); err != nil {
 			for _, skipped := range calls[len(toolResults):] {
 				toolResults = append(toolResults, types.ToolResult{
@@ -984,6 +1000,7 @@ func (e *Executor) executeToolBatch(
 		})
 	}
 
+	flush()
 	return toolResults, toolErrs
 }
 
@@ -2352,6 +2369,8 @@ func (e *Executor) retryWithNoToolNudge(
 	if compileResult == nil || strings.TrimSpace(compileResult.Prompt) == "" {
 		return nil, errors.New("no-tool-retry: JIT recompile produced empty prompt")
 	}
+
+	NoteCompile(ctx, compileResult)
 
 	// The retry must carry the SAME system prompt the first attempt did.
 	// compileResult.Prompt is raw JIT output; the live prompt is that plus

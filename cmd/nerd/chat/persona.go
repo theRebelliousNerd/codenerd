@@ -7,6 +7,7 @@ import (
 	"codenerd/internal/broker"
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
+	"codenerd/internal/session"
 	"codenerd/internal/types"
 )
 
@@ -508,6 +509,7 @@ func (m Model) compileChatSkeleton(ctx context.Context) string {
 	if result == nil {
 		return ""
 	}
+	session.NoteCompile(ctx, result)
 
 	logging.Get(logging.CategoryJIT).Info(
 		"Chat skeleton compiled: %d atoms, %d tokens of a %d-token skeleton budget "+

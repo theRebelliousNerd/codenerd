@@ -211,10 +211,10 @@ func TestLoadSelectedSession_NotFound(t *testing.T) {
 }
 
 // saveSessionHistory writes a session history where loadSelectedSession
-// (session.LoadSessionHistory) reads it: .nerd/sessions/<id>.json.
+// (session.LoadSessionHistory) reads it: .nerd/sessions/<id>/session.json.
 func saveSessionHistory(t *testing.T, workspace, sessionID string, history session.SessionHistory) {
 	t.Helper()
-	sessionsDir := filepath.Join(workspace, ".nerd", "sessions")
+	sessionsDir := filepath.Join(workspace, ".nerd", "sessions", sessionID)
 	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
 		t.Fatalf("Failed to create sessions dir: %v", err)
 	}
@@ -222,7 +222,7 @@ func saveSessionHistory(t *testing.T, workspace, sessionID string, history sessi
 	if err != nil {
 		t.Fatalf("Failed to marshal history: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(sessionsDir, sessionID+".json"), data, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(sessionsDir, "session.json"), data, 0644); err != nil {
 		t.Fatalf("Failed to write history file: %v", err)
 	}
 }

@@ -272,6 +272,7 @@ func (c *Cortex) Close() error {
 		}
 		c.couseLog = nil
 	}
+	c.closeSessionLog()
 
 	// Evict from the keyed cache so a future GetOrBootCortex with the same
 	// (workspace, provider, apiKey, model, disabled-shard set) tuple boots a fresh instance

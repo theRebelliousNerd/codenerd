@@ -1,6 +1,13 @@
 package config
 
-import "codenerd/internal/logging"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	"codenerd/internal/logging"
+)
 
 // LoggingConfig configures logging.
 type LoggingConfig struct {
@@ -20,6 +27,47 @@ type LoggingConfig struct {
 	// (self_problem_hot, policy/self_problems.mg). Errors are always hot.
 	// Default DefaultSelfProblemWarnRepeats.
 	SelfProblemWarnRepeats int `yaml:"self_problem_warn_repeats" json:"self_problem_warn_repeats,omitempty"`
+	// SessionTTL is how long a session folder (.nerd/sessions/<id>/) is kept
+	// after its last activity, as a duration string ("14d", "36h"). Unset keeps
+	// DefaultSessionTTL; "0" or "off" keeps every session forever. Expired
+	// sessions are deleted at boot, never the booting one or a running one.
+	SessionTTL string `yaml:"session_ttl" json:"session_ttl,omitempty"`
+}
+
+// DefaultSessionTTL is the retention when logging.session_ttl is unset.
+const DefaultSessionTTL = 14 * 24 * time.Hour
+
+// SessionRetention parses logging.session_ttl: unset is DefaultSessionTTL,
+// "0" or "off" is zero (keep everything), anything else is a positive
+// duration. Go durations are accepted, plus a day suffix ("14d"). Nil-safe.
+func (c *LoggingConfig) SessionRetention() (time.Duration, error) {
+	if c == nil {
+		return DefaultSessionTTL, nil
+	}
+	raw := strings.ToLower(strings.TrimSpace(c.SessionTTL))
+	switch raw {
+	case "":
+		return DefaultSessionTTL, nil
+	case "0", "off":
+		return 0, nil
+	}
+	var d time.Duration
+	if days, ok := strings.CutSuffix(raw, "d"); ok {
+		n, err := strconv.ParseFloat(days, 64)
+		if err != nil {
+			return 0, fmt.Errorf("logging.session_ttl %q is not a duration: %w", c.SessionTTL, err)
+		}
+		d = time.Duration(n * float64(24*time.Hour))
+	} else {
+		var err error
+		if d, err = time.ParseDuration(raw); err != nil {
+			return 0, fmt.Errorf("logging.session_ttl %q is not a duration: %w", c.SessionTTL, err)
+		}
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("logging.session_ttl %q must be positive; use \"off\" to keep every session", c.SessionTTL)
+	}
+	return d, nil
 }
 
 // DefaultSelfProblemWarnRepeats is the warning recurrence at which debug-self

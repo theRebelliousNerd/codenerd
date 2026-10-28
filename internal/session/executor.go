@@ -37,6 +37,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/projectdoc"
 	"codenerd/internal/prompt"
+	"codenerd/internal/sessionlog"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
 	"codenerd/internal/usage"
@@ -1178,6 +1179,12 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// on their own sub-context, so what stays tagged "session" is the turn's
 	// own reasoning rather than everything it triggered.
 	ctx = broker.WithPurpose(ctx, broker.PurposeSession)
+	// A turn run by a spawned agent already carries that agent's scope
+	// (sessionlog.RunAgent); a bare turn (nerd run) is the main agent's.
+	if !sessionlog.HasAgent(ctx) {
+		ctx = sessionlog.WithChat(ctx)
+	}
+	ctx = sessionlog.WithTurn(ctx, auditTurnNum)
 	// Carry the owned usage meter on the turn context so snapshotTurnUsage
 	// below (and every sub-agent/clone turn derived from this executor) reads
 	// this session's spend instead of zeros. A tracker already on ctx wins.
@@ -1338,6 +1345,8 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 		e.closeAcceptanceEvidence(ctx, result)
 		return result, baselineErr
 	}
+
+	NoteCompile(ctx, compileResult)
 
 	// 4. JIT: Compile config (tools, policies)
 	EffectiveAgentRuntimeConfig, err := e.compileConfig(ctx, compileResult, intent)

@@ -121,6 +121,11 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 	if c.Logging != nil && c.Logging.SelfProblemWarnRepeats < 0 {
 		add(SeverityError, "logging.self_problem_warn_repeats", fmt.Sprintf("%d is negative", c.Logging.SelfProblemWarnRepeats), "a count of 1 or more, or remove the key for the default")
 	}
+	if c.Logging != nil {
+		if _, err := c.Logging.SessionRetention(); err != nil {
+			add(SeverityError, "logging.session_ttl", err.Error(), `a duration such as "14d" or "36h", "off" to keep every session, or remove the key for 14 days`)
+		}
+	}
 	if err := checkWorkMode(c.WorkMode); err != nil {
 		add(SeverityError, "work_mode", err.Error(), "set work_mode to yolo, propose or explicit")
 	}

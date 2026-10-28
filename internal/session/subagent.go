@@ -12,6 +12,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/observation"
 	"codenerd/internal/perception"
+	"codenerd/internal/sessionlog"
 	"codenerd/internal/types"
 )
 
@@ -314,8 +315,12 @@ func (s *SubAgent) Run(ctx context.Context, task string) {
 			defer timeoutCancel()
 		}
 
-		// Run the task
-		result, err := s.execute(ctx, task)
+		// Run the task. The transcript is the harness's: it records the task,
+		// the answers, the tool calls and results, and the outcome whatever the
+		// model does or however the run ends.
+		result, err := sessionlog.RunAgent(ctx, s.config.Name, s.config.ID, task, func(ctx context.Context) (string, error) {
+			return s.execute(ctx, task)
+		})
 		// A subagent runs one task (Run starts only from idle), so its
 		// executor's working archives cannot be redeemed after this.
 		s.executor.RetireWorkingScopes()

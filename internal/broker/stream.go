@@ -32,9 +32,15 @@ func (c *core) proxyStream(
 	content, thoughts <-chan string,
 	done <-chan types.StreamResult,
 ) {
+	if obs.recording() {
+		obs.stream = &streamText{}
+		content = tee(content, obs.stream.addText)
+		thoughts = tee(thoughts, obs.stream.addThought)
+	}
 	go func() {
 		defer w.Close()
 		res, _ := types.RelayStream(ctx, w, content, thoughts, done)
+		obs.streamStop = res.StopReason
 		var reported *types.UsageMetadata
 		if responseReported(res.Usage) {
 			u := res.Usage

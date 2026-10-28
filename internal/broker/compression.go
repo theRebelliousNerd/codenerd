@@ -52,11 +52,12 @@ func metered[T any](c *core, ctx context.Context, req *Request, usage func(T) *t
 	var zero T
 	receipt, refusal := c.admit(ctx, req)
 	if refusal != nil {
-		c.settleRefusal(receipt)
+		c.settleRefusal(ctx, receipt, req)
 		return zero, refusal
 	}
-	ctx, obs := c.observed(ctx)
+	ctx, obs := c.observed(ctx, receipt, req)
 	out, err := call(ctx)
+	obs.out = out
 	var reported *types.UsageMetadata
 	if usage != nil {
 		reported = usage(out)

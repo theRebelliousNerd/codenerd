@@ -821,6 +821,7 @@ func (e *Executor) stepSystemPrompt(
 			"step prompt for %s did not compile (%v); the step runs on the turn's prompt", stepCtx.IntentTarget, err)
 		return turnPrompt
 	}
+	NoteCompile(ctx, compiled)
 	logging.Session("Step prompt compiled for %s (language=%s, %d chars)", stepCtx.IntentTarget, stepCtx.Language, len(compiled.Prompt))
 	return e.withCompiledFileContext(ctx, e.withProjectInstructions(compiled.Prompt), stepCtx.IntentTarget)
 }

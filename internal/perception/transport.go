@@ -3,6 +3,8 @@ package perception
 import (
 	"net/http"
 	"time"
+
+	"codenerd/internal/sessionlog"
 )
 
 // sharedTransport is a process-wide HTTP transport tuned for sustained,
@@ -29,5 +31,11 @@ var sharedTransport = &http.Transport{
 // per host, 128 max per host) keep campaign-mode parallel calls from
 // being serialized behind Go's default MaxIdleConnsPerHost=2.
 func NewSharedHTTPClient(timeout time.Duration) *http.Client {
-	return &http.Client{Transport: sharedTransport, Timeout: timeout}
+	return &http.Client{Transport: wireTransport, Timeout: timeout}
 }
+
+// wireTransport is sharedTransport with exchange capture: while debug mode is
+// on the broker puts a capture on each call's context, and this records the
+// exact request and response of every provider round trip. Without a capture
+// on the request context it is a pass-through.
+var wireTransport = sessionlog.WireTransport(sharedTransport)

@@ -3,6 +3,7 @@ package campaign
 import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/sessionlog"
 	"codenerd/internal/types"
 	"context"
 	"encoding/json"
@@ -57,6 +58,19 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 	if phase == nil {
 		return nil
 	}
+	// The phase is an agent of its own in the session log: its folder holds the
+	// model calls the orchestrator makes for it and a transcript of the phase.
+	_, err := sessionlog.RunAgent(ctx, "campaign-phase", phase.ID,
+		fmt.Sprintf("campaign phase %q: %d task(s)", phase.Name, len(phase.Tasks)),
+		func(ctx context.Context) (string, error) {
+			err := o.runPhaseTasks(ctx, phase)
+			return fmt.Sprintf("phase %q ended", phase.Name), err
+		})
+	return err
+}
+
+// runPhaseTasks is the phase's scheduling loop.
+func (o *Orchestrator) runPhaseTasks(ctx context.Context, phase *Phase) error {
 
 	phaseTimer := logging.StartTimer(logging.CategoryCampaign, fmt.Sprintf("runPhase(%s)", phase.Name))
 	defer phaseTimer.StopWithInfo()

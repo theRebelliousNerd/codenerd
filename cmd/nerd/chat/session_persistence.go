@@ -4,6 +4,7 @@ import (
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/logging"
 	"codenerd/internal/session"
+	"codenerd/internal/sessionlog"
 
 	// Domain shards removed - JIT clean loop handles these via prompt atoms:
 	// "codenerd/internal/shards/coder"
@@ -57,7 +58,7 @@ func (m *Model) saveSessionState() error {
 		StartedAt:    time.Now(), // Will be overwritten if exists
 		LastActiveAt: time.Now(),
 		TurnCount:    m.turnCount,
-		HistoryFile:  m.sessionID + ".json",
+		HistoryFile:  filepath.Join(m.sessionID, sessionlog.HistoryFile),
 	}
 
 	// Preserve original StartedAt if session exists
@@ -259,7 +260,7 @@ func (m Model) loadSelectedSession(sessionID string) (tea.Model, tea.Cmd) {
 		StartedAt:    history.CreatedAt,
 		LastActiveAt: time.Now(),
 		TurnCount:    m.turnCount,
-		HistoryFile:  sessionID + ".json",
+		HistoryFile:  filepath.Join(sessionID, sessionlog.HistoryFile),
 	}
 	_ = session.SaveSessionState(m.workspace, state)
 

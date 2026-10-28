@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/observation"
 	"codenerd/internal/perception"
+	"codenerd/internal/sessionlog"
 	"codenerd/internal/types"
 )
 
@@ -403,7 +405,19 @@ func (j *JITExecutor) executeObserved(ctx context.Context, req TaskRequest, sess
 	if preset != nil {
 		preset.Constraint = strings.TrimSpace(req.Constraint)
 	}
-	result, err := exec.ProcessWithIntent(ctx, inlineTask, preset)
+	// The delegated task is an agent of its own in the session log: its model
+	// calls, tool results and outcome file under <role>-<id>/.
+	var result *ExecutionResult
+	_, _ = sessionlog.RunAgent(ctx, agentName(req.IntentVerb), strconv.FormatInt(time.Now().UnixNano(), 10), inlineTask,
+		func(ctx context.Context) (string, error) {
+			var runErr error
+			result, runErr = exec.ProcessWithIntent(ctx, inlineTask, preset)
+			err = runErr
+			if result != nil {
+				return result.Response, runErr
+			}
+			return "", runErr
+		})
 	observed := withTurnWrites(observedReturn(agentName(req.IntentVerb), inlineTask, result), exec.workspaceForVerification(), result)
 	if err != nil {
 		// Still surface any partial response text for diagnostics, but never

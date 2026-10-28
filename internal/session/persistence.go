@@ -13,8 +13,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
+
+	"codenerd/internal/sessionlog"
 )
 
 // SessionState represents the current session state.
@@ -84,19 +85,13 @@ func SaveSessionState(workspace string, state *SessionState) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// sessionHistoryPath resolves the history file for a session ID, refusing IDs
-// that would escape the sessions directory. The ID arrives from user input
-// (`/load-session <id>` in chat), so `../` must fail closed here rather than
-// read — and later write, once the ID is adopted as the live session —
-// outside the store.
+// sessionHistoryPath resolves the history file for a session ID --
+// .nerd/sessions/<id>/session.json -- refusing IDs that would escape the
+// sessions directory. The ID arrives from user input (`/load-session <id>`
+// in chat), so `../` must fail closed here rather than read -- and later
+// write, once the ID is adopted as the live session -- outside the store.
 func sessionHistoryPath(workspace, sessionID string) (string, error) {
-	if strings.TrimSpace(sessionID) == "" {
-		return "", fmt.Errorf("session id is required")
-	}
-	if sessionID != filepath.Base(sessionID) || strings.Contains(sessionID, "..") {
-		return "", fmt.Errorf("invalid session id %q: must be a plain file name", sessionID)
-	}
-	return filepath.Join(workspace, ".nerd", "sessions", sessionID+".json"), nil
+	return sessionlog.HistoryPath(workspace, sessionID)
 }
 
 // SaveSessionHistory saves the conversation history to the sessions folder.

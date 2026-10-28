@@ -19,6 +19,7 @@ import (
 	working "codenerd/internal/context"
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
+	"codenerd/internal/sessionlog"
 	"codenerd/internal/tools"
 	"codenerd/internal/tools/codedom"
 	"codenerd/internal/types"
@@ -777,6 +778,15 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 	})
 	if err != nil {
 		return fmt.Errorf("working ledger: %w", err)
+	}
+	if sessionlog.Active() {
+		note := sessionlog.WorkingSetNote{
+			Round: round, Evicted: decision.Evict, Restated: decision.Restate, Recalled: loop.recalledIDs(),
+		}
+		for _, entry := range entries {
+			note.Carried = append(note.Carried, sessionlog.WorkingEntry{Call: entry.Call, ID: entry.ID, Bytes: entry.Bytes, Round: entry.Round})
+		}
+		sessionlog.NoteWorkingSet(ctx, note)
 	}
 	if len(decision.Evict) > 0 {
 		// A compaction starts an epoch. Every stale observation left with it,

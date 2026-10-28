@@ -25,6 +25,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/sessionlog"
 	"codenerd/internal/transparency"
 	"codenerd/internal/types"
 	"codenerd/internal/usage"
@@ -81,6 +82,10 @@ func (m Model) processInput(input string) tea.Cmd {
 			ctx = usage.NewContext(ctx, m.usageTracker)
 		}
 		ctx = usage.WithSessionID(ctx, m.sessionID)
+		// The chat is the main agent: its model calls file under chat/ in this
+		// session's folder (exchange files, debug mode only).
+		sessionlog.Current().Adopt(m.sessionID)
+		ctx = sessionlog.WithTurn(sessionlog.WithChat(ctx), m.turnCount+1)
 		defer cancel()
 		// Ctrl+X and a side turn's stop reach this turn through m.turn.
 		m.turn.begin(turnID, cancel)
@@ -915,6 +920,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			recentTurnsForArticulation = m.getRecentTurns(m.compressor.GetRecentTurnWindow())
 			ctxStr, err := m.compressor.GetContextString(ctx)
 			compressedCtx = articulationHistoryView(ctxStr, err, len(m.history)-len(recentTurnsForArticulation))
+			m.noteArticulationContext(ctx, len(recentTurnsForArticulation), err)
 		} else {
 			// No compression yet: pass ALL history so LLM has full context
 			recentTurnsForArticulation = m.history

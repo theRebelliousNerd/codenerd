@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 
+	"codenerd/internal/sessionlog"
 	"codenerd/internal/usage"
 )
 
@@ -30,5 +31,6 @@ func (m Model) sessionOperationContext() (context.Context, context.CancelFunc) {
 		ctx = usage.NewContext(ctx, m.usageTracker)
 	}
 	ctx = usage.WithSessionID(ctx, m.sessionID)
+	ctx = sessionlog.WithChat(ctx)
 	return ctx, cancel
 }

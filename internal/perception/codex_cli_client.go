@@ -17,6 +17,7 @@ import (
 
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/sessionlog"
 	"codenerd/internal/types"
 )
 
@@ -346,7 +347,12 @@ func (c *CodexCLIClient) executeCLI(ctx context.Context, prompt, model string, s
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 
+	runStart := time.Now()
 	runErr := cmd.Run()
+	sessionlog.RecordExec(ctx, sessionlog.ExecRun{
+		Command: "codex", Args: args, Stdin: prompt, Stdout: stdout.String(), Stderr: stderr.String(),
+		ExitCode: sessionlog.ExitCode(cmd), Err: runErr, Started: runStart, Duration: time.Since(runStart),
+	})
 	// The CLI reports its own token accounting on stdout; it was billed
 	// whether or not the run succeeded.
 	c.reportCodexUsage(ctx, model, stdout.String())

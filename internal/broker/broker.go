@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/sessionlog"
 	"codenerd/internal/types"
 	"codenerd/internal/usage"
 )
@@ -115,6 +116,15 @@ type callObserver struct {
 	mu      sync.Mutex
 	usage   types.UsageMetadata
 	reports int
+
+	// The session log's view of the call (exchange_log.go). call is nil unless
+	// debug mode opened an exchange; ctx is the call's context, which names
+	// the agent whose transcript receives the answer.
+	call       *sessionlog.Call
+	ctx        context.Context
+	out        any
+	stream     *streamText
+	streamStop string
 }
 
 // Observed implements usage.Observer.
@@ -253,6 +263,7 @@ func (c *core) settle(receipt Receipt, req *Request, obs *callObserver, reported
 		}
 	}
 
+	c.logSettled(receipt, req, obs, callErr)
 	c.emit(receipt)
 }
 
@@ -334,8 +345,10 @@ func (c *core) emit(receipt Receipt) {
 }
 
 // observed installs a capture observer on ctx and returns both.
-func (c *core) observed(ctx context.Context) (context.Context, *callObserver) {
+func (c *core) observed(ctx context.Context, receipt Receipt, req *Request) (context.Context, *callObserver) {
 	obs := &callObserver{}
+	ctx, obs.call = c.beginLog(ctx, receipt, req)
+	obs.ctx = ctx
 	return usage.WithObserver(ctx, obs), obs
 }
 
@@ -424,11 +437,11 @@ func (c *core) CompleteWithStreaming(ctx context.Context, systemPrompt, userProm
 
 	receipt, refusal := c.admit(ctx, req)
 	if refusal != nil {
-		c.settleRefusal(receipt)
+		c.settleRefusal(ctx, receipt, req)
 		return types.FailedStream(refusal)
 	}
 
-	ctx, obs := c.observed(ctx)
+	ctx, obs := c.observed(ctx, receipt, req)
 	content, done := c.underlying.CompleteWithStreaming(ctx, systemPrompt, userPrompt, enableThinking)
 	w, outContent, outDone := types.NewStream()
 	c.proxyStream(ctx, w, receipt, req, obs, content, nil, done)
@@ -439,8 +452,9 @@ func (c *core) CompleteWithStreaming(ctx context.Context, systemPrompt, userProm
 // Nothing is recorded against the ledger: refusing a request costs no tokens,
 // and pretending otherwise would inflate the very number this package exists
 // to make trustworthy.
-func (c *core) settleRefusal(receipt Receipt) {
+func (c *core) settleRefusal(ctx context.Context, receipt Receipt, req *Request) {
 	receipt.Duration = time.Since(receipt.Started)
+	c.logRefusal(ctx, receipt, req)
 	c.emit(receipt)
 }
 

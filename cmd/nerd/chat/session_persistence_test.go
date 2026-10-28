@@ -23,7 +23,7 @@ func TestSaveSessionState_WritesWithoutInit(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(ws, ".nerd", "session.json")); err != nil {
 		t.Fatalf("expected .nerd/session.json to exist: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(ws, ".nerd", "sessions", "sess_test.json")); err != nil {
-		t.Fatalf("expected .nerd/sessions/sess_test.json to exist: %v", err)
+	if _, err := os.Stat(filepath.Join(ws, ".nerd", "sessions", "sess_test", "session.json")); err != nil {
+		t.Fatalf("expected .nerd/sessions/sess_test/session.json to exist: %v", err)
 	}
 }

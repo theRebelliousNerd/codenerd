@@ -11,6 +11,7 @@ import (
 	"codenerd/internal/broker"
 	appconfig "codenerd/internal/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/sessionlog"
 	"codenerd/internal/types"
 	"codenerd/internal/usage"
 )
@@ -443,7 +444,9 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 			execCtx = types.WithModelName(execCtx, strings.TrimSpace(config.Model.Name))
 		}
 
-		res, err := agent.Execute(execCtx, task)
+		res, err := sessionlog.RunAgent(execCtx, typeName, id, task, func(ctx context.Context) (string, error) {
+			return agent.Execute(ctx, task)
+		})
 
 		errMsg := ""
 		if err != nil {

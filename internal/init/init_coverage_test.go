@@ -334,9 +334,12 @@ func TestListSessionHistories_WhenNoSessions_ShouldReturnEmpty(t *testing.T) {
 func TestListSessionHistories_WhenSessionsExist_ShouldReturnIDs(t *testing.T) {
 	tmpDir := t.TempDir()
 	sessDir := filepath.Join(tmpDir, ".nerd", "sessions")
-	require.NoError(t, os.MkdirAll(sessDir, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(sessDir, "sess_a.json"), []byte("{}"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(sessDir, "sess_b.json"), []byte("{}"), 0644))
+	for _, id := range []string{"sess_a", "sess_b"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(sessDir, id), 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(sessDir, id, "session.json"), []byte("{}"), 0644))
+	}
+	// A folder with only debug files is not a chat history.
+	require.NoError(t, os.MkdirAll(filepath.Join(sessDir, "sess_c", "chat"), 0755))
 
 	sessions, err := ListSessionHistories(tmpDir)
 	require.NoError(t, err)

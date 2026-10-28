@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/sessionlog"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -45,7 +47,7 @@ func TestSharedHTTPClient_ParallelGETs(t *testing.T) {
 	// Close idle conns at end of test so we don't leak keepalives into
 	// any subsequent test using the same shared transport.
 	t.Cleanup(func() {
-		if tr, ok := client.Transport.(*http.Transport); ok {
+		if tr, ok := sessionlog.UnderlyingTransport(client.Transport).(*http.Transport); ok {
 			tr.CloseIdleConnections()
 		}
 	})
@@ -97,8 +99,8 @@ func TestSharedHTTPClient_ParallelGETs(t *testing.T) {
 func TestSharedHTTPClient_TransportTuning(t *testing.T) {
 	client := NewSharedHTTPClient(30 * time.Second)
 
-	tr, ok := client.Transport.(*http.Transport)
-	require.True(t, ok, "client.Transport must be *http.Transport, got %T", client.Transport)
+	tr, ok := sessionlog.UnderlyingTransport(client.Transport).(*http.Transport)
+	require.True(t, ok, "client.Transport must wrap *http.Transport, got %T", client.Transport)
 
 	require.Equal(t, 64, tr.MaxIdleConnsPerHost,
 		"documented MaxIdleConnsPerHost is 64 (Go default 2 is too low for parallel LLM traffic)")
@@ -111,7 +113,7 @@ func TestSharedHTTPClient_TransportTuning(t *testing.T) {
 	// access — proves no aliasing or copy issue on the Transport field
 	// (the production code uses a package-level pointer, sharing the
 	// same backing struct across all clients).
-	v := reflect.ValueOf(client.Transport).Elem()
+	v := reflect.ValueOf(tr).Elem()
 	max := v.FieldByName("MaxIdleConnsPerHost")
 	require.True(t, max.IsValid(), "reflect MaxIdleConnsPerHost field")
 	require.Equal(t, int64(64), max.Int(), "reflected value matches direct read")
@@ -132,7 +134,7 @@ func TestSharedHTTPClient_TimeoutHonored(t *testing.T) {
 
 	client := NewSharedHTTPClient(50 * time.Millisecond)
 	t.Cleanup(func() {
-		if tr, ok := client.Transport.(*http.Transport); ok {
+		if tr, ok := sessionlog.UnderlyingTransport(client.Transport).(*http.Transport); ok {
 			tr.CloseIdleConnections()
 		}
 	})

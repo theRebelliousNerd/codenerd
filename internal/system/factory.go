@@ -40,6 +40,7 @@ import (
 	"sort"
 	"strings"
 
+	"codenerd/internal/sessionlog"
 	"codenerd/internal/sqlpragmas"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
@@ -480,6 +481,9 @@ type Cortex struct {
 	// supplied via BootConfig.SessionID). It is the single source of truth
 	// for the session executor's turn-persistence identity.
 	sessionID string
+
+	// sessionLog holds this boot's session-folder lease (session_log_boot.go).
+	sessionLog *sessionlog.Handle
 }
 
 // SessionID returns the process-unique session identity minted at boot.
@@ -949,7 +953,8 @@ type bootContext struct {
 	// initFinalExecutors (or taken from BootConfig.SessionID). It is the
 	// single source of truth propagated to the session executor, the
 	// spawner, and the Cortex accessor.
-	sessionID string
+	sessionID  string
+	sessionLog *sessionlog.Handle
 	// onDemandStop halts the runtime activate_shard watcher. It is set
 	// where system shards boot and transferred to the Cortex aggregate.
 	onDemandStop func()
@@ -2556,6 +2561,7 @@ func initFinalExecutors(bctx *bootContext) error {
 		bctx.sessionID = fmt.Sprintf("session-%d", time.Now().UnixNano())
 	}
 	bctx.sessionExecutor.SetSessionID(bctx.sessionID)
+	startSessionLog(bctx)
 	// An approvable denial asks the person through the process's broker when
 	// a host (the chat TUI) is attached, and stays a refusal otherwise.
 	bctx.sessionExecutor.SetApprovalBroker(bctx.approvals)
@@ -2938,6 +2944,7 @@ func cortexFromBootContext(bctx *bootContext) *Cortex {
 		onDemandStop:          bctx.onDemandStop,
 		perceptionInitialized: bctx.perceptionInitialized,
 		sessionID:             bctx.sessionID,
+		sessionLog:            bctx.sessionLog,
 		meterSink:             bctx.meterSink,
 		couseLog:              bctx.couseLog,
 	}

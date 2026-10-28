@@ -15,9 +15,8 @@ func TestSessionHistory_TraversalIDRefused(t *testing.T) {
 	dir := t.TempDir()
 	msgs := []ChatMessage{{Role: "user", Content: "hi", Time: time.Now()}}
 
-	// "." maps to sessions/..json — odd but contained, so it is not in the
-	// refusal set; only genuine escapes and empties fail here.
-	for _, id := range []string{"../escape", "..", "sub/dir", ""} {
+	// "." would name the sessions directory itself.
+	for _, id := range []string{"../escape", "..", ".", "sub/dir", ""} {
 		if err := SaveSessionHistory(dir, id, msgs); err == nil {
 			t.Errorf("SaveSessionHistory(%q) must fail", id)
 		}

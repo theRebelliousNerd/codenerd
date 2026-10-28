@@ -6,6 +6,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
 	"codenerd/internal/session"
+	"codenerd/internal/sessionlog"
 	"codenerd/internal/sqlpragmas"
 	"codenerd/internal/store"
 	"context"
@@ -732,21 +733,21 @@ func LoadProjectProfile(workspace string) (*ProjectProfile, error) {
 	return &profile, nil
 }
 
-// ListSessionHistories returns all available session histories.
+// ListSessionHistories returns the ids of every session that has a chat
+// history: the folders under .nerd/sessions holding a session.json.
 func ListSessionHistories(workspace string) ([]string, error) {
-	sessionsDir := filepath.Join(workspace, ".nerd", "sessions")
-	entries, err := os.ReadDir(sessionsDir)
+	sessions := []string{}
+	infos, err := sessionlog.List(workspace)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return []string{}, nil
-		}
 		return nil, err
 	}
-
-	var sessions []string
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
-			sessions = append(sessions, strings.TrimSuffix(entry.Name(), ".json"))
+	for _, info := range infos {
+		path, err := sessionlog.HistoryPath(workspace, info.ID)
+		if err != nil {
+			continue
+		}
+		if st, err := os.Stat(path); err == nil && !st.IsDir() {
+			sessions = append(sessions, info.ID)
 		}
 	}
 	return sessions, nil

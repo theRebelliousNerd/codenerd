@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/sessionlog"
 )
 
 // Request limits from the API spec (errors.md).
@@ -68,9 +69,9 @@ func NewClient(o Options) (*Client, error) {
 	if o.Retry != nil {
 		c.retry = *o.Retry
 	}
-	if c.http == nil {
-		c.http = &http.Client{}
-	}
+	// Calls made while debug mode is on are recorded under jev/ in the session
+	// folder; the wrapper is a pass-through otherwise.
+	c.http = sessionlog.WrapClient(c.http)
 	return c, nil
 }
 
@@ -88,11 +89,16 @@ func (c *Client) Ask(ctx context.Context, state any, questions map[string]Questi
 	if err != nil {
 		return nil, err
 	}
+	ctx, call := sessionlog.Begin(ctx, sessionlog.CallMeta{
+		Provider: Provider, Model: c.model, Method: "Ask", Purpose: operationFrom(ctx), Folder: sessionlog.JevFolder,
+	})
 	var resp Response
 	if err := c.do(ctx, http.MethodPost, "/v1/systemone", body, &resp); err != nil {
+		call.End(sessionlog.Result{Err: err})
 		return nil, err
 	}
 	c.recordUsage(ctx, &resp)
+	call.End(sessionlog.Result{Usage: c.exchangeUsage(&resp)})
 	return &resp, nil
 }
 
@@ -253,4 +259,17 @@ func (c *Client) once(ctx context.Context, method, path string, body []byte, out
 		return nil, fmt.Errorf("typesafe: %s %s: unreadable reply: %w", method, path, err)
 	}
 	return nil, nil
+}
+
+// exchangeUsage is the answered call's billed size for the exchange file.
+func (c *Client) exchangeUsage(resp *Response) *sessionlog.Usage {
+	u := &sessionlog.Usage{
+		InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens, Status: "reported",
+	}
+	model := resp.Model
+	if model == "" {
+		model = c.model
+	}
+	sessionlog.PriceUsage(model, u)
+	return u
 }

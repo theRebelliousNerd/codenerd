@@ -16,6 +16,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
 	"codenerd/internal/session"
+	"codenerd/internal/sessionlog"
 	coresys "codenerd/internal/system"
 	"codenerd/internal/types"
 	"codenerd/internal/usage"
@@ -73,6 +74,10 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 	if cortex.UsageTracker != nil {
 		ctx = usage.NewContext(ctx, cortex.UsageTracker)
 	}
+
+	// The command is the main agent: its model calls file under chat/ in the
+	// session folder (exchange files, debug mode only).
+	ctx = sessionlog.WithChat(ctx)
 
 	baseRouting, baseExec := systemResultBaselines(cortex.Kernel)
 

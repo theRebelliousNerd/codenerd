@@ -105,11 +105,11 @@ func (c *core) completeWithStreamingAndThoughts(
 
 	receipt, refusal := c.admit(ctx, req)
 	if refusal != nil {
-		c.settleRefusal(receipt)
+		c.settleRefusal(ctx, receipt, req)
 		return types.FailedThoughtStream(refusal)
 	}
 
-	ctx, obs := c.observed(ctx)
+	ctx, obs := c.observed(ctx, receipt, req)
 	content, thoughts, done := provider.CompleteWithStreamingAndThoughts(ctx, systemPrompt, userPrompt, enableThinking)
 
 	// Thoughts are billed output. They are forwarded and settle with the

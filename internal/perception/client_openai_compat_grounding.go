@@ -222,7 +222,7 @@ func (c *OpenAICompatClient) GroundedWebSearch(ctx context.Context, query string
 
 	httpClient := c.httpClient
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: effectiveTimeout, Transport: sharedTransport}
+		httpClient = &http.Client{Timeout: effectiveTimeout, Transport: wireTransport}
 	}
 
 	// Bounded retry, mirroring executeResponses. A grounded search used to be
