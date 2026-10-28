@@ -55,11 +55,13 @@ func TestCheckedInCorpusOrderedParity(t *testing.T) {
 
 	// The golden follows the atom IDs, not the YAML files: 923 -> 2445 when
 	// e5489d53 split every atom over 1500 characters into a head and its
-	// sections (section_of), each section being an atom of its own. To
+	// sections (section_of), each section being an atom of its own; 2445 ->
+	// 2156 when the atomicity pass (2026-10-28) deleted known-by-default
+	// atoms and merged duplicates, other lanes adding theirs. To
 	// refresh it after an intended corpus change, take the count and digest
 	// this test prints.
-	const wantCount = 2445
-	const wantDigest = "a3f09f073cd8bcdfd5ed5958208c01ec8cbedabcdd68afaccf316acd2db4e9ae"
+	const wantCount = 2156
+	const wantDigest = "beeb13f72c4a7eafb8bec032cd78fb477ce02bd2b205bda00d12e17aeab1b48d"
 	if len(stats.AtomIDs) != wantCount {
 		t.Fatalf("atom count = %d, want golden %d", len(stats.AtomIDs), wantCount)
 	}
