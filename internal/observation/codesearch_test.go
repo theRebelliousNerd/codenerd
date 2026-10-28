@@ -115,7 +115,7 @@ func TestProject_WhenExactlyOneDeclarationIsFound_ShouldPointEdgesAtThatSymbol(t
 
 	var found bool
 	for _, e := range r.Edges {
-		if e.Kind != EdgeReferences {
+		if e.Kind != EdgeMentions {
 			continue
 		}
 		found = true
@@ -158,7 +158,7 @@ func TestProject_WhenNoSingleDeclarationIsFound_ShouldPointEdgesAtTheQueryTerm(t
 	r := Project(s, fixedReader(map[string]string{"a.go": src, "b.go": src}), Limits{})
 
 	for _, e := range r.Edges {
-		if e.Kind == EdgeReferences && e.To != "Encode" {
+		if e.Kind == EdgeMentions && e.To != "Encode" {
 			t.Errorf("with two declarations the reference target = %q, want the bare query term %q", e.To, "Encode")
 		}
 	}
@@ -206,8 +206,8 @@ func TestProject_WhenHitIsInsideAMethodOfAClass_ShouldAttributeToTheInnermostSym
 	if len(r.Symbols) != 1 {
 		t.Fatalf("symbols = %v, want exactly the innermost one", refsOf(r))
 	}
-	if r.Symbols[0].Ref != "w.py:encode" {
-		t.Errorf("symbol = %q, want w.py:encode; attributing a hit to the enclosing class throws away the resolution this codec exists to provide", r.Symbols[0].Ref)
+	if r.Symbols[0].Ref != "w.py:Widget.encode" || r.Symbols[0].Kind != "method" {
+		t.Errorf("symbol = %q (%s), want the method w.py:Widget.encode; attributing a hit to the enclosing class throws away the resolution this codec exists to provide", r.Symbols[0].Ref, r.Symbols[0].Kind)
 	}
 }
 
@@ -538,7 +538,7 @@ func TestResultText_ShouldNameEachSymbolOnce(t *testing.T) {
 	if got := strings.Count(text, "a.go:Encode"); got != 2 {
 		t.Errorf("the declaration is named %d times, want its own row plus one target line:\n%s", got, text)
 	}
-	if !strings.Contains(text, "references point to a.go:Encode") {
+	if !strings.Contains(text, "mentions are of a.go:Encode (lexical") {
 		t.Errorf("the rendering never says what the listed symbols reference:\n%s", text)
 	}
 }
@@ -600,7 +600,9 @@ func TestShared_ShouldBeOneStoreForEveryProducer(t *testing.T) {
 	}
 }
 
-func TestProject_WhenMethodHitHasClassQualifier_ShouldStripToBareMethodName(t *testing.T) {
+// The display name is short; the address is the whole key (workspace-search-
+// navigation-fidelity N2), so get_element redeems it to this method.
+func TestProject_WhenMethodHitHasClassQualifier_ShouldShortenOnlyTheDisplayName(t *testing.T) {
 	t.Parallel()
 
 	py := "class Widget:\n    def encode(self):\n        return encode_all()\n"
@@ -615,8 +617,8 @@ func TestProject_WhenMethodHitHasClassQualifier_ShouldStripToBareMethodName(t *t
 		t.Fatalf("symbols = %v, want exactly one bare-method symbol", refsOf(r))
 	}
 	got := r.Symbols[0]
-	if got.Ref != "w.py:encode" {
-		t.Errorf("symbol ref = %q, want %q; the projection must strip the class qualifier codedom adds", got.Ref, "w.py:encode")
+	if got.Ref != "w.py:Widget.encode" {
+		t.Errorf("symbol ref = %q, want %q; the address keeps the qualifier codedom adds", got.Ref, "w.py:Widget.encode")
 	}
 	if got.Name != "encode" {
 		t.Errorf("symbol name = %q, want %q; the innermost symbol is the method, never the enclosing class", got.Name, "encode")

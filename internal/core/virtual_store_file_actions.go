@@ -451,7 +451,7 @@ func (v *VirtualStore) handleSearchCode(ctx context.Context, req ActionRequest) 
 
 	pattern := req.Target
 	facts := make([]Fact, 0)
-	observed := observation.Search{Query: pattern}
+	observed := observation.Search{Query: pattern, Literal: true}
 	// sources maps each displayed path back to the file the walk actually
 	// visited, so projection can only open files this search already opened.
 	sources := make(map[string]string)

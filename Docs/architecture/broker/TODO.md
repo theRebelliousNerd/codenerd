@@ -125,8 +125,13 @@ it matters more than the byte count, the boundary it had to hold.
 - ~~Code-search codec: symbols and dependency edges, not matching lines.~~ —
   **built.** `internal/observation` composes `internal/retain` with a
   code-search projection: each match resolves to the innermost element
-  containing it, and only dependency-bearing edges are kept (`references`,
-  `imports`). Wired into the two live producers — the `search_code` tool and
+  containing it. Edges are `mentions` (lexical: matching lines inside a
+  symbol, not resolved references) and `imports`; a symbol is `declared`
+  only when its declaration line names what the query asks for; each ref is
+  `file:<whole CodeDOM key>`, so it redeems through `get_element` to that
+  element; a file whose lines no longer hold the matches when projection
+  reads it is reported `changed` and not attributed (2026-10-28,
+  `Docs/audits/workspace-search-navigation-fidelity.md`). Wired into the two live producers — the `search_code` tool and
   the VirtualStore action — plus a `search_expand` verb to redeem a handle,
   registered through the tool registry, the effect table, `safe_action` and
   `coreTools`, because a handle the model cannot redeem is a promise it is

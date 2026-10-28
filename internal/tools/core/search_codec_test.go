@@ -64,7 +64,7 @@ func TestSearchCode_ShouldReportSymbolsAndEdgesRatherThanMatchingLines(t *testin
 		file + ":Encode", // the declaration, named as a symbol
 		"declared-here",  // and marked as the definition site
 		file + ":caller", // the symbol that uses it
-		"references",     // as a dependency edge, not as two more lines
+		"mentions",       // as a lexical edge, not as two more lines
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("search_code result is missing %q, so the reader still has to derive the structure from text:\n%s", want, out)

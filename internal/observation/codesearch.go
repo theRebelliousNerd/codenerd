@@ -30,6 +30,10 @@ type Match struct {
 type Search struct {
 	Query string  `json:"query"`
 	Match []Match `json:"matches"`
+	// Literal marks a query matched as a plain substring (the VirtualStore
+	// search) rather than as a regular expression (search_code). It decides
+	// whether a declaration line's name is the thing searched for.
+	Literal bool `json:"literal,omitempty"`
 	// Truncated records that the search itself stopped at its result cap, so a
 	// hydration that reaches the end of the retained matches can say whether
 	// that is the end of the matches or the end of what was looked at.
@@ -38,29 +42,38 @@ type Search struct {
 
 // Symbol is a code element the search landed inside.
 type Symbol struct {
-	// Ref is "file:Name", the form used on both ends of an edge.
+	// Ref is "file:Key" with the element's whole CodeDOM key, so it is an
+	// address get_element redeems to this element: two methods named encode
+	// on different receivers in one file are two refs, never one. Name is the
+	// short display name.
 	Ref       string `json:"ref"`
 	Name      string `json:"name"`
 	Kind      string `json:"kind"`
 	File      string `json:"file"`
 	StartLine int    `json:"start_line"`
 	EndLine   int    `json:"end_line"`
-	// Declared marks a hit that landed on the symbol's own declaration line —
-	// this is where the searched thing is defined, not merely mentioned.
+	// Declared marks a hit on the symbol's own declaration line whose
+	// symbol name is what the query asks for: this is where the searched
+	// thing is defined. A declaration line that matched elsewhere (a
+	// parameter type, a return type) is a mention, not a declaration.
 	Declared bool `json:"declared,omitempty"`
 	// Hits counts matching lines inside the symbol, declaration included.
 	Hits int `json:"hits"`
 }
 
-// Edge kinds. Only dependency-bearing relations are edges; where a symbol is
-// declared is a property of the symbol, not a relation, and duplicating it here
-// would charge for the same fact twice.
+// Edge kinds. Where a symbol is declared is a property of the symbol, not a
+// relation, and duplicating it here would charge for the same fact twice.
+//
+// A mention is lexical: matching lines inside From. It is not a resolved
+// reference -- the match may be a string, a comment, another identifier or
+// one alternative of a regex -- and nothing here type-checks it. An import is
+// syntactic: the matching line is an import of To.
 const (
-	EdgeReferences = "references"
-	EdgeImports    = "imports"
+	EdgeMentions = "mentions"
+	EdgeImports  = "imports"
 )
 
-// Edge is a dependency the search revealed.
+// Edge is a relation the search observed.
 type Edge struct {
 	From  string `json:"from"`
 	To    string `json:"to"`
@@ -90,6 +103,11 @@ type CodeSearchResult struct {
 	EdgesOmitted    int        `json:"edges_omitted,omitempty"`
 	Unscoped        []FileHits `json:"unscoped,omitempty"`
 	UnscopedOmitted int        `json:"unscoped_omitted,omitempty"`
+	// Changed is each file whose bytes no longer held the matched lines when
+	// the projection read it: it changed between matching and projection, so
+	// its hits are not attributed to any element (old text and new structure
+	// are never combined). Every such file is listed.
+	Changed []FileHits `json:"changed,omitempty"`
 
 	// Handle redeems the retained raw observation. Empty means nothing was
 	// retained, which is only the zero-match case.
@@ -358,6 +376,7 @@ func Project(s Search, read SourceReader, limits Limits) CodeSearchResult {
 	imports := make(map[string]*Edge)
 	var importOrder []string
 	unscoped := make(map[string]int)
+	names := queryNamer(s.Query, s.Literal)
 
 	for _, file := range order {
 		matches := byFile[file]
@@ -370,6 +389,14 @@ func Project(s Search, read SourceReader, limits Limits) CodeSearchResult {
 		}
 		if content == "" {
 			unscoped[file] += len(matches)
+			continue
+		}
+		// The matches were read by the search, the structure by this second
+		// read. If the lines no longer hold what was matched, the file changed
+		// in between, and naming an element from the new bytes for a line
+		// from the old would describe neither.
+		if !holdsMatches(content, matches) {
+			result.Changed = append(result.Changed, FileHits{File: file, Hits: len(matches)})
 			continue
 		}
 
@@ -394,18 +421,20 @@ func Project(s Search, read SourceReader, limits Limits) CodeSearchResult {
 				continue
 			}
 
+			// A hit inside a method sits inside the enclosing class too; the
+			// innermost element -- the method -- is the symbol. Its display
+			// name drops the qualifier codedom adds (Widget.encode -> encode),
+			// but its address keeps the whole key: shortening the address
+			// merged same-named methods on different receivers into one ref
+			// and sent get_element to whichever element owned the bare name.
 			name := element.Name
-			// A hit inside a method sits inside the enclosing class too. The
-			// projection must name the innermost symbol -- the method -- never
-			// the class that contains it, so strip the class qualifier codedom
-			// adds to tell declarations apart (Widget.encode -> encode).
 			if element.Type == "method" {
 				if idx := strings.LastIndex(name, "."); idx != -1 {
 					name = name[idx+1:]
 				}
 			}
 
-			ref := file + ":" + name
+			ref := file + ":" + element.Name
 			sym, seen := symbols[ref]
 			if !seen {
 				sym = &Symbol{
@@ -423,19 +452,21 @@ func Project(s Search, read SourceReader, limits Limits) CodeSearchResult {
 			// The element spans its doc comment. A hit there is prose about
 			// the symbol, like the declaration line is where it is: neither
 			// is a use of what the search asked for.
-			if m.Line <= element.DeclLine {
+			switch {
+			case m.Line < element.DeclLine:
 				declHits[ref]++
-			}
-			if m.Line == element.DeclLine {
+			case m.Line == element.DeclLine && names(name):
+				declHits[ref]++
 				sym.Declared = true
 			}
 		}
 	}
 
-	// The edge target: when the search found exactly one declaration, every
-	// reference is a dependency on that specific symbol and the edge can say
-	// so. With none, or with several, naming one would be a guess, so the edges
-	// point at the query term — which is what was actually established.
+	// The edge target: when the search found exactly one declaration, the
+	// mentions are of the term that symbol declares, and the edge names it.
+	// That is still lexical -- a mention is a matching line, not a resolved
+	// use -- and is rendered so. With none, or with several, the edges point
+	// at the query term, which is what was actually established.
 	target := strings.TrimSpace(s.Query)
 	declared := 0
 	for _, ref := range symbolOrder {
@@ -452,15 +483,14 @@ func Project(s Search, read SourceReader, limits Limits) CodeSearchResult {
 
 	edges := make([]Edge, 0, len(symbolOrder)+len(importOrder))
 	for _, ref := range symbolOrder {
-		// Only the declaration line is excluded. A symbol whose remaining hits
-		// point at itself is recursing, and that is a real dependency: a
-		// recursive function reported as pure declaration reads as "nothing
-		// calls this", which is the opposite of true.
+		// Only the declaration (and its doc comment) is excluded. A symbol
+		// whose remaining hits are inside itself may be recursing: reporting
+		// it as pure declaration would read as "nothing mentions this".
 		refs := symbols[ref].Hits - declHits[ref]
 		if refs <= 0 {
 			continue
 		}
-		edges = append(edges, Edge{From: ref, To: target, Kind: EdgeReferences, Count: refs})
+		edges = append(edges, Edge{From: ref, To: target, Kind: EdgeMentions, Count: refs})
 	}
 	for _, key := range importOrder {
 		edges = append(edges, *imports[key])
@@ -649,9 +679,9 @@ func capEdges(edges []Edge, limit int) ([]Edge, int) {
 	sort.SliceStable(edges, func(i, j int) bool {
 		a, b := edges[i], edges[j]
 		if a.Kind != b.Kind {
-			// References before imports: a call graph answers the question that
-			// prompted the search more often than an import list does.
-			return a.Kind == EdgeReferences
+			// Mentions before imports: where the term is used answers the
+			// question that prompted the search more often than an import list.
+			return a.Kind == EdgeMentions
 		}
 		// Target before weight, so edges sharing a target stay adjacent and can
 		// be rendered under it once instead of repeating it on every row.
@@ -752,7 +782,7 @@ func (r CodeSearchResult) Text(expandVerb string) string {
 	}
 
 	if refTarget != "" {
-		fmt.Fprintf(&sb, "references point to %s\n", refTarget)
+		fmt.Fprintf(&sb, "mentions are of %s (lexical: matching lines inside each symbol, not resolved references)\n", refTarget)
 	}
 
 	if len(imports) > 0 {
@@ -766,7 +796,7 @@ func (r CodeSearchResult) Text(expandVerb string) string {
 		// Unindented and named: with references folded into the symbol table
 		// this line belongs to no list above it, and an indented note under the
 		// imports would read as "more imports".
-		fmt.Fprintf(&sb, "... %d more dependency edge(s) not shown\n", r.EdgesOmitted)
+		fmt.Fprintf(&sb, "... %d more edge(s) not shown\n", r.EdgesOmitted)
 	}
 
 	if len(r.Unscoped) > 0 {
@@ -776,6 +806,13 @@ func (r CodeSearchResult) Text(expandVerb string) string {
 		}
 		if r.UnscopedOmitted > 0 {
 			fmt.Fprintf(&sb, "  ... %d more file(s) not shown\n", r.UnscopedOmitted)
+		}
+	}
+
+	if len(r.Changed) > 0 {
+		sb.WriteString("changed between matching and projection, hits not attributed (file count):\n")
+		for _, f := range r.Changed {
+			fmt.Fprintf(&sb, "  %s x%d\n", f.File, f.Hits)
 		}
 	}
 
@@ -818,4 +855,30 @@ func (h Hydrated) windowStart() int {
 		return h.Offset
 	}
 	return h.Offset + 1
+}
+
+// holdsMatches reports whether content still holds every matched line, as
+// the producers record it (trimmed).
+func holdsMatches(content string, matches []Match) bool {
+	lines := strings.Split(content, "\n")
+	for _, m := range matches {
+		if m.Line < 1 || m.Line > len(lines) || strings.TrimSpace(lines[m.Line-1]) != strings.TrimSpace(m.Text) {
+			return false
+		}
+	}
+	return true
+}
+
+// queryNamer reports whether a symbol name is what the query searches for:
+// the whole name equals a literal query, or matches a regex query anchored at
+// both ends. A query that only matches part of a declaration line (a
+// parameter type, a longer name) does not make that line the declaration.
+func queryNamer(query string, literal bool) func(name string) bool {
+	q := strings.TrimSpace(query)
+	if !literal {
+		if re, err := regexp.Compile("^(?:" + q + ")$"); err == nil {
+			return re.MatchString
+		}
+	}
+	return func(name string) bool { return name == q }
 }

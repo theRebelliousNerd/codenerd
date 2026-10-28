@@ -603,7 +603,7 @@ func searchFile(path string, re *regexp.Regexp, contextLines, maxMatches int) ([
 func SearchCodeTool() *tools.Tool {
 	tool := GrepTool()
 	tool.Name = "search_code"
-	tool.Description = "Search source files and get back the symbols the matches landed in and the dependency edges between them, not the matching lines. Returns each symbol with its file, extent, hit count and whether the match was its declaration, plus reference and import edges. The raw matching lines are retained under the handle in the result: read them with search_expand, which never re-runs the search. Use grep instead when the literal matching lines are what you need."
+	tool.Description = "Search source files and get back the symbols the matches landed in, not the matching lines. Returns each symbol with its file, extent, hit count and whether the match was its declaration, plus lexical mention edges (matching lines inside a symbol, not resolved references) and import edges. Each symbol ref is an address get_element accepts. The raw matching lines are retained under the handle in the result: read them with search_expand, which never re-runs the search. Use grep instead when the literal matching lines are what you need."
 	tool.Priority = 86
 	tool.Execute = executeSearchCode
 

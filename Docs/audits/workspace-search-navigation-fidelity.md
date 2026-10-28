@@ -263,3 +263,38 @@ Spec-first implementation would refine the observation/tools contracts, correct 
 
 
 [retention-refusal]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/retain/retain.go#L142-L193
+
+## As-built status
+
+Verified and built 2026-10-28 on `main` (after `5228a083`). The codec, both producers and the codec tests were unchanged from the audited revision.
+
+### Claim ledger
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| N1: any hit on a declaration line sets `Declared`, without checking the matched text names the declaration | Real, fixed | `codesearch.go:458`: declared only when `queryNamer` (`:876`) says the element's name is what the query asks for (whole-name regex, or equality for the literal VirtualStore query) |
+| N1: every remaining hit becomes a `references` edge, rendered as a dependency | Real, fixed by relabeling, not by resolving | `EdgeMentions = "mentions"` (`codesearch.go:72`); rendered "mentions are of X (lexical: matching lines inside each symbol, not resolved references)"; `search_code`'s description no longer promises dependency edges |
+| N1: doc-comment hits before `DeclLine` are excluded from counts | Confirmed; kept | `codesearch.go` (`m.Line < element.DeclLine`) |
+| N2: method qualifiers are stripped before keying, so same-named methods in a file merge and the address can reach a top-level function | Real, fixed | `codesearch.go:437`: `Ref` is `file:<whole CodeDOM key>`; `Name` stays the short display name |
+| N2: the resolver accepts file-scoped keys, exact keys win, and ambiguity is refused | Confirmed; the new refs use exactly that path | `codedom/elements.go` `resolveElement` / `lookupInFile` |
+| N3: both producers read the file to match, then reopen it to project, with no revision check between | Real, fixed by an explicit conflict | `codesearch.go:398` `holdsMatches` (`:862`): a file whose lines no longer hold the matched text is reported in `Changed` and not attributed |
+| Post-encoding replay is immutable | Confirmed; unchanged | `Hydrate`; existing replay tests pass |
+| The VirtualStore producer keeps raw `search_result` facts and does not assert `code_calls` | Confirmed; unchanged | `virtual_store_file_actions.go` |
+| §6 resource bounds: `searchFile` retains every scanned line at zero context; walk/scan loops take no context | Not re-verified in depth; left open | `internal/tools/core/search.go` |
+
+### What was built
+
+- Ruling (N1): the smallest correct baseline (alternative 2): relation kind is renamed to what was established (a lexical mention) rather than type-checking every search; declaration requires the name to be the query's whole match. `Search.Literal` tells the codec which producer semantics apply; the VirtualStore producer sets it.
+- Ruling (N2): display short, address whole; no new identity service.
+- Ruling (N3): the conflict option. Re-reading once and comparing the matched lines costs no extra buffering; a changed file's hits are kept as counts under `changed`, never combined with new structure. A whole-workspace snapshot is not claimed.
+- Spec: `Docs/architecture/broker/TODO.md` (code-search codec entry).
+
+### Tests
+
+`internal/tools/core/search_navigation_test.go`: three `Encode` elements (two receivers and a top-level function) give three refs from a real `search_code` call, and each redeems through `get_element` to the element it names (the old projection gave two refs); a parameter-type match on a declaration line is not a declaration and edges render as lexical; a file changed between matching and projection is not attributed and is reported. Updated pins in `internal/observation/codesearch_test.go` (qualified ref, "mentions are of") and `search_codec_test.go`.
+
+### Left open
+
+- On-demand verified relations (alternative 3) and per-file captured source revisions on the observation: not built.
+- Redeeming an address at the recorded revision (vs current source) after the file changes: `get_element` reads current source; a stale address now refuses or resolves to the current element of that key, but no historical revision is retained.
+- §6 acquisition bounds (bounded context rings, cancellation inside the walk) and the §8 user-journey evaluation: not done.
