@@ -225,8 +225,8 @@ func TestDebugSelfCommand_TogglesPersistsAndImpliesSessionYolo(t *testing.T) {
 	if !strings.Contains(string(raw), `"debug_self": true`) {
 		t.Fatalf("persisted config missing debug_self:true: %s", raw[:300])
 	}
-	if strings.Contains(string(raw), `"yolo": true`) {
-		t.Fatal("debug-self must not persist yolo:true")
+	if strings.Contains(string(raw), `"work_mode": "yolo"`) {
+		t.Fatal("debug-self must not persist work_mode yolo")
 	}
 
 	updated, _ = on.handleCmdDebugSelf("/debug-self status", []string{"/debug-self", "status"})
@@ -255,13 +255,13 @@ func TestDebugSelfCommand_OffKeepsPersistedYoloAndStatusUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.Config = config.DefaultUserConfig()
-	m.Config.Yolo = true
+	m.Config.WorkMode = config.WorkModeYolo
 
 	updated, _ := m.handleCmdDebugSelf("/debug-self on", []string{"/debug-self", "on"})
 	on := updated.(Model)
 	updated, _ = on.handleCmdDebugSelf("/debug-self status", []string{"/debug-self", "status"})
 	last := updated.(Model).history[len(updated.(Model).history)-1].Content
-	if !strings.Contains(last, "persisted yolo:true") {
+	if !strings.Contains(last, "persisted work_mode yolo") {
 		t.Fatalf("status must distinguish persisted yolo from debug_self yolo: %q", last)
 	}
 	updated, _ = on.handleCmdDebugSelf("/debug-self off", []string{"/debug-self", "off"})

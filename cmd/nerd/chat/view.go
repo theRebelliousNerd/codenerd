@@ -422,10 +422,7 @@ func (m Model) renderHeader() string {
 }
 
 func (m Model) renderFooter() string {
-	// Build continuation mode indicator
-	modeChar := 'A' + rune(m.continuationMode)
-	modeName := m.continuationMode.String()
-	continuationModeStr := fmt.Sprintf("[%c] %s", modeChar, modeName)
+	workModeStr := workModeLabel(m.workMode())
 
 	// Build pane mode indicator
 	paneModeStr := ""
@@ -490,7 +487,7 @@ func (m Model) renderFooter() string {
 	// Status first, hotkeys after, each packed onto as many lines as the
 	// width needs: a single line was cut off at the terminal edge, losing the
 	// hotkeys (and on narrow terminals the status) entirely.
-	status := []string{continuationModeStr, paneModeStr}
+	status := []string{workModeStr, paneModeStr}
 	for _, seg := range []string{campaignIndicator, continuationIndicator, contextIndicator, memoryIndicator, mouseIndicator, glassIndicator} {
 		if seg = strings.TrimPrefix(seg, " | "); seg != "" {
 			status = append(status, seg)

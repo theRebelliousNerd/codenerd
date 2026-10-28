@@ -1,22 +1,18 @@
 package chat
 
 import (
-	"fmt"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 )
 
-// /yolo toggles autonomous mode: codeNERD makes every decision it can without
-// asking. The setting persists to .nerd/config.json so CLI commands (notably
-// `nerd campaign recurse --waves 0`) and later chat sessions agree.
-//
-// Yolo resolves CHOICE points, never SAFETY verdicts: constitutional denials,
-// risk-gate refusals, and safety validators still refuse, and unbounded runs
-// still stop on the stall fuse.
+// /yolo toggles the yolo work mode (config.WorkMode): codeNERD makes every
+// decision it can without asking. It persists as work_mode so CLI commands
+// (notably `nerd campaign recurse --waves 0`) and later chat sessions agree.
 
 func (m Model) handleCmdYolo(input string, parts []string) (tea.Model, tea.Cmd) {
 	_ = input
@@ -39,35 +35,24 @@ func (m Model) handleCmdYolo(input string, parts []string) (tea.Model, tea.Cmd) 
 	if on {
 		return m.pushYoloNote("Yolo mode ON: no clarification round-trips, learning auto-consent, unbounded /recurse allowed. Safety denials, error notices, and loop stalls still surface — this resolves choices, never verdicts."), nil
 	}
-	return m.pushYoloNote("Yolo mode OFF: back to asking."), nil
+	return m.pushYoloNote("Yolo mode OFF: " + workModeLabel(m.workMode()) + ", back to asking."), nil
 }
 
-// yoloEnabled is the persisted switch or the --yolo flag. Until 2026-09-25 the
-// flag was a persistent root flag the chat never read: `nerd --yolo` opened a
-// chat that asked every question anyway, while schemas_intent.mg documented
-// --yolo as one of yolo_mode's sources.
+// yoloEnabled is the work mode in force being yolo (work_mode.go).
 func (m Model) yoloEnabled() bool {
-	return m.yoloFlag || (m.Config != nil && m.Config.YoloMode())
+	return m.workMode() == config.WorkModeYolo
 }
 
+// setYolo jumps to yolo, or leaves it for propose; /yolo off from session
+// yolo keeps whichever non-yolo mode is persisted.
 func (m Model) setYolo(on bool) Model {
-	if !on {
-		// /yolo off ends a flag-granted session autonomy too.
-		m.yoloFlag = false
+	if on {
+		return m.setWorkMode(config.WorkModeYolo)
 	}
-	if m.Config == nil {
-		return m
+	if mode := m.Config.EffectiveWorkMode(); mode != config.WorkModeYolo {
+		return m.setWorkMode(mode)
 	}
-	m.Config.Yolo = on
-	m.syncYoloFact()
-	if err := m.Config.Save(m.userConfigPath()); err != nil {
-		m = m.addMessage(Message{
-			Role:    "assistant",
-			Content: fmt.Sprintf("Yolo mode %s for this session, but saving failed: %v", onOff(on), err),
-			Time:    time.Now(),
-		})
-	}
-	return m
+	return m.setWorkMode(config.WorkModePropose)
 }
 
 // syncYoloFact mirrors the yolo switch into the kernel as the yolo_mode

@@ -19,7 +19,7 @@ import (
 // /debug-self turns codenerd on its own logs (stage 1: reporting only).
 // Persisted as logging.debug_self in .nerd/config.json. While on, a session
 // implies debug logging (no log files exist without it) and session-level
-// yolo via yoloFlag — yolo:true is never persisted because of debug_self.
+// yolo via yoloFlag — work_mode yolo is never persisted because of debug_self.
 //
 // Signal scope: new ERROR lines are the actionable set; new WARN lines are a
 // deduped digest (one entry per normalized signature, with counts). Stage 2
@@ -555,9 +555,9 @@ func debugSelfStatusText(m Model) string {
 	yoloPart := "OFF (turned off explicitly this session; debug_self remains on)"
 	switch {
 	case m.Config.YoloMode():
-		yoloPart = "ON (persisted yolo:true)"
+		yoloPart = "ON (persisted work_mode yolo)"
 	case m.yoloEnabled() && m.yoloViaDebugSelf:
-		yoloPart = "ON (session-level via debug_self; not persisted as yolo:true)"
+		yoloPart = "ON (session-level via debug_self; not persisted as work_mode yolo)"
 	case m.yoloEnabled():
 		yoloPart = "ON (session-level via --yolo flag)"
 	}

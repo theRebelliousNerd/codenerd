@@ -489,7 +489,6 @@ func NewTestModel(opts ...TestModelOption) Model {
 		goroutineWg:        &sync.WaitGroup{},
 		preferencesMgr:     ux.NewPreferencesManager("/tmp/test-workspace"),
 		transparencyMgr:    transparency.NewTransparencyManager(nil),
-		continuationMode:   ContinuationModeAuto,
 		shardResultHistory: make([]*ShardResult, 0),
 	}
 
@@ -557,10 +556,10 @@ func WithInputMode(mode InputMode) TestModelOption {
 	}
 }
 
-// WithContinuationMode sets the continuation mode.
-func WithContinuationMode(mode ContinuationMode) TestModelOption {
+// WithWorkMode sets the persisted work mode.
+func WithWorkMode(mode config.WorkMode) TestModelOption {
 	return func(m *Model) {
-		m.continuationMode = mode
+		m.Config.WorkMode = mode
 	}
 }
 

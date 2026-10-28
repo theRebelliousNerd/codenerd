@@ -20,7 +20,7 @@ func TestInitChat_YoloFlagIsSessionAutonomy(t *testing.T) {
 	if !m.yoloEnabled() {
 		t.Fatal("the --yolo flag did not turn on autonomy in the chat it launched")
 	}
-	if m.Config.Yolo {
+	if m.Config.YoloMode() {
 		t.Fatal("the --yolo flag was written into the persisted config")
 	}
 

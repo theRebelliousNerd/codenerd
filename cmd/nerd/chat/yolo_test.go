@@ -26,8 +26,8 @@ func TestYolo_TogglesAndPersists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("yolo must persist: %v", err)
 	}
-	if !strings.Contains(string(raw), `"yolo": true`) {
-		t.Fatalf("persisted config missing yolo:true: %s", raw[:200])
+	if !strings.Contains(string(raw), `"work_mode": "yolo"`) {
+		t.Fatalf("persisted config missing work_mode yolo: %s", raw[:200])
 	}
 
 	updated, _ = result.handleCmdYolo("/yolo off", []string{"/yolo", "off"})

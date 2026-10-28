@@ -151,7 +151,7 @@ func InitChat(cfg Config) Model {
 	transparencyCfg := appCfg.GetTransparencyConfig()
 	transparencyMgr := transparency.NewTransparencyManager(transparencyCfg)
 
-	// Debug-self implies session yolo (never persisted as yolo:true) and,
+	// Debug-self implies session yolo (never persisted as work_mode yolo) and,
 	// via the effective logging config, debug logging at boot.
 	debugSelfOn := appCfg.DebugSelfMode()
 

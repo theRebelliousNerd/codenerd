@@ -118,6 +118,9 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 	if err := c.CheckAPIKeyPools(); err != nil {
 		add(SeverityError, "api_key_pools", err.Error(), "")
 	}
+	if err := checkWorkMode(c.WorkMode); err != nil {
+		add(SeverityError, "work_mode", err.Error(), "set work_mode to yolo, propose or explicit")
+	}
 	if c.Anthropic != nil {
 		if err := c.Anthropic.Validate(); err != nil {
 			add(SeverityError, "anthropic", err.Error(), "")

@@ -716,9 +716,8 @@ func (m Model) handleDreamPlanExecution(input string) (tea.Model, tea.Cmd) {
 	var sb strings.Builder
 	sb.WriteString("## Executing Dream Plan\n\n")
 	sb.WriteString(fmt.Sprintf("**Goal:** %s\n\n", plan.Hypothetical))
-	sb.WriteString(fmt.Sprintf("**Steps:** %d | **Risk:** %s | **Mode:** [%c] %s\n\n",
-		len(subtasks), plan.RiskLevel,
-		'A'+rune(m.continuationMode), m.continuationMode.String()))
+	sb.WriteString(fmt.Sprintf("**Steps:** %d | **Risk:** %s | **Mode:** %s\n\n",
+		len(subtasks), plan.RiskLevel, workModeLabel(m.workMode())))
 
 	sb.WriteString("| # | Step | Shard |\n")
 	sb.WriteString("|---|------|-------|\n")

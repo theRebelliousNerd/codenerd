@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"codenerd/internal/config"
 	"errors"
 	"fmt"
 	"os"
@@ -215,19 +216,13 @@ func TestModel_ErrorHandling(t *testing.T) {
 	m.refreshErrorViewport()
 }
 
-// TestModel_ContinuationModes tests continuation mode settings
-func TestModel_ContinuationModes(t *testing.T) {
-	modes := []ContinuationMode{
-		ContinuationModeAuto,
-		ContinuationModeConfirm,
-		ContinuationModeBreakpoint,
-	}
-
-	for _, mode := range modes {
-		t.Run(mode.String(), func(t *testing.T) {
-			m := NewTestModel(WithContinuationMode(mode))
-			if m.continuationMode != mode {
-				t.Errorf("ContinuationMode = %v, want %v", m.continuationMode, mode)
+// TestModel_FooterNamesWorkMode: the footer shows the mode in force.
+func TestModel_FooterNamesWorkMode(t *testing.T) {
+	for _, mode := range config.WorkModes {
+		t.Run(string(mode), func(t *testing.T) {
+			m := NewTestModel(WithWorkMode(mode))
+			if footer := m.renderFooter(); !strings.Contains(footer, workModeLabel(mode)) {
+				t.Errorf("footer for %s lacks %q:\n%s", mode, workModeLabel(mode), footer)
 			}
 		})
 	}

@@ -74,16 +74,9 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		}
 
 	case tea.KeyShiftTab:
-		// Shift+Tab: Cycle continuation mode (A → B → C → A)
-		m.continuationMode = (m.continuationMode + 1) % 3
-		modeName := m.continuationMode.String()
-		modeChar := 'A' + rune(m.continuationMode)
-		m.statusMessage = fmt.Sprintf("Mode: [%c] %s", modeChar, modeName)
-		// Persist to config
-		if m.Config != nil {
-			m.Config.ContinuationMode = int(m.continuationMode)
-			_ = m.Config.Save(m.userConfigPath())
-		}
+		// Shift+Tab: yolo → propose → explicit → yolo.
+		m = m.setWorkMode(m.workMode().Next())
+		m.statusMessage = "Mode: " + workModeLabel(m.workMode())
 		return m, nil, true
 	}
 

@@ -3,6 +3,7 @@
 package chat
 
 import (
+	"codenerd/internal/config"
 	"strings"
 	"testing"
 	"time"
@@ -788,31 +789,24 @@ func TestKeyMsg_Esc_FromUsageView(t *testing.T) {
 	}
 }
 
-func TestKeyMsg_ShiftTab_CyclesContinuationMode(t *testing.T) {
+func TestKeyMsg_ShiftTab_CyclesWorkMode(t *testing.T) {
 	t.Parallel()
-	m := NewTestModel(WithContinuationMode(ContinuationModeAuto))
+	m := NewTestModel(WithWorkspace(t.TempDir()), WithWorkMode(config.WorkModeYolo))
+	m.yoloFlag = true // session yolo: leaving yolo must end it too
 
-	newModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-	result := newModel.(Model)
-
-	if result.continuationMode != ContinuationModeConfirm {
-		t.Errorf("Expected ContinuationModeConfirm, got %v", result.continuationMode)
-	}
-
-	// Cycle again
-	newModel2, _ := result.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-	result2 := newModel2.(Model)
-
-	if result2.continuationMode != ContinuationModeBreakpoint {
-		t.Errorf("Expected ContinuationModeBreakpoint, got %v", result2.continuationMode)
-	}
-
-	// Cycle back to Auto
-	newModel3, _ := result2.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-	result3 := newModel3.(Model)
-
-	if result3.continuationMode != ContinuationModeAuto {
-		t.Errorf("Expected ContinuationModeAuto, got %v", result3.continuationMode)
+	want := []config.WorkMode{config.WorkModePropose, config.WorkModeExplicit, config.WorkModeYolo}
+	for _, mode := range want {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+		m = next.(Model)
+		if got := m.workMode(); got != mode {
+			t.Fatalf("Shift+Tab gave %s, want %s", got, mode)
+		}
+		if m.Config.WorkMode != mode {
+			t.Fatalf("Shift+Tab did not persist %s (config has %q)", mode, m.Config.WorkMode)
+		}
+		if mode != config.WorkModeYolo && m.yoloEnabled() {
+			t.Fatalf("%s still acts as yolo", mode)
+		}
 	}
 }
 

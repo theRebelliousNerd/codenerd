@@ -3,6 +3,7 @@
 package chat
 
 import (
+	"codenerd/internal/config"
 	"context"
 	"testing"
 	"time"
@@ -465,40 +466,24 @@ func TestKnowledgeHistory_Format(t *testing.T) {
 // CONTINUATION STATE TESTS
 // =============================================================================
 
-func TestContinuationMode_Cycle(t *testing.T) {
-	t.Parallel()
-
-	modes := []ContinuationMode{
-		ContinuationModeAuto,
-		ContinuationModeConfirm,
-		ContinuationModeBreakpoint,
-	}
-
-	for i, mode := range modes {
-		next := (mode + 1) % 3
-		expected := modes[(i+1)%3]
-
-		if next != expected {
-			t.Errorf("Mode cycle broken: %v + 1 = %v, expected %v", mode, next, expected)
-		}
-	}
-}
-
-func TestContinuationMode_String(t *testing.T) {
+func TestPausesBefore_FollowsWorkMode(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		mode     ContinuationMode
-		expected string
+		mode               config.WorkMode
+		mutation, readOnly bool
 	}{
-		{ContinuationModeAuto, "Auto"},
-		{ContinuationModeConfirm, "Confirm"},
-		{ContinuationModeBreakpoint, "Breakpoint"},
+		{config.WorkModeYolo, false, false},
+		{config.WorkModePropose, true, false},
+		{config.WorkModeExplicit, true, true},
 	}
-
 	for _, tc := range tests {
-		if tc.mode.String() != tc.expected {
-			t.Errorf("Expected '%s', got '%s'", tc.expected, tc.mode.String())
+		m := NewTestModel(WithWorkMode(tc.mode))
+		if got := m.pausesBefore(true); got != tc.mutation {
+			t.Errorf("%s: pause before a mutation = %v, want %v", tc.mode, got, tc.mutation)
+		}
+		if got := m.pausesBefore(false); got != tc.readOnly {
+			t.Errorf("%s: pause before a read = %v, want %v", tc.mode, got, tc.readOnly)
 		}
 	}
 }

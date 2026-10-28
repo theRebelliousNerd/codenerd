@@ -366,14 +366,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Show progress for completed step
 		m = m.pushAssistantMsg(fmt.Sprintf("✓ [%d/%d] %s", m.continuationStep-1, m.continuationTotal, m.statusMessage))
 
-		// Check continuation mode to decide whether to pause
-		shouldPause := false
-		switch m.continuationMode {
-		case ContinuationModeConfirm:
-			shouldPause = true // Always pause in Confirm mode
-		case ContinuationModeBreakpoint:
-			shouldPause = msg.isMutation // Pause only for mutations
-		}
+		shouldPause := m.pausesBefore(msg.isMutation)
 
 		if shouldPause {
 			m.isLoading = false
@@ -964,14 +957,7 @@ func (m Model) handleContinuationInitMsg(msg continuationInitMsg) (tea.Model, te
 
 	m = m.pushAssistantMsg(msg.completedSurface)
 
-	// Decide whether to pause before next step.
-	shouldPause := false
-	switch m.continuationMode {
-	case ContinuationModeConfirm:
-		shouldPause = true
-	case ContinuationModeBreakpoint:
-		shouldPause = msg.next.isMutation
-	}
+	shouldPause := m.pausesBefore(msg.next.isMutation)
 
 	if shouldPause {
 		m.isLoading = false

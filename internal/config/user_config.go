@@ -151,9 +151,9 @@ type UserConfig struct {
 	// UI is the chat TUI's layout (ux.go).
 	UI *UIConfig `json:"ui,omitempty"`
 
-	// ContinuationMode controls multi-step task execution behavior
-	// 0 = Auto (fully automatic), 1 = Confirm (pause after each step), 2 = Breakpoint (pause before mutations)
-	ContinuationMode int `json:"continuation_mode,omitempty"`
+	// WorkMode is how far codeNERD acts on its own (work_mode.go): "yolo",
+	// "propose" (the default) or "explicit". Shift+Tab and /yolo set it.
+	WorkMode WorkMode `json:"work_mode,omitempty"`
 
 	// =========================================================================
 	// EXTERNAL SERVICE KEYS
@@ -330,17 +330,6 @@ type UserConfig struct {
 	// Require explicit confirmation before promotion (default: false)
 	LearningCandidateAutoPromote bool `json:"learning_candidate_auto_promote,omitempty"`
 
-	// Yolo is the autonomy switch: codeNERD makes every decision it can to
-	// the best of its ability without user involvement — no wizard questions,
-	// no inter-wave pauses, no resume ambiguity. It is settable from config,
-	// the --yolo flag, or the /yolo chat command.
-	//
-	// Yolo resolves CHOICE points, never SAFETY verdicts: constitutional
-	// denials, risk-gate refusals, and safety validators still refuse, and
-	// unbounded /recurse still stops on its stall fuse. "Do whatever" means
-	// whatever the policy already permits, decided alone.
-	Yolo bool `json:"yolo,omitempty"`
-
 	// =========================================================================
 	// USER EXPERIENCE
 	// =========================================================================
@@ -366,12 +355,6 @@ type UserConfig struct {
 	// process-wide active pointer so low-level call sites (kernel, world
 	// scanner, main.go boot) can consult it without re-reading config.json.
 	Features *features.FeaturesConfig `json:"features,omitempty"`
-}
-
-// YoloMode reports whether autonomous no-questions operation is enabled.
-// Nil-safe: no config means no yolo.
-func (c *UserConfig) YoloMode() bool {
-	return c != nil && c.Yolo
 }
 
 // DebugSelfMode reports whether logging.debug_self is enabled. Nil-safe.
@@ -1732,7 +1715,7 @@ func DefaultUserConfig() *UserConfig {
 		Engine:                       "api",
 		Theme:                        "light",
 		UI:                           &uiCfg,
-		ContinuationMode:             1,
+		WorkMode:                     WorkModePropose,
 		Gemini:                       DefaultGeminiProviderConfig(),
 		Meta:                         DefaultMetaProviderConfig(),
 		ClaudeCLI:                    DefaultClaudeCLIConfig(),
