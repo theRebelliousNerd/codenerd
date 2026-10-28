@@ -140,3 +140,14 @@ wiring exists, unreviewed configured calls intentionally refuse; do not infer a
 review from server annotations, model confirmation, or discovery success. The
 real-kernel route tests are component evidence, not proof of configured boot or
 model-facing end-to-end delivery.
+
+As built 2026-10-28: configured reviews (`integrations.servers.<id>.reviews`)
+install with the fact emitter and are reinstalled on each `Connect`
+(`internal/mcp/client.go:359`). Every refusal before dispatch is a typed
+`RemoteRefusalError` (`not_admitted`, `invalid_request`, `policy_denied`,
+`confirmation_missing`, `stale_authority`, `authority_unavailable`,
+`attempt_consumed`; `internal/mcp/remote_refusal.go`), and `ControlPlane.Call`
+reports it as a refusal that reached no server, with its remedy, instead of a
+transport error (`callFailure`, `internal/mcp/controlplane_invoke.go`). Still open:
+session-level parent/child operation correlation, configured reviews for
+resources and prompts, and reviewer provenance and expiry.

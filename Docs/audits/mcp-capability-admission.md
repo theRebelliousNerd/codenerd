@@ -169,3 +169,36 @@ The right next milestone is not deleting `WithRemoteCallIdentity`, nor changing 
   - config reviews for resource and prompt reads (tool reviews only for now);
   - typed refusal outcomes in `ControlPlane.Call`;
   - reviewer provenance and expiry on reviews.
+
+## Lifecycle qualification (research branch, 2026-10-28)
+
+The research branch (`codenerd-research-docs`) adds two addenda. (1) Ordinary boot installed configured reviews with the emitter and the first `Connect` then deleted them, so a configured review never became executable; `nerd mcp tools` still printed `reviewed`. (2) A branch-status note: `feat/conversation-brief` fixed (1) in `e033fc4` by reinstalling a server's configured reviews on each `Connect`.
+
+## As-built status
+
+Re-verified 2026-10-28 on main (after `5f82a9bc`).
+
+### Claim ledger
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| No production code installed host reviews | Fixed before this pass (As built above) | `config.MCPToolReview`; `installConfiguredReviewsLocked` (`remote_authority.go:179`) |
+| Configured reviews are deleted by the first `Connect` | Fixed on main by the merged feature branch | `client.go:359-363` reinstalls the server's configured reviews; `TestConfiguredReviewsSurviveConnect` |
+| `ControlPlane.Call` reports every manager error as "transport error", including refusals before dispatch | Real, fixed. Before: `controlplane_invoke.go:127` `Summary: "transport error"` | `RemoteRefusalError` (`remote_refusal.go`) on every refusal return of the dispatch boundary and on `CallTool`'s argument/ID refusals; `callFailure` (`controlplane_invoke.go:626`) |
+| `nerd mcp tools` presents configured-review validity as admission | Real, fixed | `mcpReviewState` (`cmd/nerd/cmd_systems.go`): "configured review: <effect>", total says it is an offline view and admission is per call |
+| `WithRemoteCallIdentity` consumed once; multi-resource fanout would reuse it | Confirmed, moot in production: the helper is a test seam and production allocates a fresh identity per leaf attempt | `remote_authority.go` `attemptRemoteCall` |
+| Kernel rule does not bind scope to an authenticated session | Confirmed, left (see below) | `policy_mcp.mg` `mcp_remote_permitted` |
+
+### What was built
+
+- Typed refusals: `not_admitted`, `invalid_request`, `policy_denied`, `confirmation_missing`, `stale_authority`, `authority_unavailable`, `attempt_consumed`. Each wraps the boundary's own message; `RefusalOf` reads it. Context cancellation stays the context's error.
+- `ControlPlane.Call` says "refused before dispatch (<outcome>); nothing reached the server" with a remedy per outcome (an unreviewed tool names the config stanza and says not to retry); a cancellation is "canceled"; only a transport failure is "transport error".
+- Tests: `TestRemoteAuthority_RefusalsBeforeDispatchAreTyped` (no review, no kernel, no permission, invalid tool ID: typed, zero transport calls), `TestControlPlaneCall_ARefusalIsNotATransportError`, `TestCallFailure_KeepsTransportAndCancellationApart`, `TestMCPReviewState`.
+- Spec: `Docs/architecture/mcp/09-SAFETY-AND-INVARIANTS.md` (as-built paragraph under GAP-MCP-REMOTE-EFFECT-AUTHORITY).
+
+### Left open
+
+- Session-level parent/child operation correlation and a scope-to-session policy relation: no consumer reads a parent operation yet, and binding scope to an authenticated session is a new policy contract, not wiring.
+- Configured reviews for resources and prompts: `nerd mcp tools` lists no resource/prompt subjects or hashes, so an operator cannot write such a review yet; both pieces are needed together.
+- Reviewer provenance and expiry on reviews; the bounded admission-repair obligation (section 4C) beyond the typed "do not retry" remedy.
+- The configured-boot end-to-end acceptance in section 6 (counted endpoint through the ordinary session route) was not driven.

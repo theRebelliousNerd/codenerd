@@ -125,10 +125,11 @@ func (cp *ControlPlane) Call(ctx context.Context, opts CallOptions) *CallResult 
 
 	switch {
 	case err != nil:
+		summary, next := callFailure(err)
 		return &CallResult{
 			Success: false, ToolID: tool.ToolID, Facet: tool.Facet, Risk: tool.Risk,
 			View: view, LatencyMs: latency, Error: err.Error(),
-			Summary: "transport error",
+			Summary: summary, NextStep: next,
 		}
 	case raw == nil:
 		return &CallResult{
@@ -617,4 +618,34 @@ func (cp *ControlPlane) emitHandleFact(handle, toolID string, bytes int) {
 		return
 	}
 	cp.facts.EmitHandle(handle, toolID, bytes)
+}
+
+// callFailure says what a failed dispatch was and what to do about it. A
+// refusal before dispatch reached no server, and each kind has its own remedy;
+// only an error from the transport itself is a transport error.
+func callFailure(err error) (summary, next string) {
+	if outcome, ok := RefusalOf(err); ok {
+		summary = "refused before dispatch (" + string(outcome) + "); nothing reached the server"
+		switch outcome {
+		case RefusedNotAdmitted:
+			next = "this tool has no current host review; an operator adds one under integrations.servers.<id>.reviews in .nerd/config.json (`nerd mcp tools` lists the schema hash). Do not retry the call"
+		case RefusedInvalidRequest:
+			next = "correct the arguments against the tool's schema and call again"
+		case RefusedPolicyDenied:
+			next = "the kernel did not permit this exact call; do not retry it unchanged"
+		case RefusedConfirmationMissing:
+			next = "call again with confirm_risk only if the risk is deliberate"
+		case RefusedStaleAuthority:
+			next = "the server's connection or catalog changed; search the tools again before calling"
+		case RefusedAttemptConsumed:
+			next = "issue a new call; a call identity is used once"
+		default:
+			next = "the authority boundary is unavailable; do not retry"
+		}
+		return summary, next
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return "canceled", "the call was canceled; whether the server received it is unknown if it had been dispatched"
+	}
+	return "transport error", ""
 }

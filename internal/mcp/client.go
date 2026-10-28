@@ -673,12 +673,12 @@ func (m *MCPClientManager) CallTool(ctx context.Context, toolID string, args map
 
 	serverID, toolName := parseToolID(toolID)
 	if serverID == "" {
-		return nil, fmt.Errorf("invalid tool ID: %s", toolID)
+		return nil, refused(RefusedInvalidRequest, fmt.Errorf("invalid tool ID: %s", toolID))
 	}
 
 	// Sanitize MCP tool names against directory traversal
 	if toolName == "" || strings.Contains(toolName, "..") || strings.ContainsAny(toolName, "/\\") {
-		return nil, fmt.Errorf("invalid tool name: directory traversal detected")
+		return nil, refused(RefusedInvalidRequest, fmt.Errorf("invalid tool name: directory traversal detected"))
 	}
 
 	m.mu.RLock()

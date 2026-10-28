@@ -212,13 +212,13 @@ func canonicalRemoteArgs(args map[string]any) ([]byte, map[string]any, error) {
 	}
 	canonical, err := json.Marshal(args)
 	if err != nil {
-		return nil, nil, fmt.Errorf("invalid arguments: cannot serialize to JSON: %w", err)
+		return nil, nil, refused(RefusedInvalidRequest, fmt.Errorf("invalid arguments: cannot serialize to JSON: %w", err))
 	}
 	var frozen map[string]any
 	decoder := json.NewDecoder(bytes.NewReader(canonical))
 	decoder.UseNumber()
 	if err := decoder.Decode(&frozen); err != nil {
-		return nil, nil, fmt.Errorf("freeze MCP arguments: %w", err)
+		return nil, nil, refused(RefusedInvalidRequest, fmt.Errorf("freeze MCP arguments: %w", err))
 	}
 	return canonical, frozen, nil
 }
@@ -246,7 +246,7 @@ func (manager *MCPClientManager) dispatchRemoteCall(ctx context.Context, operati
 	}
 	grant, req, err := need.broker.Await(ctx, need.intent, need.subject, need.preview)
 	if err != nil {
-		return nil, fmt.Errorf("MCP remote effect %s refused: approval request %s did not authorize it: %w", toolID, req.ID, err)
+		return nil, refused(RefusedPolicyDenied, fmt.Errorf("MCP remote effect %s refused: approval request %s did not authorize it: %w", toolID, req.ID, err))
 	}
 	result, _, err = manager.attemptRemoteCall(ctx, operation, serverID, toolID, args, canonical, frozen, invoke, &need.identity, grant)
 	return result, err
@@ -289,16 +289,16 @@ func (manager *MCPClientManager) attemptRemoteCall(ctx context.Context, operatio
 	tool, matches := manager.remoteSubjectLocked(operation, serverID, toolID)
 	manager.mu.RUnlock()
 	if matches != 1 {
-		return nil, nil, fmt.Errorf("MCP subject %s has missing or conflicting registrations", toolID)
+		return nil, nil, refused(RefusedStaleAuthority, fmt.Errorf("MCP subject %s has missing or conflicting registrations", toolID))
 	}
 	if emitter == nil || nilKernel(emitter.kernel) {
-		return nil, nil, fmt.Errorf("MCP remote authority unavailable: kernel is nil")
+		return nil, nil, refused(RefusedAuthorityUnavailable, fmt.Errorf("MCP remote authority unavailable: kernel is nil"))
 	}
 	if connection == nil || connection.Server == nil || connection.Server.ID != serverID || connection.Server.Status != ServerStatusConnected || connection.Transport == nil || !connection.Transport.IsConnected() {
-		return nil, nil, fmt.Errorf("MCP server %s has no current connected registration", serverID)
+		return nil, nil, refused(RefusedStaleAuthority, fmt.Errorf("MCP server %s has no current connected registration", serverID))
 	}
 	if tool == nil || tool.ServerID != serverID || tool.Name != toolName || !tool.Risk.Valid() || !knownRiskSource(tool.RiskSource) {
-		return nil, nil, fmt.Errorf("MCP tool %s has missing or conflicting metadata", toolID)
+		return nil, nil, refused(RefusedStaleAuthority, fmt.Errorf("MCP tool %s has missing or conflicting metadata", toolID))
 	}
 	snapshot := *tool
 	tool = &snapshot
@@ -306,14 +306,14 @@ func (manager *MCPClientManager) attemptRemoteCall(ctx context.Context, operatio
 	server := *connection.Server
 	var schema map[string]json.RawMessage
 	if schemaErr := json.Unmarshal(tool.InputSchema, &schema); schemaErr != nil || schema == nil {
-		return nil, nil, fmt.Errorf("MCP tool %s has no valid current input schema", toolID)
+		return nil, nil, refused(RefusedStaleAuthority, fmt.Errorf("MCP tool %s has no valid current input schema", toolID))
 	}
 	review, reviewed := manager.reviewedEffects[toolID]
 	if !reviewed || review.Operation != operation || remoteAction(review.Effect) == "" || review.SchemaHash != tool.SchemaHash || review.SchemaHash != remoteSchemaHash(tool) {
-		return nil, nil, fmt.Errorf("MCP tool %s has no current host-reviewed effect", toolID)
+		return nil, nil, refused(RefusedNotAdmitted, fmt.Errorf("MCP tool %s has no current host-reviewed effect", toolID))
 	}
 	if err := ValidateArgs(tool, frozen); err != nil {
-		return nil, nil, err
+		return nil, nil, refused(RefusedInvalidRequest, err)
 	}
 	requestID := "exec-mcp-" + rand.Text()
 	var identity RemoteCallIdentity
@@ -325,7 +325,7 @@ func (manager *MCPClientManager) attemptRemoteCall(ctx context.Context, operatio
 		identity = RemoteCallIdentity{Scope: requestID, CallID: requestID}
 		if state, supplied := ctx.Value(remoteIdentityKey{}).(*remoteCallState); supplied {
 			if state.identity.Scope == "" || state.identity.CallID == "" || !state.used.CompareAndSwap(false, true) {
-				return nil, nil, fmt.Errorf("MCP call identity is missing or already consumed")
+				return nil, nil, refused(RefusedAttemptConsumed, fmt.Errorf("MCP call identity is missing or already consumed"))
 			}
 			identity = state.identity
 		}
@@ -334,7 +334,7 @@ func (manager *MCPClientManager) attemptRemoteCall(ctx context.Context, operatio
 	if review.TargetArgument != "" {
 		value, valid := frozen[review.TargetArgument].(string)
 		if !valid || value == "" {
-			return nil, nil, fmt.Errorf("MCP reviewed target argument %q must be a nonempty string", review.TargetArgument)
+			return nil, nil, refused(RefusedInvalidRequest, fmt.Errorf("MCP reviewed target argument %q must be a nonempty string", review.TargetArgument))
 		}
 		target = value
 	}
@@ -347,7 +347,7 @@ func (manager *MCPClientManager) attemptRemoteCall(ctx context.Context, operatio
 		Args      json.RawMessage `json:"args"`
 	}{requestID, identity.Scope, identity.CallID, serverID, toolID, canonical})
 	if marshalErr != nil {
-		return nil, nil, marshalErr
+		return nil, nil, refused(RefusedInvalidRequest, marshalErr)
 	}
 	digest := sha256.Sum256(canonical)
 	confirmed, _ := ctx.Value(remoteConfirmationKey{}).(bool)
@@ -400,7 +400,7 @@ func (manager *MCPClientManager) attemptRemoteCall(ctx context.Context, operatio
 		// registration, schema, endpoint, target or argument is stale.
 		if reserveErr := grant.Reserve(intent, subject); reserveErr != nil {
 			auditRemoteAuthorization(envelope, false, "approved MCP request could not be claimed (stale, expired or already used); remote action denied")
-			return nil, nil, fmt.Errorf("MCP remote effect %s refused: the approval cannot be used: %w", toolID, reserveErr)
+			return nil, nil, refused(RefusedPolicyDenied, fmt.Errorf("MCP remote effect %s refused: the approval cannot be used: %w", toolID, reserveErr))
 		}
 		reserved = true
 		facts = append(facts, fmt.Sprintf("%s(%s, %s, %s, %s, %s)", types.HumanApprovalPredicate,
@@ -410,14 +410,14 @@ func (manager *MCPClientManager) attemptRemoteCall(ctx context.Context, operatio
 	emitter.mu.Lock()
 	defer emitter.mu.Unlock()
 	if emitter.failure != nil {
-		return nil, nil, fmt.Errorf("MCP fact publication is unhealthy: %w", emitter.failure)
+		return nil, nil, refused(RefusedAuthorityUnavailable, fmt.Errorf("MCP fact publication is unhealthy: %w", emitter.failure))
 	}
 	serverRows, serverErr := emitter.kernel.Query(fmt.Sprintf("mcp_server_registered(%s, %s, %s, RegisteredAt)", exactMangleString(serverID), exactMangleString(endpoint), mangleAtom(protocol)))
 	if serverErr != nil {
-		return nil, nil, fmt.Errorf("query current MCP server registration: %w", serverErr)
+		return nil, nil, refused(RefusedAuthorityUnavailable, fmt.Errorf("query current MCP server registration: %w", serverErr))
 	}
 	if len(serverRows) != 1 {
-		return nil, nil, fmt.Errorf("MCP server registration does not exactly match the current connection")
+		return nil, nil, refused(RefusedStaleAuthority, fmt.Errorf("MCP server registration does not exactly match the current connection"))
 	}
 	for _, registration := range []string{
 		fmt.Sprintf("mcp_server_registered(%s, Endpoint, Protocol, RegisteredAt)", exactMangleString(serverID)),
@@ -426,10 +426,10 @@ func (manager *MCPClientManager) attemptRemoteCall(ctx context.Context, operatio
 	} {
 		rows, queryErr := emitter.kernel.Query(registration)
 		if queryErr != nil {
-			return nil, nil, fmt.Errorf("query MCP connection authority: %w", queryErr)
+			return nil, nil, refused(RefusedAuthorityUnavailable, fmt.Errorf("query MCP connection authority: %w", queryErr))
 		}
 		if len(rows) != 1 {
-			return nil, nil, fmt.Errorf("MCP connection has no unique current positive registration")
+			return nil, nil, refused(RefusedStaleAuthority, fmt.Errorf("MCP connection has no unique current positive registration"))
 		}
 	}
 	if operation == RemoteTool {
@@ -447,10 +447,10 @@ func (manager *MCPClientManager) attemptRemoteCall(ctx context.Context, operatio
 		} {
 			rows, queryErr := emitter.kernel.Query(metadata)
 			if queryErr != nil {
-				return nil, nil, fmt.Errorf("query current MCP metadata: %w", queryErr)
+				return nil, nil, refused(RefusedAuthorityUnavailable, fmt.Errorf("query current MCP metadata: %w", queryErr))
 			}
 			if len(rows) != 1 {
-				return nil, nil, fmt.Errorf("MCP metadata does not exactly match the current registration")
+				return nil, nil, refused(RefusedStaleAuthority, fmt.Errorf("MCP metadata does not exactly match the current registration"))
 			}
 		}
 	} else {
@@ -460,10 +460,10 @@ func (manager *MCPClientManager) attemptRemoteCall(ctx context.Context, operatio
 		}
 		rows, queryErr := emitter.kernel.Query(fmt.Sprintf("%s(%s, %s, Name, %s)", predicate, exactMangleString(serverID), exactMangleString(toolID), exactMangleString(review.SchemaHash)))
 		if queryErr != nil {
-			return nil, nil, fmt.Errorf("query MCP resource or prompt registration: %w", queryErr)
+			return nil, nil, refused(RefusedAuthorityUnavailable, fmt.Errorf("query MCP resource or prompt registration: %w", queryErr))
 		}
 		if len(rows) != 1 {
-			return nil, nil, fmt.Errorf("MCP resource or prompt has no exact positive current registration")
+			return nil, nil, refused(RefusedStaleAuthority, fmt.Errorf("MCP resource or prompt has no exact positive current registration"))
 		}
 	}
 	var attempted []string
@@ -483,17 +483,17 @@ func (manager *MCPClientManager) attemptRemoteCall(ctx context.Context, operatio
 		attempted = append(attempted, fact)
 		if assertErr := emitter.kernel.Assert(fact); assertErr != nil {
 			emitter.failure = errors.Join(emitter.failure, assertErr)
-			return nil, nil, fmt.Errorf("assert MCP authority: %w", assertErr)
+			return nil, nil, refused(RefusedAuthorityUnavailable, fmt.Errorf("assert MCP authority: %w", assertErr))
 		}
 	}
 	confirmationRequired, confirmationErr := emitter.kernel.Query(fmt.Sprintf("mcp_remote_confirmation_required(%s)", exactMangleString(requestID)))
 	if confirmationErr != nil {
 		auditRemoteAuthorization(envelope, false, "kernel query mcp_remote_confirmation_required/1 failed; remote action denied")
-		return nil, nil, fmt.Errorf("query MCP confirmation requirement: %w", confirmationErr)
+		return nil, nil, refused(RefusedAuthorityUnavailable, fmt.Errorf("query MCP confirmation requirement: %w", confirmationErr))
 	}
 	if len(confirmationRequired) > 0 && !confirmed {
 		auditRemoteAuthorization(envelope, false, "kernel requires separate risk confirmation; remote action denied")
-		return nil, nil, fmt.Errorf("MCP remote effect %s requires separate risk confirmation", toolID)
+		return nil, nil, refused(RefusedConfirmationMissing, fmt.Errorf("MCP remote effect %s requires separate risk confirmation", toolID))
 	}
 	query := fmt.Sprintf("mcp_remote_permitted(%s, %s, %s, %s, %s, %s, %s)",
 		exactMangleString(requestID), exactMangleString(identity.Scope), exactMangleString(identity.CallID),
@@ -501,7 +501,7 @@ func (manager *MCPClientManager) attemptRemoteCall(ctx context.Context, operatio
 	permission, queryErr := emitter.kernel.Query(query)
 	if queryErr != nil {
 		auditRemoteAuthorization(envelope, false, "kernel query mcp_remote_permitted/7 failed; remote action denied")
-		return nil, nil, fmt.Errorf("query MCP remote authority: %w", queryErr)
+		return nil, nil, refused(RefusedAuthorityUnavailable, fmt.Errorf("query MCP remote authority: %w", queryErr))
 	}
 	if len(permission) != 1 {
 		if grant == nil {
@@ -512,7 +512,7 @@ func (manager *MCPClientManager) attemptRemoteCall(ctx context.Context, operatio
 				broker := manager.approvals
 				if !broker.HostAttached() {
 					auditRemoteAuthorization(envelope, false, "kernel derived no unique mcp_remote_permitted/7 fact; human-approvable but no approval host is attached; remote action denied")
-					return nil, nil, fmt.Errorf("MCP remote effect %s refused: a person may approve this exact request, but no approval host is attached — do not retry the same call; ask the user to perform it or to run interactively", toolID)
+					return nil, nil, refused(RefusedPolicyDenied, fmt.Errorf("MCP remote effect %s refused: a person may approve this exact request, but no approval host is attached — do not retry the same call; ask the user to perform it or to run interactively", toolID))
 				}
 				preview, previewErr := approval.BuildPreview(approval.PreviewInput{
 					Summary:   fmt.Sprintf("Run remote MCP tool %s (%s)", toolID, review.Effect),
@@ -523,14 +523,14 @@ func (manager *MCPClientManager) attemptRemoteCall(ctx context.Context, operatio
 				})
 				if previewErr != nil {
 					auditRemoteAuthorization(envelope, false, "approval preview could not be built; remote action denied")
-					return nil, nil, fmt.Errorf("MCP remote effect %s refused: approval preview: %w", toolID, previewErr)
+					return nil, nil, refused(RefusedPolicyDenied, fmt.Errorf("MCP remote effect %s refused: approval preview: %w", toolID, previewErr))
 				}
 				auditRemoteAuthorization(envelope, false, "kernel derived no unique mcp_remote_permitted/7 fact; human approval of the exact request requested")
 				return nil, &remoteApprovalNeed{broker: broker, identity: identity, intent: intent, subject: subject, preview: preview}, nil
 			}
 		}
 		auditRemoteAuthorization(envelope, false, "kernel derived no unique mcp_remote_permitted/7 fact; remote action denied")
-		return nil, nil, fmt.Errorf("MCP remote effect %s refused: no unique positive per-call permission", toolID)
+		return nil, nil, refused(RefusedPolicyDenied, fmt.Errorf("MCP remote effect %s refused: no unique positive per-call permission", toolID))
 	}
 	// The authorized canonical tree is never rebuilt from caller-owned data.
 	// Serialize only for a mutation check, then dispatch the original frozen tree.
@@ -541,7 +541,7 @@ func (manager *MCPClientManager) attemptRemoteCall(ctx context.Context, operatio
 	current, snapshotErr := json.Marshal(currentArgs)
 	if snapshotErr != nil || !bytes.Equal(current, canonical) {
 		auditRemoteAuthorization(envelope, false, "arguments changed after Mangle authorization; remote action denied")
-		return nil, nil, fmt.Errorf("MCP arguments changed after authorization")
+		return nil, nil, refused(RefusedStaleAuthority, fmt.Errorf("MCP arguments changed after authorization"))
 	}
 	if err := ctx.Err(); err != nil {
 		auditRemoteAuthorization(envelope, false, "call context canceled after Mangle authorization; remote action denied")
@@ -551,12 +551,12 @@ func (manager *MCPClientManager) attemptRemoteCall(ctx context.Context, operatio
 	defer manager.mu.RUnlock()
 	if manager.servers[serverID] != connection || connection.Transport != transport || connection.Server == nil || connection.Server.ID != serverID || connection.Server.Endpoint != server.Endpoint || connection.Server.Protocol != server.Protocol || connection.Server.Status != ServerStatusConnected || !transport.IsConnected() || remoteSchemaHash(tool) != review.SchemaHash {
 		auditRemoteAuthorization(envelope, false, "MCP connection changed after Mangle authorization; remote action denied")
-		return nil, nil, fmt.Errorf("MCP registration changed after authorization")
+		return nil, nil, refused(RefusedStaleAuthority, fmt.Errorf("MCP registration changed after authorization"))
 	}
 	currentTool, currentMatches := manager.remoteSubjectLocked(operation, serverID, toolID)
 	if currentMatches != 1 || currentTool == nil || currentTool.ServerID != serverID || currentTool.Name != toolName || currentTool.Risk != tool.Risk || currentTool.RiskSource != tool.RiskSource || currentTool.SchemaHash != review.SchemaHash || remoteSchemaHash(currentTool) != review.SchemaHash {
 		auditRemoteAuthorization(envelope, false, "MCP catalog changed after Mangle authorization; remote action denied")
-		return nil, nil, fmt.Errorf("MCP tool catalog changed after authorization")
+		return nil, nil, refused(RefusedStaleAuthority, fmt.Errorf("MCP tool catalog changed after authorization"))
 	}
 	if grant == nil {
 		auditRemoteAuthorization(envelope, true, "kernel derived exact mcp_remote_permitted/7 authorization; its rule matched the exact permitted/3 action, target, and payload tuple; final host checks passed")
@@ -567,7 +567,7 @@ func (manager *MCPClientManager) attemptRemoteCall(ctx context.Context, operatio
 	// on restart, never a claim to run again.
 	if startErr := grant.DispatchStarted(); startErr != nil {
 		auditRemoteAuthorization(envelope, false, "approved MCP dispatch could not be recorded durably; remote action denied")
-		return nil, nil, fmt.Errorf("MCP remote effect %s not dispatched: its dispatch record could not be made durable: %w", toolID, startErr)
+		return nil, nil, refused(RefusedAuthorityUnavailable, fmt.Errorf("MCP remote effect %s not dispatched: its dispatch record could not be made durable: %w", toolID, startErr))
 	}
 	dispatched = true
 	auditRemoteAuthorization(envelope, true, "kernel derived exact mcp_remote_permitted/7 authorization through a claimed request-bound human approval; its rule matched the exact permitted/3 action, target, and payload tuple; final host checks passed")

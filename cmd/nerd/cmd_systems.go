@@ -110,26 +110,17 @@ var mcpToolsCmd = &cobra.Command{
 		reviews := configuredMCPReviews()
 		unreviewed := 0
 		for _, tool := range tools {
-			// The schema hash is what a review in .nerd/config.json pins
-			// (integrations.servers.<id>.reviews[].schema_hash); a tool with
-			// no matching review is discovered, not admitted, and every
-			// remote call to it is refused.
-			state := "NOT REVIEWED"
-			if review, ok := reviews[tool.ToolID]; ok {
-				switch {
-				case review.SchemaHash != tool.SchemaHash:
-					state = "REVIEW STALE (schema changed)"
-					unreviewed++
-				default:
-					state = "reviewed: " + string(review.Effect)
-				}
-			} else {
+			state, matched := mcpReviewState(tool, reviews)
+			if !matched {
 				unreviewed++
 			}
 			fmt.Printf("  - %s  [%s]\n    schema_hash: %s\n    %s\n", tool.ToolID, state, tool.SchemaHash, tool.Description)
 		}
 
-		fmt.Printf("\nTotal: %d tools, %d not admitted\n", len(tools), unreviewed)
+		// This is the recorded catalog against the configuration, read
+		// offline: a matching review is installed on connect, but whether a
+		// call is admitted is decided per call against the live connection.
+		fmt.Printf("\nTotal: %d tools, %d without a matching configured review (offline view; each call is admitted against the live connection)\n", len(tools), unreviewed)
 		if unreviewed > 0 {
 			fmt.Println(`Admit a tool under integrations.servers.<id>.reviews in .nerd/config.json:`)
 			fmt.Println(`  {"tool": "<name>", "effect": "read|write|delete|execute", "schema_hash": "<hash above>"}`)
@@ -648,4 +639,21 @@ func init() {
 // session has been removing.
 func parentGroupRunE(cmd *cobra.Command, _ []string) error {
 	return cmd.Help()
+}
+
+// mcpReviewState is a recorded tool's standing against the configured
+// reviews: the schema hash is what a review in .nerd/config.json pins
+// (integrations.servers.<id>.reviews[].schema_hash). A tool with no matching
+// review is discovered but every remote call to it is refused. A match is a
+// configured review, not live admission.
+func mcpReviewState(tool *mcp.MCPTool, reviews map[string]mcp.ReviewedToolEffect) (state string, matched bool) {
+	review, ok := reviews[tool.ToolID]
+	switch {
+	case !ok:
+		return "NOT REVIEWED", false
+	case review.SchemaHash != tool.SchemaHash:
+		return "REVIEW STALE (schema changed)", false
+	default:
+		return "configured review: " + string(review.Effect), true
+	}
 }

@@ -118,6 +118,8 @@ type authorityFixture struct {
 	args      map[string]any
 	ctx       context.Context
 	confirmed bool
+	// tool overrides the called tool ID where a test needs another.
+	tool string
 }
 
 func newAuthorityFixture(test *testing.T) *authorityFixture {
