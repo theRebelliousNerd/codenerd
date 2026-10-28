@@ -59,6 +59,13 @@ type TypeSafeConfig struct {
 	ToolChecks          *bool `json:"tool_checks,omitempty"`
 	AutopoiesisChecks   *bool `json:"autopoiesis_checks,omitempty"`
 	AtomChecks          *bool `json:"atom_checks,omitempty"`
+	// AtomRelevance: Jev judges, per turn, whether each pooled flesh prompt
+	// atom applies to the request (internal/atomjudge, jit_compiler.mg).
+	AtomRelevance *bool `json:"atom_relevance,omitempty"`
+	// AtomRelevanceTimeout bounds one prompt compile's judgment, retries
+	// included. Default "4s"; past it the compile uses the vector channel
+	// alone.
+	AtomRelevanceTimeout string `json:"atom_relevance_timeout,omitempty"`
 
 	// Tuning; zero means the default (TypeSafeUses).
 	RecentTurns         int `json:"recent_turns,omitempty"`
@@ -66,6 +73,7 @@ type TypeSafeConfig struct {
 	RelevancePoolFactor int `json:"relevance_pool_factor,omitempty"`
 	RelevanceHeadBytes  int `json:"relevance_head_bytes,omitempty"`
 	FindingContextLines int `json:"finding_context_lines,omitempty"`
+	AtomRelevancePool   int `json:"atom_relevance_pool,omitempty"`
 }
 
 // TypeSafeUses is the typesafe section resolved: which uses are on, and the
@@ -75,6 +83,8 @@ type TypeSafeUses struct {
 	TurnJudgments, RetrievalRelevance, ReviewChecks, DiagnosisTriage bool
 	// The learning and autopoiesis uses (TypeSafeConfig).
 	CorrectionJudgments, TaskVerdicts, ProblemTypes, ToolChecks, AutopoiesisChecks, AtomChecks bool
+	// AtomRelevance is the per-turn flesh-atom judgment (atom_relevance).
+	AtomRelevance bool
 	// TurnJudgmentTimeout bounds one turn's judgments (turn_judgment_timeout).
 	TurnJudgmentTimeout time.Duration
 	// RecentTurns bounds the prior turns a turn judgment sees.
@@ -89,6 +99,11 @@ type TypeSafeUses struct {
 	// FindingContextLines is how many lines either side of a review
 	// finding's citation Jev sees.
 	FindingContextLines int
+	// AtomRelevancePool bounds the flesh atoms judged per compile: the
+	// vector channel's slots plus the next most similar eligible atoms.
+	AtomRelevancePool int
+	// AtomRelevanceTimeout bounds one compile's judgment.
+	AtomRelevanceTimeout time.Duration
 }
 
 // DefaultTypeSafeUses is every use on with the default tuning.
@@ -96,8 +111,10 @@ func DefaultTypeSafeUses() TypeSafeUses {
 	return TypeSafeUses{
 		TurnJudgments: true, RetrievalRelevance: true, ReviewChecks: true, DiagnosisTriage: true,
 		CorrectionJudgments: true, TaskVerdicts: true, ProblemTypes: true, ToolChecks: true, AutopoiesisChecks: true, AtomChecks: true,
+		AtomRelevance:       true,
 		TurnJudgmentTimeout: defaultTurnJudgmentTimeout,
 		RecentTurns:         12, BatchSize: 20, RelevancePoolFactor: 6, RelevanceHeadBytes: 3000, FindingContextLines: 12,
+		AtomRelevancePool: 40, AtomRelevanceTimeout: defaultAtomRelevanceTimeout,
 	}
 }
 
@@ -124,6 +141,7 @@ func (c *TypeSafeConfig) Uses() TypeSafeUses {
 	u.ToolChecks = on(c.ToolChecks, u.ToolChecks)
 	u.AutopoiesisChecks = on(c.AutopoiesisChecks, u.AutopoiesisChecks)
 	u.AtomChecks = on(c.AtomChecks, u.AtomChecks)
+	u.AtomRelevance = on(c.AtomRelevance, u.AtomRelevance)
 	set := func(v int, dst *int) {
 		if v > 0 {
 			*dst = v
@@ -134,10 +152,14 @@ func (c *TypeSafeConfig) Uses() TypeSafeUses {
 	set(c.RelevancePoolFactor, &u.RelevancePoolFactor)
 	set(c.RelevanceHeadBytes, &u.RelevanceHeadBytes)
 	set(c.FindingContextLines, &u.FindingContextLines)
+	set(c.AtomRelevancePool, &u.AtomRelevancePool)
 	// Check refuses a timeout that does not parse, and Resolve with it, so a
 	// running client never reaches here with one.
 	if d, err := parseTypeSafeDuration(c.TurnJudgmentTimeout, defaultTurnJudgmentTimeout); err == nil {
 		u.TurnJudgmentTimeout = d
+	}
+	if d, err := parseTypeSafeDuration(c.AtomRelevanceTimeout, defaultAtomRelevanceTimeout); err == nil {
+		u.AtomRelevanceTimeout = d
 	}
 	return u
 }
@@ -158,6 +180,13 @@ func (c *TypeSafeConfig) thresholds() (yes, no int) {
 		no = c.JudgmentNoPercent
 	}
 	return yes, no
+}
+
+// Thresholds are the yes and no percents with defaults applied, for a Jev
+// consumer that asserts its own band rows beside its judgments (atom
+// relevance: atom_relevance_threshold). Nil-safe.
+func (c *TypeSafeConfig) Thresholds() (yes, no int) {
+	return c.thresholds()
 }
 
 // NoProbability is judgment_no_percent as a probability, for the one Jev
@@ -187,6 +216,9 @@ func (TypeSafeConfig) OffWhenAbsent() {}
 const (
 	defaultTypeSafeTimeout     = "30s"
 	defaultTurnJudgmentTimeout = 5 * time.Second
+	// defaultAtomRelevanceTimeout bounds one compile's atom judgment. A
+	// 40-atom pool is about 30k input tokens in two parallel requests.
+	defaultAtomRelevanceTimeout = 4 * time.Second
 )
 
 // ResolvedTypeSafe is runtime-only; never marshal it into diagnostics, it
@@ -241,6 +273,7 @@ func (c TypeSafeConfig) Check(prefix string) []Problem {
 	for field, v := range map[string]int{
 		"recent_turns": c.RecentTurns, "batch_size": c.BatchSize, "relevance_pool_factor": c.RelevancePoolFactor,
 		"relevance_head_bytes": c.RelevanceHeadBytes, "finding_context_lines": c.FindingContextLines,
+		"atom_relevance_pool": c.AtomRelevancePool,
 	} {
 		if v < 0 {
 			add(field, fmt.Sprintf("%d is negative", v), "a positive number, or remove the key for the default")
@@ -251,6 +284,9 @@ func (c TypeSafeConfig) Check(prefix string) []Problem {
 	}
 	if _, err := parseTypeSafeDuration(c.TurnJudgmentTimeout, defaultTurnJudgmentTimeout); err != nil {
 		add("turn_judgment_timeout", err.Error(), `a positive Go duration such as "5s", or remove the key for the default`)
+	}
+	if _, err := parseTypeSafeDuration(c.AtomRelevanceTimeout, defaultAtomRelevanceTimeout); err != nil {
+		add("atom_relevance_timeout", err.Error(), `a positive Go duration such as "4s", or remove the key for the default`)
 	}
 	return out
 }

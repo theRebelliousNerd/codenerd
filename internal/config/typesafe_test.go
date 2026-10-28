@@ -1,6 +1,7 @@
 package config
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -206,5 +207,37 @@ func TestTypeSafe_NoProbabilityFollowsTheThreshold(t *testing.T) {
 	}
 	if got := (&TypeSafeConfig{JudgmentNoPercent: 20}).NoProbability(); got != 0.2 {
 		t.Fatalf("configured = %v, want 0.2", got)
+	}
+}
+
+// TestTypeSafeUses_AtomRelevance: the per-turn prompt-atom judgment is on with
+// its pool and timeout defaults when the section exists, off by its switch,
+// tunable, and a bad timeout is refused.
+func TestTypeSafeUses_AtomRelevance(t *testing.T) {
+	u := (&TypeSafeConfig{}).Uses()
+	if !u.AtomRelevance || u.AtomRelevancePool != 40 || u.AtomRelevanceTimeout != 4*time.Second {
+		t.Fatalf("defaults = on %v pool %d timeout %s", u.AtomRelevance, u.AtomRelevancePool, u.AtomRelevanceTimeout)
+	}
+	off := false
+	if (&TypeSafeConfig{AtomRelevance: &off}).Uses().AtomRelevance {
+		t.Fatal("atom_relevance: false left the use on")
+	}
+	tuned := (&TypeSafeConfig{AtomRelevancePool: 12, AtomRelevanceTimeout: "1500ms"}).Uses()
+	if tuned.AtomRelevancePool != 12 || tuned.AtomRelevanceTimeout != 1500*time.Millisecond {
+		t.Fatalf("tuning ignored: %+v", tuned)
+	}
+	if (*TypeSafeConfig)(nil).Uses().AtomRelevance {
+		t.Fatal("an absent section turned atom relevance on")
+	}
+	bad := TypeSafeConfig{Model: "m", BaseURL: "https://x", APIKey: "k", AtomRelevanceTimeout: "soon", AtomRelevancePool: -1}
+	var fields []string
+	for _, p := range bad.Check("typesafe") {
+		fields = append(fields, p.Path)
+	}
+	if !slices.Contains(fields, "typesafe.atom_relevance_timeout") || !slices.Contains(fields, "typesafe.atom_relevance_pool") {
+		t.Fatalf("bad atom relevance tuning not refused: %v", fields)
+	}
+	if yes, no := (&TypeSafeConfig{JudgmentYesPercent: 80, JudgmentNoPercent: 20}).Thresholds(); yes != 80 || no != 20 {
+		t.Fatalf("Thresholds = %d/%d", yes, no)
 	}
 }
