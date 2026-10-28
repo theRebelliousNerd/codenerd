@@ -110,6 +110,8 @@ func defaultCategoryOrder() []AtomCategory {
 //     operational mode, the serving provider and model.
 //   - tierTurn: mandatory, gated on what the turn is -- verb, language,
 //     frameworks, world states and derived needs, tool catalog, a phase.
+//   - tierCarried: flesh this task's previous compile also admitted, in that
+//     compile's order (relevance.go carryMemory): stable across the task.
 //   - tierRelevance: admitted by a vector hit on this turn's query (flesh).
 //   - tierInjected: rendered from the kernel's facts for this compile
 //     (injectable_context, specialist_knowledge).
@@ -119,6 +121,7 @@ type assemblyTier int
 const (
 	tierPersona assemblyTier = iota
 	tierTurn
+	tierCarried
 	tierRelevance
 	tierInjected
 	tierRetrieved
@@ -288,6 +291,9 @@ func (s *RenderSession) Assemble(atoms []*OrderedAtom) (string, error) {
 			continue
 		}
 		tier := atomAssemblyTier(oa.Atom)
+		if oa.Carried && tier == tierRelevance {
+			tier = tierCarried
+		}
 		cat := oa.Atom.Category
 		byTier[tier][cat] = append(byTier[tier][cat], oa)
 	}

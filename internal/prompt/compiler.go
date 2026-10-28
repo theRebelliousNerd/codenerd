@@ -124,6 +124,7 @@ var promptEphemeralPredicates = []string{
 	"vector_slot",
 	"atom_relevance",
 	"atom_relevance_threshold",
+	"flesh_carried",
 	"atom_requires",
 	"atom_conflicts",
 	"atom_requires_tool",

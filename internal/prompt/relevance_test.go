@@ -273,3 +273,44 @@ func TestRelevanceAdmission_ReportsTheKernelsRows(t *testing.T) {
 		t.Fatalf("queried %v", q.queries)
 	}
 }
+
+func TestCarry_RememberedInPromptOrderAndRejoinsThePool(t *testing.T) {
+	s := NewAtomSelector()
+	cc := relevanceContext()
+	mk := func(id string) *ScoredAtom { return &ScoredAtom{Atom: &PromptAtom{ID: id}} }
+	s.rememberCarry(cc, []*ScoredAtom{mk("z/new"), mk("b/kept"), mk("a/new"), mk("c/kept")}, map[string]int{"c/kept": 0, "b/kept": 1})
+	if got := strings.Join(s.carry.get(carryKey(cc)), ","); got != "c/kept,b/kept,a/new,z/new" {
+		t.Fatalf("carried order = %s", got)
+	}
+	other := relevanceContext()
+	other.IntentTarget = "another/file.go"
+	if len(s.carry.get(carryKey(other))) != 0 {
+		t.Fatal("a different task inherited the carry")
+	}
+
+	atoms, scores := relevanceCorpus()
+	flesh := filterFleshAtoms(atoms, cc)
+	pool := map[string]float64{"flesh/00": 0.9}
+	got := carriedInto(pool, scores, []string{"flesh/11", "gone/atom", "identity/core"}, flesh, cc)
+	if strings.Join(got, ",") != "flesh/11" {
+		t.Fatalf("carried = %v; an atom no longer eligible, or mandatory, is not carried", got)
+	}
+	if _, ok := pool["flesh/11"]; !ok {
+		t.Fatal("a carried atom did not rejoin the recall pool")
+	}
+}
+
+func TestAssembler_CarriedFleshPrecedesNewFlesh(t *testing.T) {
+	a := NewFinalAssembler()
+	atoms := []*OrderedAtom{
+		{Atom: &PromptAtom{ID: "new", Category: CategoryLanguage, Content: "NEW"}, Order: 0},
+		{Atom: &PromptAtom{ID: "kept", Category: CategoryExemplar, Content: "KEPT"}, Order: 1, Carried: true},
+	}
+	out, err := a.Assemble(atoms, NewCompilationContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Index(out, "KEPT") > strings.Index(out, "NEW") {
+		t.Fatalf("carried flesh must precede new flesh whatever its category:\n%s", out)
+	}
+}

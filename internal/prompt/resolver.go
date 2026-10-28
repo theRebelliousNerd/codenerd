@@ -15,6 +15,9 @@ type OrderedAtom struct {
 	Order      int
 	Score      float64 // Preserved from ScoredAtom
 	RenderMode string  // "standard", "concise", "min"
+	// Carried is judged flesh the task's previous compile also admitted
+	// (ScoredAtom.Carried); it assembles ahead of new flesh.
+	Carried bool
 }
 
 // DependencyResolver resolves atom dependencies and detects conflicts.
@@ -123,6 +126,7 @@ func (r *DependencyResolver) Resolve(atoms []*ScoredAtom) ([]*OrderedAtom, error
 			Atom:       sa.Atom,
 			Order:      i,
 			Score:      sa.Combined,
+			Carried:    sa.Carried,
 			RenderMode: "standard", // Default mode, can be adjusted by BudgetManager
 		}
 	}

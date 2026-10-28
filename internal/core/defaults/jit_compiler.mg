@@ -21,6 +21,7 @@ Decl atom_relevance_band(Atom, Band) bound [/string, /name].
 Decl relevance_judged(Atom) bound [/string].
 Decl flesh_admitted(Atom, Row) bound [/string, /name].
 Decl flesh_refused(Atom, Row) bound [/string, /name].
+Decl refused_by_relevance(Atom) bound [/string].
 
 # Conflict resolution
 Decl beats(A, B).
@@ -281,6 +282,17 @@ flesh_admitted(Atom, /unjudged_vector_slot) :-
     flesh_recall(Atom, _),
     vector_slot(Atom),
     !relevance_judged(Atom).
+# Carried: an atom this task's previous judged compile admitted
+# (flesh_carried, internal/prompt/relevance.go) stays unless Jev now reads it
+# as not applying. Unsettled is not enough to drop it: the selection holds
+# until the task changes or the relevance falls past the no threshold, so the
+# prompt's bytes, and the provider's cached prefix, hold with it.
+flesh_admitted(Atom, /carried) :-
+    flesh_recall(Atom, _),
+    flesh_carried(Atom),
+    !refused_by_relevance(Atom).
+refused_by_relevance(Atom) :-
+    atom_relevance_band(Atom, /does_not_apply).
 flesh_refused(Atom, /judged_does_not_apply) :-
     flesh_recall(Atom, _),
     atom_relevance_band(Atom, /does_not_apply).

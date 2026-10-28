@@ -545,6 +545,10 @@ type ScoredAtom struct {
 
 	// Source of selection ("skeleton" or "flesh")
 	Source string
+
+	// Carried marks judged flesh this task's previous compile also admitted;
+	// the assembler places it ahead of newly admitted flesh (tierCarried).
+	Carried bool
 }
 
 // selectorVectorConfig is one consistent view of the mutable vector-search
@@ -581,6 +585,7 @@ type AtomSelector struct {
 	// guarded by vectorConfigMu; relevanceCache keeps one turn's answers.
 	relevance      AtomRelevance
 	relevanceCache relevanceCache
+	carry          carryMemory
 }
 
 // NewAtomSelector creates a new atom selector with default settings.
@@ -759,6 +764,7 @@ func (s *AtomSelector) runSelection(
 	var skeletonFacts, fleshFacts []any
 	var vectorScores map[string]float64
 	var relevancePercent map[string]int64
+	var carried []string
 	var skeletonBuildErr, fleshBuildErr error
 	var vectorMs int64
 	var wg sync.WaitGroup
@@ -815,13 +821,16 @@ func (s *AtomSelector) runSelection(
 		// compile exactly the vector channel's.
 		var relFacts []any
 		if rel := s.relevanceSnapshot(); rel.Judge != nil && rel.Pool > 0 && cc.SemanticQuery != "" {
-			if pool := s.recallPool(rawScores, slots, fleshAtoms, cc, rel.Pool); len(pool) > 0 {
+			pool := s.recallPool(rawScores, slots, fleshAtoms, cc, rel.Pool)
+			carry := carriedInto(pool, rawScores, s.carry.get(carryKey(cc)), fleshAtoms, cc)
+			if len(pool) > 0 {
 				out := s.judgeRelevance(ctx, rel, cc, pool, fleshAtoms)
 				logRelevance(cc, out, pool, slots)
 				if out.Err == nil {
 					vectorScores = pool
 					relevancePercent = out.Percent
-					relFacts = relevanceFacts(out, rel)
+					carried = carry
+					relFacts = append(relevanceFacts(out, rel), carriedFacts(carry)...)
 				}
 			}
 		}
@@ -903,7 +912,7 @@ func (s *AtomSelector) runSelection(
 	go func() {
 		defer wg.Done()
 		defer recoverSelectionPanic("flesh query", &fleshErr)
-		flesh = s.queryFleshAtoms(kernel, fleshAtoms, fleshReady, forcedMandatory, vectorScores, relevancePercent, cc)
+		flesh = s.queryFleshAtoms(kernel, fleshAtoms, fleshReady, forcedMandatory, vectorScores, relevancePercent, carried, cc)
 	}()
 
 	wg.Wait()
@@ -1214,6 +1223,7 @@ func (s *AtomSelector) queryFleshAtoms(
 	forcedMandatory map[string]struct{},
 	vectorScores map[string]float64,
 	relevancePercent map[string]int64,
+	carried []string,
 	cc *CompilationContext,
 ) []*ScoredAtom {
 	if !ready {
@@ -1231,6 +1241,11 @@ func (s *AtomSelector) queryFleshAtoms(
 	if err != nil {
 		logging.Get(logging.CategoryContext).Warn("Flesh query failed: %v", err)
 		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc, forcedMandatory)
+	}
+
+	carriedRank := make(map[string]int, len(carried))
+	for i, id := range carried {
+		carriedRank[id] = i
 	}
 
 	// Step 4: Map results to ScoredAtoms
@@ -1259,17 +1274,26 @@ func (s *AtomSelector) queryFleshAtoms(
 		}
 		atom = applyMandatoryOverride(atom, forcedMandatory)
 
-		// Calculate combined score. A Jev-judged atom's logic score is its
-		// relevance, so the budget sheds the least relevant flesh first; an
-		// unjudged atom keeps the full logic score the kernel's admission
-		// gives it.
+		// Calculate combined score. Unjudged flesh (Jev off, failed or late)
+		// keeps the vector-weighted score. Judged flesh is ordered for the
+		// prompt cache, not by this turn's probabilities: the kernel's
+		// admission already read them, and ordering by a number that moves
+		// every turn would move bytes every turn. Carried atoms come first in
+		// their carried order; new ones follow at one score, so the resolver
+		// orders them by importance, then ID, and the budget sheds them first.
 		vScore := vectorScores[atomID]
 		logicScore := 1.0
-		if pct, judged := relevancePercent[atomID]; judged {
-			logicScore = float64(pct) / 100
-		}
 		weight := s.vectorWeightFor(cc)
 		combined := (1.0-weight)*logicScore + weight*vScore
+		isCarried := false
+		if _, judged := relevancePercent[atomID]; judged {
+			logicScore = float64(relevancePercent[atomID]) / 100
+			combined = judgedNewScore
+			if rank, ok := carriedRank[atomID]; ok {
+				combined = judgedCarriedScore - float64(rank)*carriedRankStep
+				isCarried = true
+			}
+		}
 
 		selected = append(selected, &ScoredAtom{
 			Atom:            atom,
@@ -1278,7 +1302,11 @@ func (s *AtomSelector) queryFleshAtoms(
 			Combined:        combined,
 			SelectionReason: fmt.Sprintf("flesh:%s", source),
 			Source:          "flesh",
+			Carried:         isCarried,
 		})
+	}
+	if relevancePercent != nil {
+		s.rememberCarry(cc, selected, carriedRank)
 	}
 
 	logging.Get(logging.CategoryContext).Debug(

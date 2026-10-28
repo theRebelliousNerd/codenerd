@@ -437,7 +437,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"atom_dependency", "atom_context_boost", "atom_final_order",
 				"prompt_exemplar", "atom_requires", "is_mandatory", "vector_hit",
 				"current_context", "atom_importance", "vector_slot", "atom_relevance",
-				"atom_relevance_threshold",
+				"atom_relevance_threshold", "flesh_carried",
 			},
 		},
 		{

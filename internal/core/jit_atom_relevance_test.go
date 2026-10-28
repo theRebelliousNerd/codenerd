@@ -119,3 +119,23 @@ func TestAtomImportance_ConflictLoserNeedsBothScores(t *testing.T) {
 		t.Fatalf("conflict_loser = %v, want only lo", relevanceIDs(losers))
 	}
 }
+
+// A carried atom (the task's previous judged compile admitted it) stays
+// through an unsettled reading and even from outside the vector slots; only a
+// does-not-apply reading drops it.
+func TestAtomRelevance_CarriedHoldsUntilJudgedNotToApply(t *testing.T) {
+	k, err := NewRealKernel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := []string{`atom_relevance_threshold(/yes, 70)`, `atom_relevance_threshold(/no, 30)`}
+	for id, pct := range map[string]string{"kept/unsettled": "45", "kept/dropped": "20", "new/unsettled": "45"} {
+		facts = append(facts, `atom("`+id+`")`, `prompt_atom("`+id+`", /exemplar, 10, /false)`, `vector_hit("`+id+`", 40)`, `atom_relevance("`+id+`", `+pct+`)`)
+	}
+	facts = append(facts, `flesh_carried("kept/unsettled")`, `flesh_carried("kept/dropped")`)
+	supersessionFixture(t, k, facts...)
+	got := selectedAtoms(t, k)
+	if !got["kept/unsettled"] || got["kept/dropped"] || got["new/unsettled"] {
+		t.Fatalf("selected %v, want only kept/unsettled", relevanceIDs(got))
+	}
+}

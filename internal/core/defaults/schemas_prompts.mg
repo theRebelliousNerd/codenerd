@@ -436,6 +436,12 @@ Decl atom_relevance_threshold(Band, Percent) bound [/name, /number].
 # the same set.
 Decl vector_slot(AtomID) bound [/string].
 
+# flesh_carried(AtomID)
+# The task's previous judged compile admitted this flesh atom
+# (internal/prompt/relevance.go carryMemory). jit_compiler.mg keeps it unless
+# Jev reads it as not applying. Ephemeral per compile.
+Decl flesh_carried(AtomID) bound [/string].
+
 # -----------------------------------------------------------------------------
 # 45.8 Section 46 Selection Rule Schemas (IDB - computed by policy.mg Section 46)
 # -----------------------------------------------------------------------------

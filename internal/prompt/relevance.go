@@ -108,6 +108,75 @@ func (c *relevanceCache) putAll(values map[string]float64) {
 	}
 }
 
+// carryLimit bounds the remembered tasks; crossing it starts over, which
+// costs each task one compile without carried atoms.
+const carryLimit = 512
+
+// carryMemory remembers, per task, the flesh atoms the last judged compile
+// admitted, in their prompt order. The next compile of the same task carries
+// them: they rejoin the recall pool and stay admitted unless Jev now reads
+// them as not applying (jit_compiler.mg flesh_admitted(_, /carried)), and they
+// keep their places ahead of newly admitted flesh (assembler tierCarried), so
+// consecutive turns of one task share the longest cacheable prefix. A new
+// task starts with nothing carried.
+type carryMemory struct {
+	mu    sync.Mutex
+	tasks map[string][]string
+}
+
+func (m *carryMemory) get(key string) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.tasks[key]...)
+}
+
+func (m *carryMemory) put(key string, ids []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.tasks == nil || len(m.tasks) >= carryLimit {
+		m.tasks = make(map[string][]string)
+	}
+	m.tasks[key] = append([]string(nil), ids...)
+}
+
+// carryKey names the task a compile serves: the agent and what the intent is
+// aimed at. A different target or agent is a different task.
+func carryKey(cc *CompilationContext) string {
+	return strings.TrimPrefix(cc.ShardType, "/") + "\x00" + strings.TrimPrefix(cc.IntentVerb, "/") + "\x00" + strings.TrimSpace(cc.IntentTarget)
+}
+
+// carriedInto adds the task's carried atoms that are still eligible flesh to
+// the pool (at their raw vector score, 0 when unscored this turn) and returns
+// them in carried order.
+func carriedInto(pool, raw map[string]float64, carried []string, fleshAtoms []*PromptAtom, cc *CompilationContext) []string {
+	eligible := make(map[string]*PromptAtom, len(fleshAtoms))
+	for _, a := range fleshAtoms {
+		if a != nil && !a.IsMandatory && !a.RetrievedContext && a.MatchesContext(cc) {
+			eligible[a.ID] = a
+		}
+	}
+	var out []string
+	for _, id := range carried {
+		if _, ok := eligible[id]; !ok {
+			continue
+		}
+		if _, in := pool[id]; !in {
+			pool[id] = raw[id]
+		}
+		out = append(out, id)
+	}
+	return out
+}
+
+// carriedFacts mark the carried atoms for the kernel's /carried row.
+func carriedFacts(carried []string) []any {
+	facts := make([]any, 0, len(carried))
+	for _, id := range carried {
+		facts = append(facts, "flesh_carried("+mangleQuoteString(id)+")")
+	}
+	return facts
+}
+
 // relevanceOutcome is one compile's judgment, for facts and the log line.
 type relevanceOutcome struct {
 	// Percent is each judged atom's answer as a percent; nil when nothing was
@@ -370,4 +439,32 @@ func logRelevanceAdmission(kernel KernelQuerier, cc *CompilationContext) {
 func (c *JITPromptCompiler) SetAtomRelevance(r AtomRelevance) {
 	c.selector.SetAtomRelevance(r)
 	c.bumpSourceEpoch()
+}
+
+// Combined scores for judged flesh (selector.go queryFleshAtoms): carried
+// atoms above new ones, carried order kept by a step far below any gap.
+const (
+	judgedCarriedScore = 0.9
+	judgedNewScore     = 0.5
+	carriedRankStep    = 1e-4
+)
+
+// rememberCarry records this compile's judged flesh for the task's next
+// compile: the carried atoms still admitted, in their order, then the newly
+// admitted ones by ID, which is the order the prompt shows them in.
+func (s *AtomSelector) rememberCarry(cc *CompilationContext, selected []*ScoredAtom, carriedRank map[string]int) {
+	var kept, fresh []string
+	for _, sa := range selected {
+		if sa == nil || sa.Atom == nil {
+			continue
+		}
+		if _, ok := carriedRank[sa.Atom.ID]; ok {
+			kept = append(kept, sa.Atom.ID)
+		} else {
+			fresh = append(fresh, sa.Atom.ID)
+		}
+	}
+	sort.Slice(kept, func(i, j int) bool { return carriedRank[kept[i]] < carriedRank[kept[j]] })
+	sort.Strings(fresh)
+	s.carry.put(carryKey(cc), append(kept, fresh...))
 }
