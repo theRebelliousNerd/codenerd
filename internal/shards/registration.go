@@ -324,6 +324,10 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"campaign_phase",
 				"campaign_progress",
 				"campaign_task",
+				// The failed-snapshot observation eligible_task and
+				// has_next_campaign_task (policy/campaign_tasks.mg) negate and
+				// join beside campaign_task; homed elsewhere the hold is blind.
+				"campaign_storage_uncertain",
 				"checkpoint_verdict",
 				"context_compression",
 				"context_profile",
