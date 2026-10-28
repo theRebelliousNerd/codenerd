@@ -128,6 +128,10 @@ type CampaignConfig struct {
 	ReplanContextTextBytes int `json:"replan_context_text_bytes,omitempty"`
 	// ReplanContextBytes bounds the replanner's whole context section.
 	ReplanContextBytes int `json:"replan_context_bytes,omitempty"`
+	// AdvisoryManifestMaxTasks is how many tasks the advisory board's plan
+	// manifest lists; the rest are reported as unavailable review coverage,
+	// never silently dropped.
+	AdvisoryManifestMaxTasks int `json:"advisory_manifest_max_tasks,omitempty"`
 
 	// --- a generated document that is a repetition loop ---
 	//
@@ -189,6 +193,7 @@ func DefaultCampaignConfig() CampaignConfig {
 		ReplanContextAttempts:      3,
 		ReplanContextTextBytes:     400,
 		ReplanContextBytes:         16000,
+		AdvisoryManifestMaxTasks:   200,
 		DegenerateMinTokens:        200,
 		DegenerateDistinctPermille: 30,
 		DegenerateLongWords:        400,
@@ -256,6 +261,7 @@ func (c CampaignConfig) WithDefaults() CampaignConfig {
 	intOr(&c.ReplanContextAttempts, d.ReplanContextAttempts)
 	intOr(&c.ReplanContextTextBytes, d.ReplanContextTextBytes)
 	intOr(&c.ReplanContextBytes, d.ReplanContextBytes)
+	intOr(&c.AdvisoryManifestMaxTasks, d.AdvisoryManifestMaxTasks)
 	intOr(&c.DegenerateMinTokens, d.DegenerateMinTokens)
 	intOr(&c.DegenerateDistinctPermille, d.DegenerateDistinctPermille)
 	intOr(&c.DegenerateLongWords, d.DegenerateLongWords)
@@ -303,6 +309,7 @@ type CampaignPolicy struct {
 	ReplanContextAttempts      int
 	ReplanContextTextBytes     int
 	ReplanContextBytes         int
+	AdvisoryManifestMaxTasks   int
 	DegenerateMinTokens        int
 	DegenerateDistinctPermille int
 	DegenerateLongWords        int
@@ -368,6 +375,7 @@ func (c CampaignConfig) Resolve() (CampaignPolicy, error) {
 		ReplanContextAttempts:      c.ReplanContextAttempts,
 		ReplanContextTextBytes:     c.ReplanContextTextBytes,
 		ReplanContextBytes:         c.ReplanContextBytes,
+		AdvisoryManifestMaxTasks:   c.AdvisoryManifestMaxTasks,
 		DegenerateMinTokens:        c.DegenerateMinTokens,
 		DegenerateDistinctPermille: c.DegenerateDistinctPermille,
 		DegenerateLongWords:        c.DegenerateLongWords,
@@ -405,6 +413,7 @@ func (c CampaignConfig) Check(prefix string) []Problem {
 		{"replan_context_attempts", c.ReplanContextAttempts},
 		{"replan_context_text_bytes", c.ReplanContextTextBytes},
 		{"replan_context_bytes", c.ReplanContextBytes},
+		{"advisory_manifest_max_tasks", c.AdvisoryManifestMaxTasks},
 		{"degenerate_min_tokens", c.DegenerateMinTokens},
 		{"degenerate_distinct_permille", c.DegenerateDistinctPermille},
 		{"degenerate_long_words", c.DegenerateLongWords},

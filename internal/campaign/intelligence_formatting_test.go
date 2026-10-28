@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"codenerd/internal/autopoiesis"
+	"codenerd/internal/consultation"
 )
 
 // planContextFor drives the planning prompt the decomposer actually builds.
@@ -152,8 +153,8 @@ func TestBuildPlanProposalContext_KeepsLiveSections(t *testing.T) {
 		HistoricalPatterns: []LearningPattern{
 			{ShardType: "coder", Description: "PATTERN_MARKER prefer tables", Confidence: 0.9},
 		},
-		ShardAdvice: []ConsultationResponse{
-			{FromSpec: "reviewer", Confidence: 0.8, Advice: "ADVICE_MARKER keep the lock"},
+		ShardAdvice: []consultation.Response{
+			{Specialist: "reviewer", Confidence: 0.8, Advice: "ADVICE_MARKER keep the lock"},
 		},
 		AdvisorySummary: advisory,
 		TestCoverage:    map[string]float64{"low.go": 0.25, "high.go": 0.9},

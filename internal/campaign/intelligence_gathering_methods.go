@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/consultation"
 	"codenerd/internal/logging"
 	"codenerd/internal/world"
 )
@@ -663,17 +664,23 @@ func (g *IntelligenceGatherer) gatherShardAdvice(ctx context.Context, report *In
 	}
 
 	// Consult domain experts
-	request := BatchConsultRequest{
-		Topic:      "Campaign Planning Review",
-		Question:   fmt.Sprintf("Review this campaign plan and provide your expert advice. What should we be careful about? What patterns should we follow? What are the risks?\n\nGoal: %s", goal),
-		Context:    contextBuilder.String(),
-		TargetSpec: []string{"coder", "tester", "reviewer", "researcher"},
+	request := consultation.BatchRequest{
+		Topic:       "Campaign Planning Review",
+		Question:    fmt.Sprintf("Review this campaign plan and provide your expert advice. What should we be careful about? What patterns should we follow? What are the risks?\n\nGoal: %s", goal),
+		Context:     contextBuilder.String(),
+		Specialists: []string{"coder", "tester", "reviewer", "researcher"},
 	}
 
-	responses, err := g.consultation.RequestBatchConsultation(ctx, request)
-	if err != nil {
-		addError(fmt.Sprintf("Shard consultation failed: %v", err))
+	// Each failed specialist is reported by name; every successful answer is
+	// kept whatever the others did.
+	batch := g.consultation.RequestBatchConsultation(ctx, request)
+	if batch.RequestErr != nil {
+		addError(fmt.Sprintf("Shard consultation failed: %v", batch.RequestErr))
 	}
+	for _, e := range batch.Failed() {
+		addError(fmt.Sprintf("Shard consultation with %s %s: %v", e.Specialist, e.Status, e.Err))
+	}
+	responses := batch.Succeeded()
 	if len(responses) == 0 {
 		return
 	}
@@ -686,7 +693,7 @@ func (g *IntelligenceGatherer) gatherShardAdvice(ctx context.Context, report *In
 	for _, resp := range responses {
 		if resp.Confidence > 0.5 {
 			summaryBuilder.WriteString(fmt.Sprintf("**%s** (%.0f%% confidence): %s\n\n",
-				resp.FromSpec, resp.Confidence*100, resp.Advice))
+				resp.Specialist, resp.Confidence*100, resp.Advice))
 		}
 	}
 	report.AdvisorySummary = summaryBuilder.String()

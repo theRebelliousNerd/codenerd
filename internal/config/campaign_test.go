@@ -59,6 +59,31 @@ func TestCampaignConfig_AKeyInTheFileReachesThePolicy(t *testing.T) {
 	}
 }
 
+// The advisory manifest bound is settable, defaults to 200, and refuses a
+// value that would show the panel no task at all.
+func TestCampaignConfig_AdvisoryManifestMaxTasks(t *testing.T) {
+	if got := DefaultCampaignConfig().AdvisoryManifestMaxTasks; got != 200 {
+		t.Fatalf("default advisory_manifest_max_tasks = %d, want 200", got)
+	}
+	path := writeCampaignConfig(t, `{"campaign": {"advisory_manifest_max_tasks": 7}}`)
+	cfg, err := LoadUserConfig(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	policy, err := cfg.GetCampaignConfig().Resolve()
+	if err != nil || policy.AdvisoryManifestMaxTasks != 7 {
+		t.Fatalf("policy bound = %d (err %v), want the file's 7", policy.AdvisoryManifestMaxTasks, err)
+	}
+	bad := CampaignConfig{AdvisoryManifestMaxTasks: -1}
+	found := false
+	for _, p := range bad.Check("campaign") {
+		found = found || p.Path == "campaign.advisory_manifest_max_tasks"
+	}
+	if !found {
+		t.Fatal("a negative advisory_manifest_max_tasks passed Check")
+	}
+}
+
 // Strict decoding reaches into the section: a key that is not a field is a
 // load error, not a silently ignored typo.
 func TestCampaignConfig_AnUnknownKeyIsRefused(t *testing.T) {

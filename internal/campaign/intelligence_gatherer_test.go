@@ -258,44 +258,4 @@ func TestChurnHotspot_ChestertonFence(t *testing.T) {
 	_ = report
 }
 
-func TestBatchConsultRequest(t *testing.T) {
-	req := BatchConsultRequest{
-		Topic:      "Test Topic",
-		Question:   "Test Question?",
-		Context:    "Test Context",
-		TargetSpec: []string{"coder", "tester"},
-	}
-
-	if req.Topic != "Test Topic" {
-		t.Errorf("expected Topic 'Test Topic', got %s", req.Topic)
-	}
-	if len(req.TargetSpec) != 2 {
-		t.Errorf("expected 2 target specs, got %d", len(req.TargetSpec))
-	}
-}
-
-func TestConsultationResponse(t *testing.T) {
-	resp := ConsultationResponse{
-		RequestID:    "req-123",
-		FromSpec:     "coder",
-		ToSpec:       "campaign",
-		Advice:       "Test advice",
-		Confidence:   0.85,
-		References:   []string{"ref1", "ref2"},
-		Caveats:      []string{"caveat1"},
-		ResponseTime: time.Now(),
-		Duration:     2 * time.Second,
-	}
-
-	if resp.FromSpec != "coder" {
-		t.Errorf("expected FromSpec 'coder', got %s", resp.FromSpec)
-	}
-	if resp.Confidence != 0.85 {
-		t.Errorf("expected Confidence 0.85, got %f", resp.Confidence)
-	}
-	if len(resp.References) != 2 {
-		t.Errorf("expected 2 references, got %d", len(resp.References))
-	}
-}
-
 // Note: contains function is defined in context_pager.go and available in this package

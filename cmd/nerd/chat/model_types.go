@@ -12,6 +12,7 @@ import (
 	"codenerd/internal/browser"
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
+	"codenerd/internal/consultation"
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
@@ -409,7 +410,7 @@ type Model struct {
 	observerAssessmentChan chan shards.ObserverAssessment
 
 	// Consultation Manager - cross-specialist consultation protocol
-	consultationMgr *shards.ConsultationManager
+	consultationMgr *consultation.Manager
 
 	// User Preferences Manager: the one in-process writer of the UX
 	// journey metrics (ux_journey.go).
@@ -646,7 +647,7 @@ type SystemComponents struct {
 	// Background Observer Manager (Northstar, etc.)
 	ObserverMgr *shards.BackgroundObserverManager
 	// Consultation Manager for cross-specialist consultations
-	ConsultationMgr *shards.ConsultationManager
+	ConsultationMgr *consultation.Manager
 }
 
 // OnboardingWizardStep represents the current phase of the onboarding wizard.

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"codenerd/internal/consultation"
 )
 
 func TestNewShardAdvisoryBoard(t *testing.T) {
@@ -337,11 +339,11 @@ func TestShardAdvisoryBoard_TypeCoercion(t *testing.T) {
 	board := NewShardAdvisoryBoard(nil)
 
 	// Malformed vote string
-	cr := ConsultationResponse{FromSpec: "coder", Advice: "VOTE: MAYBE\nREASONING: Not sure", Confidence: 0.8}
+	cr := consultation.Response{Specialist: "coder", Raw: "VOTE: MAYBE\nREASONING: Not sure", Confidence: 0.8}
 	resp := board.parseAdvisoryResponse(cr)
-	// >0.7 confidence defaults to Approve
-	if resp.Vote != VoteApprove {
-		t.Errorf("Expected VoteApprove for unparsable vote with high confidence, got %v", resp.Vote)
+	// An invalid vote is unknown, never an approval, whatever the confidence.
+	if resp.Vote != VoteUnknown {
+		t.Errorf("Expected VoteUnknown for unparsable vote, got %v", resp.Vote)
 	}
 
 	// Out-of-bounds confidence (-0.5, 1.5)
@@ -372,8 +374,8 @@ func TestShardAdvisoryBoard_UserExtremes(t *testing.T) {
 		t.Errorf("Expected truncation message for massive phases")
 	}
 
-	// RawPlan truncated exactly in middle of multi-byte UTF-8
-	req2 := AdvisoryRequest{RawPlan: strings.Repeat("a", 2999) + "🚀"}
+	// Manifest text with multi-byte UTF-8 survives rendering intact
+	req2 := AdvisoryRequest{Manifest: PlanManifest{Tasks: []ManifestTask{{ID: "/t1", Description: strings.Repeat("a", 2999) + "🚀"}}}}
 	ctx2 := board.buildConsultationContext(req2)
 	// It should correctly parse runes without breaking UTF8
 	if strings.Contains(ctx2, "\ufffd") {
@@ -525,7 +527,7 @@ func TestConfidenceClamping(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cr := ConsultationResponse{FromSpec: "coder", Advice: "APPROVE", Confidence: tc.raw}
+			cr := consultation.Response{Specialist: "coder", Raw: "VOTE: APPROVE", Confidence: tc.raw}
 			resp := board.parseAdvisoryResponse(cr)
 			if resp.Confidence != tc.expected {
 				t.Errorf("Confidence=%v: expected clamp to %v, got %v",
@@ -536,7 +538,7 @@ func TestConfidenceClamping(t *testing.T) {
 
 	t.Run("NaN is normalized to zero", func(t *testing.T) {
 		nan := math.NaN()
-		cr := ConsultationResponse{FromSpec: "coder", Advice: "APPROVE", Confidence: nan}
+		cr := consultation.Response{Specialist: "coder", Raw: "VOTE: APPROVE", Confidence: nan}
 		resp := board.parseAdvisoryResponse(cr)
 		if resp.Confidence != 0.0 {
 			t.Errorf("NaN: expected normalization to 0.0, got %v", resp.Confidence)
@@ -546,9 +548,9 @@ func TestConfidenceClamping(t *testing.T) {
 	// Verify clamping also keeps the synthesis ratio sane when raw responses
 	// come through parseAdvisoryResponse.
 	t.Run("synthesis with clamped responses", func(t *testing.T) {
-		raw := []ConsultationResponse{
-			{FromSpec: "coder", Advice: "APPROVE", Confidence: -1.0}, // becomes 0.0 (below MinConfidence)
-			{FromSpec: "tester", Advice: "APPROVE", Confidence: 2.0}, // becomes 1.0 (counted)
+		raw := []consultation.Response{
+			{Specialist: "coder", Raw: "VOTE: APPROVE", Confidence: -1.0}, // becomes 0.0 (below MinConfidence)
+			{Specialist: "tester", Raw: "VOTE: APPROVE", Confidence: 2.0}, // becomes 1.0 (counted)
 		}
 		responses := make([]AdvisoryResponse, 0, len(raw))
 		for _, r := range raw {
@@ -610,7 +612,7 @@ type stubConsultationProvider struct {
 	calls int
 }
 
-func (s *stubConsultationProvider) RequestBatchConsultation(ctx context.Context, req BatchConsultRequest) ([]ConsultationResponse, error) {
+func (s *stubConsultationProvider) RequestBatchConsultation(ctx context.Context, req consultation.BatchRequest) consultation.Batch {
 	s.calls++
-	return nil, nil
+	return consultation.Batch{}
 }

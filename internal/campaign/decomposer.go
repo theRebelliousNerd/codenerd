@@ -415,28 +415,24 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 	}
 
 	// Shard advice. Schema is 5-tuple
-	// (CampaignID, ShardName, Vote, Confidence, Advice). Vote is sourced
-	// from the metadata["vote"] hint if present, otherwise the generic
-	// /advisory ballot.
+	// (CampaignID, ShardName, Vote, Confidence, Advice). Pre-planning advice
+	// is not a ballot (the advisory board's explicit VOTE contract is), so
+	// its Vote is the generic /advisory.
 	//
 	// ShardName and Vote are the /name slots of intelligence_shard_advice/5
 	// (schemas_intelligence.mg): the advisory-board rules in
 	// policy/intelligence.mg match them as name constants
-	// (/coder, /tester, /approve, /reject, /conditional). FromSpec arrives as
-	// the bare "coder" and the vote hint as the bare "approve", and a bare
-	// token lands as a string constant that never unifies with /coder, so both
-	// have to be promoted here. Advice stays free prose, so it stays /string.
+	// (/coder, /tester, /approve, /reject, /conditional). Specialist arrives
+	// as the bare "coder", and a bare token lands as a string constant that
+	// never unifies with /coder, so it has to be promoted here. Advice stays
+	// free prose, so it stays /string.
 	for _, sa := range intel.ShardAdvice {
-		vote := "advisory"
-		if v, ok := sa.Metadata["vote"]; ok && v != "" {
-			vote = v
-		}
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_shard_advice",
 			Args: []any{
 				campaignID,
-				types.MangleAtom(mangleNameConst(sa.FromSpec)),
-				types.MangleAtom(mangleNameConst(vote)),
+				types.MangleAtom(mangleNameConst(sa.Specialist)),
+				types.MangleAtom("/advisory"),
 				types.PercentFromRatio(sa.Confidence),
 				sa.Advice,
 			},
@@ -495,7 +491,7 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 //
 // The sanitising is load-bearing, not cosmetic. types.Fact.ToAtom calls
 // ast.Name on any MangleAtom that starts with "/", and these tokens can carry
-// whatever an LLM put in Metadata["vote"] ("Not Sure", "APPROVE — with
+// whatever a caller named a specialist ("Not Sure", "APPROVE — with
 // caveats"). An unparseable name there fails the conversion for that fact at
 // evaluation time, so the token is normalised into a legal name rather than
 // trusted. A token with nothing usable in it becomes /unknown, never the

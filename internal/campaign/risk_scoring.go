@@ -800,13 +800,14 @@ func (o *Orchestrator) runAdvisoryRiskGate(ctx context.Context, targetPaths []st
 		})
 	}
 
+	manifest := buildPlanManifest(o.campaign, o.policy.AdvisoryManifestMaxTasks)
 	req := AdvisoryRequest{
 		CampaignID:   o.campaign.ID,
 		Goal:         o.campaign.Goal,
-		RawPlan:      o.campaign.Title,
 		Phases:       advisoryPhases,
 		TaskCount:    o.campaign.TotalTasks,
 		TargetPaths:  targetPaths,
+		Manifest:     manifest,
 		Intelligence: intel,
 	}
 	responses, err := o.advisoryBoard.ConsultAdvisors(ctx, req)
@@ -822,18 +823,27 @@ func (o *Orchestrator) runAdvisoryRiskGate(ctx context.Context, targetPaths []st
 		}}
 	}
 
+	// A failed advisor no longer erases the others: the synthesis carries
+	// every successful vote plus the missing reviews, so a known rejection is
+	// graded as a rejection even when another advisor timed out.
 	synthesis := o.advisoryBoard.SynthesizeVotes(responses)
+	synthesis.Coverage = manifest.Coverage()
+	data := map[string]any{
+		"approval_ratio":              synthesis.ApprovalRatio,
+		"overall_confidence":          synthesis.OverallConfidence,
+		"missing_reviews":             len(synthesis.Missing),
+		"manifest_tasks_examined":     len(synthesis.Coverage.Examined),
+		"manifest_tasks_unavailable":  len(synthesis.Coverage.Unavailable),
+		"manifest_tasks_not_assigned": len(synthesis.Coverage.NotAssigned),
+	}
 	if !synthesis.Approved || len(synthesis.BlockingConcerns) > 0 {
+		data["blocking_concerns"] = len(synthesis.BlockingConcerns)
 		return RiskGateResult{
 			Name:    RiskGateAdvisory,
 			Enabled: true,
 			Outcome: RiskGateOutcomeBlocked,
 			Reason:  synthesis.Summary,
-			Data: map[string]any{
-				"approval_ratio":     synthesis.ApprovalRatio,
-				"blocking_concerns":  len(synthesis.BlockingConcerns),
-				"overall_confidence": synthesis.OverallConfidence,
-			},
+			Data:    data,
 		}, gradeAdvisoryConcerns(synthesis)
 	}
 	return RiskGateResult{
@@ -841,10 +851,7 @@ func (o *Orchestrator) runAdvisoryRiskGate(ctx context.Context, targetPaths []st
 		Enabled: true,
 		Outcome: RiskGateOutcomePassed,
 		Reason:  "advisory synthesis approved",
-		Data: map[string]any{
-			"approval_ratio":     synthesis.ApprovalRatio,
-			"overall_confidence": synthesis.OverallConfidence,
-		},
+		Data:    data,
 	}, nil
 }
 

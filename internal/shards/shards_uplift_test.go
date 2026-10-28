@@ -1,7 +1,6 @@
 package shards
 
 import (
-	"strings"
 	"testing"
 
 	"codenerd/internal/core"
@@ -63,50 +62,6 @@ func TestGetStrategicAdvisorsFor_Sorted(t *testing.T) {
 				t.Fatalf("advisors not sorted: %v", advisors)
 			}
 		}
-	}
-}
-
-// CONFIDENCE arrives as 0-100 per the prompt, but models also write ratios
-// and out-of-range values: the first must not parse as zero and the second
-// must not escape the documented 0-1 scale.
-func TestParseConfidence_Matrix(t *testing.T) {
-	cases := []struct {
-		in   string
-		want float64
-		ok   bool
-	}{
-		{"85", 0.85, true},
-		{"85%", 0.85, true},
-		{"0.85", 0.85, true},
-		{"100", 1.0, true},
-		{"150", 1.0, true},
-		{"-20", 0.0, true},
-		{"high", 0, false},
-		{"", 0, false},
-	}
-	for _, c := range cases {
-		got, ok := parseConfidence(c.in)
-		if got != c.want || ok != c.ok {
-			t.Errorf("parseConfidence(%q) = (%v, %v), want (%v, %v)", c.in, got, ok, c.want, c.ok)
-		}
-	}
-}
-
-// The cache key must separate what the response depends on: distinct
-// questions sharing a 100-char prefix, and one question under two contexts,
-// previously collided and served each other's advice.
-func TestCacheKey_SeparatesQuestionAndContext(t *testing.T) {
-	m := NewConsultationManager(nil)
-	prefix := strings.Repeat("x", 120)
-	a := m.cacheKey("adv", prefix+"-one", "ctx")
-	b := m.cacheKey("adv", prefix+"-two", "ctx")
-	if a == b {
-		t.Error("questions differing past char 100 share a cache key")
-	}
-	c := m.cacheKey("adv", "same question", "context one")
-	d := m.cacheKey("adv", "same question", "context two")
-	if c == d {
-		t.Error("same question under different contexts shares a cache key")
 	}
 }
 

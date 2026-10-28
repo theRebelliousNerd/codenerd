@@ -5,23 +5,32 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"codenerd/internal/consultation"
 )
 
-type stubPartialConsultationProvider struct {
-	responses []ConsultationResponse
-	err       error
+// stubBatchProvider returns a fixed typed batch.
+type stubBatchProvider struct {
+	batch consultation.Batch
 }
 
-func (s *stubPartialConsultationProvider) RequestBatchConsultation(_ context.Context, _ BatchConsultRequest) ([]ConsultationResponse, error) {
-	return s.responses, s.err
+func (s *stubBatchProvider) RequestBatchConsultation(_ context.Context, _ consultation.BatchRequest) consultation.Batch {
+	return s.batch
+}
+
+func succeeded(spec, advice string, confidence float64) consultation.Entry {
+	return consultation.Entry{
+		Specialist: spec,
+		Status:     consultation.EntrySucceeded,
+		Response:   &consultation.Response{Specialist: spec, Advice: advice, Raw: advice, Confidence: confidence},
+	}
 }
 
 func TestGatherShardAdviceKeepsPartialResultsOnError(t *testing.T) {
-	one := ConsultationResponse{FromSpec: "coder", Advice: "ship it", Confidence: 0.9}
-	provider := &stubPartialConsultationProvider{
-		responses: []ConsultationResponse{one},
-		err:       errors.New("tester failed"),
-	}
+	provider := &stubBatchProvider{batch: consultation.Batch{Entries: []consultation.Entry{
+		succeeded("coder", "ship it", 0.9),
+		{Specialist: "tester", Status: consultation.EntryFailed, Err: errors.New("tester failed"), Retryable: true},
+	}}}
 	g := &IntelligenceGatherer{consultation: provider, config: DefaultIntelligenceConfig()}
 	report := &IntelligenceReport{}
 	var gatheringErrors []string
@@ -32,11 +41,11 @@ func TestGatherShardAdviceKeepsPartialResultsOnError(t *testing.T) {
 	if len(report.ShardAdvice) != 1 {
 		t.Fatalf("expected 1 ShardAdvice entry, got %d", len(report.ShardAdvice))
 	}
-	if report.ShardAdvice[0].FromSpec != "coder" {
-		t.Fatalf("expected coder advice, got %q", report.ShardAdvice[0].FromSpec)
+	if report.ShardAdvice[0].Specialist != "coder" {
+		t.Fatalf("expected coder advice, got %q", report.ShardAdvice[0].Specialist)
 	}
-	if len(gatheringErrors) != 1 {
-		t.Fatalf("expected exactly 1 gathering error, got %d: %v", len(gatheringErrors), gatheringErrors)
+	if len(gatheringErrors) != 1 || !strings.Contains(gatheringErrors[0], "tester") {
+		t.Fatalf("expected one gathering error naming tester, got %v", gatheringErrors)
 	}
 }
 
@@ -48,9 +57,9 @@ func TestGatherShardAdviceRendersAdviceWhole(t *testing.T) {
 	if len(advice) <= 200 {
 		t.Fatalf("advice length %d is not past the old cut", len(advice))
 	}
-	provider := &stubPartialConsultationProvider{
-		responses: []ConsultationResponse{{FromSpec: "coder", Advice: advice, Confidence: 0.55}},
-	}
+	provider := &stubBatchProvider{batch: consultation.Batch{Entries: []consultation.Entry{
+		succeeded("coder", advice, 0.55),
+	}}}
 	g := &IntelligenceGatherer{consultation: provider, config: DefaultIntelligenceConfig()}
 	report := &IntelligenceReport{}
 	g.gatherShardAdvice(context.Background(), report, "test goal", func(string) {})

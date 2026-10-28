@@ -4,11 +4,11 @@ import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
+	"codenerd/internal/consultation"
 	"codenerd/internal/core"
 	"codenerd/internal/northstar"
 	"codenerd/internal/perception"
 	"codenerd/internal/session"
-	"codenerd/internal/shards"
 	"codenerd/internal/store"
 	coresys "codenerd/internal/system"
 	"codenerd/internal/world"
@@ -195,8 +195,7 @@ func buildCampaignOrchestratorConfig(cortex *coresys.Cortex, cwd string, progres
 
 	var consultationProvider campaign.ConsultationProvider
 	if cortex.TaskExecutor != nil {
-		consultationMgr := shards.NewConsultationManager(&campaignTaskExecutorConsultationSpawner{executor: cortex.TaskExecutor})
-		consultationProvider = newCampaignConsultationProvider(consultationMgr)
+		consultationProvider = consultation.New(session.TaskConsultationSpawner{Executor: cortex.TaskExecutor})
 	}
 
 	holographic := world.NewHolographicProvider(kern, cwd)
@@ -990,84 +989,4 @@ func writeCampaignJSON(path string, c *campaign.Campaign) error {
 		return err
 	}
 	return os.Rename(tmp, path)
-}
-
-// ============================================================================
-// CONSULTATION ADAPTERS
-// These adapt the task executor and consultation manager to the campaign package.
-// ============================================================================
-
-// campaignTaskExecutorConsultationSpawner adapts TaskExecutor to ConsultationSpawner.
-type campaignTaskExecutorConsultationSpawner struct {
-	executor session.TaskExecutor
-}
-
-func (s *campaignTaskExecutorConsultationSpawner) SpawnConsultation(ctx context.Context, specialistName, task string) (string, error) {
-	if s.executor == nil {
-		return "", fmt.Errorf("task executor not available")
-	}
-	// Specialists arrive here as free-form names ("nemesis", "requirements_interrogator", etc.).
-	// Wrap them in /consult/<name> so the executor's strict IntentVerb check accepts the request.
-	intent := specialistName
-	if !strings.HasPrefix(intent, "/") {
-		intent = "/consult/" + specialistName
-	}
-	req := session.TaskRequest{
-		IntentVerb: intent,
-		Task:       task,
-	}
-	return s.executor.Execute(ctx, req)
-}
-
-// campaignConsultationProviderAdapter adapts shards.ConsultationManager to campaign.ConsultationProvider.
-// Partial results are returned alongside the joined error so successful specialist answers survive a single failure.
-type campaignConsultationProviderAdapter struct {
-	manager *shards.ConsultationManager
-}
-
-func newCampaignConsultationProvider(manager *shards.ConsultationManager) campaign.ConsultationProvider {
-	if manager == nil {
-		return nil
-	}
-	return &campaignConsultationProviderAdapter{manager: manager}
-}
-
-func (a *campaignConsultationProviderAdapter) RequestBatchConsultation(ctx context.Context, request campaign.BatchConsultRequest) ([]campaign.ConsultationResponse, error) {
-	if a == nil || a.manager == nil {
-		return nil, fmt.Errorf("consultation manager not configured")
-	}
-
-	question := strings.TrimSpace(request.Question)
-	if topic := strings.TrimSpace(request.Topic); topic != "" {
-		if question == "" {
-			question = topic
-		} else {
-			question = "[" + topic + "] " + question
-		}
-	}
-
-	targets := request.TargetSpec
-	if len(targets) == 0 {
-		targets = []string{"coder", "tester", "reviewer", "researcher"}
-	}
-
-	responses, err := a.manager.RequestBatchConsultation(ctx, question, request.Context, targets)
-
-	converted := make([]campaign.ConsultationResponse, 0, len(responses))
-	for _, resp := range responses {
-		converted = append(converted, campaign.ConsultationResponse{
-			RequestID:    resp.RequestID,
-			FromSpec:     resp.FromSpec,
-			ToSpec:       resp.ToSpec,
-			Advice:       resp.Advice,
-			Confidence:   resp.Confidence,
-			References:   resp.References,
-			Caveats:      resp.Caveats,
-			Metadata:     resp.Metadata,
-			ResponseTime: resp.ResponseTime,
-			Duration:     resp.Duration,
-		})
-	}
-
-	return converted, err
 }
