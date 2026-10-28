@@ -386,6 +386,11 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		out = append(out, c.Delegation.Check("delegation")...)
 	}
 
+	// --- approval ---
+	if c.Approval != nil {
+		out = append(out, c.Approval.Check("approval")...)
+	}
+
 	// --- working ---
 	if c.Working != nil {
 		out = append(out, c.Working.Check("working")...)

@@ -2,10 +2,11 @@
 // This is the SAFETY-CRITICAL component of the codeNERD architecture.
 //
 // The Constitution Gate enforces:
-// - permitted(Action) must be positively derived before any action executes
-// - dangerous_action patterns are blocked unless admin_override exists
-// - network_policy restricts domains to allowlist
-// - security_violation facts are emitted for audit trail
+//   - permitted(Action) must be positively derived before any action executes
+//   - dangerous_action patterns are blocked unless a person approved the exact
+//     pending request (human_approval_granted, internal/approval)
+//   - network_policy restricts domains to allowlist
+//   - security_violation facts are emitted for audit trail
 //
 // This shard is AUTO-START and runs continuously. It is LOGIC-PRIMARY,
 // meaning it primarily uses deterministic Mangle rules with LLM only for:
@@ -627,7 +628,8 @@ func (c *ConstitutionGateShard) checkPermitted(ctx context.Context, actionType, 
 	}
 
 	// 3. Query Mangle for permitted(Action, Target, Payload)
-	// The kernel should derive permitted(Action...) from safe_action or admin_override
+	// The kernel derives permitted(Action...) from safe_action, a recoverable
+	// delete, or an exact request-bound human approval
 	// kernel.Query returns ALL permitted facts
 	allPermitted, err := c.Kernel.Query("permitted")
 	if err != nil {

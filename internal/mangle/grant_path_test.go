@@ -41,13 +41,13 @@ blocked(A) :- flagged(A), !cleared(A).
 // other premises are not grant path through it, the consent itself is.
 func TestGrantPathOf_ConsentGuardsItsRule(t *testing.T) {
 	path := grantPathOf(t, `
-permitted(A) :- risky(A), signed_approval(A), admin_override(U).
+permitted(A) :- risky(A), human_approval_granted(I, A, T, P, D).
 permitted(A) :- trusted(A).
 `)
 	if via, ok := path.Contains("risky"); ok {
-		t.Errorf("risky is on the path through %s; it widens permitted only with a signed approval", via)
+		t.Errorf("risky is on the path through %s; it widens permitted only with a human approval", via)
 	}
-	for _, on := range []string{"signed_approval", "admin_override", "trusted"} {
+	for _, on := range []string{"human_approval_granted", "trusted"} {
 		if _, ok := path.Contains(on); !ok {
 			t.Errorf("%s is not on the grant path %v", on, path.Sorted())
 		}

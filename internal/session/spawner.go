@@ -2,6 +2,7 @@
 package session
 
 import (
+	"codenerd/internal/approval"
 	"context"
 	"fmt"
 	"sync"
@@ -42,6 +43,9 @@ type Spawner struct {
 	// is a fresh build and would otherwise run every persona on the serving
 	// client's model whatever shard_profiles says.
 	shardProfileContext ShardProfileContext
+	// approvals is handed to every spawned subagent's executor, so a
+	// subagent's approvable denial reaches the person the session would ask.
+	approvals *approval.Broker
 
 	// projectDoc is the workspace's parsed nerd.md. Nil when absent or invalid,
 	// which preserves the pre-fix behaviour: subagents run without project
@@ -301,6 +305,20 @@ func (s *Spawner) currentUsageTracker() *usage.Tracker {
 	return s.usageTracker
 }
 
+// SetApprovalBroker installs the human-approval broker every subagent spawned
+// from here on hands its executor. Nil clears it.
+func (s *Spawner) SetApprovalBroker(b *approval.Broker) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.approvals = b
+}
+
+func (s *Spawner) currentApprovalBroker() *approval.Broker {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.approvals
+}
+
 // SetOuroborosRegistry installs the generated-tool registry every subagent
 // spawned from here on will inherit on its executor. Already-spawned
 // subagents keep the registry they were built with. A nil registry clears
@@ -449,6 +467,9 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	}
 	if reg := s.currentOuroborosRegistry(); reg != nil {
 		agent.executor.SetOuroborosRegistry(reg)
+	}
+	if b := s.currentApprovalBroker(); b != nil {
+		agent.executor.SetApprovalBroker(b)
 	}
 
 	// Phase 5: Register subagent (lock held briefly)

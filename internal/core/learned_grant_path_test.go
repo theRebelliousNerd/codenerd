@@ -158,7 +158,7 @@ func TestLearnedHeads_TheDerivedGrantPathIsRefusedWhole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"permitted", "safe_action", "pending_action", "admin_override", "signed_approval",
+	for _, want := range []string{"permitted", "safe_action", "pending_action", "human_approval_granted",
 		"permitted_action", "permission_check_result", "has_active_override", "appeal_granted",
 		"temporary_override", "file_recoverable"} {
 		if _, ok := path.Contains(want); !ok {

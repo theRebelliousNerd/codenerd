@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"codenerd/internal/approval"
 	"context"
 	"encoding/json"
 	"errors"
@@ -30,6 +31,10 @@ type MCPClientManager struct {
 	analyzer ToolAnalyzerInterface
 	config   map[string]MCPServerConfig
 	facts    *FactEmitter
+	// approvals is the process's human-approval broker. A remote effect the
+	// constitution marks human_approval_required asks the person through it
+	// (remote_authority.go); nil leaves that a refusal.
+	approvals *approval.Broker
 
 	// readiness tracks in-flight initial discovery so callers can wait for the
 	// catalog to exist instead of racing an empty store.
@@ -39,6 +44,14 @@ type MCPClientManager struct {
 	onToolDiscovered   func(tool *MCPTool)
 	onServerStatus     func(serverID string, status ServerStatus)
 	onCatalogLifecycle func(serverID string, preserveOfflineCache bool)
+}
+
+// SetApprovalBroker installs the human-approval broker remote effects ask
+// through. Nil leaves every approvable remote denial a refusal.
+func (m *MCPClientManager) SetApprovalBroker(b *approval.Broker) {
+	m.authorityMu.Lock()
+	defer m.authorityMu.Unlock()
+	m.approvals = b
 }
 
 // MCPServerConnection holds the connection state for a single MCP server.

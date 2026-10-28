@@ -13,6 +13,7 @@
 package session
 
 import (
+	"codenerd/internal/approval"
 	"context"
 	"encoding/json"
 	"errors"
@@ -256,6 +257,11 @@ type Executor struct {
 	// available. Both under mu.
 	contextFeedbackRecorder ContextFeedbackRecorder
 	pendingContextFeedback  *articulation.ContextFeedback
+
+	// approvals is the process's human-approval broker (human_approval.go).
+	// Nil, or a broker with no host attached, leaves every approvable denial
+	// a refusal.
+	approvals *approval.Broker
 }
 
 // Generated duplicates retain one exact pending authorization until the last
@@ -620,6 +626,10 @@ func (e *Executor) CloneForTask() *Executor {
 	// session executor and the spawner, measured dark on the next run because
 	// neither is what does the work.
 	clone.codeElements = e.codeElements
+	// A delegated task's approvable denial reaches the same person through
+	// the same broker; a clone without it would refuse what the session
+	// would ask about.
+	clone.approvals = e.approvals
 	// Deliberately NOT copied: conversationHistory, sessionContext,
 	// sessionPersister (task runs must not be recorded as session turns),
 	// EffectiveAgentRuntimeConfig (set per task by the caller).

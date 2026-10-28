@@ -13,8 +13,8 @@ import (
 //
 // requires_permission(/delete_file) makes it a dangerous_action, and
 // dangerous_action has no safe_action rule, so before this the constitution
-// could derive permitted for a delete only through signed_approval plus
-// admin_override -- i.e. never, in an unattended run. That is why a dogfood
+// could derive permitted for a delete only through a human's approval --
+// i.e. never, in an unattended run. That is why a dogfood
 // run asked to remove 189 forwarding stubs got no further than the first file.
 //
 // The narrowing: the executor asserts file_recoverable(Target) for a target

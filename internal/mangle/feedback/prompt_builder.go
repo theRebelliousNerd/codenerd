@@ -434,8 +434,7 @@ func ValidRuleExamples(domain string) []string {
 		}
 	case "constitution", "safety":
 		return []string{
-			"permitted(/read_file) :- safe_action(/read_file).",
-			"permitted(A) :- dangerous_action(A), admin_override(_).",
+			"dangerous_action(/git_push) :- requires_permission(/git_push).",
 			"block_commit(/unsafe) :- modified(F), !test_coverage(F).",
 		}
 	default:

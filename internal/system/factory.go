@@ -3,6 +3,7 @@
 package system
 
 import (
+	"codenerd/internal/approval"
 	"codenerd/internal/articulation"
 	"codenerd/internal/autopoiesis"
 	promptevolution "codenerd/internal/autopoiesis/prompt_evolution"
@@ -444,6 +445,13 @@ type Cortex struct {
 	// those turns stay on the worker/main client.
 	WorkerLLMClient  perception.LLMClient
 	PlannerLLMClient perception.LLMClient
+
+	// Approvals is the process's human-approval broker
+	// (Docs/audits/request-bound-human-approval.md). The interactive UI
+	// attaches its host to it; headless runs leave it hostless, so an
+	// approvable denial stays a refusal there.
+	Approvals        *approval.Broker
+	approvalsRelease func() error
 
 	// Boot-owned integration resources. These stay private because callers
 	// should release the aggregate Cortex, not individual motherboard parts.
@@ -924,6 +932,8 @@ type bootContext struct {
 	mcpBridge                    *mcp.MCPIntegrationBridge
 	mcpCancel                    context.CancelFunc
 	mcpDone                      <-chan struct{}
+	approvals                    *approval.Broker
+	approvalsRelease             func() error
 	toolStore                    *store.ToolStore
 	ouroborosCtx                 context.Context
 	ouroborosCancel              context.CancelFunc
@@ -1751,6 +1761,7 @@ func initIntelligenceLayer(bctx *bootContext) error {
 			mcpCtx, mcpCancel := context.WithCancel(bctx.ctx)
 			mcpDone := make(chan struct{})
 			bctx.mcpBridge = mcpBridge
+			mcpBridge.GetManager().SetApprovalBroker(bctx.approvals)
 			bctx.mcpCancel = mcpCancel
 			bctx.mcpDone = mcpDone
 			for serverID := range serverConfigs {
@@ -2548,6 +2559,9 @@ func initFinalExecutors(bctx *bootContext) error {
 		bctx.sessionID = fmt.Sprintf("session-%d", time.Now().UnixNano())
 	}
 	bctx.sessionExecutor.SetSessionID(bctx.sessionID)
+	// An approvable denial asks the person through the process's broker when
+	// a host (the chat TUI) is attached, and stays a refusal otherwise.
+	bctx.sessionExecutor.SetApprovalBroker(bctx.approvals)
 	// Hand the executor its usage meter so ProcessWithIntent tags the turn
 	// context and snapshotTurnUsage reads spend instead of zeros. Nil-safe:
 	// when metering failed to boot, turns keep the previous behaviour.
@@ -2622,6 +2636,7 @@ func initFinalExecutors(bctx *bootContext) error {
 	}
 	bctx.sessionSpawner.SetExecutorConfig(&execCfg)
 	bctx.sessionSpawner.SetSessionID(bctx.sessionID)
+	bctx.sessionSpawner.SetApprovalBroker(bctx.approvals)
 	// Same meter for spawned subagents: their executors are fresh builds, not
 	// clones, so without this their turn_cost deltas read zero. Nil-safe.
 	bctx.sessionSpawner.SetUsageTracker(bctx.tracker)
@@ -2801,6 +2816,9 @@ func defaultBootSteps() []bootStep {
 		{name: "kernel", run: initKernel},
 		{name: "execution layer", run: initExecutionLayer},
 		{name: "autopoiesis and browser", run: initAutopoiesisAndBrowser},
+		// Before the intelligence layer: the MCP remote authority it builds
+		// asks the person through this broker.
+		{name: "approval broker", run: initApprovalBroker},
 		{name: "intelligence layer", run: initIntelligenceLayer},
 		{name: "shard management", run: initShardManagement},
 		{name: "final executors", run: initFinalExecutors},
@@ -2906,6 +2924,8 @@ func cortexFromBootContext(bctx *bootContext) *Cortex {
 		Retriever:             bctx.retriever,
 		OuroborosQueue:        bctx.ouroborosQueue,
 		mcpBridge:             bctx.mcpBridge,
+		Approvals:             bctx.approvals,
+		approvalsRelease:      bctx.approvalsRelease,
 		mcpCancel:             bctx.mcpCancel,
 		mcpDone:               bctx.mcpDone,
 		ouroborosCancel:       bctx.ouroborosCancel,

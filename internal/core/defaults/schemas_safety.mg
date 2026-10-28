@@ -69,11 +69,31 @@ Decl exec_sink(Predicate) bound [/name].
 # exemption, and TestProseOnlyPredicatesReachNoExecSink fails.
 Decl prose_only(Predicate) bound [/name].
 
-# admin_override(User)
-Decl admin_override(User) bound [/string].
+# human_approvable(ActionType) - policy: a person may approve ONE exact
+# pending request of this action type. It is the only human-consent path to
+# permitted/3, and it is request-bound: approval never names an action type,
+# it names one pending_action tuple (human_approval_granted below). An action
+# type absent here stays denied whatever a person clicks. See
+# Docs/audits/request-bound-human-approval.md and internal/approval.
+Decl human_approvable(ActionType) bound [/name].
 
-# signed_approval(ActionType)
-Decl signed_approval(ActionType) bound [/name].
+# human_approval_granted(ActionID, ActionType, Target, Payload, RequestDigest)
+#
+# EDB, asserted only by the host (internal/session/human_approval.go and the
+# MCP remote authority) after a person approved the request whose digest is
+# RequestDigest AND the execution claim on it succeeded against the operation
+# as it stands now. It names the exact pending_action it admits and is
+# retracted with it, so it cannot admit a sibling request, a later retry or a
+# changed payload. Protected: learned rules, mangle_updates and model output
+# can never produce it (grant_path.go grantConsent, schema_validator.go).
+Decl human_approval_granted(ActionID, ActionType, Target, Payload, RequestDigest) bound [/string, /name, /string, /string, /string].
+
+# human_approval_required(ActionID) - derived: this pending action was not
+# permitted, and policy lets a person approve it (approvable, and no
+# dangerous_content). The executor asks this while the pending_action is
+# still asserted; only then does it open an approval request. A hard
+# prohibition never derives it, so it never becomes an override prompt.
+Decl human_approval_required(ActionID) bound [/string].
 
 # allowed_domain(Domain) - network allowlist
 Decl allowed_domain(Domain) bound [/string].
@@ -182,15 +202,12 @@ Decl blocked_learned_action_count(Count) bound [/number].
 # Several .mg files already carried comments warning about this (shards.mg,
 # validation.mg, codedom_safety.mg, prompt_northstar.mg), but the workaround
 # was never applied to the constitution, so three safety rules silently did
-# nothing: admin_override could not suppress a denial, every candidate action
+# nothing: an override could not suppress a denial, every candidate action
 # was denied whether or not it was permitted, and the blocked-action counter
 # reported zero while blocks existed.
 #
 # The pattern: project the wildcard away into a helper whose every argument is
 # bound at the negation site, then negate the helper.
-
-# admin_override_present(/yes) - true when ANY admin override exists.
-Decl admin_override_present(Flag) bound [/name].
 
 # action_is_permitted(ActionType) - true when an action is permitted for any
 # target/payload pair. Projects permitted/3 down to its action.

@@ -409,7 +409,7 @@ func TestKernelPermissionDerivation(t *testing.T) {
 	}
 
 	// Also verify that dangerous actions are NOT in the permitted set (without approval)
-	// These should only be permitted with admin_override + signed_approval
+	// They are not human_approvable, so nothing can permit them
 	dangerousActions := []string{
 		"/delete_system_files",
 		"/format_disk",

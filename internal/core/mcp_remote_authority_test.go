@@ -8,22 +8,24 @@ import (
 
 func TestMCPRemoteAuthority_ConstitutionAndRequestBinding(t *testing.T) {
 	for _, scenario := range []struct {
-		name      string
-		effect    string
-		action    string
-		confirmed bool
-		approved  bool
-		allowed   bool
+		name          string
+		effect        string
+		action        string
+		confirmed     bool
+		approved      bool
+		approvedOther bool
+		allowed       bool
 	}{
-		{"read", "/read", "/read_file", false, false, true},
-		{"write", "/write", "/write_file", false, false, true},
-		{"delete-confirm-only", "/delete", "/delete_file", true, false, false},
-		{"execute-confirm-only", "/execute", "/run_arbitrary_command", true, false, false},
-		{"delete-approved", "/delete", "/delete_file", true, true, true},
-		{"execute-approved", "/execute", "/run_arbitrary_command", true, true, true},
-		{"approved-without-confirmation", "/execute", "/run_arbitrary_command", false, true, false},
-		{"outer-verb-is-not-execution-authority", "/execute", "/mcp_call", true, false, false},
-		{"unknown-effect", "/unknown", "/read_file", true, false, false},
+		{"read", "/read", "/read_file", false, false, false, true},
+		{"write", "/write", "/write_file", false, false, false, true},
+		{"delete-confirm-only", "/delete", "/delete_file", true, false, false, false},
+		{"execute-confirm-only", "/execute", "/run_arbitrary_command", true, false, false, false},
+		{"delete-approved", "/delete", "/delete_file", true, true, false, true},
+		{"execute-approved", "/execute", "/run_arbitrary_command", true, true, false, true},
+		{"approved-without-confirmation", "/execute", "/run_arbitrary_command", false, true, false, false},
+		{"approval-of-another-request", "/delete", "/delete_file", true, false, true, false},
+		{"outer-verb-is-not-execution-authority", "/execute", "/mcp_call", true, false, false, false},
+		{"unknown-effect", "/unknown", "/read_file", true, false, false, false},
 	} {
 		t.Run(scenario.name, func(test *testing.T) {
 			kernel, err := NewRealKernelWithWorkspace(test.TempDir())
@@ -47,10 +49,6 @@ func TestMCPRemoteAuthority_ConstitutionAndRequestBinding(t *testing.T) {
 			} {
 				assert(fact)
 			}
-			if scenario.approved {
-				assert(fmt.Sprintf("signed_approval(%s)", scenario.action))
-				assert(`admin_override("host-reviewer")`)
-			}
 			confirmed := "/false"
 			if scenario.confirmed {
 				confirmed = "/true"
@@ -61,6 +59,14 @@ func TestMCPRemoteAuthority_ConstitutionAndRequestBinding(t *testing.T) {
 				fmt.Sprintf(`mcp_remote_reviewed("exec-mcp-test", "srv", "srv/op", "schema", %s)`, scenario.effect),
 				fmt.Sprintf(`mcp_remote_request("exec-mcp-test", "scope", "call", "srv", "srv/op", "schema", %s, %s, "srv/op", %s, "digest", /safe, %s)`, scenario.effect, scenario.action, payload, confirmed),
 				fmt.Sprintf(`pending_action("exec-mcp-test", %s, "srv/op", %s, 1)`, scenario.action, payload),
+			}
+			// The host's request-bound approval names the exact pending
+			// action it admits and is retracted with it.
+			switch {
+			case scenario.approved:
+				transient = append(transient, fmt.Sprintf(`human_approval_granted("exec-mcp-test", %s, "srv/op", %s, "sha256:reviewed")`, scenario.action, payload))
+			case scenario.approvedOther:
+				transient = append(transient, fmt.Sprintf(`human_approval_granted("exec-mcp-other", %s, "srv/op", %s, "sha256:reviewed")`, scenario.action, payload))
 			}
 			for _, fact := range transient {
 				assert(fact)
