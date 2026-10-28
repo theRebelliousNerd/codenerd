@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"fmt"
+	"maps"
 	"math"
 	"sort"
 	"strings"
@@ -139,10 +140,11 @@ func (s *CompilerVectorSearcher) Search(ctx context.Context, query string, limit
 	}
 
 	s.mu.Lock()
+	prevSkipped := s.lastSkipped
 	s.lastSkipped = skipped
 	s.mu.Unlock()
 
-	if len(skipped) > 0 {
+	if warnSkipped(prevSkipped, skipped) {
 		names := make([]string, 0, len(skipped))
 		total := 0
 		for name, count := range skipped {
@@ -238,4 +240,11 @@ func decodeFloat32Slice(blob []byte) []float32 {
 		vec[i] = math.Float32frombits(bits)
 	}
 	return vec
+}
+
+// warnSkipped reports whether a search's skipped vectors are worth a warning:
+// some were skipped, and the set differs from the previous search's. The same
+// unstamped atoms were otherwise warned about on every compile.
+func warnSkipped(prev, cur map[string]int) bool {
+	return len(cur) > 0 && !maps.Equal(prev, cur)
 }

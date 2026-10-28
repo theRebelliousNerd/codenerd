@@ -293,7 +293,7 @@ func (l *AtomLoader) ReplaceAtoms(ctx context.Context, db *sql.DB, atoms []*Prom
 	}
 
 	// SQLite maximum variables per query is 32766, but 999 is safer for older versions.
-	// We have 15 columns per atom insert. So max chunk size is 999 / 15 = 66
+	// We have 16 columns per atom insert. So max chunk size is 999 / 16 = 62 (60 x 16 = 960 stays under 999)
 	chunkSize := 60
 	for i := 0; i < len(atoms); i += chunkSize {
 		end := min(i+chunkSize, len(atoms))
@@ -301,12 +301,12 @@ func (l *AtomLoader) ReplaceAtoms(ctx context.Context, db *sql.DB, atoms []*Prom
 		chunkEmbeds := embeddings[i:end]
 
 		// Build the query
-		query := "INSERT INTO prompt_atoms (atom_id, version, content, token_count, content_hash, description, content_concise, content_min, category, subcategory, importance, is_mandatory, is_exclusive, embedding, embedding_task) VALUES "
+		query := "INSERT INTO prompt_atoms (atom_id, version, content, token_count, content_hash, description, content_concise, content_min, category, subcategory, importance, is_mandatory, is_exclusive, embedding, embedding_task, embedding_model) VALUES "
 		var vals []any
 		var placeholders []string
 
 		for j, atom := range chunk {
-			placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+			placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
 
 			var embeddingBlob []byte
 			if len(chunkEmbeds[j]) > 0 {
@@ -318,12 +318,17 @@ func (l *AtomLoader) ReplaceAtoms(ctx context.Context, db *sql.DB, atoms []*Prom
 				etask = &taskType
 			}
 
+			var emodel any
+			if len(embeddingBlob) > 0 && l.embeddingEngine != nil {
+				emodel = nullableString(l.embeddingEngine.Name())
+			}
+
 			vals = append(vals,
 				atom.ID, atom.Version, atom.Content, atom.TokenCount, atom.ContentHash,
 				nullableString(atom.Description), nullableString(atom.ContentConcise), nullableString(atom.ContentMin),
 				string(atom.Category), nullableString(atom.Subcategory),
 				importanceColumn(atom.Importance), atom.IsMandatory, nullableString(atom.IsExclusive),
-				embeddingBlob, etask,
+				embeddingBlob, etask, emodel,
 			)
 		}
 
@@ -412,6 +417,11 @@ func (l *AtomLoader) storeAtomTx(ctx context.Context, tx *sql.Tx, atom *PromptAt
 		}
 	}
 
+	var embeddingModel any
+	if len(embeddingBlob) > 0 && l.embeddingEngine != nil {
+		embeddingModel = nullableString(l.embeddingEngine.Name())
+	}
+
 	// 1. Upsert Atom (Base Fields Only)
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO prompt_atoms (
@@ -419,8 +429,8 @@ func (l *AtomLoader) storeAtomTx(ctx context.Context, tx *sql.Tx, atom *PromptAt
 			description, content_concise, content_min,
 			category, subcategory,
 			importance, is_mandatory, is_exclusive,
-			embedding, embedding_task
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			embedding, embedding_task, embedding_model
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(atom_id) DO UPDATE SET
 			version = excluded.version,
 			content = excluded.content,
@@ -435,12 +445,13 @@ func (l *AtomLoader) storeAtomTx(ctx context.Context, tx *sql.Tx, atom *PromptAt
 			is_mandatory = excluded.is_mandatory,
 			is_exclusive = excluded.is_exclusive,
 			embedding = excluded.embedding,
-			embedding_task = excluded.embedding_task`,
+			embedding_task = excluded.embedding_task,
+			embedding_model = excluded.embedding_model`,
 		atom.ID, atom.Version, atom.Content, atom.TokenCount, atom.ContentHash,
 		nullableString(atom.Description), nullableString(atom.ContentConcise), nullableString(atom.ContentMin),
 		string(atom.Category), nullableString(atom.Subcategory),
 		importanceColumn(atom.Importance), atom.IsMandatory, nullableString(atom.IsExclusive),
-		embeddingBlob, nullableString(embeddingTask),
+		embeddingBlob, nullableString(embeddingTask), embeddingModel,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert atom failed: %w", err)
