@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,7 +20,7 @@ func TestGenerateAgentPromptsTemplate(t *testing.T) {
 	topics := "Go testing, TDD, mocking frameworks"
 
 	// Write the definition the way the wizard does once research has run.
-	_, err := coresys.WriteAgentDefinition(tmpDir, agentName, role, topics, "## Key Concepts\n- table-driven tests\n\n## Pitfalls\n- t.Parallel with shared state")
+	_, err := coresys.WriteAgentDefinition(context.Background(), tmpDir, agentName, role, topics, "", "## Key Concepts\n- table-driven tests\n\n## Pitfalls\n- t.Parallel with shared state")
 	if err != nil {
 		t.Fatalf("WriteAgentDefinition failed: %v", err)
 	}
@@ -38,50 +39,35 @@ func TestGenerateAgentPromptsTemplate(t *testing.T) {
 
 	contentStr := string(content)
 
-	// Verify key elements are present
-	expectedElements := []string{
+	// The identity is the template's; the researched knowledge becomes the
+	// domain body, one atom per heading. With no methodology written, no
+	// generic methodology atom rides along, and no atom carries a priority
+	// (Jev's importance replaced it).
+	for _, expected := range []string{
 		"# Prompt atoms for " + agentName,
 		agentName + "/identity",
-		agentName + "/methodology",
 		agentName + "/domain",
+		agentName + "/domain/pitfalls",
 		"category: \"identity\"",
-		"category: \"methodology\"",
 		"category: \"domain\"",
 		role,
-		topics,
 		"You are " + agentName,
-		"priority: 100",
-		"priority: 80",
-		"priority: 70",
 		"is_mandatory: true",
-		"is_mandatory: false",
-		// The researched knowledge is the domain atom's body, indented as
-		// block-scalar content.
-		"    ## Key Concepts\n    - table-driven tests\n\n    ## Pitfalls\n    - t.Parallel with shared state",
-	}
-	if strings.Contains(contentStr, "[Add ") {
-		t.Error("prompts.yaml still carries template placeholders")
-	}
-
-	for _, expected := range expectedElements {
+		"## Key Concepts\n    - table-driven tests",
+		"## Pitfalls\n    - t.Parallel with shared state",
+		"depends_on: [\"" + agentName + "/identity\"]",
+	} {
 		if !strings.Contains(contentStr, expected) {
-			t.Errorf("prompts.yaml missing expected element: %q", expected)
+			t.Errorf("prompts.yaml missing expected element: %q\n%s", expected, contentStr)
 		}
 	}
-
-	// Verify structure - should have 3 atoms
-	atomCount := strings.Count(contentStr, "- id:")
-	if atomCount != 3 {
-		t.Errorf("expected 3 atoms, got %d", atomCount)
+	for _, absent := range []string{"[Add ", "priority:", agentName + "/methodology", "Understand the full context"} {
+		if strings.Contains(contentStr, absent) {
+			t.Errorf("prompts.yaml carries %q:\n%s", absent, contentStr)
+		}
 	}
-
-	// Verify dependency structure
-	if !strings.Contains(contentStr, "depends_on: [\""+agentName+"/identity\"]") {
-		t.Error("methodology atom missing dependency on identity")
-	}
-
-	if !strings.Contains(contentStr, "depends_on: [\""+agentName+"/identity\", \""+agentName+"/methodology\"]") {
-		t.Error("domain atom missing dependencies")
+	if atomCount := strings.Count(contentStr, "- id:"); atomCount != 3 {
+		t.Errorf("expected identity and two domain atoms, got %d", atomCount)
 	}
 }
 
@@ -93,7 +79,7 @@ func TestGenerateAgentPromptsTemplate_CreatesDirectory(t *testing.T) {
 	role := "Test role"
 	topics := "Test topics"
 
-	_, err := coresys.WriteAgentDefinition(tmpDir, agentName, role, topics, "")
+	_, err := coresys.WriteAgentDefinition(context.Background(), tmpDir, agentName, role, topics, "", "")
 	if err != nil {
 		t.Fatalf("WriteAgentDefinition failed: %v", err)
 	}
@@ -112,7 +98,7 @@ func TestGenerateAgentPromptsTemplate_ValidYAML(t *testing.T) {
 	role := "Expert in validation"
 	topics := "YAML, JSON schema, data validation"
 
-	_, err := coresys.WriteAgentDefinition(tmpDir, agentName, role, topics, "")
+	_, err := coresys.WriteAgentDefinition(context.Background(), tmpDir, agentName, role, topics, "", "")
 	if err != nil {
 		t.Fatalf("WriteAgentDefinition failed: %v", err)
 	}

@@ -18,34 +18,66 @@ import (
 const admissionCompare = 3
 
 // atomAdmission is the check a generated shard-agent atom passes before it is
-// written (atomjudge.Admission): within jit.atom_max_chars, one concern, not
-// known by default, not padded, not covered by an atom already admitted for
-// the agent. Jev reads the atom when the workspace's typesafe section is on
-// with atom_checks; without it every atom within the bound is admitted
-// unjudged, and the log says so. Resolved once per initializer.
+// written (WorkspaceAtomAdmission), resolved once per initializer.
 func (i *Initializer) atomAdmission() atomjudge.Admission {
 	i.admissionOnce.Do(func() {
-		i.admission = atomjudge.Admission{MaxChars: i.atomMaxChars()}
-		path := filepath.Join(i.config.Workspace, ".nerd", "config.json")
-		if _, err := os.Stat(path); err != nil {
-			return
-		}
-		uc, err := config.LoadUserConfig(path)
-		if err != nil || uc == nil {
-			return
-		}
-		client, err := typesafe.FromConfig(uc.TypeSafe)
-		if err != nil {
-			logging.BootWarn("Generated agent atoms are admitted without Jev: %v", err)
-			return
-		}
-		var asker atomjudge.Asker
-		if client != nil {
-			asker = client
-		}
-		i.admission = atomjudge.AdmissionFor(asker, uc.TypeSafe, i.atomMaxChars(), admissionCompare)
+		i.admission = WorkspaceAtomAdmission(i.config.Workspace, i.atomMaxChars())
 	})
 	return i.admission
+}
+
+// WorkspaceAtomAdmission resolves the generated-atom admission check
+// (atomjudge.Admission) from the workspace's .nerd/config.json: within
+// maxChars, one concern, not known by default, not padded, not covered by an
+// atom already admitted for the agent. Jev reads each atom when the typesafe
+// section is on with atom_checks; without it every atom within the bound is
+// admitted unjudged, and the log says so.
+func WorkspaceAtomAdmission(workspace string, maxChars int) atomjudge.Admission {
+	check := atomjudge.Admission{MaxChars: maxChars}
+	path := filepath.Join(workspace, ".nerd", "config.json")
+	if _, err := os.Stat(path); err != nil {
+		return check
+	}
+	uc, err := config.LoadUserConfig(path)
+	if err != nil || uc == nil {
+		return check
+	}
+	client, err := typesafe.FromConfig(uc.TypeSafe)
+	if err != nil {
+		logging.BootWarn("Generated agent atoms are admitted without Jev: %v", err)
+		return check
+	}
+	var asker atomjudge.Asker
+	if client != nil {
+		asker = client
+	}
+	return atomjudge.AdmissionFor(asker, uc.TypeSafe, maxChars, admissionCompare)
+}
+
+// AgentDefinitionYAML renders the prompts.yaml of a user-defined or
+// autopoiesis-authored agent the way init renders a specialist's: the
+// template identity, then the methodology and domain bodies (model-written:
+// the agent's system prompt, researched knowledge) split one atom per
+// heading within jit.atom_max_chars and admitted by WorkspaceAtomAdmission.
+// An empty body contributes no atom. Atom ids are prefixed with name as
+// given: it is also the agent's directory name.
+func AgentDefinitionYAML(ctx context.Context, workspace, name, role, topics, methodology, domain string) (string, error) {
+	maxChars := WorkspaceAtomMaxChars(workspace)
+	name = strings.TrimSpace(name)
+	lower := name
+	var topicList []string
+	for _, t := range strings.Split(topics, ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			topicList = append(topicList, t)
+		}
+	}
+	atoms := agentPromptAtoms(lower, name, role, formatDomainExpertise(topicList), topics, methodology, domain, maxChars)
+	atoms = admitAgentAtoms(ctx, WorkspaceAtomAdmission(workspace, maxChars), lower, atoms)
+	yml := renderPromptsYAML(name, atoms)
+	if err := validatePromptsYAML([]byte(yml), lower, maxChars); err != nil {
+		return "", err
+	}
+	return yml, nil
 }
 
 // admitAgentAtoms runs the admission check over the model-written atoms of
@@ -54,8 +86,7 @@ func (i *Initializer) atomAdmission() atomjudge.Admission {
 // (`<agent>/methodology`, `<agent>/domain`) hands its id to the next admitted
 // piece of the same body, so references to the base keep resolving; a body
 // with no admitted piece contributes no atom.
-func (i *Initializer) admitAgentAtoms(ctx context.Context, agentNameLower string, atoms []agentPromptAtom) []agentPromptAtom {
-	check := i.atomAdmission()
+func admitAgentAtoms(ctx context.Context, check atomjudge.Admission, agentNameLower string, atoms []agentPromptAtom) []agentPromptAtom {
 	identityID := agentNameLower + "/identity"
 	var kept []agentPromptAtom
 	var admitted []*prompt.PromptAtom

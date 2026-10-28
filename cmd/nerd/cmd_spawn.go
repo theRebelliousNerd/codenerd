@@ -84,7 +84,7 @@ func defineAgent(cmd *cobra.Command, args []string) error {
 	// agent, syncs its atoms into .nerd/shards/<name>_knowledge.db, and registers
 	// that DB with the JIT compiler in this same run.
 	// No research runs here, so the domain atom carries no knowledge yet.
-	promptsPath, err := coresys.WriteAgentDefinition(ws, name, topic, topic, "")
+	promptsPath, err := coresys.WriteAgentDefinition(cmd.Context(), ws, name, topic, topic, "", "")
 	if err != nil {
 		return fmt.Errorf("failed to write agent definition: %w", err)
 	}

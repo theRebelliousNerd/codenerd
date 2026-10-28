@@ -430,27 +430,34 @@ func deepCopyNode(node *yaml.Node) (*yaml.Node, error) {
 	return doc.Content[0], nil
 }
 
-// atomMaxChars is the shard-agent prompt atom cap, jit.atom_max_chars from
+// atomMaxChars is the shard-agent prompt atom cap (WorkspaceAtomMaxChars),
+// read once per initializer.
+func (i *Initializer) atomMaxChars() int {
+	i.atomCapOnce.Do(func() {
+		i.atomCap = WorkspaceAtomMaxChars(i.config.Workspace)
+	})
+	return i.atomCap
+}
+
+// WorkspaceAtomMaxChars is the agent prompt atom cap, jit.atom_max_chars from
 // the workspace config (default 1500). An atom is the unit the JIT compiler
 // selects and embeds whole: the first generated files held one methodology
 // and one domain atom of 10-23k characters each, which the embedding model
-// refused outright and selection could only take or leave entire. The value
-// is read once per initializer; an unreadable config falls back to the
-// default, because config load errors are reported where the config loads.
-func (i *Initializer) atomMaxChars() int {
-	i.atomCapOnce.Do(func() {
-		i.atomCap = config.DefaultJITConfig().AtomMaxChars
-		path := filepath.Join(i.config.Workspace, ".nerd", "config.json")
-		if _, err := os.Stat(path); err != nil {
-			return
-		}
-		uc, err := config.LoadUserConfig(path)
-		if err != nil || uc == nil {
-			return
-		}
-		if n := uc.GetJITConfig().AtomMaxChars; n > 0 {
-			i.atomCap = n
-		}
-	})
-	return i.atomCap
+// refused outright and selection could only take or leave entire. An
+// unreadable config gives the default, because config load errors are
+// reported where the config loads.
+func WorkspaceAtomMaxChars(workspace string) int {
+	n := config.DefaultJITConfig().AtomMaxChars
+	path := filepath.Join(workspace, ".nerd", "config.json")
+	if _, err := os.Stat(path); err != nil {
+		return n
+	}
+	uc, err := config.LoadUserConfig(path)
+	if err != nil || uc == nil {
+		return n
+	}
+	if v := uc.GetJITConfig().AtomMaxChars; v > 0 {
+		n = v
+	}
+	return n
 }

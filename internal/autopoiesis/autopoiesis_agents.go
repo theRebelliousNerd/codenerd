@@ -17,7 +17,7 @@ import (
 // =============================================================================
 
 // writeAgentSpec writes an agent specification to disk
-func (o *Orchestrator) writeAgentSpec(spec *AgentSpec) error {
+func (o *Orchestrator) writeAgentSpec(ctx context.Context, spec *AgentSpec) error {
 	// Ensure agents directory exists
 	agentsDir := o.config.AgentsDir
 	if err := ensureDir(agentsDir); err != nil {
@@ -90,12 +90,10 @@ func (o *Orchestrator) writeAgentSpec(spec *AgentSpec) error {
 	// system_prompt.md / triggers.json. Every agent autopoiesis created was
 	// therefore invisible to the runtime that is supposed to schedule it —
 	// written to disk, never spawnable. internal/system owns the canonical
-	// template (RenderAgentPromptsYAML) but importing it here would close an
-	// import cycle (system/factory.go imports autopoiesis), so the writer is a
-	// seam: SetAgentDefinitionWriter lets boot install the canonical one, and
-	// the built-in fallback emits the minimum discovery and the dream-agent
-	// metadata reader require.
-	if err := o.writeAgentPromptsYAML(spec, agentDir); err != nil {
+	// writer (WriteAgentDefinition: init's atoms, admitted) but importing it
+	// here would close an import cycle (system/factory.go imports
+	// autopoiesis), so boot installs it through SetAgentDefinitionWriter.
+	if err := o.writeAgentPromptsYAML(ctx, spec, agentDir); err != nil {
 		return err
 	}
 
@@ -235,14 +233,14 @@ var (
 )
 
 // executeAgentCreation creates a new persistent agent
-func (o *Orchestrator) executeAgentCreation(_ context.Context, action AutopoiesisAction) error {
+func (o *Orchestrator) executeAgentCreation(ctx context.Context, action AutopoiesisAction) error {
 	spec, ok := action.Payload.(*AgentSpec)
 	if !ok {
 		return fmt.Errorf("invalid payload for agent creation")
 	}
 
 	// Write the agent spec to disk
-	if err := o.writeAgentSpec(spec); err != nil {
+	if err := o.writeAgentSpec(ctx, spec); err != nil {
 		return fmt.Errorf("failed to write agent spec: %w", err)
 	}
 
@@ -258,11 +256,13 @@ func (o *Orchestrator) executeAgentCreation(_ context.Context, action Autopoiesi
 
 // AgentDefinitionWriter writes the prompts.yaml that makes an agent
 // discoverable by the shard runtime, returning the path it wrote.
+// systemPrompt is the model-written prompt of the agent: the writer stores it
+// as the agent's methodology atoms, each admitted by the generated-atom check.
 //
-// internal/system.WriteAgentDefinition has this shape. It cannot be referenced
+// internal/system.WriteAgentDefinition is the writer. It cannot be referenced
 // from here without an import cycle, so boot installs it via
-// SetAgentDefinitionWriter and the fallback below covers the un-wired case.
-type AgentDefinitionWriter func(workspace, name, role, topics string) (string, error)
+// SetAgentDefinitionWriter.
+type AgentDefinitionWriter func(ctx context.Context, workspace, name, role, topics, systemPrompt string) (string, error)
 
 // SetAgentDefinitionWriter installs the canonical prompts.yaml writer.
 func (o *Orchestrator) SetAgentDefinitionWriter(w AgentDefinitionWriter) {
@@ -271,7 +271,12 @@ func (o *Orchestrator) SetAgentDefinitionWriter(w AgentDefinitionWriter) {
 	o.agentDefWriter = w
 }
 
-func (o *Orchestrator) writeAgentPromptsYAML(spec *AgentSpec, agentDir string) error {
+// writeAgentPromptsYAML writes the agent's prompts.yaml through the installed
+// writer. There is no second template here: the one this package carried
+// wrote an unbounded identity with no content field and a priority key, so
+// a created agent's atoms were neither capped nor admitted. Without a writer
+// the creation fails and says why.
+func (o *Orchestrator) writeAgentPromptsYAML(ctx context.Context, spec *AgentSpec, agentDir string) error {
 	promptsPath := filepath.Join(agentDir, "prompts.yaml")
 	if _, err := os.Stat(promptsPath); err == nil {
 		// Never clobber an operator-edited definition.
@@ -288,40 +293,11 @@ func (o *Orchestrator) writeAgentPromptsYAML(spec *AgentSpec, agentDir string) e
 	writer := o.agentDefWriter
 	o.mu.RUnlock()
 
-	if writer != nil {
-		if _, err := writer(o.config.WorkspaceRoot, spec.Name, role, topics); err != nil {
-			return fmt.Errorf("failed to write agent definition for %s: %w", spec.Name, err)
-		}
-		return nil
+	if writer == nil {
+		return fmt.Errorf("no agent definition writer installed for %s: boot installs internal/system.WriteAgentDefinition", spec.Name)
 	}
-
-	if err := writeFile(promptsPath, []byte(renderFallbackAgentPromptsYAML(spec.Name, role, topics, spec.SystemPrompt))); err != nil {
-		return fmt.Errorf("failed to write prompts.yaml: %w", err)
+	if _, err := writer(ctx, o.config.WorkspaceRoot, spec.Name, role, topics, spec.SystemPrompt); err != nil {
+		return fmt.Errorf("failed to write agent definition for %s: %w", spec.Name, err)
 	}
 	return nil
-}
-
-// renderFallbackAgentPromptsYAML emits the minimum a discovered agent needs:
-// an identity atom, plus the "Role:" and "Topics:" lines that
-// cmd/nerd/cmd_advanced.go:parseDreamAgentMetaContent scans for when scoring
-// agents for dream-state relevance.
-func renderFallbackAgentPromptsYAML(name, role, topics, systemPrompt string) string {
-	body := strings.TrimSpace(systemPrompt)
-	if body == "" {
-		body = fmt.Sprintf("You are %s, a persistent specialist agent in the codeNERD ecosystem.", name)
-	}
-	return fmt.Sprintf(`# Prompt atoms for %[1]s
-# Generated by autopoiesis. Edit freely: this file is never overwritten.
-
-- id: "%[1]s/identity"
-  category: "identity"
-  subcategory: "%[1]s"
-  priority: 100
-  is_mandatory: true
-  description: "Identity and mission for %[1]s"
-  content_concise: |
-    Role: %[2]s
-    Topics: %[3]s
-    %[4]s
-`, name, role, topics, strings.ReplaceAll(body, "\n", "\n    "))
 }

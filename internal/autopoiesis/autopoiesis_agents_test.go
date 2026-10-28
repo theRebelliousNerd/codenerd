@@ -2,6 +2,7 @@ package autopoiesis
 
 import (
 	"codenerd/internal/atomicfile"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 func TestOrchestrator_AgentLifecycle(t *testing.T) {
 	dir := t.TempDir()
 	o := &Orchestrator{config: Config{AgentsDir: dir}}
+	installRecordingWriter(t, o)
 
 	spec := &AgentSpec{
 		Name:         "reviewer",
@@ -26,7 +28,7 @@ func TestOrchestrator_AgentLifecycle(t *testing.T) {
 		Memory:       MemorySpec{Enabled: true},
 	}
 
-	if err := o.writeAgentSpec(spec); err != nil {
+	if err := o.writeAgentSpec(context.Background(), spec); err != nil {
 		t.Fatalf("writeAgentSpec: %v", err)
 	}
 

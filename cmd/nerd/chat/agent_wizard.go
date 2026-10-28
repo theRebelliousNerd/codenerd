@@ -144,7 +144,7 @@ func (m Model) runAgentResearch(wizard *AgentWizardState) tea.Cmd {
 			// The agent still exists on disk, with a domain atom that says
 			// nothing has been researched, so the research can be re-run.
 			if !alreadyDefined {
-				if _, werr := coresys.WriteAgentDefinition(m.workspace, wizard.Name, wizard.Role, wizard.Topics, ""); werr != nil {
+				if _, werr := coresys.WriteAgentDefinition(ctx, m.workspace, wizard.Name, wizard.Role, wizard.Topics, "", ""); werr != nil {
 					logging.Session("agent wizard: prompts.yaml for %q was not written: %v", wizard.Name, werr)
 				}
 			}
@@ -157,7 +157,7 @@ func (m Model) runAgentResearch(wizard *AgentWizardState) tea.Cmd {
 		knowledgeNote := "Populated via Deep Research; written into the domain atom of prompts.yaml"
 		if alreadyDefined {
 			knowledgeNote = "Existing prompts.yaml kept as is; the research summary below was NOT written into it"
-		} else if _, werr := coresys.WriteAgentDefinition(m.workspace, wizard.Name, wizard.Role, wizard.Topics, result); werr != nil {
+		} else if _, werr := coresys.WriteAgentDefinition(ctx, m.workspace, wizard.Name, wizard.Role, wizard.Topics, "", result); werr != nil {
 			logging.Session("agent wizard: prompts.yaml for %q was not written: %v", wizard.Name, werr)
 			knowledgeNote = fmt.Sprintf("prompts.yaml was not written (%v); the research summary is below", werr)
 		}

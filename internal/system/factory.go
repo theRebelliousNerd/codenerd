@@ -1940,6 +1940,11 @@ func initAutopoiesisAndBrowser(bctx *bootContext) error {
 
 	autopoiesisConfig := autopoiesis.DefaultConfig(bctx.workspace)
 	bctx.poiesis = autopoiesis.NewOrchestrator(bctx.llmClient, autopoiesisConfig)
+	// An agent autopoiesis authors is written by the one agent-definition
+	// writer: init's atoms, its system prompt admitted as methodology.
+	bctx.poiesis.SetAgentDefinitionWriter(func(ctx context.Context, workspace, name, role, topics, systemPrompt string) (string, error) {
+		return WriteAgentDefinition(ctx, workspace, name, role, topics, systemPrompt, "")
+	})
 	// Orchestrator now takes types.Kernel directly, so the AutopoiesisBridge adapter is no longer needed here - step 2 of the KernelInterface deprecation plan documented on types.KernelInterface.
 	bctx.poiesis.SetKernel(bctx.kernel)
 
