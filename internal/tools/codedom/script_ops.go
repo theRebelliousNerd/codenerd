@@ -103,7 +103,21 @@ func executeScriptRepoint(ctx context.Context, from StructureSymbol, to string, 
 			})
 		}
 	}
-	if err := commitFiles(ctx, planned); err != nil {
+	// A file the rename does not write can gain a reference before the
+	// write; the sites are resolved again under the commit lock.
+	reads := scriptSitesUnchanged(from, sites, func(ctx context.Context) ([]codemodel.RenameSite, error) {
+		models, err := loadScriptModels(ctx, root)
+		if err != nil {
+			return nil, err
+		}
+		decl := modelByPath(models, from.File)
+		if decl == nil || decl.Element(from.Key) == nil {
+			return nil, fmt.Errorf("%s no longer declares %s", from.File, from.Key)
+		}
+		now, _, err := scriptSites(decl, from.Key, models)
+		return now, err
+	})
+	if err := commitFiles(ctx, planned, reads); err != nil {
 		return "", err
 	}
 	for _, t := range touched {

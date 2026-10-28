@@ -21,6 +21,15 @@ func (s *StructureIndex) Provider() codedom.StructureProvider {
 
 var _ codedom.StructureProvider = (*structureProvider)(nil)
 
+// observation is a refresh's stats as the envelope the tools render.
+func observation(stats StructureStats) codedom.Observation {
+	obs := codedom.Observation{Generation: stats.Generation, Index: stats.Line()}
+	for _, d := range stats.Deficits {
+		obs.Deficits = append(obs.Deficits, codedom.ObservationDeficit{Path: d.Path, Reason: d.Reason})
+	}
+	return obs
+}
+
 func toSymbol(s StructSymbol) codedom.StructureSymbol {
 	return codedom.StructureSymbol{
 		Ref: s.Ref, Key: s.Key, ID: s.ID, Kind: s.Kind, File: s.File,
@@ -37,75 +46,76 @@ func toSymbols(in []StructSymbol) []codedom.StructureSymbol {
 	return out
 }
 
-func (p *structureProvider) FindSymbol(ctx context.Context, q codedom.SymbolQuery) ([]codedom.StructureSymbol, string, error) {
+func (p *structureProvider) FindSymbol(ctx context.Context, q codedom.SymbolQuery) ([]codedom.StructureSymbol, codedom.Observation, error) {
 	symbols, stats, err := p.index.FindSymbol(ctx, SymbolFilter{Names: q.Names, Pattern: q.Pattern, Kind: q.Kind, Path: q.Path})
-	return toSymbols(symbols), stats.Line(), err
+	return toSymbols(symbols), observation(stats), err
 }
 
-func (p *structureProvider) Outline(ctx context.Context, path string) ([]codedom.StructureSymbol, string, error) {
+func (p *structureProvider) Outline(ctx context.Context, path string) ([]codedom.StructureSymbol, codedom.Observation, error) {
 	symbols, stats, err := p.index.Outline(ctx, path)
-	return toSymbols(symbols), stats.Line(), err
+	return toSymbols(symbols), observation(stats), err
 }
 
-func (p *structureProvider) Callers(ctx context.Context, query string) ([]codedom.StructureSymbol, []codedom.StructureCaller, string, error) {
+func (p *structureProvider) Callers(ctx context.Context, query string) ([]codedom.StructureSymbol, []codedom.StructureCaller, codedom.Observation, error) {
 	targets, sites, stats, err := p.index.Callers(ctx, query)
 	callers := make([]codedom.StructureCaller, 0, len(sites))
 	for _, s := range sites {
 		callers = append(callers, codedom.StructureCaller{Caller: s.Caller, File: s.File, Line: s.Line, Match: s.Match})
 	}
-	return toSymbols(targets), callers, stats.Line(), err
+	return toSymbols(targets), callers, observation(stats), err
 }
 
-func (p *structureProvider) Callees(ctx context.Context, query string) ([]codedom.StructureSymbol, []codedom.StructureCallee, string, error) {
+func (p *structureProvider) Callees(ctx context.Context, query string) ([]codedom.StructureSymbol, []codedom.StructureCallee, codedom.Observation, error) {
 	targets, calls, stats, err := p.index.Callees(ctx, query)
 	callees := make([]codedom.StructureCallee, 0, len(calls))
 	for _, c := range calls {
 		callees = append(callees, codedom.StructureCallee{Call: c.Call, Line: c.Line, Candidates: c.Candidates})
 	}
-	return toSymbols(targets), callees, stats.Line(), err
+	return toSymbols(targets), callees, observation(stats), err
 }
 
-func (p *structureProvider) Unreferenced(ctx context.Context, path string) ([]codedom.StructureSymbol, string, error) {
+func (p *structureProvider) Unreferenced(ctx context.Context, path string) ([]codedom.StructureSymbol, codedom.Observation, error) {
 	symbols, stats, err := p.index.Unreferenced(ctx, path)
-	return toSymbols(symbols), stats.Line(), err
+	return toSymbols(symbols), observation(stats), err
 }
 
-func (p *structureProvider) Resolve(ctx context.Context, ref string) ([]codedom.StructureSymbol, string, error) {
+func (p *structureProvider) Resolve(ctx context.Context, ref string) ([]codedom.StructureSymbol, codedom.Observation, error) {
 	symbols, stats, err := p.index.Resolve(ctx, ref)
-	return toSymbols(symbols), stats.Line(), err
+	return toSymbols(symbols), observation(stats), err
 }
 
-func (p *structureProvider) Importers(ctx context.Context, pkg string) (string, []codedom.StructureImporter, string, error) {
+func (p *structureProvider) Importers(ctx context.Context, pkg string) (string, []codedom.StructureImporter, codedom.Observation, error) {
 	path, rows, stats, err := p.index.Importers(ctx, pkg)
 	out := make([]codedom.StructureImporter, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, codedom.StructureImporter{File: r.File, Name: r.Name, Line: r.Line})
 	}
-	return path, out, stats.Line(), err
+	return path, out, observation(stats), err
 }
 
-func (p *structureProvider) FindText(ctx context.Context, text, in, path string) ([]codedom.StructureTextHit, string, error) {
+func (p *structureProvider) FindText(ctx context.Context, text, in, path string) ([]codedom.StructureTextHit, codedom.Observation, error) {
 	hits, stats, err := p.index.FindText(ctx, text, in, path)
 	out := make([]codedom.StructureTextHit, 0, len(hits))
 	for _, h := range hits {
 		out = append(out, codedom.StructureTextHit{File: h.File, Line: h.Line, In: h.In, Text: h.Text, Ref: h.Ref})
 	}
-	return out, stats.Line(), err
+	return out, observation(stats), err
 }
 
-func (p *structureProvider) Uses(ctx context.Context, ref string) ([]codedom.StructureSymbol, []codedom.StructureUse, string, error) {
+func (p *structureProvider) Uses(ctx context.Context, ref string) ([]codedom.StructureSymbol, []codedom.StructureUse, codedom.Observation, error) {
 	target, uses, stats, err := p.index.Uses(ctx, ref)
 	if err != nil {
-		return nil, nil, stats.Line(), err
+		return nil, nil, observation(stats), err
 	}
 	out := make([]codedom.StructureUse, 0, len(uses))
 	for _, u := range uses {
 		out = append(out, codedom.StructureUse{
 			File: u.File, Line: u.Line, Column: u.Column, Start: u.Start, End: u.End,
 			Qualifier: u.Qualifier, Ref: u.Ref, Match: u.Match,
+			Digest: u.Digest, Text: u.Text,
 		})
 	}
-	return []codedom.StructureSymbol{toSymbol(*target)}, out, stats.Line(), nil
+	return []codedom.StructureSymbol{toSymbol(*target)}, out, observation(stats), nil
 }
 
 func (p *structureProvider) FileStatus(ctx context.Context, path string) (codedom.FileStatus, error) {
@@ -121,11 +131,11 @@ func (p *structureProvider) ImportResolver(ctx context.Context, path string) (co
 	return p.index.ImportResolver(ctx, path)
 }
 
-func (p *structureProvider) PredicateOutline(ctx context.Context, pred string) ([]codedom.PredicateRow, string, error) {
+func (p *structureProvider) PredicateOutline(ctx context.Context, pred string) ([]codedom.PredicateRow, codedom.Observation, error) {
 	rows, stats, err := p.index.PredicateOutline(ctx, pred)
 	out := make([]codedom.PredicateRow, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, codedom.PredicateRow{Role: r.Role, Symbol: toSymbol(r.Symbol)})
 	}
-	return out, stats.Line(), err
+	return out, observation(stats), err
 }

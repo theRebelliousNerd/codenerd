@@ -94,6 +94,11 @@ type StructureUse struct {
 	// Match is "exact" when the package ties the use to the symbol, and
 	// "by-name" for a method reached through a value of unknown type.
 	Match string
+	// Digest is the content identity (hex SHA-256 of the raw bytes) of the
+	// file Start and End were measured on, and Text the span they held. An
+	// edit planned from a use verifies both before it rewrites anything.
+	Digest string
+	Text   string
 }
 
 // FileStatus is what the index knows about one file's parse.
@@ -115,27 +120,28 @@ type PredicateRow struct {
 // StructureProvider is implemented by world.StructureIndex. It is an
 // interface here because internal/world imports this package.
 type StructureProvider interface {
-	FindSymbol(ctx context.Context, q SymbolQuery) ([]StructureSymbol, string, error)
-	Outline(ctx context.Context, path string) ([]StructureSymbol, string, error)
-	Callers(ctx context.Context, query string) ([]StructureSymbol, []StructureCaller, string, error)
-	Callees(ctx context.Context, query string) ([]StructureSymbol, []StructureCallee, string, error)
-	Unreferenced(ctx context.Context, path string) ([]StructureSymbol, string, error)
+	FindSymbol(ctx context.Context, q SymbolQuery) ([]StructureSymbol, Observation, error)
+	Outline(ctx context.Context, path string) ([]StructureSymbol, Observation, error)
+	Callers(ctx context.Context, query string) ([]StructureSymbol, []StructureCaller, Observation, error)
+	Callees(ctx context.Context, query string) ([]StructureSymbol, []StructureCallee, Observation, error)
+	Unreferenced(ctx context.Context, path string) ([]StructureSymbol, Observation, error)
 	// Resolve returns the elements a ref names: one for a ref as the tools
 	// print it, several for a short name that is only a search.
-	Resolve(ctx context.Context, ref string) ([]StructureSymbol, string, error)
+	Resolve(ctx context.Context, ref string) ([]StructureSymbol, Observation, error)
 	// Importers returns the import path pkg resolved to and the files
 	// importing it.
-	Importers(ctx context.Context, pkg string) (string, []StructureImporter, string, error)
-	FindText(ctx context.Context, text, in, path string) ([]StructureTextHit, string, error)
+	Importers(ctx context.Context, pkg string) (string, []StructureImporter, Observation, error)
+	FindText(ctx context.Context, text, in, path string) ([]StructureTextHit, Observation, error)
 	// Uses returns the symbol a ref names and every use of it outside its own
-	// declaration.
-	Uses(ctx context.Context, ref string) ([]StructureSymbol, []StructureUse, string, error)
+	// declaration. An empty list establishes no use only when the
+	// observation is complete.
+	Uses(ctx context.Context, ref string) ([]StructureSymbol, []StructureUse, Observation, error)
 	FileStatus(ctx context.Context, path string) (FileStatus, error)
 	// CanonicalRefs maps one file's element keys to their workspace refs.
 	CanonicalRefs(ctx context.Context, path string) (map[string]string, error)
 	// ImportResolver answers import derivation's questions for one file.
 	ImportResolver(ctx context.Context, path string) (codemodel.Resolver, error)
-	PredicateOutline(ctx context.Context, pred string) ([]PredicateRow, string, error)
+	PredicateOutline(ctx context.Context, pred string) ([]PredicateRow, Observation, error)
 }
 
 // Guarded for the same reason globalTestProvider is: a process can hold more
@@ -170,46 +176,6 @@ func optionalStructureProvider() StructureProvider {
 	return globalStructureProvider
 }
 
-// structurePageSize bounds one answer. It is a page, never a cut: the footer
-// says how many rows exist and which offset continues them.
-const structurePageSize = 150
-
-func pageArgs(args map[string]any) int {
-	switch v := args["offset"].(type) {
-	case float64:
-		return max(int(v), 0)
-	case int:
-		return max(v, 0)
-	}
-	return 0
-}
-
-func renderPage(rows []string, offset int, header, index, emptyHint string) string {
-	var sb strings.Builder
-	sb.WriteString(header)
-	sb.WriteString("\n")
-	if len(rows) == 0 {
-		sb.WriteString(emptyHint)
-		sb.WriteString("\n" + tools.StructuralNoRows + "\n")
-	}
-	end := min(offset+structurePageSize, len(rows))
-	if offset < len(rows) {
-		for _, row := range rows[offset:end] {
-			sb.WriteString(row)
-			sb.WriteString("\n")
-		}
-	}
-	if end < len(rows) {
-		fmt.Fprintf(&sb, "-- rows %d-%d of %d; call again with offset=%d for the rest\n", offset+1, end, len(rows), end)
-	} else if len(rows) > 0 {
-		fmt.Fprintf(&sb, "-- %d rows, complete\n", len(rows))
-	}
-	if index != "" {
-		fmt.Fprintf(&sb, "-- index: %s\n", index)
-	}
-	return sb.String()
-}
-
 func symbolRow(sym StructureSymbol) string {
 	row := fmt.Sprintf("%s:%d-%d  %s  %s", sym.File, sym.StartLine, sym.EndLine, sym.Kind, sym.Ref)
 	if sym.Revision != "" {
@@ -232,6 +198,8 @@ func symbolRows(symbols []StructureSymbol) []string {
 	return rows
 }
 
+const cursorHelp = "The cursor a previous answer's footer printed, to continue its rows. It continues only that query, and only while the workspace is unchanged."
+
 const symbolQueryHelp = "A ref as the tools print it (internal/world.StructureIndex.Refresh), or a short name that is searched: a bare name (evaluate), a receiver-qualified method (RealKernel.evaluate), a package-qualified name (core.NewRealKernel)."
 
 // FindSymbolTool locates declarations by name, pattern, kind and path.
@@ -252,7 +220,7 @@ func FindSymbolTool() *tools.Tool {
 				"pattern": {Type: "string", Description: "Regular expression over the declared name, e.g. ^Test(Parse|Load) or Provider$"},
 				"kind":    {Type: "string", Description: "Optional filter: function, method, hook, component, class, struct, interface, type, enum, namespace, const, var, decl, rule, fact"},
 				"path":    {Type: "string", Description: "Optional workspace-relative directory (searched recursively) or file to search within"},
-				"offset":  {Type: "integer", Description: "Row to continue from when a previous answer said there were more"},
+				"cursor":  {Type: "string", Description: cursorHelp},
 			},
 		},
 	}
@@ -272,12 +240,16 @@ func executeFindSymbol(ctx context.Context, args map[string]any) (string, error)
 	if len(names) == 0 && strings.TrimSpace(pattern) == "" {
 		return "", fmt.Errorf("name or pattern is required")
 	}
+	page, err := pageOf("find_symbol", args)
+	if err != nil {
+		return "", err
+	}
 	provider, err := structureProvider()
 	if err != nil {
 		return "", err
 	}
 	q := SymbolQuery{Names: names, Pattern: strings.TrimSpace(pattern), Kind: strings.TrimSpace(kind), Path: strings.TrimSpace(path)}
-	symbols, index, err := provider.FindSymbol(ctx, q)
+	symbols, obs, err := provider.FindSymbol(ctx, q)
 	if err != nil {
 		return "", err
 	}
@@ -294,8 +266,8 @@ func executeFindSymbol(ctx context.Context, args map[string]any) (string, error)
 	if q.Path != "" {
 		header = strings.TrimSuffix(header, ":") + " under " + q.Path + ":"
 	}
-	return renderPage(symbolRows(symbols), pageArgs(args), header, index,
-		"none. A name is case-sensitive and must be the identifier as declared; pattern takes a regular expression; package_outline lists what a directory declares."), nil
+	return page.render(symbolRows(symbols), header, obs,
+		"none. A name is case-sensitive and must be the identifier as declared; pattern takes a regular expression; package_outline lists what a directory declares.")
 }
 
 // PackageOutlineTool lists every declaration in a directory or file.
@@ -312,7 +284,7 @@ func PackageOutlineTool() *tools.Tool {
 			Required: []string{"path"},
 			Properties: map[string]tools.Property{
 				"path":   {Type: "string", Description: "Workspace-relative directory (internal/context) or file (internal/context/activation.go)"},
-				"offset": {Type: "integer", Description: "Row to continue from when a previous answer said there were more"},
+				"cursor": {Type: "string", Description: cursorHelp},
 			},
 		},
 	}
@@ -323,17 +295,21 @@ func executePackageOutline(ctx context.Context, args map[string]any) (string, er
 	if strings.TrimSpace(path) == "" {
 		return "", fmt.Errorf("path is required")
 	}
+	page, err := pageOf("package_outline", args)
+	if err != nil {
+		return "", err
+	}
 	provider, err := structureProvider()
 	if err != nil {
 		return "", err
 	}
-	symbols, index, err := provider.Outline(ctx, path)
+	symbols, obs, err := provider.Outline(ctx, path)
 	if err != nil {
 		return "", err
 	}
 	logging.Tools("package_outline: %s -> %d declarations", path, len(symbols))
-	return renderPage(symbolRows(symbols), pageArgs(args), fmt.Sprintf("declarations in %s:", path), index,
-		"none. The path holds no Go, Mangle, Python, TypeScript or JavaScript file the index parsed; it is workspace-relative and a directory is not searched recursively."), nil
+	return page.render(symbolRows(symbols), fmt.Sprintf("declarations in %s:", path), obs,
+		"none. The path holds no Go, Mangle, Python, TypeScript or JavaScript file the index parsed; it is workspace-relative and a directory is not searched recursively.")
 }
 
 // CallersOfTool lists the call sites of a function or method.
@@ -350,7 +326,7 @@ func CallersOfTool() *tools.Tool {
 			Required: []string{"symbol"},
 			Properties: map[string]tools.Property{
 				"symbol": {Type: "string", Description: symbolQueryHelp},
-				"offset": {Type: "integer", Description: "Row to continue from when a previous answer said there were more"},
+				"cursor": {Type: "string", Description: cursorHelp},
 			},
 		},
 	}
@@ -361,17 +337,21 @@ func executeCallersOf(ctx context.Context, args map[string]any) (string, error) 
 	if strings.TrimSpace(symbol) == "" {
 		return "", fmt.Errorf("symbol is required")
 	}
+	page, err := pageOf("callers_of", args)
+	if err != nil {
+		return "", err
+	}
 	provider, err := structureProvider()
 	if err != nil {
 		return "", err
 	}
-	targets, callers, index, err := provider.Callers(ctx, symbol)
+	targets, callers, obs, err := provider.Callers(ctx, symbol)
 	if err != nil {
 		return "", err
 	}
 	if len(targets) == 0 {
-		return renderPage(nil, 0, fmt.Sprintf("callers of %q:", symbol), index,
-			"no function or method has that name, so there is nothing to find callers of. find_symbol shows what is declared."), nil
+		return page.render(nil, fmt.Sprintf("callers of %q:", symbol), obs,
+			"no function or method has that name, so there is nothing to find callers of. find_symbol shows what is declared.")
 	}
 	var header strings.Builder
 	fmt.Fprintf(&header, "callers of %q, which names:", symbol)
@@ -383,8 +363,8 @@ func executeCallersOf(ctx context.Context, args map[string]any) (string, error) 
 		rows = append(rows, fmt.Sprintf("%s:%d  %s  in %s", c.File, c.Line, c.Match, c.Caller))
 	}
 	logging.Tools("callers_of: %q -> %d targets, %d call sites", symbol, len(targets), len(callers))
-	return renderPage(rows, pageArgs(args), header.String(), index,
-		"no call site anywhere in the workspace. A function passed as a value or reached by reflection is not a call site; unreferenced_symbols checks for any use of the name."), nil
+	return page.render(rows, header.String(), obs,
+		"no call site anywhere in the workspace. A function passed as a value or reached by reflection is not a call site; unreferenced_symbols checks for any use of the name.")
 }
 
 // CalleesOfTool lists the calls made inside a function or method.
@@ -401,7 +381,7 @@ func CalleesOfTool() *tools.Tool {
 			Required: []string{"symbol"},
 			Properties: map[string]tools.Property{
 				"symbol": {Type: "string", Description: symbolQueryHelp},
-				"offset": {Type: "integer", Description: "Row to continue from when a previous answer said there were more"},
+				"cursor": {Type: "string", Description: cursorHelp},
 			},
 		},
 	}
@@ -412,17 +392,21 @@ func executeCalleesOf(ctx context.Context, args map[string]any) (string, error) 
 	if strings.TrimSpace(symbol) == "" {
 		return "", fmt.Errorf("symbol is required")
 	}
+	page, err := pageOf("callees_of", args)
+	if err != nil {
+		return "", err
+	}
 	provider, err := structureProvider()
 	if err != nil {
 		return "", err
 	}
-	targets, callees, index, err := provider.Callees(ctx, symbol)
+	targets, callees, obs, err := provider.Callees(ctx, symbol)
 	if err != nil {
 		return "", err
 	}
 	if len(targets) == 0 {
-		return renderPage(nil, 0, fmt.Sprintf("calls made by %q:", symbol), index,
-			"no function or method has that name. find_symbol shows what is declared."), nil
+		return page.render(nil, fmt.Sprintf("calls made by %q:", symbol), obs,
+			"no function or method has that name. find_symbol shows what is declared.")
 	}
 	var header strings.Builder
 	fmt.Fprintf(&header, "calls made by %q, which names:", symbol)
@@ -438,7 +422,7 @@ func executeCalleesOf(ctx context.Context, args map[string]any) (string, error) 
 		rows = append(rows, row)
 	}
 	logging.Tools("callees_of: %q -> %d targets, %d calls", symbol, len(targets), len(callees))
-	return renderPage(rows, pageArgs(args), header.String(), index, "it makes no calls."), nil
+	return page.render(rows, header.String(), obs, "it makes no calls.")
 }
 
 // UnreferencedSymbolsTool lists declarations nothing names.
@@ -446,7 +430,7 @@ func UnreferencedSymbolsTool() *tools.Tool {
 	return &tools.Tool{
 		Name:          "unreferenced_symbols",
 		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryGeneral, tools.CategoryResearch},
-		Description:   "List the Go, Python, TypeScript and JavaScript declarations under a directory whose name occurs nowhere else in the workspace: code that exists and nothing uses. Conservative: any use of the name anywhere counts as a reference, so every row is a real orphan by name; methods may still satisfy an interface. Use this to answer what is built but not wired.",
+		Description:   "List the Go, Python, TypeScript and JavaScript declarations under a directory whose name occurs nowhere else in the workspace: code that exists and nothing uses. Conservative: any use of the name anywhere counts as a reference, so when the footer reports a complete observation every row is an orphan by name; methods may still satisfy an interface, and reflection, registration by string and external consumers are outside what a name count sees. Use this to answer what is built but not wired.",
 		Category:      tools.CategoryCode,
 		Priority:      91,
 		Effect:        tools.EffectRead,
@@ -455,7 +439,7 @@ func UnreferencedSymbolsTool() *tools.Tool {
 			Required: []string{"path"},
 			Properties: map[string]tools.Property{
 				"path":   {Type: "string", Description: "Workspace-relative directory, searched recursively (internal/context), or one file"},
-				"offset": {Type: "integer", Description: "Row to continue from when a previous answer said there were more"},
+				"cursor": {Type: "string", Description: cursorHelp},
 			},
 		},
 	}
@@ -466,15 +450,19 @@ func executeUnreferencedSymbols(ctx context.Context, args map[string]any) (strin
 	if strings.TrimSpace(path) == "" {
 		return "", fmt.Errorf("path is required")
 	}
+	page, err := pageOf("unreferenced_symbols", args)
+	if err != nil {
+		return "", err
+	}
 	provider, err := structureProvider()
 	if err != nil {
 		return "", err
 	}
-	symbols, index, err := provider.Unreferenced(ctx, path)
+	symbols, obs, err := provider.Unreferenced(ctx, path)
 	if err != nil {
 		return "", err
 	}
 	logging.Tools("unreferenced_symbols: %s -> %d declarations", path, len(symbols))
-	return renderPage(symbolRows(symbols), pageArgs(args), fmt.Sprintf("declarations under %s that nothing else names:", path), index,
-		"none: every declaration under that path is named somewhere else in the workspace."), nil
+	return page.render(symbolRows(symbols), fmt.Sprintf("declarations under %s that nothing else names:", path), obs,
+		"none: every declaration under that path is named somewhere else in the workspace.")
 }

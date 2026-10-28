@@ -30,7 +30,7 @@ func ImportersOfTool() *tools.Tool {
 			Required: []string{"package"},
 			Properties: map[string]tools.Property{
 				"package": {Type: "string", Description: "A Go workspace directory (internal/features), an import path (codenerd/internal/features, gopkg.in/yaml.v3), a Go package name declared in one directory, or the workspace-relative file a Python or TypeScript import resolves to (hooks.tsx, pkg/services.py)"},
-				"offset":  {Type: "integer", Description: "Row to continue from when a previous answer said there were more"},
+				"cursor":  {Type: "string", Description: cursorHelp},
 			},
 		},
 	}
@@ -41,11 +41,15 @@ func executeImportersOf(ctx context.Context, args map[string]any) (string, error
 	if strings.TrimSpace(pkg) == "" {
 		return "", fmt.Errorf("package is required")
 	}
+	page, err := pageOf("importers_of", args)
+	if err != nil {
+		return "", err
+	}
 	provider, err := structureProvider()
 	if err != nil {
 		return "", err
 	}
-	path, importers, index, err := provider.Importers(ctx, pkg)
+	path, importers, obs, err := provider.Importers(ctx, pkg)
 	if err != nil {
 		return "", err
 	}
@@ -54,8 +58,8 @@ func executeImportersOf(ctx context.Context, args map[string]any) (string, error
 		rows = append(rows, fmt.Sprintf("%s:%d  imports %q as %s", imp.File, imp.Line, path, imp.Name))
 	}
 	logging.Tools("importers_of: %q (%s) -> %d files", pkg, path, len(importers))
-	return renderPage(rows, pageArgs(args), fmt.Sprintf("files importing %s:", path), index,
-		"none: no parsed file in the workspace imports it."), nil
+	return page.render(rows, fmt.Sprintf("files importing %s:", path), obs,
+		"none: no parsed file in the workspace imports it.")
 }
 
 // FindTextTool finds text in string literals, comments or identifiers and
@@ -76,7 +80,7 @@ func FindTextTool() *tools.Tool {
 				"text":   {Type: "string", Description: "Text to find, case-sensitive, as it appears in the literal or comment"},
 				"in":     {Type: "string", Description: "strings, comments, identifiers, or all; default strings and comments", Enum: []any{"strings", "comments", "identifiers", "all"}},
 				"path":   {Type: "string", Description: "Optional workspace-relative directory (searched recursively) or file"},
-				"offset": {Type: "integer", Description: "Row to continue from when a previous answer said there were more"},
+				"cursor": {Type: "string", Description: cursorHelp},
 			},
 		},
 	}
@@ -92,11 +96,15 @@ func executeFindText(ctx context.Context, args map[string]any) (string, error) {
 	if strings.TrimSpace(path) != "" && tools.IsSecretPath(path) {
 		return "", fmt.Errorf("%s is a secret file (execution.secret_paths); its contents are never searched", path)
 	}
+	page, err := pageOf("find_text", args)
+	if err != nil {
+		return "", err
+	}
 	provider, err := structureProvider()
 	if err != nil {
 		return "", err
 	}
-	hits, index, err := provider.FindText(ctx, text, in, path)
+	hits, obs, err := provider.FindText(ctx, text, in, path)
 	if err != nil {
 		return "", err
 	}
@@ -113,8 +121,8 @@ func executeFindText(ctx context.Context, args map[string]any) (string, error) {
 	if strings.TrimSpace(path) != "" {
 		where = path
 	}
-	return renderPage(rows, pageArgs(args), fmt.Sprintf("%q in %s:", text, where), index,
-		"none. The search is case-sensitive and covers string literals and comments unless in says otherwise; find_symbol finds declarations by name."), nil
+	return page.render(rows, fmt.Sprintf("%q in %s:", text, where), obs,
+		"none. The search is case-sensitive and covers string literals and comments unless in says otherwise; find_symbol finds declarations by name.")
 }
 
 // PredicateOutlineTool shows where a Mangle predicate is declared, derived
@@ -132,7 +140,7 @@ func PredicateOutlineTool() *tools.Tool {
 			Required: []string{"predicate"},
 			Properties: map[string]tools.Property{
 				"predicate": {Type: "string", Description: "Predicate name, with or without its arity (modified_function or modified_function/2)"},
-				"offset":    {Type: "integer", Description: "Row to continue from when a previous answer said there were more"},
+				"cursor":    {Type: "string", Description: cursorHelp},
 			},
 		},
 	}
@@ -143,11 +151,15 @@ func executePredicateOutline(ctx context.Context, args map[string]any) (string, 
 	if strings.TrimSpace(pred) == "" {
 		return "", fmt.Errorf("predicate is required")
 	}
+	page, err := pageOf("predicate_outline", args)
+	if err != nil {
+		return "", err
+	}
 	provider, err := structureProvider()
 	if err != nil {
 		return "", err
 	}
-	rows, index, err := provider.PredicateOutline(ctx, pred)
+	rows, obs, err := provider.PredicateOutline(ctx, pred)
 	if err != nil {
 		return "", err
 	}
@@ -156,6 +168,6 @@ func executePredicateOutline(ctx context.Context, args map[string]any) (string, 
 		out = append(out, r.Role+"  "+symbolRow(r.Symbol))
 	}
 	logging.Tools("predicate_outline: %q -> %d statements", pred, len(rows))
-	return renderPage(out, pageArgs(args), fmt.Sprintf("Mangle statements concerning %s:", pred), index,
-		"none: no Mangle file declares, derives or reads a predicate of that name."), nil
+	return page.render(out, fmt.Sprintf("Mangle statements concerning %s:", pred), obs,
+		"none: no Mangle file declares, derives or reads a predicate of that name.")
 }

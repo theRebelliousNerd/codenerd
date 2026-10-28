@@ -7,7 +7,6 @@ import (
 	"go/parser"
 	"go/scanner"
 	"go/token"
-	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -148,8 +147,10 @@ func (s *StructureIndex) FindText(ctx context.Context, text, in, path string) ([
 	}
 	root := s.root
 	s.mu.Unlock()
+	stats = stats.scoped(s.target(path))
 
 	results := make([][]StructTextHit, len(jobs))
+	readErrs := make([]error, len(jobs))
 	sem := make(chan struct{}, max(min(runtime.NumCPU(), 16), 2))
 	var wg sync.WaitGroup
 	for i, j := range jobs {
@@ -159,8 +160,9 @@ func (s *StructureIndex) FindText(ctx context.Context, text, in, path string) ([
 			if ctx.Err() != nil {
 				return
 			}
-			data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(j.canonical)))
+			data, err := structReadFile(filepath.Join(root, filepath.FromSlash(j.canonical)))
 			if err != nil {
+				readErrs[i] = err
 				return
 			}
 			src := codemodel.Normalize(string(data))
@@ -185,7 +187,11 @@ func (s *StructureIndex) FindText(ctx context.Context, text, in, path string) ([
 		return nil, stats, err
 	}
 	var out []StructTextHit
-	for _, r := range results {
+	for i, r := range results {
+		if err := readErrs[i]; err != nil {
+			// A file the search could not read is not a file without the text.
+			stats.Deficits = append(stats.Deficits, StructDeficit{Path: jobs[i].canonical, Reason: "read failed: " + ioReason(err)})
+		}
 		out = append(out, r...)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -312,7 +318,16 @@ type StructUse struct {
 	Qualifier    string
 	Ref          string
 	Match        string
+	// Digest is the content identity of the bytes Start and End index, and
+	// Text the span they held. An edit planned from a use verifies both
+	// before it rewrites anything.
+	Digest string
+	Text   string
 }
+
+// usesAttempts bounds how often Uses observes again when a candidate file
+// changed between the refresh that selected it and the read of its source.
+const usesAttempts = 3
 
 // Uses returns the symbol a ref names and every use of it outside its own
 // declaration: bare uses in its package, qualified uses in every importer.
@@ -320,32 +335,57 @@ type StructUse struct {
 // know, uses are the selectors of that name in the files that also name the
 // receiver type, marked by-name. For a Mangle Decl, they are the statements
 // that derive or read the predicate.
+//
+// The stats carry every deficit of the observation: the refresh's, a
+// candidate file that could not be read or parsed, and one that kept
+// changing while it was read. A delete or a repoint must not take an empty
+// list with deficits as "no uses"
+// (Docs/audits/structure-coverage-and-refactor-preconditions.md, S2).
 func (s *StructureIndex) Uses(ctx context.Context, ref string) (*StructSymbol, []StructUse, StructureStats, error) {
+	for attempt := 1; ; attempt++ {
+		target, uses, stats, moved, err := s.usesOnce(ctx, ref)
+		if err != nil || len(moved) == 0 {
+			return target, uses, stats, err
+		}
+		if attempt == usesAttempts {
+			for _, path := range moved {
+				stats.Deficits = append(stats.Deficits, StructDeficit{Path: path, Reason: "changed while its uses were read"})
+			}
+			return target, uses, stats, nil
+		}
+	}
+}
+
+// usesOnce is one observation of a symbol's uses. moved lists the candidate
+// files whose bytes no longer matched the refresh that selected them; their
+// uses are left out and the caller observes again.
+func (s *StructureIndex) usesOnce(ctx context.Context, ref string) (*StructSymbol, []StructUse, StructureStats, []string, error) {
 	s.mu.Lock()
 	stats, err := s.refreshLocked(ctx)
 	if err != nil {
 		s.mu.Unlock()
-		return nil, nil, stats, err
+		return nil, nil, stats, nil, err
 	}
 	matches := s.resolveAnyLocked(strings.TrimSpace(ref))
 	if len(matches) != 1 {
 		s.mu.Unlock()
 		if len(matches) == 0 {
-			return nil, nil, stats, fmt.Errorf("no element is named %q; find_symbol searches by name", ref)
+			return nil, nil, stats, nil, fmt.Errorf("no element is named %q; find_symbol searches by name", ref)
 		}
-		return nil, nil, stats, ambiguityError(ref, matches)
+		return nil, nil, stats, nil, ambiguityError(ref, matches)
 	}
 	target := matches[0]
 
 	if target.lang == codemodel.LangMangle {
 		defer s.mu.Unlock()
-		return &target, s.mangleUsesLocked(target), stats, nil
+		return &target, s.mangleUsesLocked(target), stats, nil, nil
 	}
 
 	importPath := s.importPathOfDir(target.dir)
 	type candidate struct {
 		canonical string
 		f         *structFile
+		digest    string
 		samePkg   bool
 		// qualifiers are the names the file imports the target's package
 		// under; a file may import one path under two names.
@@ -356,8 +396,9 @@ func (s *StructureIndex) Uses(ctx context.Context, ref string) (*StructSymbol, [
 		if f.lang != codemodel.LangGo {
 			continue
 		}
+		digest := fingerprintDigest(f.fingerprint)
 		if f.dir == target.dir && f.pkg == target.pkg {
-			cands = append(cands, candidate{canonical: canonical, f: f, samePkg: true})
+			cands = append(cands, candidate{canonical: canonical, f: f, digest: digest, samePkg: true})
 			continue
 		}
 		quals := make(map[string]bool)
@@ -367,25 +408,36 @@ func (s *StructureIndex) Uses(ctx context.Context, ref string) (*StructSymbol, [
 			}
 		}
 		if len(quals) > 0 {
-			cands = append(cands, candidate{canonical: canonical, f: f, qualifiers: quals})
+			cands = append(cands, candidate{canonical: canonical, f: f, digest: digest, qualifiers: quals})
 		}
 	}
 	root := s.root
 	s.mu.Unlock()
+	sort.Slice(cands, func(i, j int) bool { return cands[i].canonical < cands[j].canonical })
 
 	var out []StructUse
+	var moved []string
 	for _, c := range cands {
 		if err := ctx.Err(); err != nil {
-			return nil, nil, stats, err
+			return nil, nil, stats, nil, err
 		}
-		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(c.canonical)))
+		data, err := structReadFile(filepath.Join(root, filepath.FromSlash(c.canonical)))
 		if err != nil {
+			stats.Deficits = append(stats.Deficits, StructDeficit{Path: c.canonical, Reason: "read failed: " + ioReason(err)})
+			continue
+		}
+		digest := contentDigest(data)
+		if digest != c.digest {
+			// Selected from other bytes: its imports, and so whether it is a
+			// candidate at all, may have moved with them.
+			moved = append(moved, c.canonical)
 			continue
 		}
 		src := codemodel.Normalize(string(data))
 		fset := token.NewFileSet()
 		node, err := parser.ParseFile(fset, c.canonical, src, parser.SkipObjectResolution)
 		if err != nil {
+			stats.Deficits = append(stats.Deficits, StructDeficit{Path: c.canonical, Reason: "does not parse, so its uses cannot be found"})
 			continue
 		}
 		tf := fset.File(node.Pos())
@@ -395,10 +447,12 @@ func (s *StructureIndex) Uses(ctx context.Context, ref string) (*StructSymbol, [
 		}
 		add := func(start, end token.Pos, qualifier, match string) {
 			l := tf.Line(start)
+			from, to := tf.Offset(start), tf.Offset(end)
 			out = append(out, StructUse{
 				File: c.canonical, Line: l, Column: tf.Position(start).Column,
-				Start: tf.Offset(start), End: tf.Offset(end),
+				Start: from, End: to,
 				Qualifier: qualifier, Ref: enclosingRef(c.canonical, c.f, l), Match: match,
+				Digest: digest, Text: src[from:to],
 			})
 		}
 		if target.receiver != "" {
@@ -443,7 +497,7 @@ func (s *StructureIndex) Uses(ctx context.Context, ref string) (*StructSymbol, [
 		}
 		return out[i].Start < out[j].Start
 	})
-	return &target, out, stats, nil
+	return &target, out, stats, moved, nil
 }
 
 // bareUses returns the identifiers named name that refer to something rather
@@ -533,7 +587,7 @@ func (s *StructureIndex) mangleUsesLocked(target StructSymbol) []StructUse {
 				continue
 			}
 			if sym.name == target.name || containsString(sym.bodyPreds, target.name) {
-				out = append(out, StructUse{File: canonical, Line: sym.StartLine, Column: 1, Ref: sym.Ref, Match: "exact"})
+				out = append(out, StructUse{File: canonical, Line: sym.StartLine, Column: 1, Ref: sym.Ref, Match: "exact", Digest: fingerprintDigest(f.fingerprint)})
 			}
 		}
 	}

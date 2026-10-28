@@ -73,7 +73,7 @@ func executeRepoint(ctx context.Context, args map[string]any) (string, error) {
 	if provider == nil {
 		return "", fmt.Errorf("repoint needs the structure index, and none is registered in this process")
 	}
-	fromSyms, uses, _, err := provider.Uses(ctx, from)
+	fromSyms, uses, obs, err := provider.Uses(ctx, from)
 	if err != nil {
 		return "", err
 	}
@@ -82,6 +82,9 @@ func executeRepoint(ctx context.Context, args map[string]any) (string, error) {
 	}
 	if codemodel.IsScriptPath(fromSyms[0].File) {
 		return executeScriptRepoint(ctx, fromSyms[0], to, paths)
+	}
+	if !obs.Complete() {
+		return "", unresolvedUses("repoint", fromSyms[0].Ref, len(uses), obs)
 	}
 	if fromSyms[0].Kind == string(codemodel.KindMethod) {
 		return "", fmt.Errorf("%s is a method; repoint moves package-level names only", fromSyms[0].Ref)
@@ -97,7 +100,7 @@ func executeRepoint(ctx context.Context, args map[string]any) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := commitFiles(ctx, planned); err != nil {
+	if err := commitFiles(ctx, planned, repointReads(provider, fromSyms[0].Ref, uses, target)...); err != nil {
 		return "", err
 	}
 	for _, t := range touched {
@@ -195,6 +198,9 @@ func planRepoint(ctx context.Context, from StructureSymbol, uses []StructureUse,
 		if !ok || model.Language != codemodel.LangGo {
 			return nil, nil, fmt.Errorf("%s is not a Go file", lf.rel)
 		}
+		if err := verifyUseSource(lf.rel, lf.data, model.Source, byFile[file]); err != nil {
+			return nil, nil, err
+		}
 		out := &codemodel.Outcome{File: model}
 		if fileUses := byFile[file]; len(fileUses) > 0 {
 			out, err = rewriteUses(ctx, lf.rel, model, fileUses, target)
@@ -248,15 +254,12 @@ func rewriteUses(ctx context.Context, rel string, model *codemodel.File, uses []
 		replacement = qualifier + "." + target.name
 	}
 	lo, hi := uses[0].Start, uses[len(uses)-1].End
-	if lo < 0 || hi > len(model.Source) || lo > hi {
-		return nil, fmt.Errorf("the index's use positions are stale; retry")
-	}
 	var sb strings.Builder
 	cursor := lo
 	targeted := make(map[string]bool)
 	for _, u := range uses {
-		if u.Start < cursor || u.End > len(model.Source) {
-			return nil, fmt.Errorf("overlapping or stale use positions; retry")
+		if u.Start < cursor {
+			return nil, fmt.Errorf("overlapping use positions at line %d", u.Line)
 		}
 		sb.WriteString(model.Source[cursor:u.Start])
 		sb.WriteString(replacement)
@@ -275,6 +278,18 @@ func rewriteUses(ctx context.Context, rel string, model *codemodel.File, uses []
 	}
 	res := pinnedResolver{Resolver: importResolver(ctx, rel), qualifier: qualifier, path: target.importPath}
 	return codemodel.Apply(model, codemodel.Change{Start: lo, End: hi, Text: sb.String()}, keys, res)
+}
+
+// repointReads are a Go repoint's read dependencies: the use set it rewrote,
+// re-observed complete and unchanged, and the declaration it points them at.
+func repointReads(provider StructureProvider, fromRef string, uses []StructureUse, target *repointTarget) []readDependency {
+	return []readDependency{
+		usesUnchanged(fromRef, uses, func(ctx context.Context) ([]StructureUse, Observation, error) {
+			_, got, obs, err := provider.Uses(ctx, fromRef)
+			return got, obs, err
+		}),
+		declarationStands(provider, target.sym),
+	}
 }
 
 // pinnedResolver answers the one qualifier a repoint introduces with the path
@@ -335,7 +350,7 @@ func repointAndDelete(ctx context.Context, re *resolvedElement, uses []Structure
 	if err != nil {
 		return "", err
 	}
-	if err := commitFiles(ctx, planned); err != nil {
+	if err := commitFiles(ctx, planned, repointReads(provider, fromSyms[0].Ref, uses, target)...); err != nil {
 		return "", err
 	}
 	for _, t := range touched {
