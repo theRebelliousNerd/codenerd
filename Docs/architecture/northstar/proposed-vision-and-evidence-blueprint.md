@@ -868,3 +868,17 @@ The proposed vision itself was **not** imported or adopted; `.nerd/` vision file
 - *Evidence writer.* Mitigation evidence is authored in `northstar.json`. No verification run writes it back automatically yet, because no production path today knows which checks verify a vision-level risk.
 - *Typed evidence for requirements.* Requirements, the other obligation type, do not yet have typed evidence. Only risk mitigations do.
 - *NS-VISION-05.* Per-turn injection is already a kernel-selected subset (mission, critical capabilities, unmitigated risks, constraints). Trimming the alignment judge's full-vision prompt needs a live-model quality comparison, which this lane cannot run. Doing it without one would trade unmeasured quality for tokens.
+
+## Adopted (2026-10-27)
+
+The live Northstar is now [`codenerd-northstar.json`](codenerd-northstar.json), loaded with `nerd northstar load` (store, `.nerd/northstar.json` and `.nerd/northstar.mg` all written; the previous wizard draft is backed up as `.nerd/northstar.wizard-backup-2026-10-27.json`). It starts from the section 4 candidate and changes it as follows:
+
+- **Vision** keeps the operator's final-state table in their voice, with each row given the engineering meaning from section 2, and adds three rows the candidate lacked: *Gets itself unstuck*, *Wired, not just written*, *Fast where it's ours*.
+- **Personas:** the operator's original persona name and pain points are kept. *Engineering leads* is replaced by *Operators running codeNERD unattended*, which is who actually runs it.
+- **New capabilities:** `cap_unblock` (resolve "needs more requirements" with codeNERD's own techniques before escalating) and `cap_domain_shards` (shards derived from the north star's domain, not only its libraries). `cap_continuity` and `cap_improvement` move to `6mo`; `cap_operations` moves to `1yr`.
+- **New risks:** `risk_escalation`, `risk_silent_rules` (v0.7 silently drops negated literals with wildcards or negation-only variables), and `risk_overhead`.
+- **New requirements**, one per audit in `Docs/audits/` that the candidate did not cover: `req_unblock`, `req_absence` (structure coverage), `req_approval` (request-bound approval), `req_rules` (Mangle adoption contracts), `req_overhead` (kernel performance). Stream truncation, partial retrieval and coalesced consultation are folded into `req_acceptance`, `req_context` and `req_parallel`.
+- **New constraints:** no hardcoded models or providers (defaults in code, `.nerd/config.json` enforced); unwired code is finished or deleted; Mangle is not vanilla Datalog.
+- **Mitigation status:** every risk carries an explicit `mitigation_status`, but no risk is `verified`. The six high-likelihood, high-impact risks therefore derive `unmitigated_risk` and are injected every turn until typed evidence at the current HEAD verifies them.
+
+The import checked clean: 230 facts, and no `unserved_persona`, `orphan_capability`, `orphan_requirement` or `unaddressed_high_risk`.

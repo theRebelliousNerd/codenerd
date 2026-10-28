@@ -1,0 +1,419 @@
+{
+  "Mission": "Make LLM-written software just work: pair model creativity with a Mangle kernel that governs execution, so developer intent becomes correctly wired, evidence-backed behavior, while preserving the project's purpose, human authority and the developer's own understanding.",
+  "Problem": "If an LLM writes the software, it should just work. Today it doesn't: coding agents produce convincing local changes without understanding the whole execution path, keeping the requirements, or proving the requested behavior. Developers inherit almost-right code, unwired features, stale context, fragile tests, hidden costs, confident completion claims, and agents that stop to ask for requirements they could have worked out themselves. Every one of those turns into expensive review and repair.",
+  "Vision": "When codeNERD is finished, this is what it does:\n\n| | The finished system |\n|:--|:--|\n| ⏳ **Runs unattended for weeks** | Authorized work that is still making progress keeps going across sessions, crashes and restarts, with its intent, authority, budgets and evidence intact. What stops it is derived from evidence: a stall, a repeated failure signature, a cancel, lost authority. State, logs and caches stay bounded. A failure becomes a repair obligation, not a log line. |\n| 🧩 **Gets itself unstuck** | When a request is underspecified or a shard reports it needs more, codeNERD composes its own techniques first: research, decomposition, consulting the domain shards, re-reading the north star. It asks a human one targeted question only when the answer is genuinely theirs to give. |\n| 🧾 **Every claim is a citation** | \"Done\" is a kernel derivation over current, revision-bound evidence, not the model's feeling. Attempts stay attempts, observations stay observations; skipped, cancelled, truncated or inconclusive checks stay explicitly non-passing; a waiver stays a waiver. |\n| 🔌 **Wired, not just written** | A feature counts only when it is reachable from its real entry points: registered, configured, called, persisted, shut down cleanly. Code without a production caller is finished or deleted. |\n| 🧭 **Never greps around** | The kernel hands the model what the next obligation needs, with a stated reason and its provenance: CodeDOM structure, domain knowledge, vector recall, history. An incomplete observation never passes as absence, and never licenses a destructive edit. |\n| 🔒 **The harness forces** | Tests and gates are not optional and cannot silently become optional. Approval authorizes exactly what was reviewed. Work continues until the behavior the project's north star describes holds. |\n| ⚡ **Fast where it's ours** | Model time is the only slow part. Boot, kernel evaluation, retrieval, context compilation and dream safety checks scale with what a turn touches, not with the size of the repository, and use the whole machine. |\n| ♻️ **Improves itself** | It hunts its own bugs and extends its own tooling in Mangle and Go through isolated, reviewable, reversible changes. Each cycle leaves the gates stronger and nothing worse, and it never widens its own permissions. |\n| 🎯 **Closes 100% of SWE-bench** | The moonshot, not a result: a named protocol, version and budget, with a full failure denominator. A patch that compiles is not a patch that fixes the issue, and the harness can tell the difference. |",
+  "Personas": [
+    {
+      "name": "Senior backend developers who waste hours debugging flaky tests",
+      "pain_points": [
+        "Almost-right code that passes local checks but fails real behavior.",
+        "Features that exist but are not reachable through production wiring.",
+        "Missing or stale codebase context, so the agent greps around and guesses.",
+        "Time-consuming debugging, flaky tests and rework.",
+        "Security and privacy risks from changes nobody fully understood."
+      ],
+      "needs": [
+        "Trace a task from intent through callers, contracts, state and effects.",
+        "Receive minimal reviewable changes with fresh verification and explicit uncertainty.",
+        "Keep understanding the code the agent wrote."
+      ]
+    },
+    {
+      "name": "Maintainers and reviewers",
+      "pain_points": [
+        "Agent changes hide regressions, unsupported claims and architectural drift.",
+        "Large patches and opaque reasoning push verification work back onto humans."
+      ],
+      "needs": [
+        "See why a change is needed and which evidence supports each acceptance claim.",
+        "Approve exactly what they reviewed, and have nothing else ride on that approval.",
+        "Preserve project constraints, ownership and recoverable decision history."
+      ]
+    },
+    {
+      "name": "Platform and security engineers",
+      "pain_points": [
+        "Unbounded autonomy, unsafe tool access and partial failures threaten production.",
+        "A failed validation is reported as if nothing changed, while the mutation stays on disk.",
+        "Deployment configuration, migrations, observability and rollback get omitted."
+      ],
+      "needs": [
+        "Enforce least privilege and explicit approval boundaries independently of model output.",
+        "Know what executed, what changed, and whether recovery is still possible."
+      ]
+    },
+    {
+      "name": "Operators running codeNERD unattended",
+      "pain_points": [
+        "A night's campaign stops on 'needs more requirements' that the system could have resolved itself.",
+        "Harness overhead (boot, kernel, retrieval, dream checks) makes long runs slow on hardware that sits idle.",
+        "Spend, retries and cache behavior are invisible or misattributed across providers and key pools.",
+        "Benchmark scores and token savings don't show whether delivery actually got better."
+      ],
+      "needs": [
+        "Hand over a goal and come back to accepted, evidenced work or one precise question.",
+        "Configure every model, provider, budget and limit in .nerd/config.json and have it enforced.",
+        "Compare total cost and time per accepted outcome at matched quality."
+      ]
+    }
+  ],
+  "Capabilities": [
+    {
+      "id": "cap_intent",
+      "description": "Translate a request into an explicit behavior contract, keep unresolved intent visible as uncertainty, and trace the contract to project purpose and the affected subsystems.",
+      "timeline": "now",
+      "priority": "critical",
+      "serves": ["Senior backend developers who waste hours debugging flaky tests", "Maintainers and reviewers"]
+    },
+    {
+      "id": "cap_unblock",
+      "description": "Resolve underspecification and blocked work with codeNERD's own techniques (research, decomposition, domain-shard consultation, north-star reasoning) before escalating, and escalate as one targeted question with the evidence gathered so far.",
+      "timeline": "now",
+      "priority": "critical",
+      "serves": ["Operators running codeNERD unattended", "Senior backend developers who waste hours debugging flaky tests"]
+    },
+    {
+      "id": "cap_context",
+      "description": "Maintain revision-aware codebase understanding and compile focused, recoverable working context from CodeDOM, facts, domain knowledge, retrieval and history, carrying provenance and coverage with every item.",
+      "timeline": "now",
+      "priority": "critical",
+      "serves": ["Senior backend developers who waste hours debugging flaky tests", "Maintainers and reviewers"]
+    },
+    {
+      "id": "cap_wiring",
+      "description": "Deliver changes through real execution paths: registration, dependency injection, interfaces, configuration, persistence, errors and lifecycle, wherever they apply.",
+      "timeline": "now",
+      "priority": "critical",
+      "serves": ["Senior backend developers who waste hours debugging flaky tests", "Platform and security engineers"]
+    },
+    {
+      "id": "cap_evidence",
+      "description": "Derive completion from scoped, revision-bound behavioral evidence and unresolved obligations, not from model confidence, compilation alone, a closed stream, or an alignment score.",
+      "timeline": "now",
+      "priority": "critical",
+      "serves": ["Senior backend developers who waste hours debugging flaky tests", "Maintainers and reviewers"]
+    },
+    {
+      "id": "cap_control",
+      "description": "Mediate every action through typed tools and kernel policy; keep requested, permitted, executed, validated and accepted distinct; bind approvals to the reviewed content; preserve cancellation and operator authority.",
+      "timeline": "now",
+      "priority": "critical",
+      "serves": ["Platform and security engineers", "Maintainers and reviewers"]
+    },
+    {
+      "id": "cap_efficiency",
+      "description": "Minimize total work per accepted outcome (tokens, compute, wall time and human rework) with complete accounting of retries, cache reads and writes, retrieval, tools and verification; keep codeNERD's own per-turn overhead small next to model time and proportional to what the turn touches.",
+      "timeline": "now",
+      "priority": "high",
+      "serves": ["Operators running codeNERD unattended", "Senior backend developers who waste hours debugging flaky tests"]
+    },
+    {
+      "id": "cap_domain_shards",
+      "description": "Derive specialist shard agents from the project's own north star and problem domain, not only from its libraries, and give each the knowledge, prompt atoms and tools its domain needs.",
+      "timeline": "now",
+      "priority": "high",
+      "serves": ["Senior backend developers who waste hours debugging flaky tests", "Operators running codeNERD unattended"]
+    },
+    {
+      "id": "cap_coordination",
+      "description": "Coordinate shard work through explicit obligations, ownership and interface contracts, bounded fan-out, safely reused evidence, and conflict-aware integration against the current revision.",
+      "timeline": "6mo",
+      "priority": "high",
+      "serves": ["Operators running codeNERD unattended", "Maintainers and reviewers"]
+    },
+    {
+      "id": "cap_continuity",
+      "description": "Resume long-horizon campaigns from a durable admitted generation without losing intent, authority, evidence freshness or ownership; detect stalls and repeated failures and recover within explicit budgets.",
+      "timeline": "6mo",
+      "priority": "high",
+      "serves": ["Operators running codeNERD unattended", "Platform and security engineers"]
+    },
+    {
+      "id": "cap_improvement",
+      "description": "Improve codeNERD's own tools, prompts and policies through isolated, reviewable changes with independent gates, held-out evaluation and reversible rollout, keeping candidate learning separate from production deployment.",
+      "timeline": "6mo",
+      "priority": "high",
+      "serves": ["Maintainers and reviewers", "Operators running codeNERD unattended"]
+    },
+    {
+      "id": "cap_operations",
+      "description": "Treat deployment readiness, migration compatibility, observability, rollback and operational failure handling as explicit obligations when the requested scope includes them.",
+      "timeline": "1yr",
+      "priority": "high",
+      "serves": ["Platform and security engineers", "Maintainers and reviewers"]
+    },
+    {
+      "id": "cap_transfer",
+      "description": "Transfer verified engineering knowledge across projects without transferring private data, stale assumptions, permissions or unearned confidence.",
+      "timeline": "3yr",
+      "priority": "medium",
+      "serves": ["Senior backend developers who waste hours debugging flaky tests", "Platform and security engineers"]
+    },
+    {
+      "id": "cap_frontier",
+      "description": "Pursue complete resolution of a named SWE-bench protocol and dependable weeks-long authorized campaigns as separate research targets, generalizing beyond public benchmarks and reporting failures honestly.",
+      "timeline": "moonshot",
+      "priority": "medium",
+      "serves": ["Operators running codeNERD unattended", "Maintainers and reviewers"]
+    }
+  ],
+  "Risks": [
+    {
+      "id": "risk_false_done",
+      "description": "Plausible explanations, narrow checks, truncated model output or default scores are promoted into completion claims.",
+      "likelihood": "high",
+      "impact": "high",
+      "mitigation": "Revision-bound evidence per acceptance obligation; unknown, malformed, truncated and inconclusive outcomes stay explicitly non-passing.",
+      "mitigation_status": "implemented"
+    },
+    {
+      "id": "risk_unwired",
+      "description": "A feature is implemented locally but never reached from production entry paths or lifecycle integration.",
+      "likelihood": "high",
+      "impact": "high",
+      "mitigation": "Trace entry-to-effect paths and require integration witnesses for every affected boundary; unwired code is finished or deleted.",
+      "mitigation_status": "proposed"
+    },
+    {
+      "id": "risk_stale",
+      "description": "Stale, partial or poisoned context steers decisions as if it were current, complete, trusted evidence.",
+      "likelihood": "high",
+      "impact": "high",
+      "mitigation": "Carry revision, provenance, coverage and trust with context; incomplete observations never support absence; edits invalidate dependent evidence.",
+      "mitigation_status": "implemented"
+    },
+    {
+      "id": "risk_escalation",
+      "description": "Blocked or underspecified work stops for a human when codeNERD's own techniques could have resolved it, ending unattended runs.",
+      "likelihood": "high",
+      "impact": "high",
+      "mitigation": "Route 'needs more requirements' through research, decomposition, shard consultation and north-star reasoning before escalating as one targeted question.",
+      "mitigation_status": "proposed"
+    },
+    {
+      "id": "risk_authority",
+      "description": "Autonomous actions exceed scope, ride on an approval for different content, leak data, or weaken the controls that constrain the agent.",
+      "likelihood": "medium",
+      "impact": "high",
+      "mitigation": "Host-owned, default-deny permissions and approvals bound to a digest of the reviewed content, enforced independently of model output.",
+      "mitigation_status": "implemented"
+    },
+    {
+      "id": "risk_liveness",
+      "description": "Repeated failures, uncontrolled fan-out or retained state exhaust resources without meaningful progress.",
+      "likelihood": "high",
+      "impact": "high",
+      "mitigation": "Budget the complete work, detect repeated failure signatures, checkpoint durable generations, and surface repair or stop obligations.",
+      "mitigation_status": "proposed"
+    },
+    {
+      "id": "risk_silent_rules",
+      "description": "Vanilla-Datalog habits silently delete rule literals on the pinned mangle-go engine (negated wildcards, negation-only variables), so a policy parses but does not enforce what it says.",
+      "likelihood": "medium",
+      "impact": "high",
+      "mitigation": "Check rules by evaluation on the pinned engine, ship a version-aware capability manifest to rule generators, and keep the anti-pattern atoms current.",
+      "mitigation_status": "implemented"
+    },
+    {
+      "id": "risk_overhead",
+      "description": "Harness overhead (boot, full kernel re-evaluation, workspace scans, dream safety clones) grows with the repository and dominates turn time.",
+      "likelihood": "medium",
+      "impact": "medium",
+      "mitigation": "Cone evaluation, incremental indexes, single-pass parallel retrieval, background refresh, and per-turn CPU profiles that gate regressions.",
+      "mitigation_status": "implemented"
+    },
+    {
+      "id": "risk_metric",
+      "description": "Benchmark gaming or incomplete accounting makes behavior look cheaper or more accurate without real improvement.",
+      "likelihood": "high",
+      "impact": "high",
+      "mitigation": "Frozen held-out protocols, matched budgets, full denominators, and one normalized usage report covering cache classes and every retry.",
+      "mitigation_status": "proposed"
+    },
+    {
+      "id": "risk_regression",
+      "description": "Self-improvement or cross-project reuse degrades existing behavior or imports unsafe assumptions.",
+      "likelihood": "medium",
+      "impact": "high",
+      "mitigation": "Isolate candidates from production, retain regression gates, evaluate on held-out tasks, and keep rollback one step away.",
+      "mitigation_status": "proposed"
+    },
+    {
+      "id": "risk_opacity",
+      "description": "Automation erodes developer understanding and makes review, diagnosis and takeover harder.",
+      "likelihood": "medium",
+      "impact": "medium",
+      "mitigation": "Expose concise rationale, evidence, residual uncertainty and recoverable decision history in every handoff.",
+      "mitigation_status": "proposed"
+    }
+  ],
+  "Requirements": [
+    {
+      "id": "req_contract",
+      "type": "functional",
+      "description": "Before consequential changes, record observable acceptance criteria, scope, assumptions, affected boundaries and open questions; keep inferred intent distinct from what the user required.",
+      "priority": "must_have",
+      "supports": ["cap_intent", "cap_wiring"],
+      "addresses": ["risk_false_done", "risk_unwired"]
+    },
+    {
+      "id": "req_unblock",
+      "type": "functional",
+      "description": "A shard or campaign that reports missing requirements triggers the kernel's resolution plan (research, decomposition, shard consultation, north-star reasoning) before any human escalation; an escalation carries what was tried and exactly one question.",
+      "priority": "must_have",
+      "supports": ["cap_unblock", "cap_continuity", "cap_intent"],
+      "addresses": ["risk_escalation", "risk_liveness"]
+    },
+    {
+      "id": "req_executive",
+      "type": "functional",
+      "description": "Decisions about next obligations, context selection, permission, delegation and acceptance are explainable as kernel derivations over typed evidence; Go supplies observations, effects and bounded adapters.",
+      "priority": "must_have",
+      "supports": ["cap_control", "cap_coordination", "cap_context"],
+      "addresses": ["risk_authority", "risk_opacity"]
+    },
+    {
+      "id": "req_context",
+      "type": "functional",
+      "description": "Every context item that supports a decision keeps its origin, revision or freshness scope, trust and retrieval coverage; partial or degraded retrieval is labeled as such; edits invalidate dependent conclusions; evicted context stays recoverable.",
+      "priority": "must_have",
+      "supports": ["cap_context", "cap_transfer"],
+      "addresses": ["risk_stale"]
+    },
+    {
+      "id": "req_absence",
+      "type": "functional",
+      "description": "An absence claim (no callers, no uses, no matches) and any destructive structural edit require a complete observation of the scope at the current generation; otherwise the tool reports the deficit and refuses.",
+      "priority": "must_have",
+      "supports": ["cap_context", "cap_wiring"],
+      "addresses": ["risk_stale", "risk_unwired"]
+    },
+    {
+      "id": "req_integration",
+      "type": "functional",
+      "description": "For each affected feature, produce an entry-to-effect wiring review and evidence for the relevant registration, configuration, contracts, state, errors, lifecycle and user-visible behavior.",
+      "priority": "must_have",
+      "supports": ["cap_wiring", "cap_operations"],
+      "addresses": ["risk_unwired"]
+    },
+    {
+      "id": "req_acceptance",
+      "type": "functional",
+      "description": "No required obligation is accepted without current applicable evidence; skipped, cancelled, unavailable, truncated, malformed or inconclusive checks stay explicit non-passing states; a scoped waiver is recorded as waived, never relabeled passed.",
+      "priority": "must_have",
+      "supports": ["cap_evidence", "cap_control"],
+      "addresses": ["risk_false_done"]
+    },
+    {
+      "id": "req_tests",
+      "type": "functional",
+      "description": "Select risk-appropriate behavioral, regression, integration and negative checks from the contract, and check that they exercise intended behavior rather than implementation details.",
+      "priority": "must_have",
+      "supports": ["cap_evidence", "cap_wiring", "cap_improvement"],
+      "addresses": ["risk_false_done", "risk_regression"]
+    },
+    {
+      "id": "req_effects",
+      "type": "functional",
+      "description": "Record permission, execution, effects, validation and acceptance separately; a failed validation never erases a mutation's receipt; retries respect idempotency or explicit recovery.",
+      "priority": "must_have",
+      "supports": ["cap_control", "cap_operations", "cap_continuity"],
+      "addresses": ["risk_authority", "risk_liveness"]
+    },
+    {
+      "id": "req_approval",
+      "type": "functional",
+      "description": "A human approval binds to a digest of the exact action, arguments and diff that were reviewed; any change, replay or expiry fails closed and requires a new review.",
+      "priority": "must_have",
+      "supports": ["cap_control"],
+      "addresses": ["risk_authority"]
+    },
+    {
+      "id": "req_rules",
+      "type": "functional",
+      "description": "Policy and generated Mangle rules are validated by evaluation on the pinned engine against a version-aware capability manifest; declarations survive the Go boundary, and a literal the engine would drop is a rejected rule.",
+      "priority": "must_have",
+      "supports": ["cap_control", "cap_improvement"],
+      "addresses": ["risk_silent_rules", "risk_authority"]
+    },
+    {
+      "id": "req_cost",
+      "type": "non_functional",
+      "description": "Account for every model call, cache read and write class, reasoning tokens, retry, discarded or truncated result, retrieval and index maintenance, tool call, verification run, coordination overhead, wall time and human repair.",
+      "priority": "must_have",
+      "supports": ["cap_efficiency", "cap_frontier"],
+      "addresses": ["risk_metric", "risk_liveness"]
+    },
+    {
+      "id": "req_overhead",
+      "type": "non_functional",
+      "description": "codeNERD's own per-turn work (kernel evaluation, context compilation, retrieval, dream checks) scales with the dependency cone a turn touches, runs in parallel where the work is independent, and any regression shows up in a reproducible CPU profile.",
+      "priority": "should_have",
+      "supports": ["cap_efficiency", "cap_continuity"],
+      "addresses": ["risk_overhead", "risk_liveness"]
+    },
+    {
+      "id": "req_progress",
+      "type": "non_functional",
+      "description": "Continue only within authorized scope and budgets; derive progress and stalls from changes in obligations and results; resume only from a durably admitted generation; stop promptly for cancellation or lost authority.",
+      "priority": "must_have",
+      "supports": ["cap_continuity", "cap_coordination"],
+      "addresses": ["risk_liveness", "risk_authority"]
+    },
+    {
+      "id": "req_parallel",
+      "type": "functional",
+      "description": "Give parallel work explicit ownership and interfaces; coalesce identical consultations without coupling their cancellation; validate shared evidence before reuse; integrate against the current revision without overwriting concurrent work.",
+      "priority": "should_have",
+      "supports": ["cap_coordination", "cap_domain_shards", "cap_wiring"],
+      "addresses": ["risk_stale", "risk_unwired"]
+    },
+    {
+      "id": "req_operations",
+      "type": "functional",
+      "description": "When deployment is in scope, migrations, compatibility, configuration, secret boundaries, telemetry, rollout and rollback are each accepted or explicitly inapplicable; merge never equals deployment.",
+      "priority": "must_have",
+      "supports": ["cap_operations", "cap_wiring"],
+      "addresses": ["risk_unwired", "risk_authority"]
+    },
+    {
+      "id": "req_improvement",
+      "type": "constraint",
+      "description": "Self-improvement proposes candidates in isolation and never modifies its own safety-gate or permission logic; promotion to production needs independent evaluation, retained regression coverage and rollback.",
+      "priority": "must_have",
+      "supports": ["cap_improvement", "cap_transfer"],
+      "addresses": ["risk_regression", "risk_authority"]
+    },
+    {
+      "id": "req_report",
+      "type": "functional",
+      "description": "Hand off delivered behavior, evidence scope, unverified claims, residual risks, actual costs and any required human action concisely, with details kept for inspection.",
+      "priority": "must_have",
+      "supports": ["cap_evidence", "cap_efficiency", "cap_intent"],
+      "addresses": ["risk_opacity", "risk_false_done", "risk_metric"]
+    },
+    {
+      "id": "req_evaluate",
+      "type": "non_functional",
+      "description": "Evaluate the complete system on frozen task sets and production-like paths, disclosing model, tools, budget, environment, failure denominator, human intervention and benchmark version; no superiority claim without matching evidence.",
+      "priority": "must_have",
+      "supports": ["cap_frontier", "cap_efficiency", "cap_improvement"],
+      "addresses": ["risk_metric", "risk_regression"]
+    }
+  ],
+  "Constraints": [
+    "Human intent, authorization, cancellation and data boundaries outrank autonomous progress; vision text grants no permissions.",
+    "The model is the creative center and the Mangle kernel is the executive; a derivation is only as trustworthy as its inputs, rules and coverage.",
+    "Mangle is not vanilla Datalog: write for the pinned mangle-go version and check rules by evaluation, not by parse alone.",
+    "Quality comes before token minimization; never lower acceptance standards, hide work or skip required verification to improve an efficiency metric.",
+    "No model or provider is hardcoded: every tunable has a default in code, is set in .nerd/config.json, and the configured value is enforced.",
+    "Code without a production caller does not ship: unwired code is finished or deleted; no shims, wrappers or compatibility layers in place of fixing the root cause.",
+    "Use typed, policy-mediated operations, not unrestricted model shell access or ad-hoc tool bypasses.",
+    "Use JIT prompt atoms and revision-aware world-model context; targeted source inspection is a legitimate freshness fallback, not a failure of the vision.",
+    "Keep observations, attempts, hypotheses, derivations and acceptance claims distinct; preserve provenance and never convert missing evidence into success.",
+    "Northstar alignment judges purpose and constraints; it does not replace action permission, behavioral verification or human approval.",
+    "Preserve concurrent work and keep consequential changes reviewable and recoverable; deployment and destructive actions need their own authority.",
+    "Keep per-request context, retained state, retries and parallel work bounded while letting authorized productive work continue.",
+    "Public benchmark closure and weeks-long autonomy are targets, not present results; no benchmark score implies universal correctness."
+  ]
+}
