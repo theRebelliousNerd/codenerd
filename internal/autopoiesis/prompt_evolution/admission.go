@@ -91,3 +91,15 @@ func (pe *PromptEvolver) admitGenerated(ctx context.Context, atoms []*GeneratedA
 	}
 	return kept, refused
 }
+
+// AtomAdmissionBound reports the installed check's content bound
+// (jit.atom_max_chars) and whether Jev reads candidates; zero and false when
+// boot installed none.
+func (pe *PromptEvolver) AtomAdmissionBound() (maxChars int, judged bool) {
+	pe.mu.RLock()
+	defer pe.mu.RUnlock()
+	if pe.admission == nil {
+		return 0, false
+	}
+	return pe.admission.check.MaxChars, pe.admission.check.Asker != nil
+}

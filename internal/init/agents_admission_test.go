@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -45,7 +47,7 @@ func TestAdmitAgentAtoms_RefusedAtomsAreDroppedAndTheBaseIDSurvives(t *testing.T
 	method := "## Write clean code\nGENERIC: use clear names.\n\n## Pin the RS256 key\nThe auth service signs with RS256; never verify with HS256.\n\n## Retries\nGENERIC: retry transient failures."
 	domain := "## Token cache\nThe cache key is the token's kid header."
 	atoms := agentPromptAtoms("authx", "AuthX", "auth specialist", "    - jwt", "jwt", method, domain, 1500)
-	kept := ini.admitAgentAtoms(context.Background(), "authx", atoms)
+	kept := admitAgentAtoms(context.Background(), ini.atomAdmission(), "authx", atoms)
 
 	var ids []string
 	for _, a := range kept {
@@ -71,7 +73,39 @@ func TestAdmitAgentAtoms_RefusedAtomsAreDroppedAndTheBaseIDSurvives(t *testing.T
 func TestAdmitAgentAtoms_NoJevAdmitsWithinTheBound(t *testing.T) {
 	ini := &Initializer{config: InitConfig{Workspace: t.TempDir()}}
 	atoms := agentPromptAtoms("authx", "AuthX", "auth", "    - jwt", "jwt", "## A\nGENERIC one.", "## B\nGENERIC two.", 1500)
-	if kept := ini.admitAgentAtoms(context.Background(), "authx", atoms); len(kept) != len(atoms) {
+	if kept := admitAgentAtoms(context.Background(), ini.atomAdmission(), "authx", atoms); len(kept) != len(atoms) {
 		t.Fatalf("kept %d of %d without Jev", len(kept), len(atoms))
+	}
+}
+
+// sectionedLLM writes one generic and one specific section for every body.
+type sectionedLLM struct{ stubHostileLLM }
+
+func (*sectionedLLM) CompleteWithSystem(context.Context, string, string) (string, error) {
+	return "## Clean code\nGENERIC: use clear names.\n\n## Key rotation\nThe auth service rotates its RS256 key every 24h; cache verifiers by kid.", nil
+}
+
+// The production generation path (generateAgentPromptsYAMLWithContext) runs
+// the admission check: the known-by-default section never reaches
+// prompts.yaml, the specific one does, one atom per heading.
+func TestGenerateAgentPromptsYAML_AdmissionRunsOnTheGenerationPath(t *testing.T) {
+	tmp := t.TempDir()
+	ini := withInitKernel(t, &Initializer{config: InitConfig{Workspace: tmp, LLMClient: &sectionedLLM{}}})
+	ini.admissionOnce.Do(func() {
+		ini.admission = atomjudge.Admission{Asker: knownWhen{"GENERIC"}, MaxChars: 1500, Yes: 0.7, Compare: 3}
+	})
+	agent := RecommendedAgent{Name: "AuthExpert", Description: "JWT verification", Topics: []string{"jwt"}}
+	if err := ini.generateAgentPromptsYAMLWithContext(context.Background(), agent); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(tmp, ".nerd", "agents", "authexpert", "prompts.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "GENERIC") || !strings.Contains(string(data), "RS256") {
+		t.Fatalf("admission did not filter the generated atoms:\n%s", data)
+	}
+	if ids := parseAtomIDs(t, data); strings.Join(ids, ",") != "authexpert/identity,authexpert/methodology,authexpert/domain" {
+		t.Fatalf("ids %v", ids)
 	}
 }
