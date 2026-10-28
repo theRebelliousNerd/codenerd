@@ -167,3 +167,231 @@ For capability evaluation, choose tasks where guidance genuinely composes: speci
 | JIT-CLOSURE-04 | Closure-aware packing study | Same-quality task study and small exact-reference fixtures show whether better packing earns its host cost. |
 
 These are proposed local work items, not claims that the repository has adopted new specs. The first milestone is simple and testable: **a successful bounded prompt still contains the prerequisites of every instruction it retained.**
+
+## Post-implementation refinement (2026-10-28): section expansion must preserve policy admission
+
+### Decision
+
+Keep the new sectioned-atom design, whole-fragment budgeting and dependency closure. Make **section expansion an executive-policy operation**, not a second admission policy implemented by a partial Go matcher. A section may be optional without being exempt from capability, context, conflict and supersession rules. Conversely, a missing situational selector must not suppress a section when the authoritative selector deliberately permits that missing value.
+
+The narrow opportunity is after normal selection: `compileMiss` calls `expandSections` with the full candidate corpus, then sends its enlarged result to a resolver that assumes admission has already been decided. The expansion checks `MatchesContext`, which neither checks tool requirements nor implements the same missing-dimension semantics as Mangle. A dependency-closed prompt can therefore still be policy-inconsistent. [Pipeline][section-admission-pipeline], [expansion][section-admission-expansion], [matcher][section-admission-matcher], [resolver][section-admission-resolver]
+
+**Appendix status: proposed; static-source-inspection.**
+
+**Evidence status:** source and test-definition inspection only. No implementation, tests, binaries, provider inference, benchmarks or failure injection were performed. This appendix is a research refinement of the as-built section above, not an adopted specification or implementation. The examples below are conditional source witnesses, not observed user incidents; no frequency, speedup or model-quality result is claimed.
+
+### R1. Scope, pins and non-duplication
+
+The main and feature heads were re-resolved at approximately 13:44 UTC on October 28, 2026:
+
+- `main`: [356f65e0e6bb639adaa90ab36212daa714114871][section-admission-main].
+- `feat/conversation-brief`: [c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c][section-admission-feature].
+- Research branch at that check: `0de7ff76968955ad5185d8dd13b85bc05775aa98`.
+
+The Git trees at main and feature contain identical blobs for the relevant implementation: `expandSections` in [internal/prompt/sections.go:37][section-admission-expansion] and `closeDependencies` at [internal/prompt/sections.go:121][section-admission-closure]; `compileMiss` in [internal/prompt/compiler_pipeline.go:301–336][section-admission-pipeline]; `MatchesContext` in [internal/prompt/atoms.go:427][section-admission-matcher] and `atomToolSatisfied` at [internal/prompt/atoms.go:801][section-admission-tool-check]; `Resolve` in [internal/prompt/resolver.go:48][section-admission-resolver]; `ValidatePromptAtomSet` in [internal/prompt/atom_schema.go:690][section-admission-validation]; `fitAndAssemble` in [internal/prompt/compiler_render.go:14][section-admission-render]; `filterSkeletonAtoms`/`filterFleshAtoms` in [internal/prompt/selector.go:963,1074][section-admission-filters]; `CompilationContext.Validate` in [internal/prompt/context.go:510][section-admission-context]; and `mandatory_selection`/`prohibited` in [internal/core/defaults/jit_compiler.mg:205–226][section-admission-veto]. This is shared current behavior, not a conversation-brief regression.
+
+Root guidance assigns context inclusion to the kernel, favors quality over token reduction and requires JIT-first behavior. Prompt guidance explicitly requires tool gating to have the same meaning on every selection path and forbids granting tools to satisfy an atom. The proposed change implements those existing contracts. [Root guidance][section-admission-root], [prompt guidance][section-admission-guidance]
+
+Existing research was read first:
+
+| Existing work | What remains there |
+|---|---|
+| [JIT dependency-closed budgeting][section-admission-closure-study] | Inclusion closure, packing and ordering. Its **October 28 As built** addendum records section expansion and post-fit/post-shed closure. Do not propose that already-shipped closure as missing. |
+| [JIT generation-aware optimization][section-admission-reuse-study] | Source-vector identity, shared preflight, staged metadata and rendered-fragment reuse. A fresh cached result can still violate admission. |
+| [Context ledger prefix costs][section-admission-ledger-study] | Revision acquisition and post-JIT working-ledger costs. |
+| [Request-visible tool contract][section-admission-tool-study] | Whether granted tools are registered/describable/offered to the model. Here the supplied catalog can be entirely correct; a later prompt transformation ignores an atom's requirement. |
+| [Prompt evolution lifecycle][section-admission-evolution-study] | Candidate promotion and learning attribution. This proposal applies equally to built-in and ordinary authored atoms, without changing promotion authority. |
+
+The closest prior audit already requires selected atoms to remain eligible. The new contribution is the concrete October 28 **post-selection expansion seam**, the two-sided policy mismatch, and a bounded contract that preserves the newly implemented functionality rather than removing it.
+
+### R2. What is already built
+
+1. Both normal selector partitions check `atomToolSatisfied` before their atoms enter selection; empty catalogs fail closed for explicit requirements. [Filters][section-admission-filters], [tool check][section-admission-tool-check]
+2. Mangle selection applies context restrictions, prohibitions, conflicts and dependency expansion; mandatory-source conflicts can prohibit another atom. [Veto][section-admission-veto], [selection and dependency rules][section-admission-selection]
+3. `compileMiss` then invokes `expandSections(scored, candidates, cc)` using the original full candidates, not just a policy-approved expansion set. [Pipeline][section-admission-pipeline]
+4. `expandSections` builds the head/section map from all candidates; a selected head adds its sections and a selected section can add its head. The only new-member eligibility call is `MatchesContext`. [Expansion][section-admission-expansion]
+5. `Resolve` explicitly assumes valid input. Its current body prunes missing dependencies and topologically orders; it does not reevaluate tool eligibility or conflicts. The “handle conflicts” pipeline comment is not evidence that this downstream body checks them. [Resolver][section-admission-resolver]
+6. `fitAndAssemble` charges rendered fragments, closes dependencies after fitting and again after shedding, and reassembles survivors. These checks are useful and must remain. Neither closure pass asks whether a retained atom was policy-admissible. [Render][section-admission-render]
+
+The main audit addendum reports embedded-corpus measurements from an earlier run and the section recovery they demonstrated. Those are repository-reported historical results, not measurements reproduced in this investigation. They establish why reverting expansion would discard intended capability, not that every admission boundary is covered. [As-built account][section-admission-closure-study]
+
+### R3. Finding A: expansion can restore a tool-ineligible section
+
+#### Source-supported conditional witness using a valid authored corpus
+
+Consider a corpus containing:
+
+| Atom | Properties |
+|---|---|
+| H | Mandatory protocol head, no tool requirements or context selectors |
+| S | Optional protocol section of H, section order 1, requires `run_check`, otherwise no selectors |
+| Context | Valid ample budget, no `run_check` in `AvailableTools` |
+
+This is proposed fixture data, not a claim that a shipped built-in currently has this exact asymmetric head/section pairing.
+
+The canonical schema supports both section metadata and tool requirements. `sectionDependsOn` adds the hard dependency on H. Complete-set validation verifies dependency existence, a non-self head, positive section order and existing conflict targets; it does not require section tool requirements to equal the head's. Thus the proposed asymmetry is not ruled out by the inspected corpus validator. [Schema conversion][section-admission-schema], [set validation][section-admission-validation]
+
+The normal selector filters S out for its missing tool, while H remains selectable. Expansion revisits S in the complete candidates. `MatchesContext` checks selector dimensions and world states, but not `RequiresTools`; its true result admits S. H is present, so the later dependency checks do not remove S. With a fitting budget, no later inspected step discharges the missing-tool obligation. [Filters][section-admission-filters], [matcher][section-admission-matcher], [expansion][section-admission-expansion], [render][section-admission-render]
+
+**Scope of the finding:** this breaks the model-facing capability contract and can spend tokens describing an unavailable operation. It is **not** proof of an execution-permission bypass. Exact runtime authorization remains independently necessary; never widen it to make the emitted guidance executable.
+
+### R4. Finding B: expansion can defeat an explicit policy veto
+
+A second valid-corpus fixture removes any ambiguity about tool metadata inheritance:
+
+- H is an eligible mandatory head.
+- S is an optional section of H.
+- M is another eligible mandatory atom with `conflicts_with: [S]`.
+- There are no other dependencies or incompatible selectors; the budget is ample.
+
+Mangle's `prohibited(B)` rule derives S prohibited from M's mandatory selection and outgoing conflict. The normal candidate-selection path reads that veto. The subsequent section expansion does not: it checks only the local context matcher and adds S because H is present. The resolver is dependency-only, so H, M and S can survive together. [Conflict veto][section-admission-veto], [expansion][section-admission-expansion], [resolver][section-admission-resolver]
+
+This fixture uses the existing directional meaning of a mandatory atom's conflict. It does not assume that all conflict edges are symmetric or that every conflict must be rewritten as a generic incompatibility relation. Those distinctions matter because the existing Mangle rules treat mandatory supersession and optional competition differently.
+
+A local addition of `atomToolSatisfied` to expansion would fix Finding A's missing-tool witness but **not** this veto witness. A final dependency certificate also cannot establish conflict consistency. The target is preservation of authoritative admission, not merely one more field check.
+
+### R5. Finding C: the mismatch also rejects valid inherited context
+
+The same partial matcher is stricter than the authoritative policy in another direction:
+
+- `GenerateFacts` omits an empty context value. [Context generation][section-admission-generate]
+- Mangle deliberately leaves `/intent` and `/lang` outside its fail-closed regime dimensions. With no value present, their ordinary mismatch rule does not block the atom. [Situational policy][section-admission-situational]
+- `MatchesContext` calls `matchSelector` for both dimensions. A nonempty selector plus an empty context value returns false. [Matcher][section-admission-matcher], [empty-value rule][section-admission-empty]
+- `CompilationContext.Validate` checks budgets, not mandatory presence of an intent or language. [Context validation][section-admission-context]
+
+A concrete shipped-corpus conditional witness is the researcher head `identity/researcher/tool_usage` and its `execution-protocol` section. Both carry the researcher shard selector and the same research-like intent list; the head is mandatory, the section optional. In an otherwise valid researcher compile with an unresolved/empty intent and no independent section selection, Mangle can retain the head while post-selection expansion skips its section solely because of that empty intent. This is not budget pressure and not a deliberate author-level narrower section selector. [Built-in pair][section-admission-researcher]
+
+This establishes a supported compiler-input counterexample, not that every normal researcher caller leaves the intent empty. No live occurrence rate was measured. Language-tagged sections have the same implementation-level mismatch, but the built-in researcher pair is sufficient to make the condition concrete.
+
+Changing all missing dimensions to permissive Go matching would be equally wrong: provider/model, persona, mode, workflow phases and world state are intentionally fail-closed. The authoritative distinction must remain explicit rather than be rediscovered in a second matcher.
+
+### R6. Proposed contract: policy-qualified expansion with final admission evidence
+
+All new data shapes below are proposed, not existing APIs.
+
+For one fixed compilation source/context snapshot, the result should carry:
+
+- Initial relevance/mandatory selection.
+- Section requests implied by selected heads, and head requests implied by relevant sections.
+- Authoritative disposition for each requested atom: admissible, context-blocked, tool-blocked, policy-prohibited, conflict/supersession-lost, or prerequisite-unavailable.
+- Final emitted IDs and variants, with their admission reason, dependency certificate and source identity.
+
+A successful output must satisfy:
+
+1. Every emitted atom has a current authoritative admission witness under that compilation's policy, catalog and context.
+2. Expansion cannot undo an explicit veto or supersession.
+3. Section/head presence creates a **request for policy consideration**, not permission to include.
+4. Situational-missing and regime-missing selectors retain the exact policy distinction.
+5. Every emitted section has its head; every surviving ordinary prerequisite is present.
+6. Optional sections remain optional. Required closure still fails explicitly if infeasible.
+7. Final rendered prompt and complete model-request bounds still apply.
+8. Cache reuse must bind the same source vector and admission result; it must not validate one generation's IDs against another generation's metadata.
+
+#### Preferred design direction
+
+Put section relations into the same private policy scope as candidate metadata and have Mangle own admissible section/head expansion. Go can construct typed facts, index adjacency, measure fragment cost and perform bounded IO. It must not introduce a second executive decision rule.
+
+Do **not** blindly add a recursive selection rule: conflict resolution, negation and dependency admission interact. Specify the strata first and prove that a section does not resurrect a superseded head or create a negative cycle. Preserve the existing all-facts-before-query barrier and full competitor universe. A design that queries eligibility only against the originally selected subset can miss the very vetoing competitor it must respect.
+
+A conservative transition can keep Go's expansion as a proposal builder, then submit the proposed set and reasons for authoritative validation in the same scoped snapshot. Publication must be gated on that result. If repair removes a head, cascade through dependent sections; if repair reaches required material, return an explicit infeasible compile instead of silently certifying an incomplete prompt.
+
+The checker must understand admitted **section expansion**, not merely require membership in the old `selected_result`: the whole purpose of the new feature is to add optional supporting sections without demanding separate vector hits. Rechecking the old selected set alone would regress the October 28 fix.
+
+#### Authoring checks
+
+Validate graph-level declarations: real head, self/cycle handling, bounded positive order, deterministic duplicate-order policy and deliberate narrower section selectors. Do not force tool equality across every head and section: a generic head with an optional tool-specific example is a legitimate design, provided the example is gated correctly. Record inherited and additional requirements explicitly so they cannot drift accidentally.
+
+Whether section order requires contiguous-prefix inclusion is a separate semantic contract. Do not smuggle that decision into this admission repair; the prior closure audit already owns ordering and closure-aware packing.
+
+### R7. Costs, risks and observability
+
+Building the narrow host adjacency indexes takes O(n+s) for n candidates and s section edges, plus any declared dependency/conflict edges inspected; ordinary hash-map space is linear. Sorting sections adds O(sum over heads of s_h log s_h), where s_h is the number of sections for that head, unless order is reused from the immutable corpus. Policy reevaluation and join costs depend on the rule plan and corpus and must be measured rather than assumed linear.
+
+Costs to record:
+
+- Additional typed relation rows and policy evaluations.
+- Time and peak memory for eligibility/repair/certification.
+- Candidate, proposed, admitted, vetoed and emitted section counts.
+- Input tokens and useful guidance retained, not only prompt length.
+- Provider cached/uncached input, output, rejected calls, retries, rehydrations, verification and human correction across the whole task.
+- Prefix changes when an eligible section legitimately enters/leaves.
+- Compile refusals and time spent on failed/refused compiles.
+
+The expected benefit is not necessarily fewer tokens per request. Correct permissive admission can restore useful instructions and increase prompt size; restrictive admission can remove misleading instructions. The goal is fewer wrong or repair-heavy model turns at equal accepted-task quality.
+
+Main risks:
+
+- **Policy duplication:** adding selected checks in Go fixes today's witness but misses tomorrow's veto.
+- **Overcorrection:** demanding an independent vector hit for every section recreates head-only prompts.
+- **Conflict perturbation:** treating a proposed section as a new relevance competitor can change established winners unintentionally.
+- **Unknown versus denied:** absent situational values must not become either universal permission or universal rejection.
+- **Generation drift:** admissibility and rendered bytes must share one source identity.
+- **Misleading diagnostics:** source inherited from a head is not the same as an independent skeleton/vector admission; expose the expansion provenance.
+- **Budget optimism:** admission correctness does not replace final render accounting or mandatory-closure refusal.
+
+### R8. Proposed experiments, none executed
+
+Use the production private-kernel compiler path, not just direct calls to `expandSections`. Keep ordinary CodeDOM/world context and actual catalog construction enabled for later end-to-end evaluation.
+
+| Fixture | Required observation |
+|---|---|
+| Eligible H; optional S requires unavailable tool | S never emitted; H remains; no authority widened. Repeat empty/available/empty catalogs. |
+| Mandatory M explicitly prohibits section S of selected H | Veto survives expansion; no H+M+S success violating policy. |
+| Policy-excluded category or dependent section | Expansion does not bypass category prohibition or prerequisite veto. |
+| Built-in researcher head/section, empty intent | Both use the declared situational-missing policy; omission is not falsely labeled budget pressure. |
+| Known nonmatching intent | Both are excluded as policy requires. |
+| Missing/wrong/right provider/model and world state | Fail-closed regime gates remain unchanged. |
+| Selected section with vetoed/missing head | No head resurrection; section receives explicit disposition. |
+| Ample/tight budget, long placeholders | Existing whole fragments, closure and refusal behavior survive. |
+| Generation change and cache hit | Admission evidence and emitted metadata remain generation-consistent. |
+| Conflict-free existing corpus and stable context | No unintended selection or prefix churn; report intentional additions/removals separately. |
+
+Existing [section test definitions][section-admission-section-tests] cover ordered head expansion, a lone section's missing head and post-budget dependency cascades. They do not contain these tool/conflict/unresolved-intent witnesses. That is a bounded description of this file, not a claim that all repository tests were exhaustively searched or that any test was run.
+
+Later task trials should compare current pinned code, tool-only patch, full policy-qualified expansion and full expansion plus final certificate. The tool-only variant is a useful negative control: it should fail the conflict witness. Hold model, tools, corpus, tasks and total budget constant; evaluate correctness, false completion and total cost. Include tasks needing the recovered section and tasks where the unavailable-tool example would be distracting.
+
+### R9. Research basis and adoption queue
+
+[Translation validation, Pnueli, Siegel and Singerman (TACAS 1998)][section-admission-translation] motivates validating the result of each transformation against its source contract rather than assuming every compiler pass preserves it. Applied here, the check is much narrower than program semantic equivalence: emitted atom IDs must satisfy explicit admission and dependency obligations. It cannot prove that an LLM follows the text or that authored sections are semantically sufficient. The publication supplies a validation pattern, not evidence of CodeNERD performance or prompt quality.
+
+The primary specification for selector semantics remains the inspected Mangle rules, not generic advice to make all selectors fail closed. [Situational policy][section-admission-situational], [veto][section-admission-veto]
+
+| Proposed item | Narrow deliverable | Checkable exit |
+|---|---|---|
+| JIT-SECTION-ADMISSION-01 | Policy-qualified section/head proposals | Missing-tool and explicit-conflict fixtures cannot return success containing prohibited sections. |
+| JIT-SECTION-ADMISSION-02 | Authoritative missing-dimension parity | Built-in unresolved-intent fixture and regime-gate controls satisfy one documented semantics. |
+| JIT-SECTION-ADMISSION-03 | Final admission provenance/certificate | Every emitted ID has a snapshot-bound allowed reason; closure and budgeting remain enforced. |
+| JIT-SECTION-ADMISSION-04 | Same-quality cost evaluation | Added validation earns its measured host/model cost or the study reports no adoption benefit. |
+
+The first milestone is precise: **adding supporting sections must not change which policy governs the prompt.**
+
+[section-admission-main]: https://github.com/theRebelliousNerd/codenerd/commit/356f65e0e6bb639adaa90ab36212daa714114871
+[section-admission-feature]: https://github.com/theRebelliousNerd/codenerd/commit/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c
+[section-admission-root]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/agents.md#the-vision-steve-2026-09-18--read-before-any-architectural-change
+[section-admission-guidance]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/agents.md
+[section-admission-pipeline]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_pipeline.go#L301-L336
+[section-admission-expansion]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/sections.go#L37-L105
+[section-admission-matcher]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/atoms.go#L427-L540
+[section-admission-resolver]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/resolver.go#L43-L134
+[section-admission-validation]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/atom_schema.go#L688-L718
+[section-admission-schema]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/atom_schema.go#L158-L166
+[section-admission-render]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_render.go#L14-L63
+[section-admission-filters]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/selector.go#L963-L1089
+[section-admission-tool-check]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/atoms.go#L779-L811
+[section-admission-veto]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/defaults/jit_compiler.mg#L197-L244
+[section-admission-selection]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/defaults/jit_compiler.mg#L246-L329
+[section-admission-context]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/context.go#L510-L525
+[section-admission-generate]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/context.go#L783-L842
+[section-admission-situational]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/core/defaults/jit_compiler.mg#L73-L155
+[section-admission-empty]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/atoms.go#L580-L602
+[section-admission-researcher]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/atoms/identity/researcher.yaml#L87-L144
+[section-admission-section-tests]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/sections_test.go#L25-L75
+[section-admission-closure-study]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/Docs/audits/jit-dependency-closed-budgeting.md#as-built-2026-10-28
+[section-admission-reuse-study]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/Docs/audits/jit-generation-aware-optimization.md
+[section-admission-ledger-study]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/Docs/audits/context-ledger-prefix-costs.md
+[section-admission-tool-study]: https://github.com/theRebelliousNerd/codenerd/blob/0de7ff76968955ad5185d8dd13b85bc05775aa98/Docs/audits/request-visible-tool-contract-and-investigation-affordances.md
+[section-admission-evolution-study]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/Docs/audits/prompt-evolution-lifecycle-and-evidence-accounting.md
+[section-admission-translation]: https://weizmann.elsevierpure.com/en/publications/translation-validation-2/
+
+
+[section-admission-closure]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/sections.go#L121-L173
