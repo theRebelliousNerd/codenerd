@@ -176,3 +176,8 @@ These IDs are local research proposals, not adopted repository gaps. The owning 
 
 * LEDGER-PERF-04 (registered-request cost measurement, A/B/C/D comparison, p50/p95/p99) needs live sessions; not run. No wall-clock speedup is claimed.
 * Cross-round parse reuse (a content-addressed CodeDOM cache) was not added: per-call grouping only, per §3.
+
+## As-built note (2026-10-28)
+
+Re-verified on main: LEDGER-PERF-01..03 hold (`working_revision.go`, chain-prefix `working_shed_run`; `go test ./internal/context -run Ledger|Revision|Prefix` passes). Measured LEDGER-PERF-04 A against B on 200 elements of one file: 94.2 ms per-entity reference vs 3.05 ms batched (`BenchmarkWorkingRevisions_*`, same fixture, 20 iterations).
+Ruled out: nothing new. Left: C/D end-to-end request-preparation percentiles and recall-burden comparison need live sessions; the old all-pairs shed relation is gone, so C has no reference to benchmark against.

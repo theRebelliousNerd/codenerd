@@ -205,3 +205,27 @@ func BenchmarkWorkingRevisions_ManyElementsOneFile(b *testing.B) {
 		_ = w.revisions(context.Background(), entities)
 	}
 }
+
+// The pre-batch algorithm over the same 200 entities, so the pair reports the
+// preparation-cost difference (LEDGER-PERF-04, A against B) on one fixture.
+func BenchmarkWorkingRevisions_ManyElementsOneFileReference(b *testing.B) {
+	root := b.TempDir()
+	var src strings.Builder
+	src.WriteString("package big\n")
+	for i := range 200 {
+		fmt.Fprintf(&src, "\nfunc F%d() int { return %d }\n", i, i)
+	}
+	require.NoError(b, os.WriteFile(filepath.Join(root, "big.go"), []byte(src.String()), 0600))
+	resolved, err := tools.CanonicalWorkspaceRoot(root)
+	require.NoError(b, err)
+	var entities []string
+	for i := range 200 {
+		entities = append(entities, ElementEntity("big.go", fmt.Sprintf("F%d", i)))
+	}
+	b.ResetTimer()
+	for range b.N {
+		for _, entity := range entities {
+			_ = referenceRevision(resolved, entity)
+		}
+	}
+}
