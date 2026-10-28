@@ -788,8 +788,8 @@ func (m Model) handleDreamPlanExecution(input string) (tea.Model, tea.Cmd) {
 
 // triggerLearningLoop initiates the Ouroboros self-correction process
 func (m Model) triggerLearningLoop(userInput string) (tea.Model, tea.Cmd) {
-	// Add the user's complaint to history first so the Critic sees it
-	m = m.pushUserMsg(userInput)
+	// handleSubmit has already put the complaint in history, where the Critic
+	// reads it; pushing it again showed it twice.
 	m.textarea.Reset()
 
 	// Notify user we are paying attention

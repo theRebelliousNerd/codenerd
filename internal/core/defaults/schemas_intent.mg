@@ -103,15 +103,17 @@ Decl intent_unmapped(VERB, REASON) bound [/name, /name].
 Decl no_action_reason(INTENTID, REASON) bound [/name, /name].
 
 # learning_candidate(Phrase, Verb, Target, Reason)
-# Staged for confirmation before promotion to learned_exemplar
-Decl learning_candidate(PHRASE, VERB, TARGET, REASON) bound [/string, /string, /string, /name].
+# Staged for confirmation before promotion to learned_exemplar. Verb is a name
+# constant (/optimize): every producer asserts it as one, and declaring it
+# /string made the kernel refuse every staged candidate.
+Decl learning_candidate(PHRASE, VERB, TARGET, REASON) bound [/string, /name, /string, /name].
 # learning_candidate_fact(Phrase, Verb, Target, Reason, Fact)
 # Stores raw learned_exemplar text for confirmation flows
-Decl learning_candidate_fact(PHRASE, VERB, TARGET, REASON, FACT) bound [/string, /string, /string, /name, /string].
+Decl learning_candidate_fact(PHRASE, VERB, TARGET, REASON, FACT) bound [/string, /name, /string, /name, /string].
 
 # learning_confirmation_needed(Phrase, Verb, Target, Reason)
 # Derived from learning_candidate when explicit confirmation is required
-Decl learning_confirmation_needed(PHRASE, VERB, TARGET, REASON) bound [/string, /string, /string, /name].
+Decl learning_confirmation_needed(PHRASE, VERB, TARGET, REASON) bound [/string, /name, /string, /name].
 
 # learning_confirmation_active(Status)
 Decl learning_confirmation_active(Status) bound [/name].
@@ -131,7 +133,7 @@ Decl clarification_option(INTENTID, OPTIONVERB, OPTIONLABEL) bound [/name, /name
 Decl learning_candidate_count(PHRASE, COUNT) bound [/string, /number].
 
 # learning_candidate_ready(Phrase, Verb)
-Decl learning_candidate_ready(PHRASE, VERB) bound [/string, /string].
+Decl learning_candidate_ready(PHRASE, VERB) bound [/string, /name].
 
 # multistep_verb_pair(Pattern, Verb1, Verb2)
 Decl multistep_verb_pair(Pattern, Verb1, Verb2) bound [/string, /name, /name].
