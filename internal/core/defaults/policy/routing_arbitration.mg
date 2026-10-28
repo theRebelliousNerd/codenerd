@@ -325,6 +325,20 @@ injectable_context("chat", Line) :-
     background_job(JobID, Shard, Task, /running),
     Line = fn:string:concat("A background ", Shard, " shard is already working on: ", Task).
 
+# The main agent's own operating state, so a question about it is answered
+# from facts: the work mode the user chose (Shift+Tab) and whether debug-self
+# is on.
+injectable_context("chat", "Work mode: yolo -- work runs without waiting for the user's go-ahead.") :-
+    work_mode(/yolo).
+injectable_context("chat", "Work mode: propose -- changes are proposed and wait for the user's go-ahead (\"go\" or /go).") :-
+    work_mode(/propose).
+injectable_context("chat", "Work mode: explicit -- every step waits for the user's go-ahead.") :-
+    work_mode(/explicit).
+injectable_context("chat", "Debug-self is on: problems from your own logs are collected and shown to you.") :-
+    debug_self_active().
+injectable_context("chat", "Debug-self is off.") :-
+    !debug_self_active().
+
 # Its progress so far, so the main agent answers "how is it going?" from what
 # the job has done rather than guessing (background_job_progress).
 injectable_context("chat", Line) :-

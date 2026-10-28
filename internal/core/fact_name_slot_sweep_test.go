@@ -169,11 +169,6 @@ func TestFactNameSlotProducersPassNames(t *testing.T) {
 // 2026-10-28. Only ever lowered.
 var nameSlotStringBaseline = map[string]int{
 	"cmd/nerd/chat/process_continuation.go|shard_result/5#1":                 1,
-	"cmd/nerd/chat/process.go|executive_processed_intent/1#0":                1,
-	"cmd/nerd/chat/process.go|processed_intent/1#0":                          2,
-	"cmd/nerd/chat/process.go|user_intent/5#0":                               1,
-	"cmd/nerd/chat/process.go|user_intent/5#1":                               1,
-	"cmd/nerd/chat/process.go|user_intent/5#2":                               1,
 	"cmd/nerd/chat/reflection.go|trace_recall_result/4#2":                    1,
 	"internal/campaign/assault_tasks.go|phase_estimate/3#2":                  1,
 	"internal/campaign/decomposer_documents.go|doc_layer/3#1":                1,
@@ -244,8 +239,7 @@ var nameSlotStringBaseline = map[string]int{
 	"internal/shards/system/executive.go|executive_trace/4#0":                1,
 	"internal/shards/system/executive.go|pending_action/5#1":                 1,
 	"internal/shards/system/executive_intent.go|no_action_reason/2#0":        1,
-	"internal/shards/system/perception.go|executive_processed_intent/1#0":    1,
-	"internal/shards/system/perception.go|processed_intent/1#0":              2,
+	"internal/shards/system/perception.go|processed_intent/1#0":              1,
 	"internal/shards/system/perception.go|user_intent/5#0":                   1,
 	"internal/shards/system/planner.go|agenda_item/5#3":                      2,
 	"internal/shards/system/planner.go|campaign_task/5#3":                    1,

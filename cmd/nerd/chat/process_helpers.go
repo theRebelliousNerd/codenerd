@@ -179,12 +179,12 @@ func (m Model) assertDirectIntent(intent perception.Intent) []string {
 	}
 	intentFact := core.Fact{
 		Predicate: "user_intent",
-		Args:      []any{intentID, intent.Category, intent.Verb, intent.Target, intent.Constraint},
+		Args:      []any{types.MangleAtom(intentID), types.MangleAtom(intent.Category), types.MangleAtom(intent.Verb), intent.Target, intent.Constraint},
 	}
 	if err := m.kernel.Assert(intentFact); err != nil {
 		warnings = append(warnings, fmt.Sprintf("[Kernel] failed to assert user_intent: %v", err))
 	}
-	_ = m.kernel.Assert(core.Fact{Predicate: "processed_intent", Args: []any{intentID}})
+	_ = m.kernel.Assert(core.Fact{Predicate: "processed_intent", Args: []any{types.MangleAtom(intentID)}})
 	// The firewall publishes what happened when a model read this turn; this
 	// path does it here, so both paths give the kernel the same outcome
 	// (policy/perception_outcome.mg).
