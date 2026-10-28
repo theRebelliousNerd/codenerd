@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -664,33 +665,18 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 		fmt.Println("No paused, active, or blocked campaigns found.")
 		return nil
 	}
-	pausedCampaign := sel.Campaign
-	if err := campaign.ClearPauseRequest(cwd, pausedCampaign.ID); err != nil {
-		return err
+	// Discovery only: the parsed candidate names which campaign to resume. It
+	// is not the state that resumes — ResumeCampaign admits a durable
+	// generation from disk, and only the orchestrator that owns the campaign
+	// publishes its status. Nothing here writes the snapshot: an early status
+	// write that a failed boot then strands is a snapshot the journal never
+	// recorded.
+	campaignID := sel.ID
+	fmt.Printf("Resuming campaign: %s (%s, status %s", sel.Title, campaignID, sel.Status)
+	if sel.BlockReason != "" {
+		fmt.Printf(", block reason %s", sel.BlockReason)
 	}
-	campPath := sel.Path
-	resumeWasFailed := pausedCampaign.Status == campaign.StatusFailed
-
-	// Flip to active on disk so status/list stay consistent during resume.
-	// Paused campaigns only: a failed campaign must still read StatusFailed
-	// when PrepareResume runs, which is what re-arms it.
-	if pausedCampaign.Status == campaign.StatusPaused {
-		pausedCampaign.Status = campaign.StatusActive
-		pausedCampaign.UpdatedAt = time.Now()
-		if campPath != "" {
-			if werr := writeCampaignJSON(campPath, pausedCampaign); werr != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to persist active status: %v\n", werr)
-			}
-		}
-	}
-
-	if pausedCampaign.BlockReason != "" {
-		fmt.Printf("Resuming campaign %s (%s, status %s, block reason %s)\n", pausedCampaign.Title, pausedCampaign.ID, pausedCampaign.Status, pausedCampaign.BlockReason)
-	} else {
-		fmt.Printf("Resuming campaign: %s (status %s)\n", pausedCampaign.Title, pausedCampaign.Status)
-	}
-
-	// (Legacy fallback key resolution removed)
+	fmt.Println(")")
 
 	// Boot through the Cortex factory, exactly like runCampaignStart, so resume
 	// inherits every factory improvement (session identity, Ouroboros registry,
@@ -721,18 +707,21 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	}
 	defer func() { _ = orchestrator.Close() }()
 
-	if err := orchestrator.SetCampaign(pausedCampaign); err != nil {
-		return fmt.Errorf("failed to load campaign: %w", err)
+	report, err := orchestrator.ResumeCampaign(campaignID, campaign.AdmissionPolicy{AdoptSnapshot: campaignAdoptSnapshot})
+	if report != nil && (err != nil || report.Provenance != campaign.ProvenanceCommitted) {
+		fmt.Print(campaign.RenderRecoveryReport(report))
+	}
+	if err != nil {
+		cmd.SilenceUsage = true
+		return fmt.Errorf("cannot resume campaign %s: %w", campaignID, err)
+	}
+	if err := campaign.ClearPauseRequest(cwd, campaignID); err != nil {
+		return err
 	}
 	if err := orchestrator.PrepareResume(); err != nil {
-		return fmt.Errorf("cannot resume campaign %s: %w", pausedCampaign.ID, err)
+		return fmt.Errorf("cannot resume campaign %s: %w", campaignID, err)
 	}
 	defer printCampaignMetrics(attachCampaignMetrics(orchestrator))
-	if resumeWasFailed && campPath != "" {
-		if werr := writeCampaignJSON(campPath, pausedCampaign); werr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to persist resumed status: %v\n", werr)
-		}
-	}
 
 	// The same printer start uses: a resumed run replans and starts phases
 	// too, and its own copy of the switch dropped both events.
@@ -891,102 +880,111 @@ func findLatestPausableCampaign(workspaceRoot string) (*campaign.Campaign, strin
 	return latest, latestPath, nil
 }
 
-// resumeCandidate pairs a persisted campaign with its on-disk JSON path.
-type resumeCandidate struct {
-	Campaign *campaign.Campaign
-	Path     string
-}
-
 // selectResumeCampaign picks which persisted campaign to resume.
 // Order of preference: the newest (by UpdatedAt) StatusPaused campaign;
 // else the newest StatusActive; else the newest StatusFailed campaign whose
 // BlockReason is non-empty; else, only when retryFailed is true, the newest
 // StatusFailed campaign regardless of BlockReason; else nil.
-// It is pure (no disk, no Cortex) for testability.
-func selectResumeCampaign(candidates []resumeCandidate, retryFailed bool, idFilter string) *resumeCandidate {
-	var bestPaused, bestActive, bestBlocked, bestFailed *resumeCandidate
-	for i := range candidates {
-		c := &candidates[i]
-		if c.Campaign == nil {
+// It is pure (no disk, no Cortex) for testability. It only names a campaign:
+// what resumes is the generation ResumeCampaign admits.
+func selectResumeCampaign(candidates []*campaign.Campaign, retryFailed bool, idFilter string) *campaign.Campaign {
+	var bestPaused, bestActive, bestBlocked, bestFailed *campaign.Campaign
+	newer := func(c, best *campaign.Campaign) bool { return best == nil || c.UpdatedAt.After(best.UpdatedAt) }
+	for _, c := range candidates {
+		if c == nil {
 			continue
 		}
-		if idFilter != "" && !strings.Contains(strings.ToLower(c.Campaign.ID), strings.ToLower(idFilter)) {
+		if idFilter != "" && !strings.Contains(strings.ToLower(c.ID), strings.ToLower(idFilter)) {
 			continue
 		}
-		switch c.Campaign.Status {
+		switch c.Status {
 		case campaign.StatusPaused:
-			if bestPaused == nil || c.Campaign.UpdatedAt.After(bestPaused.Campaign.UpdatedAt) {
+			if newer(c, bestPaused) {
 				bestPaused = c
 			}
 		case campaign.StatusActive:
-			if bestActive == nil || c.Campaign.UpdatedAt.After(bestActive.Campaign.UpdatedAt) {
+			if newer(c, bestActive) {
 				bestActive = c
 			}
 		case campaign.StatusFailed:
-			if bestFailed == nil || c.Campaign.UpdatedAt.After(bestFailed.Campaign.UpdatedAt) {
+			if newer(c, bestFailed) {
 				bestFailed = c
 			}
-			if c.Campaign.BlockReason != "" {
-				if bestBlocked == nil || c.Campaign.UpdatedAt.After(bestBlocked.Campaign.UpdatedAt) {
-					bestBlocked = c
-				}
+			if c.BlockReason != "" && newer(c, bestBlocked) {
+				bestBlocked = c
 			}
 		}
 	}
-	if bestPaused != nil {
+	switch {
+	case bestPaused != nil:
 		return bestPaused
-	}
-	if bestActive != nil {
+	case bestActive != nil:
 		return bestActive
-	}
-	if bestBlocked != nil {
+	case bestBlocked != nil:
 		return bestBlocked
-	}
-	if retryFailed && bestFailed != nil {
+	case retryFailed && bestFailed != nil:
 		return bestFailed
 	}
 	return nil
 }
 
-// loadResumeCandidates reads every non-journal *.json campaign in campaignsDir,
-// skipping unreadable or unparseable files the same way the previous
-// status-filtered lookup did.
-func loadResumeCandidates(campaignsDir string) ([]resumeCandidate, error) {
+// loadResumeCandidates discovers the persisted campaigns in campaignsDir:
+// every parseable <id>.json, plus each journaled campaign whose snapshot is
+// missing but whose interrupted replacement left a <id>.json.tmp-* or
+// <id>.json.prev-* behind. Without the second pass a death inside the
+// snapshot-replacement fallback made the campaign vanish from resume.
+// Discovery only names candidates; ResumeCampaign decides what is admitted.
+func loadResumeCandidates(campaignsDir string) ([]*campaign.Campaign, error) {
 	entries, err := os.ReadDir(campaignsDir)
 	if err != nil {
 		return nil, err
 	}
-	var out []resumeCandidate
+	names := make(map[string]bool, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
-			continue
+		if !entry.IsDir() {
+			names[entry.Name()] = true
 		}
-		if strings.Contains(entry.Name(), ".journal.") {
-			continue
-		}
-		path := filepath.Join(campaignsDir, entry.Name())
-		data, err := os.ReadFile(path)
+	}
+	parse := func(name string) *campaign.Campaign {
+		data, err := os.ReadFile(filepath.Join(campaignsDir, name))
 		if err != nil {
-			continue
+			return nil
 		}
 		var c campaign.Campaign
 		if err := json.Unmarshal(data, &c); err != nil {
+			return nil
+		}
+		return &c
+	}
+	var out []*campaign.Campaign
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() {
 			continue
 		}
-		cp := c
-		out = append(out, resumeCandidate{Campaign: &cp, Path: path})
+		if filepath.Ext(name) == ".json" && !strings.Contains(name, ".journal.") {
+			if c := parse(name); c != nil {
+				out = append(out, c)
+			}
+			continue
+		}
+		id, ok := strings.CutSuffix(name, ".journal.jsonl")
+		if !ok || names[id+".json"] {
+			continue
+		}
+		var leftovers []string
+		for n := range names {
+			if strings.HasPrefix(n, id+".json.tmp-") || strings.HasPrefix(n, id+".json.prev-") {
+				leftovers = append(leftovers, n)
+			}
+		}
+		sort.Sort(sort.Reverse(sort.StringSlice(leftovers)))
+		for _, n := range leftovers {
+			if c := parse(n); c != nil {
+				out = append(out, c)
+				break
+			}
+		}
 	}
 	return out, nil
-}
-
-func writeCampaignJSON(path string, c *campaign.Campaign) error {
-	data, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
 }

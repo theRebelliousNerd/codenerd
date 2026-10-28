@@ -501,6 +501,33 @@ Decl campaign_risk_preflight_blocked(CampaignID) bound [/string].
 Decl campaign_risk_classification_ready(CampaignID) bound [/string].
 
 # =============================================================================
+# CAMPAIGN RECOVERY ADMISSION — which durable generation may resume
+# =============================================================================
+# Go classifies the snapshot against the journal and asserts the class; the
+# kernel derives admission. See campaign_rules.mg Section 14.
+
+# campaign_recovery_class(CampaignID, Class) - observed recovery state
+# Class: /committed_match | /prepared_snapshot_present |
+#        /previous_generation_present | /conflict_or_corruption |
+#        /storage_unreadable | /legacy_unjournaled
+Decl campaign_recovery_class(CampaignID, Class) bound [/string, /name].
+
+# campaign_recovery_adopt(CampaignID) - operator policy: adopt a snapshot the
+# journal does not vouch for (nerd campaign resume --adopt-snapshot)
+Decl campaign_recovery_adopt(CampaignID) bound [/string].
+
+# campaign_recovery_admitted(CampaignID, Provenance) - derived: may resume
+# Provenance: /committed | /reconciled_publication | /previous_generation |
+#             /legacy_import | /operator_adopted
+Decl campaign_recovery_admitted(CampaignID, Provenance) bound [/string, /name].
+
+# campaign_recovery_decided(CampaignID) - derived helper for safe negation
+Decl campaign_recovery_decided(CampaignID) bound [/string].
+
+# campaign_recovery_refused(CampaignID, Class) - derived: must not resume
+Decl campaign_recovery_refused(CampaignID, Class) bound [/string, /name].
+
+# =============================================================================
 # TASK CONTRACT FACTS EMITTED BY Task.ToFacts WITH NO DECL UNTIL NOW
 # =============================================================================
 # internal/campaign/types.go has asserted all three of these since sub-campaign

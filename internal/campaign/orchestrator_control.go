@@ -72,13 +72,16 @@ func (o *Orchestrator) Stop() {
 }
 
 // Close releases what the orchestrator holds for its lifetime — the
-// Northstar observer's guardian reference. Call it when the
+// Northstar observer's guardian reference and the campaign ownership lock.
+// Call it when the
 // orchestrator is discarded; it does not stop a running campaign (Stop
 // does). Safe to call more than once.
 func (o *Orchestrator) Close() error {
 	o.mu.Lock()
 	configured := o.configuredNorthstarObserver
 	runtime := o.northstarObserver
+	// The campaign is published by nobody once its orchestrator closes.
+	o.releaseOwnershipLocked()
 	o.mu.Unlock()
 	var firstErr error
 	if configured != nil {

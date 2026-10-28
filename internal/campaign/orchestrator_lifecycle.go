@@ -10,64 +10,32 @@ import (
 	"path/filepath"
 )
 
-// LoadCampaign loads an existing campaign from disk.
-func (o *Orchestrator) LoadCampaign(campaignID string) error {
-	timer := logging.StartTimer(logging.CategoryCampaign, "LoadCampaign")
-	defer timer.Stop()
-
-	logging.Campaign("Loading campaign: %s", campaignID)
-
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
-	campaignPath := filepath.Join(o.nerdDir, "campaigns", campaignID+".json")
-	logging.CampaignDebug("Reading campaign from: %s", campaignPath)
-
-	data, err := os.ReadFile(campaignPath)
-	if err != nil {
-		logging.Get(logging.CategoryCampaign).Error("Failed to read campaign file: %v", err)
-		return fmt.Errorf("failed to load campaign: %w", err)
-	}
-
-	var campaign Campaign
-	if err := json.Unmarshal(data, &campaign); err != nil {
-		logging.Get(logging.CategoryCampaign).Error("Failed to parse campaign JSON: %v", err)
-		return fmt.Errorf("failed to parse campaign: %w", err)
-	}
-
-	o.campaign = &campaign
-
-	logging.Campaign("Campaign loaded: %s (title=%s, phases=%d, tasks=%d)",
-		campaign.ID, campaign.Title, len(campaign.Phases), campaign.TotalTasks)
-
-	// Recover monotonic journal sequence, ignoring corrupt tail records.
-	o.recoverJournalSequence(campaign.ID)
-
-	// Load campaign facts into kernel
-	facts := campaign.ToFacts()
-	logging.CampaignDebug("Loading %d facts into kernel", len(facts))
-	if err := o.kernel.LoadFacts(facts); err != nil {
-		return err
-	}
-	// Apply runtime config + budget
-	o.publishPolicyParams()
-	if o.contextPager != nil && o.campaign.ContextBudget > 0 {
-		o.contextPager.SetBudget(o.campaign.ContextBudget)
-	}
-	return nil
-}
-
-// SetCampaign sets the campaign to execute.
+// SetCampaign makes a NEW campaign this orchestrator's to execute and publishes
+// its first generation. It takes the campaign's cross-process ownership lock.
+//
+// A campaign that already has a durable journal is not new: setting it would
+// overwrite the recorded generation with whatever this caller holds in memory
+// before anything compared the two. Persisted campaigns resume through
+// ResumeCampaign, which admits a generation first.
 func (o *Orchestrator) SetCampaign(campaign *Campaign) error {
 	logging.Campaign("Setting campaign: %s (title=%s)", campaign.ID, campaign.Title)
 
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	o.campaign = campaign
+	if err := o.acquireOwnershipLocked(campaign.ID); err != nil {
+		return err
+	}
+	journal := o.journalPath(campaign.ID)
+	if _, err := os.Stat(journal); err == nil {
+		return fmt.Errorf("campaign %s already has a durable journal (%s); resume it so its recorded generation is admitted instead of overwritten", campaign.ID, journal)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("campaign %s: check for an existing journal: %w", campaign.ID, err)
+	}
+	o.journalSeq.Store(0)
+	o.journalUncertain = false
 
-	// Resume journal sequence for existing campaign IDs to avoid sequence reuse.
-	o.recoverJournalSequence(campaign.ID)
+	o.campaign = campaign
 
 	// Load campaign facts into kernel
 	facts := campaign.ToFacts()

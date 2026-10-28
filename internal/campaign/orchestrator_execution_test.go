@@ -236,7 +236,7 @@ func TestRun_SuccessfulRestartResetSchedulesInterruptedTask(t *testing.T) {
 	}
 	campaignID := orch.campaign.ID
 	orch.mu.Unlock()
-	if err := orch.LoadCampaign(campaignID); err != nil {
+	if _, err := orch.ResumeCampaign(campaignID, AdmissionPolicy{}); err != nil {
 		t.Fatalf("reload interrupted campaign before restart: %v", err)
 	}
 	var executions atomic.Int32

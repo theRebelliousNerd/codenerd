@@ -277,8 +277,15 @@ func (s *CampaignRunnerShard) startCampaign(ctx context.Context, campaignID, wor
 		orch.SetPromptProvider(prompts)
 	}
 
-	if err := orch.LoadCampaign(campaignID); err != nil {
-		logging.Get(logging.CategorySystemShards).Error("[CampaignRunner] Failed to load campaign %s: %v", campaignID, err)
+	// The same admission every resume door uses: the generation must be one
+	// the journal vouches for (or a provenance the kernel admits), and another
+	// owner — a CLI resume, the chat — keeps it. This automated door never
+	// adopts a snapshot the journal does not vouch for; only an operator can.
+	if report, err := orch.ResumeCampaign(campaignID, campaign.AdmissionPolicy{}); err != nil {
+		logging.Get(logging.CategorySystemShards).Error("[CampaignRunner] Campaign %s not admitted: %v", campaignID, err)
+		if report != nil {
+			logging.SystemShardsDebug("[CampaignRunner] %s", campaign.RenderRecoveryReport(report))
+		}
 		// The orchestrator owns its northstar observer: a retry every few
 		// seconds that dropped it unclosed leaked one guardian per attempt.
 		_ = orch.Close()
