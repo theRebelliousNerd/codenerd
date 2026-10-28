@@ -35,6 +35,16 @@ func (c *Cortex) Close() error {
 	c.closed = true
 
 	var errs []error
+	// Release the approval broker first: the last holder's release cancels
+	// every request still awaiting a person, so no call stays blocked on a
+	// decision while the resources it would resume into are torn down.
+	if c.approvalsRelease != nil {
+		if err := c.approvalsRelease(); err != nil {
+			errs = append(errs, fmt.Errorf("approval broker: %w", err))
+		}
+		c.approvalsRelease = nil
+		c.Approvals = nil
+	}
 	// Stop generated admission and join execution, recording and refinement
 	// before releasing any of their kernel, prompt or persistence dependencies.
 	if c.generatedExecutor != nil {

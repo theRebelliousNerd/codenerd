@@ -325,6 +325,7 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 			ObserverMgr:      observerMgr,
 			ConsultationMgr:  consultationMgr,
 			DreamToolQ:       cortex.OuroborosQueue,
+			Approvals:        cortex.Approvals,
 		},
 	}
 }

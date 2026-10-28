@@ -326,6 +326,8 @@ func (m Model) View() string {
 		return m.renderAutopoiesisView()
 	case ShardPage:
 		return m.renderShardView()
+	case ApprovalView:
+		return m.renderApprovalView()
 	}
 
 	return m.renderChatView()

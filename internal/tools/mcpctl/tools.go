@@ -111,7 +111,7 @@ func CallTool() *tools.Tool {
 	return &tools.Tool{
 		Name:        "mcp_call",
 		Effect:      tools.EffectExternal,
-		Description: `Invoke one MCP tool. Arguments are checked against the tool's declared schema before dispatch; if they do not fit, nothing is sent and the schema comes back with the error so the next attempt is informed. Results are shaped to 'view' and reported with their structural shape, so a large payload costs a sketch rather than the payload. Anything withheld is retained under a handle — pass it to mcp_expand to read the rest WITHOUT re-running the call. Tools policy classifies as destructive or arbitrary-execution require confirm_risk=true.`,
+		Description: `Invoke one MCP tool. Arguments are checked against the tool's declared schema before dispatch; if they do not fit, nothing is sent and the schema comes back with the error so the next attempt is informed. Results are shaped to 'view' and reported with their structural shape, so a large payload costs a sketch rather than the payload. Anything withheld is retained under a handle — pass it to mcp_expand to read the rest WITHOUT re-running the call. Tools policy classifies as destructive or arbitrary-execution require confirm_risk=true; confirm_risk is not consent, and a remote delete or execute additionally waits for a person to approve that exact request in the interactive UI (refused when no one can be asked).`,
 		Category:    tools.CategoryResearch,
 		Priority:    64,
 		Execute:     executeCall,

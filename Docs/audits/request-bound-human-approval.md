@@ -1,10 +1,10 @@
 ---
 doc-class: deep-dive
 subsystem: session-core-ui
-implementation-status: planned
-last-verified: 2026-10-28
-verified-against: 24eb5faaa65a4f55cdc6061e809b09fc25d8376a
-verification-method: static-source-inspection
+implementation-status: shipped
+last-verified: 2026-10-27
+verified-against: 67bf9ee4
+verification-method: source-inspection-and-tests
 supersedes: []
 ---
 
@@ -12,7 +12,7 @@ supersedes: []
 
 **Decision:** complete the missing human-approval integration as a request-bound, host-owned lifecycle. Do not simply connect an Approve button to an action-type permission fact. The approved operation, its destination, its arguments, its relevant source revisions, and the human decision must refer to one immutable request.
 
-**Status:** proposed design grounded in source, not shipped behavior or an executed security assessment. No implementation, tests, model inference, training, benchmark, or live operation was performed. The source baseline is `24eb5faaa65a4f55cdc6061e809b09fc25d8376a`; conditional examples are proposed fixtures, not reproduced incidents.
+**Status:** implemented 2026-10-27 for the local single-host case; see **As built** at the end for what shipped, what was ruled differently and what is deferred. Sections 1–9 are the original proposal and are kept as written. The source baseline is `24eb5faaa65a4f55cdc6061e809b09fc25d8376a`; conditional examples are proposed fixtures, not reproduced incidents.
 
 ## 1. Why this is a production capability, not just a dialog
 
@@ -195,3 +195,39 @@ These IDs are local research work items, not claims of adopted repository gaps. 
 | APPROVAL-05 | Human-effort and whole-task evaluation | Same-authority paired study reports full costs and verified outcomes, including manual completion and structured-export baseline. |
 
 The first useful milestone is not “Approve button appears.” It is one authorized operation completing through the ordinary gates, with evidence that a changed, rejected, duplicate, or unrelated operation cannot borrow that approval.
+
+## As built (2026-10-27)
+
+**Implemented.**
+
+- **Contracts and lifecycle** — `internal/approval`. `Subject` / `Subject.Digest` (`request.go`): sha256 over a domain separator, `CanonicalizationVersion` (`approval-request/v1`) and encoding/json of a fixed-order struct (workspace, session, agent, backend, tool, tool registration digest, action, target, exact gate payload, effect, endpoint, sorted source revisions); invalid UTF-8 and duplicate revisions are rejected. `Request`, `Decision`, `Claim`, `Status` with `allowedTransitions` (nothing leads back to approved). `Broker.Await`, `Host.Decide` (actor and channel come from the host; duplicate event ID is one decision; version/digest must match; expired/decided requests refuse), `Grant.Reserve` (recomputes the digest from the world as it is now: mismatch → `superseded`; second claim → `ErrAlreadyClaimed`), `DispatchStarted` (durable before the effect), `Finish` (error ⇒ `outcome_unknown`), `AdmissionFailed`, `Abandon`. `journal.go`: fsynced JSONL at `.nerd/approvals/journal.jsonl`, torn-line tolerant replay, restart reconciliation (`awaiting_human`/`approved` → `expired`, `reserved` → `admission_failed`, `dispatch_started` → `outcome_unknown`; no decision is invented), retention compaction. `OpenShared`: one broker per journal per process. `preview.go`: sealed `Preview` (`BuildPreview`, `Verify`) with explicit `Incomplete` (truncated, binary, oversize, directory) and `Unknowns`, built on an uncached diff engine.
+- **Config** — `internal/config/approval.go`: `approval.request_ttl` (15m), `approval.preview_max_bytes` (256 KiB, ≥1 KiB), `approval.journal_retention` (168h, ≥ TTL); `ApprovalConfig.Check` runs in `UserConfig.Check`; `Resolve` at boot.
+- **Policy** — `policy/constitution.mg`: the action-type `signed_approval`/`admin_override` arm is gone. `permitted/3` derives from consent only via `dangerous_action, human_approvable, pending_action(ID, A, T, P, _), human_approval_granted(ID, A, T, P, _), !dangerous_content(A, P), !dangerous_content(A, T)`. `human_approvable(/delete_file)`, `human_approvable(/run_arbitrary_command)`. `human_approval_required(ID)` marks denials a person may answer (never a hard prohibition, never an already-permitted recoverable delete). `permission_denied` is now per pending request. Declarations in `schemas_safety.mg`; `human_approval_granted` homed with `pending_action` (`internal/shards/registration.go`); protected by `grantConsent` (`internal/mangle/grant_path.go`) and `forbiddenLearnedHeads` (`schema_validator.go`, also `human_approvable`); kept in the retention floor (`internal/context/compressor.go`, `context_compilation.mg`).
+- **Executor admission and resume** — `internal/session/human_approval.go` with `executeToolCall` / `checkSafetyWithLease` (`executor_tools.go`): an approvable denial freezes the subject (gate payload, `toolRegistrationDigest`, target file revisions) and preview, blocks on `Broker.Await` holding no fact, lease or lock, rebuilds the subject and `Reserve`s, reruns the constitutional gate with `human_approval_granted` asserted for `exec-<callID>` only (serialized against ordinary admissions by `humanApprovalAdmission`), then every later gate, `DispatchStarted`, the ordinary modular backend, and `Finish`. A rejection asserts `security_violation`. `CloneForTask` and `Spawner` pass the broker on.
+- **MCP** — `internal/mcp/remote_authority.go` (`dispatchRemoteCall` / `attemptRemoteCall`): host-reviewed remote `/delete` and `/execute` effects use the same lifecycle; the subject binds endpoint|protocol, reviewed schema hash, effect, target and canonical args; the retry consumes the call identity once; `confirm_risk` is still required separately and never creates or substitutes for a decision (`mcp_call` description says so).
+- **UI** — the chat TUI is the only host (`cmd/nerd/chat/approval_host.go`: channel `tui:<session>:<pid>`, actor = OS user, detached on shutdown, which cancels waiting calls). Modal `ApprovalView`. `cmd/nerd/ui/diffview.go` renders immutable host requests (summary, effects, not-modeled, not-shown, digest, expiry, `Preview.Diff` only) and emits `ApprovalDecisionMsg` carrying ID, version, digest and a fresh event ID. Approve-all approves exactly the undecided requests the person viewed, at the version viewed. `/approvals [id]` is a read-only status view.
+- **Boot** — `internal/system/approval_boot.go` `initApprovalBroker` (boot step before the intelligence layer, which wires the MCP manager); `Cortex.Approvals`, released first in `Cortex.Close`.
+- **Stale claims fixed** — `Docs/architecture/diff/WIRING-AND-NOT-BUILT.md` (no host, `/delete_file` unreachable, display-only importers), `internal/diff/importers_test.go` (now `TestDiffImporters_AreDisplayOnlyOrDecisionSafe`, with `internal/approval` as an uncached decision importer), the action linter's "unreachable" message, `regression_battery.mg`, `registration.go`, `shards/system/constitution.go`, `delete_recoverable.go`, the legislator/policy prompt atoms (which taught `admin_override` grants), context/mangle/regression docs and the builder skill examples.
+
+**Tests.** `internal/approval/broker_test.go`, `preview_test.go` (digest binding, approve-then-mutate, replay, concurrent claim, duplicate event, reject-stays-rejected, expiry, cancel, restart reconciliation with torn line, uncached preview engine); `internal/core/defaults/policy/human_approval_test.go` (exact tuple only, sibling/mismatch admit nothing, no override of unapprovable or secret-path actions, `human_approval_required` scope); `internal/session/human_approval_test.go` (registered executor path with the real constitution and `delete_file`: approve, reject, approve-then-mutate, replay, expiry, duplicate resume dispatches once, no host, forged fact); `internal/mcp/remote_approval_test.go` and the rewritten MCP/mcpctl authority tests; `cmd/nerd/ui/diffview_approval_test.go`; `cmd/nerd/chat/approval_host_test.go` (UI key → host boundary, approve-all vs rejection, shutdown, `/approvals`); config, boot and linter tests.
+
+**Ruled differently from the proposal.**
+
+- The continuation is the blocked call itself: no model turn runs while waiting. Persisted requests are not resumed after a restart (there is no continuation left to resume); they are reconciled to terminal states instead.
+- One record per request with the execution claim folded in, not a separate `ExecutionClaim` store.
+- No `policy_revision` in the subject: current policy is re-evaluated at admission, so a revocation fails closed without freezing policy text.
+- `request_version` is always 1; a revised operation under the same intent supersedes the old request and opens a new one.
+- Approvable set is `/delete_file` and `/run_arbitrary_command` only; `git_push`, `git_force`, `system_modify` and `run_regression_battery` have no consent arm. Generated (Ouroboros) tools are never approvable.
+- Headless runs attach no host: an approvable denial stays a structured refusal and opens no request.
+- Local threat model: no cryptographic signing; trust is the single in-process host channel, with the actor from the OS account.
+- A rejection reaches the executive as a `security_violation` fact, not a new predicate.
+- The model learns the outstanding obligation from the tool's refusal text (request ID, outcome, "do not retry"), not from a new prompt atom.
+- "The displayed set" for bulk approval is the set of requests the person actually viewed.
+
+**Deferred.**
+
+- APPROVAL-05 (human-effort and paired whole-task evaluation): needs live models and human operators.
+- Distributed approvers (authenticated transport, replay protection across hosts, trust roots).
+- The dormant appeal arm (`has_active_override` → `permitted`, action-type broad) remains: nothing in production grants an appeal (`HandleAppeal` has no caller) and its facts land outside the policy shard, so it cannot fire; removing that machinery is a separate change.
+- A key or `/approvals` action to leave the modal review without deciding.
+- The external-writer race between `Reserve` and the write is disclosed, not closed: there is no filesystem compare-and-swap.

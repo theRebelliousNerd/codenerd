@@ -128,12 +128,12 @@ func TestGeneratedSessionDuplicateAuthorizationLease(t *testing.T) {
 	}
 	executor := NewExecutor(kernel, nil, nil, nil, nil, nil)
 	var first, second func()
-	if ok, reason := executor.checkSafetyWithLease(call, true, canonical, &first); !ok {
-		t.Fatal(reason)
+	if v := executor.checkSafetyWithLease(call, true, canonical, &first, nil); !v.allowed {
+		t.Fatal(v.reason)
 	}
 	defer first()
-	if ok, reason := executor.checkSafetyWithLease(call, true, canonical, &second); !ok {
-		t.Fatal(reason)
+	if v := executor.checkSafetyWithLease(call, true, canonical, &second, nil); !v.allowed {
+		t.Fatal(v.reason)
 	}
 	defer second()
 	conflict := call
@@ -143,7 +143,7 @@ func TestGeneratedSessionDuplicateAuthorizationLease(t *testing.T) {
 		t.Fatal(err)
 	}
 	var refused func()
-	if ok, _ := executor.checkSafetyWithLease(conflict, true, changed, &refused); ok || refused != nil {
+	if v := executor.checkSafetyWithLease(conflict, true, changed, &refused, nil); v.allowed || refused != nil {
 		t.Fatal("conflicting authorization admitted")
 	}
 	first()

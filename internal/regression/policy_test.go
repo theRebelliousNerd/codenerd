@@ -206,8 +206,8 @@ func TestBatteryPolicy_WhenSubmittedAsAPendingAction_ShouldNotDerivePermitted(t 
 		Tasks:   []Task{{ID: "build", Type: "shell", Command: "go build ./..."}},
 	}))
 
-	// Even with a clean battery, the action itself stays denied: no
-	// signed_approval and no admin_override were supplied.
+	// Even with a clean battery, the action itself stays denied: it is not
+	// human_approvable, so nothing derives permitted/3 for it.
 	for _, action := range derivedFirstArgs(t, eng, "permitted") {
 		if action == ActionRunBattery {
 			t.Fatalf("%s derived permitted/3 with no approval or override", ActionRunBattery)

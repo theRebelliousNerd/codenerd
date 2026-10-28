@@ -206,6 +206,13 @@ var CommandRegistry = []CommandInfo{
 		ShowInHelp:  true,
 	},
 	{
+		Name:        "/approvals",
+		Description: "List human-approval requests, or show one in full (read-only)",
+		Usage:       "/approvals [request-id]",
+		Category:    CategoryBasic,
+		ShowInHelp:  true,
+	},
+	{
 		Name:        "/usage",
 		Description: "Show token usage dashboard",
 		Usage:       "/usage",

@@ -688,16 +688,14 @@ func TestConstitutionalSafety(t *testing.T) {
 # Schemas
 Decl safe_action(Action).
 Decl dangerous_action(Action).
-Decl admin_override(User).
-Decl signed_approval(Action).
+Decl human_approval_granted(Action).
 Decl permitted(Action).
 
 # Safety Rules
 permitted(Action) :- safe_action(Action).
 permitted(Action) :-
     dangerous_action(Action),
-    admin_override(User),
-    signed_approval(Action).
+    human_approval_granted(Action).
 
 # Base facts
 safe_action(/read_file).
@@ -720,7 +718,7 @@ dangerous_action(/delete_file).
 	})
 
 	t.Run("dangerous action needs approval", func(t *testing.T) {
-		// Without admin_override and signed_approval, delete should not be permitted
+		// Without a human approval, delete should not be permitted
 		result := evaluateAndQuery(t, program, []testFact{}, "permitted")
 		for _, fact := range result {
 			if len(fact.Args) > 0 {
@@ -733,8 +731,7 @@ dangerous_action(/delete_file).
 
 	t.Run("dangerous action with approval is permitted", func(t *testing.T) {
 		facts := []testFact{
-			{"admin_override", []any{"admin_user"}},
-			{"signed_approval", []any{"/delete_file"}},
+			{"human_approval_granted", []any{"/delete_file"}},
 		}
 		result := evaluateAndQuery(t, program, facts, "permitted")
 		found := false

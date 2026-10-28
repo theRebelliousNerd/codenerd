@@ -202,7 +202,7 @@ accounting, serialization, storage, and learning support. File by file
 - Safety retention is hardcoded and fail-loud: `getCoreFacts`
   (`internal/context/compressor.go:745-771`) queries the retention list at
   `internal/context/compressor.go:759` (`permitted, dangerous_action,
-  admin_override, security_violation, block_commit`) and on per-predicate
+  human_approval_granted, security_violation, block_commit`) and on per-predicate
   error warns and continues, never returning a silent empty safety block
   (body-read `internal/context/compressor.go:752-765`).
 - Turn intake is `ProcessTurn`

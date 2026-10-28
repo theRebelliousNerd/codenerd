@@ -84,7 +84,7 @@ should_include_context(Fact, Priority) :-
 
 context_must_retain(/permitted).
 context_must_retain(/dangerous_action).
-context_must_retain(/admin_override).
+context_must_retain(/human_approval_granted).
 context_must_retain(/security_violation).
 context_must_retain(/block_commit).
 

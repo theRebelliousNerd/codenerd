@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // fatMCPServer is a deliberately large MCP server: enough tools, with realistic
@@ -439,12 +440,9 @@ func TestControlPlane_CallShouldGateDestructiveToolsUntilConfirmed(t *testing.T)
 	if refused.Risk != RiskDestructive {
 		t.Errorf("risk = %q, want %q", refused.Risk, RiskDestructive)
 	}
-	if err := plane.manager.factEmitter().kernel.Assert("signed_approval(/delete_file)"); err != nil {
-		t.Fatal(err)
-	}
-	if err := plane.manager.factEmitter().kernel.Assert("admin_override(\"fixture-human\")"); err != nil {
-		t.Fatal(err)
-	}
+	// A person approves the exact request; confirm_risk is still required
+	// alongside, and neither substitutes for the other.
+	attachTestApprover(t, plane.manager, time.Minute, approveAll)
 
 	confirmed := plane.Call(ctx, CallOptions{
 		Tool: "delete_repo", Args: map[string]any{"id": "x"}, ConfirmRisk: true,

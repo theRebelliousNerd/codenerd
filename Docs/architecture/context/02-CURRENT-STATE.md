@@ -153,7 +153,7 @@ therefore not stated here.
   usage accounting after the build.
 - Safety retention is `internal/context/compressor.go:745-771`
   (`getCoreFacts`): queries the `permitted`, `dangerous_action`,
-  `admin_override`, `security_violation`, and `block_commit` predicates
+  `human_approval_granted`, `security_violation`, and `block_commit` predicates
   and warns-and-continues on query errors rather than silently emitting
   an empty safety block.
 - The serialized-string entry point is

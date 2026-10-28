@@ -789,7 +789,7 @@ func (c *Compressor) BuildContext(ctx context.Context) (*CompressedContext, erro
 // context_must_retain (policy/context_compilation.mg) decides what is always
 // retained, and TestRetentionPolicy_KeepsTheConstitutionalFloor pins that it
 // never decides less than this.
-var constitutionalFloor = []string{"permitted", "dangerous_action", "admin_override", "security_violation", "block_commit"}
+var constitutionalFloor = []string{"permitted", "dangerous_action", "human_approval_granted", "security_violation", "block_commit"}
 
 // retainedPredicates is the kernel's retention decision: every predicate
 // context_must_retain names. It falls back to constitutionalFloor, with one

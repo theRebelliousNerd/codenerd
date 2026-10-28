@@ -2,8 +2,8 @@
 doc-class: shipped
 subsystem: diff
 implementation-status: shipped
-last-verified: 2026-09-25
-verified-against: c91c6b3
+last-verified: 2026-10-27
+verified-against: 67bf9ee4
 supersedes: []
 ---
 
@@ -44,17 +44,23 @@ rewritten; its anchors into that file are gone.
   attempt with `turnDiffPatch` (`internal/session/turn_diff.go:85`,
   called at `internal/session/buildable_tree.go:51`), which is unbounded:
   it is the record a person restores from, not a prompt.
-- **TUI engine.** `var uiDiffEngine` (`cmd/nerd/ui/diffview.go:907`) is the
-  one package engine; `DiffApprovalView.diffEngine` (`:146`) is set to it
-  in `NewDiffApprovalView` (`:181`). `CreateDiffFromStrings` computes on it
-  (`:911`), and the side-by-side word path uses it (`:696`, `:970`), pinned
-  by `TestCreateDiffFromStrings_ShouldUseTheSameEngineAsTheView`
-  (`cmd/nerd/ui/word_highlight_test.go:141`).
-- **Display-only importers, enforced.** `TestDiffImporters_AreDisplayOnly`
+- **TUI engine.** `var uiDiffEngine` (`cmd/nerd/ui/diffview.go`) is the
+  one package engine; `NewDiffApprovalView` sets `DiffApprovalView.diffEngine`
+  to it, and it computes only word-level spans inside a diff the view is
+  handed (`ComputeWordLevelDiff` in the inline and side-by-side paths). The
+  view never computes a decision diff: it renders `approval.Request.Preview.Diff`.
+  `CreateDiffFromStrings` and `DiffEngineStats` had no production caller and
+  were removed (2026-10-27).
+- **Decision previews, uncached.** `internal/approval` builds every approval
+  preview on `previewEngine` (`internal/approval/preview.go`), an engine with
+  `Options{DisableCache: true}`, pinned by
+  `TestPreviewEngine_NeverServesFromCache`.
+- **Importers classified, enforced.** `TestDiffImporters_AreDisplayOnlyOrDecisionSafe`
   (`internal/diff/importers_test.go`) walks the module and requires every
-  production importer of `internal/diff` to be a known display-only
-  consumer (today `cmd/nerd/ui` and `internal/session`). See the cache-key
-  decision below.
+  production importer of `internal/diff` to be either a known display-only
+  consumer (`cmd/nerd/ui`, `internal/session`) or a decision importer whose
+  engine cannot serve a wrong cached diff (`internal/approval`). See the
+  cache-key decision below.
 
 ## Exists, and stays test-only by decision
 
@@ -69,29 +75,29 @@ rewritten; its anchors into that file are gone.
   lifecycle event needs to clear it. Concurrency is pinned by
   `TestClearCache_ConcurrentWithComputeDiff_ShouldNotRace`
   (`internal/diff/cache_test.go:167`) (TODO-DIFF-06b).
-- `DiffEngineStats` (`cmd/nerd/ui/diffview.go:915`): the counter worth
-  alerting on, `Stats.Collisions` (`internal/diff/cache.go:42`), is always
-  zero with verification off, which both production engines are
-  (TODO-DIFF-07b).
+- `Engine.Stats` outside tests: the counter worth alerting on,
+  `Stats.Collisions` (`internal/diff/cache.go:42`), is always zero with
+  verification off, which both caching production engines are
+  (TODO-DIFF-07b). `DiffEngineStats`, its only UI wrapper, was removed with
+  no caller (2026-10-27).
 
-## Exists with no host, and why it is kept
+## Hosted: the approval view (2026-10-27)
 
-- `DiffApprovalView` (`cmd/nerd/ui/diffview.go`, the whole type) and the
-  word-level API only it calls (`ComputeWordLevelDiff`, `Engine.Stats`,
-  `Engine.ClearCache`, `diffCache.clear/stats`, `hash`,
-  `WarningBoxWidth`): no chat screen constructs the view, and none ever did
-  (no commit called `NewDiffApprovalView` from `cmd/nerd/chat`). It is not a
-  viewer: each `PendingMutation` carries the `Reason` approval is needed and
-  its safety `Warnings`, and the view's verbs are approve, reject and
-  approve-all. It is the UI half of a human-approval flow that is not built:
-  `permitted/3`'s approval arm (`policy/constitution.mg`) wants
-  `signed_approval(Action)`, which nothing produces, and the action linter
-  reports that `/delete_file` is unreachable for exactly that reason.
-  Reviewed in the 2026-09-25 dead-code pass and kept in the baseline (55
-  entries): wiring it as a read-only diff screen would bury the approval
-  semantics, and deleting it discards the only design that exists for that
-  flow. Build the flow (who signs, what a signature binds, how a rejection
-  reaches the kernel) and host the view there.
+`DiffApprovalView` now has its host. The chat TUI attaches itself as the
+human-approval channel at boot (`cmd/nerd/chat/approval_host.go`,
+`attachApprovalHost`) and opens the view modally while any request awaits a
+decision. The view renders host-provided, immutable `approval.Request`
+snapshots — summary, effects, what is not modeled, what is not shown, the
+digest and the expiry — and emits `ApprovalDecisionMsg` decisions carrying the
+request ID, version and digest it displayed; `approval.Host.Decide` commits
+them. Approve-all approves exactly the undecided requests the person viewed,
+each at the version viewed. The flow behind it is
+`Docs/audits/request-bound-human-approval.md`: the constitution's consent arm
+is `human_approval_granted/5`, joined to one exact `pending_action`, and the
+action-type `signed_approval`/`admin_override` arm the earlier version of this
+page described is gone. `/delete_file` is reachable two ways, neither of them
+broad: a tracked, clean target git can restore (`file_recoverable`), and one
+exact request a person approved; the action linter no longer reports it.
 
 ## Assumed by the design, and the decision behind it
 
@@ -102,7 +108,9 @@ rewritten; its anchors into that file are gone.
   (`internal/diff/diff.go:190`). The collision path is proven by
   `TestCache_WhenVerifyEnabledAndKeyCollides_ShouldRecomputeRatherThanServeWrongDiff`
   (`internal/diff/word_span_test.go:94`). A collision in production would
-  show one file's hunks for another's: a display fault, because nothing
-  applies these diffs. That premise is enforced by
-  `TestDiffImporters_AreDisplayOnly`; a consumer that applies diffs must
-  turn verification on (TODO-DIFF-01b).
+  show one file's hunks for another's: a display fault for the two caching
+  engines, because neither applies or decides with a diff. The approval
+  preview, which a person authorizes against, runs uncached. That split is
+  enforced by `TestDiffImporters_AreDisplayOnlyOrDecisionSafe`; a consumer
+  that applies or decides with diffs must disable the cache or turn
+  verification on (TODO-DIFF-01b).

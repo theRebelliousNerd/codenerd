@@ -252,6 +252,11 @@ type UserConfig struct {
 	// attempts with (delegation.go).
 	Delegation *DelegationConfig `json:"delegation,omitempty"`
 
+	// Approval is the bounds of the request-bound human-approval lifecycle:
+	// how long a request waits, how much its preview shows, how long the
+	// journal keeps it (approval.go).
+	Approval *ApprovalConfig `json:"approval,omitempty"`
+
 	// Working is the spans the working policy decides a tool loop's regime,
 	// steering, stop and finalize with (working.go).
 	Working *WorkingConfig `json:"working,omitempty"`
@@ -1708,6 +1713,7 @@ func DefaultUserConfig() *UserConfig {
 	researchCfg := DefaultResearchConfig()
 	uiCfg := DefaultUIConfig()
 	delegationCfg := DefaultDelegationConfig()
+	approvalCfg := DefaultApprovalConfig()
 	workingCfg := DefaultWorkingConfig()
 	articulationCfg := DefaultArticulationConfig()
 
@@ -1741,6 +1747,7 @@ func DefaultUserConfig() *UserConfig {
 		Research:                     &researchCfg,
 		Usage:                        &UsageConfig{},
 		Delegation:                   &delegationCfg,
+		Approval:                     &approvalCfg,
 		Working:                      &workingCfg,
 		Articulation:                 &articulationCfg,
 		Logging:                      DefaultLoggingConfig(),

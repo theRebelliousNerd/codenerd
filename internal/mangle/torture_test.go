@@ -1086,7 +1086,7 @@ func TestTorture_SchemaValidator_ForbiddenHead(t *testing.T) {
 	}{
 		{"permitted", `permitted(/action, /target, /payload) :- user(/admin).`},
 		{"safe_action", `safe_action(/delete) :- user(/admin).`},
-		{"admin_override", `admin_override(/yes) :- user(/admin).`},
+		{"human_approval_granted", `human_approval_granted("a", /delete_file, "t", "p", "d") :- user(/admin).`},
 		{"pending_action", `pending_action(/do_stuff) :- user(/admin).`},
 	}
 

@@ -152,6 +152,10 @@ func (m Model) applyLayout() Model {
 	// width does not shrink when a sidebar opens beside the chat.
 	m.textarea.SetWidth(max(frameW-4, 1))
 
+	// The approval review is a full-frame view too, and is plain enough to
+	// size on every model, test models included.
+	m.approvalView.SetSize(frameW, frameH-headerHeight)
+
 	// Side pages and pickers are full-frame views; they follow the frame,
 	// not the chat column. Guarded on splitPane as before: production
 	// constructs that whole set together (session.go), bare test models

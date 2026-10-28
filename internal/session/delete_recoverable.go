@@ -13,8 +13,8 @@ import (
 // A delete the repository can undo is not the act the permission gate guards.
 //
 // requires_permission(/delete_file) exists because deletion is irreversible,
-// and the gate's refusal says so: "requires human approval and cannot be
-// self-authorized". For a file git tracks with no uncommitted change that
+// and the gate refuses it unless a person approves that exact request
+// (human_approval.go). For a file git tracks with no uncommitted change that
 // premise is simply false -- `git checkout -- <path>` restores the exact bytes
 // from the index. So this narrows the gate to the case where the premise
 // holds, rather than removing it: an untracked file, a file with uncommitted

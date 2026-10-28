@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"codenerd/internal/approval"
 	"context"
 	"sync"
 	"time"
@@ -79,6 +80,9 @@ const (
 	PromptInspector // JIT Prompt Inspector
 	AutopoiesisPage // Autopoiesis Dashboard
 	ShardPage       // Shard Console
+	// ApprovalView is the modal human-approval review (approval_host.go): it
+	// is shown while any request awaits the person and closes when none does.
+	ApprovalView
 )
 
 // InputMode represents the current input handling state.
@@ -463,6 +467,14 @@ type Model struct {
 	// Tool Execution Persistence - Stores full tool results in SQLite
 	toolStore *store.ToolStore // For querying past executions and cleanup
 
+	// Human approval (approval_host.go): this TUI is the broker's decision
+	// channel, and approvalView renders the requests it is offered.
+	approvalHost *approval.Host
+	// approvals is the broker the host is attached to; /approvals reads its
+	// record (read-only).
+	approvals    *approval.Broker
+	approvalView ui.DiffApprovalView
+
 	// Boot State
 	isBooting bool
 	bootStage BootStage
@@ -648,6 +660,9 @@ type SystemComponents struct {
 	ObserverMgr *shards.BackgroundObserverManager
 	// Consultation Manager for cross-specialist consultations
 	ConsultationMgr *consultation.Manager
+	// Approvals is the Cortex's human-approval broker; the TUI attaches its
+	// host to it at boot. Nil leaves approvable actions refused.
+	Approvals *approval.Broker
 }
 
 // OnboardingWizardStep represents the current phase of the onboarding wizard.

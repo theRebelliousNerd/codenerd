@@ -26,6 +26,13 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, tea.Quit, true
 	}
 
+	// While a request awaits the person, the approval view is modal: every
+	// key but the global exits above is a review key.
+	if m.viewMode == ApprovalView {
+		model, cmd := m.handleApprovalKey(msg)
+		return model, cmd, true
+	}
+
 	// If the error panel is focused, capture scroll keys.
 	// Global exit keys handled above; Ctrl+X (stop) is also honored here so
 	// users can interrupt an in-flight operation without first un-focusing.

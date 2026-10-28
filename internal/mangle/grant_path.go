@@ -46,16 +46,18 @@ var grantRoots = []string{"permitted"}
 
 // grantConsent are premises that stand for an explicit human authorization.
 // A rule that requires one widens its head only with that human's consent, so
-// its other positive premises are not on the grant path through it -- this is
-// what lets the constitution's autopoiesis keep learning dangerous_action,
-// which reaches permitted only through the signed-approval rule. The consent
-// predicates themselves always are on the path.
+// its other positive premises are not on the grant path through it. The
+// consent predicates themselves always are on the path, so no learned rule or
+// fact can produce one.
+//
+// human_approval_granted is the request-bound approval the host asserts for
+// one exact pending_action (internal/approval); it replaced the action-type
+// signed_approval/admin_override pair on 2026-10-27.
 //
 // Leaving a consent predicate off this list can only protect more, never less:
 // the premises it would have guarded become grant path instead.
 var grantConsent = map[string]bool{
-	"signed_approval": true,
-	"admin_override":  true,
+	"human_approval_granted": true,
 }
 
 // GrantPath maps each predicate whose facts can widen a grant root to the head

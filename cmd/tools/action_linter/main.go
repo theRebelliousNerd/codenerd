@@ -83,8 +83,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "action_linter: failed to scan requires_permission: %v\n", err)
 		os.Exit(2)
 	}
+	humanApprovable, err := extractHumanApprovable(*mgRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "action_linter: failed to scan human_approvable: %v\n", err)
+		os.Exit(2)
+	}
 
-	issues := lint(policyActions, routerRoutes, virtualActions, *warnUnusedExecutors, exemptions, registeredTools, safeActions, requiresPermission)
+	issues := lint(policyActions, routerRoutes, virtualActions, *warnUnusedExecutors, exemptions, registeredTools, safeActions, requiresPermission, humanApprovable)
 
 	sort.Slice(issues, func(i, j int) bool {
 		if issues[i].Severity != issues[j].Severity {
@@ -370,6 +375,16 @@ func extractSafeActions(root string) (map[string]struct{}, error) {
 }
 
 func extractRequiresPermission(root string) (map[string]struct{}, error) {
+	return extractUnaryActionFacts(root, "requires_permission")
+}
+
+// extractHumanApprovable collects human_approvable(/action) facts: the
+// requires_permission actions a person may approve one exact request of.
+func extractHumanApprovable(root string) (map[string]struct{}, error) {
+	return extractUnaryActionFacts(root, "human_approvable")
+}
+
+func extractUnaryActionFacts(root, predicate string) (map[string]struct{}, error) {
 	info, err := os.Stat(root)
 	if err != nil {
 		return nil, err
@@ -377,7 +392,7 @@ func extractRequiresPermission(root string) (map[string]struct{}, error) {
 	if !info.IsDir() {
 		return nil, fmt.Errorf("mg-root is not a directory: %s", root)
 	}
-	re := regexp.MustCompile(`(?m)\brequires_permission\s*\(\s*/([a-zA-Z0-9_]+)\s*\)`)
+	re := regexp.MustCompile(`(?m)\b` + regexp.QuoteMeta(predicate) + `\s*\(\s*/([a-zA-Z0-9_]+)\s*\)`)
 	out := make(map[string]struct{})
 	walkErr := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -414,7 +429,7 @@ func extractRequiresPermission(root string) (map[string]struct{}, error) {
 	return out, nil
 }
 
-func lint(policyActions map[string]actionSources, routes []system.ToolRoute, virtualActions map[string]struct{}, warnUnusedExecutors bool, exemptions exemptions, registeredTools map[string]struct{}, safeActions map[string]struct{}, requiresPermission map[string]struct{}) []issue {
+func lint(policyActions map[string]actionSources, routes []system.ToolRoute, virtualActions map[string]struct{}, warnUnusedExecutors bool, exemptions exemptions, registeredTools map[string]struct{}, safeActions map[string]struct{}, requiresPermission map[string]struct{}, humanApprovable map[string]struct{}) []issue {
 	issues := make([]issue, 0, 64)
 
 	// Policy -> router -> virtual store
@@ -479,13 +494,19 @@ func lint(policyActions map[string]actionSources, routes []system.ToolRoute, vir
 			continue
 		}
 		if _, ok := requiresPermission[toolName]; ok {
+			// A human_approvable action is reachable one exact request at a
+			// time, with a person attached (constitution.mg's request-bound
+			// approval arm); that is the design, not drift.
+			if _, approvable := humanApprovable[toolName]; approvable {
+				continue
+			}
 			if exemptions.isExempt(toolName) {
 				continue
 			}
 			issues = append(issues, issue{
 				Severity: severityWarning,
 				Action:   "/" + toolName,
-				Message:  "tool is registered but gated behind dangerous_action via requires_permission; the only permitted/3 rule consuming dangerous_action also requires signed_approval and admin_override, neither of which is ever asserted in production, so the tool is unreachable in practice (no safe_action entry)",
+				Message:  "tool is registered but gated behind dangerous_action via requires_permission and is not human_approvable, so no permitted/3 rule can admit it: the tool is unreachable in practice (no safe_action entry)",
 			})
 			continue
 		}

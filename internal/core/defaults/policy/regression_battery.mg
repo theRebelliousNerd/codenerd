@@ -15,11 +15,12 @@
 # than the thing it wraps does not belong on the allowlist.
 #
 # So the action is registered as requiring permission (below), which the
-# constitution turns into dangerous_action/1 — default deny, and permitted/3
-# only via signed_approval plus admin_override.
+# constitution turns into dangerous_action/1 — default deny. It is not
+# human_approvable either, so no person's approval derives permitted/3 for it.
 #
-# That alone is not enough, because an override authorizes running *a* battery,
-# not laundering a blocked command through one. The rules below make the
+# Were it ever made approvable, that alone would not be enough, because an
+# approval authorizes running *a* battery, not laundering a blocked command
+# through one. The rules below make the
 # battery's contents visible to the kernel: a host projects one
 # regression_battery_task fact per task (internal/regression.PolicyFacts) and
 # must query regression_battery_permitted/1 in ADDITION to permitted/3. Both

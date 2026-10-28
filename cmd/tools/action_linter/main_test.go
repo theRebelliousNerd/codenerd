@@ -81,7 +81,7 @@ func TestLintDetectsRoutingMismatches(t *testing.T) {
 		"foo": {},
 	}
 
-	issues := lint(policyActions, routes, virtualActions, false, exemptions{}, nil, nil, nil)
+	issues := lint(policyActions, routes, virtualActions, false, exemptions{}, nil, nil, nil, nil)
 
 	if len(issues) != 2 {
 		t.Fatalf("expected 2 issues, got %d: %+v", len(issues), issues)
@@ -134,7 +134,7 @@ func TestLintDetectsMissingSafeAction(t *testing.T) {
 	virtualActions := map[string]struct{}{}
 	registered := map[string]struct{}{"missing_tool": {}}
 	safe := map[string]struct{}{}
-	issues := lint(policyActions, routes, virtualActions, false, exemptions{}, registered, safe, nil)
+	issues := lint(policyActions, routes, virtualActions, false, exemptions{}, registered, safe, nil, nil)
 	found := false
 	for _, it := range issues {
 		if it.Action == "/missing_tool" && it.Severity == severityError {
@@ -153,7 +153,7 @@ func TestLintNoErrorWhenSafeActionPresent(t *testing.T) {
 	virtualActions := map[string]struct{}{}
 	registered := map[string]struct{}{"present_tool": {}}
 	safe := map[string]struct{}{"present_tool": {}}
-	issues := lint(policyActions, routes, virtualActions, false, exemptions{}, registered, safe, nil)
+	issues := lint(policyActions, routes, virtualActions, false, exemptions{}, registered, safe, nil, nil)
 	for _, it := range issues {
 		if it.Action == "/present_tool" {
 			t.Fatalf("did not expect issue for tool with safe_action, got %+v", issues)
@@ -173,7 +173,7 @@ func TestLintExemptedMissingSafeAction(t *testing.T) {
 		t.Fatalf("load exemptions: %v", err)
 	}
 	exempt := exemptions{Patterns: []string{"exempted_tool"}}
-	issues := lint(policyActions, routes, virtualActions, false, exempt, registered, safe, nil)
+	issues := lint(policyActions, routes, virtualActions, false, exempt, registered, safe, nil, nil)
 	for _, it := range issues {
 		if it.Action == "/exempted_tool" {
 			t.Fatalf("exempted tool should not produce error, got %+v", issues)
@@ -229,15 +229,15 @@ func TestLintNoErrorWhenRequiresPermissionPresent(t *testing.T) {
 	registered := map[string]struct{}{"dangerous_tool": {}}
 	safe := map[string]struct{}{}
 	requires := map[string]struct{}{"dangerous_tool": {}}
-	issues := lint(policyActions, routes, virtualActions, false, exemptions{}, registered, safe, requires)
+	issues := lint(policyActions, routes, virtualActions, false, exemptions{}, registered, safe, requires, nil)
 	foundWarning := false
 	for _, it := range issues {
 		if it.Action == "/dangerous_tool" && it.Severity == severityWarning {
 			if !strings.Contains(it.Message, "dangerous_action") {
 				t.Fatalf("warning message should mention dangerous_action, got %q", it.Message)
 			}
-			if !strings.Contains(it.Message, "signed_approval") || !strings.Contains(it.Message, "admin_override") {
-				t.Fatalf("warning message should mention signed_approval and admin_override, got %q", it.Message)
+			if !strings.Contains(it.Message, "human_approvable") {
+				t.Fatalf("warning message should say the action is not human_approvable, got %q", it.Message)
 			}
 			if !strings.Contains(strings.ToLower(it.Message), "unreachable") {
 				t.Fatalf("warning message should say unreachable, got %q", it.Message)
@@ -252,6 +252,20 @@ func TestLintNoErrorWhenRequiresPermissionPresent(t *testing.T) {
 	for _, it := range issues {
 		if it.Action == "/dangerous_tool" && it.Severity == severityError {
 			t.Fatalf("requires_permission tool should be warning not error, got %+v", it)
+		}
+	}
+}
+
+// A requires_permission tool a person may approve one exact request of is
+// reachable by design, so it is not reported as unreachable.
+func TestLintNoWarningWhenRequiresPermissionIsHumanApprovable(t *testing.T) {
+	registered := map[string]struct{}{"dangerous_tool": {}}
+	requires := map[string]struct{}{"dangerous_tool": {}}
+	approvable := map[string]struct{}{"dangerous_tool": {}}
+	issues := lint(map[string]actionSources{}, []system.ToolRoute{}, map[string]struct{}{}, false, exemptions{}, registered, map[string]struct{}{}, requires, approvable)
+	for _, it := range issues {
+		if it.Action == "/dangerous_tool" {
+			t.Fatalf("an approvable tool was reported: %+v", it)
 		}
 	}
 }
@@ -287,7 +301,7 @@ func TestLintSkipsWarningForRegisteredModularTool(t *testing.T) {
 	virtualActions := map[string]struct{}{"bash": {}}
 	registered := map[string]struct{}{"bash": {}}
 	safe := map[string]struct{}{"bash": {}}
-	issues := lint(policyActions, routes, virtualActions, true, exemptions{}, registered, safe, nil)
+	issues := lint(policyActions, routes, virtualActions, true, exemptions{}, registered, safe, nil, nil)
 	for _, it := range issues {
 		if it.Action == "/bash" && it.Severity == severityWarning {
 			t.Fatalf("registered modular tool /bash should not produce unused-executor warning, got %+v", issues)
@@ -303,7 +317,7 @@ func TestLintStillWarnsForNonRegisteredUnusedExecutor(t *testing.T) {
 	virtualActions := map[string]struct{}{"research": {}}
 	registered := map[string]struct{}{"bash": {}}
 	safe := map[string]struct{}{"bash": {}}
-	issues := lint(policyActions, routes, virtualActions, true, exemptions{}, registered, safe, nil)
+	issues := lint(policyActions, routes, virtualActions, true, exemptions{}, registered, safe, nil, nil)
 	found := false
 	for _, it := range issues {
 		if it.Action == "/research" && it.Severity == severityWarning {
@@ -443,9 +457,13 @@ func TestRealCorpusProducesExpectedCounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("extractRequiresPermission: %v", err)
 	}
+	humanApprovable, err := extractHumanApprovable(mgRoot)
+	if err != nil {
+		t.Fatalf("extractHumanApprovable: %v", err)
+	}
 	routes := system.DefaultRouterConfig().DefaultRoutes
 
-	issues := lint(policyActions, routes, virtualActions, true, exemptions{}, registeredTools, safeActions, requiresPermission)
+	issues := lint(policyActions, routes, virtualActions, true, exemptions{}, registeredTools, safeActions, requiresPermission, humanApprovable)
 	var warnCount int
 	var warnActions []string
 	var unexpected []string
@@ -468,9 +486,10 @@ func TestRealCorpusProducesExpectedCounts(t *testing.T) {
 		t.Fatalf("unexpected registry-coverage error(s) outside shrinking allowlist %v: got %v (all issues: %+v)", knownUncovered, unexpected, issues)
 	}
 	// No assertion on minimum error count; zero is the goal state.
+	// /delete_file is human_approvable, so it is reachable one exact request
+	// at a time and no longer reported as unreachable.
 	expectedWarnings := map[string]struct{}{
-		"/research":    {},
-		"/delete_file": {},
+		"/research": {},
 	}
 	if warnCount != len(expectedWarnings) {
 		t.Fatalf("expected %d warnings %v, got %d: %+v", len(expectedWarnings), expectedWarnings, warnCount, issues)

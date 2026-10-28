@@ -1,6 +1,8 @@
 package chat
 
 import (
+	"codenerd/cmd/nerd/ui"
+	"codenerd/internal/approval"
 	"fmt"
 	"strings"
 	"time"
@@ -558,6 +560,12 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		m = m.pushAssistantMsg(content)
 		return m, nil
 
+	case approvalUpdateMsg:
+		return m.handleApprovalUpdate(approval.Request(msg))
+
+	case ui.ApprovalDecisionMsg:
+		return m.handleApprovalDecisions(msg), nil
+
 	case toolEventMsg:
 		// Handle tool event - ALWAYS add to history (not gated by Glass Box)
 		m.handleToolEvent(transparency.ToolEvent(msg))
@@ -726,6 +734,11 @@ func (m Model) handleBootCompleteMsg(msg bootCompleteMsg) (tea.Model, tea.Cmd) {
 		// Wire Tool Store for tool execution persistence
 		m.toolStore = c.ToolStore
 
+		// Become the human-approval host: approvable denials ask here.
+		if err := m.attachApprovalHost(c.Approvals); err != nil {
+			logging.Get(logging.CategoryBoot).Warn("Human approval host not attached (approvable actions stay refused): %v", err)
+		}
+
 		// Wire Prompt Evolution System (System Prompt Learning)
 		m.promptEvolver = c.PromptEvolver
 
@@ -811,7 +824,7 @@ func (m Model) handleBootCompleteMsg(msg bootCompleteMsg) (tea.Model, tea.Cmd) {
 	// Now trigger the workspace scan (deferred). This keeps chat input hidden until ready.
 	// Also start listening for tool events, background observer assessments,
 	// and Glass Box events (the latter is no-op if the bus is disabled).
-	return m, tea.Batch(m.runScan(false), m.listenToolEvents(), m.listenObserverAssessments(), m.listenGlassBoxEvents())
+	return m, tea.Batch(m.runScan(false), m.listenToolEvents(), m.listenObserverAssessments(), m.listenGlassBoxEvents(), m.listenApprovals())
 
 }
 

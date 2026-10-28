@@ -1,11 +1,5 @@
 [
   {
-    "clause": "permitted(Action,Target,Payload) :- dangerous_action(Action), signed_approval(Action), pending_action(_,Action,Target,Payload,_), admin_override(User).",
-    "file": "constitution.mg",
-    "head": "permitted",
-    "reason": "override path, architect's call"
-  },
-  {
     "clause": "final_action(Action) :- candidate_action(Action), permitted(Action,_,_).",
     "file": "constitution.mg",
     "head": "final_action",
@@ -46,18 +40,6 @@
     "file": "coder_workflow.mg",
     "head": "coder_quality_mode",
     "reason": "no positive anchor"
-  },
-  {
-    "clause": "permission_denied(Action,\"Dangerous Action\") :- dangerous_action(Action), !admin_override_present(/yes).",
-    "file": "constitution.mg",
-    "head": "permission_denied",
-    "reason": "over-denies only"
-  },
-  {
-    "clause": "permission_denied(Action,\"Dangerous Action\") :- dangerous_action(Action), !signed_approval(Action).",
-    "file": "constitution.mg",
-    "head": "permission_denied",
-    "reason": "over-denies only"
   },
   {
     "clause": "action_denied(Action,\"Not constitutionally permitted\") :- candidate_action(Action), !action_is_permitted(Action).",

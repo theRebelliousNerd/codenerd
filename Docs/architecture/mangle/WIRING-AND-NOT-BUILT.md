@@ -26,7 +26,8 @@ records what this pass closed and the test that proves each.
   **grant path**, derived from the rules by a polarity walk back from
   `permitted` (`GrantPathOf`, `grant_path.go:92`) — every predicate whose facts
   can add a `permitted` fact, where a rule that requires a human's consent
-  (`signed_approval`, `admin_override`) guards its other premises; and the host
+  (`human_approval_granted`, the request-bound approval since 2026-10-27)
+  guards its other premises; and the host
   witnesses a control packet may not write either
   (`core.hostWitnessPredicates`, `internal/core/mangle_updates.go:271`, shared
   with `predicateAllowed`). The kernel derives the protection from its program

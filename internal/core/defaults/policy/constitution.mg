@@ -10,11 +10,46 @@ permitted(Action, Target, Payload) :-
     !dangerous_content(Action, Payload),
     !dangerous_content(Action, Target).
 
+# Request-bound human approval: the only human-consent arm.
+#
+# A person approves one frozen request (internal/approval), not an action
+# type. After the execution claim on that request succeeds against the
+# operation as it stands now, the host asserts human_approval_granted for the
+# exact pending_action it admits -- same ActionID, Action, Target and Payload
+# -- and retracts it with that pending_action. A sibling request, a retry, a
+# changed payload or another target joins nothing here. dangerous_content
+# still applies: consent satisfies the approval obligation, not the content
+# checks, so a hard prohibition stays a prohibition.
+#
+# This replaced `dangerous_action(A), signed_approval(A), pending_action(...),
+# admin_override(U)`, which approved every pending action of a type at once
+# and whose User was joined to nothing (2026-10-27).
 permitted(Action, Target, Payload) :-
     dangerous_action(Action),
-    signed_approval(Action),
-    pending_action(_, Action, Target, Payload, _),
-    admin_override(User).
+    human_approvable(Action),
+    pending_action(ActionID, Action, Target, Payload, _),
+    human_approval_granted(ActionID, Action, Target, Payload, _),
+    !dangerous_content(Action, Payload),
+    !dangerous_content(Action, Target).
+
+# Which denials a person may answer. Only these two action types; every other
+# requires_permission action (git_push, git_force, system_modify,
+# run_regression_battery) has no consent arm and stays denied. /delete_file is
+# the registered tool; /run_arbitrary_command is the action a host-reviewed
+# MCP /execute effect maps to (policy_mcp.mg).
+human_approvable(/delete_file).
+human_approvable(/run_arbitrary_command).
+
+# The executor asks this while the pending_action is asserted, and opens an
+# approval request only when it holds: denied, approvable, and nothing
+# dangerous in the target or payload.
+human_approval_required(ActionID) :-
+    pending_action(ActionID, Action, Target, Payload, _),
+    dangerous_action(Action),
+    human_approvable(Action),
+    !permitted(Action, Target, Payload),
+    !dangerous_content(Action, Payload),
+    !dangerous_content(Action, Target).
 
 # A delete the repository can undo.
 #
@@ -42,8 +77,6 @@ permitted(Action, Target, Payload) :-
 # Bound-negation helpers. See SECTION 11C in schemas_safety.mg: a negated
 # literal containing an anonymous wildcard excludes nothing in this Mangle
 # build, so each of the three negations below projects the wildcard away first.
-admin_override_present(/yes) :-
-    admin_override(User).
 
 action_is_permitted(Action) :-
     permitted(Action, Target, Payload).
@@ -51,16 +84,15 @@ action_is_permitted(Action) :-
 any_action_denied(/yes) :-
     action_denied(Action, Reason).
 
-# Fix Bug #12: The "Silent Join" (Shadow Rules)
-# `!admin_override(_)` here never excluded anything, so a signed admin override
-# could not suppress the denial it was meant to authorize.
+# Fix Bug #12: The "Silent Join" (Shadow Rules). A dangerous action is denied
+# for each pending request of it the constitution did not permit. Every
+# negated argument is bound by pending_action, and both live in the policy
+# shard, so the negation excludes exactly the admitted (e.g. human-approved)
+# requests -- an action-type-wide "override present" flag no longer exists.
 permission_denied(Action, "Dangerous Action") :-
+    pending_action(ActionID, Action, Target, Payload, _),
     dangerous_action(Action),
-    !admin_override_present(/yes).
-
-permission_denied(Action, "Dangerous Action") :-
-    dangerous_action(Action),
-    !signed_approval(Action).
+    !permitted(Action, Target, Payload).
 
 # SAFE ACTIONS - Permitted by default for all shards
 # File operations

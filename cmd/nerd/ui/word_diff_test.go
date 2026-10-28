@@ -38,12 +38,7 @@ func TestWordLevelDiff_BasicRendering(t *testing.T) {
 
 	fileDiff := diff.ComputeDiff("old.txt", "new.txt", oldContent, newContent)
 
-	mutation := &PendingMutation{
-		ID:          "test1",
-		Description: "Test word diff",
-		FilePath:    "test.txt",
-		Diff:        fileDiff,
-	}
+	mutation := testMutation("test1", fileDiff)
 
 	view.AddMutation(mutation)
 
@@ -65,12 +60,7 @@ func TestWordLevelDiff_MultiplePairs(t *testing.T) {
 
 	fileDiff := diff.ComputeDiff("old.txt", "new.txt", oldContent, newContent)
 
-	mutation := &PendingMutation{
-		ID:          "test2",
-		Description: "Test multiple changes",
-		FilePath:    "test.txt",
-		Diff:        fileDiff,
-	}
+	mutation := testMutation("test2", fileDiff)
 
 	view.AddMutation(mutation)
 
@@ -92,12 +82,7 @@ func TestWordLevelDiff_DisabledRendering(t *testing.T) {
 
 	fileDiff := diff.ComputeDiff("old.txt", "new.txt", oldContent, newContent)
 
-	mutation := &PendingMutation{
-		ID:          "test3",
-		Description: "Test disabled word diff",
-		FilePath:    "test.txt",
-		Diff:        fileDiff,
-	}
+	mutation := testMutation("test3", fileDiff)
 
 	view.AddMutation(mutation)
 
@@ -117,12 +102,7 @@ func TestWordLevelDiff_EmptyLines(t *testing.T) {
 
 	fileDiff := diff.ComputeDiff("old.txt", "new.txt", oldContent, newContent)
 
-	mutation := &PendingMutation{
-		ID:          "test4",
-		Description: "Test empty old content",
-		FilePath:    "test.txt",
-		Diff:        fileDiff,
-	}
+	mutation := testMutation("test4", fileDiff)
 
 	view.AddMutation(mutation)
 
@@ -141,12 +121,7 @@ func TestWordLevelDiff_NoChanges(t *testing.T) {
 
 	fileDiff := diff.ComputeDiff("old.txt", "new.txt", content, content)
 
-	mutation := &PendingMutation{
-		ID:          "test5",
-		Description: "Test no changes",
-		FilePath:    "test.txt",
-		Diff:        fileDiff,
-	}
+	mutation := testMutation("test5", fileDiff)
 
 	view.AddMutation(mutation)
 
@@ -288,12 +263,7 @@ func BenchmarkWordLevelDiff_Rendering(b *testing.B) {
 
 	fileDiff := diff.ComputeDiff("old.txt", "new.txt", oldContent, newContent)
 
-	mutation := &PendingMutation{
-		ID:          "bench",
-		Description: "Benchmark test",
-		FilePath:    "test.txt",
-		Diff:        fileDiff,
-	}
+	mutation := testMutation("bench", fileDiff)
 
 	b.ResetTimer()
 	for b.Loop() {
@@ -313,12 +283,7 @@ func BenchmarkWordLevelDiff_Disabled(b *testing.B) {
 
 	fileDiff := diff.ComputeDiff("old.txt", "new.txt", oldContent, newContent)
 
-	mutation := &PendingMutation{
-		ID:          "bench",
-		Description: "Benchmark test",
-		FilePath:    "test.txt",
-		Diff:        fileDiff,
-	}
+	mutation := testMutation("bench", fileDiff)
 
 	b.ResetTimer()
 	for b.Loop() {

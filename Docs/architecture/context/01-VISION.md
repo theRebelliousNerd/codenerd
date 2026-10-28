@@ -97,7 +97,7 @@ itself.
   derivation: only facts the kernel retains would be eligible for the fill.
 - Today's hardcoded safety-retention list in `getCoreFacts`
   (`internal/context/compressor.go:745`), which queries `permitted,
-  dangerous_action, admin_override, security_violation, block_commit`
+  dangerous_action, human_approval_granted, security_violation, block_commit`
   (`internal/context/compressor.go:759`) and never returns a silent empty
   safety block, would become a `must_retain/1` derivation: the same safety
   set would be retained because the kernel derives it, not because a Go

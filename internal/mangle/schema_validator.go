@@ -370,10 +370,10 @@ func countTopLevelArgs(argsStr string) int {
 
 var forbiddenLearnedHeads = map[string]string{
 	// Constitutional gate is core-owned; learned rules must not grant permissions.
-	"permitted":       "constitutional permission is core-owned (do not learn permissions)",
-	"safe_action":     "constitutional allowlist is core-owned (do not extend via learned rules)",
-	"admin_override":  "approvals must be user/admin driven, not learned",
-	"signed_approval": "approvals must be user/admin driven, not learned",
+	"permitted":              "constitutional permission is core-owned (do not learn permissions)",
+	"safe_action":            "constitutional allowlist is core-owned (do not extend via learned rules)",
+	"human_approval_granted": "human approvals are host-asserted for one exact request, never learned",
+	"human_approvable":       "which actions a person may approve is core policy, not learned",
 
 	// Runtime pipeline facts are produced by system shards; learned rules must not spoof them.
 	"pending_action":          "produced by executive_policy shard",

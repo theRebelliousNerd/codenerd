@@ -244,6 +244,12 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// caught it: "split join [pending_action@policy,
 				// touches_secret_path@cortex]", 2026-09-23).
 				"touches_secret_path",
+				// The host asserts the exact human approval beside the
+				// pending_action it admits, and constitution.mg joins the
+				// two (permitted, human_approval_required). Homed anywhere
+				// else the join splits and no approval could ever admit a
+				// call -- or, worse, a stale one could outlive its tuple.
+				"human_approval_granted",
 				"blocked",
 				"constitution",
 				"commit_barrier",
@@ -253,14 +259,14 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"action_type",
 				"tool_allowlist",
 				"routing_result",
-				// NOT moved here, deliberately: signed_approval, admin_override,
-				// appeal_granted, temporary_override and candidate_action feed
-				// the constitution's override rules (permitted :- ...
-				// admin_override ...). Those rules have never fired on the
-				// production kernel because the override facts land in the
-				// catch-all while pending_action lives here. Homing them would
-				// make a dormant permission path live; that is the
-				// architect's call, not a routing fix.
+				// NOT moved here, deliberately: appeal_granted,
+				// temporary_override and candidate_action feed the
+				// constitution's appeal rules. Those rules have never fired on
+				// the production kernel because the appeal facts land in the
+				// catch-all while pending_action lives here, and nothing in
+				// production grants an appeal. The broad signed_approval /
+				// admin_override arm was replaced by the request-bound
+				// human_approval_granted above (2026-10-27).
 			},
 			// These are the base facts policy_mcp.mg joins into the remote
 			// authority decision. Their existing owners remain canonical; only

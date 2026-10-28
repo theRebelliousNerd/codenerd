@@ -109,45 +109,48 @@ func deniedFor(facts []Fact, action string) bool {
 	return false
 }
 
-// TestConstitution_AdminOverrideSuppressesDangerousDenial is the behavioral
-// regression for `!admin_override(_)`, which excluded nothing — so an admin
-// override could not suppress the denial it exists to authorize.
-//
-// Both denial rules must be satisfied to escape: signed_approval covers the
-// second rule, admin_override the first. /delete_file is in the constitution's
-// built-in dangerous_action set.
-func TestConstitution_AdminOverrideSuppressesDangerousDenial(t *testing.T) {
-	withOverride, err := NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
-	assertNegFact(t, withOverride, "signed_approval", "/delete_file")
-	assertNegFact(t, withOverride, "admin_override", "alice")
-
-	denied, err := withOverride.Query("permission_denied")
-	if err != nil {
-		t.Fatalf("query: %v", err)
-	}
-	if deniedFor(denied, "/delete_file") {
-		t.Error("an admin override did not suppress the dangerous-action denial")
-	}
-}
-
-// TestConstitution_WithoutAdminOverride_ShouldStillDeny is the other half:
-// the fix must not turn the rule off entirely.
-func TestConstitution_WithoutAdminOverride_ShouldStillDeny(t *testing.T) {
+// TestConstitution_HumanApprovalSuppressesDangerousDenial is the behavioral
+// regression for the denial's negation, which once excluded nothing — so no
+// approval could suppress the denial it exists to answer. The approval is the
+// request-bound human_approval_granted for one exact pending_action.
+func TestConstitution_HumanApprovalSuppressesDangerousDenial(t *testing.T) {
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
 	}
-	assertNegFact(t, k, "signed_approval", "/delete_file")
+	if err := k.Assert(Fact{Predicate: "pending_action", Args: []any{"exec-1", MangleAtom("/delete_file"), "a.md", "{}", int64(1)}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.Assert(Fact{Predicate: "human_approval_granted", Args: []any{"exec-1", MangleAtom("/delete_file"), "a.md", "{}", "sha256:reviewed"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	denied, err := k.Query("permission_denied")
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if deniedFor(denied, "/delete_file") {
+		t.Error("an exact human approval did not suppress the dangerous-action denial")
+	}
+}
+
+// TestConstitution_WithoutHumanApproval_ShouldStillDeny is the other half:
+// the fix must not turn the rule off entirely.
+func TestConstitution_WithoutHumanApproval_ShouldStillDeny(t *testing.T) {
+	k, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel: %v", err)
+	}
+	if err := k.Assert(Fact{Predicate: "pending_action", Args: []any{"exec-1", MangleAtom("/delete_file"), "a.md", "{}", int64(1)}}); err != nil {
+		t.Fatal(err)
+	}
 
 	denied, err := k.Query("permission_denied")
 	if err != nil {
 		t.Fatalf("query: %v", err)
 	}
 	if !deniedFor(denied, "/delete_file") {
-		t.Error("a dangerous action with no admin override must still be denied")
+		t.Error("a dangerous action with no human approval must still be denied")
 	}
 }
 

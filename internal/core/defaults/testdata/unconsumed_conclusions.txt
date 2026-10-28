@@ -24,7 +24,6 @@ unconsumed activate_specialist_for_phase
 unconsumed active_campaign_id
 unconsumed active_finding
 unconsumed active_hypothesis
-unconsumed admin_override_present
 unconsumed adversarial_value_demonstrated
 unconsumed agenda_item_ready
 unconsumed any_action_denied

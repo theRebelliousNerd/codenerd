@@ -2347,8 +2347,27 @@ const toolTimeoutGrace = 30 * time.Second
 // It checks both registries in order:
 // 1. Modular tools (tools.Global()) - Go function handlers
 // 2. Ouroboros tools (core.ToolRegistry) - compiled binary tools
-func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *config.EffectiveAgentRuntimeConfig) (string, error) {
+func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *config.EffectiveAgentRuntimeConfig) (output string, err error) {
 	executorCfg := e.configSnapshot()
+	// A human-approved call records its outcome on every exit: refused
+	// before dispatch is a known no-dispatch failure, anything after
+	// dispatch started is completed or unknown, never "nothing happened".
+	var approved *humanApproval
+	dispatched := false
+	defer func() {
+		if approved == nil {
+			return
+		}
+		if dispatched {
+			approved.grant.Finish(err)
+			return
+		}
+		reason := "refused before dispatch"
+		if err != nil {
+			reason = err.Error()
+		}
+		approved.grant.AdmissionFailed(reason)
+	}()
 	// The effective JIT allowlist is authoritative for every execution backend,
 	// and it is checked first: a tool this turn may not use is refused for that
 	// reason, before any backend (the generated-execution bridge included) is
@@ -2423,7 +2442,22 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 		if generated {
 			lease = &releaseAuthorization
 		}
-		if ok, reason := e.checkSafetyWithLease(call, true, canonicalArgs, lease); !ok {
+		verdict := e.checkSafetyWithLease(call, true, canonicalArgs, lease, nil)
+		if !verdict.allowed && verdict.approvable && !generated {
+			// The constitution says a person may approve this exact request.
+			// Block for the decision (no model turn, no fact or lease held),
+			// then rerun the gate with the claimed approval for this call.
+			claimed, approvalErr := e.awaitHumanApproval(ctx, call, cfg, canonicalArgs, verdict.reason)
+			if approvalErr != nil {
+				return "", approvalErr
+			}
+			approved = claimed
+			verdict = e.checkSafetyWithLease(call, true, canonicalArgs, lease, approved)
+			if !verdict.allowed {
+				return "", fmt.Errorf("tool call blocked by safety gate after approval: action %s denied (%s); the person's approval does not override the other checks — identical retry will fail", call.Name, verdict.reason)
+			}
+		}
+		if ok, reason := verdict.allowed, verdict.reason; !ok {
 			// DENY PATH ONLY: ask the kernel whether this action atom
 			// requires explicit human permission. Hot path (allowed) is
 			// unaffected.
@@ -2456,7 +2490,7 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 				}
 			}
 			if requiresPermission {
-				return "", fmt.Errorf("tool call blocked by safety gate: action %s target %s denied (%s); this action requires human approval and cannot be self-authorized — do not retry the same call, it will fail identically; ask the user to perform it or accomplish the goal another way", actionLabel, target, reason)
+				return "", fmt.Errorf("tool call blocked by safety gate: action %s target %s denied (%s); this action requires permission no one can grant from here (policy declares no human approval for it, or its content is prohibited) and it cannot be self-authorized — do not retry the same call, it will fail identically; ask the user to perform it or accomplish the goal another way", actionLabel, target, reason)
 			}
 			return "", fmt.Errorf("tool call blocked by safety gate: action %s target %s denied (%s); constitution derived no permitted(...) fact for that action and target — identical retry will fail", actionLabel, target, reason)
 		}
@@ -2592,6 +2626,14 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 	modularRegistry := tools.Global()
 	if modularRegistry.Has(call.Name) {
 		logging.Session("Executing modular tool: %s with %d args", call.Name, len(call.Args))
+		if approved != nil {
+			// Durable before the effect: a crash from here on is an
+			// unknown outcome on restart, never a claim to run again.
+			if startErr := approved.grant.DispatchStarted(); startErr != nil {
+				return "", fmt.Errorf("approved call not dispatched: its dispatch record could not be made durable: %w", startErr)
+			}
+			dispatched = true
+		}
 		result, err := modularRegistry.Execute(toolCtx, call.Name, call.Args)
 		if err != nil {
 			// The tool may still have produced output (e.g. compiler or test
@@ -2714,10 +2756,37 @@ func (e *Executor) assertSecurityViolation(actionAtom types.MangleAtom, reason s
 const MaxActionPayloadBytes = 100 * 1024 // 100 KB
 
 func (e *Executor) checkSafetyWithGate(call ToolCall, safetyGateEnabled bool) (bool, string) {
-	return e.checkSafetyWithLease(call, safetyGateEnabled, "", nil)
+	v := e.checkSafetyWithLease(call, safetyGateEnabled, "", nil, nil)
+	return v.allowed, v.reason
 }
 
-func (e *Executor) checkSafetyWithLease(call ToolCall, safetyGateEnabled bool, canonicalPayload string, lease *func()) (allowed bool, reason string) {
+// safetyVerdict is the constitutional gate's answer for one call.
+type safetyVerdict struct {
+	allowed bool
+	reason  string
+	// approvable is set on a denial the constitution marks
+	// human_approval_required for this exact pending action: a person may
+	// approve it. A hard prohibition never sets it.
+	approvable bool
+}
+
+// checkSafetyWithLease asks the constitution about one call. With approved
+// set, the claimed human approval is asserted beside the exact pending_action
+// it names and retracted with it; every other check still runs.
+func (e *Executor) checkSafetyWithLease(call ToolCall, safetyGateEnabled bool, canonicalPayload string, lease *func(), approved *humanApproval) safetyVerdict {
+	if approved != nil {
+		humanApprovalAdmission.Lock()
+		defer humanApprovalAdmission.Unlock()
+	} else {
+		humanApprovalAdmission.RLock()
+		defer humanApprovalAdmission.RUnlock()
+	}
+	var approvable bool
+	allowed, reason := e.admitToolCall(call, safetyGateEnabled, canonicalPayload, lease, approved, &approvable)
+	return safetyVerdict{allowed: allowed, reason: reason, approvable: approvable}
+}
+
+func (e *Executor) admitToolCall(call ToolCall, safetyGateEnabled bool, canonicalPayload string, lease *func(), approved *humanApproval, approvable *bool) (allowed bool, reason string) {
 	if lease != nil {
 		e.generatedAuthorizationMu.Lock()
 		defer e.generatedAuthorizationMu.Unlock()
@@ -2864,6 +2933,25 @@ func (e *Executor) checkSafetyWithLease(call ToolCall, safetyGateEnabled bool, c
 		}
 	})
 
+	// 2a. A claimed human approval names this exact pending action. It is
+	// asserted only now, beside the tuple it admits, and retracted with it.
+	if approved != nil {
+		consent, err := e.humanApprovalFact("exec-"+call.ID, actionAtom, target, payload, approved)
+		if err != nil {
+			e.assertSecurityViolation(actionAtom, err.Error())
+			return false, err.Error()
+		}
+		if err := e.kernel.Assert(consent); err != nil {
+			e.assertSecurityViolation(actionAtom, "failed to assert the human approval")
+			return false, "failed to assert the human approval"
+		}
+		cleanup = append(cleanup, func() {
+			if err := e.kernel.RetractFact(consent); err != nil {
+				logging.Get(logging.CategorySession).Warn("Failed to retract %s: %v", humanApprovalPredicate, err)
+			}
+		})
+	}
+
 	// 2b. A delete git can undo is not the irreversible act the permission
 	// gate guards, so the constitution is told when that is the case and can
 	// derive permitted for exactly those. Everything else -- untracked, dirty,
@@ -2952,6 +3040,12 @@ func (e *Executor) checkSafetyWithLease(call ToolCall, safetyGateEnabled bool, c
 	}
 
 	logging.Get(logging.CategorySession).Warn("Safety check denied action: %s (target: %s)", actionName, target)
+	// Ask, while this pending action is still asserted, whether a person may
+	// approve it. Only the constitution decides; a failed query is "no".
+	if approved == nil && approvable != nil {
+		rows, qErr := e.kernel.Query(fmt.Sprintf("human_approval_required(%s)", strconv.Quote("exec-"+call.ID)))
+		*approvable = qErr == nil && len(rows) > 0
+	}
 	reason = fmt.Sprintf("action not permitted: target=%s", target)
 	if touchesSecret {
 		// Say why, so the model does not try the same content another way.

@@ -24,6 +24,10 @@ func (m *Model) Shutdown() {
 		// before anything below tears down what those writes need.
 		m.closeSessionRecord()
 
+		// Release the approval channel first: requests still awaiting this
+		// TUI are canceled, so no executor call stays blocked on it.
+		m.detachApprovalHost()
+
 		// Cancel all background operations via root context
 		if m.shutdownCancel != nil {
 			m.shutdownCancel()

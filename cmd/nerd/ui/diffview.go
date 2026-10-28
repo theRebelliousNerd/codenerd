@@ -1,11 +1,19 @@
 // Package ui provides the Interactive Diff Approval component.
-// This allows users to review proposed code changes before they're applied.
+//
+// The view renders approval requests the host (internal/approval) froze and
+// handed it, and turns the person's keys into decisions for the host to
+// commit. It is never an authority: it holds immutable request snapshots, it
+// never recomputes a decision preview, and it changes nothing by itself --
+// every verdict leaves as an ApprovalDecisionMsg naming the request ID,
+// version and digest that were on screen.
 package ui
 
 import (
 	"fmt"
 	"strings"
+	"time"
 
+	"codenerd/internal/approval"
 	"codenerd/internal/diff"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -13,6 +21,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/google/uuid"
 	"github.com/mattn/go-runewidth"
 )
 
@@ -91,7 +100,7 @@ func DefaultDiffKeyMap() DiffKeyMap {
 	return DiffKeyMap{
 		Approve:          key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "Approve")),
 		Reject:           key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "Reject")),
-		ApproveAll:       key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "Approve All")),
+		ApproveAll:       key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "Approve all viewed")),
 		NextMutation:     key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("→/l", "Next")),
 		PrevMutation:     key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "Prev")),
 		NextHunk:         key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "Next Hunk")),
@@ -107,17 +116,40 @@ func DefaultDiffKeyMap() DiffKeyMap {
 	}
 }
 
-// PendingMutation represents a mutation awaiting approval
+// PendingMutation is one approval request as this view shows it. Request is
+// the host's immutable snapshot; the rest is view-local state that decides
+// nothing.
 type PendingMutation struct {
-	ID          string
-	Description string
-	FilePath    string
-	Diff        *FileDiff
-	Reason      string   // Why approval is needed
-	Warnings    []string // Safety warnings
-	Approved    bool
-	Rejected    bool
-	Comment     string // User's comment
+	Request approval.Request
+	// viewedVersion and viewedDigest are the request as it was the last time
+	// it was the item on screen. Bulk approval covers only requests the
+	// person has seen, at the version and digest they saw.
+	viewedVersion int
+	viewedDigest  string
+	// Submitted is the verdict this view last sent for the request. It is a
+	// display marker: the broker commits or refuses the decision.
+	Submitted approval.Verdict
+}
+
+// NewPendingMutation wraps a host request snapshot for display.
+func NewPendingMutation(r approval.Request) *PendingMutation {
+	return &PendingMutation{Request: r}
+}
+
+// Viewed reports whether the person has seen the request at its current
+// version and digest.
+func (m *PendingMutation) Viewed() bool {
+	return m.viewedDigest != "" && m.viewedDigest == m.Request.Digest && m.viewedVersion == m.Request.Version
+}
+
+// ApprovalDecisionMsg carries the person's decisions to the host, which
+// alone commits them (approval.Host.Decide).
+type ApprovalDecisionMsg struct {
+	Decisions []approval.DecisionInput
+}
+
+func decisionCmd(decisions ...approval.DecisionInput) tea.Cmd {
+	return func() tea.Msg { return ApprovalDecisionMsg{Decisions: decisions} }
 }
 
 type diffCachedStyles struct {
@@ -140,7 +172,6 @@ type DiffApprovalView struct {
 	// IgnoreWhitespace hides whitespace-only diffs (useful for formatting-only changes).
 	IgnoreWhitespace bool
 	SelectedHunk     int
-	ApprovalMode     ApprovalMode
 	WordLevelDiff    bool // Enable word-level diffing for changed lines
 	SideBySide       bool // Enable side-by-side diff view
 	diffEngine       *diff.Engine
@@ -149,16 +180,6 @@ type DiffApprovalView struct {
 	help             help.Model
 	cachedStyles     diffCachedStyles
 }
-
-// ApprovalMode represents the current approval state
-type ApprovalMode int
-
-const (
-	ModeReview ApprovalMode = iota
-	ModeApproved
-	ModeRejected
-	ModePending
-)
 
 // NewDiffApprovalView creates a new diff approval view
 func NewDiffApprovalView(styles Styles, width, height int) DiffApprovalView {
@@ -176,7 +197,6 @@ func NewDiffApprovalView(styles Styles, width, height int) DiffApprovalView {
 		ShowWarnings:     true,
 		IgnoreWhitespace: false,
 		SelectedHunk:     0,
-		ApprovalMode:     ModeReview,
 		WordLevelDiff:    true, // Enable word-level diffing by default
 		diffEngine:       uiDiffEngine,
 		keys:             DefaultDiffKeyMap(),
@@ -233,11 +253,17 @@ func (d *DiffApprovalView) Update(msg tea.Msg) (DiffApprovalView, tea.Cmd) {
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, d.keys.Approve):
-			d.ApproveCurrent()
+			if in, ok := d.ApproveCurrent(); ok {
+				cmds = append(cmds, decisionCmd(in))
+			}
 		case key.Matches(msg, d.keys.Reject):
-			d.RejectCurrent("")
+			if in, ok := d.RejectCurrent(""); ok {
+				cmds = append(cmds, decisionCmd(in))
+			}
 		case key.Matches(msg, d.keys.ApproveAll):
-			d.ApproveAll()
+			if ins := d.ApproveAll(); len(ins) > 0 {
+				cmds = append(cmds, decisionCmd(ins...))
+			}
 		case key.Matches(msg, d.keys.NextMutation):
 			d.NextMutation()
 		case key.Matches(msg, d.keys.PrevMutation):
@@ -269,9 +295,39 @@ func (d *DiffApprovalView) Update(msg tea.Msg) (DiffApprovalView, tea.Cmd) {
 	return *d, tea.Batch(cmds...)
 }
 
-// AddMutation adds a pending mutation for approval
+// AddMutation adds a request to the end of the list. It is not viewed until
+// it becomes the item on screen.
 func (d *DiffApprovalView) AddMutation(m *PendingMutation) {
 	d.Mutations = append(d.Mutations, m)
+	d.updateContent()
+}
+
+// SyncRequests replaces the list with the host's pending requests, in the
+// host's order. A request that keeps its ID, version and digest keeps its
+// viewed and submitted markers; a revised one is new to the person and is
+// shown, and must be seen, again.
+func (d *DiffApprovalView) SyncRequests(reqs []approval.Request) {
+	var currentID string
+	if d.CurrentIndex < len(d.Mutations) {
+		currentID = d.Mutations[d.CurrentIndex].Request.ID
+	}
+	prior := make(map[string]*PendingMutation, len(d.Mutations))
+	for _, m := range d.Mutations {
+		prior[m.Request.ID] = m
+	}
+	next := make([]*PendingMutation, 0, len(reqs))
+	d.CurrentIndex = 0
+	for _, r := range reqs {
+		m := NewPendingMutation(r)
+		if old, ok := prior[r.ID]; ok && old.Request.Digest == r.Digest && old.Request.Version == r.Version {
+			m.viewedVersion, m.viewedDigest, m.Submitted = old.viewedVersion, old.viewedDigest, old.Submitted
+		}
+		if r.ID == currentID {
+			d.CurrentIndex = len(next)
+		}
+		next = append(next, m)
+	}
+	d.Mutations = next
 	d.updateContent()
 }
 
@@ -306,7 +362,7 @@ func (d *DiffApprovalView) NextHunk() {
 		return
 	}
 	m := d.Mutations[d.CurrentIndex]
-	if m.Diff != nil && d.SelectedHunk < len(m.Diff.Hunks)-1 {
+	if fd := m.Request.Preview.Diff; fd != nil && d.SelectedHunk < len(fd.Hunks)-1 {
 		d.SelectedHunk++
 		d.updateContent()
 	}
@@ -320,65 +376,69 @@ func (d *DiffApprovalView) PrevHunk() {
 	}
 }
 
-// ApproveCurrent approves the current mutation
-func (d *DiffApprovalView) ApproveCurrent() bool {
-	if d.CurrentIndex < len(d.Mutations) {
-		d.Mutations[d.CurrentIndex].Approved = true
-		d.Mutations[d.CurrentIndex].Rejected = false
-		d.ApprovalMode = ModeApproved
-		d.updateContent()
-		return true
+// decide records a verdict on m as displayed and returns the decision input
+// for the host. A request already answered from this view is not answered
+// again: a second key press is not a second decision.
+func (d *DiffApprovalView) decide(m *PendingMutation, v approval.Verdict, reason string) (approval.DecisionInput, bool) {
+	if m.Submitted != "" || !m.Viewed() {
+		return approval.DecisionInput{}, false
 	}
-	return false
+	m.Submitted = v
+	return approval.DecisionInput{
+		RequestID:      m.Request.ID,
+		RequestVersion: m.viewedVersion,
+		RequestDigest:  m.viewedDigest,
+		EventID:        uuid.NewString(),
+		Verdict:        v,
+		Reason:         reason,
+	}, true
 }
 
-// RejectCurrent rejects the current mutation
-func (d *DiffApprovalView) RejectCurrent(comment string) bool {
-	if d.CurrentIndex < len(d.Mutations) {
-		d.Mutations[d.CurrentIndex].Approved = false
-		d.Mutations[d.CurrentIndex].Rejected = true
-		d.Mutations[d.CurrentIndex].Comment = comment
-		d.ApprovalMode = ModeRejected
-		d.updateContent()
-		return true
+// ApproveCurrent returns the decision approving the request on screen.
+func (d *DiffApprovalView) ApproveCurrent() (approval.DecisionInput, bool) {
+	if d.CurrentIndex >= len(d.Mutations) {
+		return approval.DecisionInput{}, false
 	}
-	return false
-}
-
-// ApproveAll approves all pending mutations
-func (d *DiffApprovalView) ApproveAll() {
-	for _, m := range d.Mutations {
-		m.Approved = true
-		m.Rejected = false
-	}
+	in, ok := d.decide(d.Mutations[d.CurrentIndex], approval.VerdictApprove, "")
 	d.updateContent()
+	return in, ok
 }
 
-// GetApprovedMutations returns all approved mutations
-func (d *DiffApprovalView) GetApprovedMutations() []*PendingMutation {
-	approved := make([]*PendingMutation, 0)
+// RejectCurrent returns the decision rejecting the request on screen.
+func (d *DiffApprovalView) RejectCurrent(reason string) (approval.DecisionInput, bool) {
+	if d.CurrentIndex >= len(d.Mutations) {
+		return approval.DecisionInput{}, false
+	}
+	in, ok := d.decide(d.Mutations[d.CurrentIndex], approval.VerdictReject, reason)
+	d.updateContent()
+	return in, ok
+}
+
+// ApproveAll approves exactly the displayed set: every request the person has
+// seen at its current version and has not answered yet. A rejected request
+// stays rejected, and a request added after the person looked, or never put
+// on screen, stays pending. It approves no future request and changes no
+// policy.
+func (d *DiffApprovalView) ApproveAll() []approval.DecisionInput {
+	var out []approval.DecisionInput
 	for _, m := range d.Mutations {
-		if m.Approved {
-			approved = append(approved, m)
+		if in, ok := d.decide(m, approval.VerdictApprove, "approved with the viewed batch"); ok {
+			out = append(out, in)
 		}
 	}
-	return approved
+	d.updateContent()
+	return out
 }
 
-// GetPendingCount returns the number of unapproved mutations
-func (d *DiffApprovalView) GetPendingCount() int {
+// PendingCount returns how many requests have no answer from this view yet.
+func (d *DiffApprovalView) PendingCount() int {
 	count := 0
 	for _, m := range d.Mutations {
-		if !m.Approved && !m.Rejected {
+		if m.Submitted == "" {
 			count++
 		}
 	}
 	return count
-}
-
-// HasPending returns true if there are mutations awaiting approval
-func (d *DiffApprovalView) HasPending() bool {
-	return d.GetPendingCount() > 0
 }
 
 // ToggleWarnings toggles warning display
@@ -405,11 +465,16 @@ func (d *DiffApprovalView) ToggleSideBySide() {
 	d.updateContent()
 }
 
-// updateContent refreshes the viewport content
+// updateContent refreshes the viewport content. The item it puts on screen
+// is marked viewed at its current version and digest.
 func (d *DiffApprovalView) updateContent() {
 	if len(d.Mutations) == 0 {
 		d.Viewport.SetContent(d.renderEmpty())
 		return
+	}
+	if d.CurrentIndex < len(d.Mutations) {
+		cur := d.Mutations[d.CurrentIndex]
+		cur.viewedVersion, cur.viewedDigest = cur.Request.Version, cur.Request.Digest
 	}
 	d.Viewport.SetContent(d.renderCurrentMutation())
 }
@@ -418,7 +483,7 @@ func (d *DiffApprovalView) updateContent() {
 func (d *DiffApprovalView) renderEmpty() string {
 	emptyStyle := d.cachedStyles.emptyBase.Width(ViewportWidth(d.Width))
 
-	return emptyStyle.Render("No pending mutations to review.")
+	return emptyStyle.Render("No approval requests to review.")
 }
 
 // renderCurrentMutation renders the current mutation diff
@@ -428,66 +493,97 @@ func (d *DiffApprovalView) renderCurrentMutation() string {
 	}
 
 	m := d.Mutations[d.CurrentIndex]
+	p := m.Request.Preview
 	var sb strings.Builder
 
-	// Header
 	sb.WriteString(d.renderHeader(m))
 	sb.WriteString("\n\n")
 
-	// Warnings (if any)
-	if d.ShowWarnings && len(m.Warnings) > 0 {
-		sb.WriteString(d.renderWarnings(m.Warnings))
+	// What the host could not model or did not show is never hidden behind
+	// a toggle: approving without it would approve something unseen.
+	var notice []string
+	for _, u := range p.Unknowns {
+		notice = append(notice, "Not modeled: "+u)
+	}
+	for _, w := range p.Incomplete {
+		notice = append(notice, "Not shown: "+w)
+	}
+	if !p.Complete && len(p.Incomplete) == 0 {
+		notice = append(notice, "Not shown: the preview is incomplete")
+	}
+	if len(notice) > 0 {
+		sb.WriteString(d.renderWarnings("Review limits", notice))
 		sb.WriteString("\n")
 	}
-
-	// Diff content
-	if m.Diff != nil {
-		sb.WriteString(d.renderDiff(m.Diff))
-	} else {
-		sb.WriteString(d.Styles.Text.Muted.Render("(No diff available)"))
+	if d.ShowWarnings && len(p.Effects) > 0 {
+		var effects strings.Builder
+		effects.WriteString("Effects:\n")
+		for _, e := range p.Effects {
+			effects.WriteString("  • " + e + "\n")
+		}
+		sb.WriteString(d.Styles.Text.Body.Render(effects.String()))
+		sb.WriteString("\n")
+	}
+	if p.Text != "" {
+		sb.WriteString(d.Styles.Text.Muted.Render("Arguments: " + p.Text))
+		sb.WriteString("\n\n")
 	}
 
-	// Footer with controls
+	// The diff is the host's, computed from the frozen inputs. The view
+	// never recomputes a decision preview.
+	if p.Diff != nil {
+		sb.WriteString(d.renderDiff(p.Diff))
+	} else {
+		sb.WriteString(d.Styles.Text.Muted.Render("(No content diff for this operation)"))
+	}
+
 	sb.WriteString("\n\n")
 	sb.WriteString(d.renderControls())
 
 	return sb.String()
 }
 
-// renderHeader renders the mutation header
+// renderHeader renders the request header: what, where, which request, until when.
 func (d *DiffApprovalView) renderHeader(m *PendingMutation) string {
 	headerStyle := d.cachedStyles.headerBase.Width(ViewportWidth(d.Width))
+	r := m.Request
 
-	// Status indicator
-	status := "⏳ PENDING"
-	statusColor := d.Styles.Theme.OnSurfaceMuted()
-	if m.Approved {
-		status = "✅ APPROVED"
+	status := "⏳ AWAITING YOUR DECISION"
+	statusColor := d.Styles.Theme.Warning()
+	switch m.Submitted {
+	case approval.VerdictApprove:
+		status = "→ APPROVAL SENT"
 		statusColor = d.Styles.Theme.Success()
-	} else if m.Rejected {
-		status = "❌ REJECTED"
+	case approval.VerdictReject:
+		status = "→ REJECTION SENT"
 		statusColor = d.Styles.Theme.Destructive()
 	}
-
 	statusStyle := lipgloss.NewStyle().Foreground(statusColor).Bold(true)
 
-	header := fmt.Sprintf("📝 Mutation %d/%d: %s  %s",
-		d.CurrentIndex+1,
-		len(d.Mutations),
-		m.Description,
-		statusStyle.Render(status))
+	header := fmt.Sprintf("🔐 Approval %d/%d: %s  %s",
+		d.CurrentIndex+1, len(d.Mutations), r.Preview.Summary, statusStyle.Render(status))
 
-	subheader := fmt.Sprintf("File: %s\nReason: %s", m.FilePath, m.Reason)
+	digest := r.Digest
+	if len(digest) > 23 {
+		digest = digest[:23] + "…"
+	}
+	expires := "no deadline"
+	if !r.ExpiresAt.IsZero() {
+		expires = fmt.Sprintf("expires %s (in %s)", r.ExpiresAt.Format("15:04:05"), time.Until(r.ExpiresAt).Round(time.Second))
+	}
+	subheader := fmt.Sprintf("Tool: %s  Action: %s  Target: %s  Agent: %s\nRequest: %s v%d  %s  %s",
+		r.Subject.Tool, r.Subject.Action, r.Subject.Target, r.Subject.Agent,
+		r.ID, r.Version, digest, expires)
 
 	return headerStyle.Render(header) + "\n" + d.Styles.Text.Muted.Render(subheader)
 }
 
-// renderWarnings renders safety warnings
-func (d *DiffApprovalView) renderWarnings(warnings []string) string {
+// renderWarnings renders a titled warning box.
+func (d *DiffApprovalView) renderWarnings(title string, warnings []string) string {
 	warningStyle := d.cachedStyles.warningBase.Width(WarningBoxWidth(d.Width))
 
 	var sb strings.Builder
-	sb.WriteString("⚠️ Warnings:\n")
+	sb.WriteString("⚠️ " + title + ":\n")
 	for _, w := range warnings {
 		sb.WriteString(fmt.Sprintf("  • %s\n", w))
 	}
@@ -504,9 +600,14 @@ func (d *DiffApprovalView) renderDiff(diff *FileDiff) string {
 	sb.WriteString(d.Styles.Text.Muted.Render(fileHeader))
 	sb.WriteString("\n\n")
 
-	// Show whitespace mode indicator
+	// A hidden line is part of what is being approved, so the filter says
+	// how many changed lines it is hiding.
 	if d.IgnoreWhitespace {
-		sb.WriteString(d.Styles.Status.Info.Render("(Ignoring whitespace changes)"))
+		if hidden := d.hiddenWhitespaceLines(diff); hidden > 0 {
+			sb.WriteString(d.Styles.Status.Warning.Render(fmt.Sprintf("⚠ %d whitespace-only changed line(s) hidden — press s to show them", hidden)))
+		} else {
+			sb.WriteString(d.Styles.Status.Info.Render("(Whitespace filter on: no changed line is hidden)"))
+		}
 		sb.WriteString("\n\n")
 	}
 
@@ -641,6 +742,24 @@ func (d *DiffApprovalView) filterHunkLines(lines []DiffLine) []DiffLine {
 	}
 
 	return filtered
+}
+
+// hiddenWhitespaceLines counts the changed lines the whitespace filter hides.
+func (d *DiffApprovalView) hiddenWhitespaceLines(fd *FileDiff) int {
+	changed := func(lines []DiffLine) int {
+		n := 0
+		for _, l := range lines {
+			if l.Type == DiffLineAdded || l.Type == DiffLineRemoved {
+				n++
+			}
+		}
+		return n
+	}
+	hidden := 0
+	for _, h := range fd.Hunks {
+		hidden += changed(h.Lines) - changed(d.filterHunkLines(h.Lines))
+	}
+	return hidden
 }
 
 func isWhitespaceOnlyChange(a, b string) bool {
@@ -894,27 +1013,13 @@ func sliceString(s string, startCol, maxCols int) string {
 	return sb.String()
 }
 
-// uiDiffEngine is the one diff engine the UI package uses.
-//
-// CreateDiffFromStrings used to call diff.ComputeDiff, which runs on the
-// package-global DefaultEngine, while each DiffApprovalView built a private
-// engine for its word-level path. The same file content was therefore diffed
-// and cached twice, in two caches with different lifetimes: clearing one left
-// the other stale, and the engine Stats a caller read described whichever
-// engine they happened to hold rather than the work the UI actually did. One
-// engine for the package removes the surprise; it is safe to share because
-// Engine is mutex-guarded internally.
+// uiDiffEngine is the one diff engine the UI package uses, and it only ever
+// computes word-level spans inside lines of a diff the host already computed.
+// File diffs for a decision come from the request's sealed preview
+// (approval.BuildPreview, uncached); CreateDiffFromStrings, which computed
+// them here, had no production caller and was removed with the move to
+// host-provided requests (2026-10-27). Shared because Engine is mutex-guarded.
 var uiDiffEngine = diff.NewEngine()
-
-// CreateDiffFromStrings computes a file diff on the UI's engine.
-func CreateDiffFromStrings(oldPath, newPath, oldContent, newContent string) *FileDiff {
-	return uiDiffEngine.ComputeDiff(oldPath, newPath, oldContent, newContent)
-}
-
-// DiffEngineStats reports the UI diff engine's cumulative cache counters.
-func DiffEngineStats() diff.Stats {
-	return uiDiffEngine.Stats()
-}
 
 // renderSideBySideHunkLines renders hunk lines in a side-by-side format
 func (d *DiffApprovalView) renderSideBySideHunkLines(lines []DiffLine) string {

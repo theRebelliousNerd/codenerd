@@ -115,9 +115,11 @@ What is implemented instead:
 
 - `requires_permission(/run_regression_battery).` — the constitution's
   `dangerous_action(A) :- requires_permission(A).` wiring turns this into
-  default deny. `permitted/3` derives only through `signed_approval` **and**
-  `admin_override`, and `permission_denied` derives otherwise.
-- A **content gate** for any future host, because an override authorizes running
+  default deny. It is not `human_approvable`, so no person's approval derives
+  `permitted/3` for it either (the action-type `signed_approval`/
+  `admin_override` arm was replaced by request-bound approval on 2026-10-27),
+  and `permission_denied` derives for every pending request of it.
+- A **content gate** for any future host, because an approval authorizes running
   *a* battery, not laundering a blocked command through one. The host projects
   the battery with `regression.PolicyFacts` — one
   `regression_battery_task(Path, TaskID, Command)` fact per task — and must

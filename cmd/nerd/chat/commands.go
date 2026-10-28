@@ -61,6 +61,9 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 	case "/usage":
 		return m.handleCmdUsage(input, parts)
 
+	case "/approvals":
+		return m.handleCmdApprovals(input, parts)
+
 	case "/clear":
 		return m.handleCmdClear(input, parts)
 
