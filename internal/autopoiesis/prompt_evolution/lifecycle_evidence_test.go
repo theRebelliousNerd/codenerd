@@ -63,6 +63,7 @@ func newLifecycleEvolver(t *testing.T, dir string, llm LLMClient, tweak func(*Ev
 func failRecord(id, problem string, at time.Time) *ExecutionRecord {
 	return &ExecutionRecord{
 		TaskID: id, SessionID: "s", ShardType: "/coder", TaskRequest: "fix it",
+		Provider: "anthropic", Model: "claude-opus-4-20260501",
 		ProblemType: problem, Timestamp: at,
 		ExecutionResult: ExecutionResult{Success: false},
 		Verdict:         &JudgeVerdict{Verdict: "FAIL", Explanation: "broke " + id, TaskID: id},

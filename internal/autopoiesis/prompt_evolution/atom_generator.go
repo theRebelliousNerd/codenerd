@@ -25,13 +25,13 @@ type AtomGenerator struct {
 }
 
 // NewAtomGeneratorWithPinScope creates a new atom generator with an explicit
-// pin scope. An unrecognized scope falls back to PinScopeModelFamily rather
-// than silently generating unpinned atoms.
+// pin scope. An unrecognized scope falls back to PinScopeModel (the default)
+// rather than silently generating atoms pinned more loosely than asked.
 func NewAtomGeneratorWithPinScope(llmClient LLMClient, strategyStore *StrategyStore, scope PinScope) *AtomGenerator {
 	if !scope.Valid() {
 		logging.Get(logging.CategoryAutopoiesis).Warn(
-			"Unknown atom pin scope %q; falling back to %q", scope, PinScopeModelFamily)
-		scope = PinScopeModelFamily
+			"Unknown atom pin scope %q; falling back to %q", scope, DefaultPinScope)
+		scope = DefaultPinScope
 	}
 	return &AtomGenerator{
 		llmClient:     llmClient,
@@ -84,6 +84,12 @@ func (ag *AtomGenerator) GenerateFromFailures(
 
 	if len(failures) == 0 {
 		return nil, nil
+	}
+
+	// No pin, no atom: refused before the model call is bought.
+	if err := requirePin(ag.pinScope, shardType, pin); err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Warn("Atom generation refused: %v", err)
+		return nil, err
 	}
 
 	logging.Autopoiesis("Generating atoms from %d failures for shard=%s, problem=%s, serving=%s, pin_scope=%s",
@@ -227,7 +233,6 @@ type atomDefinition struct {
 	ID          string   `yaml:"id"`
 	Category    string   `yaml:"category"`
 	IsMandatory bool     `yaml:"is_mandatory"`
-	ShardTypes  []string `yaml:"shard_types"`
 	Languages   []string `yaml:"languages"`
 	Content     string   `yaml:"content"`
 }
@@ -248,26 +253,19 @@ func (ag *AtomGenerator) convertToPromptAtom(def atomDefinition, shardType strin
 	// Validate and map category
 	category := mapCategory(def.Category)
 
-	// Ensure shard types includes the source shard
-	shardTypes := def.ShardTypes
-	if len(shardTypes) == 0 {
-		shardTypes = []string{shardType}
-	}
-
-	providers, models := ag.pinSelectors(pin)
-
 	atom := &prompt.PromptAtom{
 		ID:          id,
 		Category:    category,
 		Importance:  prompt.ImportanceUnscored,
 		IsMandatory: def.IsMandatory,
 		Content:     def.Content,
-		ShardTypes:  shardTypes,
 		Languages:   def.Languages,
-		Providers:   providers,
-		Models:      models,
 		TokenCount:  estimateTokens(def.Content),
 	}
+
+	// The role is the one whose failures produced the atom, whatever shard
+	// types the generating model suggested; the model pin is the scope's.
+	applyPin(atom, ag.pinScope, shardType, pin)
 
 	// Compute content hash
 	atom.ContentHash = computeHash(def.Content)
@@ -276,7 +274,7 @@ func (ag *AtomGenerator) convertToPromptAtom(def atomDefinition, shardType strin
 }
 
 // pinSelectors derives the atom's provider/model selectors from the serving pin
-// under the generator's scope.
+// under scope.
 //
 // The selectors are canonical tokens (prompt.NormalizeProviderToken /
 // NormalizeModelToken), because that is the vocabulary the JIT compiler matches
@@ -284,36 +282,23 @@ func (ag *AtomGenerator) convertToPromptAtom(def atomDefinition, shardType strin
 // pinned but never matches -- the failure mode this whole mechanism exists to
 // prevent, and a silent one.
 //
-// A scope that asks for more specificity than the pin carries degrades rather
-// than fabricating: model scope with no model recorded yields a provider-only
-// pin, and a pin with nothing recorded yields no selectors at all. That last
-// case leaves the atom unpinned, so it is logged.
-func (ag *AtomGenerator) pinSelectors(pin ServingPin) (providers, models []string) {
-	if ag.pinScope == PinScopeNone {
-		return nil, nil
-	}
-
+// A pin that cannot satisfy the scope never reaches here: requirePin refuses
+// it first, so a missing model is an error, not a silently broader selector.
+func pinSelectors(scope PinScope, pin ServingPin) (providers, models []string) {
 	if token := prompt.NormalizeProviderToken(pin.Provider); token != "" {
 		providers = []string{token}
 	}
 
-	if ag.pinScope != PinScopeProvider {
+	if scope != PinScopeProvider {
 		if exact := prompt.NormalizeModelToken(pin.Model); exact != "" {
 			token := exact
-			if ag.pinScope == PinScopeModelFamily {
+			if scope == PinScopeModelFamily {
 				if family := prompt.ModelFamilyToken(exact); family != "" {
 					token = family
 				}
 			}
 			models = []string{token}
 		}
-	}
-
-	if len(providers) == 0 && len(models) == 0 {
-		logging.Get(logging.CategoryAutopoiesis).Warn(
-			"Evolved atom generated with pin_scope=%s but no serving provider/model was recorded; "+
-				"atom will be unpinned and served to every model. Ensure ExecutionRecord.Provider/Model are populated.",
-			ag.pinScope)
 	}
 
 	return providers, models
@@ -571,7 +556,6 @@ Each atom MUST follow this exact YAML structure:
   category: "methodology|language|framework|domain|exemplar"
   priority: 50-90
   is_mandatory: false
-  shard_types: ["/coder", "/tester", etc.]
   languages: ["/go", "/python", etc.]  # optional, if language-specific
   content: |
     Clear, actionable instructions...

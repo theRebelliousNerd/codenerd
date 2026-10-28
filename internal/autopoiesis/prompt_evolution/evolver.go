@@ -60,8 +60,9 @@ type EvolverConfig struct {
 	// stamped onto generated atoms and the granularity at which failures are
 	// grouped, which must agree -- see GetFailuresByProblemType.
 	//
-	// Default PinScopeModelFamily. Set PinScopeNone to restore the pre-pinning
-	// behavior where every evolved atom is served to every model.
+	// Default PinScopeModel (the exact model). Family and provider scope are
+	// explicit opt-ins. Every scope also pins the source role, and evidence
+	// lacking a provider or model yields no atom.
 	AtomPinScope PinScope `json:"atom_pin_scope"`
 
 	// The bounds below come from the prompt_evolution section of
@@ -91,7 +92,7 @@ func DefaultEvolverConfig() *EvolverConfig {
 		StrategyRefineThreshold: 10,
 		// JudgeModel is a label for the verdict record. Empty means "the model
 		// of the client that judged", read from the client at construction.
-		AtomPinScope: PinScopeModelFamily,
+		AtomPinScope: DefaultPinScope,
 	}
 	cfg.applyBounds(nerdconfig.DefaultPromptEvolutionConfig())
 	return cfg
@@ -159,13 +160,13 @@ func validateEvolverConfig(config *EvolverConfig) (*EvolverConfig, error) {
 		errs = append(errs, "trial_ttl must be > 0")
 	}
 
-	// An omitted scope means "unset", not "none": a config written before
-	// pinning existed must not silently opt out of it. An explicitly wrong
+	// An omitted scope means "unset", and takes the default; there is no scope
+	// that opts out of pinning. An explicitly wrong
 	// value is a config error, because the alternative is generating a corpus
 	// pinned differently than the operator asked for.
 	switch {
 	case strings.TrimSpace(string(normalized.AtomPinScope)) == "":
-		normalized.AtomPinScope = PinScopeModelFamily
+		normalized.AtomPinScope = DefaultPinScope
 	case !normalized.AtomPinScope.Valid():
 		errs = append(errs, fmt.Sprintf("atom_pin_scope %q is not one of %v",
 			normalized.AtomPinScope, AllPinScopes()))
@@ -229,6 +230,9 @@ type PromptEvolver struct {
 	evolutionCount int
 	evolvedAtoms   map[string]*GeneratedAtom // id -> atom
 	rejectedCount  int
+	// unpinned lists stored atoms moved aside for lacking a recorded model or
+	// role to re-pin from (pin_migration.go).
+	unpinned []UnpinnedAtom
 
 	successfulCycles   int
 	totalCycleDuration time.Duration
@@ -238,6 +242,7 @@ type PromptEvolver struct {
 	pendingDir  string
 	promotedDir string
 	rejectedDir string
+	unpinnedDir string
 
 	// Callback for notifying parent when an atom is promoted
 	onAtomPromoted AtomPromotedCallback
@@ -280,8 +285,9 @@ func NewPromptEvolver(
 	pendingDir := filepath.Join(evolvedDir, "pending")
 	promotedDir := filepath.Join(evolvedDir, "promoted")
 	rejectedDir := filepath.Join(evolvedDir, "rejected")
+	unpinnedDir := filepath.Join(evolvedDir, "unpinned")
 
-	for _, dir := range []string{pendingDir, promotedDir, rejectedDir} {
+	for _, dir := range []string{pendingDir, promotedDir, rejectedDir, unpinnedDir} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return nil, fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
@@ -337,6 +343,7 @@ func NewPromptEvolver(
 		pendingDir:        pendingDir,
 		promotedDir:       promotedDir,
 		rejectedDir:       rejectedDir,
+		unpinnedDir:       unpinnedDir,
 	}
 	pe.lifeCtx, pe.lifeStop = context.WithCancel(context.Background())
 
@@ -382,6 +389,7 @@ func (pe *PromptEvolver) GetStats() *EvolutionStats {
 		TotalCycles:         pe.evolutionCount,
 		TotalAtomsGenerated: len(pe.evolvedAtoms),
 		AtomsRejected:       pe.rejectedCount,
+		AtomsUnpinned:       len(pe.unpinned),
 		SuccessfulCycles:    pe.successfulCycles,
 		LastEvolutionAt:     pe.lastEvolution,
 	}

@@ -520,7 +520,7 @@ func (k FailureGroupKey) String() string {
 // construction.
 //
 // Records predating the provenance columns carry no provider/model and collect
-// under the empty pin, producing unpinned atoms as before.
+// under the empty pin; no atom is generated from such a group (requirePin).
 //
 // Only UNCONSUMED failures are returned: a failure at a verdict version that
 // has already bought a generation (consumed_evidence) is not evidence for the
@@ -574,10 +574,6 @@ func GroupKeyFor(rec *ExecutionRecord, scope PinScope) FailureGroupKey {
 	key := FailureGroupKey{
 		ProblemType: rec.ProblemType,
 		ShardType:   rec.ShardType,
-	}
-
-	if scope == PinScopeNone {
-		return key
 	}
 
 	key.Provider = prompt.NormalizeProviderToken(rec.Provider)

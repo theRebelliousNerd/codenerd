@@ -4,7 +4,7 @@ package prompt_evolution
 
 // NewAtomGenerator creates a new atom generator pinning at the default scope.
 func NewAtomGenerator(llmClient LLMClient, strategyStore *StrategyStore) *AtomGenerator {
-	return NewAtomGeneratorWithPinScope(llmClient, strategyStore, PinScopeModelFamily)
+	return NewAtomGeneratorWithPinScope(llmClient, strategyStore, DefaultPinScope)
 }
 
 // AllProblemTypes returns all defined problem types.

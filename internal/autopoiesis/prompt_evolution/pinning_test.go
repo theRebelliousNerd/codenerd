@@ -1,6 +1,8 @@
 package prompt_evolution
 
 import (
+	"context"
+	"errors"
 	"testing"
 )
 
@@ -25,16 +27,14 @@ func TestPinSelectorsByScope(t *testing.T) {
 		wantProviders []string
 		wantModels    []string
 	}{
-		{PinScopeModelFamily, []string{"anthropic"}, []string{"claude_opus_4"}},
 		{PinScopeModel, []string{"anthropic"}, []string{"claude_opus_4_20260501"}},
+		{PinScopeModelFamily, []string{"anthropic"}, []string{"claude_opus_4"}},
 		{PinScopeProvider, []string{"anthropic"}, nil},
-		{PinScopeNone, nil, nil},
 	}
 
 	for _, tc := range tests {
 		t.Run(string(tc.scope), func(t *testing.T) {
-			ag := &AtomGenerator{pinScope: tc.scope}
-			providers, models := ag.pinSelectors(pin)
+			providers, models := pinSelectors(tc.scope, pin)
 
 			if !equalStrings(providers, tc.wantProviders) {
 				t.Errorf("providers = %v, want %v", providers, tc.wantProviders)
@@ -46,19 +46,118 @@ func TestPinSelectorsByScope(t *testing.T) {
 	}
 }
 
-// A scope asking for more specificity than the pin carries must degrade to what
-// is known rather than fabricate a model selector.
-func TestPinSelectorsDegradeOnMissingProvenance(t *testing.T) {
-	ag := &AtomGenerator{pinScope: PinScopeModelFamily}
-
-	providers, models := ag.pinSelectors(ServingPin{Provider: "anthropic"})
-	if !equalStrings(providers, []string{"anthropic"}) || models != nil {
-		t.Errorf("provider-only pin: providers=%v models=%v, want [anthropic] and nil", providers, models)
+// Rule 1: the default is the exact model, and family is an explicit opt-in.
+func TestDefaultPinScopeIsExactModel(t *testing.T) {
+	if DefaultPinScope != PinScopeModel {
+		t.Fatalf("DefaultPinScope = %q, want %q", DefaultPinScope, PinScopeModel)
 	}
+	if PinScope("none").Valid() {
+		t.Error("there must be no scope that leaves atoms unpinned")
+	}
+}
 
-	providers, models = ag.pinSelectors(ServingPin{})
-	if providers != nil || models != nil {
-		t.Errorf("empty pin: providers=%v models=%v, want nil and nil", providers, models)
+// Rule 3: no pin, no atom. Each scope refuses evidence missing what it needs,
+// with a typed error.
+func TestRequirePinRefusesEvidenceWithoutPin(t *testing.T) {
+	full := ServingPin{Provider: "anthropic", Model: "claude-opus-4-20260501"}
+	tests := []struct {
+		name    string
+		scope   PinScope
+		role    string
+		pin     ServingPin
+		missing string
+	}{
+		{"no pin at all", PinScopeModel, "/coder", ServingPin{}, "provider"},
+		{"no model, exact scope", PinScopeModel, "/coder", ServingPin{Provider: "anthropic"}, "model"},
+		{"no model, family scope", PinScopeModelFamily, "/coder", ServingPin{Provider: "anthropic"}, "model"},
+		{"no provider", PinScopeModel, "/coder", ServingPin{Model: "claude-opus-4"}, "provider"},
+		{"no role", PinScopeModel, " ", full, "role"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := requirePin(tc.scope, tc.role, tc.pin)
+			if !errors.Is(err, ErrUnpinnedEvidence) {
+				t.Fatalf("err = %v, want ErrUnpinnedEvidence", err)
+			}
+			var typed *UnpinnedEvidenceError
+			if !errors.As(err, &typed) || typed.Missing != tc.missing {
+				t.Errorf("err = %#v, want Missing=%q", err, tc.missing)
+			}
+		})
+	}
+	if err := requirePin(PinScopeProvider, "/coder", ServingPin{Provider: "anthropic"}); err != nil {
+		t.Errorf("provider scope needs no model: %v", err)
+	}
+	if err := requirePin(PinScopeModel, "/coder", full); err != nil {
+		t.Errorf("full pin refused: %v", err)
+	}
+}
+
+type scriptedLLM struct {
+	response string
+	calls    int
+}
+
+func (l *scriptedLLM) Complete(_ context.Context, _ string) (string, error) {
+	l.calls++
+	return l.response, nil
+}
+
+func (l *scriptedLLM) CompleteWithSystem(_ context.Context, _, _ string) (string, error) {
+	l.calls++
+	return l.response, nil
+}
+
+const widenedAtomYAML = "```yaml\n" +
+	"- id: evolved/methodology/check_errors\n" +
+	"  category: methodology\n" +
+	"  shard_types: [\"/coder\", \"/tester\", \"/reviewer\"]\n" +
+	"  content: |\n" +
+	"    Always check the error.\n" +
+	"```\n"
+
+func oneFailure() []*JudgeVerdict {
+	return []*JudgeVerdict{{TaskID: "t1", Verdict: "FAIL", Explanation: "ignored an error"}}
+}
+
+// Rules 1 and 2 end to end: the generated atom is pinned to the exact model
+// and to the source role only, whatever roles the model suggested.
+func TestGenerateFromFailuresPinsExactModelAndSourceRole(t *testing.T) {
+	llm := &scriptedLLM{response: widenedAtomYAML}
+	ag := NewAtomGenerator(llm, nil)
+
+	atoms, err := ag.GenerateFromFailures(context.Background(), oneFailure(), "/coder",
+		string(ProblemDebugging), ServingPin{Provider: "anthropic", Model: "claude-opus-4-20260501"})
+	if err != nil || len(atoms) != 1 {
+		t.Fatalf("atoms=%d err=%v", len(atoms), err)
+	}
+	atom := atoms[0].Atom
+	if !equalStrings(atom.Models, []string{"claude_opus_4_20260501"}) {
+		t.Errorf("Models = %v, want the exact model", atom.Models)
+	}
+	if !equalStrings(atom.Providers, []string{"anthropic"}) {
+		t.Errorf("Providers = %v", atom.Providers)
+	}
+	if !equalStrings(atom.ShardTypes, []string{"coder"}) {
+		t.Errorf("ShardTypes = %v, want exactly the source role", atom.ShardTypes)
+	}
+	if atoms[0].PinScope != PinScopeModel {
+		t.Errorf("PinScope = %q, want %q", atoms[0].PinScope, PinScopeModel)
+	}
+}
+
+// Rule 3 end to end: no model call is bought, and the error is typed.
+func TestGenerateFromFailuresRefusesUnpinnedEvidence(t *testing.T) {
+	llm := &scriptedLLM{response: widenedAtomYAML}
+	ag := NewAtomGenerator(llm, nil)
+
+	atoms, err := ag.GenerateFromFailures(context.Background(), oneFailure(), "/coder",
+		string(ProblemDebugging), ServingPin{})
+	if !errors.Is(err, ErrUnpinnedEvidence) || atoms != nil {
+		t.Fatalf("atoms=%v err=%v, want ErrUnpinnedEvidence", atoms, err)
+	}
+	if llm.calls != 0 {
+		t.Errorf("model was called %d times for unpinnable evidence", llm.calls)
 	}
 }
 
@@ -88,19 +187,6 @@ func TestConvertToPromptAtomAppliesPin(t *testing.T) {
 	}
 }
 
-func TestConvertToPromptAtomUnpinnedUnderScopeNone(t *testing.T) {
-	ag := &AtomGenerator{pinScope: PinScopeNone}
-	atom := ag.convertToPromptAtom(
-		atomDefinition{Category: "methodology", Content: "x"},
-		"/coder",
-		ServingPin{Provider: "anthropic", Model: "claude-opus-4"},
-	)
-
-	if len(atom.Providers) != 0 || len(atom.Models) != 0 {
-		t.Errorf("scope none produced pins: providers=%v models=%v", atom.Providers, atom.Models)
-	}
-}
-
 // Grouping granularity must equal pin granularity, or one atom is generated
 // from failures spanning two models and pinned to whichever came first.
 func TestGroupKeyMatchesPinGranularity(t *testing.T) {
@@ -126,13 +212,10 @@ func TestGroupKeyMatchesPinGranularity(t *testing.T) {
 		t.Error("model scope merged two distinct snapshots")
 	}
 	// Different vendors never share a group unless pinning is off.
-	for _, scope := range []PinScope{PinScopeModelFamily, PinScopeModel, PinScopeProvider} {
+	for _, scope := range AllPinScopes() {
 		if GroupKeyFor(may, scope) == GroupKeyFor(other, scope) {
 			t.Errorf("scope %q merged two providers", scope)
 		}
-	}
-	if GroupKeyFor(may, PinScopeNone) != GroupKeyFor(other, PinScopeNone) {
-		t.Error("scope none should ignore serving identity entirely")
 	}
 }
 
@@ -146,8 +229,7 @@ func TestGroupTokenEqualsGeneratedSelector(t *testing.T) {
 
 	for _, scope := range []PinScope{PinScopeModelFamily, PinScopeModel, PinScopeProvider} {
 		key := GroupKeyFor(rec, scope)
-		ag := &AtomGenerator{pinScope: scope}
-		providers, models := ag.pinSelectors(servingPinFor([]*ExecutionRecord{rec}))
+		providers, models := pinSelectors(scope, servingPinFor([]*ExecutionRecord{rec}))
 
 		gotProvider := ""
 		if len(providers) > 0 {
@@ -192,8 +274,8 @@ func TestEvolverConfigPinScopeDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if validated.AtomPinScope != PinScopeModelFamily {
-		t.Errorf("AtomPinScope = %q, want %q", validated.AtomPinScope, PinScopeModelFamily)
+	if validated.AtomPinScope != PinScopeModel {
+		t.Errorf("AtomPinScope = %q, want %q", validated.AtomPinScope, PinScopeModel)
 	}
 }
 
@@ -206,13 +288,17 @@ func TestEvolverConfigRejectsUnknownPinScope(t *testing.T) {
 	}
 }
 
-func TestNewAtomGeneratorDefaultsToModelFamily(t *testing.T) {
-	if ag := NewAtomGenerator(nil, nil); ag.pinScope != PinScopeModelFamily {
-		t.Errorf("pinScope = %q, want %q", ag.pinScope, PinScopeModelFamily)
+func TestNewAtomGeneratorDefaultsToExactModel(t *testing.T) {
+	if ag := NewAtomGenerator(nil, nil); ag.pinScope != PinScopeModel {
+		t.Errorf("pinScope = %q, want %q", ag.pinScope, PinScopeModel)
 	}
-	// An unknown scope must not silently become "none".
-	if ag := NewAtomGeneratorWithPinScope(nil, nil, "bogus"); ag.pinScope != PinScopeModelFamily {
-		t.Errorf("pinScope = %q, want fallback %q", ag.pinScope, PinScopeModelFamily)
+	// An unknown scope falls back to the default, never to a looser one.
+	if ag := NewAtomGeneratorWithPinScope(nil, nil, "bogus"); ag.pinScope != PinScopeModel {
+		t.Errorf("pinScope = %q, want fallback %q", ag.pinScope, PinScopeModel)
+	}
+	// Family stays available when asked for.
+	if ag := NewAtomGeneratorWithPinScope(nil, nil, PinScopeModelFamily); ag.pinScope != PinScopeModelFamily {
+		t.Errorf("explicit family scope lost: %q", ag.pinScope)
 	}
 }
 

@@ -174,6 +174,12 @@ func orderGroupsOldestFirst(grouped map[FailureGroupKey][]*ExecutionRecord) []fa
 // generateForGroup claims one group's evidence, buys one generation for it
 // unlocked, and publishes behind the claim's fence.
 func (pe *PromptEvolver) generateForGroup(ctx context.Context, cycleID string, cfg EvolverConfig, group failureGroup, budget *cycleBudget, result *EvolutionResult) {
+	// No pin, no atom: checked before anything is bought for this group.
+	if err := requirePin(cfg.AtomPinScope, group.key.ShardType, servingPinFor(group.failures)); err != nil {
+		pe.refuseUnpinnedGroup(cycleID, cfg, group, err, result)
+		return
+	}
+
 	// Only the agent's own mistakes are evidence for an atom (jev_evolution.go).
 	failures := agentMistakes(group.failures)
 	verdicts := make([]*JudgeVerdict, 0, len(failures))
@@ -292,10 +298,46 @@ func (pe *PromptEvolver) publishGeneration(cycleID, claimKey, owner string, evid
 	}
 }
 
+// refuseUnpinnedGroup logs and counts a group whose evidence cannot be pinned,
+// and consumes that evidence: it can never yield an atom, so leaving it
+// unconsumed would re-read and re-refuse it every cycle. The execution
+// records themselves are untouched.
+func (pe *PromptEvolver) refuseUnpinnedGroup(cycleID string, cfg EvolverConfig, group failureGroup, cause error, result *EvolutionResult) {
+	result.GroupsWithoutPin++
+	logging.Get(logging.CategoryAutopoiesis).Warn(
+		"Group %s not evolved (%d failures): %v", group.key, len(group.failures), cause)
+
+	evidence := make([]EvidenceRef, 0, len(group.failures))
+	for _, f := range group.failures {
+		if f != nil && f.VerdictVersion != "" {
+			evidence = append(evidence, EvidenceRef{TaskID: f.TaskID, VerdictVersion: f.VerdictVersion})
+		}
+	}
+	if len(evidence) == 0 {
+		return
+	}
+	groupKey := string(cfg.AtomPinScope) + "|" + group.key.String()
+	claimKey := generationClaimKey(groupKey, atomGeneratorVersion, evidence)
+	owner := cycleID + "/" + newOwnerToken()
+	acquired, err := pe.ledger.Claim(claimKey, groupKey, atomGeneratorVersion, len(evidence), owner, cfg.ClaimLease, time.Now())
+	if err != nil {
+		result.Errors = append(result.Errors, err.Error())
+		return
+	}
+	if !acquired {
+		return
+	}
+	if err := pe.ledger.Complete(claimKey, owner, evidence, nil, time.Now()); err != nil {
+		result.Errors = append(result.Errors, err.Error())
+		return
+	}
+	result.EvidenceConsumed += len(evidence)
+}
+
 // servingPinFor returns the provider/model a failure group was observed on,
 // taking the first record that actually carries provenance. Records predating
 // the provenance columns have neither, so a group made entirely of them yields
-// the zero pin and its atoms are generated unpinned.
+// the zero pin, which requirePin refuses.
 func servingPinFor(failures []*ExecutionRecord) ServingPin {
 	for _, f := range failures {
 		if f == nil {

@@ -240,36 +240,37 @@ func (s *Strategy) TotalUses() int {
 // the evolution loop can determine from the failure alone, so it is a policy
 // choice rather than an inference.
 type PinScope string
+	// PinScopeModel pins to the provider and the EXACT model token, and is the
+	// default. Dated snapshots of one model family differ behaviorally, so a
+	// failure observed on one snapshot is not evidence about another; the cost
+	// is that the atom retires with the snapshot it was learned on.
+	PinScopeModel PinScope = "model"
+
 
 const (
 	// PinScopeModelFamily pins to the provider and the model FAMILY, so an atom
-	// learned on claude-opus-4-20260501 still applies to a later snapshot of
-	// claude-opus-4 but not to a different model. This is the default: model
-	// behavior is stable across dated snapshots far more often than it is
-	// stable across models, and pinning to an exact snapshot means every
-	// provider release silently retires the corpus learned against it.
+	// learned on claude-opus-4-20260501 also applies to a later snapshot of
+	// claude-opus-4. Explicit opt-in only: nothing in the evolution loop earns
+	// family scope per atom, because promotion evidence is not yet broken down
+	// by exact model. When it is, an atom proven on more than one exact model
+	// of a family is the one that may widen to it.
 	PinScopeModelFamily PinScope = "model_family"
 
-	// PinScopeModel pins to the provider and the EXACT model token. Choose this
-	// when snapshots are known to differ behaviorally, at the cost of dropping
-	// the atom on the next release.
-	PinScopeModel PinScope = "model"
-
 	// PinScopeProvider pins to the provider only, letting an atom apply across
-	// that vendor's whole lineup. Appropriate for vendor-level traits (API
-	// envelope, tool-call encoding, refusal style) rather than model-level ones.
+	// that vendor's whole lineup. Explicit opt-in; appropriate for
+	// vendor-level traits (API envelope, tool-call encoding, refusal style)
+	// rather than model-level ones.
 	PinScopeProvider PinScope = "provider"
-
-	// PinScopeNone generates unpinned atoms, restoring the pre-pinning
-	// behavior where every evolved atom is served to every model. Provenance is
-	// still recorded on the GeneratedAtom for review.
-	PinScopeNone PinScope = "none"
 )
 
-// Valid reports whether s is a recognized pin scope.
+// DefaultPinScope is the scope in force when none is configured.
+const DefaultPinScope = PinScopeModel
+
+// Valid reports whether s is a recognized pin scope. There is no scope that
+// leaves an atom unpinned: evidence that cannot be pinned yields no atom.
 func (s PinScope) Valid() bool {
 	switch s {
-	case PinScopeModelFamily, PinScopeModel, PinScopeProvider, PinScopeNone:
+	case PinScopeModel, PinScopeModelFamily, PinScopeProvider:
 		return true
 	default:
 		return false
@@ -278,7 +279,7 @@ func (s PinScope) Valid() bool {
 
 // AllPinScopes returns every defined pin scope.
 func AllPinScopes() []PinScope {
-	return []PinScope{PinScopeModelFamily, PinScopeModel, PinScopeProvider, PinScopeNone}
+	return []PinScope{PinScopeModel, PinScopeModelFamily, PinScopeProvider}
 }
 
 // =============================================================================
@@ -296,9 +297,9 @@ type GeneratedAtom struct {
 	ProblemType string   `json:"problem_type"` // Which problem type it addresses
 
 	// Serving provenance of the failures this atom was generated from, in raw
-	// vendor spelling. Recorded even when PinScope is PinScopeNone, so an
-	// operator reviewing the pending queue can always see which model's
-	// failures produced the atom.
+	// vendor spelling, so an operator reviewing the pending queue can see
+	// which model's failures produced the atom and a stored atom can be
+	// re-pinned from the record.
 	Provider string `json:"provider,omitzero"`
 	Model    string `json:"model,omitzero"`
 
@@ -356,8 +357,11 @@ type EvolutionResult struct {
 	// GroupsWithoutSharedCause met the count but Jev did not read one shared,
 	// preventable cause in them (jev_evolution.go); nothing was bought.
 	GroupsWithoutSharedCause int `json:"groups_without_shared_cause"`
-	AtomsDiscarded           int `json:"atoms_discarded"`   // generated, dropped by a cap
-	EvidenceConsumed         int `json:"evidence_consumed"` // failure versions converted this cycle
+	// GroupsWithoutPin lacked the provider, model or role the pin scope needs;
+	// no atom is generated without a pin (UnpinnedEvidenceError).
+	GroupsWithoutPin int `json:"groups_without_pin"`
+	AtomsDiscarded   int `json:"atoms_discarded"`   // generated, dropped by a cap
+	EvidenceConsumed int `json:"evidence_consumed"` // failure versions converted this cycle
 
 	// Errors
 	Errors []string `json:"errors,omitzero"`
@@ -376,6 +380,9 @@ type EvolutionStats struct {
 	// Atom Counts
 	TotalAtomsGenerated int `json:"total_atoms_generated"`
 	AtomsPending        int `json:"atoms_pending"`
+	// AtomsUnpinned are stored atoms that could not be re-pinned to their
+	// recorded model and role; kept on disk, never selected.
+	AtomsUnpinned int `json:"atoms_unpinned"`
 	AtomsPromoted       int `json:"atoms_promoted"`
 	AtomsRejected       int `json:"atoms_rejected"`
 

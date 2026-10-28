@@ -55,12 +55,7 @@ func (pe *PromptEvolver) storeEvolvedAtom(ga *GeneratedAtom) error {
 // names. The counts written are a display cache of the ledger.
 func (pe *PromptEvolver) persistAtomLocked(ga *GeneratedAtom) error {
 	path := pe.atomStoragePathLocked(ga.Atom.ID, !ga.PromotedAt.IsZero())
-	data, err := yaml.Marshal(evolvedAtomWrapper{
-		Atom: ga.Atom, Source: ga.Source, SourceIDs: ga.SourceIDs, ShardType: ga.ShardType,
-		ProblemType: ga.ProblemType, Provider: ga.Provider, Model: ga.Model, PinScope: ga.PinScope,
-		Confidence: ga.Confidence, UsageCount: ga.UsageCount, SuccessCount: ga.SuccessCount,
-		CreatedAt: ga.CreatedAt, PromotedAt: ga.PromotedAt,
-	})
+	data, err := yaml.Marshal(wrapperOf(ga))
 	if err != nil {
 		return fmt.Errorf("failed to marshal atom: %w", err)
 	}
@@ -68,6 +63,16 @@ func (pe *PromptEvolver) persistAtomLocked(ga *GeneratedAtom) error {
 		return fmt.Errorf("failed to write atom file: %w", err)
 	}
 	return nil
+}
+
+// wrapperOf is the on-disk shape of a candidate.
+func wrapperOf(ga *GeneratedAtom) evolvedAtomWrapper {
+	return evolvedAtomWrapper{
+		Atom: ga.Atom, Source: ga.Source, SourceIDs: ga.SourceIDs, ShardType: ga.ShardType,
+		ProblemType: ga.ProblemType, Provider: ga.Provider, Model: ga.Model, PinScope: ga.PinScope,
+		Confidence: ga.Confidence, UsageCount: ga.UsageCount, SuccessCount: ga.SuccessCount,
+		CreatedAt: ga.CreatedAt, PromotedAt: ga.PromotedAt,
+	}
 }
 
 func atomFileName(atomID string) string {
@@ -210,7 +215,8 @@ func (pe *PromptEvolver) GetPromotedAtoms() []*GeneratedAtom {
 
 // loadEvolvedAtoms loads existing candidates from disk. Pending files load
 // as quarantined, whatever their history: under the old lifecycle they were
-// served unreviewed, and migration never promotes them.
+// served unreviewed, and migration never promotes them. Stored pins are then
+// brought under the current rules (pin_migration.go).
 func (pe *PromptEvolver) loadEvolvedAtoms() {
 	pe.loadAtomsFromDir(pe.promotedDir, true)
 	pe.loadAtomsFromDir(pe.pendingDir, false)
@@ -221,7 +227,8 @@ func (pe *PromptEvolver) loadEvolvedAtoms() {
 			}
 		}
 	}
-	logging.Autopoiesis("Loaded %d evolved atoms from disk", len(pe.evolvedAtoms))
+	pe.enforceStoredPins()
+	logging.Autopoiesis("Loaded %d evolved atoms from disk (%d unpinned, quarantined)", len(pe.evolvedAtoms), len(pe.unpinned))
 }
 
 func (pe *PromptEvolver) loadAtomsFromDir(dir string, promoted bool) {
