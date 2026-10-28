@@ -114,7 +114,9 @@
   content: |
     ## MEMORY OPERATIONS PROTOCOL
 
-    The memory_operations array manages long-term knowledge.
+    The memory_operations array records what should outlast this reply. It
+    cannot delete saved long-term memory: a person's "forget" instruction is
+    handled by the host, not by you.
 
     ### OPERATION TYPES
 
@@ -123,7 +125,7 @@
     {"op": "promote_to_long_term", "key": "user_preference/indent", "value": "tabs"}
     ```
 
-    **forget**: Remove a fact from memory (rare, use carefully)
+    **forget**: Drop a session note by its key. Saved long-term memory is never touched by this, so do not tell the person something was erased from it.
     ```json
     {"op": "forget", "key": "obsolete_pattern"}
     ```
