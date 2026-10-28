@@ -430,14 +430,20 @@ func unverifiableReason(r *VerificationResult) string {
 }
 
 func outcomeAtom(outcome string) types.MangleAtom {
-	if strings.HasPrefix(outcome, "/") && len(outcome) > 1 {
-		return types.MangleAtom(outcome)
+	if s := strings.ToLower(strings.TrimSpace(outcome)); strings.HasPrefix(s, "/") && len(s) > 1 {
+		return types.MangleAtom(s)
 	}
 	return types.MangleAtom("/none")
 }
 
 func personaAtom(persona string) types.MangleAtom {
-	return types.MangleAtom("/" + strings.TrimPrefix(strings.TrimSpace(persona), "/"))
+	s := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(persona), "/")))
+	if s == "" {
+		return types.MangleAtom("/none")
+	}
+	s = strings.ReplaceAll(s, " ", "_")
+	s = strings.ReplaceAll(s, "-", "_")
+	return types.MangleAtom("/" + s)
 }
 
 // percent is a 0-1 confidence as an integer percent: Mangle compares
