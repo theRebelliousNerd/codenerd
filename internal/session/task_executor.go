@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -263,7 +264,20 @@ type JITExecutor struct {
 	// completedOrder is the FIFO eviction order for completed results.
 	// In-flight entries are never listed here and are never evicted.
 	completedOrder []string
+	// expired remembers the IDs whose completed result the bound evicted, so a
+	// late reader is told "expired" rather than "not found" (which reads as
+	// "never existed"). Bounded FIFO of bare IDs, in expiredOrder.
+	expired      map[string]struct{}
+	expiredOrder []string
 }
+
+// ErrTaskResultExpired is a late reader's answer for a task that did finish
+// but whose cached result the retention bound has since evicted.
+var ErrTaskResultExpired = errors.New("task result expired from the completed-result cache")
+
+// maxExpiredTombstones bounds the remembered evictions. An ID older than this
+// reads as not found again.
+const maxExpiredTombstones = 4096
 
 // maxCachedResults bounds completed async results. Every production task is
 // retrieved through WaitForResult, which hands the caller the string directly,
@@ -519,6 +533,12 @@ func (j *JITExecutor) getObserved(taskID string) (observation.Return, bool, erro
 		if cached && result.Completed {
 			return result.Observed, true, result.Error
 		}
+		j.mu.RLock()
+		_, wasEvicted := j.expired[taskID]
+		j.mu.RUnlock()
+		if wasEvicted {
+			return observation.Return{}, false, fmt.Errorf("task %s: %w", taskID, ErrTaskResultExpired)
+		}
 		return observation.Return{}, false, fmt.Errorf("task not found: %s", taskID)
 	}
 
@@ -593,7 +613,25 @@ func (j *JITExecutor) cacheCompletedResult(taskID string, observed observation.R
 		j.completedOrder = j.completedOrder[1:]
 		if r, ok := j.results[oldest]; ok && r.Completed {
 			delete(j.results, oldest)
+			j.noteExpiredLocked(oldest)
 		}
+	}
+}
+
+// noteExpiredLocked records that id's completed result was evicted.
+func (j *JITExecutor) noteExpiredLocked(id string) {
+	if j.expired == nil {
+		j.expired = make(map[string]struct{})
+	}
+	if _, ok := j.expired[id]; ok {
+		return
+	}
+	j.expired[id] = struct{}{}
+	j.expiredOrder = append(j.expiredOrder, id)
+	for len(j.expiredOrder) > maxExpiredTombstones {
+		delete(j.expired, j.expiredOrder[0])
+		j.expiredOrder[0] = ""
+		j.expiredOrder = j.expiredOrder[1:]
 	}
 }
 
