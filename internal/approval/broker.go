@@ -498,6 +498,12 @@ func (g *Grant) AdmissionFailed(reason string) {
 	g.finish(StatusReserved, StatusAdmissionFailed, reason, "not_started")
 }
 
+// Abandon cancels an approval its call will not claim (the call was refused
+// before it could reserve it), so it does not linger approved until expiry.
+func (g *Grant) Abandon(reason string) {
+	g.finish(StatusApproved, StatusCanceled, reason, "")
+}
+
 // DispatchStarted durably records that the backend is about to run. If the
 // record cannot be written the caller must not dispatch.
 func (g *Grant) DispatchStarted() error {

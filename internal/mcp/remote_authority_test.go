@@ -6,10 +6,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
+	"time"
 
+	"codenerd/internal/approval"
 	"codenerd/internal/logging"
 )
 
@@ -227,6 +228,7 @@ func requireAuthorityClean(test *testing.T, kernel KernelInterface) {
 		"mcp_remote_reviewed(ID, Server, Tool, Schema, Effect)",
 		"mcp_remote_operation(ID, Operation)",
 		"mcp_remote_permitted(ID, Scope, Call, Server, Tool, Schema, Digest)",
+		"human_approval_granted(ID, Action, Target, Payload, Digest)",
 	} {
 		rows, err := kernel.Query(query)
 		if err != nil || len(rows) != 0 {
@@ -372,36 +374,38 @@ func TestRemoteAuthority_AllProductionRoutesRequireExactPositivePermission(t *te
 		}, false},
 		{"approved-delete", func(test *testing.T, fixture *authorityFixture) {
 			fixture.reviewEffect(test, RemoteDelete, RiskSafe)
-			fixture.approve(test, "/delete_file")
+			fixture.approve(test, approval.VerdictApprove)
 			fixture.confirmed = true
 		}, true},
 		{"approved-execute", func(test *testing.T, fixture *authorityFixture) {
 			fixture.reviewEffect(test, RemoteExecute, RiskSafe)
-			fixture.approve(test, "/run_arbitrary_command")
+			fixture.approve(test, approval.VerdictApprove)
 			fixture.confirmed = true
 		}, true},
 		{"approval-without-confirmation", func(test *testing.T, fixture *authorityFixture) {
 			fixture.reviewEffect(test, RemoteDelete, RiskSafe)
-			fixture.approve(test, "/delete_file")
+			fixture.approve(test, approval.VerdictApprove)
 		}, false},
-		{"permission-revoked", func(test *testing.T, fixture *authorityFixture) {
+		{"approval-rejected", func(test *testing.T, fixture *authorityFixture) {
 			fixture.reviewEffect(test, RemoteDelete, RiskSafe)
-			fixture.approve(test, "/delete_file")
+			fixture.approve(test, approval.VerdictReject)
 			fixture.confirmed = true
-			if err := fixture.kernel.Retract("signed_approval(/delete_file)"); err != nil {
-				test.Fatal(err)
-			}
 		}, false},
-		{"permission-revoked-during-admission", func(test *testing.T, fixture *authorityFixture) {
+		{"approval-revoked-during-admission", func(test *testing.T, fixture *authorityFixture) {
+			// The person approved, but the kernel cannot be consulted when the
+			// approved admission asks: consent does not substitute for it.
 			fixture.reviewEffect(test, RemoteDelete, RiskSafe)
-			fixture.approve(test, "/delete_file")
+			fixture.approve(test, approval.VerdictApprove)
 			fixture.confirmed = true
-			fixture.fault.beforeQuery = func(query string) {
+			asked := 0
+			fixture.fault.queryFault = func(query string) error {
 				if strings.HasPrefix(query, "mcp_remote_permitted(") {
-					if err := fixture.kernel.Retract("signed_approval(/delete_file)"); err != nil {
-						test.Fatal(err)
+					asked++
+					if asked == 2 {
+						return errors.New("injected policy failure during the approved admission")
 					}
 				}
+				return nil
 			}
 		}, false},
 	}
@@ -620,13 +624,11 @@ func (fixture *authorityFixture) reviewEffect(test *testing.T, effect RemoteEffe
 	}
 }
 
-func (fixture *authorityFixture) approve(test *testing.T, action string) {
+// approve attaches a host that answers every offered request with verdict,
+// through the same approval.Host boundary the TUI uses.
+func (fixture *authorityFixture) approve(test *testing.T, verdict approval.Verdict) {
 	test.Helper()
-	for _, fact := range []string{fmt.Sprintf("signed_approval(%s)", action), `admin_override("host-reviewer")`} {
-		if err := fixture.kernel.Assert(fact); err != nil {
-			test.Fatal(err)
-		}
-	}
+	attachTestApprover(test, fixture.manager, time.Minute, func(int32, approval.Request) approval.Verdict { return verdict })
 }
 
 func TestRemoteAuthority_ReplayAndCleanupFailureCannotAuthorizeAnotherCall(t *testing.T) {
