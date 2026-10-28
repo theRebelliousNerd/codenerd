@@ -85,9 +85,7 @@ func TestKeyPool_AllLLMSurfacesPreserveCapabilitiesAndCredentials(t *testing.T) 
 	if !ok {
 		t.Fatal("native tool continuation lost")
 	}
-	if _, ok := client.(interface {
-		CompleteWithStreamingAndThoughts(context.Context, string, string, bool) (<-chan string, <-chan string, <-chan error)
-	}); ok {
+	if _, ok := client.(types.ThoughtStreamer); ok {
 		t.Fatal("pool invented thought streaming")
 	}
 	ctx := context.Background()
@@ -450,9 +448,7 @@ func TestKeyPool_GeminiThoughtStreamingAndGroundingSettersSurvive(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream, ok := client.(interface {
-		CompleteWithStreamingAndThoughts(context.Context, string, string, bool) (<-chan string, <-chan string, <-chan error)
-	})
+	stream, ok := client.(types.ThoughtStreamer)
 	if !ok {
 		t.Fatal("Gemini thought streaming masked")
 	}
@@ -472,11 +468,11 @@ func TestKeyPool_GeminiThoughtStreamingAndGroundingSettersSurvive(t *testing.T) 
 			} else {
 				summary += part
 			}
-		case err, ok := <-errs:
+		case res, ok := <-errs:
 			if !ok {
 				errs = nil
-			} else if err != nil {
-				t.Fatal(err)
+			} else if res.Err != nil {
+				t.Fatal(res.Err)
 			}
 		}
 	}
@@ -496,14 +492,14 @@ func TestKeyPool_PanicsReleaseCredentialLeases(t *testing.T) {
 	if err == nil || strings.Contains(err.Error(), "secret-panic-payload") || pool.health[0].active != 0 {
 		t.Fatalf("panic leaked lease or payload: err=%v active=%d", err, pool.health[0].active)
 	}
-	content, thoughts, errs := router.Stream(context.Background(), func(context.Context, types.LLMClient) (<-chan string, <-chan string, <-chan error) {
+	content, thoughts, errs := router.Stream(context.Background(), func(context.Context, types.LLMClient) (<-chan string, <-chan string, <-chan types.StreamResult) {
 		panic("secret-panic-payload")
 	})
 	for range content {
 	}
 	for range thoughts {
 	}
-	err = <-errs
+	err = types.AwaitStreamResult(context.Background(), errs).Err
 	if err == nil || strings.Contains(err.Error(), "secret-panic-payload") || pool.health[0].active != 0 {
 		t.Fatalf("stream panic leaked lease or payload: err=%v active=%d", err, pool.health[0].active)
 	}

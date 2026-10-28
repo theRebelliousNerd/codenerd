@@ -107,19 +107,18 @@ func TestTracingTools_TraceCarriesModel(t *testing.T) {
 }
 
 // cancelStreamUnderlying is a conforming streaming client: it emits one chunk,
-// then closes both channels as soon as the context dies.
+// then ends with the cancellation as its terminal as soon as the context dies.
 type cancelStreamUnderlying struct{ baseMockLLMClient }
 
-func (m *cancelStreamUnderlying) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
-	content := make(chan string, 1)
-	errCh := make(chan error, 1)
-	content <- "partial"
+func (m *cancelStreamUnderlying) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
+	w, content, done := types.NewStream()
+	_ = w.Content(ctx, "partial")
 	go func() {
-		defer close(content)
-		defer close(errCh)
+		defer w.Close()
 		<-ctx.Done()
+		w.Fail(ctx.Err())
 	}()
-	return content, errCh
+	return content, done
 }
 
 // Cancelling mid-stream must terminate the relay promptly with the
@@ -148,9 +147,7 @@ func TestTracingStreaming_CancelTerminatesRelay(t *testing.T) {
 		defer close(done)
 		for range outContent {
 		}
-		if err, ok := <-outErr; ok {
-			firstErr = err
-		}
+		firstErr = types.AwaitStreamResult(context.Background(), outErr).Err
 	}()
 	select {
 	case <-done:

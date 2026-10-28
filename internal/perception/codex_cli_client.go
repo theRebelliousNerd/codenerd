@@ -159,57 +159,14 @@ func (c *CodexCLIClient) CompleteWithSchema(ctx context.Context, systemPrompt, u
 	return c.executeWithFallback(ctx, combinedPrompt, schema)
 }
 
-// CompleteStreaming sends a prompt and streams the response.
-//
-// Best-effort: Codex CLI emits JSONL events, but event schemas can change. We rely on
-// --output-last-message for correctness and emit the final message as a single chunk.
-func (c *CodexCLIClient) CompleteStreaming(ctx context.Context, systemPrompt, userPrompt string, callback StreamCallback) error {
-	text, err := c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
-	if err != nil {
-		return err
-	}
-	if strings.TrimSpace(text) != "" {
-		if err := callback(StreamChunk{Type: "text", Text: text}); err != nil {
-			return err
-		}
-	}
-	return callback(StreamChunk{Done: true})
-}
-
-// CompleteWithStreaming adapts callback-based streaming into channel-based streaming.
-func (c *CodexCLIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan error) {
-	contentChan := make(chan string, 100)
-	errorChan := make(chan error, 1)
-
-	go func() {
-		defer close(contentChan)
-		defer close(errorChan)
-
-		err := c.CompleteStreaming(ctx, systemPrompt, userPrompt, func(chunk StreamChunk) error {
-			if chunk.Error != "" {
-				return fmt.Errorf("stream error: %s", chunk.Error)
-			}
-			delta := chunk.Text
-			if delta == "" {
-				delta = chunk.Content
-			}
-			if delta == "" || chunk.Done {
-				return nil
-			}
-			select {
-			case contentChan <- delta:
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		})
-
-		if err != nil {
-			errorChan <- err
-		}
-	}()
-
-	return contentChan, errorChan
+// CompleteWithStreaming publishes the final message as one chunk. Codex CLI
+// emits JSONL events whose schemas change between releases; correctness rides
+// on --output-last-message, read by CompleteWithSystem, which also fails the
+// call when the CLI did not finish.
+func (c *CodexCLIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
+		return c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	})
 }
 
 func (c *CodexCLIClient) executeWithFallback(ctx context.Context, prompt string, schema map[string]any) (string, error) {

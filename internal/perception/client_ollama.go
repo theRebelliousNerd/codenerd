@@ -76,7 +76,7 @@ func (c *OllamaClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 }
 
 // CompleteWithStreaming implements LLMClient.
-func (c *OllamaClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+func (c *OllamaClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
 	return c.openai.CompleteWithStreaming(ctx, systemPrompt, userPrompt, enableThinking)
 }
 
@@ -108,8 +108,7 @@ func (c *OllamaClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 	if err != nil {
 		return nil, fmt.Errorf("ollama tool-results: %w", err)
 	}
-	trackUsage(ctx, c.model, ProviderOllama,
-		resp.Usage.PromptTokens, resp.Usage.CompletionTokens, usageOpFor(len(tools)))
+	reportUsage(ctx, c.model, ProviderOllama, usageOpFor(len(tools)), resp.Usage.metadata())
 	return OpenAIToolResponseFromResponse(resp)
 }
 

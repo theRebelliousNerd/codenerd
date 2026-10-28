@@ -48,12 +48,10 @@ func (m *groundedSchedMock) Complete(ctx context.Context, prompt string) (string
 func (m *groundedSchedMock) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	return m.text, nil
 }
-func (m *groundedSchedMock) CompleteWithStreaming(_ context.Context, _, _ string, _ bool) (<-chan string, <-chan error) {
-	ch := make(chan string)
-	close(ch)
-	errCh := make(chan error)
-	close(errCh)
-	return ch, errCh
+func (m *groundedSchedMock) CompleteWithStreaming(_ context.Context, _, _ string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	w, out, done := types.NewStream()
+	w.Finish(types.StreamResult{})
+	return out, done
 }
 func (m *groundedSchedMock) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	return &types.LLMToolResponse{Text: m.text}, nil

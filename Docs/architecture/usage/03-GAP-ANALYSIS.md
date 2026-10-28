@@ -1,6 +1,6 @@
 # usage — Gap Analysis
 
-> Last verified: **2026-07-13**
+> Last verified: **2026-07-13**; rows marked † re-verified **2026-10-27** against source (see Docs/audits/detailed-usage-wiring-and-verified-efficiency.md, As built).
 
 ## Spec vs reality matrix
 
@@ -10,26 +10,25 @@
 | Persist across process restarts | Required | **Implemented** (`Load`/`Save`/`usage.json`) | — |
 | Context ambient attach | Required | **Implemented** (`NewContext`/`FromContext`) | — |
 | Shard/session attribution | Required | **Implemented** (`WithShardContext` + Track) | — |
-| Meter all LLM engines | Required for trustworthy totals | **Partial** — only `client_zai.go` calls Track | **P0** |
-| Meter streaming completions | Vision | **Unknown / likely missing** — process stream path attaches context but ZAI non-stream path is the only Track site found | **P0** |
-| Raw event history | Type `UsageEvent` + `UsageData.Events` | **Not written** | P2 |
-| Cost estimation | `TokenCounts.Cost` | **Never set** | P2 |
-| By-shard-name map | Comment in Track | **Not implemented** | P3 |
+| Meter all LLM engines † | Required for trustworthy totals | **Implemented** — every provider adapter reports through `perception.reportUsage` → `usage.RecordFromContext` | — |
+| Meter streaming completions † | Vision | **Implemented** — each stream reports once per attempt, before its terminal result | — |
+| Raw event history † | Type `UsageEvent` + `UsageData.Events` | **Implemented** — bounded ring behind `WithEventLog` | — |
+| Cost estimation † | `TokenCounts.Cost` | **Implemented** — `EstimateCostDetailed` with cache read/write rates; unpriced spend counted in `UnpricedTokens` | — |
+| By-shard-name map † | Comment in Track | **Implemented** — `ByShardName` | — |
 | UI shows BySession | Stats has map | **UI omits** session table | P2 |
-| Atomic file write | Durability vision | Direct `WriteFile` | P1 |
+| Atomic file write † | Durability vision | **Implemented** — temp file, fsync, `atomicfile.Replace` | — |
 | Debounce correctness | Vision: no lost dirty | Dirty clear race possible | P1 |
 | Logging on Load/Save fail | Comment “would log” | **No logging package use** | P2 |
+| Cache/reasoning sub-counts with presence † | Accurate token economics | **Implemented** — `types.UsageMetadata` (`Known`, `Partial`), carried to tracker and broker receipt alike; cross-process merge keeps them | — |
 | Mangle budget facts | Optional future | **None** (correct non-gap if non-goal) | — |
 | Multi-process lock | Fleet vision | **None** | P3 |
 | Export CLI verb | Operator vision | No dedicated cobra dump in usage package (UI only) | P3 |
 
 ## Priority narratives
 
-### P0 — Incomplete producer coverage
+### P0 — Incomplete producer coverage (resolved †)
 
-Reverse-dep grep shows **one** production `Track` call site outside tests: `internal/perception/client_zai.go`. Other providers and CLI backends can burn tokens without updating aggregates. Operator totals are **biased toward ZAI HTTP usage**.
-
-Mitigation path (docs only here): every `LLMClient` that receives usage metadata should call `FromContext` + `Track` with a stable `operation` string.
+The original finding — one production `Track` site, totals biased toward Z.AI — no longer holds. Every adapter now builds one normalized report per billed attempt and delivers it to both the tracker and the in-flight broker observer. The rationale stands: a producer that skips the report makes operator totals silently wrong, which `TestStreamConformance` and the usage-tracking tests now catch per provider.
 
 ### P1 — Persistence races / durability
 

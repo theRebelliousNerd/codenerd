@@ -516,13 +516,8 @@ func (c *missingLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 	return "", c.err
 }
 
-func (c *missingLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
-	ch := make(chan string)
-	errCh := make(chan error, 1)
-	close(ch)
-	errCh <- c.err
-	close(errCh)
-	return ch, errCh
+func (c *missingLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
+	return types.FailedStream(c.err)
 }
 
 func (c *missingLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {

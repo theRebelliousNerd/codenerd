@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -60,8 +61,8 @@ func (f *cutThenWhole) CompleteWithTools(_ context.Context, system, _ string, _ 
 	return &types.LLMToolResponse{Text: "whole", StopReason: "end_turn"}, nil
 }
 
-func (f *cutThenWhole) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan error) {
-	return closedStringChan(), errChanWith(nil)
+func (f *cutThenWhole) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan types.StreamResult) {
+	return types.FailedStream(errors.New("cutThenWhole does not stream"))
 }
 
 func (f *cutThenWhole) snapshot() (int, []string, []string) {

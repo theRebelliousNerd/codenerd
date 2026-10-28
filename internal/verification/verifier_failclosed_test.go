@@ -42,13 +42,8 @@ func (s *stubLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, us
 	return "", errors.New("stubLLMClient: CompleteWithSystem not implemented")
 }
 
-func (s *stubLLMClient) CompleteWithStreaming(_ context.Context, _, _ string, _ bool) (<-chan string, <-chan error) {
-	textCh := make(chan string)
-	errCh := make(chan error, 1)
-	errCh <- errors.New("stubLLMClient: CompleteWithStreaming not implemented")
-	close(textCh)
-	close(errCh)
-	return textCh, errCh
+func (s *stubLLMClient) CompleteWithStreaming(_ context.Context, _, _ string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	return types.FailedStream(errors.New("stubLLMClient: CompleteWithStreaming not implemented"))
 }
 
 func (s *stubLLMClient) CompleteWithTools(_ context.Context, _, _ string, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {

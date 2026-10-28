@@ -84,19 +84,15 @@ func (c *core) completeWithStreamingAndThoughts(
 	ctx context.Context,
 	systemPrompt, userPrompt string,
 	enableThinking bool,
-) (<-chan string, <-chan string, <-chan error) {
+) (<-chan string, <-chan string, <-chan types.StreamResult) {
 	if c.cfg.Router != nil {
-		return c.cfg.Router.Stream(ctx, func(ctx context.Context, client types.LLMClient) (<-chan string, <-chan string, <-chan error) {
-			return client.(interface {
-				CompleteWithStreamingAndThoughts(context.Context, string, string, bool) (<-chan string, <-chan string, <-chan error)
-			}).CompleteWithStreamingAndThoughts(ctx, systemPrompt, userPrompt, enableThinking)
+		return c.cfg.Router.Stream(ctx, func(ctx context.Context, client types.LLMClient) (<-chan string, <-chan string, <-chan types.StreamResult) {
+			return client.(types.ThoughtStreamer).CompleteWithStreamingAndThoughts(ctx, systemPrompt, userPrompt, enableThinking)
 		})
 	}
-	provider, ok := c.underlying.(interface {
-		CompleteWithStreamingAndThoughts(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan string, <-chan error)
-	})
+	provider, ok := c.underlying.(types.ThoughtStreamer)
 	if !ok {
-		return closedStringChan(), closedStringChan(), errChanWith(ErrNoUnderlying)
+		return types.FailedThoughtStream(ErrNoUnderlying)
 	}
 
 	req := &Request{
@@ -110,16 +106,17 @@ func (c *core) completeWithStreamingAndThoughts(
 	receipt, refusal := c.admit(ctx, req)
 	if refusal != nil {
 		c.settleRefusal(receipt)
-		return closedStringChan(), closedStringChan(), errChanWith(refusal)
+		return types.FailedThoughtStream(refusal)
 	}
 
 	ctx, obs := c.observed(ctx)
-	content, thoughts, errs := provider.CompleteWithStreamingAndThoughts(ctx, systemPrompt, userPrompt, enableThinking)
+	content, thoughts, done := provider.CompleteWithStreamingAndThoughts(ctx, systemPrompt, userPrompt, enableThinking)
 
-	// Thoughts are billed output. They are forwarded untouched and settle with
-	// the content stream, so a thinking-heavy turn is not recorded as a cheap one.
-	outContent, outErrs := c.proxyStream(ctx, receipt, req, obs, content, errs)
-	return outContent, thoughts, outErrs
+	// Thoughts are billed output. They are forwarded and settle with the
+	// content stream, so a thinking-heavy turn is not recorded as a cheap one.
+	w, outContent, outThoughts, outDone := types.NewThoughtStream()
+	c.proxyStream(ctx, w, receipt, req, obs, content, thoughts, done)
+	return outContent, outThoughts, outDone
 }
 
 // SupportsGroundedWebSearch implements types.GroundedWebSearcher by asking the

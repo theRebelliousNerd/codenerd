@@ -1,6 +1,8 @@
 package system
 
 import (
+	"codenerd/internal/types"
+	"codenerd/internal/usage"
 	"context"
 	"math"
 	"os"
@@ -44,7 +46,7 @@ func TestInitCoreComponents_ShouldMeterWithTheConfigsUsageSection(t *testing.T) 
 	}
 	t.Cleanup(func() { _ = bctx.tracker.Close() })
 
-	bctx.tracker.Track(context.Background(), "usage-boot-probe-7b", "acme", 1_000_000, 500_000, "chat")
+	bctx.tracker.Record(context.Background(), usage.Report{Model: "usage-boot-probe-7b", Provider: "acme", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 1_000_000, OutputTokens: 500_000}})
 
 	stats := bctx.tracker.Stats()
 	if stats.UnpricedTokens != 0 {

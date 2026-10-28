@@ -40,7 +40,7 @@
 // Because several call sites probe optional interfaces to choose a control
 // flow — types.ToolResultsProvider selects the native tool loop over a
 // synthesized envelope, core.SchemaCapableLLMClient selects structured output,
-// core.LLMStreamingWithThoughts selects thought streaming — the wrapper must
+// types.ThoughtStreamer selects thought streaming — the wrapper must
 // expose exactly the capability set the underlying client has. Wrap() composes
 // one of eight shapes to preserve that. See wrap.go.
 //

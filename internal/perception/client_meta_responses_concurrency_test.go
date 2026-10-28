@@ -2,6 +2,7 @@ package perception
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -25,12 +26,8 @@ func (s *strategicRaceStubClient) CompleteWithSystem(ctx context.Context, system
 	return `{"primary_intent":"explain","semantic_type":"definition","action_type":"explain","domain":"general","confidence":0.9,"surface_response":"ok"}`, nil
 }
 
-func (s *strategicRaceStubClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
-	ch := make(chan string)
-	close(ch)
-	ech := make(chan error)
-	close(ech)
-	return ch, ech
+func (s *strategicRaceStubClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
+	return types.FailedStream(errors.New("streaming is not used by this fake"))
 }
 
 func (s *strategicRaceStubClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {

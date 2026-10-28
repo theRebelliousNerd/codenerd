@@ -32,19 +32,10 @@ func anthropicSSE(reason string) string {
 		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
 }
 
-func drainAnthropic(t *testing.T, content <-chan string, errs <-chan error) (string, error) {
+func drainAnthropic(t *testing.T, content <-chan string, done <-chan types.StreamResult) (string, error) {
 	t.Helper()
-	var text strings.Builder
-	for part := range content {
-		text.WriteString(part)
-	}
-	var result error
-	for err := range errs {
-		if err != nil {
-			result = err
-		}
-	}
-	return text.String(), result
+	text, res := types.CollectStream(context.Background(), content, done, nil)
+	return text, res.Err
 }
 
 func TestAnthropicCurrentAPI_AllInferenceSurfaces(t *testing.T) {

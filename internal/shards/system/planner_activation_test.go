@@ -29,13 +29,9 @@ func (m *explosiveLLMClient) CompleteWithSystem(context.Context, string, string)
 	return "", nil
 }
 
-func (m *explosiveLLMClient) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan error) {
+func (m *explosiveLLMClient) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan types.StreamResult) {
 	m.note()
-	out := make(chan string)
-	errch := make(chan error, 1)
-	close(out)
-	errch <- nil
-	return out, errch
+	return types.StreamWhole(context.Background(), func(context.Context) (string, error) { return "", nil })
 }
 
 func (m *explosiveLLMClient) CompleteWithTools(context.Context, string, string, []types.ToolDefinition) (*types.LLMToolResponse, error) {

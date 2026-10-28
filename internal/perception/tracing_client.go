@@ -197,14 +197,6 @@ func (tc *TracingLLMClient) CompleteWithSchema(ctx context.Context, systemPrompt
 	return response, err
 }
 
-type streamingChannelsClient interface {
-	CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error)
-}
-
-type streamingCallbackClient interface {
-	CompleteStreaming(ctx context.Context, systemPrompt, userPrompt string, callback StreamCallback) error
-}
-
 type modelGetter interface {
 	GetModel() string
 }
@@ -214,15 +206,12 @@ type contextualModelGetter interface {
 }
 
 // CompleteWithStreaming implements streaming with trace capture.
-// The response is streamed to the caller while also being buffered for persistence.
-func (tc *TracingLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+// The response is streamed to the caller while also being buffered for
+// persistence; the trace is stored, and the terminal published, once the
+// underlying terminal result is in.
+func (tc *TracingLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
 	if tc == nil || tc.underlying == nil {
-		contentChan := make(chan string)
-		errorChan := make(chan error, 1)
-		close(contentChan)
-		errorChan <- fmt.Errorf("tracing client has no underlying LLM client")
-		close(errorChan)
-		return contentChan, errorChan
+		return types.FailedStream(fmt.Errorf("tracing client has no underlying LLM client"))
 	}
 
 	tctx := tc.snapshotTraceContext()
@@ -230,117 +219,32 @@ func (tc *TracingLLMClient) CompleteWithStreaming(ctx context.Context, systemPro
 	start := time.Now()
 	logging.API("LLM streaming call started: shard=%s type=%s prompt_len=%d", tctx.shardID, tctx.shardType, len(userPrompt))
 
-	var underContent <-chan string
-	var underErr <-chan error
-
-	if streamer, ok := tc.underlying.(streamingChannelsClient); ok {
-		underContent, underErr = streamer.CompleteWithStreaming(ctx, systemPrompt, userPrompt, enableThinking)
-	} else if streamer, ok := tc.underlying.(streamingCallbackClient); ok {
-		contentChan := make(chan string, 100)
-		errorChan := make(chan error, 1)
-		go func() {
-			defer close(contentChan)
-			defer close(errorChan)
-			err := streamer.CompleteStreaming(ctx, systemPrompt, userPrompt, func(chunk StreamChunk) error {
-				if chunk.Error != "" {
-					return fmt.Errorf("stream error: %s", chunk.Error)
-				}
-				delta := chunk.Text
-				if delta == "" {
-					delta = chunk.Content
-				}
-				if delta == "" || chunk.Done {
-					return nil
-				}
-				select {
-				case contentChan <- delta:
-					return nil
-				case <-ctx.Done():
-					return ctx.Err()
-				}
-			})
-			if err != nil {
-				errorChan <- err
-			}
-		}()
-		underContent, underErr = contentChan, errorChan
-	} else {
-		contentChan := make(chan string)
-		errorChan := make(chan error, 1)
-		close(contentChan)
-		errorChan <- core.ErrStreamingNotSupported
-		close(errorChan)
-		return contentChan, errorChan
-	}
-
-	outContent := make(chan string, 100)
-	outErr := make(chan error, 1)
+	underContent, underDone := tc.underlying.CompleteWithStreaming(ctx, systemPrompt, userPrompt, enableThinking)
+	w, outContent, outDone := types.NewStream()
 
 	go func() {
-		defer close(outContent)
-		defer close(outErr)
+		defer w.Close()
 
 		var full strings.Builder
-		contentClosed := false
-		errClosed := false
-		var firstErr error
-
-		// ctxDoneCh is detached after the first fire: ctx.Done() stays ready
-		// forever once closed, so leaving it in the select would hot-spin if
-		// a non-conforming underlying never closed its channels.
-		ctxDoneCh := ctx.Done()
-
-		for !(contentClosed && errClosed) {
-			select {
-			case <-ctxDoneCh:
-				if firstErr == nil {
-					firstErr = ctx.Err()
-				}
-				ctxDoneCh = nil
-			case chunk, ok := <-underContent:
-				if !ok {
-					contentClosed = true
-					continue
-				}
-				full.WriteString(chunk)
-				select {
-				case outContent <- chunk:
-				case <-ctx.Done():
-					if firstErr == nil {
-						firstErr = ctx.Err()
-					}
-				}
-			case err, ok := <-underErr:
-				if !ok {
-					errClosed = true
-					continue
-				}
-				if err != nil && firstErr == nil {
-					firstErr = err
-				}
-			}
-		}
+		res, _ := types.RelayStream(ctx, w, types.CaptureStream(underContent, &full), nil, underDone)
 
 		duration := time.Since(start)
-		if firstErr != nil {
-			logging.Get(logging.CategoryAPI).Error("LLM streaming call failed: shard=%s duration=%v error=%s", tctx.shardID, duration, firstErr.Error())
+		if res.Err != nil {
+			logging.Get(logging.CategoryAPI).Error("LLM streaming call %s: shard=%s duration=%v error=%s", res.Outcome(), tctx.shardID, duration, res.Err.Error())
 		} else {
 			logging.API("LLM streaming call completed: shard=%s duration=%v response_len=%d", tctx.shardID, duration, full.Len())
 		}
 
 		tokensUsed := thinkingTokensOf(tc.underlying)
-		RecordLLMCall(tctx.shardCategory, tctx.shardType, tokensUsed, duration.Milliseconds(), firstErr)
-
-		if firstErr != nil {
-			outErr <- firstErr
-		}
+		RecordLLMCall(tctx.shardCategory, tctx.shardType, tokensUsed, duration.Milliseconds(), res.Err)
 
 		trace := newReasoningTrace(tctx, resolveTraceModel(ctx, tc.underlying),
-			systemPrompt, userPrompt, full.String(), tokensUsed, duration.Milliseconds(), firstErr)
+			systemPrompt, userPrompt, full.String(), tokensUsed, duration.Milliseconds(), res.Err)
 		storeTraceAsync(tc.store, trace)
+		w.Finish(res)
 	}()
 
-	return outContent, outErr
+	return outContent, outDone
 }
 
 // Unwrap exposes the wrapped client so broker.Base and broker.IsBrokered can

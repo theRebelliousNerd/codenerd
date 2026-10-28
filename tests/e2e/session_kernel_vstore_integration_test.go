@@ -60,7 +60,7 @@ func (m *mockLLM) CompleteWithTools(ctx context.Context, system, prompt string, 
 	return nil, nil
 }
 func (m *mockLLM) Complete(ctx context.Context, prompt string) (string, error) { return "", nil }
-func (m *mockLLM) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+func (m *mockLLM) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
 	return nil, nil
 }
 

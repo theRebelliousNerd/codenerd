@@ -1219,20 +1219,10 @@ func TestActivatePhase_DoubleActivation(t *testing.T) {
 	}
 }
 
-func (m *MockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
-	contentChan := make(chan string, 1)
-	errorChan := make(chan error, 1)
-	go func() {
-		defer close(contentChan)
-		defer close(errorChan)
-		res, err := m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		contentChan <- res
-	}()
-	return contentChan, errorChan
+func (m *MockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
+		return m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	})
 }
 
 // TODO: TEST_GAP: [Null/Undefined/Empty] Verify CompressPhase handles a nil kernel or llmClient gracefully by returning a clean error instead of panicking.

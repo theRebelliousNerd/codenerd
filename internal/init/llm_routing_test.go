@@ -48,17 +48,12 @@ func (c *identifiedClient) CompleteWithTools(_ context.Context, system, user str
 	return &types.LLMToolResponse{Text: text}, err
 }
 
-func (c *identifiedClient) CompleteWithStreaming(_ context.Context, system, user string, _ bool) (<-chan string, <-chan error) {
-	content, errs := make(chan string, 1), make(chan error, 1)
+func (c *identifiedClient) CompleteWithStreaming(_ context.Context, system, user string, _ bool) (<-chan string, <-chan types.StreamResult) {
 	text, err := c.record(system, user)
 	if err != nil {
-		errs <- err
-	} else {
-		content <- text
+		return types.FailedStream(err)
 	}
-	close(content)
-	close(errs)
-	return content, errs
+	return types.StreamWhole(context.Background(), func(context.Context) (string, error) { return text, nil })
 }
 
 func (c *identifiedClient) requests() []string {
@@ -81,7 +76,7 @@ func (s scheduledLayer) CompleteWithSystem(ctx context.Context, system, user str
 func (s scheduledLayer) CompleteWithTools(ctx context.Context, system, user string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	return s.inner.CompleteWithTools(ctx, system, user, tools)
 }
-func (s scheduledLayer) CompleteWithStreaming(ctx context.Context, system, user string, thinking bool) (<-chan string, <-chan error) {
+func (s scheduledLayer) CompleteWithStreaming(ctx context.Context, system, user string, thinking bool) (<-chan string, <-chan types.StreamResult) {
 	return s.inner.CompleteWithStreaming(ctx, system, user, thinking)
 }
 

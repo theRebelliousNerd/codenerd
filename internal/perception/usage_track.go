@@ -3,6 +3,7 @@ package perception
 import (
 	"context"
 
+	"codenerd/internal/types"
 	"codenerd/internal/usage"
 )
 
@@ -51,31 +52,34 @@ func usageProviderID(p Provider) string {
 	return "unregistered:" + string(p)
 }
 
-// trackUsage records one billed LLM turn against the tracker carried by ctx.
+// reportUsage delivers one billed attempt's normalized usage to the tracker
+// and to the in-flight observer carried by ctx (usage.RecordFromContext), the
+// same report to both.
 //
-// Call it once per billed request, at the point where the final token counts
-// are known — after a non-streaming response parses, or after a stream reaches
-// its usage chunk. Calling it per retry attempt is correct (each attempt that
-// reached the model is billed); calling it per streamed delta is not.
+// Call it once per billed attempt, at the point where the final counts are
+// known — after a non-streaming response parses, or when a stream ends (and
+// BEFORE its terminal result is published, so a broker settling on that
+// terminal has already seen the report). Calling it per retry attempt is
+// correct (each attempt that reached the model is billed); calling it per
+// streamed delta is not.
+//
+// A report with neither counts nor a partial flag is dropped: nothing was
+// observed. A partial report with zero counts is still delivered so the
+// receipt can say the accounting is incomplete rather than free.
 //
 // Doing nothing when ctx carries no tracker is deliberate: clients are also
 // constructed in tests and one-shot tools, and metering must never be a reason
 // a completion path fails.
-func trackUsage(ctx context.Context, model string, provider Provider, input, output int, operation string) {
-	trackUsageDetailed(ctx, model, provider, input, output, 0, 0, operation)
-}
-
-// trackUsageDetailed is trackUsage with the cache sub-counts of input:
-// cacheRead/cacheWrite tokens already included in input by each producer
-// (Anthropic folds them via promptTokens; OpenAI/Gemini prompt counts
-// include their cached subset). They are recorded so usage.json can show
-// cache traffic from every provider that reports it, priced at the
-// provider's cache rate where the price table has one.
-func trackUsageDetailed(ctx context.Context, model string, provider Provider, input, output, cacheRead, cacheWrite int, operation string) {
-	if input <= 0 && output <= 0 {
+func reportUsage(ctx context.Context, model string, provider Provider, operation string, u types.UsageMetadata) {
+	if u.InputTokens <= 0 && u.OutputTokens <= 0 && !u.Partial {
 		return
 	}
-	usage.TrackDetailedFromContext(ctx, model, usageProviderID(provider), input, output, cacheRead, cacheWrite, operation)
+	usage.RecordFromContext(ctx, usage.Report{
+		Model:     model,
+		Provider:  usageProviderID(provider),
+		Operation: operation,
+		Usage:     u,
+	})
 }
 
 // usageOpFor picks the operation id for a request by whether it offered tools.
@@ -86,11 +90,108 @@ func usageOpFor(toolCount int) string {
 	return usageOpChat
 }
 
-// geminiOutputTokens folds thinking tokens into the billed output count.
+// chatUsage is the Chat Completions usage block every OpenAI-shaped vendor
+// returns (OpenAI, OpenRouter, xAI, Z.AI, DashScope, Moonshot, Meta's chat
+// surface). The detail blocks are pointers so a category the vendor did not
+// report stays unknown instead of reading as an observed zero.
+type chatUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+	// PromptTokensDetails.CachedTokens is the cache-read subset of
+	// PromptTokens.
+	PromptTokensDetails *struct {
+		CachedTokens *int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details,omitempty"`
+	// CompletionTokensDetails.ReasoningTokens is the reasoning subset of
+	// CompletionTokens.
+	CompletionTokensDetails *struct {
+		ReasoningTokens *int `json:"reasoning_tokens"`
+	} `json:"completion_tokens_details,omitempty"`
+}
+
+// cachedTokens is the cache-read count, 0 when unreported.
+func (u chatUsage) cachedTokens() int {
+	if u.PromptTokensDetails != nil && u.PromptTokensDetails.CachedTokens != nil {
+		return *u.PromptTokensDetails.CachedTokens
+	}
+	return 0
+}
+
+// metadata normalizes the block. Both sub-counts are already inside their
+// totals in this API, so nothing is folded.
+func (u chatUsage) metadata() types.UsageMetadata {
+	m := types.UsageMetadata{
+		InputTokens:  u.PromptTokens,
+		OutputTokens: u.CompletionTokens,
+		TotalTokens:  u.PromptTokens + u.CompletionTokens,
+	}
+	if u.PromptTokens > 0 || u.CompletionTokens > 0 {
+		m.Known |= types.UsageTokens
+	}
+	if u.PromptTokensDetails != nil && u.PromptTokensDetails.CachedTokens != nil {
+		m.CachedContentTokens = *u.PromptTokensDetails.CachedTokens
+		m.Known |= types.UsageCacheRead
+	}
+	if u.CompletionTokensDetails != nil && u.CompletionTokensDetails.ReasoningTokens != nil {
+		m.ThinkingTokens = *u.CompletionTokensDetails.ReasoningTokens
+		m.Known |= types.UsageReasoning
+	}
+	return m
+}
+
+// geminiUsage is Gemini's usageMetadata block.
 //
-// Google reports candidatesTokenCount without thoughtsTokenCount but bills both
-// as output. Recording only candidates under-reports a thinking-heavy turn by
-// most of its actual cost, which is the majority of Gemini 3 traffic here.
-func geminiOutputTokens(candidates, thoughts int) int {
-	return candidates + thoughts
+// Google reports candidatesTokenCount WITHOUT thoughtsTokenCount but bills both
+// as output, so the normalized output folds them together and keeps thoughts
+// as the reasoning sub-count. Recording only candidates under-reported a
+// thinking-heavy turn by most of its cost, which is the majority of Gemini 3
+// traffic here. cachedContentTokenCount is already inside promptTokenCount.
+type geminiUsage struct {
+	PromptTokenCount        int  `json:"promptTokenCount"`
+	CandidatesTokenCount    int  `json:"candidatesTokenCount"`
+	TotalTokenCount         int  `json:"totalTokenCount"`
+	ThoughtsTokenCount      *int `json:"thoughtsTokenCount,omitempty"`
+	CachedContentTokenCount *int `json:"cachedContentTokenCount,omitempty"`
+}
+
+// thoughts is the reasoning count, 0 when unreported.
+func (u geminiUsage) thoughts() int {
+	if u.ThoughtsTokenCount != nil {
+		return *u.ThoughtsTokenCount
+	}
+	return 0
+}
+
+// cached is the cache-read count, 0 when unreported.
+func (u geminiUsage) cached() int {
+	if u.CachedContentTokenCount != nil {
+		return *u.CachedContentTokenCount
+	}
+	return 0
+}
+
+// outputTokens is the billed output: candidates plus thoughts.
+func (u geminiUsage) outputTokens() int { return u.CandidatesTokenCount + u.thoughts() }
+
+// metadata normalizes the block.
+func (u geminiUsage) metadata() types.UsageMetadata {
+	out := u.outputTokens()
+	m := types.UsageMetadata{
+		InputTokens:  u.PromptTokenCount,
+		OutputTokens: out,
+		TotalTokens:  u.PromptTokenCount + out,
+	}
+	if u.PromptTokenCount > 0 || out > 0 {
+		m.Known |= types.UsageTokens
+	}
+	if u.ThoughtsTokenCount != nil {
+		m.ThinkingTokens = *u.ThoughtsTokenCount
+		m.Known |= types.UsageReasoning
+	}
+	if u.CachedContentTokenCount != nil {
+		m.CachedContentTokens = *u.CachedContentTokenCount
+		m.Known |= types.UsageCacheRead
+	}
+	return m
 }

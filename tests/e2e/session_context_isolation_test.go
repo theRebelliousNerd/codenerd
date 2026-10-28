@@ -44,13 +44,8 @@ func (m *sciMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, 
 }
 func (m *sciMockLLMClient) ShouldUsePiggybackTools() bool { return false }
 
-func (m *sciMockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
-	ch := make(chan string, 1)
-	errCh := make(chan error, 1)
-	ch <- "mock streaming response"
-	close(ch)
-	close(errCh)
-	return ch, errCh
+func (m *sciMockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(context.Context) (string, error) { return "mock streaming response", nil })
 }
 
 type sciMockVirtualStore struct{}

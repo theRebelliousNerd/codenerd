@@ -43,14 +43,9 @@ func (c *tierLLM) CompleteWithSystem(_ context.Context, systemPrompt, userPrompt
 	return c.system(systemPrompt, userPrompt), nil
 }
 
-func (c *tierLLM) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan error) {
+func (c *tierLLM) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan types.StreamResult) {
 	c.calls.Add(1)
-	text := make(chan string)
-	errs := make(chan error, 1)
-	close(text)
-	errs <- errors.New("tierLLM does not stream")
-	close(errs)
-	return text, errs
+	return types.FailedStream(errors.New("tierLLM does not stream"))
 }
 
 func (c *tierLLM) CompleteWithTools(context.Context, string, string, []types.ToolDefinition) (*types.LLMToolResponse, error) {

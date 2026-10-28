@@ -2,6 +2,7 @@ package research
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -39,12 +40,8 @@ func (m *mockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, us
 	return m.completeResponse, m.completeErr
 }
 
-func (m *mockLLMClient) CompleteWithStreaming(_ context.Context, _, _ string, _ bool) (<-chan string, <-chan error) {
-	ch := make(chan string)
-	errCh := make(chan error)
-	close(ch)
-	close(errCh)
-	return ch, errCh
+func (m *mockLLMClient) CompleteWithStreaming(_ context.Context, _, _ string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	return types.FailedStream(errors.New("mockLLMClient does not stream"))
 }
 
 func (m *mockLLMClient) CompleteWithTools(_ context.Context, _, _ string, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {

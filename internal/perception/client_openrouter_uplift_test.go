@@ -40,35 +40,21 @@ func sseFlakyServer(t *testing.T, failCount int32, failStatus int, hits *atomic.
 		for _, content := range []string{"hel", "lo"} {
 			fmt.Fprintf(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":%q}}]}\n\n", content)
 		}
+		fmt.Fprint(w, "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n")
 		fmt.Fprint(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2}}\n\n")
 		fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
 }
 
-func drainStream(t *testing.T, contentCh <-chan string, errCh <-chan error) string {
+func drainStream(t *testing.T, contentCh <-chan string, done <-chan types.StreamResult) string {
 	t.Helper()
-	var sb strings.Builder
-	for contentCh != nil || errCh != nil {
-		select {
-		case delta, ok := <-contentCh:
-			if !ok {
-				contentCh = nil
-				continue
-			}
-			sb.WriteString(delta)
-		case err, ok := <-errCh:
-			if !ok {
-				errCh = nil
-				continue
-			}
-			if err != nil {
-				t.Fatalf("stream error: %v", err)
-			}
-		case <-time.After(15 * time.Second):
-			t.Fatal("timed out draining stream")
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	text, res := types.CollectStream(ctx, contentCh, done, nil)
+	if res.Err != nil {
+		t.Fatalf("stream error (%s): %v", res.Outcome(), res.Err)
 	}
-	return sb.String()
+	return text
 }
 
 // A cancelled turn must exit during the retry backoff, not after sleeping
@@ -135,7 +121,8 @@ func TestOpenRouterStreaming_CancelledBackoffExitsFast(t *testing.T) {
 	start := time.Now()
 	_, errCh := c.CompleteWithStreaming(ctx, "sys", "hi", false)
 	select {
-	case err := <-errCh:
+	case res := <-errCh:
+		err := res.Err
 		elapsed := time.Since(start)
 		if err == nil || !strings.Contains(err.Error(), "cancelled during retry backoff") {
 			t.Fatalf("err = %v, want cancellation during backoff", err)

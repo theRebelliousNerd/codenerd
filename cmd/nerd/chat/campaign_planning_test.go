@@ -37,14 +37,9 @@ func (c *chatTierLLM) CompleteWithSystem(context.Context, string, string) (strin
 	return c.plan, nil
 }
 
-func (c *chatTierLLM) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan error) {
+func (c *chatTierLLM) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan types.StreamResult) {
 	c.calls.Add(1)
-	text := make(chan string)
-	errs := make(chan error, 1)
-	close(text)
-	errs <- errors.New("chatTierLLM does not stream")
-	close(errs)
-	return text, errs
+	return types.FailedStream(errors.New("chatTierLLM does not stream"))
 }
 
 func (c *chatTierLLM) CompleteWithTools(context.Context, string, string, []types.ToolDefinition) (*types.LLMToolResponse, error) {

@@ -36,8 +36,12 @@ type Kernel interface {
 type LLMClient interface {
 	Complete(ctx context.Context, prompt string) (string, error)
 	CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error)
-	// CompleteWithStreaming sends a request with streaming enabled.
-	CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error)
+	// CompleteWithStreaming sends a request with streaming enabled. Visible
+	// text arrives on the first channel as provisional chunks; the second
+	// carries exactly one StreamResult after the last chunk. A terminal
+	// channel that closes without a value is an incomplete stream (see
+	// stream.go).
+	CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan StreamResult)
 	// CompleteWithTools sends a prompt with tool definitions and returns response with tool calls.
 	// This enables agentic behavior where the LLM can invoke tools to complete tasks.
 	CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error)
@@ -124,19 +128,6 @@ type ToolCall struct {
 	// ArgsError is set by a provider mapper when the model's argument text
 	// could not be decoded; the executor must not run such a call.
 	ArgsError string `json:"args_error,omitempty"`
-}
-
-// UsageMetadata captures token usage metrics from the LLM.
-type UsageMetadata struct {
-	InputTokens         int `json:"input_tokens"`
-	OutputTokens        int `json:"output_tokens"`
-	TotalTokens         int `json:"total_tokens"`
-	ThinkingTokens      int `json:"thinking_tokens,omitempty"`       // Subset of OutputTokens used for thinking
-	CachedContentTokens int `json:"cached_content_tokens,omitempty"` // Tokens read from context cache
-	// CacheWriteTokens is the part of InputTokens written to a prompt cache on
-	// this request (Anthropic's cache_creation_input_tokens, billed at a
-	// premium). Zero on providers that cache implicitly.
-	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
 }
 
 // LLMToolResponse contains both text response and tool calls from the LLM.

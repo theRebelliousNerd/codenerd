@@ -266,7 +266,7 @@ func (c *AnthropicClient) completeText(ctx context.Context, req AnthropicRequest
 	if err != nil {
 		return "", err
 	}
-	trackUsageDetailed(ctx, req.Model, ProviderAnthropic, resp.Usage.promptTokens(), resp.Usage.OutputTokens, resp.Usage.CacheReadInputTokens, resp.Usage.CacheCreationInputTokens, usageOperation)
+	reportUsage(ctx, req.Model, ProviderAnthropic, usageOperation, resp.Usage.usageMetadata())
 	var text strings.Builder
 	for _, b := range resp.Content {
 		if b.Type == "text" {
@@ -349,7 +349,7 @@ func (c *AnthropicClient) completeTools(ctx context.Context, req AnthropicReques
 	if err != nil {
 		return nil, err
 	}
-	trackUsageDetailed(ctx, req.Model, ProviderAnthropic, resp.Usage.promptTokens(), resp.Usage.OutputTokens, resp.Usage.CacheReadInputTokens, resp.Usage.CacheCreationInputTokens, usageOpFor(len(defs)))
+	reportUsage(ctx, req.Model, ProviderAnthropic, usageOpFor(len(defs)), resp.Usage.usageMetadata())
 	out := anthropicToolResponse(resp)
 	if types.LengthStop(resp.StopReason) {
 		return nil, outputTruncated(ProviderAnthropic, req.Model, operation, resp.StopReason, out.Text, req.MaxTokens, resp.Usage.OutputTokens)

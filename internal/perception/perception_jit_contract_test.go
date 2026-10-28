@@ -49,13 +49,8 @@ func (capture *perceptionRequestCapture) CompleteWithSystem(_ context.Context, s
 	return string(response), err
 }
 
-func (capture *perceptionRequestCapture) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan error) {
-	responses := make(chan string)
-	failures := make(chan error, 1)
-	failures <- fmt.Errorf("perception must use its system-prompt channel")
-	close(responses)
-	close(failures)
-	return responses, failures
+func (capture *perceptionRequestCapture) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan types.StreamResult) {
+	return types.FailedStream(fmt.Errorf("perception must use its system-prompt channel"))
 }
 
 func (capture *perceptionRequestCapture) CompleteWithTools(context.Context, string, string, []perception.ToolDefinition) (*perception.LLMToolResponse, error) {
@@ -84,7 +79,7 @@ func TestPerceptionJIT_RequestCaptureRefusesOtherChannels(test *testing.T) {
 	}
 	select {
 	case refusal, open := <-failures:
-		if !open || refusal == nil {
+		if !open || refusal.Err == nil {
 			test.Fatal("streaming did not report its refusal")
 		}
 	default:

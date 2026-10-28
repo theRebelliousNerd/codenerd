@@ -4,14 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"regexp"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"codenerd/internal/config"
@@ -651,8 +649,7 @@ func (c *OpenAICompatClient) executeChat(ctx context.Context, reqBody OpenAIRequ
 		// Metering lives on the funnel, not on its callers: CompleteWithSystem's
 		// thinking-retry and CompleteWithTools both come through here, and each
 		// pass that reached the vendor was billed.
-		trackUsageDetailed(ctx, reqBody.Model, c.vendor,
-			parsed.Usage.PromptTokens, parsed.Usage.CompletionTokens, parsed.Usage.PromptTokensDetails.CachedTokens, 0, usageOpFor(len(reqBody.Tools)))
+		reportUsage(ctx, reqBody.Model, c.vendor, usageOpFor(len(reqBody.Tools)), parsed.Usage.metadata())
 
 		return &parsed, nil
 	}
@@ -825,16 +822,29 @@ func (c *OpenAICompatClient) CompleteWithSystem(ctx context.Context, systemPromp
 // Reasoning deltas (DashScope's reasoning_content) are intentionally not
 // forwarded: the channel feeds the chat surface and structured-output parsers,
 // neither of which should see the thinking trace.
-func (c *OpenAICompatClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
-	contentChan := make(chan string, 100)
-	errorChan := make(chan error, 1)
+func (c *OpenAICompatClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
+	if c.metaWebSearchActive() {
+		// One non-streaming Responses completion, published as a single
+		// chunk. There is no Responses SSE parser, and splitting the text
+		// here would pretend the vendor streamed something it did not. The
+		// completion call validates the terminal status and reports usage.
+		return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
+			if err := c.admit(ctx, systemPrompt, userTurn(userPrompt), nil); err != nil {
+				return "", err
+			}
+			if strings.TrimSpace(systemPrompt) == "" {
+				systemPrompt = defaultSystemPrompt
+			}
+			return c.completeWithSystemGrounded(ctx, systemPrompt, userPrompt)
+		})
+	}
+	w, contentChan, doneChan := types.NewStream()
 
 	go func() {
-		defer close(contentChan)
-		defer close(errorChan)
+		defer w.Close()
 
 		if err := c.admit(ctx, systemPrompt, userTurn(userPrompt), nil); err != nil {
-			errorChan <- err
+			w.Fail(err)
 			return
 		}
 		if _, hasDeadline := ctx.Deadline(); !hasDeadline {
@@ -846,34 +856,6 @@ func (c *OpenAICompatClient) CompleteWithStreaming(ctx context.Context, systemPr
 		start := time.Now()
 		if strings.TrimSpace(systemPrompt) == "" {
 			systemPrompt = defaultSystemPrompt
-		}
-		// One non-streaming Responses completion, emitted as a single delta.
-		// There is no Responses SSE parser, and splitting the text here would
-		// pretend the vendor streamed something it did not.
-		if c.metaWebSearchActive() {
-			text, err := c.completeWithSystemGrounded(ctx, systemPrompt, userPrompt)
-			if err != nil {
-				var truncated *types.OutputTruncated
-				if errors.As(err, &truncated) && truncated.Partial != "" {
-					select {
-					case contentChan <- truncated.Partial:
-					case <-ctx.Done():
-						errorChan <- ctx.Err()
-						return
-					}
-				}
-				errorChan <- err
-				return
-			}
-			if text != "" {
-				select {
-				case contentChan <- text:
-				case <-ctx.Done():
-					errorChan <- ctx.Err()
-					return
-				}
-			}
-			return
 		}
 		c.clearGroundingSources()
 
@@ -897,13 +879,13 @@ func (c *OpenAICompatClient) CompleteWithStreaming(ctx context.Context, systemPr
 		for attempt := 0; attempt <= maxRetries; attempt++ {
 			jsonData, err := json.Marshal(reqBody)
 			if err != nil {
-				errorChan <- fmt.Errorf("failed to marshal request: %w", err)
+				w.Fail(fmt.Errorf("failed to marshal request: %w", err))
 				return
 			}
 
 			req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(jsonData))
 			if err != nil {
-				errorChan <- fmt.Errorf("failed to create request: %w", err)
+				w.Fail(fmt.Errorf("failed to create request: %w", err))
 				return
 			}
 			req.Header.Set("Content-Type", "application/json")
@@ -914,7 +896,7 @@ func (c *OpenAICompatClient) CompleteWithStreaming(ctx context.Context, systemPr
 			if err != nil {
 				lastErr = fmt.Errorf("request failed: %w", err)
 				if sleepErr := sleepCtx(ctx, retryDelay(nil, attempt)); sleepErr != nil {
-					errorChan <- sleepErr
+					w.Fail(sleepErr)
 					return
 				}
 				continue
@@ -927,7 +909,7 @@ func (c *OpenAICompatClient) CompleteWithStreaming(ctx context.Context, systemPr
 				logging.PerceptionWarn("[%s] stream rate limited (429), retrying in %v", c.vendor, wait)
 				lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
 				if sleepErr := sleepCtx(ctx, wait); sleepErr != nil {
-					errorChan <- sleepErr
+					w.Fail(sleepErr)
 					return
 				}
 				continue
@@ -948,128 +930,36 @@ func (c *OpenAICompatClient) CompleteWithStreaming(ctx context.Context, systemPr
 					logging.PerceptionWarn("[%s] stream setup retryable failure (%d), retrying in %v", c.vendor, resp.StatusCode, wait)
 					lastErr = fmt.Errorf("%s API request failed with status %d: %s", c.vendor, resp.StatusCode, bodyStr)
 					if sleepErr := sleepCtx(ctx, wait); sleepErr != nil {
-						errorChan <- sleepErr
+						w.Fail(sleepErr)
 						return
 					}
 					continue
 				}
-				errorChan <- fmt.Errorf("%s API request failed with status %d: %s", c.vendor, resp.StatusCode, bodyStr)
+				w.Fail(fmt.Errorf("%s API request failed with status %d: %s", c.vendor, resp.StatusCode, bodyStr))
 				return
 			}
 
-			c.consumeStream(ctx, resp, contentChan, errorChan, start)
+			res := c.consumeStream(ctx, resp, w)
+			reportUsage(ctx, c.model, c.vendor, usageOpChat, res.Usage)
+			logStreamEnd(string(c.vendor), start, res)
+			w.Finish(res)
 			return
 		}
 
 		logging.PerceptionError("[%s] CompleteWithStreaming: max retries exceeded after %v: %v", c.vendor, time.Since(start), lastErr)
-		errorChan <- fmt.Errorf("max retries exceeded: %w", lastErr)
+		w.Fail(fmt.Errorf("max retries exceeded: %w", lastErr))
 	}()
 
-	return contentChan, errorChan
+	return contentChan, doneChan
 }
 
-// consumeStream reads a server-sent-event body and forwards content deltas.
-func (c *OpenAICompatClient) consumeStream(ctx context.Context, resp *http.Response, contentChan chan<- string, errorChan chan<- error, start time.Time) {
+// consumeStream reads the Chat Completions event body and returns the
+// stream's terminal result (see readChatStream). Rejecting an empty stream and
+// typing a length stop as truncation were this client's own precedent; they
+// now hold for every OpenAI-shaped vendor.
+func (c *OpenAICompatClient) consumeStream(ctx context.Context, resp *http.Response, w *types.StreamWriter) types.StreamResult {
 	defer resp.Body.Close()
-
-	scanner, releaseScanner := newPooledScanner(resp.Body, 1024*1024)
-	defer releaseScanner()
-
-	scanDone := make(chan struct{})
-	scanErrChan := make(chan error, 1)
-	// Counted so a clean-but-empty stream can be reported as a failure rather
-	// than rendering blank in the chat surface.
-	var forwarded atomic.Int64
-
-	// Final billed counts ride a trailing usage-only chunk (include_usage).
-	// Written by the scanner goroutine, read only after scanDone. The finish
-	// reason arrives on the last content chunk the same way.
-	var billed struct{ input, output, cached int }
-	var finish string
-
-	go func() {
-		defer close(scanDone)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if !strings.HasPrefix(line, "data:") {
-				continue
-			}
-			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-			if data == "" {
-				continue
-			}
-			if data == "[DONE]" {
-				return
-			}
-
-			var chunk OpenAIResponse
-			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-				continue
-			}
-			if chunk.Error != nil {
-				scanErrChan <- fmt.Errorf("%s API error: %s", c.vendor, chunk.Error.Message)
-				return
-			}
-			if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
-				billed.input = chunk.Usage.PromptTokens
-				billed.output = chunk.Usage.CompletionTokens
-				billed.cached = chunk.Usage.PromptTokensDetails.CachedTokens
-			}
-			if len(chunk.Choices) > 0 && chunk.Choices[0].FinishReason != "" {
-				finish = chunk.Choices[0].FinishReason
-			}
-			if len(chunk.Choices) == 0 || chunk.Choices[0].Delta == nil {
-				continue
-			}
-			if delta := chunk.Choices[0].Delta.Content; delta != "" {
-				select {
-				case contentChan <- delta:
-					forwarded.Add(1)
-				case <-ctx.Done():
-					return
-				}
-			}
-		}
-		if err := scanner.Err(); err != nil {
-			scanErrChan <- err
-		}
-	}()
-
-	defer func() {
-		trackUsageDetailed(ctx, c.model, c.vendor, billed.input, billed.output, billed.cached, 0, usageOpChat)
-	}()
-
-	select {
-	case <-scanDone:
-		select {
-		case err := <-scanErrChan:
-			logging.PerceptionError("[%s] CompleteWithStreaming: stream error after %v: %v", c.vendor, time.Since(start), err)
-			errorChan <- fmt.Errorf("stream error: %w", err)
-		default:
-			// A stream that closes cleanly having emitted nothing is the same
-			// hollow-success failure as an empty non-streaming completion; the
-			// chat surface would simply render blank. See CompleteWithSystem.
-			if forwarded.Load() == 0 {
-				logging.PerceptionError("[%s] CompleteWithStreaming: stream closed with no content after %v", c.vendor, time.Since(start))
-				errorChan <- fmt.Errorf("%s stream produced no content (model=%s); "+
-					"a reasoning model may have consumed the completion budget before emitting output", c.vendor, c.model)
-				return
-			}
-			// The deltas are already on the content channel; what the caller
-			// must not do is treat the stream's end as the answer's end.
-			if types.LengthStop(finish) {
-				errorChan <- outputTruncated(c.vendor, c.model, "CompleteWithStreaming", finish, "",
-					c.maxOutputTokens, billed.output)
-				return
-			}
-			logging.Perception("[%s] CompleteWithStreaming: completed in %v", c.vendor, time.Since(start))
-		}
-	case <-ctx.Done():
-		resp.Body.Close()
-		<-scanDone
-		logging.PerceptionWarn("[%s] CompleteWithStreaming: cancelled after %v", c.vendor, time.Since(start))
-		errorChan <- ctx.Err()
-	}
+	return readChatStream(ctx, resp.Body, chatStreamProfile{provider: c.vendor, model: c.model, limit: c.maxOutputTokens}, w)
 }
 
 // CompleteWithTools sends a prompt with tool definitions.
@@ -1174,11 +1064,7 @@ func (c *OpenAICompatClient) toToolResponse(resp *OpenAIResponse) (*LLMToolRespo
 		Text:       choice.Message.Content,
 		ToolCalls:  toolCalls,
 		StopReason: stopReason,
-		Usage: types.UsageMetadata{
-			InputTokens:  resp.Usage.PromptTokens,
-			OutputTokens: resp.Usage.CompletionTokens,
-			TotalTokens:  resp.Usage.TotalTokens,
-		},
+		Usage:      resp.Usage.metadata(),
 	}, nil
 }
 

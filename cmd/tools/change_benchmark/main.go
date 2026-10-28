@@ -58,13 +58,9 @@ func (c *boundedClient) CompleteWithSystem(ctx context.Context, s, p string) (st
 	}
 	return c.LLMClient.CompleteWithSystem(ctx, s, p)
 }
-func (c *boundedClient) CompleteWithStreaming(ctx context.Context, s, p string, thinking bool) (<-chan string, <-chan error) {
+func (c *boundedClient) CompleteWithStreaming(ctx context.Context, s, p string, thinking bool) (<-chan string, <-chan types.StreamResult) {
 	if err := c.admit(); err != nil {
-		chunks, errs := make(chan string), make(chan error, 1)
-		close(chunks)
-		errs <- err
-		close(errs)
-		return chunks, errs
+		return types.FailedStream(err)
 	}
 	return c.LLMClient.CompleteWithStreaming(ctx, s, p, thinking)
 }

@@ -1,6 +1,7 @@
 package usage
 
 import (
+	"codenerd/internal/types"
 	"context"
 	"encoding/json"
 	"os"
@@ -34,47 +35,47 @@ func writeUsageData(t *testing.T, path string, ud UsageData) {
 
 func seedAggregate(a *AggregatedStats) {
 	cost, _ := EstimateCost("glm-4.6", 100, 50)
-	a.TotalProject.AddCost(100, 50, cost)
+	a.TotalProject.AddUsage(types.UsageMetadata{InputTokens: 100, OutputTokens: 50}, cost)
 	tc := a.ByProvider["zai"]
-	tc.AddCost(100, 50, cost)
+	tc.AddUsage(types.UsageMetadata{InputTokens: 100, OutputTokens: 50}, cost)
 	a.ByProvider["zai"] = tc
 	tc = a.ByModel["glm-4.6"]
-	tc.AddCost(100, 50, cost)
+	tc.AddUsage(types.UsageMetadata{InputTokens: 100, OutputTokens: 50}, cost)
 	a.ByModel["glm-4.6"] = tc
 	tc = a.ByShardType["coder"]
-	tc.AddCost(100, 50, cost)
+	tc.AddUsage(types.UsageMetadata{InputTokens: 100, OutputTokens: 50}, cost)
 	a.ByShardType["coder"] = tc
 	tc = a.ByShardName["coder-1"]
-	tc.AddCost(100, 50, cost)
+	tc.AddUsage(types.UsageMetadata{InputTokens: 100, OutputTokens: 50}, cost)
 	a.ByShardName["coder-1"] = tc
 	tc = a.ByOperation["chat"]
-	tc.AddCost(100, 50, cost)
+	tc.AddUsage(types.UsageMetadata{InputTokens: 100, OutputTokens: 50}, cost)
 	a.ByOperation["chat"] = tc
 	tc = a.BySession["sess-1"]
-	tc.AddCost(100, 50, cost)
+	tc.AddUsage(types.UsageMetadata{InputTokens: 100, OutputTokens: 50}, cost)
 	a.BySession["sess-1"] = tc
 }
 
 func addOtherWriterAggregate(a *AggregatedStats) {
 	cost, _ := EstimateCost("claude-sonnet-4", 100, 50)
-	a.TotalProject.AddCost(100, 50, cost)
+	a.TotalProject.AddUsage(types.UsageMetadata{InputTokens: 100, OutputTokens: 50}, cost)
 	tc := a.ByProvider["other-provider"]
-	tc.AddCost(100, 50, cost)
+	tc.AddUsage(types.UsageMetadata{InputTokens: 100, OutputTokens: 50}, cost)
 	a.ByProvider["other-provider"] = tc
 	tc = a.ByModel["claude-sonnet-4"]
-	tc.AddCost(100, 50, cost)
+	tc.AddUsage(types.UsageMetadata{InputTokens: 100, OutputTokens: 50}, cost)
 	a.ByModel["claude-sonnet-4"] = tc
 	tc = a.ByShardType["other-type"]
-	tc.AddCost(100, 50, cost)
+	tc.AddUsage(types.UsageMetadata{InputTokens: 100, OutputTokens: 50}, cost)
 	a.ByShardType["other-type"] = tc
 	tc = a.ByShardName["other-shard"]
-	tc.AddCost(100, 50, cost)
+	tc.AddUsage(types.UsageMetadata{InputTokens: 100, OutputTokens: 50}, cost)
 	a.ByShardName["other-shard"] = tc
 	tc = a.ByOperation["other-op"]
-	tc.AddCost(100, 50, cost)
+	tc.AddUsage(types.UsageMetadata{InputTokens: 100, OutputTokens: 50}, cost)
 	a.ByOperation["other-op"] = tc
 	tc = a.BySession["other-session"]
-	tc.AddCost(100, 50, cost)
+	tc.AddUsage(types.UsageMetadata{InputTokens: 100, OutputTokens: 50}, cost)
 	a.BySession["other-session"] = tc
 }
 
@@ -87,7 +88,7 @@ func TestSave_WhenAnotherWriterAdvancedTheFile_ShouldMergeNotOverwrite(t *testin
 	defer tr.Close()
 
 	ctx := WithShardContext(context.Background(), "shard-a", "type-a", "sess-a")
-	tr.Track(ctx, "glm-4.6", "zai", 10, 5, "chat")
+	tr.Record(ctx, Report{Model: "glm-4.6", Provider: "zai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
 	if err := tr.Save(); err != nil {
 		t.Fatalf("first Save: %v", err)
 	}
@@ -97,7 +98,7 @@ func TestSave_WhenAnotherWriterAdvancedTheFile_ShouldMergeNotOverwrite(t *testin
 	addOtherWriterAggregate(&ud.Aggregate)
 	writeUsageData(t, path, ud)
 
-	tr.Track(ctx, "glm-4.6", "zai", 7, 3, "chat")
+	tr.Record(ctx, Report{Model: "glm-4.6", Provider: "zai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 7, OutputTokens: 3}})
 	if err := tr.Save(); err != nil {
 		t.Fatalf("second Save: %v", err)
 	}
@@ -132,7 +133,7 @@ func TestSave_WhenFileIsUnparseable_ShouldStillWriteOwnData(t *testing.T) {
 	defer tr.Close()
 
 	ctx := WithShardContext(context.Background(), "shard-a", "type-a", "sess-a")
-	tr.Track(ctx, "glm-4.6", "zai", 10, 5, "chat")
+	tr.Record(ctx, Report{Model: "glm-4.6", Provider: "zai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
 	if err := tr.Save(); err != nil {
 		t.Fatalf("initial Save: %v", err)
 	}
@@ -142,7 +143,7 @@ func TestSave_WhenFileIsUnparseable_ShouldStillWriteOwnData(t *testing.T) {
 		t.Fatalf("write garbage: %v", err)
 	}
 
-	tr.Track(ctx, "glm-4.6", "zai", 2, 3, "chat")
+	tr.Record(ctx, Report{Model: "glm-4.6", Provider: "zai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 2, OutputTokens: 3}})
 	if err := tr.Save(); err != nil {
 		t.Fatalf("Save with garbage should succeed: %v", err)
 	}
@@ -196,7 +197,7 @@ func TestLoad_ShouldSetBaselineSoASubsequentSaveDoesNotDoubleCount(t *testing.T)
 		t.Fatalf("second NewTracker: %v", err)
 	}
 	defer tr2.Close()
-	tr2.Track(ctx, "glm-4.6", "zai", 10, 5, "chat")
+	tr2.Record(ctx, Report{Model: "glm-4.6", Provider: "zai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
 	if err := tr2.Save(); err != nil {
 		t.Fatalf("second save: %v", err)
 	}

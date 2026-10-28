@@ -21,7 +21,7 @@ func (m *baseMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt,
 	return nil, nil
 }
 
-func (m *baseMockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+func (m *baseMockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
 	return nil, nil
 }
 
@@ -270,7 +270,7 @@ type mockStreamingProvider struct {
 	streamingCalled bool
 }
 
-func (m *mockStreamingProvider) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+func (m *mockStreamingProvider) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
 	m.streamingCalled = true
 	return nil, nil
 }

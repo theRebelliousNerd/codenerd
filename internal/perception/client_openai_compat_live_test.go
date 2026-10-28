@@ -232,13 +232,13 @@ func TestLive_Streaming(t *testing.T) {
 					}
 					chunks++
 					sb.WriteString(chunk)
-				case err, ok := <-errCh:
+				case res, ok := <-errCh:
 					if !ok {
 						errCh = nil
 						continue
 					}
-					if err != nil {
-						t.Fatalf("stream error: %v", err)
+					if res.Err != nil {
+						t.Fatalf("stream error: %v", res.Err)
 					}
 				case <-ctx.Done():
 					t.Fatal("stream timed out")

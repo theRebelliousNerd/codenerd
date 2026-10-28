@@ -1,6 +1,7 @@
 package usage
 
 import (
+	"codenerd/internal/types"
 	"context"
 	"encoding/json"
 	"os"
@@ -16,7 +17,7 @@ func TestTokenCounts_Add_WhenMultipleSequentialAdds_ShouldAccumulate(t *testing.
 	t.Parallel()
 	tc := TokenCounts{}
 	for range 10 {
-		tc.Add(100, 50)
+		tc.AddUsage(types.UsageMetadata{InputTokens: 100, OutputTokens: 50}, 0)
 	}
 	if tc.Input != 1000 {
 		t.Errorf("Input = %d, want 1000", tc.Input)
@@ -42,9 +43,9 @@ func TestTracker_Track_WhenMultipleProviders_ShouldSegregateByProvider(t *testin
 	tracker.dirty = true // prevent autosave
 
 	ctx := WithShardContext(context.Background(), "coder-1", "coder", "sess-1")
-	tracker.Track(ctx, "gpt-4", "openai", 100, 50, "chat")
-	tracker.Track(ctx, "claude-3", "anthropic", 200, 100, "chat")
-	tracker.Track(ctx, "gpt-4", "openai", 50, 25, "embedding")
+	tracker.Record(ctx, Report{Model: "gpt-4", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 100, OutputTokens: 50}})
+	tracker.Record(ctx, Report{Model: "claude-3", Provider: "anthropic", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 200, OutputTokens: 100}})
+	tracker.Record(ctx, Report{Model: "gpt-4", Provider: "openai", Operation: "embedding", Usage: types.UsageMetadata{InputTokens: 50, OutputTokens: 25}})
 
 	stats := tracker.Stats()
 
@@ -65,8 +66,8 @@ func TestTracker_Track_WhenMultipleModels_ShouldSegregateByModel(t *testing.T) {
 	tracker.dirty = true
 
 	ctx := WithShardContext(context.Background(), "coder-1", "coder", "sess-1")
-	tracker.Track(ctx, "gpt-4", "openai", 100, 50, "chat")
-	tracker.Track(ctx, "gpt-3.5", "openai", 80, 40, "chat")
+	tracker.Record(ctx, Report{Model: "gpt-4", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 100, OutputTokens: 50}})
+	tracker.Record(ctx, Report{Model: "gpt-3.5", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 80, OutputTokens: 40}})
 
 	stats := tracker.Stats()
 	if stats.ByModel["gpt-4"].Total != 150 {
@@ -86,8 +87,8 @@ func TestTracker_Track_WhenMultipleOperations_ShouldSegregateByOperation(t *test
 	tracker.dirty = true
 
 	ctx := WithShardContext(context.Background(), "coder-1", "coder", "sess-1")
-	tracker.Track(ctx, "gpt-4", "openai", 100, 50, "chat")
-	tracker.Track(ctx, "gpt-4", "openai", 10, 5, "embedding")
+	tracker.Record(ctx, Report{Model: "gpt-4", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 100, OutputTokens: 50}})
+	tracker.Record(ctx, Report{Model: "gpt-4", Provider: "openai", Operation: "embedding", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
 
 	stats := tracker.Stats()
 	if stats.ByOperation["chat"].Total != 150 {
@@ -108,7 +109,7 @@ func TestTracker_Track_WhenNoShardContext_ShouldUseUnknown(t *testing.T) {
 
 	// Plain context without shard metadata
 	ctx := context.Background()
-	tracker.Track(ctx, "gpt-4", "openai", 10, 5, "chat")
+	tracker.Record(ctx, Report{Model: "gpt-4", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
 
 	stats := tracker.Stats()
 	if stats.ByShardType["unknown"].Total != 15 {
@@ -130,8 +131,8 @@ func TestTracker_Track_WhenMultipleSessions_ShouldSegregateBySession(t *testing.
 	ctx1 := WithShardContext(context.Background(), "c1", "coder", "session-A")
 	ctx2 := WithShardContext(context.Background(), "c2", "coder", "session-B")
 
-	tracker.Track(ctx1, "gpt-4", "openai", 100, 50, "chat")
-	tracker.Track(ctx2, "gpt-4", "openai", 200, 100, "chat")
+	tracker.Record(ctx1, Report{Model: "gpt-4", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 100, OutputTokens: 50}})
+	tracker.Record(ctx2, Report{Model: "gpt-4", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 200, OutputTokens: 100}})
 
 	stats := tracker.Stats()
 	if stats.BySession["session-A"].Total != 150 {
@@ -155,8 +156,8 @@ func TestTracker_SaveAndReload_ShouldPreserveData(t *testing.T) {
 	tracker.dirty = true
 
 	ctx := WithShardContext(context.Background(), "c1", "coder", "sess-1")
-	tracker.Track(ctx, "gpt-4", "openai", 100, 50, "chat")
-	tracker.Track(ctx, "claude-3", "anthropic", 200, 100, "embedding")
+	tracker.Record(ctx, Report{Model: "gpt-4", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 100, OutputTokens: 50}})
+	tracker.Record(ctx, Report{Model: "claude-3", Provider: "anthropic", Operation: "embedding", Usage: types.UsageMetadata{InputTokens: 200, OutputTokens: 100}})
 
 	if err := tracker.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -190,7 +191,7 @@ func TestTracker_Stats_ShouldReturnCopy(t *testing.T) {
 	tracker.dirty = true
 
 	ctx := WithShardContext(context.Background(), "c1", "coder", "sess-1")
-	tracker.Track(ctx, "gpt-4", "openai", 100, 50, "chat")
+	tracker.Record(ctx, Report{Model: "gpt-4", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 100, OutputTokens: 50}})
 
 	stats := tracker.Stats()
 
@@ -358,13 +359,13 @@ func TestCopyTokenCountsMap_WhenNonEmpty_ShouldReturnDistinctCopy(t *testing.T) 
 }
 
 // =============================================================================
-// addToMap helper
+// addUsageToMap helper
 // =============================================================================
 
 func TestAddToMap_WhenNewKey_ShouldCreateEntry(t *testing.T) {
 	t.Parallel()
 	m := make(map[string]TokenCounts)
-	addToMap(m, "new", 10, 20, 0)
+	addUsageToMap(m, "new", types.UsageMetadata{InputTokens: 10, OutputTokens: 20}, 0)
 
 	if m["new"].Input != 10 || m["new"].Output != 20 || m["new"].Total != 30 {
 		t.Errorf("expected {10 20 30}, got %+v", m["new"])
@@ -374,8 +375,8 @@ func TestAddToMap_WhenNewKey_ShouldCreateEntry(t *testing.T) {
 func TestAddToMap_WhenExistingKey_ShouldAccumulate(t *testing.T) {
 	t.Parallel()
 	m := make(map[string]TokenCounts)
-	addToMap(m, "key", 10, 20, 0)
-	addToMap(m, "key", 5, 3, 0)
+	addUsageToMap(m, "key", types.UsageMetadata{InputTokens: 10, OutputTokens: 20}, 0)
+	addUsageToMap(m, "key", types.UsageMetadata{InputTokens: 5, OutputTokens: 3}, 0)
 
 	if m["key"].Input != 15 || m["key"].Output != 23 || m["key"].Total != 38 {
 		t.Errorf("expected {15 23 38}, got %+v", m["key"])

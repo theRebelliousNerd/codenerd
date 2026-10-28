@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"codenerd/internal/types"
 	"testing"
 
 	"codenerd/internal/usage"
@@ -25,7 +26,7 @@ func TestSessionOperationContext_CarriesUsageTrackerAndSession(t *testing.T) {
 	if usage.FromContext(ctx) == nil {
 		t.Fatal("operation context carries no usage tracker")
 	}
-	usage.TrackFromContext(ctx, "claude-opus-5-5", "anthropic", 10, 5, "chat")
+	usage.RecordFromContext(ctx, usage.Report{Model: "claude-opus-5-5", Provider: "anthropic", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
 	if got := tracker.Stats().BySession["session-op-test"].Input; got != 10 {
 		t.Errorf("BySession[session-op-test].Input = %d, want 10 (recorded under the session, not unknown)", got)
 	}

@@ -23,7 +23,7 @@ type mockFullClient struct {
 	completeWithSystemFunc    func(ctx context.Context, systemPrompt, userPrompt string) (string, error)
 	completeWithSchemaFunc    func(ctx context.Context, systemPrompt, userPrompt, jsonSchema string) (string, error)
 	completeWithToolsFunc     func(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error)
-	completeWithStreamingFunc func(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error)
+	completeWithStreamingFunc func(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult)
 }
 
 func (m *mockFullClient) Complete(ctx context.Context, prompt string) (string, error) {
@@ -54,16 +54,14 @@ func (m *mockFullClient) CompleteWithTools(ctx context.Context, systemPrompt, us
 	return &types.LLMToolResponse{Text: "mocked tool response"}, nil
 }
 
-func (m *mockFullClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+func (m *mockFullClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
 	if m.completeWithStreamingFunc != nil {
 		return m.completeWithStreamingFunc(ctx, systemPrompt, userPrompt, enableThinking)
 	}
-	c := make(chan string, 1)
-	c <- "mocked stream chunk"
-	close(c)
-	e := make(chan error, 1)
-	close(e)
-	return c, e
+	w, content, done := types.NewStream()
+	_ = w.Content(ctx, "mocked stream chunk")
+	w.Finish(types.StreamResult{StopReason: "stop"})
+	return content, done
 }
 
 func (m *mockFullClient) SetShardContext(shardID, shardType, shardCategory, sessionID, taskContext string) {
@@ -178,7 +176,7 @@ func (m *mockMinimalClient) CompleteWithSystem(ctx context.Context, systemPrompt
 	return "minimal complete with system", nil
 }
 
-func (m *mockMinimalClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+func (m *mockMinimalClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
 	return nil, nil
 }
 
@@ -320,17 +318,18 @@ func TestScheduledLLMCall_Fallbacks(t *testing.T) {
 		t.Error("SchemaCapable should be false for minimal client")
 	}
 
-	// 3. CompleteWithStreaming (not supported fallback via nil client)
+	// 3. CompleteWithStreaming with no underlying client fails at the
+	// terminal instead of hanging or reporting an empty success.
 	sc.Scheduler.RegisterShard("shard-nil", "tester")
 	scNil := &ScheduledLLMCall{
 		Scheduler: sc.Scheduler,
 		ShardID:   "shard-nil",
 		Client:    nil,
 	}
-	_, errChan := scNil.CompleteWithStreaming(ctx, "sys", "user", false)
-	err = <-errChan
-	if !errors.Is(err, ErrStreamingNotSupported) {
-		t.Errorf("expected ErrStreamingNotSupported, got: %v", err)
+	content, done := scNil.CompleteWithStreaming(ctx, "sys", "user", false)
+	if _, res := types.CollectStream(ctx, content, done, nil); res.Err == nil ||
+		!strings.Contains(res.Err.Error(), "underlying LLM client is nil") {
+		t.Errorf("expected nil-client terminal error, got: %v", res.Err)
 	}
 
 	// 4. Cache functions fallbacks
@@ -403,14 +402,13 @@ func TestScheduledLLMCall_RetryAndStreaming(t *testing.T) {
 	ctx := context.Background()
 
 	// Test streaming normal path
-	contentChan, errChan := sc.CompleteWithStreaming(ctx, "sys", "user", false)
-	chunk := <-contentChan
+	contentChan, doneChan := sc.CompleteWithStreaming(ctx, "sys", "user", false)
+	chunk, streamRes := types.CollectStream(ctx, contentChan, doneChan, nil)
 	if chunk != "mocked stream chunk" {
 		t.Errorf("expected 'mocked stream chunk', got: %s", chunk)
 	}
-	err := <-errChan
-	if err != nil {
-		t.Errorf("expected nil error, got: %v", err)
+	if streamRes.Err != nil {
+		t.Errorf("expected nil error, got: %v", streamRes.Err)
 	}
 
 	// Test retry success

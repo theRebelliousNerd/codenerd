@@ -42,49 +42,44 @@ func (f *fallbackFakeClient) CompleteWithTools(ctx context.Context, systemPrompt
 	return f.toolResp, f.err
 }
 
-func (f *fallbackFakeClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+func (f *fallbackFakeClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
 	f.streamCalls++
 	if f.nilStream {
 		return nil, nil
 	}
-	out := make(chan string, 100)
-	errc := make(chan error, 1)
+	w, out, done := types.NewStream()
 	go func() {
-		defer close(out)
-		defer close(errc)
+		defer w.Close()
 		for _, c := range f.streamChunks {
-			out <- c
+			if err := w.Content(ctx, c); err != nil {
+				w.Fail(err)
+				return
+			}
 		}
 		if f.streamErr != nil {
-			errc <- f.streamErr
+			w.Fail(f.streamErr)
+			return
 		}
+		w.Finish(types.StreamResult{StopReason: "stop"})
 	}()
-	return out, errc
+	return out, done
 }
 
 // collectStream drains a stream like production consumers do: range content to
-// close, then read the terminal error. It fails the test on hang.
-func collectStream(t *testing.T, chunks <-chan string, errs <-chan error) (string, error) {
+// close, then read the terminal result. It fails the test on hang.
+func collectStream(t *testing.T, chunks <-chan string, done <-chan types.StreamResult) (string, error) {
 	t.Helper()
 	type result struct {
 		text string
 		err  error
 	}
-	done := make(chan result, 1)
+	got := make(chan result, 1)
 	go func() {
-		var sb strings.Builder
-		for c := range chunks {
-			sb.WriteString(c)
-		}
-		var err error
-		select {
-		case err = <-errs:
-		default:
-		}
-		done <- result{sb.String(), err}
+		text, res := types.CollectStream(context.Background(), chunks, done, nil)
+		got <- result{text, res.Err}
 	}()
 	select {
-	case r := <-done:
+	case r := <-got:
 		return r.text, r.err
 	case <-time.After(10 * time.Second):
 		t.Fatal("stream collection hung")
@@ -280,5 +275,23 @@ func TestFallbackClient_UnwrapPrefersPrimary(t *testing.T) {
 	}
 	if got := NewFallbackClient("test", nil, nil).Unwrap(); got != nil {
 		t.Fatalf("Unwrap with no sides = %v, want nil", got)
+	}
+}
+
+// A refusal is the provider's verdict on this request, not an availability
+// failure: routing it to another model would only ask that model to evade it.
+func TestFallbackClient_StreamRefusalDoesNotFailOver(t *testing.T) {
+	refused := &types.StreamError{Outcome: types.StreamRefused, Reason: "refusal"}
+	primary := &fallbackFakeClient{streamErr: refused}
+	secondary := &fallbackFakeClient{streamChunks: []string{"evaded"}}
+	c := NewFallbackClient("test", primary, secondary)
+
+	chunks, done := c.CompleteWithStreaming(context.Background(), "sys", "user", false)
+	text, err := collectStream(t, chunks, done)
+	if text != "" || types.StreamOutcomeOf(err) != types.StreamRefused {
+		t.Fatalf("stream = %q, %v; want empty + refused", text, err)
+	}
+	if secondary.streamCalls != 0 {
+		t.Fatalf("secondary stream called %d times after a refusal; want 0", secondary.streamCalls)
 	}
 }

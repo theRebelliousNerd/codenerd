@@ -551,7 +551,7 @@ func (h hangingLLM) CompleteWithSystem(ctx context.Context, _, _ string) (string
 	<-ctx.Done()
 	return "", ctx.Err()
 }
-func (hangingLLM) CompleteWithStreaming(ctx context.Context, _, _ string, _ bool) (<-chan string, <-chan error) {
+func (hangingLLM) CompleteWithStreaming(ctx context.Context, _, _ string, _ bool) (<-chan string, <-chan types.StreamResult) {
 	return nil, nil
 }
 func (hangingLLM) CompleteWithTools(ctx context.Context, _, _ string, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {
@@ -698,7 +698,7 @@ func (s *scriptedCriticLLM) CompleteWithSystem(_ context.Context, _, prompt stri
 	s.prompt = prompt
 	return s.review, nil
 }
-func (s *scriptedCriticLLM) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan error) {
+func (s *scriptedCriticLLM) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan types.StreamResult) {
 	return nil, nil
 }
 func (s *scriptedCriticLLM) CompleteWithTools(context.Context, string, string, []types.ToolDefinition) (*types.LLMToolResponse, error) {

@@ -10,7 +10,7 @@ import (
 // router must not add a second charge or erase optional provider interfaces.
 type ClientRouter interface {
 	Do(context.Context, func(context.Context, types.LLMClient) error) error
-	Stream(context.Context, func(context.Context, types.LLMClient) (<-chan string, <-chan string, <-chan error)) (<-chan string, <-chan string, <-chan error)
+	Stream(context.Context, func(context.Context, types.LLMClient) (<-chan string, <-chan string, <-chan types.StreamResult)) (<-chan string, <-chan string, <-chan types.StreamResult)
 	Current() types.LLMClient
 	Clients() []types.LLMClient
 	Configure(func(types.LLMClient))

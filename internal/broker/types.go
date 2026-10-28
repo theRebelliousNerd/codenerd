@@ -212,9 +212,39 @@ type Receipt struct {
 	// that tells you whether the meter can be trusted.
 	EstimateErrorPct float64 `json:"estimate_error_pct,omitempty"`
 
+	// UsageStatus says what Actual means: a provider report, lower bounds
+	// from a stream cut before its usage block, or nothing reported. A zero
+	// Actual is a free call only when the status says it was reported.
+	UsageStatus UsageStatus `json:"usage_status,omitempty"`
+	// UsageKnown names the categories the provider reported. A cache count
+	// whose bit is clear was unavailable, not an observed miss.
+	UsageKnown types.UsageFields `json:"usage_known,omitempty"`
+	// Attempts is the number of billed provider attempts reported for this
+	// call. More than one means Actual sums retries; the estimator is not
+	// calibrated against such a total.
+	Attempts int `json:"attempts,omitempty"`
+	// UsageConflict records a response-carried usage block that disagreed
+	// with the observed report for the same single attempt. The observed
+	// report is what was charged.
+	UsageConflict string `json:"usage_conflict,omitempty"`
+
 	Decision Decision `json:"decision"`
 	Err      string   `json:"error,omitempty"`
 }
+
+// UsageStatus classifies a receipt's Actual.
+type UsageStatus string
+
+const (
+	// UsageReported: the provider reported this call's usage.
+	UsageReported UsageStatus = "reported"
+	// UsagePartial: counts are lower bounds; the call ended before the
+	// provider's final usage report.
+	UsagePartial UsageStatus = "partial"
+	// UsageUnreported: no usage reached the broker (a CLI engine that reports
+	// none, or a call that failed before the provider billed anything).
+	UsageUnreported UsageStatus = "unreported"
+)
 
 // AdmissionError is returned when the broker refuses a request.
 type AdmissionError struct {

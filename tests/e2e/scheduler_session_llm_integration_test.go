@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"codeberg.org/TauCeti/mangle-go/analysis"
 	"codenerd/internal/core"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
@@ -19,6 +18,8 @@ import (
 	"codenerd/internal/session"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
+
+	"codeberg.org/TauCeti/mangle-go/analysis"
 )
 
 // =============================================================================
@@ -998,6 +999,6 @@ func (m *mockKernelLLM) RetractExactFactsBatch(facts []types.Fact) error        
 func (m *mockKernelLLM) RemoveFactsByPredicateSet(predicates map[string]struct{}) error { return nil }
 
 func (m *mockKernelLLM) GetProgramInfo() *analysis.ProgramInfo { return nil }
-func (m *mockLLMClientWithControls) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+func (m *mockLLMClientWithControls) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
 	return nil, nil
 }

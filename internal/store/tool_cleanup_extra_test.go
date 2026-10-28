@@ -22,19 +22,11 @@ func (m *mockCleanupLLMClient) CompleteWithSystem(ctx context.Context, system, p
 	return m.response, m.err
 }
 
-func (m *mockCleanupLLMClient) CompleteWithStreaming(ctx context.Context, system string, prompt string, requireJSON bool) (<-chan string, <-chan error) {
-	ch := make(chan string, 1)
-	errCh := make(chan error, 1)
-
+func (m *mockCleanupLLMClient) CompleteWithStreaming(ctx context.Context, system string, prompt string, requireJSON bool) (<-chan string, <-chan types.StreamResult) {
 	if m.err != nil {
-		errCh <- m.err
-	} else {
-		ch <- m.response
+		return types.FailedStream(m.err)
 	}
-
-	close(ch)
-	close(errCh)
-	return ch, errCh
+	return types.StreamWhole(ctx, func(context.Context) (string, error) { return m.response, nil })
 }
 
 func (m *mockCleanupLLMClient) CompleteWithTools(ctx context.Context, system, prompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {

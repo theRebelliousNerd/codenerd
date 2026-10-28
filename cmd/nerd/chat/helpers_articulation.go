@@ -2,7 +2,6 @@ package chat
 
 import (
 	"codenerd/internal/articulation"
-	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/types"
@@ -114,7 +113,7 @@ type ConversationContext struct {
 // This is the new entry point that enables fluid conversational follow-ups.
 //
 // If thoughtsChan is non-nil AND the underlying client implements
-// core.LLMStreamingWithThoughts, the model's thinking trace is streamed
+// types.ThoughtStreamer, the model's thinking trace is streamed
 // to thoughtsChan in arrival order; otherwise thoughtsChan is left
 // untouched (and the function silently falls back to 2-channel streaming).
 // Callers own closing thoughtsChan, just like streamChan.
@@ -285,42 +284,44 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 
 	if streamChan != nil {
 		// Use streaming completion. If the client (or its wrapper) supports
-		// 3-channel thoughts streaming AND the caller provided a thoughtsChan,
-		// route the model's thinking trace to it for live TUI rendering.
-		var chunkChan <-chan string
-		var tChan <-chan string
-		var errChan <-chan error
+		// a thoughts stream AND the caller provided a thoughtsChan, route
+		// the model's thinking trace to it for live TUI rendering.
+		var chunkChan, tChan <-chan string
+		var done <-chan types.StreamResult
 		enableThinking := false
+		started := false
 		if thoughtsChan != nil {
-			if ts, ok := client.(core.LLMStreamingWithThoughts); ok {
+			if ts, ok := client.(types.ThoughtStreamer); ok {
 				enableThinking = true
-				chunkChan, tChan, errChan = ts.CompleteWithStreamingAndThoughts(ctx, systemPrompt, sb.String(), enableThinking)
+				chunkChan, tChan, done = ts.CompleteWithStreamingAndThoughts(ctx, systemPrompt, sb.String(), enableThinking)
+				started = true
 			}
 		}
-		if chunkChan == nil {
-			chunkChan, errChan = client.CompleteWithStreaming(ctx, systemPrompt, sb.String(), enableThinking)
+		if !started {
+			chunkChan, done = client.CompleteWithStreaming(ctx, systemPrompt, sb.String(), enableThinking)
 		}
 
 		parser := articulation.NewStreamParser()
 		var fullBuilder strings.Builder
 
 	streamLoop:
-		for {
+		for chunkChan != nil || tChan != nil {
 			select {
 			case chunk, ok := <-chunkChan:
 				if !ok {
 					chunkChan = nil
-				} else {
-					fullBuilder.WriteString(chunk)
-					surfaceChunk := parser.ProcessChunk(chunk)
-					if surfaceChunk != "" {
-						streamChan <- surfaceChunk
-					}
+					continue
+				}
+				fullBuilder.WriteString(chunk)
+				if surfaceChunk := parser.ProcessChunk(chunk); surfaceChunk != "" {
+					streamChan <- surfaceChunk
 				}
 			case thought, ok := <-tChan:
 				if !ok {
 					tChan = nil
-				} else if thoughtsChan != nil && thought != "" {
+					continue
+				}
+				if thoughtsChan != nil && thought != "" {
 					// Non-blocking forward — if the TUI hasn't drained yet,
 					// drop rather than stall the LLM stream.
 					select {
@@ -328,28 +329,23 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 					default:
 					}
 				}
-			case streamErr, ok := <-errChan:
-				if !ok {
-					errChan = nil
-				} else if streamErr != nil {
-					err = streamErr
-					// Labelled: a bare break here exits the select, not the
-					// loop, so a stream error did not stop consumption.
-					break streamLoop
-				}
 			case <-ctx.Done():
+				// Labelled: a bare break here exits the select, not the loop,
+				// and a cancelled context makes ctx.Done() ready on every pass.
 				err = ctx.Err()
-				// Same, and worse on this arm: a cancelled context makes
-				// ctx.Done() ready on every pass, so the bare break spun the
-				// loop instead of leaving it.
 				break streamLoop
 			}
-
-			if chunkChan == nil && tChan == nil && errChan == nil {
-				break // stream finished successfully
-			}
-			if err != nil {
-				break
+		}
+		if err == nil {
+			// The content channel closing is not the end of the answer. Only
+			// the terminal result says the provider finished: a clean EOF, a
+			// parseable prefix and a completed generation are different
+			// things, and the response processor below would accept a
+			// well-formed prefix of a cut answer and act on its control
+			// packet. A terminal channel that closes without a result is an
+			// incomplete stream, never a success.
+			if res := types.AwaitStreamResult(ctx, done); res.Err != nil {
+				err = fmt.Errorf("stream %s: %w", res.Outcome(), res.Err)
 			}
 		}
 		raw = fullBuilder.String()

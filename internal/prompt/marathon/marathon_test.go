@@ -34,8 +34,8 @@ func (c *fakeClient) Complete(ctx context.Context, p string) (string, error) { r
 func (c *fakeClient) CompleteWithSystem(ctx context.Context, sys, user string) (string, error) {
 	return c.completion, c.completeErr
 }
-func (c *fakeClient) CompleteWithStreaming(ctx context.Context, sys, user string, thinking bool) (<-chan string, <-chan error) {
-	return nil, nil
+func (c *fakeClient) CompleteWithStreaming(ctx context.Context, sys, user string, thinking bool) (<-chan string, <-chan types.StreamResult) {
+	return types.FailedStream(errors.New("fakeClient does not stream"))
 }
 func (c *fakeClient) CompleteWithTools(ctx context.Context, sys, user string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	return nil, nil

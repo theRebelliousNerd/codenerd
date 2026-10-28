@@ -219,6 +219,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errorMsg:
 		m.isLoading = false
+		// A failed turn's streamed prefix is an incomplete attempt, not an
+		// answer: it never reaches history, and it must not linger on screen
+		// as if it were one.
+		m.isStreaming = false
+		m.currentStream = ""
+		m.currentThought = ""
 		// Check if this is a clarification request disguised as an error
 		if strings.Contains(msg.Error(), "USER_INPUT_REQUIRED") || strings.Contains(msg.Error(), "clarification") {
 			// Extract the question from the error message

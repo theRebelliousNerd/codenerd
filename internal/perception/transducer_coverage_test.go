@@ -12,6 +12,7 @@ import (
 
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
+	"codenerd/internal/types"
 )
 
 // coverageMockClient implements LLMClient for coverage tests.
@@ -31,20 +32,10 @@ func (m *coverageMockClient) CompleteWithSystem(ctx context.Context, sys, user s
 	}
 	return "", nil
 }
-func (m *coverageMockClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
-	contentChan := make(chan string, 1)
-	errorChan := make(chan error, 1)
-	go func() {
-		defer close(contentChan)
-		defer close(errorChan)
-		res, err := m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		contentChan <- res
-	}()
-	return contentChan, errorChan
+func (m *coverageMockClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
+		return m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	})
 }
 func (m *coverageMockClient) CompleteWithTools(ctx context.Context, sys, user string, tools []ToolDefinition) (*LLMToolResponse, error) {
 	return &LLMToolResponse{Text: "", StopReason: "end_turn"}, nil

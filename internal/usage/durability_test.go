@@ -2,6 +2,7 @@ package usage
 
 import (
 	"bytes"
+	"codenerd/internal/types"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -37,7 +38,7 @@ func TestSave_ShouldLeaveNoTempFiles(t *testing.T) {
 	ctx := WithShardContext(context.Background(), "coder-1", "coder", "sess-1")
 
 	for i := 0; i < 5; i++ {
-		tr.Track(ctx, "gpt-4o", "openai", 100, 50, "chat")
+		tr.Record(ctx, Report{Model: "gpt-4o", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 100, OutputTokens: 50}})
 		if err := tr.Save(); err != nil {
 			t.Fatalf("Save: %v", err)
 		}
@@ -59,7 +60,7 @@ func TestSave_ShouldLeaveNoTempFiles(t *testing.T) {
 func TestSave_ShouldProduceParseableFile(t *testing.T) {
 	tr, path := newTestTracker(t)
 	ctx := WithShardContext(context.Background(), "coder-1", "coder", "sess-1")
-	tr.Track(ctx, "gpt-4o", "openai", 1000, 500, "chat")
+	tr.Record(ctx, Report{Model: "gpt-4o", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 1000, OutputTokens: 500}})
 
 	if err := tr.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -96,7 +97,7 @@ func TestSave_ShouldReplaceRatherThanAppend(t *testing.T) {
 	ctx := WithShardContext(context.Background(), "c", "coder", "sess-1")
 
 	for i := 0; i < 50; i++ {
-		tr.Track(ctx, fmt.Sprintf("model-%d", i), "openai", 10, 5, "chat")
+		tr.Record(ctx, Report{Model: fmt.Sprintf("model-%d", i), Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
 	}
 	if err := tr.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -160,7 +161,7 @@ func TestSave_ShouldReplaceTheInodeRatherThanWriteThrough(t *testing.T) {
 
 	// A large first payload so a truncating rewrite is unambiguously shorter.
 	for i := 0; i < 50; i++ {
-		tr.Track(ctx, fmt.Sprintf("model-%d", i), "openai", 10, 5, "chat")
+		tr.Record(ctx, Report{Model: fmt.Sprintf("model-%d", i), Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
 	}
 	if err := tr.Save(); err != nil {
 		t.Fatalf("first Save: %v", err)
@@ -232,7 +233,7 @@ func TestSave_ShouldReplaceTheInodeRatherThanWriteThrough(t *testing.T) {
 func TestClose_ShouldPersistPendingMutations(t *testing.T) {
 	tr, path := newTestTracker(t)
 	ctx := WithShardContext(context.Background(), "coder-1", "coder", "sess-1")
-	tr.Track(ctx, "gpt-4o", "openai", 700, 300, "chat")
+	tr.Record(ctx, Report{Model: "gpt-4o", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 700, OutputTokens: 300}})
 
 	// Nothing has hit disk yet: only the debounce timer is armed.
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -259,7 +260,7 @@ func TestClose_ShouldPersistPendingMutations(t *testing.T) {
 // TestClose_ShouldBeIdempotent allows hosts to call Close on several shutdown paths.
 func TestClose_ShouldBeIdempotent(t *testing.T) {
 	tr, _ := newTestTracker(t)
-	tr.Track(context.Background(), "gpt-4o", "openai", 10, 5, "chat")
+	tr.Record(context.Background(), Report{Model: "gpt-4o", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
 
 	for i := 0; i < 3; i++ {
 		if err := tr.Close(); err != nil {
@@ -272,12 +273,12 @@ func TestClose_ShouldBeIdempotent(t *testing.T) {
 // resurrecting a flushed tracker with data that will never be written.
 func TestTrack_AfterClose_ShouldBeIgnored(t *testing.T) {
 	tr, _ := newTestTracker(t)
-	tr.Track(context.Background(), "gpt-4o", "openai", 100, 50, "chat")
+	tr.Record(context.Background(), Report{Model: "gpt-4o", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 100, OutputTokens: 50}})
 	if err := tr.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 
-	tr.Track(context.Background(), "gpt-4o", "openai", 999, 999, "chat")
+	tr.Record(context.Background(), Report{Model: "gpt-4o", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 999, OutputTokens: 999}})
 	if got := tr.Stats().TotalProject.Total; got != 150 {
 		t.Errorf("Total = %d, want 150 (post-close Track must be dropped)", got)
 	}
@@ -297,7 +298,7 @@ func TestFlush_WhenClean_ShouldBeNoOp(t *testing.T) {
 // TestFlush_ShouldClearDirtyState verifies a second Flush does not rewrite.
 func TestFlush_ShouldClearDirtyState(t *testing.T) {
 	tr, _ := newTestTracker(t)
-	tr.Track(context.Background(), "gpt-4o", "openai", 10, 5, "chat")
+	tr.Record(context.Background(), Report{Model: "gpt-4o", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
 
 	if err := tr.Flush(); err != nil {
 		t.Fatalf("Flush: %v", err)
@@ -329,7 +330,7 @@ func TestTracker_RoundTrip_ShouldRestoreAggregates(t *testing.T) {
 		t.Fatalf("NewTracker: %v", err)
 	}
 	ctx := WithShardContext(context.Background(), "coder-1", "specialist", "sess-A")
-	first.Track(ctx, "claude-sonnet-4", "anthropic", 1_000_000, 200_000, "chat")
+	first.Record(ctx, Report{Model: "claude-sonnet-4", Provider: "anthropic", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 1_000_000, OutputTokens: 200_000}})
 	if err := first.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -375,7 +376,7 @@ func TestNewTracker_WhenFileCorrupt_ShouldStartEmpty(t *testing.T) {
 		t.Errorf("Total = %d, want 0", got)
 	}
 	// And the maps must be usable, not nil.
-	tr.Track(context.Background(), "gpt-4o", "openai", 5, 5, "chat")
+	tr.Record(context.Background(), Report{Model: "gpt-4o", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 5, OutputTokens: 5}})
 	if got := tr.Stats().TotalProject.Total; got != 10 {
 		t.Errorf("Total after Track = %d, want 10", got)
 	}
@@ -389,10 +390,10 @@ func TestTrack_ShouldRejectNegativeTokens(t *testing.T) {
 	tr, _ := newTestTracker(t)
 	ctx := WithShardContext(context.Background(), "c", "coder", "s")
 
-	tr.Track(ctx, "gpt-4o", "openai", 100, 50, "chat")
-	tr.Track(ctx, "gpt-4o", "openai", -500, 50, "chat")
-	tr.Track(ctx, "gpt-4o", "openai", 100, -50, "chat")
-	tr.Track(ctx, "gpt-4o", "openai", -1, -1, "chat")
+	tr.Record(ctx, Report{Model: "gpt-4o", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 100, OutputTokens: 50}})
+	tr.Record(ctx, Report{Model: "gpt-4o", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: -500, OutputTokens: 50}})
+	tr.Record(ctx, Report{Model: "gpt-4o", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 100, OutputTokens: -50}})
+	tr.Record(ctx, Report{Model: "gpt-4o", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: -1, OutputTokens: -1}})
 
 	if got := tr.Stats().TotalProject.Total; got != 150 {
 		t.Errorf("Total = %d, want 150 (negatives must be rejected)", got)
@@ -401,7 +402,7 @@ func TestTrack_ShouldRejectNegativeTokens(t *testing.T) {
 
 func TestTrack_ShouldIgnoreZeroTokenCalls(t *testing.T) {
 	tr, _ := newTestTracker(t)
-	tr.Track(context.Background(), "gpt-4o", "openai", 0, 0, "chat")
+	tr.Record(context.Background(), Report{Model: "gpt-4o", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 0, OutputTokens: 0}})
 
 	if got := len(tr.Stats().ByModel); got != 0 {
 		t.Errorf("ByModel has %d entries, want 0 for a zero-token call", got)
@@ -420,7 +421,7 @@ func TestBySession_ShouldBePrunedWhenUnbounded(t *testing.T) {
 	const sessions = maxSessions + 200
 	for i := 0; i < sessions; i++ {
 		ctx := WithShardContext(context.Background(), "c", "coder", fmt.Sprintf("sess-%04d", i))
-		tr.Track(ctx, "gpt-4o", "openai", 10, 10, "chat")
+		tr.Record(ctx, Report{Model: "gpt-4o", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 10}})
 	}
 
 	stats := tr.Stats()
@@ -442,7 +443,7 @@ func TestBySession_ShouldBePrunedWhenUnbounded(t *testing.T) {
 // TestEvents_ShouldBeOffByDefault documents that aggregates are the default record.
 func TestEvents_ShouldBeOffByDefault(t *testing.T) {
 	tr, _ := newTestTracker(t)
-	tr.Track(context.Background(), "gpt-4o", "openai", 10, 5, "chat")
+	tr.Record(context.Background(), Report{Model: "gpt-4o", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
 
 	if got := tr.Events(); len(got) != 0 {
 		t.Errorf("Events() returned %d entries, want 0 without WithEventLog", len(got))
@@ -456,7 +457,7 @@ func TestEvents_ShouldBeBoundedRing(t *testing.T) {
 	ctx := WithShardContext(context.Background(), "c", "coder", "s")
 
 	for i := 0; i < maxEvents+250; i++ {
-		tr.Track(ctx, "gpt-4o", "openai", 1, 1, fmt.Sprintf("op-%d", i))
+		tr.Record(ctx, Report{Model: "gpt-4o", Provider: "openai", Operation: fmt.Sprintf("op-%d", i), Usage: types.UsageMetadata{InputTokens: 1, OutputTokens: 1}})
 	}
 
 	events := tr.Events()
@@ -473,7 +474,7 @@ func TestEvents_ShouldBeBoundedRing(t *testing.T) {
 // TestEvents_ShouldReturnACopy keeps a caller from mutating tracker state.
 func TestEvents_ShouldReturnACopy(t *testing.T) {
 	tr, _ := newTestTracker(t, WithEventLog())
-	tr.Track(context.Background(), "gpt-4o", "openai", 10, 5, "chat")
+	tr.Record(context.Background(), Report{Model: "gpt-4o", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
 
 	got := tr.Events()
 	if len(got) == 0 {
@@ -502,7 +503,7 @@ func TestTracker_ConcurrentTrackAndFlush_ShouldNotRace(t *testing.T) {
 			defer wg.Done()
 			ctx := WithShardContext(context.Background(), fmt.Sprintf("shard-%d", w), "coder", fmt.Sprintf("sess-%d", w))
 			for i := 0; i < 200; i++ {
-				tr.Track(ctx, "gpt-4o", "openai", 1, 1, "chat")
+				tr.Record(ctx, Report{Model: "gpt-4o", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 1, OutputTokens: 1}})
 			}
 		}(w)
 	}

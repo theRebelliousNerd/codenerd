@@ -2,6 +2,7 @@ package perception
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"codenerd/internal/types"
@@ -22,12 +23,8 @@ func (u *trpUnderlying) CompleteWithSystem(ctx context.Context, systemPrompt, us
 func (u *trpUnderlying) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
 	return &LLMToolResponse{Text: "tools"}, nil
 }
-func (u *trpUnderlying) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
-	ch := make(chan string)
-	close(ch)
-	errc := make(chan error)
-	close(errc)
-	return ch, errc
+func (u *trpUnderlying) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
+	return types.FailedStream(errors.New("streaming is not used by this fake"))
 }
 func (u *trpUnderlying) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	u.calls++
@@ -84,10 +81,6 @@ func (s *staticClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 func (s *staticClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
 	return &LLMToolResponse{Text: "x"}, nil
 }
-func (s *staticClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
-	ch := make(chan string)
-	close(ch)
-	errc := make(chan error)
-	close(errc)
-	return ch, errc
+func (s *staticClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
+	return types.FailedStream(errors.New("streaming is not used by this fake"))
 }

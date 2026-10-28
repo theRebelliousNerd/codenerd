@@ -17,12 +17,14 @@ import (
 type usageRecorder struct {
 	mu            sync.Mutex
 	input, output int
+	last          types.UsageMetadata
 }
 
-func (r *usageRecorder) Observed(_, _ string, input, output int, _ string) {
+func (r *usageRecorder) Observed(rep usage.Report) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.input, r.output = input, output
+	r.input, r.output = rep.Usage.InputTokens, rep.Usage.OutputTokens
+	r.last = rep.Usage
 }
 
 // captureAnthropic serves one canned reply and hands back the decoded body of

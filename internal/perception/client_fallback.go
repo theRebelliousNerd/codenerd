@@ -3,7 +3,6 @@ package perception
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
@@ -154,86 +153,48 @@ func (c *FallbackClient) CompleteWithTools(ctx context.Context, systemPrompt, us
 	return c.secondary.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
 }
 
-// streamResult is the terminal state of one relayed stream.
-type streamResult struct {
-	gotData bool
-	err     error
-}
-
-func (c *FallbackClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
-	out := make(chan string, 100)
-	errc := make(chan error, 1)
+// CompleteWithStreaming relays the primary's stream and fails over to the
+// secondary only while nothing has reached the consumer: a secondary answer is
+// never spliced after primary content, because the result would read as one
+// model's continuous answer. A refusal, a safety filter or a truncation is a
+// verdict about the request, not an availability failure, so it is never
+// routed around either.
+func (c *FallbackClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
+	w, out, done := types.NewStream()
 	go func() {
-		defer close(out)
-		defer close(errc)
+		defer w.Close()
 		if c.primary != nil {
-			res := c.relayStream(ctx, systemPrompt, userPrompt, enableThinking, c.primary, out)
-			if res.gotData || ctx.Err() != nil {
-				// Content already reached the consumer, or the context died:
-				// failover is impossible or pointless. Forward the terminal
-				// state unchanged.
-				if res.err != nil {
-					errc <- res.err
-				}
-				return
-			}
-			if res.err == nil {
-				// Clean primary end with no data: a valid empty stream.
-				return
-			}
-			if !c.useSecondary("CompleteWithStreaming", res.err) {
-				errc <- res.err
+			res, emitted := c.relayStream(ctx, w, c.primary, systemPrompt, userPrompt, enableThinking)
+			if res.Err == nil || emitted || ctx.Err() != nil || !failoverable(res.Err) ||
+				!c.useSecondary("CompleteWithStreaming", res.Err) {
+				w.Finish(res)
 				return
 			}
 		} else if c.secondary == nil {
-			errc <- errFallbackNoClient
+			w.Fail(errFallbackNoClient)
 			return
 		}
-		if res := c.relayStream(ctx, systemPrompt, userPrompt, enableThinking, c.secondary, out); res.err != nil {
-			errc <- res.err
-		}
+		res, _ := c.relayStream(ctx, w, c.secondary, systemPrompt, userPrompt, enableThinking)
+		w.Finish(res)
 	}()
-	return out, errc
+	return out, done
 }
 
-// relayStream forwards one client's stream to out, reporting whether any
-// content arrived and the terminal error, if any. A client returning nil
-// channels is treated as an immediate pre-data failure so failover can engage
-// instead of hanging.
-func (c *FallbackClient) relayStream(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool, client LLMClient, out chan<- string) streamResult {
-	var res streamResult
-	chunks, errs := client.CompleteWithStreaming(ctx, systemPrompt, userPrompt, enableThinking)
-	if chunks == nil && errs == nil {
-		res.err = fmt.Errorf("%s: underlying client returned a nil stream", c.name)
-		return res
+// relayStream forwards one client's stream into w and returns its terminal
+// result and whether any content reached the consumer. A client returning nil
+// channels ends incomplete, which permits failover instead of hanging.
+func (c *FallbackClient) relayStream(ctx context.Context, w *types.StreamWriter, client LLMClient, systemPrompt, userPrompt string, enableThinking bool) (types.StreamResult, bool) {
+	content, done := client.CompleteWithStreaming(ctx, systemPrompt, userPrompt, enableThinking)
+	return types.RelayStream(ctx, w, content, nil, done)
+}
+
+// failoverable reports whether a pre-output stream failure may be retried on
+// another model. Refused, filtered and truncated outcomes are answers about
+// this request; another provider would only be asked to evade them.
+func failoverable(err error) bool {
+	switch types.StreamOutcomeOf(err) {
+	case types.StreamRefused, types.StreamFiltered, types.StreamTruncated:
+		return false
 	}
-	for chunks != nil || errs != nil {
-		select {
-		case <-ctx.Done():
-			res.err = ctx.Err()
-			return res
-		case s, ok := <-chunks:
-			if !ok {
-				chunks = nil
-				continue
-			}
-			res.gotData = true
-			select {
-			case out <- s:
-			case <-ctx.Done():
-				res.err = ctx.Err()
-				return res
-			}
-		case err, ok := <-errs:
-			if !ok {
-				errs = nil
-				continue
-			}
-			if err != nil {
-				res.err = err
-				return res
-			}
-		}
-	}
-	return res
+	return true
 }

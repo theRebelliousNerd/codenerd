@@ -15,7 +15,7 @@ import (
 // 193,735 tokens and refused it (ladder run R1-4c).
 func TestMetaToolResponseFromReply_EachReasoningItemCarriesItsTokens(t *testing.T) {
 	u := &metaResponsesUsage{InputTokens: 100, OutputTokens: 500, TotalTokens: 600}
-	u.OutputTokensDetails.ReasoningTokens = 400
+	u.OutputTokensDetails = &metaOutputTokensDetails{ReasoningTokens: 400}
 	resp := metaToolResponseFromReply(&metaResponsesReply{
 		Output: []metaResponsesItem{
 			{ID: "rs_1", Type: "reasoning", EncryptedContent: strings.Repeat("a", 300)},
@@ -35,7 +35,7 @@ func TestMetaToolResponseFromReply_EachReasoningItemCarriesItsTokens(t *testing.
 	}
 
 	// Shares that do not divide evenly still add up to the reply's count.
-	u.OutputTokensDetails.ReasoningTokens = 401
+	u.OutputTokensDetails = &metaOutputTokensDetails{ReasoningTokens: 401}
 	resp = metaToolResponseFromReply(&metaResponsesReply{
 		Output: []metaResponsesItem{
 			{ID: "rs_1", Type: "reasoning", EncryptedContent: strings.Repeat("a", 100)},

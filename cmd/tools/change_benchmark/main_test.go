@@ -27,12 +27,9 @@ func (s *stubLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, us
 	return "ok", nil
 }
 
-func (s *stubLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+func (s *stubLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
 	s.calls++
-	chunks, errs := make(chan string), make(chan error, 1)
-	close(chunks)
-	close(errs)
-	return chunks, errs
+	return types.StreamWhole(ctx, func(context.Context) (string, error) { return "", nil })
 }
 
 func (s *stubLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
@@ -72,23 +69,19 @@ func TestBoundedClient_StreamingExhausted_SurfacesError(t *testing.T) {
 	c := &boundedClient{LLMClient: inner}
 	ctx := context.Background()
 	for i := 0; i < maxCalls; i++ {
-		chunks, errs := c.CompleteWithStreaming(ctx, "s", "p", false)
-		for range chunks {
-		}
-		for err := range errs {
-			t.Fatalf("call %d: %v", i+1, err)
+		chunks, done := c.CompleteWithStreaming(ctx, "s", "p", false)
+		if _, res := types.CollectStream(ctx, chunks, done, nil); res.Err != nil {
+			t.Fatalf("call %d: %v", i+1, res.Err)
 		}
 	}
-	chunks, errs := c.CompleteWithStreaming(ctx, "s", "p", false)
-	for range chunks {
+	chunks, done := c.CompleteWithStreaming(ctx, "s", "p", false)
+	text, res := types.CollectStream(ctx, chunks, done, nil)
+	if text != "" {
 		t.Error("exhausted stream must yield no chunks")
 	}
-	sawErr := false
-	for err := range errs {
-		sawErr = true
-		if !strings.Contains(err.Error(), "budget exhausted") {
-			t.Errorf("stream err = %v, want budget exhaustion", err)
-		}
+	sawErr := res.Err != nil
+	if sawErr && !strings.Contains(res.Err.Error(), "budget exhausted") {
+		t.Errorf("stream err = %v, want budget exhaustion", res.Err)
 	}
 	if !sawErr {
 		t.Error("exhausted stream must deliver an error, not hang callers on a silent channel")

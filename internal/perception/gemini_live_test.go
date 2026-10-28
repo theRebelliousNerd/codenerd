@@ -48,6 +48,7 @@ import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/types"
 )
 
 // liveLLMEnabled reports whether live LLM tests should run. Single gate
@@ -177,7 +178,7 @@ func TestGeminiLive_ChatArticulation_StreamingEnvelope(t *testing.T) {
 	client, providerCfg := requireLiveGeminiClient(t)
 
 	streamer, ok := client.(interface {
-		CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error)
+		CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult)
 	})
 	if !ok {
 		t.Fatalf("client does not support CompleteWithStreaming (type=%T)", client)
@@ -219,13 +220,7 @@ Output JSON only. The surface_response field MUST be present and non-empty.`
 	streamDuration := time.Since(streamStart)
 
 	// Drain any error after the stream closes.
-	var streamErr error
-	for err := range errCh {
-		if err != nil {
-			streamErr = err
-			break
-		}
-	}
+	streamErr := types.AwaitStreamResult(ctx, errCh).Err
 	if streamErr != nil {
 		t.Fatalf("streaming returned error: %v (model=%s, streamed %d chunks / %d bytes in %v)",
 			streamErr, providerCfg.Model, chunkCount, full.Len(), streamDuration)

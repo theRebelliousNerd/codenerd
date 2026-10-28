@@ -172,17 +172,10 @@ func (m *pipelineModel) CompleteWithSystem(ctx context.Context, systemPrompt, in
 	return string(encoded), err
 }
 
-func (m *pipelineModel) CompleteWithStreaming(ctx context.Context, systemPrompt, input string, _ bool) (<-chan string, <-chan error) {
-	chunks, failures := make(chan string, 1), make(chan error, 1)
-	text, err := m.CompleteWithSystem(ctx, systemPrompt, input)
-	if err != nil {
-		failures <- err
-	} else {
-		chunks <- text
-	}
-	close(chunks)
-	close(failures)
-	return chunks, failures
+func (m *pipelineModel) CompleteWithStreaming(ctx context.Context, systemPrompt, input string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
+		return m.CompleteWithSystem(ctx, systemPrompt, input)
+	})
 }
 
 func (m *pipelineModel) CompleteWithTools(ctx context.Context, systemPrompt string, input string, definitions []types.ToolDefinition) (*types.LLMToolResponse, error) {

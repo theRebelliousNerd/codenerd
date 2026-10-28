@@ -1,6 +1,7 @@
 package usage
 
 import (
+	"codenerd/internal/types"
 	"context"
 	"encoding/json"
 	"os"
@@ -32,8 +33,8 @@ func TestTracker_TrackAggregatesAndPersists(t *testing.T) {
 	tracker.dirty = true
 
 	ctx := WithShardContext(context.Background(), "coder-1", "coder", "sess_1")
-	tracker.Track(ctx, "glm-4.6", "zai", 10, 5, "chat")
-	tracker.Track(ctx, "glm-4.6", "zai", 2, 3, "chat")
+	tracker.Record(ctx, Report{Model: "glm-4.6", Provider: "zai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
+	tracker.Record(ctx, Report{Model: "glm-4.6", Provider: "zai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 2, OutputTokens: 3}})
 
 	stats := tracker.Stats()
 	if stats.TotalProject.Input != 12 || stats.TotalProject.Output != 8 || stats.TotalProject.Total != 20 {

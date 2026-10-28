@@ -146,13 +146,8 @@ func (m *oeMockLLMClient) ToolCallWithSystem(ctx context.Context, systemPrompt, 
 
 func (m *oeMockLLMClient) CountTokens(text string) int { return len(text) }
 
-func (m *oeMockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
-	ch := make(chan string, 1)
-	errCh := make(chan error, 1)
-	ch <- "mock streaming response"
-	close(ch)
-	close(errCh)
-	return ch, errCh
+func (m *oeMockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(context.Context) (string, error) { return "mock streaming response", nil })
 }
 
 // setupTestEnvironment sets up the dependencies for the Executor and JITExecutor.

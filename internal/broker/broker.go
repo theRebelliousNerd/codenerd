@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -107,33 +108,31 @@ func (c *core) currentModel() string {
 
 // callObserver captures the provider's reported usage for one in-flight call.
 //
-// Reports accumulate rather than overwrite: a client that retries internally,
-// or a streaming turn that reports input at message_start and output at
-// message_delta, produces several reports for one logical call, and every one
-// of them was billed.
+// Each report is one billed attempt, normalized by its adapter. Reports
+// accumulate rather than overwrite: a client that retries internally produces
+// several reports for one logical call, and every one of them was billed.
 type callObserver struct {
-	mu    sync.Mutex
-	spend Spend
-	seen  bool
+	mu      sync.Mutex
+	usage   types.UsageMetadata
+	reports int
 }
 
 // Observed implements usage.Observer.
-func (o *callObserver) Observed(_, _ string, input, output int, _ string) {
+func (o *callObserver) Observed(r usage.Report) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if input > 0 {
-		o.spend.InputTokens += int64(input)
+	if o.reports == 0 {
+		o.usage = r.Usage
+	} else {
+		o.usage = o.usage.Plus(r.Usage)
 	}
-	if output > 0 {
-		o.spend.OutputTokens += int64(output)
-	}
-	o.seen = true
+	o.reports++
 }
 
-func (o *callObserver) result() (Spend, bool) {
+func (o *callObserver) result() (types.UsageMetadata, int) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	return o.spend, o.seen
+	return o.usage, o.reports
 }
 
 var _ usage.Observer = (*callObserver)(nil)
@@ -180,40 +179,55 @@ func (c *core) admit(ctx context.Context, req *Request) (Receipt, *AdmissionErro
 // settle records actual spend, calibrates the counter against it, and emits the
 // receipt. It is the only place spend is written to the ledger, which is what
 // makes double counting a structural impossibility rather than a convention.
+//
+// Usage can arrive by two routes: the observer, which every adapter reports
+// through on every path (streaming included), and a response-carried block
+// (a tool response's Usage, a stream's terminal result). They describe the
+// same bill. The observer is primary; the response is the fallback for a
+// client that does not report through the usage plumbing, and otherwise only
+// consistency evidence — a disagreement is recorded on the receipt, never
+// added as a second charge.
 func (c *core) settle(receipt Receipt, req *Request, obs *callObserver, reported *types.UsageMetadata, callErr error) {
 	receipt.Duration = time.Since(receipt.Started)
 	if callErr != nil {
 		receipt.Err = callErr.Error()
 	}
 
-	actual, seen := obs.result()
-
-	// The observer is the primary source because it fires on every provider and
-	// every code path, including streaming, where the return value carries no
-	// usage at all. A response-carried usage block is the fallback for clients
-	// that do not report through the usage plumbing.
-	if !seen && reported != nil {
-		actual.InputTokens = int64(reported.InputTokens)
-		actual.OutputTokens = int64(reported.OutputTokens)
-	}
-	// Cached and thinking counts are sub-classifications the observer channel
-	// does not carry. They are metadata, already inside the input/output totals
-	// above, so copying them here enriches the receipt without double counting.
-	//
-	// That is the contract every client reports to: InputTokens INCLUDES cache
-	// reads. Meta's Responses API (input_tokens_details.cached_tokens) and
-	// Gemini (cachedContentTokenCount within promptTokenCount) report it that
-	// way natively; a provider that bills cache reads separately (Anthropic's
-	// cache_read_input_tokens) must add them into InputTokens in its client.
-	if reported != nil {
-		actual.CachedTokens = int64(reported.CachedContentTokens)
-		actual.CacheWriteTokens = int64(reported.CacheWriteTokens)
-		actual.ThinkingTokens = int64(reported.ThinkingTokens)
+	observed, reports := obs.result()
+	var report types.UsageMetadata
+	switch {
+	case reports > 0:
+		report = observed
+		receipt.Attempts = reports
+		if reported != nil && reports == 1 {
+			if !observed.SameCounts(*reported) {
+				receipt.UsageConflict = fmt.Sprintf(
+					"observer in=%d out=%d cache_read=%d cache_write=%d reasoning=%d; response in=%d out=%d cache_read=%d cache_write=%d reasoning=%d",
+					observed.InputTokens, observed.OutputTokens, observed.CachedContentTokens, observed.CacheWriteTokens, observed.ThinkingTokens,
+					reported.InputTokens, reported.OutputTokens, reported.CachedContentTokens, reported.CacheWriteTokens, reported.ThinkingTokens)
+			}
+			report = enrichUsage(report, *reported)
+		}
+	case reported != nil && responseReported(*reported):
+		report = *reported
+		if report.InputTokens > 0 || report.OutputTokens > 0 {
+			report.Known |= types.UsageTokens
+		}
+		receipt.Attempts = 1
 	}
 
+	actual := Spend{
+		InputTokens:      int64(report.InputTokens),
+		OutputTokens:     int64(report.OutputTokens),
+		CachedTokens:     int64(report.CachedContentTokens),
+		CacheWriteTokens: int64(report.CacheWriteTokens),
+		ThinkingTokens:   int64(report.ThinkingTokens),
+	}
 	if actual.InputTokens > 0 || actual.OutputTokens > 0 {
 		actual.Calls = 1
 	}
+	receipt.UsageKnown = report.Known
+	receipt.UsageStatus = usageStatus(report)
 
 	receipt.Actual = actual
 	if actual.InputTokens > 0 {
@@ -222,16 +236,65 @@ func (c *core) settle(receipt Receipt, req *Request, obs *callObserver, reported
 	}
 
 	c.cfg.Ledger.Record(receipt.Purpose, actual)
-	c.calibrate(req, actual)
 
-	// Reconciliation compares the prediction against the bill. Calibration
-	// alone cannot detect a bias shared by both sides -- it would quietly
-	// absorb it into the ratio -- so the comparison is kept separately.
-	if c.cfg.Reconciler != nil && receipt.Estimated.Tokens > 0 {
-		c.cfg.Reconciler.Observe(req.Model, receipt.Estimated.Tokens, actual.InputTokens)
+	// The estimator predicts one request. A multi-attempt total, or a partial
+	// count from a stream cut before its usage block, is not the bill of the
+	// request that was counted, and training on it would teach the ratio a
+	// prompt size that was never sent. Spend still counts every attempt above.
+	if receipt.Attempts <= 1 && !report.Partial {
+		c.calibrate(req, actual)
+		// Reconciliation compares the prediction against the bill. Calibration
+		// alone cannot detect a bias shared by both sides -- it would quietly
+		// absorb it into the ratio -- so the comparison is kept separately.
+		if c.cfg.Reconciler != nil && receipt.Estimated.Tokens > 0 && actual.InputTokens > 0 {
+			c.cfg.Reconciler.Observe(req.Model, receipt.Estimated.Tokens, actual.InputTokens)
+		}
 	}
 
 	c.emit(receipt)
+}
+
+// responseReported reports whether a response-carried usage block holds any
+// observation: a provider-flagged report, or nonzero totals from a client that
+// predates the presence flags.
+func responseReported(u types.UsageMetadata) bool {
+	return u.Reported() || u.InputTokens > 0 || u.OutputTokens > 0
+}
+
+// enrichUsage fills categories the observer did not know from a response
+// block that agreed on everything both knew. A category the observer knew is
+// never overwritten.
+func enrichUsage(observed, reported types.UsageMetadata) types.UsageMetadata {
+	if !observed.SameCounts(reported) {
+		return observed
+	}
+	if !observed.Has(types.UsageCacheRead) && reported.Has(types.UsageCacheRead) {
+		observed.CachedContentTokens = reported.CachedContentTokens
+		observed.Known |= types.UsageCacheRead
+	}
+	if !observed.Has(types.UsageCacheWrite) && reported.Has(types.UsageCacheWrite) {
+		observed.CacheWriteTokens = reported.CacheWriteTokens
+		observed.Known |= types.UsageCacheWrite
+	}
+	if !observed.Has(types.UsageReasoning) && reported.Has(types.UsageReasoning) {
+		observed.ThinkingTokens = reported.ThinkingTokens
+		observed.Known |= types.UsageReasoning
+	}
+	return observed
+}
+
+// usageStatus classifies what the receipt's Actual means: a complete
+// provider report, lower bounds from a cut stream, or nothing reported at all
+// (a zero Actual that is NOT a free call).
+func usageStatus(u types.UsageMetadata) UsageStatus {
+	switch {
+	case u.Partial:
+		return UsagePartial
+	case u.Reported() || u.InputTokens > 0 || u.OutputTokens > 0:
+		return UsageReported
+	default:
+		return UsageUnreported
+	}
 }
 
 // calibrate feeds the provider's actual back into the counter so the next
@@ -341,13 +404,13 @@ func (c *core) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt s
 // and finishes only when it closes. The returned channels are proxied so the
 // receipt is emitted when the turn actually ends rather than when it starts,
 // which is also the only way a streamed turn's real cost is ever recorded.
-func (c *core) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+func (c *core) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
 	if c.cfg.Router != nil {
-		content, _, errs := c.cfg.Router.Stream(ctx, func(ctx context.Context, client types.LLMClient) (<-chan string, <-chan string, <-chan error) {
-			content, errs := client.CompleteWithStreaming(ctx, systemPrompt, userPrompt, enableThinking)
-			return content, nil, errs
+		content, _, done := c.cfg.Router.Stream(ctx, func(ctx context.Context, client types.LLMClient) (<-chan string, <-chan string, <-chan types.StreamResult) {
+			content, done := client.CompleteWithStreaming(ctx, systemPrompt, userPrompt, enableThinking)
+			return content, nil, done
 		})
-		return content, errs
+		return content, done
 	}
 	req := &Request{
 		Provider: c.cfg.Provider,
@@ -360,13 +423,14 @@ func (c *core) CompleteWithStreaming(ctx context.Context, systemPrompt, userProm
 	receipt, refusal := c.admit(ctx, req)
 	if refusal != nil {
 		c.settleRefusal(receipt)
-		return closedStringChan(), errChanWith(refusal)
+		return types.FailedStream(refusal)
 	}
 
 	ctx, obs := c.observed(ctx)
-	content, errs := c.underlying.CompleteWithStreaming(ctx, systemPrompt, userPrompt, enableThinking)
-	outContent, outErrs := c.proxyStream(ctx, receipt, req, obs, content, errs)
-	return outContent, outErrs
+	content, done := c.underlying.CompleteWithStreaming(ctx, systemPrompt, userPrompt, enableThinking)
+	w, outContent, outDone := types.NewStream()
+	c.proxyStream(ctx, w, receipt, req, obs, content, nil, done)
+	return outContent, outDone
 }
 
 // settleRefusal emits a receipt for a call that never reached the provider.

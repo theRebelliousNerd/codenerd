@@ -2,6 +2,7 @@ package research
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"codenerd/internal/types"
@@ -17,8 +18,8 @@ func (plainClient) CompleteWithSystem(context.Context, string, string) (string, 
 func (plainClient) CompleteWithTools(context.Context, string, string, []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	return nil, nil
 }
-func (plainClient) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan error) {
-	return nil, nil
+func (plainClient) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan types.StreamResult) {
+	return types.FailedStream(errors.New("plainClient does not stream"))
 }
 func (plainClient) GetModel() string { return "plain" }
 func (plainClient) SetModel(string)  {}

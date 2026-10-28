@@ -590,243 +590,85 @@ func (c *ScheduledLLMCall) GetFile(ctx context.Context, fileID string) (any, err
 	return nil, fmt.Errorf("underlying client does not implement FileProvider")
 }
 
-type llmStreamingChannels interface {
-	CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error)
+// CompleteWithStreaming makes a scheduled streaming LLM call on the client the
+// context routes to. The API slot is held for the duration of the stream and
+// released when the stream's terminal result has been read.
+func (c *ScheduledLLMCall) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
+	w, content, done := types.NewStream()
+	c.stream(ctx, w, systemPrompt, userPrompt, func(ctx context.Context, target LLMClient) (<-chan string, <-chan string, <-chan types.StreamResult) {
+		content, done := target.CompleteWithStreaming(ctx, systemPrompt, userPrompt, enableThinking)
+		return content, nil, done
+	})
+	return content, done
 }
 
-// LLMStreamingWithThoughts is the opt-in 3-channel streaming surface for
-// clients that can expose the model's thinking trace alongside visible
-// output. Implementing this is OPTIONAL — callers must type-assert and
-// fall back to the 2-channel CompleteWithStreaming when not supported.
-//
-// The contract: content and thoughts are streamed in arrival order on
-// their respective channels; both channels (and the error channel) are
-// closed when the stream ends. The thoughts channel may be empty for the
-// entire stream (e.g. if thinking is disabled or the model produced no
-// thinking content); callers must handle a closed-without-data thought
-// stream gracefully.
-//
-// Currently implemented by: GeminiClient (Gemini 3.x with thinking mode).
-type LLMStreamingWithThoughts interface {
-	CompleteWithStreamingAndThoughts(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (content <-chan string, thoughts <-chan string, err <-chan error)
+// CompleteWithStreamingAndThoughts is CompleteWithStreaming with the model's
+// reasoning summaries on a separate channel. A routed client without a
+// thoughts surface streams through CompleteWithStreaming and its thoughts
+// channel closes empty, so callers use one code path for every provider.
+func (c *ScheduledLLMCall) CompleteWithStreamingAndThoughts(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan string, <-chan types.StreamResult) {
+	w, content, thoughts, done := types.NewThoughtStream()
+	c.stream(ctx, w, systemPrompt, userPrompt, func(ctx context.Context, target LLMClient) (<-chan string, <-chan string, <-chan types.StreamResult) {
+		if ts, ok := target.(types.ThoughtStreamer); ok {
+			return ts.CompleteWithStreamingAndThoughts(ctx, systemPrompt, userPrompt, enableThinking)
+		}
+		content, done := target.CompleteWithStreaming(ctx, systemPrompt, userPrompt, enableThinking)
+		return content, nil, done
+	})
+	return content, thoughts, done
 }
 
-// CompleteWithStreaming makes a scheduled streaming LLM call.
-// The API slot is held for the duration of the stream and released when the stream ends.
-func (c *ScheduledLLMCall) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
-	contentChan := make(chan string, 100)
-	errorChan := make(chan error, 1)
-
-	// Acquire slot (blocks until available)
-	if err := c.Scheduler.AcquireAPISlot(ctx, c.ShardID); err != nil {
-		close(contentChan)
-		errorChan <- fmt.Errorf("failed to acquire API slot: %w", err)
-		close(errorChan)
-		return contentChan, errorChan
+// stream routes, acquires a slot, starts the underlying stream and relays it
+// into w, releasing the slot and logging only once the underlying terminal
+// result is in.
+func (c *ScheduledLLMCall) stream(ctx context.Context, w *types.StreamWriter, systemPrompt, userPrompt string,
+	start func(context.Context, LLMClient) (<-chan string, <-chan string, <-chan types.StreamResult)) {
+	if c.Scheduler == nil {
+		w.Fail(fmt.Errorf("scheduler not configured on ScheduledLLMCall"))
+		return
 	}
-
-	streamer, ok := c.Client.(llmStreamingChannels)
-	if !ok {
-		c.Scheduler.ReleaseAPISlot(c.ShardID)
-		close(contentChan)
-		errorChan <- ErrStreamingNotSupported
-		close(errorChan)
-		return contentChan, errorChan
+	if c.Client == nil {
+		w.Fail(fmt.Errorf("underlying LLM client is nil"))
+		return
+	}
+	target, routeErr := c.clientFor(ctx)
+	if routeErr != nil {
+		w.Fail(routeErr)
+		return
+	}
+	if err := c.Scheduler.AcquireAPISlot(ctx, c.ShardID); err != nil {
+		w.Fail(fmt.Errorf("failed to acquire API slot: %w", err))
+		return
 	}
 
 	// LLM I/O tracing: log the full prompt package before the call
-	model := c.GetModel()
-	logging.LogLLMRequest(c.ShardID, systemPrompt, userPrompt, nil, model, 0)
-
-	start := time.Now()
-	underContent, underErr := streamer.CompleteWithStreaming(ctx, systemPrompt, userPrompt, enableThinking)
+	logging.LogLLMRequest(c.ShardID, systemPrompt, userPrompt, nil, c.GetModel(), 0)
+	began := time.Now()
+	content, thoughts, done := start(ctx, target)
 
 	go func() {
-		defer c.Scheduler.ReleaseAPISlot(c.ShardID)
-		defer close(contentChan)
-		defer close(errorChan)
-
-		// Nil channels block forever on receive in Go. Treat them as immediately closed.
-		contentClosed := underContent == nil
-		errClosed := underErr == nil
-		var firstErr error
-		var fullResponse string
-
-		for !(contentClosed && errClosed) {
-			select {
-			case <-ctx.Done():
-				if firstErr == nil {
-					firstErr = ctx.Err()
-				}
-				// Context cancelled — stop forwarding immediately.
-				// The upstream goroutine is responsible for its own cleanup.
-				contentClosed = true
-				errClosed = true
-			case chunk, ok := <-underContent:
-				if !ok {
-					contentClosed = true
-					continue
-				}
-				select {
-				case contentChan <- chunk:
-					fullResponse += chunk
-				case <-ctx.Done():
-					if firstErr == nil {
-						firstErr = ctx.Err()
-					}
-					contentClosed = true
-					errClosed = true
-				}
-			case err, ok := <-underErr:
-				if !ok {
-					errClosed = true
-					continue
-				}
-				if err != nil && firstErr == nil {
-					firstErr = err
-				}
+		released := false
+		release := func() {
+			if !released {
+				released = true
+				c.Scheduler.ReleaseAPISlot(c.ShardID)
 			}
 		}
-
-		duration := time.Since(start)
-		if firstErr != nil {
-			logging.LogLLMError(c.ShardID, firstErr, duration)
-			errorChan <- firstErr
+		defer release()
+		defer w.Close()
+		var full strings.Builder
+		res, _ := types.RelayStream(ctx, w, types.CaptureStream(content, &full), thoughts, done)
+		duration := time.Since(began)
+		if res.Err != nil {
+			logging.LogLLMError(c.ShardID, res.Err, duration)
 		} else {
-			logging.LogLLMResponse(c.ShardID, fullResponse, duration, len(fullResponse)/4)
+			logging.LogLLMResponse(c.ShardID, full.String(), duration, len(full.String())/4)
 		}
+		// The slot is free before the terminal is published, so a caller
+		// that has read the terminal can start its next call at once.
+		release()
+		w.Finish(res)
 	}()
-
-	return contentChan, errorChan
-}
-
-// CompleteWithStreamingAndThoughts makes a scheduled streaming LLM call
-// and forwards the model's thinking trace on a separate channel. If the
-// underlying client doesn't implement LLMStreamingWithThoughts, falls
-// back transparently to CompleteWithStreaming with an already-closed
-// (empty) thoughts channel — so callers can use the same code path
-// regardless of which provider is configured.
-//
-// The API slot is held for the lifetime of the stream and released when
-// it ends (either both content+thoughts close or the error channel
-// receives).
-func (c *ScheduledLLMCall) CompleteWithStreamingAndThoughts(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan string, <-chan error) {
-	contentChan := make(chan string, 100)
-	thoughtsChan := make(chan string, 100)
-	errorChan := make(chan error, 1)
-
-	// Acquire slot before starting (releases below in deferred close goroutine).
-	if err := c.Scheduler.AcquireAPISlot(ctx, c.ShardID); err != nil {
-		close(contentChan)
-		close(thoughtsChan)
-		errorChan <- fmt.Errorf("failed to acquire API slot: %w", err)
-		close(errorChan)
-		return contentChan, thoughtsChan, errorChan
-	}
-
-	thoughtsStreamer, supportsThoughts := c.Client.(LLMStreamingWithThoughts)
-	streamer, supportsStreaming := c.Client.(llmStreamingChannels)
-	if !supportsThoughts && !supportsStreaming {
-		c.Scheduler.ReleaseAPISlot(c.ShardID)
-		close(contentChan)
-		close(thoughtsChan)
-		errorChan <- ErrStreamingNotSupported
-		close(errorChan)
-		return contentChan, thoughtsChan, errorChan
-	}
-
-	model := c.GetModel()
-	logging.LogLLMRequest(c.ShardID, systemPrompt, userPrompt, nil, model, 0)
-
-	start := time.Now()
-
-	// Resolve underlying channels: either native 3-channel from a
-	// thoughts-capable client, or a 2-channel stream with an
-	// immediately-closed thoughts side.
-	var underContent, underThoughts <-chan string
-	var underErr <-chan error
-	if supportsThoughts {
-		underContent, underThoughts, underErr = thoughtsStreamer.CompleteWithStreamingAndThoughts(ctx, systemPrompt, userPrompt, enableThinking)
-	} else {
-		underContent, underErr = streamer.CompleteWithStreaming(ctx, systemPrompt, userPrompt, enableThinking)
-		closedThoughts := make(chan string)
-		close(closedThoughts)
-		underThoughts = closedThoughts
-	}
-
-	go func() {
-		defer c.Scheduler.ReleaseAPISlot(c.ShardID)
-		defer close(contentChan)
-		defer close(thoughtsChan)
-		defer close(errorChan)
-
-		contentClosed := underContent == nil
-		thoughtsClosed := underThoughts == nil
-		errClosed := underErr == nil
-		var firstErr error
-		var fullResponse string
-
-		for !(contentClosed && thoughtsClosed && errClosed) {
-			select {
-			case <-ctx.Done():
-				if firstErr == nil {
-					firstErr = ctx.Err()
-				}
-				contentClosed = true
-				thoughtsClosed = true
-				errClosed = true
-			case chunk, ok := <-underContent:
-				if !ok {
-					contentClosed = true
-					continue
-				}
-				select {
-				case contentChan <- chunk:
-					fullResponse += chunk
-				case <-ctx.Done():
-					if firstErr == nil {
-						firstErr = ctx.Err()
-					}
-					contentClosed = true
-					thoughtsClosed = true
-					errClosed = true
-				}
-			case chunk, ok := <-underThoughts:
-				if !ok {
-					thoughtsClosed = true
-					continue
-				}
-				select {
-				case thoughtsChan <- chunk:
-				case <-ctx.Done():
-					if firstErr == nil {
-						firstErr = ctx.Err()
-					}
-					contentClosed = true
-					thoughtsClosed = true
-					errClosed = true
-				}
-			case err, ok := <-underErr:
-				if !ok {
-					errClosed = true
-					continue
-				}
-				if err != nil && firstErr == nil {
-					firstErr = err
-				}
-			}
-		}
-
-		duration := time.Since(start)
-		if firstErr != nil {
-			logging.LogLLMError(c.ShardID, firstErr, duration)
-			errorChan <- firstErr
-		} else {
-			logging.LogLLMResponse(c.ShardID, fullResponse, duration, len(fullResponse)/4)
-		}
-	}()
-
-	return contentChan, thoughtsChan, errorChan
 }
 
 // CompleteWithRetry makes an LLM call with retries and cooperative scheduling.

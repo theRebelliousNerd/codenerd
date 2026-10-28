@@ -196,8 +196,7 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 			return "", fmt.Errorf("no completion returned")
 		}
 
-		trackUsageDetailed(ctx, c.model, ProviderOpenRouter,
-			orResp.Usage.PromptTokens, orResp.Usage.CompletionTokens, orResp.Usage.PromptTokensDetails.CachedTokens, 0, usageOpChat)
+		reportUsage(ctx, c.model, ProviderOpenRouter, usageOpChat, orResp.Usage.metadata())
 
 		response := strings.TrimSpace(orResp.Choices[0].Message.Content)
 		if finish := orResp.Choices[0].FinishReason; types.LengthStop(finish) {
@@ -214,15 +213,13 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 
 // CompleteWithStreaming sends a prompt with streaming enabled.
 // Returns channels of incremental content deltas.
-func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan error) {
-	contentChan := make(chan string, 100)
-	errorChan := make(chan error, 1)
+func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	w, contentChan, doneChan := types.NewStream()
 
 	logging.PerceptionDebug("[OpenRouter] CompleteWithStreaming: starting streaming model=%s", c.model)
 
 	go func() {
-		defer close(contentChan)
-		defer close(errorChan)
+		defer w.Close()
 
 		// Auto-apply timeout if context has no deadline (centralized timeout handling)
 		if _, hasDeadline := ctx.Deadline(); !hasDeadline {
@@ -235,7 +232,7 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 
 		if c.apiKey == "" {
 			logging.PerceptionError("[OpenRouter] CompleteWithStreaming: API key not configured")
-			errorChan <- fmt.Errorf("API key not configured")
+			w.Fail(fmt.Errorf("API key not configured"))
 			return
 		}
 
@@ -280,7 +277,7 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 				backoff := llmRetryBackoff(attempt)
 				select {
 				case <-ctx.Done():
-					errorChan <- fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())
+					w.Fail(fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err()))
 					return
 				case <-time.After(backoff):
 				}
@@ -288,13 +285,13 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 
 			jsonData, err := json.Marshal(reqBody)
 			if err != nil {
-				errorChan <- fmt.Errorf("failed to marshal request: %w", err)
+				w.Fail(fmt.Errorf("failed to marshal request: %w", err))
 				return
 			}
 
 			req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(jsonData))
 			if err != nil {
-				errorChan <- fmt.Errorf("failed to create request: %w", err)
+				w.Fail(fmt.Errorf("failed to create request: %w", err))
 				return
 			}
 
@@ -338,94 +335,23 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 					}
 				}
 
-				errorChan <- fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+				w.Fail(fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body)))
 				return
 			}
 
 			defer resp.Body.Close()
-
-			scanner, releaseScanner := newPooledScanner(resp.Body, 1024*1024)
-			defer releaseScanner()
-
-			scanDone := make(chan struct{})
-			scanErrChan := make(chan error, 1)
-
-			// include_usage makes OpenRouter send a trailing chunk with the
-			// final billed counts and no choices; recorded once after the
-			// stream ends rather than per delta.
-			var billed struct{ input, output, cached int }
-
-			go func() {
-				defer close(scanDone)
-				for scanner.Scan() {
-					line := scanner.Text()
-					if !strings.HasPrefix(line, "data:") {
-						continue
-					}
-					data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-					if data == "" {
-						continue
-					}
-					if data == "[DONE]" {
-						return
-					}
-
-					var chunk OpenRouterResponse
-					if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-						continue
-					}
-					if chunk.Error != nil {
-						scanErrChan <- fmt.Errorf("API error: %s", chunk.Error.Message)
-						return
-					}
-					if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
-						billed.input = chunk.Usage.PromptTokens
-						billed.output = chunk.Usage.CompletionTokens
-						billed.cached = chunk.Usage.PromptTokensDetails.CachedTokens
-					}
-					if len(chunk.Choices) > 0 && chunk.Choices[0].Delta != nil {
-						delta := chunk.Choices[0].Delta.Content
-						if delta != "" {
-							select {
-							case contentChan <- delta:
-							case <-ctx.Done():
-								return
-							}
-						}
-					}
-				}
-				if err := scanner.Err(); err != nil {
-					scanErrChan <- err
-				}
-			}()
-
-			defer func() {
-				trackUsageDetailed(ctx, c.model, ProviderOpenRouter, billed.input, billed.output, billed.cached, 0, usageOpChat)
-			}()
-
-			select {
-			case <-scanDone:
-				select {
-				case err := <-scanErrChan:
-					logging.PerceptionError("[OpenRouter] CompleteWithStreaming: stream error after %v: %v", time.Since(startTime), err)
-					errorChan <- fmt.Errorf("stream error: %w", err)
-				default:
-					logging.Perception("[OpenRouter] CompleteWithStreaming: completed in %v", time.Since(startTime))
-				}
-			case <-ctx.Done():
-				resp.Body.Close()
-				<-scanDone
-				logging.PerceptionWarn("[OpenRouter] CompleteWithStreaming: cancelled after %v", time.Since(startTime))
-				errorChan <- ctx.Err()
-			}
+			res := readChatStream(ctx, resp.Body, chatStreamProfile{provider: ProviderOpenRouter, model: c.model, limit: c.maxOutputTokens}, w)
+			reportUsage(ctx, c.model, ProviderOpenRouter, usageOpChat, res.Usage)
+			logStreamEnd("OpenRouter", startTime, res)
+			w.Finish(res)
 			return
 		}
 
 		logging.PerceptionError("[OpenRouter] CompleteWithStreaming: max retries exceeded after %v: %v", time.Since(startTime), lastErr)
-		errorChan <- fmt.Errorf("max retries exceeded: %w", lastErr)
+		w.Fail(fmt.Errorf("max retries exceeded: %w", lastErr))
 	}()
 
-	return contentChan, errorChan
+	return contentChan, doneChan
 }
 
 // SetModel changes the model used for completions.
@@ -457,8 +383,7 @@ func (c *OpenRouterClient) CompleteWithTools(ctx context.Context, systemPrompt, 
 	if err != nil {
 		return nil, err
 	}
-	trackUsageDetailed(ctx, c.model, ProviderOpenRouter,
-		resp.Usage.PromptTokens, resp.Usage.CompletionTokens, resp.Usage.PromptTokensDetails.CachedTokens, 0, usageOpFor(len(tools)))
+	reportUsage(ctx, c.model, ProviderOpenRouter, usageOpFor(len(tools)), resp.Usage.metadata())
 	return c.toToolResponse(resp, "CompleteWithTools")
 }
 
@@ -487,8 +412,7 @@ func (c *OpenRouterClient) CompleteWithToolResults(ctx context.Context, systemPr
 	if err != nil {
 		return nil, err
 	}
-	trackUsageDetailed(ctx, c.model, ProviderOpenRouter,
-		resp.Usage.PromptTokens, resp.Usage.CompletionTokens, resp.Usage.PromptTokensDetails.CachedTokens, 0, usageOpFor(len(tools)))
+	reportUsage(ctx, c.model, ProviderOpenRouter, usageOpFor(len(tools)), resp.Usage.metadata())
 	return c.toToolResponse(resp, "CompleteWithToolResults")
 }
 
@@ -521,11 +445,7 @@ func (c *OpenRouterClient) toToolResponse(resp *OpenAIResponse, op string) (*LLM
 		Text:       choice.Message.Content,
 		ToolCalls:  toolCalls,
 		StopReason: stopReason,
-		Usage: types.UsageMetadata{
-			InputTokens:  resp.Usage.PromptTokens,
-			OutputTokens: resp.Usage.CompletionTokens,
-			TotalTokens:  resp.Usage.TotalTokens,
-		},
+		Usage:      resp.Usage.metadata(),
 	}, nil
 }
 

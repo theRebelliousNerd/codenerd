@@ -21,7 +21,7 @@ func (c *identityStubClient) CompleteWithSystem(_ context.Context, _, _ string) 
 	return "", nil
 }
 
-func (c *identityStubClient) CompleteWithStreaming(_ context.Context, _, _ string, _ bool) (<-chan string, <-chan error) {
+func (c *identityStubClient) CompleteWithStreaming(_ context.Context, _, _ string, _ bool) (<-chan string, <-chan types.StreamResult) {
 	return nil, nil
 }
 
@@ -47,7 +47,7 @@ func (d *unwrapOnlyDecorator) CompleteWithSystem(ctx context.Context, systemProm
 	return d.inner.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 }
 
-func (d *unwrapOnlyDecorator) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+func (d *unwrapOnlyDecorator) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
 	return d.inner.CompleteWithStreaming(ctx, systemPrompt, userPrompt, enableThinking)
 }
 
@@ -75,7 +75,7 @@ func (d *identifyingDecorator) CompleteWithSystem(ctx context.Context, systemPro
 	return d.inner.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 }
 
-func (d *identifyingDecorator) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+func (d *identifyingDecorator) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
 	return d.inner.CompleteWithStreaming(ctx, systemPrompt, userPrompt, enableThinking)
 }
 
@@ -102,7 +102,7 @@ func (c *plainStubClient) CompleteWithSystem(_ context.Context, _, _ string) (st
 	return "", nil
 }
 
-func (c *plainStubClient) CompleteWithStreaming(_ context.Context, _, _ string, _ bool) (<-chan string, <-chan error) {
+func (c *plainStubClient) CompleteWithStreaming(_ context.Context, _, _ string, _ bool) (<-chan string, <-chan types.StreamResult) {
 	return nil, nil
 }
 

@@ -34,14 +34,9 @@ func (c *tierClient) CompleteWithSystem(context.Context, string, string) (string
 	return c.plan, nil
 }
 
-func (c *tierClient) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan error) {
+func (c *tierClient) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan types.StreamResult) {
 	c.calls.Add(1)
-	text := make(chan string)
-	errs := make(chan error, 1)
-	close(text)
-	errs <- errors.New("tierClient does not stream")
-	close(errs)
-	return text, errs
+	return types.FailedStream(errors.New("tierClient does not stream"))
 }
 
 func (c *tierClient) CompleteWithTools(context.Context, string, string, []types.ToolDefinition) (*types.LLMToolResponse, error) {

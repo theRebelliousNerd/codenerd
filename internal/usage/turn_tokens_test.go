@@ -1,6 +1,7 @@
 package usage
 
 import (
+	"codenerd/internal/types"
 	"context"
 	"testing"
 )
@@ -17,9 +18,9 @@ func TestTurnTokens_IsolatesConcurrentTurnsInOneSession(t *testing.T) {
 	a := WithTurnID(base, "s1#1#a")
 	b := WithTurnID(base, "s1#1#b")
 
-	tr.Track(a, "m", "meta", 100, 10, "chat")
-	tr.Track(b, "m", "meta", 5000, 500, "chat")
-	tr.Track(a, "m", "meta", 50, 5, "chat")
+	tr.Record(a, Report{Model: "m", Provider: "meta", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 100, OutputTokens: 10}})
+	tr.Record(b, Report{Model: "m", Provider: "meta", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 5000, OutputTokens: 500}})
+	tr.Record(a, Report{Model: "m", Provider: "meta", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 50, OutputTokens: 5}})
 
 	if got := tr.TurnTokens("s1#1#a"); got.Input != 150 || got.Output != 15 {
 		t.Fatalf("turn a = %+v, want input 150 output 15", got)
@@ -45,7 +46,7 @@ func TestTurnTokens_BoundedAndNotPersisted(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < maxTurns+50; i++ {
-		tr.Track(WithTurnID(context.Background(), "t"+string(rune('a'+i%26))+string(rune('0'+i%10))+string(rune('A'+(i/260)%26))+string(rune('0'+(i/26)%10))), "m", "meta", 1, 1, "chat")
+		tr.Record(WithTurnID(context.Background(), "t"+string(rune('a'+i%26))+string(rune('0'+i%10))+string(rune('A'+(i/260)%26))+string(rune('0'+(i/26)%10))), Report{Model: "m", Provider: "meta", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 1, OutputTokens: 1}})
 	}
 	if n := len(tr.turns); n > maxTurns {
 		t.Fatalf("turn map must be bounded to %d, has %d", maxTurns, n)

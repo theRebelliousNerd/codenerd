@@ -1,6 +1,7 @@
 package perception
 
 import (
+	"codenerd/internal/types"
 	"context"
 	"errors"
 	"fmt"
@@ -14,29 +15,25 @@ import (
 
 // drainZAIStream collects a CompleteWithStreaming result the way consumers do:
 // all chunks, then the terminal error (nil means clean completion).
-func drainZAIStream(t *testing.T, content <-chan string, errCh <-chan error) (string, error) {
+func drainZAIStream(t *testing.T, content <-chan string, done <-chan types.StreamResult) (string, error) {
 	t.Helper()
-	var sb strings.Builder
-	for chunk := range content {
-		sb.WriteString(chunk)
-	}
-	if err, ok := <-errCh; ok {
-		return sb.String(), err
-	}
-	return sb.String(), nil
+	text, res := types.CollectStream(context.Background(), content, done, nil)
+	return text, res.Err
 }
 
 func zaiSSEChunk(content string) string {
 	return fmt.Sprintf("data: {\"choices\":[{\"delta\":{\"content\":%q}}]}\n\n", content)
 }
 
-// Happy path: SSE deltas concatenate in order, a malformed chunk is skipped,
-// [DONE] ends the stream, and both channels close with no error.
+// zaiSSEStop is the finish chunk that is the protocol's terminal evidence.
+const zaiSSEStop = "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
+
+// Happy path: SSE deltas concatenate in order, the finish chunk completes the
+// answer, [DONE] ends the stream, and the terminal result carries no error.
 func TestZAIStreaming_HappyPathConcatenates(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = w.Write([]byte(zaiSSEChunk("Hello, ") + "data: {broken json\n\n" +
-			zaiSSEChunk("world!") + "data: [DONE]\n\n"))
+		_, _ = w.Write([]byte(zaiSSEChunk("Hello, ") + zaiSSEChunk("world!") + zaiSSEStop + "data: [DONE]\n\n"))
 	}))
 	defer srv.Close()
 
@@ -52,6 +49,25 @@ func TestZAIStreaming_HappyPathConcatenates(t *testing.T) {
 	}
 }
 
+// A malformed event between valid deltas used to be skipped, returning a
+// fluent answer with a hole in it. It is a protocol failure now.
+func TestZAIStreaming_MalformedEventIsProtocolFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(zaiSSEChunk("Hello, ") + "data: {broken json\n\n" +
+			zaiSSEChunk("world!") + zaiSSEStop + "data: [DONE]\n\n"))
+	}))
+	defer srv.Close()
+
+	c := NewZAIClient("test-key")
+	c.baseURL = srv.URL
+	cc, ec := c.CompleteWithStreaming(context.Background(), "", "hi", false)
+	_, err := drainZAIStream(t, cc, ec)
+	if got := types.StreamOutcomeOf(err); got != types.StreamProtocolFailed {
+		t.Fatalf("outcome = %s (%v), want protocol_failed", got, err)
+	}
+}
+
 // A 429 with Retry-After is honored and the stream resumes on the next
 // attempt instead of failing the turn.
 func TestZAIStreaming_Retries429ThenStreams(t *testing.T) {
@@ -63,7 +79,7 @@ func TestZAIStreaming_Retries429ThenStreams(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = w.Write([]byte(zaiSSEChunk("recovered") + "data: [DONE]\n\n"))
+		_, _ = w.Write([]byte(zaiSSEChunk("recovered") + zaiSSEStop + "data: [DONE]\n\n"))
 	}))
 	defer srv.Close()
 
@@ -140,8 +156,8 @@ func TestZAIStreaming_CancelMidStream(t *testing.T) {
 		if chunk != "partial" {
 			t.Fatalf("first chunk = %q, want partial", chunk)
 		}
-	case err := <-errCh:
-		t.Fatalf("stream failed before first chunk: %v", err)
+	case res := <-errCh:
+		t.Fatalf("stream failed before first chunk: %v", res.Err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for the first chunk")
 	}

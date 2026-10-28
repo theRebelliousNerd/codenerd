@@ -205,11 +205,7 @@ func OpenAIToolResponseFromResponse(resp *OpenAIResponse) (*LLMToolResponse, err
 		Text:       c.Message.Content,
 		ToolCalls:  toolCalls,
 		StopReason: stopReason,
-		Usage: types.UsageMetadata{
-			InputTokens:  resp.Usage.PromptTokens,
-			OutputTokens: resp.Usage.CompletionTokens,
-			TotalTokens:  resp.Usage.TotalTokens,
-		},
+		Usage:      resp.Usage.metadata(),
 	}, nil
 }
 

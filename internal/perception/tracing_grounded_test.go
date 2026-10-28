@@ -29,12 +29,8 @@ func (m *groundedMock) Complete(ctx context.Context, prompt string) (string, err
 func (m *groundedMock) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	return "ok", nil
 }
-func (m *groundedMock) CompleteWithStreaming(_ context.Context, _, _ string, _ bool) (<-chan string, <-chan error) {
-	ch := make(chan string)
-	close(ch)
-	errCh := make(chan error)
-	close(errCh)
-	return ch, errCh
+func (m *groundedMock) CompleteWithStreaming(_ context.Context, _, _ string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	return types.FailedStream(errors.New("streaming is not used by this fake"))
 }
 func (m *groundedMock) CompleteWithTools(_ context.Context, _, _ string, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	return &types.LLMToolResponse{Text: "ok"}, nil

@@ -82,11 +82,7 @@ func anthropicSurfaces() []anthropicSurface {
 			for range content {
 			}
 			var last error
-			for err := range errs {
-				if err != nil {
-					last = err
-				}
-			}
+			last = types.AwaitStreamResult(context.Background(), errs).Err
 			return last
 		}},
 		{"schema", func(ctx context.Context, c LLMClient, system, user string) error {
@@ -328,11 +324,7 @@ func TestMetaInputWindow_RefusesOverCapRequestsBeforeSending(t *testing.T) {
 			for range content {
 			}
 			var last error
-			for err := range errs {
-				if err != nil {
-					last = err
-				}
-			}
+			last = types.AwaitStreamResult(context.Background(), errs).Err
 			return last
 		}},
 		{"grounded search", func(ctx context.Context, c *OpenAICompatClient, user string) error {

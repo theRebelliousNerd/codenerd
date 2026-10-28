@@ -1,6 +1,7 @@
 package usage
 
 import (
+	"codenerd/internal/types"
 	"context"
 	"testing"
 )
@@ -30,7 +31,7 @@ func TestTracker_Track_WhenNonStringContextValues_ShouldNotPanic(t *testing.T) {
 	ctx = context.WithValue(ctx, "session_id", struct{}{}) // struct, not string
 
 	// Before the fix this panicked on the first unchecked val.(string).
-	tracker.Track(ctx, "gpt-4", "openai", 10, 5, "chat")
+	tracker.Record(ctx, Report{Model: "gpt-4", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
 
 	stats := tracker.Stats()
 	if stats.ByShardType["unknown"].Total != 15 {
@@ -83,7 +84,7 @@ func TestWithShardContext(t *testing.T) {
 func TestTrackFromContext(t *testing.T) {
 	// 1. Context without a tracker: should be a no-op, shouldn't panic.
 	ctx := context.Background()
-	TrackFromContext(ctx, "gpt-4", "openai", 10, 20, "chat")
+	RecordFromContext(ctx, Report{Model: "gpt-4", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 20}})
 
 	// 2. Context with a tracker: should record the usage.
 	tracker, err := NewTracker(t.TempDir())
@@ -92,7 +93,7 @@ func TestTrackFromContext(t *testing.T) {
 	}
 
 	ctxWithTracker := NewContext(ctx, tracker)
-	TrackFromContext(ctxWithTracker, "gpt-4", "openai", 10, 20, "chat")
+	RecordFromContext(ctxWithTracker, Report{Model: "gpt-4", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 20}})
 
 	stats := tracker.Stats()
 	if stats.TotalProject.Input != 10 {
@@ -116,8 +117,8 @@ func TestCredentialUsagePersistsAndMergesAcrossWriters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first.Track(WithCredentialAlias(context.Background(), "anthropic/alpha"), "model", "anthropic", 3, 2, "chat")
-	second.Track(WithCredentialAlias(context.Background(), "anthropic/beta"), "model", "anthropic", 4, 1, "chat")
+	first.Record(WithCredentialAlias(context.Background(), "anthropic/alpha"), Report{Model: "model", Provider: "anthropic", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 3, OutputTokens: 2}})
+	second.Record(WithCredentialAlias(context.Background(), "anthropic/beta"), Report{Model: "model", Provider: "anthropic", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 4, OutputTokens: 1}})
 	if err := first.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +147,7 @@ func TestTrackDetailedFromContext_CacheSubCounts(t *testing.T) {
 	ctx = WithSessionID(ctx, "session-42")
 	// 1000 input of which 600 cache-read and 100 cache-write, 100 output,
 	// on claude-opus-5-5 (input 4.00, output 20.00, read 0.40, write 5.00).
-	TrackDetailedFromContext(ctx, "anthropic/claude-opus-5-5", "anthropic", 1000, 100, 600, 100, "chat")
+	RecordFromContext(ctx, Report{Model: "anthropic/claude-opus-5-5", Provider: "anthropic", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 1000, OutputTokens: 100, CachedContentTokens: 600, CacheWriteTokens: 100}})
 
 	stats := tracker.Stats()
 	tot := stats.TotalProject

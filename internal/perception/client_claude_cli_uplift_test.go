@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"codenerd/internal/config"
+	"codenerd/internal/types"
 )
 
 func claudeTestClient() *ClaudeCodeCLIClient {
@@ -173,24 +174,34 @@ func TestClaudeCLI_RateLimitErrorWithoutFallback(t *testing.T) {
 	}
 }
 
-// A single stream line larger than bufio's 64KB default must still parse:
-// the pooled 1MB scanner matches every other stream parser here.
-func TestClaudeCLI_StreamingLongLine(t *testing.T) {
+// CompleteWithStreaming publishes the CLI's validated result as one chunk
+// followed by a complete terminal. A result far larger than bufio's 64KB
+// default line must arrive whole.
+func TestClaudeCLI_StreamingLongResult(t *testing.T) {
 	dir := installFakeCLI(t, "claude")
 	t.Setenv("PATH", prependPath(dir, os.Getenv("PATH")))
-	t.Setenv("CLAUDE_TEST_MODE", "stream_long")
+	t.Setenv("CLAUDE_TEST_PAYLOAD", `{"type":"result","subtype":"success","is_error":false,"result":"`+strings.Repeat("A", 102400)+`"}`)
 
-	var sb strings.Builder
-	err := claudeTestClient().CompleteStreaming(context.Background(), "sys", "user", func(chunk StreamChunk) error {
-		sb.WriteString(chunk.Text)
-		sb.WriteString(chunk.Content)
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("CompleteStreaming: %v", err)
+	content, done := claudeTestClient().CompleteWithStreaming(context.Background(), "sys", "user", false)
+	text, res := types.CollectStream(context.Background(), content, done, nil)
+	if res.Err != nil {
+		t.Fatalf("CompleteWithStreaming: %v", res.Err)
 	}
-	if sb.Len() != 102400 {
-		t.Errorf("streamed bytes = %d, want 102400", sb.Len())
+	if len(text) != 102400 {
+		t.Errorf("streamed bytes = %d, want 102400", len(text))
+	}
+}
+
+// A CLI that reports an error result must not stream as a completed answer.
+func TestClaudeCLI_StreamingErrorResultIsNotComplete(t *testing.T) {
+	dir := installFakeCLI(t, "claude")
+	t.Setenv("PATH", prependPath(dir, os.Getenv("PATH")))
+	t.Setenv("CLAUDE_TEST_PAYLOAD", `{"type":"result","subtype":"error_during_execution","is_error":true}`)
+
+	content, done := claudeTestClient().CompleteWithStreaming(context.Background(), "sys", "user", false)
+	text, res := types.CollectStream(context.Background(), content, done, nil)
+	if res.Err == nil || text != "" {
+		t.Fatalf("stream = %q, %v; want no content and an error", text, res.Err)
 	}
 }
 

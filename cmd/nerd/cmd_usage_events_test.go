@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"codenerd/internal/types"
 	"context"
 	"strings"
 	"testing"
@@ -19,7 +20,7 @@ func TestUsageEvents_ShouldListTheNewestCallsFromUsageJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, model := range []string{"model-one", "model-two", "model-three"} {
-		writer.Track(context.Background(), model, "acme", 100, 20, "chat")
+		writer.Record(context.Background(), usage.Report{Model: model, Provider: "acme", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 100, OutputTokens: 20}})
 	}
 	if err := writer.Close(); err != nil {
 		t.Fatalf("flush: %v", err)
