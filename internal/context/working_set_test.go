@@ -34,7 +34,7 @@ func TestWorkingSetEvictionRecallAndRevision(t *testing.T) {
 		require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: fmt.Sprint(i), Entity: entity, Revision: w.Revision(entity), Kind: fmt.Sprint(i), Step: int64(i), Body: body}))
 		entries = append(entries, LedgerEntry{Call: fmt.Sprintf("call-%d", i), ID: fmt.Sprint(i), Bytes: len(body), Round: i + 1})
 	}
-	decision, err := w.Ledger(t.Context(), entries, 120, nil, nil, nil)
+	decision, err := w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 120})
 	require.NoError(t, err)
 	require.Contains(t, decision.Evict, "call-0", "the first round's result leaves a ledger far over its ceiling")
 	// The first save is handle "1". The storage id "0" is not a handle.

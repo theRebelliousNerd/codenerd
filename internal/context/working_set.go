@@ -2,13 +2,9 @@ package context
 
 import (
 	"context"
-	"crypto/sha256"
 	_ "embed"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,7 +14,6 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/mangle"
 	"codenerd/internal/tools"
-	"codenerd/internal/world/codemodel"
 )
 
 //go:embed working_set.mg
@@ -148,98 +143,35 @@ func (w *WorkingSet) Entity(ctx context.Context, id string) (string, error) {
 	return records[0].Entity, nil
 }
 
-// elementSeparator joins a file and an element key in an element entity. A key
-// may hold "#" ("init#2") and ":" ("rule:pred/2@3fa2c1"); a workspace-relative
-// path holds neither "::" nor a key.
-const elementSeparator = "::"
-
-const (
-	workingRevisionUnavailable = "unavailable"
-	workingRevisionAbsent      = "absent"
-	workingRevisionNonFile     = "nonfile"
-)
-
-// ElementEntity is the working-set entity of one element of a file: its
-// observations are dated by the element's own bytes, not the file's.
-func ElementEntity(file, key string) string { return file + elementSeparator + key }
-
-// EntityFile is the file an entity is in: the entity itself for a file, the
-// file part of an element entity.
-func EntityFile(entity string) string {
-	file, _, _ := strings.Cut(entity, elementSeparator)
-	return file
-}
-
-// sameWorkingRevision says whether a saved observation can be identified with
-// the source as it exists now. "absent" and "unavailable" are lookup
-// outcomes, not content identities: equal sentinel values cannot prove that
-// historical bytes are current. "nonfile" is different: it explicitly
-// records an observation without a source file and remains stable for that
-// entity.
-func sameWorkingRevision(saved, current string) bool {
-	if saved != current {
-		return false
-	}
-	switch saved {
-	case workingRevisionAbsent, workingRevisionUnavailable:
-		return false
-	default:
-		return true
-	}
-}
-
-// Revision is content identity, not HEAD: uncommitted edits invalidate views.
-//
-// A file entity is the hash of the whole file. An element entity
-// (ElementEntity) is the element's own revision -- its bytes, doc comment
-// included (codemodel.Revision) -- so an edit elsewhere in the file leaves the
-// observations of the element current; "absent" once the file no longer has
-// it. With whole-file revisions every edit staled every observation of every
-// function in the file: measured on one campaign (2026-09-22), one file read
-// 34 times and 21 of 45 Go reads re-reads.
-func (w *WorkingSet) Revision(entity string) string {
-	if entity == "" {
-		return workingRevisionNonFile
-	}
-	file, key, element := strings.Cut(entity, elementSeparator)
-	path, err := tools.ResolveWorkspacePath(context.Background(), w.root, file)
-	if err != nil {
-		return workingRevisionUnavailable
-	}
-	if element {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return workingRevisionUnavailable
-		}
-		model, ok := codemodel.Parse(file, string(data))
-		if !ok {
-			return workingRevisionUnavailable
-		}
-		for i := range model.Elements {
-			if model.Elements[i].Key == key {
-				return model.Elements[i].Revision
-			}
-		}
-		return workingRevisionAbsent
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return workingRevisionUnavailable
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return workingRevisionUnavailable
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
-
 // LedgerEntry is one tool result a working request carries whole.
 type LedgerEntry struct {
 	Call  string // the tool call it answers
 	ID    string // the observation it holds
 	Bytes int    // its rendered size, with any harness text appended to it
 	Round int    // the round it entered
+}
+
+// LedgerRound is what the harness measured for the round being prepared.
+type LedgerRound struct {
+	// Entries are the results the request carries whole, in arrival order:
+	// every Call once, no negative Bytes, and Round never decreasing along
+	// the slice (the policy's shed order reads arrival order as round order
+	// within a rank; Ledger refuses a ledger that breaks it).
+	Entries []LedgerEntry
+	// Round is the latest round in the ledger.
+	Round int
+	// Restated maps an observation to the revision it was last restated at.
+	Restated map[string]string
+	// Hot are the files whose live observations are shed last (working_hot):
+	// the loop's focus and the files it has written.
+	Hot []string
+	// Recalled are storage ids a recall_context this loop resolved; while that
+	// observation is still live the policy does not move it out again
+	// (working_recall_held).
+	Recalled []string
+	// Observe are entities beyond the ledger's own whose revision the harness
+	// needs in the same observation epoch (the focus).
+	Observe []string
 }
 
 // LedgerDecision is the working policy's answer for the round being prepared.
@@ -252,33 +184,56 @@ type LedgerDecision struct {
 	// they were made, and that have not been restated at its current revision
 	// (working_restate).
 	Restate []string
+	// Revisions is the observation epoch the decision was made on: the
+	// current revision of every entity the ledger carries and of every
+	// LedgerRound.Observe entity. Bookkeeping that records "restated at" or
+	// "viewed at" binds to these, not to a later read the policy never saw.
+	Revisions map[string]string
+}
+
+// validate checks the host side of the shed order's contract
+// (working_shed_run in working_set.mg).
+func (r LedgerRound) validate() error {
+	seen := make(map[string]bool, len(r.Entries))
+	for i, e := range r.Entries {
+		if e.Call == "" || seen[e.Call] {
+			return fmt.Errorf("working ledger: entry %d: call %q is empty or carried twice", i, e.Call)
+		}
+		seen[e.Call] = true
+		if e.Bytes < 0 {
+			return fmt.Errorf("working ledger: entry %d (%s): negative size %d", i, e.Call, e.Bytes)
+		}
+		if i > 0 && e.Round < r.Entries[i-1].Round {
+			return fmt.Errorf("working ledger: entry %d (%s): round %d after round %d; entries must arrive in round order", i, e.Call, e.Round, r.Entries[i-1].Round)
+		}
+	}
+	return nil
 }
 
 // Ledger asks the working policy what this round's request does with its
 // ledger: whether it compacts and what goes, and which observations the
-// harness restates. round is the latest round in the ledger; restated maps an
-// observation to the revision it was last restated at. Go measures (sizes,
-// rounds, file revisions, which entities the task touched, which observations
-// a recall brought back); the policy decides.
-//
-// hot are the files whose live observations are shed last (working_hot): the
-// loop's focus and the files it has written. recalled are storage ids a
-// recall_context this loop resolved; while that observation is still live the
-// policy does not move it out again (working_recall_held).
-func (w *WorkingSet) Ledger(ctx context.Context, entries []LedgerEntry, round int, restated map[string]string, hot []string, recalled []string) (LedgerDecision, error) {
+// harness restates. Go measures (sizes, rounds, file revisions, which
+// entities the task touched, which observations a recall brought back); the
+// policy decides. Every revision is observed once, in one epoch (revisions),
+// and returned with the decision.
+func (w *WorkingSet) Ledger(ctx context.Context, in LedgerRound) (LedgerDecision, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return LedgerDecision{}, err
 	}
+	if err := in.validate(); err != nil {
+		return LedgerDecision{}, err
+	}
 	var facts []mangle.Fact
 	add := func(p string, args ...any) { facts = append(facts, mangle.Fact{Predicate: p, Args: args}) }
-	add("working_round_now", int64(round))
+	add("working_round_now", int64(in.Round))
 	var ids []string
 	seenID := map[string]bool{}
-	for i, e := range entries {
+	for i, e := range in.Entries {
 		add("working_ledger", e.Call, e.ID, int64(e.Bytes), int64(e.Round))
-		// Arrival order, not call-id order: the shed prefix's tie-break.
+		// Arrival order, not call-id order: the shed order's tie-break and its
+		// chain position, dense from 0.
 		add("working_ledger_seq", e.Call, int64(i))
 		if !seenID[e.ID] {
 			seenID[e.ID] = true
@@ -289,34 +244,44 @@ func (w *WorkingSet) Ledger(ctx context.Context, entries []LedgerEntry, round in
 	if err != nil {
 		return LedgerDecision{}, err
 	}
+	var entities []string
 	seenEntity := map[string]bool{}
+	for _, r := range records {
+		if !seenEntity[r.Entity] {
+			seenEntity[r.Entity] = true
+			entities = append(entities, r.Entity)
+		}
+	}
+	revisions := w.revisions(ctx, append(append([]string(nil), entities...), in.Observe...))
+	if err := ctx.Err(); err != nil {
+		return LedgerDecision{}, err
+	}
 	for _, r := range records {
 		add("working_observation", r.ID, r.Entity, r.Revision, r.Kind, r.Step)
 		add("working_digest", r.ID, r.Digest)
 		if r.End > 0 {
 			add("working_span", r.ID, r.Start, r.End)
 		}
-		if !seenEntity[r.Entity] {
-			seenEntity[r.Entity] = true
-			add("working_revision", r.Entity, w.Revision(r.Entity))
-			add("working_entity_file", r.Entity, EntityFile(r.Entity))
-			// The task touched this entity: it is a row of the ledger. Live
-			// is derived from that fact, not from the text of the result.
-			add("working_touch", r.Entity)
-		}
 	}
-	for id, revision := range restated {
+	for _, entity := range entities {
+		add("working_revision", entity, revisions[entity])
+		add("working_entity_file", entity, EntityFile(entity))
+		// The task touched this entity: it is a row of the ledger. Live is
+		// derived from that fact, not from the text of the result.
+		add("working_touch", entity)
+	}
+	for id, revision := range in.Restated {
 		add("working_restated", id, revision)
 	}
 	seenHot := map[string]bool{}
-	for _, file := range hot {
+	for _, file := range in.Hot {
 		if file != "" && !seenHot[file] {
 			seenHot[file] = true
 			add("working_hot", file)
 		}
 	}
 	seenRecall := map[string]bool{}
-	for _, id := range recalled {
+	for _, id := range in.Recalled {
 		if id != "" && !seenRecall[id] {
 			seenRecall[id] = true
 			add("working_recalled", id)
@@ -328,7 +293,7 @@ func (w *WorkingSet) Ledger(ctx context.Context, entries []LedgerEntry, round in
 	if err := w.engine.ReplaceControlFacts(facts, "working_round_now", "working_ledger", "working_ledger_seq", "working_observation", "working_digest", "working_span", "working_revision", "working_restated", "working_entity_file", "working_hot", "working_touch", "working_recalled"); err != nil {
 		return LedgerDecision{}, err
 	}
-	var decision LedgerDecision
+	decision := LedgerDecision{Revisions: revisions}
 	evict, err := w.engine.Query(ctx, "working_evict(Call)")
 	if err != nil {
 		return LedgerDecision{}, err

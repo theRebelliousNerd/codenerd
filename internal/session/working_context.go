@@ -760,7 +760,13 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 			extra = 0
 		}
 	}
-	decision, err := loop.set.Ledger(ctx, entries, round, loop.restated, loop.hotFiles(), loop.recalledIDs())
+	decision, err := loop.set.Ledger(ctx, working.LedgerRound{
+		Entries: entries, Round: round, Restated: loop.restated,
+		Hot: loop.hotFiles(), Recalled: loop.recalledIDs(),
+		// The focus view's revision comes from the same epoch the policy
+		// decided on, not from a second read of the file.
+		Observe: []string{loop.focus},
+	})
 	if err != nil {
 		return fmt.Errorf("working ledger: %w", err)
 	}
@@ -788,7 +794,7 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 		key = ledgerKey(n - 1)
 	}
 	var notes []string
-	if revision := loop.set.Revision(loop.focus); loop.focus+"@"+revision != loop.viewed {
+	if revision := decision.Revisions[loop.focus]; loop.focus+"@"+revision != loop.viewed {
 		if view := e.workingFocusView(ctx, loop); view != "" {
 			notes = append(notes, view)
 		}
@@ -807,7 +813,9 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 				return fmt.Errorf("working ledger: %w", err)
 			}
 			notes = append(notes, fmt.Sprintf(staleObservationNotice, handle, tool, r.Entity, r.Entity))
-			loop.restated[r.ID] = loop.set.Revision(r.Entity)
+			// The revision the policy judged it stale against: a write
+			// landing after the decision is the next round's to see.
+			loop.restated[r.ID] = decision.Revisions[r.Entity]
 		}
 	}
 	if len(notes) > 0 {
