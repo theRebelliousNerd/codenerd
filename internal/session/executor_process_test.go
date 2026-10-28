@@ -66,7 +66,8 @@ func TestExecutor_Process_NilJITCompilerUsesBaselinePrompt(t *testing.T) {
 		t.Helper()
 		for _, required := range []string{
 			"You are codeNERD, a logic-first coding agent",
-			"CONSTITUTIONAL PRIME DIRECTIVE",
+			"Constitutional prime directive",
+			"Default deny: an action whose safety cannot be determined is blocked",
 			"OUTPUT PROTOCOL: PIGGYBACK ENVELOPE",
 		} {
 			if !strings.Contains(system, required) {
@@ -248,7 +249,8 @@ func assertContainsMandatoryBaseline(t *testing.T, system string) {
 	t.Helper()
 	for _, required := range []string{
 		"You are codeNERD, a logic-first coding agent",
-		"CONSTITUTIONAL PRIME DIRECTIVE",
+		"Constitutional prime directive",
+		"Default deny: an action whose safety cannot be determined is blocked",
 		"OUTPUT PROTOCOL: PIGGYBACK ENVELOPE",
 	} {
 		if !strings.Contains(system, required) {
