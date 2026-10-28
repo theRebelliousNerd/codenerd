@@ -62,6 +62,10 @@ type TypeSafeConfig struct {
 	// AtomRelevance: Jev judges, per turn, whether each pooled flesh prompt
 	// atom applies to the request (internal/atomjudge, jit_compiler.mg).
 	AtomRelevance *bool `json:"atom_relevance,omitempty"`
+	// InstructionCoverage: for a compound `nerd run` instruction, Jev judges
+	// which split fragments the person asked for and whether the result
+	// delivers each (internal/turnjudge/coverage.go).
+	InstructionCoverage *bool `json:"instruction_coverage,omitempty"`
 	// AtomRelevanceTimeout bounds one prompt compile's judgment, retries
 	// included. Default "4s"; past it the compile uses the vector channel
 	// alone.
@@ -85,6 +89,8 @@ type TypeSafeUses struct {
 	CorrectionJudgments, TaskVerdicts, ProblemTypes, ToolChecks, AutopoiesisChecks, AtomChecks bool
 	// AtomRelevance is the per-turn flesh-atom judgment (atom_relevance).
 	AtomRelevance bool
+	// InstructionCoverage is the compound-instruction coverage judgment.
+	InstructionCoverage bool
 	// TurnJudgmentTimeout bounds one turn's judgments (turn_judgment_timeout).
 	TurnJudgmentTimeout time.Duration
 	// RecentTurns bounds the prior turns a turn judgment sees.
@@ -112,6 +118,7 @@ func DefaultTypeSafeUses() TypeSafeUses {
 		TurnJudgments: true, RetrievalRelevance: true, ReviewChecks: true, DiagnosisTriage: true,
 		CorrectionJudgments: true, TaskVerdicts: true, ProblemTypes: true, ToolChecks: true, AutopoiesisChecks: true, AtomChecks: true,
 		AtomRelevance:       true,
+		InstructionCoverage: true,
 		TurnJudgmentTimeout: defaultTurnJudgmentTimeout,
 		RecentTurns:         12, BatchSize: 20, RelevancePoolFactor: 6, RelevanceHeadBytes: 3000, FindingContextLines: 12,
 		AtomRelevancePool: 40, AtomRelevanceTimeout: defaultAtomRelevanceTimeout,
@@ -142,6 +149,7 @@ func (c *TypeSafeConfig) Uses() TypeSafeUses {
 	u.AutopoiesisChecks = on(c.AutopoiesisChecks, u.AutopoiesisChecks)
 	u.AtomChecks = on(c.AtomChecks, u.AtomChecks)
 	u.AtomRelevance = on(c.AtomRelevance, u.AtomRelevance)
+	u.InstructionCoverage = on(c.InstructionCoverage, u.InstructionCoverage)
 	set := func(v int, dst *int) {
 		if v > 0 {
 			*dst = v

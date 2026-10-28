@@ -7,18 +7,22 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"syscall"
 	"time"
 
 	"codenerd/internal/articulation"
+	"codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/learnjudge"
 	"codenerd/internal/perception"
 	"codenerd/internal/session"
 	"codenerd/internal/sessionlog"
 	coresys "codenerd/internal/system"
 	"codenerd/internal/types"
+	"codenerd/internal/typesafe"
 	"codenerd/internal/usage"
 	"codenerd/internal/world"
 
@@ -319,9 +323,12 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 	// hollow-success guard: this is an additional check that can only
 	// downgrade /complete to /partial or /failed.
 	subtasks := extractRequestedSubtasks(userInput)
-	var unaccounted []string
+	var unaccounted, unsettled []string
 	if len(subtasks) >= 2 && actionExecuted && actionErr == nil {
-		unaccounted = findUnaccountedSubtasks(subtasks, output)
+		unaccounted, unsettled = subtaskGaps(ctx, userInput, output, subtasks)
+		if len(unsettled) > 0 {
+			output = output + "\n\nUnsettled (could not tell whether the result covers): " + strings.Join(unsettled, " | ")
+		}
 		if len(unaccounted) > 0 {
 			gapMsg := fmt.Sprintf("PARTIAL: %d of %d requested subtasks not evidenced in result: %s",
 				len(unaccounted), len(subtasks), strings.Join(unaccounted, "; "))
@@ -366,7 +373,7 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 		mangleUpdates = append(mangleUpdates,
 			fmt.Sprintf("observation(/subtask_gap, %q)", strings.Join(unaccounted, " | ")))
 	}
-	if len(subtasks) >= 2 && status == "/complete" {
+	if len(subtasks) >= 2 && status == "/complete" && len(unaccounted) == 0 && len(unsettled) == 0 {
 		mangleUpdates = append(mangleUpdates,
 			fmt.Sprintf("observation(/subtask_accounting, %q)", fmt.Sprintf("all %d subtasks evidenced", len(subtasks))))
 	}
@@ -772,6 +779,30 @@ var subtaskGenericStopWords = map[string]bool{
 
 // tokenRe extracts alphanumeric tokens (including underscores).
 var tokenRe = regexp.MustCompile(`[A-Za-z0-9_]+`)
+
+// subtaskGaps decides which requested subtasks the output leaves undone, and
+// which it cannot tell. The split is a guess, so when Jev is configured and
+// typesafe.instruction_coverage is on, Jev judges what each fragment asks and
+// whether the output delivers it (learnjudge.CheckCoverage) and the decision
+// is learnjudge.CoverageGaps. Without Jev, or when the call fails, the lexical
+// check decides; a failure is logged, never read as "delivered".
+func subtaskGaps(ctx context.Context, request, output string, subtasks []string) (missing, unsettled []string) {
+	cfg, err := config.LoadUserConfig(filepath.Join(workspace, ".nerd", "config.json"))
+	if err == nil && cfg.TypeSafe.Uses().InstructionCoverage {
+		client, cerr := typesafe.FromConfig(cfg.TypeSafe)
+		if cerr == nil && client != nil {
+			verdicts, cut, jerr := learnjudge.CheckCoverage(ctx, client, request, output, subtasks)
+			if jerr == nil {
+				yes, no := cfg.TypeSafe.Thresholds()
+				return learnjudge.CoverageGaps(verdicts, cut, float64(yes)/100, float64(no)/100)
+			}
+			logger.Warn("Instruction coverage: Jev failed; the lexical check decides", zap.Error(jerr))
+		} else if cerr != nil {
+			logger.Warn("Instruction coverage: Jev client unavailable; the lexical check decides", zap.Error(cerr))
+		}
+	}
+	return findUnaccountedSubtasks(subtasks, output), nil
+}
 
 // findUnaccountedSubtasks returns the subset of subtasks whose distinctive
 // keywords are not evidenced in output. Matching is case-insensitive and

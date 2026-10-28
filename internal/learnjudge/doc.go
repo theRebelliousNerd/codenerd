@@ -34,4 +34,5 @@ const (
 	OpToolCheck         = "jev_tool_check"
 	OpAutopoiesisChecks = "jev_autopoiesis_checks"
 	OpAtomCheck         = "jev_atom_check"
+	OpCoverage          = "jev_instruction_coverage"
 )

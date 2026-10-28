@@ -1,0 +1,166 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "assistant": "codeNERD, a coding agent working in the person's repository",
+  "request": "Read-only, do not change any files: evolved prompt atoms are pinned to an exact model, but an exact pin with no date suffix (e.g. claude-opus-5-5) still matches later dated snapshots of that model because matching compares family tokens. Find the code in internal/prompt and internal/autopoiesis/prompt_evolution responsible, explain precisely why it happens with file:line references, and describe the smallest correct fix and the test that would prove it.",
+  "result": "Shard Result: Confirmed: an exact pin with no date suffix does match later dated snapshots. The cause is that exact pins and family pins share one selector namespace. I changed no files and ran no build or tests.\n\n## Walking through claude-opus-5-5\n\n1. **The atom is created.** `pinSelectors` (internal/autopoiesis/prompt_evolution/atom_generator.go:298-316) runs at the default `PinScopeModel` (types.go:243-247, 265). `NormalizeModelToken` (pinning.go:94-116) turns the id into `claude_opus_5_5`. Line 311 stores it as `atom.Models = [\"claude_opus_5_5\"]`, and `applyPin` (pin_policy.go:61) copies that onto the atom. A family pin goes into the same `Models` field (lines 306-309), so the atom has no record of which scope it was pinned at.\n2. **A later compile uses the dated snapshot.** For `anthropic/claude-opus-5-5-20270101`, `ModelPinTokens` (pinning.go:222-232) works out the exact token `claude_opus_5_5_20270101`. It then calls `ModelFamilyToken`, which drops the yyyymmdd segment (pinning.go:148-150) and gives `claude_opus_5_5`. Since that differs from the exact token, line 231 returns both. `CompilationContext.ModelTokens` (context.go:436-441) passes them on unchanged.\n3. **The Go fallback path matches.** `PromptAtom.MatchesContext` (atoms.go:510-524) accepts the atom if *any* context token is in `a.Models`. The family token `claude_opus_5_5` is, so the atom is admitted.\n4. **The kernel path matches too.** `GenerateFacts` (context.go:868-870) asserts `/model` facts for both tokens. `ContextTags` (atoms.go:397) emits `atom_tag(A, /model, /claude_opus_5_5)`. `satisfied_constraint` (jit_compiler.mg:70-73) unifies with the family fact, so the fail-closed rule (`regime_dimension(/model)` at jit_compiler.mg:147, rule at 158-161) never blocks it.\n\n**Why only undated pins leak.** This is my reading of the code; I have not tested it. `ModelFamilyToken`'s loop (pinning.go:138-162) keeps stripping until the last segment is not a release marker. So a family token never ends in a date stamp, a yyyy run, or a suffix like `latest`. A dated exact pin therefore never equals any family token. An undated exact pin is its own family token (pinning.go:228), so it equals the family of every later snapshot.\n\n**The two contracts disagree.** `PinScopeModel` promises the EXACT token and says the atom retires with its snapshot (types.go:243-246). The matcher's contract says `/model` accepts an exact *or* a family token (schemas_prompts.mg:213 comment; atoms.go:508-509). A test also relies on that dual meaning for hand-written atoms: pinning_test.go:68-74 checks that `models: [claude-opus-4]` matches `claude-opus-4-20260501`. So the fix must leave bare `models:` working as it does now.\n\n## Findings\n- [HIGH] internal/prompt/pinning.go:231: a dated compile gets its family token in the same `/model` namespace that exact pins use, so an undated exact pin (e.g. `claude_opus_5_5`) matches every later dated snapshot. Fix: give exact pins their own dimension (below).\n- [HIGH] internal/autopoiesis/prompt_evolution/atom_generator.go:311: `PinScopeModel` and `PinScopeModelFamily` both write to `atom.Models`, so the scope is lost once the atom exists. Fix: put `PinScopeModel` pins in a new exact-only field.\n- [MEDIUM] internal/prompt/atoms.go:510: `MatchesContext` treats any context token as satisfying any model pin, which conflicts with the exact-scope promise in types.go:243-246. Fix: also check the new exact field against `NormalizeModelToken(cc.Model)` alone.\n\n## Smallest correct fix: an exact-only dimension `/model_exact`\nThe token on the atom is ambiguous, so the atom has to say which granularity it wants. Two simpler ideas don't work:\n- A marker inside the token (e.g. `__exact`) gets collapsed by `pinSanitize` when `NormalizeSelectors` runs (atoms.go:330).\n- A prefix such as `exact_` could collide with a real model name.\n\nThe changes:\n1. **internal/prompt/atoms.go:**\n   - Add `ModelsExact []string `json:\"models_exact,omitempty\"`` next to `Models` (line 194).\n   - Normalize it with `NormalizeModelToken` in `NormalizeSelectors` (line 330) and copy it in `Clone` (line 748).\n   - Add `{\"model_exact\", a.ModelsExact}` to `ContextTags` (line 397), plus the `appendTag` reader that the comment at lines 376-378 says must match.\n   - Add a `model_exact` entry in `ToSelectorFacts` (line 650).\n   - In `MatchesContext`, add `if !matchSelector(a.ModelsExact, NormalizeModelToken(cc.Model)) { return false }`.\n2. **internal/prompt/context.go `GenerateFacts`:** emit `add(\"model_exact\", \"model_exact\", \"/\"+exact)` for the exact token only, and raise the capacity at line 795. `Hash` needs no change, because `ModelTokens()` already includes the exact token.\n3. **internal/core/defaults/jit_compiler.mg:** add `regime_dimension(/model_exact).` so the new dimension is fail-closed like `/model`, and add it to the dimension list in schemas_prompts.mg:205. Check this by running the kernel, not just parsing it.\n4. **prompt_evolution:**\n   - `pinSelectors`/`applyPin` set `atom.ModelsExact = [exact]` for `PinScopeModel` and keep `atom.Models = [family]` for `PinScopeModelFamily`.\n   - `selectorsOf`/`pinnedSelectors` (pin_policy.go:65-81) must include the new field.\n   - `UnpinnedAtoms` (pin_migration.go) must count it as a pin. I have not read that function.\n   - `GroupKeyFor` (feedback_collector.go:575-595) only groups failures and doesn't need to change.\n5. **Atoms already saved with `PinScopeModel`** still have `Models=[exact]` and will keep leaking. `GeneratedAtom` stores the raw `Model` and the `PinScope` (types.go:301-305), so a load-time step can re-run `applyPin`. I have not checked whether evolved atoms are saved through `AtomDefinition` YAML; if they are, the YAML schema needs the field too.\n\n**Rejected stopgap:** have `requirePin` refuse `PinScopeModel` when `ModelFamilyToken(exact) == exact`. That is a one-line change and fails closed, but it would stop evolution entirely for every undated model id (e.g. `gpt-4o`).\n\n## Tests that would prove it\n- **prompt_evolution end-to-end (fails today, passes after the fix):** call `applyPin(atom, PinScopeModel, \"coder\", ServingPin{Provider: \"anthropic\", Model: \"claude-opus-5-5\"})`, then assert:\n  - `atom.MatchesContext(NewCompilationContext().WithProviderModel(\"anthropic\", \"claude-opus-5-5-20270101\"))` is false;\n  - the same call with `\"claude-opus-5-5\"` is true;\n  - with `PinScopeModelFamily`, the dated context still matches.\n- **prompt package regression guard:** an atom with `Models: [\"claude-opus-4\"]` still matches `anthropic/claude-opus-4-20260501`, so pinning_test.go:68-74 keeps passing.\n- **Kernel path:** following `TestCompileContextPinsAreNameConstants` (pinning_test.go:185-207), check that `GenerateFacts` emits `model_exact` with the exact token only. Then run jit_compiler.mg on a kernel and assert `blocked_by_context` for the exact-pinned atom on the dated compile, and not on the undated one.\n\nWhat I haven't checked: pin_migration.go, the `appendTag` reader, and how evolved atoms are written to disk. Nothing has been built or tested."
+ },
+ "questions": {
+  "asked_0": {
+   "type": "noul",
+   "instructions": "In `request`, is \"(e.g\" something the person asks codeNERD to do or to answer?",
+   "criteria": {
+    "true": "It names an action to take, an artifact to produce, or a question to answer, such as \"add a test\" or \"explain why it fails\".",
+    "false": "It describes the situation, gives an example, names a place to look, states a rule for how to work (\"do not change files\"), or is a piece of another item's wording."
+   }
+  },
+  "asked_1": {
+   "type": "noul",
+   "instructions": "In `request`, is \"claude-opus-5-5) still matches later dated snapshots of that model because matching compares family tokens\" something the person asks codeNERD to do or to answer?",
+   "criteria": {
+    "true": "It names an action to take, an artifact to produce, or a question to answer, such as \"add a test\" or \"explain why it fails\".",
+    "false": "It describes the situation, gives an example, names a place to look, states a rule for how to work (\"do not change files\"), or is a piece of another item's wording."
+   }
+  },
+  "asked_2": {
+   "type": "noul",
+   "instructions": "In `request`, is \"Find the code in internal/prompt\" something the person asks codeNERD to do or to answer?",
+   "criteria": {
+    "true": "It names an action to take, an artifact to produce, or a question to answer, such as \"add a test\" or \"explain why it fails\".",
+    "false": "It describes the situation, gives an example, names a place to look, states a rule for how to work (\"do not change files\"), or is a piece of another item's wording."
+   }
+  },
+  "asked_3": {
+   "type": "noul",
+   "instructions": "In `request`, is \"internal/autopoiesis/prompt_evolution responsible, explain precisely why it happens with file:line references\" something the person asks codeNERD to do or to answer?",
+   "criteria": {
+    "true": "It names an action to take, an artifact to produce, or a question to answer, such as \"add a test\" or \"explain why it fails\".",
+    "false": "It describes the situation, gives an example, names a place to look, states a rule for how to work (\"do not change files\"), or is a piece of another item's wording."
+   }
+  },
+  "asked_4": {
+   "type": "noul",
+   "instructions": "In `request`, is \"describe the smallest correct fix\" something the person asks codeNERD to do or to answer?",
+   "criteria": {
+    "true": "It names an action to take, an artifact to produce, or a question to answer, such as \"add a test\" or \"explain why it fails\".",
+    "false": "It describes the situation, gives an example, names a place to look, states a rule for how to work (\"do not change files\"), or is a piece of another item's wording."
+   }
+  },
+  "asked_5": {
+   "type": "noul",
+   "instructions": "In `request`, is \"the test that would prove it\" something the person asks codeNERD to do or to answer?",
+   "criteria": {
+    "true": "It names an action to take, an artifact to produce, or a question to answer, such as \"add a test\" or \"explain why it fails\".",
+    "false": "It describes the situation, gives an example, names a place to look, states a rule for how to work (\"do not change files\"), or is a piece of another item's wording."
+   }
+  },
+  "delivered_0": {
+   "type": "noul",
+   "instructions": "Does `result` do or answer \"(e.g\", as `request` asks?",
+   "criteria": {
+    "true": "`result` shows that part done, or gives its answer.",
+    "false": "`result` does not mention that part, or says it was not done."
+   }
+  },
+  "delivered_1": {
+   "type": "noul",
+   "instructions": "Does `result` do or answer \"claude-opus-5-5) still matches later dated snapshots of that model because matching compares family tokens\", as `request` asks?",
+   "criteria": {
+    "true": "`result` shows that part done, or gives its answer.",
+    "false": "`result` does not mention that part, or says it was not done."
+   }
+  },
+  "delivered_2": {
+   "type": "noul",
+   "instructions": "Does `result` do or answer \"Find the code in internal/prompt\", as `request` asks?",
+   "criteria": {
+    "true": "`result` shows that part done, or gives its answer.",
+    "false": "`result` does not mention that part, or says it was not done."
+   }
+  },
+  "delivered_3": {
+   "type": "noul",
+   "instructions": "Does `result` do or answer \"internal/autopoiesis/prompt_evolution responsible, explain precisely why it happens with file:line references\", as `request` asks?",
+   "criteria": {
+    "true": "`result` shows that part done, or gives its answer.",
+    "false": "`result` does not mention that part, or says it was not done."
+   }
+  },
+  "delivered_4": {
+   "type": "noul",
+   "instructions": "Does `result` do or answer \"describe the smallest correct fix\", as `request` asks?",
+   "criteria": {
+    "true": "`result` shows that part done, or gives its answer.",
+    "false": "`result` does not mention that part, or says it was not done."
+   }
+  },
+  "delivered_5": {
+   "type": "noul",
+   "instructions": "Does `result` do or answer \"the test that would prove it\", as `request` asks?",
+   "criteria": {
+    "true": "`result` shows that part done, or gives its answer.",
+    "false": "`result` does not mention that part, or says it was not done."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "asked_0": {
+   "type": "noul",
+   "noul": 0.08
+  },
+  "asked_1": {
+   "type": "noul",
+   "noul": 0.32
+  },
+  "asked_2": {
+   "type": "noul",
+   "noul": 0.78
+  },
+  "asked_3": {
+   "type": "noul",
+   "noul": 0.91
+  },
+  "asked_4": {
+   "type": "noul",
+   "noul": 0.96
+  },
+  "asked_5": {
+   "type": "noul",
+   "noul": 0.89
+  },
+  "delivered_0": {
+   "type": "noul",
+   "noul": 0.88
+  },
+  "delivered_1": {
+   "type": "noul",
+   "noul": 0.98
+  },
+  "delivered_2": {
+   "type": "noul",
+   "noul": 0.98
+  },
+  "delivered_3": {
+   "type": "noul",
+   "noul": 0.98
+  },
+  "delivered_4": {
+   "type": "noul",
+   "noul": 0.99
+  },
+  "delivered_5": {
+   "type": "noul",
+   "noul": 0.94
+  }
+ },
+ "usage": {
+  "input_tokens": 3823,
+  "output_tokens": 232
+ }
+}
+}
