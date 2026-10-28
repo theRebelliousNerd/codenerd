@@ -40,26 +40,14 @@ func TestResolveShardTypeForIntent_VerbCorpusWins(t *testing.T) {
 	}
 }
 
-// /debug reads as a query ("why does this fail?") but the corpus gives it to the
-// coder, whose persona verb is /fix. A read-only request must go to a shard that
-// can finish without writing: delegated to the coder it ran in the background
-// and failed every time on the hollow-success guard.
-func TestResolveShardTypeForIntent_ReadOnlyDebugGoesToTheReviewer(t *testing.T) {
-	query := perception.Intent{Verb: "/debug", Category: "/query", Target: "Mean in stats.go", Confidence: 0.96}
-	if got := resolveShardTypeForIntent(query); got != "reviewer" {
-		t.Fatalf("a /query /debug went to %q, want reviewer", got)
-	}
-	mutation := perception.Intent{Verb: "/debug", Category: "/mutation", Target: "Mean in stats.go", Confidence: 0.96}
-	if got := resolveShardTypeForIntent(mutation); got != "coder" {
-		t.Fatalf("a /mutation /debug went to %q, want coder: a request to debug and fix writes", got)
-	}
-}
-
-// The kernel takes that read-only debug off the turn, to the reviewer.
-func TestDecideRoute_ReadOnlyDebugRunsInTheBackgroundAsTheReviewer(t *testing.T) {
-	intent := perception.Intent{Category: "/query", Verb: "/debug", Target: "Mean in stats.go", Confidence: 0.96, IsQuestion: true}
-	got := routeFor(t, "Mean returns 6 instead of 4, why?", intent)
-	if got.Kind != RouteDelegate || got.Shard != "reviewer" || !got.Background {
-		t.Fatalf("route = %+v, want a background delegation to the reviewer", got)
+// resolveShardTypeForIntent names only the candidate. Who takes the turn is
+// the kernel's (delegation_persona), so a /debug candidate is the coder
+// whatever its category.
+func TestResolveShardTypeForIntent_IsOnlyTheCandidate(t *testing.T) {
+	for _, category := range []string{"/query", "/mutation"} {
+		intent := perception.Intent{Verb: "/debug", Category: category, Target: "Mean in stats.go", Confidence: 0.96}
+		if got := resolveShardTypeForIntent(intent); got != "coder" {
+			t.Fatalf("%s /debug candidate = %q, want coder", category, got)
+		}
 	}
 }

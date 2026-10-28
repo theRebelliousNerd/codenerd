@@ -311,18 +311,23 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 	return decision
 }
 
-// resolveShardTypeForIntent picks a concrete shard for delegation.
+// resolveShardTypeForIntent is the delegation CANDIDATE: the shard the verb
+// corpus names, else the one perception derived or a model suggested.
 // Priority:
 //  1. Verb corpus mapping (GetShardTypeForVerb)
-//  2. LLM-suggested primary_shard from perception Ambiguity (shard=researcher)
-//  3. Heuristic: high-confidence whole-codebase /explain → researcher
+//  2. perception's primary_shard from the Ambiguity list (shard=researcher)
+//
+// It is only a candidate. Who takes the turn is the kernel's route_decision
+// (delegation_persona, policy/delegation.mg), which also keeps a /query from a
+// persona whose turn runs as a write, whichever source named it; Go has no copy
+// of that rule.
 //
 // Live test: "teach me about the codebase" had verb=/explain (ShardType=/none)
 // and ambiguity shard=researcher but we never delegated — user waited forever
-// on articulation behind /init. Honor the LLM suggestion.
+// on articulation behind /init. Honor the suggestion.
 func resolveShardTypeForIntent(intent perception.Intent) string {
 	if st := perception.GetShardTypeForVerb(intent.Verb); st != "" && st != "/none" {
-		return readOnlyShardFor(intent, strings.TrimPrefix(st, "/"))
+		return strings.TrimPrefix(st, "/")
 	}
 	for _, a := range intent.Ambiguity {
 		if strings.HasPrefix(a, "shard=") {
@@ -333,20 +338,6 @@ func resolveShardTypeForIntent(intent perception.Intent) string {
 		}
 	}
 	return ""
-}
-
-// readOnlyShardFor is the shard that takes a read-only (/query) request whose
-// verb the corpus gives to the coder. /debug is the one such verb: "why does
-// this fail?" reads as a query, but the coder's persona verb is /fix, so a
-// delegation to it can only be judged as a write. Run in the background (the
-// lane every read-only delegation takes) it ends in the hollow-success guard
-// with "write-oriented intent /fix completed without a write", every time.
-// The reviewer investigates with the same read tools and no write intent.
-func readOnlyShardFor(intent perception.Intent, shard string) string {
-	if shard == "coder" && intent.Category == "/query" {
-		return "reviewer"
-	}
-	return shard
 }
 
 // shardTypeToTaskRequest hands a persona or intent verb to the task executor

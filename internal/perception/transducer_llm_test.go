@@ -657,3 +657,46 @@ func (m *mockLLMClientForTest) CompleteWithStreaming(ctx context.Context, system
 		return m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	})
 }
+
+// "Explain this git history": the action type names the reviewer (85) and the
+// domain names the coder (85). The tie is the request's own action's, not the
+// alphabet's -- the coder primary sent an explanation to a /fix persona.
+func TestDeriveShards_TieGoesToTheShardTheActionNames(t *testing.T) {
+	mockKernel := &mockRoutingKernel{
+		queries: map[string][]RoutingMatch{
+			"shard_affinity_action:explain": {
+				{Target: "reviewer", Weight: 85},
+				{Target: "researcher", Weight: 80},
+			},
+			"shard_affinity_domain:git": {
+				{Target: "coder", Weight: 85},
+			},
+		},
+	}
+	transducer := &LLMTransducer{kernel: mockKernel}
+	u := &Understanding{ActionType: "explain", Domain: "git"}
+	for i := range 10 {
+		primary, supporting := transducer.deriveShards(context.Background(), u)
+		if primary != "reviewer" {
+			t.Fatalf("iteration %d: primary = %q, want reviewer", i, primary)
+		}
+		if !slices.Contains(supporting, "coder") || !slices.Contains(supporting, "researcher") {
+			t.Fatalf("iteration %d: supporting = %v, want coder and researcher", i, supporting)
+		}
+	}
+}
+
+// A higher total still wins over the action's own shard.
+func TestDeriveShards_HigherTotalStillWinsOverTheActionShard(t *testing.T) {
+	mockKernel := &mockRoutingKernel{
+		queries: map[string][]RoutingMatch{
+			"shard_affinity_action:explain": {{Target: "reviewer", Weight: 85}},
+			"shard_affinity_domain:git":     {{Target: "coder", Weight: 90}},
+		},
+	}
+	transducer := &LLMTransducer{kernel: mockKernel}
+	primary, _ := transducer.deriveShards(context.Background(), &Understanding{ActionType: "explain", Domain: "git"})
+	if primary != "coder" {
+		t.Fatalf("primary = %q, want coder (90 > 85)", primary)
+	}
+}

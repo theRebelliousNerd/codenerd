@@ -29,6 +29,14 @@ Decl delegation_candidate(IntentID, ShardType, Confidence) bound [/name, /name, 
 # copy of the gate.
 Decl should_delegate(ShardType) bound [/name].
 
+# delegation_persona(Candidate, Persona) - derived: the persona that takes the
+# turn for a delegation candidate. A /query whose candidate's persona_verb is
+# write-oriented goes to /reviewer; every other candidate is its own persona.
+Decl delegation_persona(Candidate, Persona) bound [/name, /name].
+# query_needs_reader(Candidate) - derived: the current /query would run as a
+# write if handed to Candidate.
+Decl query_needs_reader(Candidate) bound [/name].
+
 # -----------------------------------------------------------------------------
 # 6.0.1 Routing Arbitration (single decision point per turn)
 # Rules live in policy/routing_arbitration.mg. Go asserts the per-turn EDB

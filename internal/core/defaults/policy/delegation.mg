@@ -336,11 +336,34 @@ intent_requires_reasoning_model(Verb) :-
 # route_decision (routing_arbitration.mg).
 config_param_required(/routing, /routing_delegation_min_confidence).
 
-should_delegate(ShardType) :-
-    delegation_candidate(/current_intent, ShardType, Conf),
-    /none != ShardType,
+should_delegate(Persona) :-
+    delegation_candidate(/current_intent, Candidate, Conf),
+    /none != Candidate,
     config_param(/routing_delegation_min_confidence, Min),
-    Conf >= Min.
+    Conf >= Min,
+    delegation_persona(Candidate, Persona).
+
+# WHO TAKES THE TURN. The candidate is where the shard came from -- the verb
+# corpus, perception's derived affinity, or a model's suggestion -- and none of
+# those knows what the persona's turn will be judged as. A persona runs its
+# persona_verb (below), and a write-oriented verb ends a turn that wrote
+# nothing in the hollow-success guard. So an admitted /query is never handed to
+# a persona whose verb is write-oriented: the reviewer, which investigates with
+# the same read tools and a /review turn, takes it. One rule over every
+# candidate source; it does not depend on how the candidate was found. A
+# /mutation keeps its candidate.
+query_needs_reader(Candidate) :-
+    user_intent(/current_intent, /query, _, _, _),
+    persona_verb(Candidate, Verb),
+    write_oriented_intent(Verb).
+
+delegation_persona(Candidate, /reviewer) :-
+    delegation_candidate(/current_intent, Candidate, _),
+    query_needs_reader(Candidate).
+
+delegation_persona(Candidate, Candidate) :-
+    delegation_candidate(/current_intent, Candidate, _),
+    !query_needs_reader(Candidate).
 
 # Step 4b: A CHAT DELEGATION'S ATTEMPTS (sweep finding F5). A delegated
 # mutation used to take an LLM judge's word as its verdict: the verifier

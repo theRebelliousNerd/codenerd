@@ -831,11 +831,17 @@ func (t *LLMTransducer) deriveMode(ctx context.Context, u *Understanding) string
 // deriveShards determines which shards to use.
 func (t *LLMTransducer) deriveShards(ctx context.Context, u *Understanding) (string, []string) {
 	shardScores := make(map[string]int)
+	// What the request asks for outranks where it happens: on equal totals the
+	// shard its action type names is the primary, then the name. Without this
+	// the name decided, and "explain this git history" (reviewer 85 from the
+	// action, coder 85 from the domain) went to the coder.
+	actionScores := make(map[string]int)
 
 	// Score from action type
 	matches, _ := t.kernel.QueryRouting(ctx, "shard_affinity_action", u.ActionType)
 	for _, m := range matches {
 		shardScores[m.Target] += m.Weight
+		actionScores[m.Target] += m.Weight
 	}
 
 	// Score from domain
@@ -846,7 +852,7 @@ func (t *LLMTransducer) deriveShards(ctx context.Context, u *Understanding) (str
 
 	// Find best shard
 	var primary string
-	var primaryScore int
+	var primaryScore, primaryAction int
 	var supporting []string
 
 	keys := make([]string, 0, len(shardScores))
@@ -857,12 +863,13 @@ func (t *LLMTransducer) deriveShards(ctx context.Context, u *Understanding) (str
 
 	for _, shard := range keys {
 		score := shardScores[shard]
-		if score > primaryScore {
+		if score > primaryScore || (score == primaryScore && score > 0 && actionScores[shard] > primaryAction) {
 			if primary != "" {
 				supporting = append(supporting, primary)
 			}
 			primary = shard
 			primaryScore = score
+			primaryAction = actionScores[shard]
 		} else if score > 50 { // Threshold for supporting
 			supporting = append(supporting, shard)
 		} else if score == primaryScore && score > 0 { // For ties <= 50
