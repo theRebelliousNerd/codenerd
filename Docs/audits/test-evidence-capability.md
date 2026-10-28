@@ -149,3 +149,14 @@ No savings should be claimed before those measurements. More accurate attributio
 ## Handoff
 
 Do not reconnect `assertTurnTestFacts` merely to make dead-code counts fall. Preserve its current replacement. Reconcile the session/testfacts/core specifications around package-qualified, current evidence; retain the dormant-wrapper finding as supersession. The checkable exit is not “function reachable.” It is: **a genuinely new package-qualified failure cannot disappear behind an unrelated baseline failure, and the executive can explain the distinction using current host evidence.**
+
+## As built (2026-10-28)
+
+- **Identity is package+test end to end.**
+  - `failing_test`, `turn_failing_test`, `turn_test_failed_before`, `turn_importer_failing_test` and `turn_importer_failed_before` carry the package. The /test and importer rules in `coder_safety.mg` join on the pair.
+  - `session.TestKey` (`failedTestKeys`) is what baseline attribution, `failuresAllPredate` and `partitionPreExisting` compare.
+  - Pre-existing failures are reported as `pkg.TestName`.
+  - Witness tests: `TestPartitionPreExisting_SameNameInAnotherPackageIsNew` and `TestTestGate_SameNameInAnotherPackageIsCharged`. The second runs on the kernel: an old `example/a.TestLoad` failure no longer lets a new `example/b.TestLoad` failure pass the gate.
+- **The wrapper.** `syncTestGateFacts` now calls `assertTurnTestFacts` instead of an inline copy of its loop, so the function has its production caller and nothing is asserted twice.
+- **Context relevance from test failures.** `context_compilation.mg` read an unscoped `failing_test` that no producer asserts. It now reads the turn's own failure sites (`turn_test_failure_at`, `turn_test_build_failure`) and the source file each failing test file covers (`test_file_for`).
+- **Deferred:** the stronger causal check, where an identical package+test that failed before and fails now with a different defect still needs evidence beyond identity.
