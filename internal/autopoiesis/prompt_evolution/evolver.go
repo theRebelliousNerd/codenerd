@@ -243,6 +243,9 @@ type PromptEvolver struct {
 	onAtomPromoted AtomPromotedCallback
 	// trialSink receives live trial envelopes (see TrialFactSink).
 	trialSink TrialFactSink
+	// jev is Jev for the task verdict, problem type and shared-cause check
+	// (jev.go); nil when it is not configured.
+	jev *jevUse
 
 	// Lifecycle: recording queue, cycle cancellation, ordered close.
 	recorder  *recordQueue

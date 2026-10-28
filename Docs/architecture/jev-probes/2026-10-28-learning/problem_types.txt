@@ -1,0 +1,11 @@
+problem type probe: 10 right, 0 wrong of 10 (fits threshold 0.70/0.30)
+ok   db-fix-all-bugs      jev=debugging(1.00) fits=0.99 regex=research want=debugging
+ok   db-explain-pool      jev=research(0.67) fits=0.95 regex=documentation want=research
+ok   db-northstar-wizard  jev=feature_creation(0.92) fits=0.96 regex=feature_creation want=feature_creation
+ok   db-northstar-retry   jev=feature_creation(0.94) fits=0.96 regex=code_review want=feature_creation
+ok   db-codebase-query    jev=research(1.00) fits=0.93 regex=config_setup want=research
+ok   race                 jev=concurrency(1.00) fits=0.99 regex= want=concurrency
+ok   bump-dep             jev=dependency_mgmt(0.98) fits=0.99 regex= want=dependency_mgmt
+ok   wrap-errors          jev=error_handling(1.00) fits=0.99 regex= want=error_handling
+ok   greeting             jev=research(0.56) fits=0.01 regex= want=
+ok   weather              jev=api_integration(0.68) fits=0.05 regex= want=

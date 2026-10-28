@@ -1,0 +1,49 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "agent": "codeNERD, a coding agent",
+  "failures": [
+   {
+    "kind": "hallucination",
+    "task": "add a test for Max with an empty slice",
+    "what_went_wrong": "Failed: the run failed; Jev reads the output as complete, so the reported work is not backed by evidence."
+   },
+   {
+    "kind": "hallucination",
+    "task": "add a test for the parser's empty input",
+    "what_went_wrong": "Failed: the agent said it added TestParseEmpty but no file was written and no test ran."
+   },
+   {
+    "kind": "hallucination",
+    "task": "write a regression test for the retry bug",
+    "what_went_wrong": "Failed: claimed the regression test passes; the kernel saw no test run and no write."
+   }
+  ]
+ },
+ "questions": {
+  "shares_one_cause": {
+   "type": "noul",
+   "instructions": "Do the failures in `failures` share one cause that a single instruction to the agent could prevent?",
+   "criteria": {
+    "true": "The same mistake recurs across the failures, so one instruction (always do X, never do Y) would have prevented most of them.",
+    "false": "The failures have different causes, or causes outside the agent's control such as timeouts, outages or missing access, so no one instruction would prevent them."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "shares_one_cause": {
+   "type": "noul",
+   "noul": 0.96
+  }
+ },
+ "usage": {
+  "input_tokens": 562,
+  "output_tokens": 23
+ }
+}
+}

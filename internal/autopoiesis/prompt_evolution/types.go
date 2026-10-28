@@ -349,12 +349,15 @@ type EvolutionResult struct {
 	AtomsPromoted     int      `json:"atoms_promoted"`
 
 	// Budget and evidence accounting for this cycle.
-	JudgeCalls       int `json:"judge_calls"`
-	GenerationCalls  int `json:"generation_calls"`
-	GroupsSkipped    int `json:"groups_skipped"`    // already claimed or consumed elsewhere
-	GroupsDeferred   int `json:"groups_deferred"`   // left for a later cycle by the budget
-	AtomsDiscarded   int `json:"atoms_discarded"`   // generated, dropped by a cap
-	EvidenceConsumed int `json:"evidence_consumed"` // failure versions converted this cycle
+	JudgeCalls      int `json:"judge_calls"`
+	GenerationCalls int `json:"generation_calls"`
+	GroupsSkipped   int `json:"groups_skipped"`  // already claimed or consumed elsewhere
+	GroupsDeferred  int `json:"groups_deferred"` // left for a later cycle by the budget
+	// GroupsWithoutSharedCause met the count but Jev did not read one shared,
+	// preventable cause in them (jev_evolution.go); nothing was bought.
+	GroupsWithoutSharedCause int `json:"groups_without_shared_cause"`
+	AtomsDiscarded           int `json:"atoms_discarded"`   // generated, dropped by a cap
+	EvidenceConsumed         int `json:"evidence_consumed"` // failure versions converted this cycle
 
 	// Errors
 	Errors []string `json:"errors,omitzero"`

@@ -215,7 +215,69 @@ perception, so a short "wrong" or "mistake" hijacked the turn whatever it meant.
 
 ### Task verdicts: switch `task_verdicts`
 
-Being built (2026-10-28).
+How a past task went, for prompt evolution (`RunEvolutionCycle`, step 1). It
+replaces, for every record Jev settles, the LLM judge that parsed a PASS/FAIL
+verdict and a category out of prose (`judge.go`, `mapToErrorCategory`).
+
+- Questions (`internal/learnjudge/taskverdict.go`), one request per record:
+  `did_what_was_asked` and `stopped_early` (Nouls); `file_needed_N`, one Noul per
+  changed file ("Does `request` call for changing `file`?"); `failure_kind`, a
+  Choice over seven named kinds (logic_error, syntax_error, api_misuse,
+  edge_case, context_miss, instruction_miss, hallucination); and its companion
+  `failure_kind_fits`. The state is the request, the result (reported success,
+  test counts, build errors, the final output bounded at 12000 bytes), the
+  changed files and the actions. Code facts are state, not questions.
+- Decision: `verdictFromJudgments` (`prompt_evolution/jev_verdict.go`):
+
+  | failed (kernel, build or tests) | did | stopped early | changed a file not asked for | verdict |
+  |---|---|---|---|---|
+  | yes | any | any | any | FAIL |
+  | no | no | any | any | FAIL |
+  | no | any | yes | any | FAIL |
+  | no | any | any | yes | FAIL |
+  | no | yes | no | none, none unsettled | PASS |
+  | no | otherwise | | | unsettled |
+
+  A FAIL's category is the `failure_kind` Choice, or `NO_AGENT_MISTAKE` when the
+  companion reads no kind fitting (a timeout, an outage). The explanation is
+  composed from the readings; `improvement_rule` is left empty, because the atom
+  generator writes the atom.
+- Ruling: the LLM judge is kept as the cascade's second stage. It judges a
+  record only when Jev's readings are unsettled, or when Jev gave no answer
+  (off, `task_verdicts` off, failed). No record gets both, and each fallback is
+  logged (`Task verdicts: Jev settled N of M`).
+- In production every record that reaches the judge is a turn the kernel saw
+  fail (`/hollow`, `/failed`; `/done` turns carry a kernel PASS). So the table's
+  first row always applies, and what Jev adds there is the kind and whether it
+  was the agent's mistake at all.
+- Probe (`task_verdicts`, 10 records): 22 of 23 labeled readings right, 0 wrong,
+  1 unsettled (a validator rejection, `failure_kind_fits` 0.68). Provider
+  timeout and 429 read as no agent mistake (0.12, 0.16), so they no longer feed
+  evolution. A stray edit to `kernel.go` during a README typo fix read 0.04 on
+  `file_needed`.
+
+### Problem types: switch `problem_types`
+
+What kind of work a task is: the failure group a record joins and the
+strategies the prompt compiler serves (`StrategyAtomProvider`).
+
+- Questions (`internal/learnjudge/problemtype.go`): `problem_kind`, a Choice
+  over the 16 `ProblemType` values with a description each, and the companion
+  Noul `problem_kind_fits`.
+- Decision: `classifyWithJev` (`prompt_evolution/classifier.go`): companion no
+  gives `other` (`ProblemOther`); yes or unsettled gives the Choice. Answers are
+  cached per task text (512 entries), because the compiler asks on every model
+  call of a turn. On the compile path the call is bounded by
+  `turn_judgment_timeout`.
+- Fallback: the regex patterns and keyword boosters, logged
+  (`Problem type: no Jev answer`), when Jev is off, `problem_types` is off, or
+  the call fails.
+- Probe (`problem_types`): 10 of 10. The regex classifier had misfiled 3 of the
+  5 tasks recorded in `.nerd/prompts/evolution.db`: "fix all known bugs" as
+  research, a codebase knowledge query as config_setup, and a retry of the
+  northstar feature as code_review. Jev filed them as debugging, research and
+  feature_creation. A greeting and a weather question scored 0.01 and 0.05 on
+  the companion, so they became `other`.
 
 ### Problem types: switch `problem_types`
 
@@ -356,7 +418,25 @@ Live probe, 2026-10-28, `jev-latest`
 
 ### Atom checks: switch `atom_checks`
 
-Being built (2026-10-28).
+The evolution trigger: whether a failure group buys a generated atom. Until
+2026-10-28, any `MinFailuresForEvolution` (3) failures with the same
+regex-classified problem type bought one.
+
+- Code first (`agentMistakes`, `prompt_evolution/jev_evolution.go`): a failure
+  whose verdict is `NO_AGENT_MISTAKE` is not evidence, and the group must still
+  reach the count without it.
+- Question (`internal/learnjudge/sharedcause.go`): `shares_one_cause`, "Do the
+  failures in `failures` share one cause that a single instruction to the agent
+  could prevent?" The state holds each failure's task, its explanation and its
+  kind, at most 12 failures, each bounded at 2000 bytes.
+- Decision (`groupWarrantsEvolution`): yes generates. No or unsettled buys
+  nothing and counts the group in `EvolutionResult.GroupsWithoutSharedCause`.
+  The evidence stays unconsumed, so later failures can join it. With no answer
+  (Jev off, `atom_checks` off, the call failed), the count rule decides as
+  before, and the log says so.
+- Probe (`atom_checks-shared_cause`): 4 of 4. Three hollow test claims scored
+  0.96 and three empty-slice panics 0.98. A timeout, a stray edit and a syntax
+  error scored 0.03, and three provider outages 0.04.
 
 ## Latency and cost
 

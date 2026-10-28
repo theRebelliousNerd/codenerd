@@ -134,7 +134,7 @@ func (pe *PromptEvolver) judgeUnevaluated(ctx context.Context, cycleID string, l
 		return
 	}
 	result.JudgeCalls = len(unevaluated)
-	verdicts, err := pe.judge.EvaluateBatch(withSpend(ctx, cycleID, SpendJudge), unevaluated)
+	verdicts, err := pe.evaluateBatch(withSpend(ctx, cycleID, SpendJudge), unevaluated)
 	if err != nil {
 		result.Errors = append(result.Errors, err.Error())
 	}
@@ -173,9 +173,11 @@ func orderGroupsOldestFirst(grouped map[FailureGroupKey][]*ExecutionRecord) []fa
 // generateForGroup claims one group's evidence, buys one generation for it
 // unlocked, and publishes behind the claim's fence.
 func (pe *PromptEvolver) generateForGroup(ctx context.Context, cycleID string, cfg EvolverConfig, group failureGroup, budget *cycleBudget, result *EvolutionResult) {
-	verdicts := make([]*JudgeVerdict, 0, len(group.failures))
-	evidence := make([]EvidenceRef, 0, len(group.failures))
-	for _, f := range group.failures {
+	// Only the agent's own mistakes are evidence for an atom (jev_evolution.go).
+	failures := agentMistakes(group.failures)
+	verdicts := make([]*JudgeVerdict, 0, len(failures))
+	evidence := make([]EvidenceRef, 0, len(failures))
+	for _, f := range failures {
 		if f == nil || f.Verdict == nil || f.VerdictVersion == "" {
 			continue
 		}
@@ -183,6 +185,10 @@ func (pe *PromptEvolver) generateForGroup(ctx context.Context, cycleID string, c
 		evidence = append(evidence, EvidenceRef{TaskID: f.TaskID, VerdictVersion: f.VerdictVersion})
 	}
 	if len(verdicts) < cfg.MinFailuresForEvolution {
+		return
+	}
+	if !pe.groupWarrantsEvolution(ctx, group, failures) {
+		result.GroupsWithoutSharedCause++
 		return
 	}
 	result.FailuresAnalyzed += len(verdicts)

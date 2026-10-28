@@ -17,6 +17,7 @@
 package system
 
 import (
+	"codenerd/internal/typesafe"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -112,6 +113,13 @@ func initLearningLoop(bctx *bootContext) error {
 		return nil
 	}
 	bctx.promptEvolver = evolver
+	// Jev settles task verdicts, problem types and the evolution trigger
+	// (prompt_evolution/jev.go); without it each falls back as before.
+	if jev, err := typesafe.FromConfig(bctx.appCfg.TypeSafe); err != nil {
+		logging.Get(logging.CategoryBoot).Warn("Prompt evolution without Jev: %v", err)
+	} else if jev != nil {
+		evolver.SetJev(jev, bctx.appCfg.TypeSafe)
+	}
 
 	// Promotion is a change to the agent's own instructions, so it is recorded
 	// as a kernel fact rather than left implicit in a file on disk.

@@ -8,14 +8,82 @@ import (
 	"regexp"
 	"strings"
 
+	"codenerd/internal/learnjudge"
 	"codenerd/internal/logging"
 )
 
 // ProblemClassifier classifies task requests into problem types.
 // This enables strategy selection and failure grouping by problem category.
+//
+// With Jev configured and problem_types on, the type is Jev's Choice over the
+// problem kinds with a companion Noul (learnjudge.JudgeProblemType); the
+// regex patterns and keyword boosters below are the fallback for a task Jev
+// did not answer (off, switched off, failed, timed out), and the fallback is
+// logged.
 type ProblemClassifier struct {
 	// Compiled patterns for each problem type
 	patterns map[ProblemType][]*regexp.Regexp
+
+	jevMu sync.Mutex
+	jev   *jevUse
+	// judged caches Jev's answer per task text: the prompt compiler asks
+	// for the same task on every model call of a turn.
+	judged map[string]classified
+}
+
+type classified struct {
+	t ProblemType
+	p float64
+}
+
+// maxJudgedTasks bounds the cache; when full it starts over.
+const maxJudgedTasks = 512
+
+func (pc *ProblemClassifier) setJev(u *jevUse) {
+	pc.jevMu.Lock()
+	defer pc.jevMu.Unlock()
+	pc.jev = u
+	pc.judged = make(map[string]classified)
+}
+
+// classifyWithJev is the problem-type truth table over Jev's answers:
+//
+//	problem_kind_fits  type
+//	no                 other (ProblemOther): no kind describes the task
+//	yes or unsettled   the problem_kind Choice (a Choice always picks; only
+//	                   the companion's "no" overrides it)
+//
+// ok is false when Jev gave no answer, and the caller falls back.
+func (pc *ProblemClassifier) classifyWithJev(ctx context.Context, taskRequest, shardType string) (ProblemType, float64, bool) {
+	pc.jevMu.Lock()
+	u := pc.jev
+	key := shardType + "\x00" + taskRequest
+	if c, hit := pc.judged[key]; hit {
+		pc.jevMu.Unlock()
+		return c.t, c.p, true
+	}
+	pc.jevMu.Unlock()
+	if u == nil || !u.uses.ProblemTypes || strings.TrimSpace(taskRequest) == "" {
+		return "", 0, false
+	}
+	jctx, cancel := withJevBound(ctx, u.problemTimeout)
+	defer cancel()
+	j, err := learnjudge.JudgeProblemType(jctx, u.asker, taskRequest, shardType)
+	if err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Warn("Problem type: no Jev answer, the pattern classifier decides: %v", err)
+		return "", 0, false
+	}
+	c := classified{t: ProblemType(j.Kind), p: j.Probs[j.Kind]}
+	if u.read(j.Fits) == readNo {
+		c = classified{t: ProblemOther, p: 1 - j.Fits}
+	}
+	pc.jevMu.Lock()
+	if len(pc.judged) >= maxJudgedTasks {
+		pc.judged = make(map[string]classified)
+	}
+	pc.judged[key] = c
+	pc.jevMu.Unlock()
+	return c.t, c.p, true
 }
 
 // NewProblemClassifier creates a new problem classifier.
@@ -27,9 +95,15 @@ func NewProblemClassifier() *ProblemClassifier {
 	return pc
 }
 
-// Classify determines the problem type for a task request.
-// Returns the problem type and confidence score (0.0-1.0).
+// Classify determines the problem type for a task request: Jev's reading when
+// it answers, else the patterns. Returns the problem type and its
+// probability or pattern confidence (0.0-1.0).
 func (pc *ProblemClassifier) Classify(taskRequest string) (ProblemType, float64) {
+	return pc.ClassifyWithContext(context.Background(), taskRequest, "")
+}
+
+// classifyByPattern is the regex classifier, Jev's fallback.
+func (pc *ProblemClassifier) classifyByPattern(taskRequest string) (ProblemType, float64) {
 	normalized := strings.ToLower(taskRequest)
 
 	// Truncate excessively long inputs to prevent regex performance issues
@@ -98,7 +172,10 @@ func (pc *ProblemClassifier) Classify(taskRequest string) (ProblemType, float64)
 
 // ClassifyWithContext uses additional context for classification.
 func (pc *ProblemClassifier) ClassifyWithContext(ctx context.Context, taskRequest string, shardType string) (ProblemType, float64) {
-	baseType, baseConf := pc.Classify(taskRequest)
+	if t, p, ok := pc.classifyWithJev(ctx, taskRequest, shardType); ok {
+		return t, p
+	}
+	baseType, baseConf := pc.classifyByPattern(taskRequest)
 
 	// Boost confidence based on shard type alignment
 	switch shardType {

@@ -1,0 +1,49 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "agent": "codeNERD, a coding agent",
+  "failures": [
+   {
+    "kind": "logic_error",
+    "task": "fix the nil pointer in executor.go",
+    "what_went_wrong": "Failed: provider call timed out after 120s."
+   },
+   {
+    "kind": "instruction_miss",
+    "task": "rename Executor to Runner",
+    "what_went_wrong": "Failed: the agent edited README.md, which the request did not call for."
+   },
+   {
+    "kind": "syntax_error",
+    "task": "make Max return 0 for empty",
+    "what_went_wrong": "Failed: stats.go:14: syntax error: unexpected }."
+   }
+  ]
+ },
+ "questions": {
+  "shares_one_cause": {
+   "type": "noul",
+   "instructions": "Do the failures in `failures` share one cause that a single instruction to the agent could prevent?",
+   "criteria": {
+    "true": "The same mistake recurs across the failures, so one instruction (always do X, never do Y) would have prevented most of them.",
+    "false": "The failures have different causes, or causes outside the agent's control such as timeouts, outages or missing access, so no one instruction would prevent them."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "shares_one_cause": {
+   "type": "noul",
+   "noul": 0.03
+  }
+ },
+ "usage": {
+  "input_tokens": 530,
+  "output_tokens": 23
+ }
+}
+}

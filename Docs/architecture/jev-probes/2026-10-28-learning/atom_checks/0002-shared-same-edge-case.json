@@ -1,0 +1,49 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "agent": "codeNERD, a coding agent",
+  "failures": [
+   {
+    "kind": "edge_case",
+    "task": "add a Median function",
+    "what_went_wrong": "Failed: TestMedianEmpty panicked: index out of range on an empty slice."
+   },
+   {
+    "kind": "edge_case",
+    "task": "add a Mode function",
+    "what_went_wrong": "Failed: Mode([]) panicked: index out of range [0] with length 0."
+   },
+   {
+    "kind": "edge_case",
+    "task": "add a Percentile function",
+    "what_went_wrong": "Failed: Percentile(nil, 50) panicked on an empty input."
+   }
+  ]
+ },
+ "questions": {
+  "shares_one_cause": {
+   "type": "noul",
+   "instructions": "Do the failures in `failures` share one cause that a single instruction to the agent could prevent?",
+   "criteria": {
+    "true": "The same mistake recurs across the failures, so one instruction (always do X, never do Y) would have prevented most of them.",
+    "false": "The failures have different causes, or causes outside the agent's control such as timeouts, outages or missing access, so no one instruction would prevent them."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "shares_one_cause": {
+   "type": "noul",
+   "noul": 0.98
+  }
+ },
+ "usage": {
+  "input_tokens": 540,
+  "output_tokens": 23
+ }
+}
+}
