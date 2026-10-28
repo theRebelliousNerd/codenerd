@@ -94,7 +94,7 @@ func membershipFor(root string) (*workspace.Membership, error) {
 }
 
 // searchSingleKeyword searches for one keyword with the configured backend.
-func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword string) ([]KeywordHit, error) {
+func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword string) (BackendResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.searchTimeout)
 	defer cancel()
 
@@ -105,17 +105,18 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 		r.metrics.searches.Add(1)
 		r.activeSearches.Add(1)
 		defer r.activeSearches.Add(-1)
-		hits, berr := backend.Search(ctx, r.workDir, keyword, r.excludePatterns)
-		r.metrics.hits.Add(int64(len(hits)))
+		res, berr := backend.Search(ctx, r.workDir, keyword, r.excludePatterns)
+		r.metrics.hits.Add(int64(len(res.Hits)))
 		r.metrics.searchNanos.Add(int64(time.Since(searchStart)))
 		if berr != nil {
 			r.metrics.errors.Add(1)
 		}
-		return hits, berr
+		return res, berr
 	}
 
 	found, err := r.searchKeywordsNative(ctx, []string{keyword})
-	return found[keyword], err
+	hits := found[keyword]
+	return BackendResult{Hits: hits, CapReached: len(hits) >= maxHitsPerKeyword}, err
 }
 
 // excludedPath reports whether a purpose-filter glob excludes path: its own
@@ -217,6 +218,21 @@ func (r *SparseRetriever) searchKeywordsNative(ctx context.Context, keywords []s
 	found := make(map[string][]KeywordHit, len(keywords))
 	var mu sync.Mutex
 	full := func(i int) bool { return len(found[keywords[i]]) >= maxHitsPerKeyword }
+	// saturated closes once every keyword has reached its cap: no reader will
+	// record another hit, so the walk stops. Without it the readers returned
+	// and the walk blocked sending into a full channel until the caller's
+	// deadline, which then reported a whole, capped result as a timeout
+	// (Docs/audits/retrieval-saturation-outcomes-and-producer-lifecycle.md S1).
+	saturated := make(chan struct{})
+	var saturateOnce sync.Once
+	allFull := func() bool {
+		for i := range keywords {
+			if !full(i) {
+				return false
+			}
+		}
+		return true
+	}
 
 	files := make(chan string, 1000)
 	var wg sync.WaitGroup
@@ -252,6 +268,9 @@ func (r *SparseRetriever) searchKeywordsNative(ctx context.Context, keywords []s
 						found[keywords[i]] = append(found[keywords[i]], h)
 					}
 				}
+				if allFull() {
+					saturateOnce.Do(func() { close(saturated) })
+				}
 				mu.Unlock()
 			}
 		})
@@ -275,6 +294,11 @@ func (r *SparseRetriever) searchKeywordsNative(ctx context.Context, keywords []s
 		if ctx.Err() != nil {
 			return filepath.SkipAll
 		}
+		select {
+		case <-saturated:
+			return filepath.SkipAll
+		default:
+		}
 		member, admErr := mem.Admit(path, d.IsDir())
 		if admErr != nil {
 			return admErr
@@ -294,6 +318,8 @@ func (r *SparseRetriever) searchKeywordsNative(ctx context.Context, keywords []s
 			walked++
 			select {
 			case files <- path:
+			case <-saturated:
+				return filepath.SkipAll
 			case <-ctx.Done():
 				return filepath.SkipAll
 			}
@@ -308,6 +334,16 @@ func (r *SparseRetriever) searchKeywordsNative(ctx context.Context, keywords []s
 		total += len(hits)
 	}
 	r.metrics.hits.Add(int64(total))
+
+	// Every keyword at its cap is a finished acquisition: what a longer walk
+	// would have recorded is exactly this. It is reported as such even when
+	// the deadline also passed, and the caller marks it partial (overflow).
+	mu.Lock()
+	capped := allFull()
+	mu.Unlock()
+	if capped && err == nil {
+		return found, nil
+	}
 
 	if cerr := ctx.Err(); cerr != nil {
 		r.metrics.timeouts.Add(1)

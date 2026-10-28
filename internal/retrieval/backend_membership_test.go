@@ -25,7 +25,8 @@ func TestRipgrepRelativeRootIncludesHiddenMembers(t *testing.T) {
 		}
 	}
 	t.Chdir(parent)
-	hits, err := backend.Search(context.Background(), "repo", "membershipneedle", nil)
+	res, err := backend.Search(context.Background(), "repo", "membershipneedle", nil)
+	hits := res.Hits
 	if err != nil {
 		t.Fatal(err)
 	}

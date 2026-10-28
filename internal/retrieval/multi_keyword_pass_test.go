@@ -64,7 +64,8 @@ func TestMultiKeywordPassMatchesSingleKeywordWalks(t *testing.T) {
 		t.Fatalf("multi pass: %v", err)
 	}
 	for _, kw := range keywords {
-		single, err := r.searchSingleKeyword(context.Background(), kw)
+		singleRes, err := r.searchSingleKeyword(context.Background(), kw)
+		single := singleRes.Hits
 		if err != nil {
 			t.Fatalf("single %q: %v", kw, err)
 		}
@@ -87,7 +88,7 @@ func TestMultiKeywordPassTiming(t *testing.T) {
 	keywords := strings.Fields("northstar wizard agentic interview explore codebase questions suggest navigation session kernel dreamer campaign orient embedding shard retrieval budget context atom prompt policy mangle config verify test coverage repair escalation transducer")
 	r := NewSparseRetriever(&SparseRetrieverConfig{WorkDir: root, SearchTimeout: 2 * time.Minute})
 	start := time.Now()
-	if _, _, err := r.searchEachKeyword(context.Background(), keywords); err != nil {
+	if _, _, _, err := r.searchEachKeyword(context.Background(), keywords); err != nil {
 		t.Logf("per-keyword walks: %v", err)
 	}
 	perKeyword := time.Since(start)

@@ -103,8 +103,9 @@ func (r *SparseRetriever) SearchKeywords(ctx context.Context, keywords *IssueKey
 	if len(missing) > 0 {
 		var found map[string][]KeywordHit
 		failedSet := map[string]bool{}
+		cappedSet := map[string]bool{}
 		if r.backend != nil {
-			found, failedSet, searchErr = r.searchEachKeyword(ctx, missing)
+			found, cappedSet, failedSet, searchErr = r.searchEachKeyword(ctx, missing)
 		} else {
 			// Every missing keyword in one walk: each file is read and
 			// lower-cased once for all of them. One walk per keyword read the
@@ -114,6 +115,11 @@ func (r *SparseRetriever) SearchKeywords(ctx context.Context, keywords *IssueKey
 			sctx, cancel := context.WithTimeout(ctx, r.searchTimeout)
 			found, searchErr = r.searchKeywordsNative(sctx, missing)
 			cancel()
+			// The native walk stops recording a keyword at the cap, so a
+			// keyword at it is capped (conservatively so at exact equality).
+			for _, keyword := range missing {
+				cappedSet[keyword] = len(found[keyword]) >= maxHitsPerKeyword
+			}
 			if searchErr != nil {
 				// One walk serves every keyword: if it stopped, none of them
 				// is whole.
@@ -132,9 +138,9 @@ func (r *SparseRetriever) SearchKeywords(ctx context.Context, keywords *IssueKey
 				failed = append(failed, keyword)
 				continue
 			}
-			// The external backend applies no hit cap, so it never
-			// overflows; the native walk stops a keyword at the cap.
-			overflow := r.backend == nil && len(hits) >= maxHitsPerKeyword
+			// Both backends say whether they stopped at the cap; the count
+			// alone cannot.
+			overflow := cappedSet[keyword]
 			if overflow {
 				overflowed = append(overflowed, keyword)
 			}
@@ -161,10 +167,11 @@ func (r *SparseRetriever) SearchKeywords(ctx context.Context, keywords *IssueKey
 }
 
 // searchEachKeyword runs the configured external backend once per keyword,
-// up to r.parallelism at a time. failed names the keywords whose search
-// errored; err is the first such error.
-func (r *SparseRetriever) searchEachKeyword(ctx context.Context, keywords []string) (found map[string][]KeywordHit, failed map[string]bool, err error) {
+// up to r.parallelism at a time. capped names the keywords whose scan stopped
+// at its cap, failed those whose search errored; err is the first error.
+func (r *SparseRetriever) searchEachKeyword(ctx context.Context, keywords []string) (found map[string][]KeywordHit, capped, failed map[string]bool, err error) {
 	found = make(map[string][]KeywordHit, len(keywords))
+	capped = make(map[string]bool)
 	failed = make(map[string]bool)
 	var mu sync.Mutex
 	semaphore := make(chan struct{}, max(r.parallelism, 1))
@@ -173,10 +180,11 @@ func (r *SparseRetriever) searchEachKeyword(ctx context.Context, keywords []stri
 		wg.Go(func() {
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
-			hits, kerr := r.searchSingleKeyword(ctx, keyword)
+			res, kerr := r.searchSingleKeyword(ctx, keyword)
 			mu.Lock()
 			defer mu.Unlock()
-			found[keyword] = hits
+			found[keyword] = res.Hits
+			capped[keyword] = res.CapReached
 			if kerr != nil {
 				failed[keyword] = true
 				if err == nil {
@@ -186,5 +194,5 @@ func (r *SparseRetriever) searchEachKeyword(ctx context.Context, keywords []stri
 		})
 	}
 	wg.Wait()
-	return found, failed, err
+	return found, capped, failed, err
 }

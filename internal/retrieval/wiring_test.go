@@ -445,7 +445,8 @@ func TestRipgrepBackend_ShouldProduceTheSameHitsAsTheNativeScan(t *testing.T) {
 	writeFile(t, dir, "beta.go", []byte("package main\n\n// unrelated\n"))
 
 	native := newBoundedRetriever(t, dir)
-	nativeHits, err := native.searchSingleKeyword(context.Background(), "needle")
+	nativeHitsRes, err := native.searchSingleKeyword(context.Background(), "needle")
+	nativeHits := nativeHitsRes.Hits
 	if err != nil {
 		t.Fatalf("native search: %v", err)
 	}
@@ -461,7 +462,8 @@ func TestRipgrepBackend_ShouldProduceTheSameHitsAsTheNativeScan(t *testing.T) {
 	cfg := DefaultSparseRetrieverConfig(dir)
 	cfg.Backend = backend
 	rg := NewSparseRetriever(cfg)
-	rgHits, err := rg.searchSingleKeyword(context.Background(), "needle")
+	rgRes, err := rg.searchSingleKeyword(context.Background(), "needle")
+	rgHits := rgRes.Hits
 	if err != nil {
 		t.Fatalf("ripgrep search: %v", err)
 	}
@@ -492,7 +494,8 @@ func TestRipgrepBackend_WhenNoMatch_ShouldReturnEmptyNotError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRipgrepBackend: %v", err)
 	}
-	hits, err := backend.Search(context.Background(), dir, "definitely_absent_symbol", nil)
+	res, err := backend.Search(context.Background(), dir, "definitely_absent_symbol", nil)
+	hits := res.Hits
 	if err != nil {
 		t.Fatalf("a miss was reported as an error: %v", err)
 	}
@@ -503,8 +506,9 @@ func TestRipgrepBackend_WhenNoMatch_ShouldReturnEmptyNotError(t *testing.T) {
 
 func TestRipgrepBackend_WhenKeywordBlank_ShouldNotRunTheProcess(t *testing.T) {
 	backend := &RipgrepBackend{Binary: "/nonexistent/rg"}
-	hits, err := backend.Search(context.Background(), ".", "   ", nil)
-	if err != nil || hits != nil {
+	res, err := backend.Search(context.Background(), ".", "   ", nil)
+	hits := res.Hits
+	if err != nil || hits != nil || res.CapReached {
 		t.Errorf("blank keyword: hits=%v err=%v, want nil/nil", hits, err)
 	}
 }

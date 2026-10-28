@@ -226,6 +226,11 @@ flowchart TD
 - Cache hit skips work
 - Errors logged via `logging.Context`; first-wave collection still returns aggregated hits (errors are observed but do not always fail the whole call)
 
+**Cap outcome and producer lifecycle (verified 2026-10-28):**
+
+- The native walk (`searchKeywordsNative`, `scan_native.go`) closes a `saturated` channel once every keyword has reached `maxHitsPerKeyword`; the producer selects on it while walking and while blocked sending, so it stops and joins its readers instead of waiting for the deadline. A saturated walk returns its hits with no error, even if the deadline also passed.
+- `ScanBackend.Search` returns `BackendResult{Hits, CapReached}`. The ripgrep adapter sets `CapReached` when it cuts at the cap; the native path sets it at `len(hits) >= maxHitsPerKeyword` (conservative at exact equality). `SearchKeywords` reports a capped keyword `partial (overflow)` and caches it as overflow for both backends.
+
 ### 5.2 Cache (`KeywordHitCache`)
 
 - Map + `container/list` LRU

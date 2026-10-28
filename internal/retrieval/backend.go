@@ -55,7 +55,15 @@ type ScanBackend interface {
 
 	// Search returns hits for a single literal keyword beneath root, honoring
 	// the caller's exclusion globs. Implementations must respect ctx.
-	Search(ctx context.Context, root, keyword string, exclude []string) ([]KeywordHit, error)
+	Search(ctx context.Context, root, keyword string, exclude []string) (BackendResult, error)
+}
+
+// BackendResult is one keyword's scan: the hits kept, and whether the scan
+// stopped keeping them at its cap. A capped result is true hits, not every
+// hit, and is reported partial; the hit count alone cannot say which it is.
+type BackendResult struct {
+	Hits       []KeywordHit
+	CapReached bool
 }
 
 // RipgrepBackend shells out to ripgrep.
@@ -77,9 +85,9 @@ func NewRipgrepBackend() (*RipgrepBackend, error) {
 func (b *RipgrepBackend) Name() string { return "ripgrep" }
 
 // Search implements ScanBackend.
-func (b *RipgrepBackend) Search(ctx context.Context, root, keyword string, exclude []string) ([]KeywordHit, error) {
+func (b *RipgrepBackend) Search(ctx context.Context, root, keyword string, exclude []string) (BackendResult, error) {
 	if strings.TrimSpace(keyword) == "" {
-		return nil, nil
+		return BackendResult{}, nil
 	}
 	if root == "" {
 		root = "."
@@ -91,7 +99,7 @@ func (b *RipgrepBackend) Search(ctx context.Context, root, keyword string, exclu
 	// keeps an unanswered git question from returning the unfiltered tree.
 	mem, memErr := membershipFor(root)
 	if memErr != nil {
-		return nil, memErr
+		return BackendResult{}, memErr
 	}
 	// rg then emits absolute paths, including when its caller supplied ".".
 	root = mem.Root()
@@ -122,7 +130,7 @@ func (b *RipgrepBackend) Search(ctx context.Context, root, keyword string, exclu
 	err := cmd.Run()
 	if ctx.Err() != nil {
 		hits := keepMemberHits(mem, root, parseRipgrepOutput(stdout.String(), keyword))
-		return hits, fmt.Errorf("ripgrep search for %q: %w", keyword, ctx.Err())
+		return BackendResult{Hits: hits}, fmt.Errorf("ripgrep search for %q: %w", keyword, ctx.Err())
 	}
 	if err != nil {
 		// rg exits 1 when nothing matched. That is an empty result, not a
@@ -130,16 +138,18 @@ func (b *RipgrepBackend) Search(ctx context.Context, root, keyword string, exclu
 		// installation.
 		var exitErr *exec.ExitError
 		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
-			return nil, fmt.Errorf("ripgrep search for %q: %w", keyword, err)
+			return BackendResult{}, fmt.Errorf("ripgrep search for %q: %w", keyword, err)
 		}
-		return nil, nil
+		return BackendResult{}, nil
 	}
 
+	// The same per-keyword cap as the native scan. Cutting here says so: a
+	// truncated result reported as whole read as "nothing else matches".
 	hits := keepMemberHits(mem, root, parseRipgrepOutput(stdout.String(), keyword))
 	if len(hits) > maxHitsPerKeyword {
-		hits = hits[:maxHitsPerKeyword]
+		return BackendResult{Hits: hits[:maxHitsPerKeyword], CapReached: true}, nil
 	}
-	return hits, nil
+	return BackendResult{Hits: hits}, nil
 }
 
 // keepMemberHits drops hits whose path is not a workspace member. rg prints

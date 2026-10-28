@@ -49,7 +49,8 @@ func TestSearch_ShouldSkipOversizedFiles(t *testing.T) {
 	writeFile(t, dir, "huge.txt", big)
 
 	r := newBoundedRetriever(t, dir)
-	hits, err := r.searchSingleKeyword(context.Background(), "needle")
+	hitsRes, err := r.searchSingleKeyword(context.Background(), "needle")
+	hits := hitsRes.Hits
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
@@ -72,7 +73,8 @@ func TestSearch_ShouldSkipBinaryFiles(t *testing.T) {
 	writeFile(t, dir, "blob.bin", []byte("needle\x00\x01\x02binary payload"))
 
 	r := newBoundedRetriever(t, dir)
-	hits, err := r.searchSingleKeyword(context.Background(), "needle")
+	hitsRes, err := r.searchSingleKeyword(context.Background(), "needle")
+	hits := hitsRes.Hits
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
@@ -117,7 +119,8 @@ func TestSearch_ShouldCapHitsPerFile(t *testing.T) {
 	writeFile(t, dir, "generated.go", []byte(sb.String()))
 
 	r := newBoundedRetriever(t, dir)
-	hits, err := r.searchSingleKeyword(context.Background(), "needle")
+	hitsRes, err := r.searchSingleKeyword(context.Background(), "needle")
+	hits := hitsRes.Hits
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}

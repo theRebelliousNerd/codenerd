@@ -674,7 +674,8 @@ func (b *TieredContextBuilder) findSymbolDefinitions(ctx context.Context, symbol
 	for _, keyword := range definitionKeywords {
 		pattern := keyword + " " + symbol
 
-		hits, err := b.retriever.searchSingleKeyword(ctx, pattern)
+		res, err := b.retriever.searchSingleKeyword(ctx, pattern)
+		hits := res.Hits
 		if err != nil && firstErr == nil {
 			// The hits it found are still true; the search is not whole.
 			firstErr = err

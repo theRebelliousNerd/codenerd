@@ -229,3 +229,35 @@ Before implementation, follow the repository's spec-first package/gap workflow. 
 [feature-factory]: https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/system/factory.go#L2614-L2628
 [feature-seed]: https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/retrieval/facts.go#L201-L279
 [feature-stages]: https://github.com/theRebelliousNerd/codenerd/blob/c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c/internal/retrieval/tiered_context.go#L206-L257
+
+## As-built status
+
+Verified and built 2026-10-28 on `main` (after `3daf1420`). `scan_native.go`, `search.go` and `backend.go` were unchanged from the audited blobs.
+
+### Claim ledger
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| S1: readers return once every keyword is full, but the producer has no saturation signal and blocks on the full channel until the deadline | Real, fixed (confirmed: the witness took 20.0 s, the full deadline, before the fix) | `scan_native.go:226` `saturated`, selected at `:298` and `:321`; `:344` returns a saturated walk without error |
+| S1: the deadline error marks every keyword failed, so the capped result is `partial/timeout` and not cached | Real, fixed | the walk now ends without error, and `SearchKeywords` reports `partial (overflow)` and caches it; `saturation_test.go` reads it back from the cache |
+| S1: a single saturated keyword must not stop the walk for an open one | Confirmed and pinned | `TestSearchKeywordsNative_AnOpenKeywordKeepsTheWalkGoing` (the open keyword's only hit is in the last file) |
+| S1: the seed's shared deadline is spent by the stranded keyword stage, starving import/semantic expansion | Real consequence; removed with S1 | the keyword stage now returns when saturated |
+| S2: ripgrep truncates to 20,000 and returns nil; `SearchKeywords` computes overflow only for the native backend | Real, fixed | `backend.go:150` returns `CapReached: true`; `search.go:143` uses each backend's own report |
+| S2: exactly 20,000 is ambiguous from a slice | Confirmed; the adapter now reports the cut itself (`> cap`), the native path reports `>= cap` (conservative) | `backend.go`, `scan_native.go` `searchSingleKeyword` |
+| External-backend change invalidation clears the cache | Confirmed; unchanged | `keyword_cache.go` |
+| Default factory retriever is native; ripgrep only via `nerd retrieve --ripgrep` | Confirmed | `cmd/nerd/cmd_retrieve.go:91` |
+
+### What was built
+
+- Ruling (S1): a private `saturated` channel, closed once under the readers' mutex when the last keyword fills, distinct from the caller's context so saturation is never relabeled as cancellation. Precedence: a walk with every keyword at its cap is a finished bounded acquisition and returns without error even if the deadline also passed (its hits are exactly what a longer walk would keep); otherwise cancellation and walk errors keep their existing reporting. The channel owner still closes `files` and joins every reader.
+- Ruling (S2): the backend contract carries the cap outcome (`BackendResult{Hits, CapReached}`); the caller no longer assumes non-native backends are uncapped. All callers and test fakes moved to the new signature.
+- Spec: `Docs/architecture/retrieval/IMPLEMENTED_SPEC.md` §5.1 "Cap outcome and producer lifecycle".
+
+### Tests
+
+`internal/retrieval/saturation_test.go`: the audit's witness (40 files filling the cap, 2,500 empty files behind them, one reader) finishes far inside the deadline with 20,000 hits, `partial (overflow)`, no error detail, and a cached overflow on repeat (failed before the fix after 20.0 s); a second open keyword is still found in the last file; a backend reporting `CapReached` is partial on both the fresh and the cached read. `go test -race ./internal/retrieval` passes.
+
+### Left open
+
+- The ripgrep adapter still buffers the whole subprocess output before cutting (§7); bounding its memory needs its own streaming/cancellation contract.
+- Acceptance cases 4-5 (several worker counts under competing searches; cancellation racing the final hit) and 9 (production `TaskRetriever` budget left for import/semantic stages) were not built as separate fixtures; the end-to-end study was not run.

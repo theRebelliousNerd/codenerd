@@ -253,11 +253,11 @@ func TestApplyFileChanges_MatchesRelativeAndAbsoluteForms(t *testing.T) {
 type failingBackend struct{ fail string }
 
 func (failingBackend) Name() string { return "fake" }
-func (b failingBackend) Search(_ context.Context, root, keyword string, _ []string) ([]KeywordHit, error) {
+func (b failingBackend) Search(_ context.Context, root, keyword string, _ []string) (BackendResult, error) {
 	if keyword == b.fail {
-		return nil, errors.New("backend exploded")
+		return BackendResult{}, errors.New("backend exploded")
 	}
-	return []KeywordHit{{FilePath: filepath.Join(root, keyword+".go"), Keyword: keyword, Line: 1, Column: 1, Count: 1}}, nil
+	return BackendResult{Hits: []KeywordHit{{FilePath: filepath.Join(root, keyword+".go"), Keyword: keyword, Line: 1, Column: 1, Count: 1}}}, nil
 }
 
 // Fixture 5: one keyword's search fails while another succeeds. The outcome
