@@ -15,7 +15,7 @@ type correctionCase struct {
 }
 
 const (
-	replyEditedMin   = "Done. I changed Min in internal/stats/stats.go so it returns 0 for an empty slice, and added TestMinEmpty."
+	replyEditedMin    = "Done. I changed Min in internal/stats/stats.go so it returns 0 for an empty slice, and added TestMinEmpty."
 	replyExplainedJIT = "The JIT compiler scores each atom by its selectors, then the kernel ranks the survivors with jit_selection.mg and the budget trims from the bottom."
 	replyRunningTests = "Running the full test suite in the background now; I'll report failures as they come in."
 	replyReviewed     = "Review of internal/approval: 2 findings. broker.go:88 opens a second request for a duplicate call; request.go:40 ignores ctx cancellation."

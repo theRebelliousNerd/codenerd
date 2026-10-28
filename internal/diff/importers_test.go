@@ -35,6 +35,9 @@ var displayOnlyImporters = map[string]bool{
 // recomputes it (Docs/audits/request-bound-human-approval.md §3).
 var decisionImporters = map[string]bool{
 	"internal/approval": true,
+	// The judge's evidence packet: the judge decides a verdict on the diff
+	// (internal/verification: TestEvidenceDiffEngine_NeverServesFromCache).
+	"internal/verification": true,
 }
 
 func TestDiffImporters_AreDisplayOnlyOrDecisionSafe(t *testing.T) {

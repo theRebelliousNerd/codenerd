@@ -11,8 +11,8 @@ import (
 	internalconfig "codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/learnjudge"
-	"codenerd/internal/typesafe"
 	"codenerd/internal/types"
+	"codenerd/internal/typesafe"
 )
 
 // tool_need_test.go: whether a request is a capability gap is the kernel's

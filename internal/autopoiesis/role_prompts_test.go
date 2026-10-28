@@ -128,7 +128,7 @@ func TestRolePrompts_EachCallSendsItsCompiledRolePrompt(t *testing.T) {
 			}
 
 			for name, roles := range map[string]types.RolePromptCompiler{
-				"no compiler":     nil,
+				"no compiler":    nil,
 				"failed compile": &recordingRolePrompts{fail: true},
 			} {
 				unwired := &systemRecordingLLM{}

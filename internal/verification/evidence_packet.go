@@ -360,9 +360,14 @@ func cutUTF8(s string, n int) string {
 	return s[:n]
 }
 
+// evidenceDiffEngine computes the diffs the judge decides a verdict on. A
+// cached engine trusts its keys, so a collision would show the judge another
+// file's hunks; the evidence is recomputed every time instead.
+var evidenceDiffEngine = diff.NewEngineWith(diff.Options{DisableCache: true})
+
 // renderDiff is a unified diff of one file's change.
 func renderDiff(path, before, after string) string {
-	fd := diff.ComputeDiff(path, path, before, after)
+	fd := evidenceDiffEngine.ComputeDiff(path, path, before, after)
 	if fd == nil {
 		return ""
 	}

@@ -64,7 +64,7 @@ func newFakeOllama(t *testing.T) *fakeOllama {
 			f.mu.Lock()
 			f.requests = append(f.requests, system+"\n----\n"+user)
 			f.mu.Unlock()
-			reply, err := initEntryReply(user)
+			reply, err := initEntryReply(system + "\n----\n" + user)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
@@ -109,17 +109,20 @@ func initEntryPhase(request string) string {
 		return "domain_experts"
 	case strings.Contains(request, "Choose which of this repository's own commands"):
 		return "project_tools"
-	case strings.Contains(request, "methodology prompt atom"), strings.Contains(request, "domain prompt atom"):
+	case strings.Contains(request, "methodology atoms for the specialist"), strings.Contains(request, "domain atoms for the specialist"):
 		return "specialist_prompts"
 	}
 	return "other"
 }
 
-func initEntryReply(user string) (string, error) {
-	switch {
-	case strings.HasPrefix(user, "@@DOC "):
+func initEntryReply(request string) (string, error) {
+	// Each init phase's instructions are compiled from its role atoms into
+	// the system prompt; the user message carries only the phase's data. The
+	// reply is keyed off the same phase classification the assertions use.
+	switch initEntryPhase(request) {
+	case "document_roles":
 		var documents []map[string]any
-		for _, match := range initEntryDocLine.FindAllStringSubmatch(user, -1) {
+		for _, match := range initEntryDocLine.FindAllStringSubmatch(request, -1) {
 			if match[1] != "README.md" {
 				continue
 			}
@@ -127,18 +130,19 @@ func initEntryReply(user string) (string, error) {
 		}
 		body, err := json.Marshal(map[string]any{"documents": documents})
 		return string(body), err
-	case strings.HasPrefix(user, "@@BRIEF"):
+	case "north_star":
 		return `{"Mission":"Build a coding agent that wires what it writes.","Problem":"Agents forget to wire code.","Vision":"Every change is reached from a shipped entry point.","FieldSources":{"Mission":["README.md"],"Problem":["README.md"],"Vision":["README.md"]}}`, nil
-	case strings.Contains(user, "Propose the domain experts"):
+	case "domain_experts":
 		return `{"experts":[{"name":"AgentWiringExpert","mission":"Keep agent-written code reachable","why":"the north star requires reachable changes","cites":["north_star"],"topics":["entry-point wiring"],"research":[{"question":"how do coding agents forget to wire new code","fast_moving":false}]}]}`, nil
-	case strings.Contains(user, "Choose which of this repository's own commands"):
+	case "project_tools":
 		return `{"tools":[{"command":"make test","name":"test","category":"test","description":"Runs the fixture tests."}]}`, nil
-	case strings.Contains(user, "methodology prompt atom"):
+	case "specialist_prompts":
+		if strings.Contains(request, "domain atoms for the specialist") {
+			return "## Domain\n\n- Agents fail by building code nothing calls.", nil
+		}
 		return "## Methodology\n\n- Trace every artifact to its reader.", nil
-	case strings.Contains(user, "domain prompt atom"):
-		return "## Domain\n\n- Agents fail by building code nothing calls.", nil
 	}
-	return "", fmt.Errorf("unscripted request: %.100q", user)
+	return "", fmt.Errorf("unscripted request: %.100q", request)
 }
 
 func initEntryGit(t *testing.T, root string, args ...string) {

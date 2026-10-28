@@ -11,6 +11,7 @@ import (
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/northstar"
 	"codenerd/internal/perception"
+	"codenerd/internal/prompt"
 	coresys "codenerd/internal/system"
 	"codenerd/internal/tactile"
 	"codenerd/internal/types"
@@ -93,6 +94,9 @@ func TestCampaignStart_PlansOnThePlanningTier(t *testing.T) {
 				TaskExecutor:    tasks,
 				Executor:        tactile.NewDirectExecutor(),
 			}
+			// A booted Cortex carries the JIT compiler; campaign roles compile
+			// their prompts from the shipped corpus through it.
+			cortex.JITCompiler = newEmbeddedJIT(t, kern)
 			wantPlanning := main
 			if tt.withPlanner {
 				cortex.PlannerLLMClient = planner
@@ -151,4 +155,23 @@ func TestCampaignStart_PlansOnThePlanningTier(t *testing.T) {
 			}
 		})
 	}
+}
+
+// newEmbeddedJIT is the JIT compiler a booted Cortex wires: the given kernel and
+// the atom corpus the binary embeds.
+func newEmbeddedJIT(t *testing.T, kern *core.RealKernel) *prompt.JITPromptCompiler {
+	t.Helper()
+	embedded, err := prompt.LoadEmbeddedCorpus()
+	if err != nil {
+		t.Fatalf("LoadEmbeddedCorpus: %v", err)
+	}
+	compiler, err := prompt.NewJITPromptCompiler(
+		prompt.WithKernel(coresys.NewKernelAdapter(kern)),
+		prompt.WithEmbeddedCorpus(embedded),
+	)
+	if err != nil {
+		t.Fatalf("NewJITPromptCompiler: %v", err)
+	}
+	t.Cleanup(func() { _ = compiler.Close() })
+	return compiler
 }

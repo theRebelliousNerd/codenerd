@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"codenerd/internal/mangle"
+
 	"codeberg.org/TauCeti/mangle-go/analysis"
 	"codeberg.org/TauCeti/mangle-go/ast"
 	"codeberg.org/TauCeti/mangle-go/parse"
@@ -61,7 +63,7 @@ func bootCorpusBoundsMismatches(t *testing.T) map[string]string {
 	k.mu.Lock()
 	k.writeProgramLocked(&program)
 	k.mu.Unlock()
-	unit, err := parse.Unit(strings.NewReader(program.String()))
+	unit, err := mangle.ParseUnit(strings.NewReader(program.String()))
 	if err != nil {
 		t.Fatalf("parse boot program: %v", err)
 	}

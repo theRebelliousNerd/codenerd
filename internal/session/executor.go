@@ -775,7 +775,7 @@ type ExecutionResult struct {
 	// verified: a build or test call is charged to it as the verification it
 	// made necessary (tool_meter.go).
 	lastWriteTool string
-	BuildCheck BuildVerification
+	BuildCheck    BuildVerification
 	// BuildForeignPackages are the packages a failing build named whose
 	// failure this turn cannot have caused (turn_build_failure_foreign).
 	// Empty when the build passed, was attributed, or was not measured.
