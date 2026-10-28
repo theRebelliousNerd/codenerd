@@ -49,34 +49,17 @@ func RelevanceFor(a Asker, sec *config.TypeSafeConfig) RelevanceUse {
 // files are judged in parallel batches; any failed batch fails the whole
 // judgment, so a partial verdict never reorders the context.
 func (j RelevanceJudge) Relevance(ctx context.Context, request string, files []retrieval.RelevanceCandidate) (map[string]float64, error) {
-	type part struct {
-		probs map[string]float64
-		err   error
-	}
-	var parts []chan part
-	size := max(j.BatchSize, 1)
-	for start := 0; start < len(files); start += size {
-		batch := files[start:min(start+size, len(files))]
-		ch := make(chan part, 1)
-		parts = append(parts, ch)
-		go func() {
-			p, err := j.judgeBatch(ctx, request, batch)
-			ch <- part{p, err}
-		}()
+	parts, err := inBatches(files, j.BatchSize, func(batch []retrieval.RelevanceCandidate) (map[string]float64, error) {
+		return j.judgeBatch(ctx, request, batch)
+	})
+	if err != nil {
+		return nil, err
 	}
 	out := make(map[string]float64, len(files))
-	var firstErr error
-	for _, ch := range parts {
-		p := <-ch
-		if p.err != nil && firstErr == nil {
-			firstErr = p.err
-		}
-		for k, v := range p.probs {
+	for _, p := range parts {
+		for k, v := range p {
 			out[k] = v
 		}
-	}
-	if firstErr != nil {
-		return nil, firstErr
 	}
 	return out, nil
 }
@@ -89,9 +72,6 @@ func (j RelevanceJudge) judgeBatch(ctx context.Context, request string, files []
 		name := fmt.Sprintf("file_%d", i)
 		names[name] = f.Path
 		file := map[string]any{"path": f.Path}
-		if len(f.Keywords) > 0 {
-			file["matched_keywords"] = f.Keywords
-		}
 		if f.Excerpt != "" {
 			file["head"] = f.Excerpt
 			if f.ExcerptOf > len(f.Excerpt) {
@@ -100,7 +80,7 @@ func (j RelevanceJudge) judgeBatch(ctx context.Context, request string, files []
 		}
 		questions[name] = typesafe.Noul{
 			Instructions: map[string]any{
-				"question": "Would reading this file help answer or carry out `request`?",
+				"question": "Would reading this file help with `request`?",
 				"file":     file,
 			},
 			Criteria: &typesafe.NoulCriteria{

@@ -56,58 +56,57 @@ func CheckFindings(ctx context.Context, a Asker, workDir string, findings []Find
 			items = append(items, item{f, code})
 		}
 	}
-	type part struct {
-		verdicts []FindingVerdict
-		err      error
-	}
-	var parts []chan part
-	size := max(opts.BatchSize, 1)
-	for start := 0; start < len(items); start += size {
-		batch := items[start:min(start+size, len(items))]
-		ch := make(chan part, 1)
-		parts = append(parts, ch)
-		go func() {
-			questions := make(map[string]typesafe.Question, len(batch))
-			for i, it := range batch {
-				questions[fmt.Sprintf("finding_%d", i)] = typesafe.Noul{
-					Instructions: map[string]any{
-						"question": "Does `code` show the problem that `finding` describes?",
-						"finding":  it.f.Message,
-						"file":     it.f.File,
-						"code":     it.code,
-					},
-					Criteria: &typesafe.NoulCriteria{
-						True:  "The code shown contains the problem the finding describes, at or near the cited line.",
-						False: "The code shown does not contain it: the cited lines are about something else, or already handle what the finding says is missing.",
-					},
-				}
-			}
-			resp, err := a.Ask(typesafe.WithOperation(ctx, OpReviewChecks), map[string]any{"task": "Check reviewer findings against the code they cite."}, questions)
+	parts, err := inBatches(items, opts.BatchSize, func(batch []item) ([]FindingVerdict, error) {
+		questions := make(map[string]typesafe.Question, len(batch))
+		for i, it := range batch {
+			questions[fmt.Sprintf("finding_%d", i)] = findingQuestion(it.f, it.code)
+		}
+		resp, err := a.Ask(typesafe.WithOperation(ctx, OpReviewChecks), findingState, questions)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]FindingVerdict, 0, len(batch))
+		for i, it := range batch {
+			p, err := resp.Noul(fmt.Sprintf("finding_%d", i))
 			if err != nil {
-				ch <- part{err: err}
-				return
+				return nil, err
 			}
-			out := make([]FindingVerdict, 0, len(batch))
-			for i, it := range batch {
-				p, err := resp.Noul(fmt.Sprintf("finding_%d", i))
-				if err != nil {
-					ch <- part{err: err}
-					return
-				}
-				out = append(out, FindingVerdict{Finding: it.f, Probability: p})
-			}
-			ch <- part{verdicts: out}
-		}()
+			out = append(out, FindingVerdict{Finding: it.f, Probability: p})
+		}
+		return out, nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	var all []FindingVerdict
-	for _, ch := range parts {
-		p := <-ch
-		if p.err != nil {
-			return nil, p.err
-		}
-		all = append(all, p.verdicts...)
+	for _, p := range parts {
+		all = append(all, p...)
 	}
 	return all, nil
+}
+
+// findingState is what every question of a request shares; each finding and
+// its code ride in its own question.
+var findingState = map[string]any{
+	"context": "Source code that a code review cites, each excerpt with the review finding that cites it and the line it cites.",
+}
+
+// findingQuestion asks one judgment: is the described problem in the cited
+// code. Lines are numbered as in the file, and the cited line is stated.
+func findingQuestion(f Finding, code string) typesafe.Question {
+	return typesafe.Noul{
+		Instructions: map[string]any{
+			"question":   "Does `code` contain the problem that `finding` describes?",
+			"finding":    f.Message,
+			"file":       f.File,
+			"cited_line": f.Line,
+			"code":       code,
+		},
+		Criteria: &typesafe.NoulCriteria{
+			True:  "The statement at or next to `cited_line` has the problem the finding describes.",
+			False: "The statement at `cited_line` does something else, or already guards against what the finding says is missing.",
+		},
+	}
 }
 
 // citedLines returns the lines around line in file, numbered as in the file.

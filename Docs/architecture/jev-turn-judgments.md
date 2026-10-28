@@ -33,7 +33,44 @@ The thresholds are `judgment_yes_percent` (default 70) and `judgment_no_percent`
 (default 30). They reach the kernel as `config_param(/jev_yes_percent, _)` and
 `config_param(/jev_no_percent, _)`. A judgment at or above yes reads as yes
 (`jev_yes`), and one at or below no reads as no (`jev_no`). Between the two it is
-unsettled and acts on nothing.
+unsettled (`jev_unsettled`, jev_evidence.mg). Every judgment has all three rows:
+
+| Reading | Outcome |
+|---|---|
+| yes | the rule that reads it acts |
+| no | the rule that reads it acts (a no is the evidence for `jev_disputes_mutation`, `review_finding_refuted`, `self_problem_around`, the retrieval drop) |
+| unsettled | no rule acts; perception's own reading routes the turn, the chat log line names the unsettled judgments, a retrieved file keeps its keyword rank, a problem stays a defect |
+
+`confidence` is never read: a Noul has none, and the thresholds are on the
+probability (`TestJevJourney_UnsettledJudgmentsAreNamedAndActOnNothing`).
+
+## How a request is built
+
+The guidance is TypeSafe's (docs.typesafe.ai, the `typesafe-ai` skill); these
+are the choices it led to.
+
+- Request shape follows `POST /v1/systemone`: `model`, `state`, `questions`
+  (all Nouls today; Choice and Score are supported by `internal/typesafe` and
+  limit-checked, Box and images are not used). 429 and 529 retry, any other
+  non-200 is an `APIError`, and a failed call is never a judgment.
+- Judgments are Nouls because each is one yes/no condition. There is no
+  Choice, so there is no "nothing fits" companion to ask; a decision never goes
+  to Jev ("should we ...") because the rules in `jev_evidence.mg` hold the
+  truth table.
+- State is named fields a person would look at: `message`, `recent_turns`
+  (whole turns), `brief` (goal, constraints, decisions, open questions),
+  `held_work` (`action`, `target`, `handled_by`, `requested_as`), `running_work`.
+  An empty field is left out. Facts the code knows are stated: when older turns
+  are dropped for `recent_turns`, `earlier_turns_omitted` says how many; a
+  head cut for context says `the first N of M bytes`.
+- Questions about one item put the item in the question, as fields, not a
+  string template (`open_question`, `file`, `problem`, `finding`).
+- Questions that share state go in one request, and those that matter only
+  sometimes are asked with them: all turn judgments are one call, and
+  `approves_held_work`, `adds_to_held_work` and `wants_to_stop` ride in it only
+  while there is held or running work to refer to.
+- Wording lives in one module per use: `questions.go` (turn), `relevance.go`,
+  `findings.go`, `triage.go`.
 
 ## Every question, its switch and its consumer
 
@@ -51,7 +88,7 @@ as `side_turn_judgment(Name, Percent)`.
 | `hypothetical` | every turn | `jev_disputes_mutation`; `jev_restriction(/hypothetical)` | A "what if" read as a mutation asks first. The turn runs under the hypothetical restriction. |
 | `rules_out_changes` | every turn | `jev_restriction(/read_only)` | "Just look, don't touch" restricts the turn to read-only (constitution.mg 7D). |
 | `about_codenerd` | every turn | `self_diagnosis_lane` | Read-only background work about codeNERD's own failures becomes the self-diagnosis chain. |
-| `wants_to_stop` | every turn | `stop_background_requested`; `side_turn_wants(/stop)` | Running background jobs are cancelled. A side-turn "stop" stops the running turn. |
+| `wants_to_stop` | while work runs (`running_work`: the running turn, background jobs) | `stop_background_requested`; `side_turn_wants(/stop)` | Running background jobs are cancelled. A side-turn "stop" stops the running turn. |
 | `approves_held_work` | while work is held | `approve_lane`, with... | A go-ahead that perception misread still approves the held work. |
 | `adds_to_held_work` | while work is held | ...`approve_lane` needs it to read no | "Go, and also X" is not approval: it is a new request. |
 | `answered_N` | one per open brief question | `brief_question_answered` (read by brief.mg) | An answered question stops holding the work, so yolo may start. |
@@ -63,8 +100,11 @@ is no longer asked.
 ### Retrieval relevance: switch `retrieval_relevance`
 
 The question is in `internal/turnjudge/relevance.go`, asked once per Tier 2
-candidate: "Would reading this file help answer or carry out `request`?" The
-state includes the file's head, up to `relevance_head_bytes`. The pool is
+candidate: "Would reading this file help with `request`?" The state is
+the request; each question has the file's path and head, up to
+`relevance_head_bytes`, with a note when the head is cut. The keywords
+retrieval matched are not sent: they are what the keyword rank already used, and
+a shared word pulls the answer toward yes. The pool is
 `relevance_pool_factor` times Tier 2's size, sent as parallel requests of
 `batch_size` files each.
 
@@ -88,10 +128,11 @@ state includes the file's head, up to `relevance_head_bytes`. The pool is
 
 ### Review checks: switch `review_checks`
 
-The question is in `internal/turnjudge/findings.go`: "Does `code` show the
+The question is in `internal/turnjudge/findings.go`: "Does `code` contain the
 problem that `finding` describes?" It is asked for each reviewer finding that
-cites a readable file and line. The code sent is the `finding_context_lines`
-lines on either side of the citation.
+cites a readable file and line, with `cited_line` stated outright and `batch_size`
+findings to a request. The code sent is the `finding_context_lines` lines on
+either side of the citation, numbered as in the file.
 
 - Calls: `checkReviewFindings`, for a foreground review (process.go) and a
   background review (background.go).
@@ -106,9 +147,11 @@ lines on either side of the citation.
 
 ### Self-diagnosis triage: switch `diagnosis_triage`
 
-The question is in `internal/turnjudge/triage.go`: "Is `problem` a defect in
-codeNERD's own code, rather than a failure of something around it?" It is asked
-once for each hot problem in the problems log.
+The question is in `internal/turnjudge/triage.go`: "Was `problem` caused by a
+bug in codeNERD's own code?" It is asked once for each hot problem in the
+problems log, `batch_size` problems to a request, each with its level, category
+and whole message. The repeat count is not sent: it does not say what caused the
+problem.
 
 - Call: `triageProblems` (self_diagnosis.go), when the chain builds its task.
 - Fact: `self_problem_triage(Signature, Category, Percent)`.
@@ -161,49 +204,63 @@ leaves Jev off. No model or endpoint is defaulted.
 | `judgment_yes_percent` / `judgment_no_percent` | 70 / 30 | every rule above; the retrieval drop |
 | `turn_judgments`, `retrieval_relevance`, `review_checks`, `diagnosis_triage` | on | the use of that name |
 | `recent_turns` | 12 | turn judgments |
-| `batch_size` | 20 | retrieval relevance, review checks |
+| `batch_size` | 20 | retrieval relevance, review checks, triage |
 | `relevance_pool_factor` | 6 | retrieval relevance |
 | `relevance_head_bytes` | 3000 | retrieval relevance |
 | `finding_context_lines` | 12 | review checks |
 
 ## Live probe
 
-`go run ./cmd/tools/jev_probe -config .nerd/config.json -runs 3` scores every
+`go run ./cmd/tools/jev_probe -config .nerd/config.json -runs 2` scores every
 turn judgment against the labeled cases in
-`internal/turnjudge/testdata/cases.json`.
+`internal/turnjudge/testdata/cases.json`. `-uses internal/turnjudge/testdata/uses_cases.json`
+adds retrieval relevance, review checks and triage; `-variants FILE` asks
+several wordings of one judgment as separate questions over the same state;
+`-record DIR` keeps every exact request and reply (no key: it lives in a
+header the recorder never reads). Payloads from the runs below are in
+`Docs/architecture/jev-probes/2026-10-28-jev-latest/`.
 
-First tuning pass, 2026-10-28, `jev-1.14.0`, 46 cases × 3 runs:
+2026-10-28, model alias `jev-latest` (the versioned `jev-1.14.0` is accepted but
+`GET /v1/models` lists only `jev-latest` and `jev-preview`; pin a versioned ID in
+`typesafe.model` once thresholds are tuned), thresholds 70/30:
 
-- 294 of 303 judgments right, **0 wrong**, 9 unsettled (all in the middle band,
-  where the rules act on nothing).
-- 114k input tokens, 8.2 s.
-- These counts include `wants_answer`, which is no longer asked.
+| Set | Cases x runs | Right | Wrong | Unsettled |
+|---|---|---|---|---|
+| Tuning set (`cases.json`, 51 cases, the set the first wording was fitted to) | 51 x 2 | 180 of 186 | 2 | 4 |
+| Holdout (`holdout_cases.json`, 31 new cases written before they were run) | 31 x 2 | 106 of 108 | 0 | 2 |
 
-That pass showed that `changes_files` reads yes for a bare "go" over held work
-that changes files, which is fair. So approval asks `adds_to_held_work` instead
-of reusing `changes_files`.
+Misses, all on the safe side:
 
-Unsettled cases worth watching:
-
-- "go, and also add a test" on `approves_held_work` lands in the middle. That is
-  the safe outcome, since it is a new request.
-- "review my changes in internal/approval" on `names_target` scores about 0.65.
+- "do it but skip the docs part", "go, and also add a test for it" and "yes, and
+  update the changelog too" read 0.25 to 0.65 on `approves_held_work`. The
+  question approves starting the work as it is, so these are not approvals; the
+  labels in the case files predate that wording. `adds_to_held_work` reads them
+  yes in every run.
+- "review my changes in internal/approval" reads 0.56 to 0.58 on `names_target`.
   It is read-only, so no rule reads it.
 
-On codeNERD's own repository, 2026-10-28, the keyword ranking and the
-Jev-judged Tier 2 compared like this:
+Wording comparison (`-variants`, `variants-names_target.json`): four wordings of
+`names_target` over the same state. A rewording to "Is it clear which ... in
+`message`?" was worst (3 unsettled of 14); "Does the user's request say which
+file, function or feature they want to work on?" (goal anchored) and the first
+wording read 13 and 13 of 14 right, none wrong; all four were 8 of 8 on the holdout.
+The goal-anchored wording is the one in use.
 
-| Request | Keyword Tier 2 | Jev-judged Tier 2 |
-|---|---|---|
-| "why does the approval broker open a second request for a duplicate call" | a skill ledger, audit docs, `sparse.go`… | `approval/broker.go`, `session/human_approval.go`, `mcp/remote_approval_test.go`, `approval/request.go`… (120 judged, 98 dropped, 756 ms) |
-| "the footer does not wrap in the TUI" | 20 files, mostly agent and QA docs | `cmd/nerd/chat/view.go` |
+The other uses, same day (`uses_cases.json`, real repo files and inline source):
 
-That probe also exposed a keyword bug. `ExtractKeywords` took only code syntax,
-so a plain-English request searched for nothing. It now also takes prose
-identifiers and domain terms, at the lowest weight.
+- Relevance: 14 of 15 right across three requests, one unsettled; the files that share
+  a word with the request (`retry` in the embedding client, `approval` in a Mangle
+  grant path) read 0.06 to 0.21. `internal/typesafe/usage.go` for "how is an unpriced
+  model billed" read 0.31: a defensible miss, billing is decided in `usage/pricing.go`.
+- Review checks: 7 of 7 right with the cited line stated (the same finding on
+  guarded or parameterised code reads 0.02 to 0.05; a finding whose line is in
+  the wrong function reads 0.05).
+- Triage: 3 of 3 defects (0.80 to 0.84) and 5 of 5 surroundings (0.04 to 0.10);
+  a parse error in a policy file (0.55), a deadline exceeded (0.17) and a slow
+  evaluation (0.26) are the hard cases and are not scored.
 
-The workspace's `.nerd/config.json` has no typesafe section as of this writing,
-so the current build has not been probed live.
+Not yet probed: long Tier 2 heads, many-turn conversations near the 64k
+context limit, and any model other than `jev-latest`.
 
 ## Tests
 
@@ -218,4 +275,7 @@ so the current build has not been probed live.
 | Retrieval: a relevant file passes the floor; unsettled and failed do not; facts leave with the pass | `TestTaskRetriever_JevRelevantFileReachesTheBriefPastTheFloor` |
 | Retrieval wiring for task passes | `internal/system/factory_task_retrieval_test.go` |
 | Review checks | `TestCheckFindings_JudgesCitedCodeAndSkipsUncited`, `TestJevJourney_RefutedReviewFindingIsFlagged` |
-| Triage, including the failed case | `TestTriageProblems_FactsAndKernelSplit`, `TestJevJourney_TriageListsFailuresAroundCodeNERDApart` |
+| Triage, including the failed case, batching, and the count left out | `TestTriageProblems_FactsAndKernelSplit`, `TestTriageProblems_BatchesAndLeavesOutTheCount`, `TestJevJourney_TriageListsFailuresAroundCodeNERDApart` |
+| Request shape: held and running work as fields, stop asked only while work runs, omitted turns counted, one condition per question | `internal/turnjudge/judge_test.go` |
+| Relevance carries no matched keywords and says when a head is cut; findings state the cited line; batches keep order and fail whole | `internal/turnjudge/uses_test.go` |
+| Unsettled judgments are named and act on nothing; running work as a person reads it | `cmd/nerd/chat/jev_calibration_test.go` |

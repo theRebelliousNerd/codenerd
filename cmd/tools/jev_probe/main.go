@@ -5,7 +5,15 @@
 // wrong, or unsettled at the configured thresholds, and every miss with its
 // probability.
 //
-// Usage: go run ./cmd/tools/jev_probe -config .nerd/config.json [-cases internal/turnjudge/testdata/cases.json] [-runs 1]
+// With -uses it also scores the other three uses (retrieval relevance, review
+// finding checks, self-diagnosis triage) against labeled cases. With -record
+// DIR every request and reply is kept as one JSON file, so any answer can be
+// rerun from its exact payload; the API key is only ever in a header, which is
+// not recorded.
+//
+// -variants FILE compares wordings of one judgment instead (variants.go).
+//
+// Usage: go run ./cmd/tools/jev_probe -config .nerd/config.json [-cases internal/turnjudge/testdata/cases.json] [-uses internal/turnjudge/testdata/uses_cases.json] [-record DIR] [-runs 1]
 package main
 
 import (
@@ -21,16 +29,16 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/turnjudge"
-	"codenerd/internal/typesafe"
 )
 
 type probeCase struct {
-	ID       string            `json:"id"`
-	Message  string            `json:"message"`
-	Recent   []turnjudge.Turn  `json:"recent,omitempty"`
-	Brief    *perception.Brief `json:"brief,omitempty"`
-	HeldWork string            `json:"held_work,omitempty"`
-	Expect   map[string]bool   `json:"expect"`
+	ID          string              `json:"id"`
+	Message     string              `json:"message"`
+	Recent      []turnjudge.Turn    `json:"recent,omitempty"`
+	Brief       *perception.Brief   `json:"brief,omitempty"`
+	HeldWork    *turnjudge.HeldWork `json:"held_work,omitempty"`
+	RunningWork []string            `json:"running_work,omitempty"`
+	Expect      map[string]bool     `json:"expect"`
 }
 
 type tally struct{ right, wrong, unsettled int }
@@ -38,15 +46,18 @@ type tally struct{ right, wrong, unsettled int }
 func main() {
 	cfgPath := flag.String("config", ".nerd/config.json", "codeNERD config holding the typesafe section")
 	casesPath := flag.String("cases", "internal/turnjudge/testdata/cases.json", "labeled cases")
+	usesPath := flag.String("uses", "", "labeled cases for relevance, review checks and triage (empty skips them)")
+	variantsPath := flag.String("variants", "", "wordings of one judgment to compare side by side on the labeled cases (no other scoring runs)")
+	recordDir := flag.String("record", "", "directory to keep every request and reply in")
 	runs := flag.Int("runs", 1, "times to ask each case (spread shows answer stability)")
 	flag.Parse()
-	if err := run(*cfgPath, *casesPath, *runs); err != nil {
+	if err := run(*cfgPath, *casesPath, *usesPath, *variantsPath, *recordDir, *runs); err != nil {
 		fmt.Fprintln(os.Stderr, "jev_probe:", err)
 		os.Exit(1)
 	}
 }
 
-func run(cfgPath, casesPath string, runs int) error {
+func run(cfgPath, casesPath, usesPath, variantsPath, recordDir string, runs int) error {
 	cfg, err := config.LoadUserConfig(cfgPath)
 	if err != nil {
 		return err
@@ -54,7 +65,7 @@ func run(cfgPath, casesPath string, runs int) error {
 	if cfg.TypeSafe == nil {
 		return fmt.Errorf("%s has no typesafe section", cfgPath)
 	}
-	client, err := typesafe.FromConfig(cfg.TypeSafe)
+	client, err := newClient(cfg.TypeSafe, recordDir)
 	if err != nil {
 		return err
 	}
@@ -68,14 +79,18 @@ func run(cfgPath, casesPath string, runs int) error {
 	}
 	yes, no := thresholds(cfg.TypeSafe)
 
+	if variantsPath != "" {
+		return runVariants(client, variantsPath, cases, yes, no)
+	}
+
 	tallies := map[string]*tally{}
 	var misses []string
 	tokens := 0
 	start := time.Now()
 	for r := 0; r < runs; r++ {
 		for _, c := range cases {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-			res, err := turnjudge.Judge(ctx, client, turnjudge.Input{Message: c.Message, Recent: c.Recent, Brief: c.Brief, HeldWork: c.HeldWork})
+			ctx, cancel := context.WithTimeout(withLabel(context.Background(), "turn-"+c.ID), time.Minute)
+			res, err := turnjudge.Judge(ctx, client, turnjudge.Input{Message: c.Message, Recent: c.Recent, Brief: c.Brief, HeldWork: c.HeldWork, RunningWork: c.RunningWork})
 			cancel()
 			if err != nil {
 				return fmt.Errorf("case %s: %w", c.ID, err)
@@ -125,6 +140,9 @@ func run(cfgPath, casesPath string, runs int) error {
 		sort.Strings(misses)
 		fmt.Println("misses (x wrong, ~ unsettled):")
 		fmt.Println(strings.Join(misses, "\n"))
+	}
+	if usesPath != "" {
+		return runUses(client, cfg.TypeSafe, usesPath, yes, no)
 	}
 	return nil
 }

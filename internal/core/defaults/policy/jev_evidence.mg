@@ -25,6 +25,21 @@ Decl brief_question_answered(Question) bound [/string].
 config_param_required(/jev, /jev_yes_percent).
 config_param_required(/jev, /jev_no_percent).
 
+# jev_unsettled(Name): the probability lies strictly between no and yes (70/30
+# by default). Truth table for one judgment, every row has an outcome:
+#   at or above yes   jev_yes   the rule below that reads it acts;
+#   at or below no    jev_no    the rule below that reads it acts;
+#   between           jev_unsettled   no rule acts on it, so perception's own
+#                     reading routes the turn (a mutation is not disputed, a
+#                     go-ahead is not approved, a restriction is not added,
+#                     background work is not stopped); the chat log names it.
+Decl jev_unsettled(Name) bound [/string].
+
+jev_unsettled(Name) :-
+    jev_judgment(Name, Percent),
+    !jev_yes(Name),
+    !jev_no(Name).
+
 jev_yes(Name) :-
     jev_judgment(Name, Percent),
     config_param(/jev_yes_percent, Yes),

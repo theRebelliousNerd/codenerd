@@ -1,0 +1,38 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "context": "Source code that a code review cites, each excerpt with the review finding that cites it and the line it cites."
+ },
+ "questions": {
+  "finding_0": {
+   "type": "noul",
+   "instructions": {
+    "cited_line": 6,
+    "code": "1: package store\n2: \n3: import \"database/sql\"\n4: \n5: func Find(db *sql.DB, name string) (*sql.Rows, error) {\n6: \treturn db.Query(\"SELECT id FROM users WHERE name = ?\", name)\n7: }\n8: \n",
+    "file": "user.go",
+    "finding": "The query is built by string concatenation from the name argument.",
+    "question": "Does `code` contain the problem that `finding` describes?"
+   },
+   "criteria": {
+    "true": "The statement at or next to `cited_line` has the problem the finding describes.",
+    "false": "The statement at `cited_line` does something else, or already guards against what the finding says is missing."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "finding_0": {
+   "type": "noul",
+   "noul": 0.02
+  }
+ },
+ "usage": {
+  "input_tokens": 476,
+  "output_tokens": 22
+ }
+}
+}

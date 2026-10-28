@@ -1,0 +1,38 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "context": "Source code that a code review cites, each excerpt with the review finding that cites it and the line it cites."
+ },
+ "questions": {
+  "finding_0": {
+   "type": "noul",
+   "instructions": {
+    "cited_line": 7,
+    "code": "1: package cache\n2: \n3: type Cache struct {\n4: \titems map[string]string\n5: }\n6: \n7: func (c *Cache) Put(k, v string) {\n8: \tc.items[k] = v\n9: }\n10: \n11: func (c *Cache) Get(k string) string {\n12: \treturn c.items[k]\n13: }\n14: \n",
+    "file": "cache.go",
+    "finding": "Writes to c.items without checking it was initialised; a zero Cache panics on first Put.",
+    "question": "Does `code` contain the problem that `finding` describes?"
+   },
+   "criteria": {
+    "true": "The statement at or next to `cited_line` has the problem the finding describes.",
+    "false": "The statement at `cited_line` does something else, or already guards against what the finding says is missing."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "finding_0": {
+   "type": "noul",
+   "noul": 0.88
+  }
+ },
+ "usage": {
+  "input_tokens": 515,
+  "output_tokens": 22
+ }
+}
+}

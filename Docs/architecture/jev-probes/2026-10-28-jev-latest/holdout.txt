@@ -1,0 +1,17 @@
+jev_probe: 31 case(s) x 2 run(s), thresholds yes>=0.70 no<=0.30, 46398 input tokens, 4.843s
+
+about_codenerd       right   8  wrong   0  unsettled   0  (100%)
+adds_to_held_work    right   6  wrong   0  unsettled   0  (100%)
+answered_0           right   6  wrong   0  unsettled   0  (100%)
+answered_1           right   4  wrong   0  unsettled   0  (100%)
+approves_held_work   right   8  wrong   0  unsettled   2  (80%)
+changes_files        right  30  wrong   0  unsettled   0  (100%)
+hypothetical         right  10  wrong   0  unsettled   0  (100%)
+names_target         right  16  wrong   0  unsettled   0  (100%)
+rules_out_changes    right  10  wrong   0  unsettled   0  (100%)
+wants_to_stop        right   8  wrong   0  unsettled   0  (100%)
+all                  right 106 of 108 (98%)
+
+misses (x wrong, ~ unsettled):
+  ~ h-held-plus            approves_held_work p=0.36 want=true  "yes, and update the changelog too"
+  ~ h-held-plus            approves_held_work p=0.37 want=true  "yes, and update the changelog too"

@@ -8,7 +8,10 @@
    "hypothetical": false,
    "about_codenerd": false,
    "wants_to_stop": false
-  }
+  },
+  "running_work": [
+   "reviewer: review the internal/auth package"
+  ]
  },
  {
   "id": "fix-it-cold",
@@ -117,7 +120,10 @@
    "changes_files": false,
    "wants_to_stop": false,
    "about_codenerd": false
-  }
+  },
+  "running_work": [
+   "reviewer: review the internal/auth package"
+  ]
  },
  {
   "id": "debug-yourself",
@@ -153,26 +159,40 @@
   "expect": {
    "wants_to_stop": true,
    "changes_files": false
-  }
+  },
+  "running_work": [
+   "reviewer: review the internal/auth package"
+  ]
  },
  {
   "id": "hold-on",
   "message": "hold on, never mind the review",
   "expect": {
    "wants_to_stop": true
-  }
+  },
+  "running_work": [
+   "reviewer: review the internal/auth package"
+  ]
  },
  {
   "id": "not-stop",
   "message": "also check the auth package while you're at it",
   "expect": {
    "wants_to_stop": false
-  }
+  },
+  "running_work": [
+   "reviewer: review the internal/auth package"
+  ]
  },
  {
   "id": "go-held",
   "message": "go",
-  "held_work": "fix README.md (by the coder), requested as: fix the typo in README.md",
+  "held_work": {
+   "action": "fix",
+   "target": "README.md",
+   "handled_by": "coder",
+   "requested_as": "fix the typo in README.md"
+  },
   "expect": {
    "approves_held_work": true,
    "adds_to_held_work": false
@@ -181,7 +201,12 @@
  {
   "id": "yes-do-it",
   "message": "yes do it",
-  "held_work": "refactor internal/retry (by the coder), requested as: make the retry policy configurable",
+  "held_work": {
+   "action": "refactor",
+   "target": "internal/retry",
+   "handled_by": "coder",
+   "requested_as": "make the retry policy configurable"
+  },
   "expect": {
    "approves_held_work": true,
    "adds_to_held_work": false
@@ -190,7 +215,12 @@
  {
   "id": "ship-it",
   "message": "looks good, ship it",
-  "held_work": "implement rate limiting (by the coder), requested as: add rate limiting to the API",
+  "held_work": {
+   "action": "implement",
+   "target": "rate limiting",
+   "handled_by": "coder",
+   "requested_as": "add rate limiting to the API"
+  },
   "expect": {
    "approves_held_work": true,
    "adds_to_held_work": false
@@ -199,7 +229,12 @@
  {
   "id": "ask-about-held",
   "message": "wait, which files would that touch?",
-  "held_work": "refactor internal/retry (by the coder), requested as: make the retry policy configurable",
+  "held_work": {
+   "action": "refactor",
+   "target": "internal/retry",
+   "handled_by": "coder",
+   "requested_as": "make the retry policy configurable"
+  },
   "expect": {
    "approves_held_work": false
   }
@@ -207,7 +242,12 @@
  {
   "id": "change-held",
   "message": "actually make it a sliding window instead",
-  "held_work": "implement rate limiting (by the coder), requested as: add a token bucket rate limiter",
+  "held_work": {
+   "action": "implement",
+   "target": "rate limiting",
+   "handled_by": "coder",
+   "requested_as": "add a token bucket rate limiter"
+  },
   "expect": {
    "approves_held_work": false,
    "changes_files": true,
@@ -217,7 +257,12 @@
  {
   "id": "decline-held",
   "message": "no, don't do that",
-  "held_work": "delete the legacy cache (by the coder), requested as: remove the old cache",
+  "held_work": {
+   "action": "delete",
+   "target": "the legacy cache",
+   "handled_by": "coder",
+   "requested_as": "remove the old cache"
+  },
   "expect": {
    "approves_held_work": false
   }
@@ -225,7 +270,12 @@
  {
   "id": "go-plus-change",
   "message": "go, and also add a test for it",
-  "held_work": "fix README.md (by the coder), requested as: fix the typo in README.md",
+  "held_work": {
+   "action": "fix",
+   "target": "README.md",
+   "handled_by": "coder",
+   "requested_as": "fix the typo in README.md"
+  },
   "expect": {
    "changes_files": true,
    "approves_held_work": true,
@@ -344,7 +394,10 @@
   "expect": {
    "changes_files": false,
    "wants_to_stop": false
-  }
+  },
+  "running_work": [
+   "reviewer: review the internal/auth package"
+  ]
  },
  {
   "id": "find-usages",
@@ -372,7 +425,12 @@
  {
   "id": "go-skip-docs",
   "message": "do it but skip the docs part",
-  "held_work": "document and refactor internal/retry (by the coder), requested as: clean up the retry package and its docs",
+  "held_work": {
+   "action": "document",
+   "target": "and refactor internal/retry",
+   "handled_by": "coder",
+   "requested_as": "clean up the retry package and its docs"
+  },
   "expect": {
    "approves_held_work": true,
    "adds_to_held_work": true
@@ -381,7 +439,12 @@
  {
   "id": "approve-terse",
   "message": "yep",
-  "held_work": "fix the flaky test in internal/campaign (by the tester), requested as: fix the flaky pause test",
+  "held_work": {
+   "action": "fix",
+   "target": "the flaky test in internal/campaign",
+   "handled_by": "tester",
+   "requested_as": "fix the flaky pause test"
+  },
   "expect": {
    "approves_held_work": true,
    "adds_to_held_work": false
@@ -390,7 +453,12 @@
  {
   "id": "not-yet",
   "message": "not yet, let me think",
-  "held_work": "migrate the store to sqlite-vec (by the coder), requested as: move embeddings to sqlite-vec",
+  "held_work": {
+   "action": "migrate",
+   "target": "the store to sqlite-vec",
+   "handled_by": "coder",
+   "requested_as": "move embeddings to sqlite-vec"
+  },
   "expect": {
    "approves_held_work": false
   }
@@ -400,7 +468,10 @@
   "message": "forget the review, I fixed it myself",
   "expect": {
    "wants_to_stop": true
-  }
+  },
+  "running_work": [
+   "reviewer: review the internal/auth package"
+  ]
  },
  {
   "id": "self-loop",

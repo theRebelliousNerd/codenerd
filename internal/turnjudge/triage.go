@@ -10,46 +10,62 @@ import (
 )
 
 // TriageProblems asks Jev, for each of codeNERD's own logged problems,
-// whether it is a defect in codeNERD's code rather than its surroundings. The
-// answers reach the kernel as self_problem_triage (TriageFacts), which decides
-// what is a failure around codeNERD; the self-diagnosis chain works the
-// defects first and lists the rest apart. A failed triage is an error and no
-// facts: the problems stay in the log's order.
-func TriageProblems(ctx context.Context, a Asker, problems []problemlog.Problem) ([]float64, error) {
-	questions := make(map[string]typesafe.Question, len(problems))
-	for i, p := range problems {
-		questions[fmt.Sprintf("problem_%d", i)] = typesafe.Noul{
-			Instructions: map[string]any{
-				"question": "Is `problem` a defect in codeNERD's own code, rather than a failure of something around it?",
-				"problem": map[string]any{
-					"level":    p.Level,
-					"category": p.Category,
-					"count":    p.Count,
-					"message":  p.Sample,
-				},
-			},
-			Criteria: &typesafe.NoulCriteria{
-				True:  "codeNERD's code is wrong: a nil dereference, a broken invariant, a parse or logic error, a rule that misfires, a missing case.",
-				False: "Something around codeNERD failed: the network, a rate limit or outage at a model provider, the user's configuration, a missing tool, the disk or the machine.",
-			},
+// whether a bug in codeNERD's code caused it. The answers reach the kernel as
+// self_problem_triage (TriageFacts), which decides what is a failure around
+// codeNERD; the self-diagnosis chain works the defects first and lists the
+// rest apart. Problems go batchSize to a request, each with its whole message.
+// A failed triage is an error and no facts: the problems stay in the log's
+// order.
+func TriageProblems(ctx context.Context, a Asker, problems []problemlog.Problem, batchSize int) ([]float64, error) {
+	parts, err := inBatches(problems, batchSize, func(batch []problemlog.Problem) ([]float64, error) {
+		questions := make(map[string]typesafe.Question, len(batch))
+		for i, p := range batch {
+			questions[fmt.Sprintf("problem_%d", i)] = triageQuestion(p)
 		}
-	}
-	if len(questions) == 0 {
-		return nil, nil
-	}
-	resp, err := a.Ask(typesafe.WithOperation(ctx, OpDiagnosisTriage), map[string]any{"assistant": "codeNERD, a coding agent reading its own problems log"}, questions)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]float64, len(problems))
-	for i := range problems {
-		p, err := resp.Noul(fmt.Sprintf("problem_%d", i))
+		resp, err := a.Ask(typesafe.WithOperation(ctx, OpDiagnosisTriage), triageState, questions)
 		if err != nil {
 			return nil, err
 		}
-		out[i] = p
+		out := make([]float64, len(batch))
+		for i := range batch {
+			if out[i], err = resp.Noul(fmt.Sprintf("problem_%d", i)); err != nil {
+				return nil, err
+			}
+		}
+		return out, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	var out []float64
+	for _, p := range parts {
+		out = append(out, p...)
 	}
 	return out, nil
+}
+
+// triageState is shared by every question of a request.
+var triageState = map[string]any{
+	"context": "codeNERD is a coding agent. Each problem is a warning or error from its own log.",
+}
+
+// triageQuestion asks whether a bug in codeNERD's code caused the problem.
+// The count is left out: how often it repeated does not say what caused it.
+func triageQuestion(p problemlog.Problem) typesafe.Question {
+	return typesafe.Noul{
+		Instructions: map[string]any{
+			"question": "Was `problem` caused by a bug in codeNERD's own code?",
+			"problem": map[string]any{
+				"level":    p.Level,
+				"category": p.Category,
+				"message":  p.Sample,
+			},
+		},
+		Criteria: &typesafe.NoulCriteria{
+			True:  "codeNERD's code is wrong: a nil dereference, a broken invariant, a parse or logic error, a rule that misfires, a missing case.",
+			False: "Something around codeNERD failed: the network, a rate limit or outage at a model provider, the user's configuration, a missing tool, the disk or the machine.",
+		},
+	}
 }
 
 // Triage facts (policy/jev_evidence.mg): self_problem_triage(Signature,

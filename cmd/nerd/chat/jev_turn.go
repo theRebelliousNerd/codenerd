@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -51,7 +52,7 @@ func (m Model) startTurnJudgments(ctx context.Context, input string, history []p
 	if m.jev == nil || !uses.TurnJudgments {
 		return nil
 	}
-	in := turnjudge.Input{Message: input, Brief: m.currentBrief(), HeldWork: describeHeldWork(m.pendingWork), RecentTurns: uses.RecentTurns}
+	in := turnjudge.Input{Message: input, Brief: m.currentBrief(), HeldWork: heldWorkOf(m.pendingWork), RunningWork: m.runningWork(), RecentTurns: uses.RecentTurns}
 	for _, h := range history {
 		if strings.TrimSpace(h.Content) == "" {
 			continue
@@ -105,24 +106,52 @@ func (m Model) recordTurnJudgments(ctx context.Context, judged <-chan judgedTurn
 		log.Error("jev: assert judgments: %v", err)
 		return
 	}
-	log.Info("jev: %s in %s (routing waited %s)", j.result.Summary(), j.took.Round(time.Millisecond), waited)
+	log.Info("jev: %s in %s (routing waited %s)%s", j.result.Summary(), j.took.Round(time.Millisecond), waited, m.unsettledNote())
 }
 
-// describeHeldWork is the held work as a person would read it.
-func describeHeldWork(w *pendingWork) string {
-	if w == nil {
+// unsettledNote names the judgments the kernel derives as unsettled
+// (jev_unsettled, policy/jev_evidence.mg): between the yes and no thresholds,
+// no rule acts on them, and perception's own reading routes the turn.
+func (m Model) unsettledNote() string {
+	rows, err := m.kernel.Query("jev_unsettled")
+	if err != nil || len(rows) == 0 {
 		return ""
 	}
-	var b strings.Builder
-	if verb := strings.TrimPrefix(w.Intent.Verb, "/"); verb != "" {
-		fmt.Fprintf(&b, "%s %s", verb, strings.TrimSpace(w.Intent.Target))
-		if r := strings.TrimSpace(w.Route.Shard); r != "" {
-			fmt.Fprintf(&b, " (by the %s)", r)
+	names := make([]string, 0, len(rows))
+	for _, r := range rows {
+		if len(r.Args) == 1 {
+			names = append(names, types.ExtractString(r.Args[0]))
 		}
-		b.WriteString(", requested as: ")
 	}
-	b.WriteString(strings.TrimSpace(w.Input))
-	return b.String()
+	sort.Strings(names)
+	return "; unsettled, so perception's reading stands: " + strings.Join(names, ", ")
+}
+
+// heldWorkOf is the held work as named fields; nil when none is held.
+func heldWorkOf(w *pendingWork) *turnjudge.HeldWork {
+	if w == nil {
+		return nil
+	}
+	return &turnjudge.HeldWork{
+		Action:      strings.TrimPrefix(w.Intent.Verb, "/"),
+		Target:      strings.TrimSpace(w.Intent.Target),
+		Shard:       strings.TrimSpace(w.Route.Shard),
+		RequestedAs: strings.TrimSpace(w.Input),
+	}
+}
+
+// runningWork is the work running now as a person would read it: the turn
+// the user is waiting on, then each background job. The stop judgment is asked
+// only when there is some, and refers to it.
+func (m Model) runningWork() []string {
+	var out []string
+	if w := m.turn.workingOn(); w != "" {
+		out = append(out, w)
+	}
+	for _, j := range m.background.list() {
+		out = append(out, fmt.Sprintf("%s: %s", j.Shard, oneLine(j.Task)))
+	}
+	return out
 }
 
 // stopRequestedBackground cancels running background work when the kernel

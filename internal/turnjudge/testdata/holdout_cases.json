@@ -1,0 +1,314 @@
+[
+ {
+  "id": "h-fix-pkg",
+  "message": "the pagination in internal/api/list.go skips the last page, please fix it",
+  "expect": {
+   "changes_files": true,
+   "names_target": true,
+   "hypothetical": false,
+   "rules_out_changes": false
+  }
+ },
+ {
+  "id": "h-vague-feature",
+  "message": "clean up the logging",
+  "expect": {
+   "changes_files": true,
+   "names_target": false
+  }
+ },
+ {
+  "id": "h-vague-ctx",
+  "message": "yeah do that",
+  "recent": [
+   {
+    "from": "user",
+    "text": "the config loader ignores unknown keys silently"
+   },
+   {
+    "from": "assistant",
+    "text": "I can make config/loader.go reject unknown keys with an error naming the key. Want that?"
+   }
+  ],
+  "expect": {
+   "changes_files": true,
+   "names_target": true
+  }
+ },
+ {
+  "id": "h-explain-concept",
+  "message": "how does backpressure work in a bounded channel?",
+  "expect": {
+   "changes_files": false,
+   "hypothetical": false
+  }
+ },
+ {
+  "id": "h-whatif-api",
+  "message": "what breaks if we make Config.Timeout a pointer?",
+  "expect": {
+   "changes_files": false,
+   "hypothetical": true
+  }
+ },
+ {
+  "id": "h-add-flag",
+  "message": "add a --dry-run flag to cmd/deploy/main.go",
+  "expect": {
+   "changes_files": true,
+   "names_target": true,
+   "hypothetical": false
+  }
+ },
+ {
+  "id": "h-where",
+  "message": "which package owns the session cookie handling?",
+  "expect": {
+   "changes_files": false
+  }
+ },
+ {
+  "id": "h-run",
+  "message": "run go vet on ./...",
+  "expect": {
+   "changes_files": false
+  }
+ },
+ {
+  "id": "h-yourself",
+  "message": "why do you keep timing out when you read the logs?",
+  "expect": {
+   "about_codenerd": true
+  }
+ },
+ {
+  "id": "h-their-code-logs",
+  "message": "parse these logs for me and count the 500s: 10:01 GET /a 500, 10:02 GET /b 200",
+  "expect": {
+   "about_codenerd": false
+  }
+ },
+ {
+  "id": "h-yourself-2",
+  "message": "look at your own errors from this session and figure out what is wrong with you",
+  "expect": {
+   "about_codenerd": true
+  }
+ },
+ {
+  "id": "h-readonly",
+  "message": "audit internal/payments for race conditions but do not modify anything",
+  "expect": {
+   "rules_out_changes": true,
+   "changes_files": false
+  }
+ },
+ {
+  "id": "h-readonly-2",
+  "message": "tell me what the scheduler does, no edits",
+  "expect": {
+   "rules_out_changes": true
+  }
+ },
+ {
+  "id": "h-edit-ok",
+  "message": "go ahead and rewrite the scheduler, edit whatever you need",
+  "expect": {
+   "rules_out_changes": false,
+   "changes_files": true
+  }
+ },
+ {
+  "id": "h-stop-plain",
+  "message": "abort that please",
+  "running_work": [
+   "reviewer: review the internal/auth package"
+  ],
+  "expect": {
+   "wants_to_stop": true
+  }
+ },
+ {
+  "id": "h-stop-never",
+  "message": "never mind, skip the review",
+  "running_work": [
+   "reviewer: review the internal/auth package"
+  ],
+  "expect": {
+   "wants_to_stop": true
+  }
+ },
+ {
+  "id": "h-nostop-add",
+  "message": "while that runs, also look at internal/payments",
+  "running_work": [
+   "reviewer: review the internal/auth package"
+  ],
+  "expect": {
+   "wants_to_stop": false
+  }
+ },
+ {
+  "id": "h-nostop-q",
+  "message": "how long will that take?",
+  "running_work": [
+   "reviewer: review the internal/auth package"
+  ],
+  "expect": {
+   "wants_to_stop": false
+  }
+ },
+ {
+  "id": "h-held-go",
+  "message": "sounds right, do it",
+  "held_work": {
+   "action": "refactor",
+   "target": "internal/jobs",
+   "handled_by": "coder",
+   "requested_as": "split the job runner into a queue and a worker"
+  },
+  "expect": {
+   "approves_held_work": true,
+   "adds_to_held_work": false
+  }
+ },
+ {
+  "id": "h-held-lgtm",
+  "message": "lgtm, proceed",
+  "held_work": {
+   "action": "fix",
+   "target": "cmd/deploy/main.go",
+   "handled_by": "coder",
+   "requested_as": "the deploy flag is parsed twice"
+  },
+  "expect": {
+   "approves_held_work": true,
+   "adds_to_held_work": false
+  }
+ },
+ {
+  "id": "h-held-plus",
+  "message": "yes, and update the changelog too",
+  "held_work": {
+   "action": "fix",
+   "target": "cmd/deploy/main.go",
+   "handled_by": "coder",
+   "requested_as": "the deploy flag is parsed twice"
+  },
+  "expect": {
+   "approves_held_work": true,
+   "adds_to_held_work": true
+  }
+ },
+ {
+  "id": "h-held-no",
+  "message": "no, leave the job runner alone",
+  "held_work": {
+   "action": "refactor",
+   "target": "internal/jobs",
+   "handled_by": "coder",
+   "requested_as": "split the job runner into a queue and a worker"
+  },
+  "expect": {
+   "approves_held_work": false
+  }
+ },
+ {
+  "id": "h-held-ask",
+  "message": "which tests cover that code?",
+  "held_work": {
+   "action": "refactor",
+   "target": "internal/jobs",
+   "handled_by": "coder",
+   "requested_as": "split the job runner into a queue and a worker"
+  },
+  "expect": {
+   "approves_held_work": false
+  }
+ },
+ {
+  "id": "h-oq-yes",
+  "message": "retries should stop after five attempts",
+  "brief": {
+   "goal": "add retries to the uploader",
+   "open_questions": [
+    "how many retry attempts?",
+    "should uploads be resumable?"
+   ]
+  },
+  "expect": {
+   "answered_0": true,
+   "answered_1": false
+  }
+ },
+ {
+  "id": "h-oq-both",
+  "message": "five attempts, and yes resumable",
+  "brief": {
+   "goal": "add retries to the uploader",
+   "open_questions": [
+    "how many retry attempts?",
+    "should uploads be resumable?"
+   ]
+  },
+  "expect": {
+   "answered_0": true,
+   "answered_1": true
+  }
+ },
+ {
+  "id": "h-oq-no",
+  "message": "hmm let me check with the team",
+  "brief": {
+   "goal": "add retries to the uploader",
+   "open_questions": [
+    "how many retry attempts?"
+   ]
+  },
+  "expect": {
+   "answered_0": false
+  }
+ },
+ {
+  "id": "h-thanks",
+  "message": "great, thanks",
+  "expect": {
+   "changes_files": false,
+   "hypothetical": false,
+   "about_codenerd": false,
+   "rules_out_changes": false
+  }
+ },
+ {
+  "id": "h-delete-named",
+  "message": "delete scripts/old_migrate.sh, it is dead",
+  "expect": {
+   "changes_files": true,
+   "names_target": true
+  }
+ },
+ {
+  "id": "h-test-named",
+  "message": "write a unit test for ParseDuration in internal/util/time.go",
+  "expect": {
+   "changes_files": true,
+   "names_target": true
+  }
+ },
+ {
+  "id": "h-explain-named",
+  "message": "walk me through how internal/router/match.go picks a handler",
+  "expect": {
+   "changes_files": false,
+   "names_target": true
+  }
+ },
+ {
+  "id": "h-vague-q",
+  "message": "make it better",
+  "expect": {
+   "changes_files": true,
+   "names_target": false
+  }
+ }
+]

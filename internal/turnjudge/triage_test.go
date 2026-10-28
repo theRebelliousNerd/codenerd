@@ -21,7 +21,7 @@ func TestTriageProblems_FactsAndKernelSplit(t *testing.T) {
 		{Signature: "429", Level: "error", Category: "api", Sample: "429 Too Many Requests from provider"},
 		{Signature: "slow", Level: "warn", Category: "kernel", Sample: "slow evaluation"},
 	}
-	probs, err := TriageProblems(context.Background(), c, problems)
+	probs, err := TriageProblems(context.Background(), c, problems, 20)
 	if err != nil {
 		t.Fatal(err)
 	}

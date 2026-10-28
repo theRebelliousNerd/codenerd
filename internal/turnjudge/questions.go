@@ -31,46 +31,51 @@ const (
 func fixedQuestions() map[string]typesafe.Question {
 	return map[string]typesafe.Question{
 		ChangesFiles: typesafe.Noul{
-			Instructions: "Is the user asking for files in their codebase to be created, edited or deleted?",
+			Instructions: "Is the user asking for changes to files in their codebase?",
 			Criteria: &typesafe.NoulCriteria{
 				True:  "The user wants code or files written, changed, fixed, refactored, renamed or removed.",
 				False: "The user asks a question, wants something explained, found, reviewed or run, or is chatting.",
 			},
 		},
 		NamesTarget: typesafe.Noul{
-			Instructions: "Do `message` and `recent_turns` together say which file, function or feature the request is about?",
+			Instructions: "Does the user's request say which file, function or feature they want to work on?",
 			Criteria: &typesafe.NoulCriteria{
-				True:  "A file, function, package or feature is named, or the recent turns make clear which one is meant.",
+				True:  "A file, function, package or feature is named, or the conversation so far makes clear which one is meant.",
 				False: "The request leaves open which code it is about, such as 'fix it' with nothing named before.",
 			},
 		},
 		Hypothetical: typesafe.Noul{
-			Instructions: "Is the user asking what would happen if something were done, without asking for it to be done?",
+			Instructions: "Is the user asking what would happen if something were done?",
 			Criteria: &typesafe.NoulCriteria{
 				True:  "The user asks 'what if', 'what would happen', or how risky a change would be.",
 				False: "The user asks for the change itself, or asks about the code as it is now.",
 			},
 		},
 		AboutCodeNERD: typesafe.Noul{
-			Instructions: "Is the user asking the assistant to look into its own errors, logs or behaviour?",
+			Instructions: "Is the user asking the assistant to investigate its own failures?",
 			Criteria: &typesafe.NoulCriteria{
 				True:  "The user asks why the assistant failed, asks it to debug itself, or points it at its own logs.",
 				False: "The user asks about their own code or project, even code that has bugs.",
 			},
 		},
 		RulesOutChanges: typesafe.Noul{
-			Instructions: "Has the user ruled out changing any files for this request?",
+			Instructions: "Has the user said not to change any files for this request?",
 			Criteria: &typesafe.NoulCriteria{
 				True:  "The user says to only look, read, explain or report, and not to change, edit, write or touch anything.",
 				False: "The user asks for changes, allows them, or says nothing about whether files may change.",
 			},
 		},
-		WantsToStop: typesafe.Noul{
-			Instructions: "Is the user telling the assistant to stop or cancel work that is already running?",
-			Criteria: &typesafe.NoulCriteria{
-				True:  "The user says stop, cancel, abort, hold on, or never mind about work in progress.",
-				False: "The user asks for something new, answers a question, or comments without stopping anything.",
-			},
+	}
+}
+
+// stopQuestion is asked only while work runs: `running_work` names it, and a
+// stop means nothing without it.
+func stopQuestion() typesafe.Question {
+	return typesafe.Noul{
+		Instructions: "Is the user telling the assistant to stop `running_work`?",
+		Criteria: &typesafe.NoulCriteria{
+			True:  "The user says stop, cancel, abort, hold on, or never mind about the running work.",
+			False: "The user asks for something new, answers a question, or comments without asking for the work to stop.",
 		},
 	}
 }
@@ -90,20 +95,23 @@ func heldWorkQuestion() typesafe.Question {
 // that asks for more is a new request, not the held one.
 func addsToHeldWorkQuestion() typesafe.Question {
 	return typesafe.Noul{
-		Instructions: "Does the user ask for anything beyond starting `held_work` exactly as it is?",
+		Instructions: "Does `message` ask for anything besides starting `held_work` exactly as it is?",
 		Criteria: &typesafe.NoulCriteria{
 			True:  "The user adds, removes or changes something, such as 'go, and also add a test' or 'do it but skip the docs'.",
-			False: "The user only says to start it, such as 'go', 'yes do it' or 'ship it', or does not approve it at all.",
+			False: "The user asks for nothing beyond starting it, such as 'go', 'yes do it' or 'ship it'.",
 		},
 	}
 }
 
 // openQuestion asks whether the latest message answers one of the brief's
-// open questions. The question is inline: a hop through an index is the
-// indirection Jev handles worst.
+// open questions. The question rides in its own question, as a field: a hop
+// through an index into the brief is the indirection Jev handles worst.
 func openQuestion(q string) typesafe.Question {
 	return typesafe.Noul{
-		Instructions: fmt.Sprintf("Does `message` answer this open question: %q?", strings.TrimSpace(q)),
+		Instructions: map[string]any{
+			"question":      "Does `message` answer `open_question`?",
+			"open_question": strings.TrimSpace(q),
+		},
 		Criteria: &typesafe.NoulCriteria{
 			True:  "The message gives the information the question asks for, or settles it.",
 			False: "The message is about something else, or leaves the question open.",

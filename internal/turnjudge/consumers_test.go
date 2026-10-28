@@ -34,7 +34,7 @@ func TestEveryTurnJudgmentHasAConsumingRule(t *testing.T) {
 	if rules == "" {
 		t.Fatal("no policy found")
 	}
-	names := []string{ApprovesHeldWork, AddsToHeldWork}
+	names := []string{ApprovesHeldWork, AddsToHeldWork, WantsToStop}
 	for name := range fixedQuestions() {
 		names = append(names, name)
 	}

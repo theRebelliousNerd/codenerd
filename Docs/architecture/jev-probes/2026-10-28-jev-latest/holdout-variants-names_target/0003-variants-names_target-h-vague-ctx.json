@@ -1,0 +1,79 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "assistant": "codeNERD, a coding agent working in the user's repository",
+  "message": "yeah do that",
+  "recent_turns": [
+   {
+    "from": "user",
+    "text": "the config loader ignores unknown keys silently"
+   },
+   {
+    "from": "assistant",
+    "text": "I can make config/loader.go reject unknown keys with an error naming the key. Want that?"
+   }
+  ]
+ },
+ "questions": {
+  "a_prior": {
+   "type": "noul",
+   "instructions": "Do `message` and `recent_turns` together say which file, function or feature the request is about?",
+   "criteria": {
+    "true": "A file, function, package or feature is named, or the recent turns make clear which one is meant.",
+    "false": "The request leaves open which code it is about, such as 'fix it' with nothing named before."
+   }
+  },
+  "b_current": {
+   "type": "noul",
+   "instructions": "Is it clear which file, function or feature the user means in `message`?",
+   "criteria": {
+    "true": "A file, function, package or feature is named, or the conversation so far makes clear which one is meant.",
+    "false": "The request leaves open which code it is about, such as 'fix it' with nothing named before."
+   }
+  },
+  "c_goal": {
+   "type": "noul",
+   "instructions": "Does the user's request say which file, function or feature they want to work on?",
+   "criteria": {
+    "true": "A file, function, package or feature is named, or the conversation so far makes clear which one is meant.",
+    "false": "The request leaves open which code it is about, such as 'fix it' with nothing named before."
+   }
+  },
+  "d_subject": {
+   "type": "noul",
+   "instructions": "Does `message` refer to a particular part of the codebase?",
+   "criteria": {
+    "true": "A file, function, package or feature is named, or the conversation so far makes clear which one is meant.",
+    "false": "The request leaves open which code it is about, such as 'fix it' with nothing named before."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "a_prior": {
+   "type": "noul",
+   "noul": 0.98
+  },
+  "b_current": {
+   "type": "noul",
+   "noul": 0.92
+  },
+  "c_goal": {
+   "type": "noul",
+   "noul": 0.88
+  },
+  "d_subject": {
+   "type": "noul",
+   "noul": 0.8
+  }
+ },
+ "usage": {
+  "input_tokens": 699,
+  "output_tokens": 72
+ }
+}
+}

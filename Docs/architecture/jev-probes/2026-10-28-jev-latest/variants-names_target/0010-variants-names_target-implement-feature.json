@@ -1,0 +1,69 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "assistant": "codeNERD, a coding agent working in the user's repository",
+  "message": "implement a /health endpoint that returns build info"
+ },
+ "questions": {
+  "a_prior": {
+   "type": "noul",
+   "instructions": "Do `message` and `recent_turns` together say which file, function or feature the request is about?",
+   "criteria": {
+    "true": "A file, function, package or feature is named, or the recent turns make clear which one is meant.",
+    "false": "The request leaves open which code it is about, such as 'fix it' with nothing named before."
+   }
+  },
+  "b_current": {
+   "type": "noul",
+   "instructions": "Is it clear which file, function or feature the user means in `message`?",
+   "criteria": {
+    "true": "A file, function, package or feature is named, or the conversation so far makes clear which one is meant.",
+    "false": "The request leaves open which code it is about, such as 'fix it' with nothing named before."
+   }
+  },
+  "c_goal": {
+   "type": "noul",
+   "instructions": "Does the user's request say which file, function or feature they want to work on?",
+   "criteria": {
+    "true": "A file, function, package or feature is named, or the conversation so far makes clear which one is meant.",
+    "false": "The request leaves open which code it is about, such as 'fix it' with nothing named before."
+   }
+  },
+  "d_subject": {
+   "type": "noul",
+   "instructions": "Does `message` refer to a particular part of the codebase?",
+   "criteria": {
+    "true": "A file, function, package or feature is named, or the conversation so far makes clear which one is meant.",
+    "false": "The request leaves open which code it is about, such as 'fix it' with nothing named before."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "a_prior": {
+   "type": "noul",
+   "noul": 0.9
+  },
+  "b_current": {
+   "type": "noul",
+   "noul": 0.59
+  },
+  "c_goal": {
+   "type": "noul",
+   "noul": 0.83
+  },
+  "d_subject": {
+   "type": "noul",
+   "noul": 0.72
+  }
+ },
+ "usage": {
+  "input_tokens": 634,
+  "output_tokens": 72
+ }
+}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -46,10 +47,11 @@ func fakeJev(t *testing.T, answers map[string]float64) (*typesafe.Client, *map[s
 func TestJudge_AsksEveryQuestionAndProjectsFacts(t *testing.T) {
 	c, seen := fakeJev(t, map[string]float64{ChangesFiles: 0.91, "answered_0": 0.88, ApprovesHeldWork: 0.07})
 	in := Input{
-		Message:  "use a token bucket, and go ahead",
-		Recent:   []Turn{{From: "user", Text: "add rate limiting"}, {From: "assistant", Text: "Which algorithm?"}},
-		Brief:    &perception.Brief{Goal: "add rate limiting", OpenQuestions: []string{"which algorithm?"}},
-		HeldWork: "implement rate limiting",
+		Message:     "use a token bucket, and go ahead",
+		Recent:      []Turn{{From: "user", Text: "add rate limiting"}, {From: "assistant", Text: "Which algorithm?"}},
+		Brief:       &perception.Brief{Goal: "add rate limiting", OpenQuestions: []string{"which algorithm?"}},
+		HeldWork:    &HeldWork{Action: "implement", Target: "rate limiting", Shard: "coder", RequestedAs: "add rate limiting to the API"},
+		RunningWork: []string{"reviewer: review internal/auth"},
 	}
 	res, err := Judge(context.Background(), c, in)
 	if err != nil {
@@ -64,12 +66,16 @@ func TestJudge_AsksEveryQuestionAndProjectsFacts(t *testing.T) {
 	if len(qs) != 9 {
 		t.Errorf("asked %d questions, want exactly the 9 the rules read: %v", len(qs), qs)
 	}
-	if !strings.Contains(qs["answered_0"].(map[string]any)["instructions"].(string), "which algorithm?") {
-		t.Error("the open question is not inline in its judgment")
+	if got := qs["answered_0"].(map[string]any)["instructions"].(map[string]any)["open_question"]; got != "which algorithm?" {
+		t.Errorf("the open question is not a field of its own judgment: %v", got)
 	}
 	state := (*seen)["state"].(map[string]any)
-	if _, ok := state["held_work"]; !ok {
-		t.Error("held work missing from the state")
+	held, ok := state["held_work"].(map[string]any)
+	if !ok || held["handled_by"] != "coder" || held["requested_as"] != "add rate limiting to the API" {
+		t.Errorf("held work is not named fields in the state: %v", state["held_work"])
+	}
+	if _, ok := state["running_work"]; !ok {
+		t.Error("running work missing from the state")
 	}
 	if res.Model != "jev-test" || res.InputTokens != 321 {
 		t.Errorf("model/usage not reported: %+v", res)
@@ -98,13 +104,55 @@ func TestJudge_AsksEveryQuestionAndProjectsFacts(t *testing.T) {
 
 func TestRequest_LeavesEmptyFieldsOut(t *testing.T) {
 	state, qs, _ := Request(Input{Message: "hi"})
-	for _, k := range []string{"recent_turns", "brief", "held_work"} {
+	for _, k := range []string{"recent_turns", "earlier_turns_omitted", "brief", "held_work", "running_work"} {
 		if _, ok := state[k]; ok {
 			t.Errorf("empty %s sent: an empty field reads as a signal", k)
 		}
 	}
 	if _, ok := qs[ApprovesHeldWork]; ok {
 		t.Error("approval asked with nothing held")
+	}
+	if _, ok := qs[WantsToStop]; ok {
+		t.Error("a stop asked with nothing running: there is nothing to stop")
+	}
+	_, qs, _ = Request(Input{Message: "stop", RunningWork: []string{"  ", ""}})
+	if _, ok := qs[WantsToStop]; ok {
+		t.Error("blank running work counted as work")
+	}
+}
+
+// Turns left out to fit the context are counted in the state, not dropped
+// without a word.
+func TestRequest_NamesTheTurnsItLeavesOut(t *testing.T) {
+	turns := []Turn{{"user", "a"}, {"assistant", "b"}, {"user", "c"}, {"assistant", "d"}}
+	state, _, _ := Request(Input{Message: "ok", Recent: turns, RecentTurns: 3})
+	if got := state["earlier_turns_omitted"]; got != 1 {
+		t.Fatalf("earlier_turns_omitted = %v, want 1", got)
+	}
+	if got := state["recent_turns"].([]Turn); len(got) != 3 || got[0].Text != "b" {
+		t.Fatalf("recent_turns = %v, want the last three", got)
+	}
+}
+
+// Every judgment is one condition: no question joins two clauses with
+// "and", "without" or "but", so each answer means one thing. (An "or" between
+// nouns, "file, function or feature", is one condition.)
+func TestQuestionsAskOneConditionEach(t *testing.T) {
+	state, qs, _ := Request(Input{
+		Message: "m", RunningWork: []string{"w"}, HeldWork: &HeldWork{RequestedAs: "x"},
+		Brief: &perception.Brief{Goal: "g", OpenQuestions: []string{"q?"}},
+	})
+	_ = state
+	for name, q := range qs {
+		raw, _ := json.Marshal(q)
+		var w struct {
+			Instructions any `json:"instructions"`
+		}
+		_ = json.Unmarshal(raw, &w)
+		text := fmt.Sprint(w.Instructions)
+		if strings.Contains(text, " and ") || strings.Contains(text, " without ") || strings.Contains(text, " but ") {
+			t.Errorf("%s joins conditions in its instructions: %s", name, text)
+		}
 	}
 }
 

@@ -115,7 +115,7 @@ func (m Model) triageProblems(ctx context.Context, hot []problemlog.Problem) (de
 		log.Warn("%s jev triage not run, earlier judgments not retracted: %v", selfDebugMarker, err)
 		return hot, nil
 	}
-	probs, err := turnjudge.TriageProblems(m.jevContext(ctx), m.jev, hot)
+	probs, err := turnjudge.TriageProblems(m.jevContext(ctx), m.jev, hot, m.Config.TypeSafe.Uses().BatchSize)
 	if err != nil {
 		log.Warn("%s jev triage failed, the log's order stands: %v", selfDebugMarker, err)
 		return hot, nil

@@ -1,0 +1,219 @@
+{
+ "relevance": [
+  {
+   "id": "typesafe-retry",
+   "request": "the typesafe client retries a 429 but gives up on a 400; where is that decided?",
+   "files": [
+    {
+     "path": "internal/typesafe/retry.go",
+     "relevant": true
+    },
+    {
+     "path": "internal/typesafe/apierror.go",
+     "relevant": true
+    },
+    {
+     "path": "internal/typesafe/client.go",
+     "relevant": true
+    },
+    {
+     "path": "internal/embedding/ollama.go",
+     "relevant": false
+    },
+    {
+     "path": "internal/verification/verifier.go",
+     "relevant": false
+    },
+    {
+     "path": "internal/campaign/risk_scoring.go",
+     "relevant": false
+    }
+   ]
+  },
+  {
+   "id": "approval-duplicate",
+   "request": "the approval broker opens a second request when the same call arrives twice",
+   "files": [
+    {
+     "path": "internal/approval/broker.go",
+     "relevant": true
+    },
+    {
+     "path": "internal/approval/request.go",
+     "relevant": true
+    },
+    {
+     "path": "internal/mangle/grant_path.go",
+     "relevant": false
+    },
+    {
+     "path": "internal/browser/contract_audit.go",
+     "relevant": false
+    },
+    {
+     "path": "internal/usage/pricing.go",
+     "relevant": false
+    }
+   ]
+  },
+  {
+   "id": "usage-unpriced",
+   "request": "how is a model with no entry in the price table billed?",
+   "files": [
+    {
+     "path": "internal/usage/pricing.go",
+     "relevant": true
+    },
+    {
+     "path": "internal/typesafe/usage.go",
+     "relevant": true
+    },
+    {
+     "path": "internal/approval/journal.go",
+     "relevant": false
+    },
+    {
+     "path": "internal/embedding/engine.go",
+     "relevant": false
+    }
+   ]
+  }
+ ],
+ "findings": [
+  {
+   "id": "nil-map-real",
+   "file": "cache.go",
+   "line": 7,
+   "message": "Writes to c.items without checking it was initialised; a zero Cache panics on first Put.",
+   "source": "package cache\n\ntype Cache struct {\n\titems map[string]string\n}\n\nfunc (c *Cache) Put(k, v string) {\n\tc.items[k] = v\n}\n\nfunc (c *Cache) Get(k string) string {\n\treturn c.items[k]\n}\n",
+   "expect": true
+  },
+  {
+   "id": "nil-map-guarded",
+   "file": "cache.go",
+   "line": 8,
+   "message": "Writes to c.items without checking it was initialised; a zero Cache panics on first Put.",
+   "source": "package cache\n\ntype Cache struct {\n\titems map[string]string\n}\n\nfunc (c *Cache) Put(k, v string) {\n\tif c.items == nil {\n\t\tc.items = map[string]string{}\n\t}\n\tc.items[k] = v\n}\n",
+   "expect": false
+  },
+  {
+   "id": "sql-concat-real",
+   "file": "user.go",
+   "line": 6,
+   "message": "The query is built by string concatenation from the name argument.",
+   "source": "package store\n\nimport \"database/sql\"\n\nfunc Find(db *sql.DB, name string) (*sql.Rows, error) {\n\treturn db.Query(\"SELECT id FROM users WHERE name = '\" + name + \"'\")\n}\n",
+   "expect": true
+  },
+  {
+   "id": "sql-parameterised",
+   "file": "user.go",
+   "line": 6,
+   "message": "The query is built by string concatenation from the name argument.",
+   "source": "package store\n\nimport \"database/sql\"\n\nfunc Find(db *sql.DB, name string) (*sql.Rows, error) {\n\treturn db.Query(\"SELECT id FROM users WHERE name = ?\", name)\n}\n",
+   "expect": false
+  },
+  {
+   "id": "unclosed-file-real",
+   "file": "read.go",
+   "line": 6,
+   "message": "The file opened here is never closed.",
+   "source": "package x\n\nimport \"os\"\n\nfunc Size(path string) (int64, error) {\n\tf, err := os.Open(path)\n\tif err != nil {\n\t\treturn 0, err\n\t}\n\tinfo, err := f.Stat()\n\tif err != nil {\n\t\treturn 0, err\n\t}\n\treturn info.Size(), nil\n}\n",
+   "expect": true
+  },
+  {
+   "id": "unclosed-file-deferred",
+   "file": "read.go",
+   "line": 6,
+   "message": "The file opened here is never closed.",
+   "source": "package x\n\nimport \"os\"\n\nfunc Size(path string) (int64, error) {\n\tf, err := os.Open(path)\n\tif err != nil {\n\t\treturn 0, err\n\t}\n\tdefer f.Close()\n\tinfo, err := f.Stat()\n\tif err != nil {\n\t\treturn 0, err\n\t}\n\treturn info.Size(), nil\n}\n",
+   "expect": false
+  },
+  {
+   "id": "wrong-place",
+   "file": "math.go",
+   "line": 4,
+   "message": "Integer overflow when summing the slice.",
+   "source": "package m\n\nfunc Name() string {\n\treturn \"adder\"\n}\n\nfunc Sum(xs []int32) int32 {\n\tvar t int32\n\tfor _, x := range xs {\n\t\tt += x\n\t}\n\treturn t\n}\n",
+   "expect": false
+  }
+ ],
+ "triage": [
+  {
+   "id": "nil-deref",
+   "level": "error",
+   "category": "session",
+   "message": "panic: runtime error: invalid memory address or nil pointer dereference\n[signal SIGSEGV] goroutine 41 [running]:\ncodenerd/internal/session.(*Executor).dispatch(0x0, ...)",
+   "defect": true
+  },
+  {
+   "id": "mangle-parse",
+   "level": "error",
+   "category": "kernel",
+   "message": "loading policy: parse error at jev_evidence.mg:41: unexpected token ')'",
+   "defect": null
+  },
+  {
+   "id": "unbound-var",
+   "level": "error",
+   "category": "kernel",
+   "message": "rule jev_x(A) :- !jev_y(A): variable A is unbound in negation",
+   "defect": true
+  },
+  {
+   "id": "index-range",
+   "level": "error",
+   "category": "perception",
+   "message": "panic: runtime error: index out of range [3] with length 3",
+   "defect": true
+  },
+  {
+   "id": "io-timeout",
+   "level": "error",
+   "category": "api",
+   "message": "Post \"https://api.example.com/v1/messages\": dial tcp 203.0.113.9:443: i/o timeout",
+   "defect": false
+  },
+  {
+   "id": "rate-limit",
+   "level": "warn",
+   "category": "api",
+   "message": "HTTP 429 Too Many Requests: rate limit exceeded, retry after 20s",
+   "defect": false
+  },
+  {
+   "id": "missing-key",
+   "level": "error",
+   "category": "config",
+   "message": "api_key_env: OPENAI_API_KEY is not set",
+   "defect": false
+  },
+  {
+   "id": "missing-tool",
+   "level": "warn",
+   "category": "tools",
+   "message": "exec: \"gopls\": executable file not found in $PATH",
+   "defect": false
+  },
+  {
+   "id": "disk-full",
+   "level": "error",
+   "category": "store",
+   "message": "write .nerd/knowledge.db: no space left on device",
+   "defect": false
+  },
+  {
+   "id": "deadline",
+   "level": "warn",
+   "category": "api",
+   "message": "context deadline exceeded while waiting for the model reply (30s)",
+   "defect": null
+  },
+  {
+   "id": "slow-eval",
+   "level": "warn",
+   "category": "kernel",
+   "message": "evaluation took 31s, over the 30s budget",
+   "defect": null
+  }
+ ]
+}

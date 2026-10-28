@@ -32,14 +32,30 @@ type Turn struct {
 	Text string `json:"text"`
 }
 
+// HeldWork is work held for the user's go-ahead, as named fields.
+type HeldWork struct {
+	Action      string `json:"action,omitempty"`       // the verb, such as fix or refactor
+	Target      string `json:"target,omitempty"`       // what it acts on
+	Shard       string `json:"handled_by,omitempty"`   // the agent that would do it
+	RequestedAs string `json:"requested_as,omitempty"` // the user's own words
+}
+
+func (w *HeldWork) empty() bool {
+	return w == nil || *w == HeldWork{}
+}
+
 // Input is what a person would look at to judge the turn.
 type Input struct {
 	Message string
 	Recent  []Turn
 	// Brief is the brief as it stood before this turn.
 	Brief *perception.Brief
-	// HeldWork describes work held for a go-ahead; empty when none is.
-	HeldWork string
+	// HeldWork is the work held for a go-ahead; nil when none is.
+	HeldWork *HeldWork
+	// RunningWork describes each piece of work running now, as a person
+	// would read it; empty when none runs. The stop judgment is asked only
+	// then, for there is nothing to stop otherwise.
+	RunningWork []string
 	// RecentTurns bounds Recent (typesafe.recent_turns): the judgments are
 	// about the latest message, the turns go whole, older ones are left out.
 	// Zero keeps them all.
@@ -78,6 +94,8 @@ func Request(in Input) (state map[string]any, questions map[string]typesafe.Ques
 	}
 	recent := in.Recent
 	if in.RecentTurns > 0 && len(recent) > in.RecentTurns {
+		// Older turns are left out to fit Jev's context, and the state says so.
+		state["earlier_turns_omitted"] = len(recent) - in.RecentTurns
 		recent = recent[len(recent)-in.RecentTurns:]
 	}
 	if len(recent) > 0 {
@@ -106,12 +124,26 @@ func Request(in Input) (state map[string]any, questions map[string]typesafe.Ques
 			about[name] = q
 		}
 	}
-	if strings.TrimSpace(in.HeldWork) != "" {
+	if running := nonBlank(in.RunningWork); len(running) > 0 {
+		state["running_work"] = running
+		questions[WantsToStop] = stopQuestion()
+	}
+	if !in.HeldWork.empty() {
 		state["held_work"] = in.HeldWork
 		questions[ApprovesHeldWork] = heldWorkQuestion()
 		questions[AddsToHeldWork] = addsToHeldWorkQuestion()
 	}
 	return state, questions, about
+}
+
+func nonBlank(in []string) []string {
+	var out []string
+	for _, s := range in {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // Judge asks every question in one request. A failed call is an error, never
