@@ -290,14 +290,14 @@ Each round of `runToolLoopPass` (`internal/session/executor_tools.go:69-443`) re
 - **Cross-over:** none.
 
 ### T-17: Piggyback envelope diet on tool rounds
-- **Pitch:** On envelope engines (the CLI engines, Gemini with grounding), every tool round writes a user-facing `surface_response` that is never shown, plus a reasoning trace.
-- **Mechanism:** `piggybackChannel.CompleteWithToolResults` notes that a round which calls tools "is not the turn's last word and will not be shown" (`piggyback_channel.go:75-85`). The schema still *requires* `surface_response` (`client_schema.go:28-32`), and the protocol atom asks for a `reasoning_trace` showing "complete analysis" (`internal/prompt/atoms/protocol/piggyback.yaml:33`, `:70`). Add a protocol rule: when `tool_requests` is non-empty, `surface_response` is `""` and `reasoning_trace` is ≤ N words. The final round keeps both. Select it through an atom gated on `working_regime`, not in Go.
-- **Plugs in at:** `internal/prompt/atoms/protocol/piggyback.yaml`, `internal/perception/client_schema.go:28-32` (make `surface_response` optional), `session/piggyback_channel.go:59-90`.
-- **Impact and basis:** Output tokens per tool round. Size is **unmeasured**. Receipts carry `OutputTokens` per call; split them by whether `tool_requests` was non-empty. For CLI subscription engines the saving is time and rate-limit headroom rather than dollars.
-- **Measure it by:** output tokens per Piggyback round, and turn verdicts (the trace may carry quality).
-- **Risks:** The reasoning trace may help the model plan. A/B it and do not assume.
+- **Pitch:** On envelope engines, intermediate tool rounds can spend output tokens on an answer that is not displayed and on redundant status explanations.
+- **Mechanism:** Keep action requests and runtime controls intact. Use an empty `decision_summary` when it adds no information; otherwise use one or two sentences describing the decision and supporting evidence. Never request intermediate deliberation or use an output field as a private scratchpad. Explore an empty `surface_response` for non-final tool rounds through a JIT atom and the existing output schema.
+- **Plugs in at:** `internal/prompt/atoms/protocol/piggyback.yaml`, `internal/perception/client_schema.go`, `internal/session/piggyback_channel.go`.
+- **Impact and basis:** Output tokens per tool round are unmeasured. Split usage receipts by whether `tool_requests` was non-empty.
+- **Measure it by:** output tokens, control-packet validity, completed task outcomes, and accuracy of the final answer.
+- **Risks:** Status text can help the user understand a long-running task. Preserve useful progress reporting and validate task outcomes.
 - **Effort:** S. **Needs Jev?** n. **Confidence:** med.
-- **Cross-over:** Possible quality impact (trace-as-scratchpad). Hand to the sibling lane for the eval.
+- **Cross-over:** Evaluate answer and tool-selection quality from observable results.
 
 ### T-18: Two-tier system prompt: session-stable constitution in `system`, per-turn selection in `messages`
 - **Pitch:** The persona tier and nerd.md are identical across turns but sit behind or around volatile content, so no cross-turn prefix survives.

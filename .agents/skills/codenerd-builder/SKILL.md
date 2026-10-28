@@ -1832,7 +1832,7 @@ For detailed specifications, consult the reference documentation:
 - [references/architecture.md](references/architecture.md) - Theoretical foundations and neuro-symbolic principles
 - [references/mangle-schemas.md](references/mangle-schemas.md) - Complete Mangle schema reference
 - [references/implementation-guide.md](references/implementation-guide.md) - Go implementation patterns and component details
-- [references/piggyback-protocol.md](references/piggyback-protocol.md) - Dual-channel steganographic control protocol specification
+- [references/piggyback-protocol.md](references/piggyback-protocol.md) - Explicit JSON answer and runtime-control protocol specification
 - [references/campaign-orchestrator.md](references/campaign-orchestrator.md) - Multi-phase goal execution and context paging system
 - [references/autopoiesis.md](references/autopoiesis.md) - Self-creation, runtime learning, Ouroboros state machine, SafetyChecker, and DifferentialEngine
 - [references/shard-agents.md](references/shard-agents.md) - All four shard types, ShardManager API, and built-in implementations

@@ -138,7 +138,7 @@ The 17 atoms:
 | Category | Atoms |
 |---|---|
 | identity | `identity/base/core` |
-| protocol | `protocol/piggyback/{envelope,mangle_updates,thought_first}`, `protocol/reasoning/{format,requirements}` |
+| protocol | `protocol/piggyback/{envelope,mangle_updates,control_first}`, `protocol/decision_summary/{format,requirements}` |
 | safety | `safety/constitution/{prime_directive,forbidden_actions,dangerous_actions}`, `safety/constitutional/{core,permissions}` |
 | methodology | `methodology/ooda/core` |
 | capability | `capability/{tool_thinking,tool_request_protocol,knowledge_discovery,knowledge_protocol}` |
@@ -148,7 +148,7 @@ The 17 atoms:
 every one of these 17 is new information the harness now places. The interesting ones:
 
 - **`protocol/piggyback/*`.** The chat turn *already demands* a piggyback envelope — the JSON
-  schema, the THOUGHT-FIRST ordering and the "DO NOT speak to the user until AFTER you have written
+  schema, the control-packet field order and the "DO NOT speak to the user until AFTER you have written
   the complete control_packet" line are hand-written prose in `helpers_articulation.go:284-300`,
   sent in the user message. The corpus has authored, evolvable atoms for exactly that protocol and
   the chat turn was not receiving them.

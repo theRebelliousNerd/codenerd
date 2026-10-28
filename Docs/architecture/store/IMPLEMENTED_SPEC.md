@@ -19,7 +19,7 @@
 | Semantic recall | Real embeddings + optional sqlite-vec ANN, with brute-force and keyword fallbacks |
 | Autopoietic learning | Per-shard `*_learnings.db` plus confidence decay and reflection re-embed |
 | World model cache | Fast/deep AST projections survive restarts without full rescan |
-| Tool / trace audit | Separate tool DB + reasoning traces for self-learning |
+| Tool / trace audit | Separate tool DB + interaction audit records for self-learning |
 | Schema evolution | Column-additive migrations + versioned knowledge-base upgrades |
 
 ### North-star placement
@@ -47,7 +47,7 @@ Store is the **disk-backed half of VirtualStore’s knowledge surface**. Logic r
 | World model cache | **Implemented** | `local_world.go` |
 | Knowledge atoms + semantic bridge | **Implemented** | `local_knowledge.go` |
 | Prompt atoms (JIT corpus on disk) | **Implemented** | `local_prompt.go` |
-| Verification + reasoning traces | **Implemented** | `local_verification.go`, `trace_store.go` |
+| Verification + interaction audit records | **Implemented** | `local_verification.go`, `trace_store.go` |
 | Learning candidates (taxonomy staging) | **Implemented** | `learning_candidates.go` |
 | Review findings | **Implemented** | `local_review.go` |
 | `LearningStore` (autopoiesis §8.3) | **Implemented** | `learning.go`, `learning_reflection.go` |
@@ -282,12 +282,12 @@ APIs: upsert/delete files, replace facts for file, load by file or all for depth
 
 CRUD in `local_prompt.go`. Re-embed: `ReembedAllPromptAtomsForce`. Used by `internal/prompt` compiler / DB-backed atom load — **disk persistence for prompt atoms**, not compilation policy (policy lives in `internal/prompt`).
 
-### 4.10 Verification + reasoning traces
+### 4.10 Verification + interaction audit records
 
 **Tables**
 
 - `task_verifications` — retry-loop learning (success, confidence, quality_violations, corrective_action, …)
-- `reasoning_traces` — full shard LLM interaction capture + optional reflection embedding fields
+- `reasoning_traces` — ordinary assistant output and call metadata + optional reflection embedding fields
 
 `TraceStore` owns durable trace ops; `LocalStore` wraps with `StoreReasoningTrace(any)` (reflection-friendly) and query facades. Wired from `internal/system/factory.go` via `createTraceStoreAdapter` + `perception.NewTracingLLMClient`.
 

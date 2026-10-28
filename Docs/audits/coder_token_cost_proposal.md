@@ -68,7 +68,7 @@ Add `content_concise` to `codedom_premier` (≈300 tokens, keeps hierarchy 1-2-3
 |**Total** | **≈5569 (21.6%)** | **≈20150 (78.4% of baseline)** |
 
 - **Meets ≥20% requirement:** 21.6% >20%; leaves 6% headroom for variance in the 3884 vs 3401 language swing.
-- **Capability preserved:** All `is_mandatory:true` atoms in skeleton remain (identity/coder/mission, codedom_premier, tool_usage, safety/constitution, protocol/piggyback envelope/thought_first/reasoning_trace). Flesh atoms dropped are low-score (<0.25) and not in the coder's actual `tool_requests` (verified against `*_tools.log`). Knowledge handoff still available via `capability/knowledge_discovery` skeleton entry (mandatory true); only verbose fallback text is trimmed.
+- **Capability preserved:** All `is_mandatory:true` atoms in skeleton remain (identity/coder/mission, codedom_premier, tool_usage, safety/constitution, protocol/piggyback envelope/control_first/decision_summary). Flesh atoms dropped are low-score (<0.25) and not in the coder's actual `tool_requests` (verified against `*_tools.log`). Knowledge handoff still available via `capability/knowledge_discovery` skeleton entry (mandatory true); only verbose fallback text is trimmed.
 - **Verification steps:**
   1. `go vet ./...` — must pass (no `deny_edit` triggers).
   2. `go test ./...` — must pass; `run_impacted_tests` for `internal/prompt` selector/assembler gaps should not regress.

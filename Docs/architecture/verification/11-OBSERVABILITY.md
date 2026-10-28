@@ -98,4 +98,4 @@ Gap: attempt-level glass-box would help long retries feel less “stuck.”
 
 ## Privacy / retention
 
-Task text and evidence may contain proprietary code. Persistence is local SQLite under workspace `.nerd` (via LocalStore path chosen at boot). Treat verification history with same sensitivity as reasoning traces.
+Task text and evidence may contain proprietary code. Persistence is local SQLite under workspace `.nerd` (via LocalStore path chosen at boot). Treat verification history with same sensitivity as interaction audit records.

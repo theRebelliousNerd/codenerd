@@ -700,7 +700,7 @@ cmd/nerd/chat/commands.go                 - /config engine command
 
 | Capability | Description |
 |------------|-------------|
-| Prompt Anatomy | Static vs Dynamic, Piggyback Envelope, Reasoning Trace |
+| Prompt Anatomy | Static vs Dynamic, Piggyback Envelope, Decision Summary |
 | JIT Compilation | Dynamic prompt assembly from atomic units with Mangle-based linking |
 | Atomic Prompt Design | Breaking God Tier prompts into composable atoms |
 | Unified Storage | Prompt atoms stored in agent knowledge DBs alongside domain knowledge |

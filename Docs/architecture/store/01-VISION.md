@@ -16,7 +16,7 @@ codeNERD’s agent must **remember across sessions** without collapsing all memo
 1. **Tiered by access pattern** — hot associative recall (vectors), relational graph, cold structured facts, archival demotion, separate tool/learning DBs so knowledge stays lean.
 2. **Typed fact fidelity** — Mangle atoms and primitive args survive encode/decode without string soup where possible (`fact_codec`).
 3. **Semantic + exact** — same knowledge atom discoverable by concept prefix **and** embedding similarity.
-4. **Self-learning loop** — reasoning traces and shard learnings re-embed in the background so past work becomes retrievable.
+4. **Self-learning loop** — interaction audit records and shard learnings re-embed in the background so past work becomes retrievable.
 5. **World rehydration without full rescan** — fingerprint-aware world_files / world_facts.
 6. **Build-honest vector support** — sqlite-vec when CGO/headers present; explicit degrade path otherwise.
 7. **Ops-friendly evolution** — additive migrations, backups on major version bumps, force re-embed across DBs after model changes.

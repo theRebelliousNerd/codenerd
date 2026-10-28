@@ -163,7 +163,7 @@ Union by atom ID; skeleton entry wins. Preserves critical atoms if flesh also re
 
 ### 5.5 Structured-output prefilter
 
-Before bifurcation, legislator/mangle_repair drop `protocol/piggyback/*` and `protocol/reasoning/*` atoms so system prompts do not demand piggyback envelopes.
+Before bifurcation, structured-output roles drop competing protocol atoms, including `protocol/piggyback/*` and `protocol/decision_summary/*`, so their prompts retain the direct JSON contract expected by Go. The retired `protocol/reasoning/*` ID prefix remains a compatibility filter for custom atoms; it is not part of the shipped atom corpus.
 
 ---
 

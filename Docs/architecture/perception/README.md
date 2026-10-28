@@ -17,6 +17,11 @@ It invokes `internal/perception/transducer_llm.go#LLMTransducer.Understand`, map
 the result to `internal/perception/transducer.go#Intent`, and the latter emits
 `user_intent` through `internal/perception/transducer.go#Intent.ToFact`.
 
+Interaction auditing and vocabulary learning use visible task results and
+explicit user corrections. Native thinking blocks and signatures remain on the
+provider continuity path, separate from the answer text supplied to the audit
+store. Historical Piggyback controls are excluded from vocabulary learning.
+
 ## Its place in codeNERD
 
 The LLM is the creative interpreter: it proposes semantics, scope, and an
@@ -74,7 +79,7 @@ transient degradation is exercised by
 | Wiring | `VERIFIED CURRENT` — config detection constructs API, Claude CLI, Codex CLI, or xAI OAuth clients; chat/session boot constructs the transducer; semantic classification and taxonomy are process-shared optional enrichments. `PARTIAL` — globals complicate simultaneous workspace isolation. |
 | State and concurrency | `VERIFIED CURRENT` — verb corpus access is guarded and the consolidation queue is bounded/drop-on-full; `internal/perception/transducer_unit_test.go#TestVerbCorpus_ConcurrentAccess_ShouldNotRace` covers the corpus. `PARTIAL` — taxonomy workspace and process-global classifier lifecycle are not an explicit per-session ownership model. |
 | Recovery | `VERIFIED CURRENT` — embedding failure degrades to non-semantic classification, learning never blocks chat, transient Gemini failures carry `ErrLLMUnavailable`, and OAuth can loudly fall back when configured. `PARTIAL` — outage identity is not normalized across all provider transports. |
-| Observability | `VERIFIED CURRENT` — perception stage timing, bottleneck labels, process LLM metrics, reasoning traces, and auth probes exist. `PARTIAL` — no durable turn receipt joins semantic candidates, LLM proposal, normalization, derived routing, final intent, and later kernel outcome. |
+| Observability | `VERIFIED CURRENT` — perception stage timing, bottleneck labels, process LLM metrics, interaction audit records, and auth probes exist. `PARTIAL` — no durable turn receipt joins semantic candidates, LLM proposal, normalization, derived routing, final intent, and later kernel outcome. |
 | Testing | `VERIFIED CURRENT` — unit, adversarial, race-oriented, benchmark, provider mock, taxonomy persistence, and gated live tests exist. `go test -count=1 -timeout=240s ./internal/perception/...` passed on 2026-07-13. `PARTIAL` — real provider coverage remains secret/network gated. |
 
 The deep inventory and contracts are in [Current State](02-CURRENT-STATE.md) and

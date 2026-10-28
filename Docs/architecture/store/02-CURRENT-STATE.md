@@ -52,7 +52,7 @@
 
 | File | Role |
 |------|------|
-| `trace_store.go` | Reasoning traces |
+| `trace_store.go` | Interaction audit records |
 | `learning.go` | Per-shard learnings |
 | `learning_candidates.go` | Taxonomy candidates in LocalStore |
 | `tool_store.go` | Tool executions |

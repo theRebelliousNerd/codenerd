@@ -79,7 +79,7 @@ Targeted investigation of the specific evolution target:
    - How do leading agents structure their system prompts?
    - What patterns separate high-quality code generation from mediocre?
    - Research: persona engineering, instruction hierarchy, behavioral constraints,
-     chain-of-thought steering
+     task decomposition, evidence grounding, and concise decision summaries
 
 3. **Tool Orchestration**
    - How do leading agents decide which tools to call?

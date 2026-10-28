@@ -22,7 +22,7 @@
 | World fast/deep cache | Implemented | No |
 | Session + compressed state | Implemented | No |
 | Prompt atoms on disk | Implemented | No |
-| Reasoning traces + reflection | Implemented + worker | No |
+| Interaction audit records + reflection | Implemented + worker | No |
 | Autopoiesis learnings | LearningStore separate DBs | No |
 | Tool journal isolation | ToolStore + cleanup | No |
 | Embedded intent corpus | Implemented when baked | Partial in dev without corpus build |

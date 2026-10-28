@@ -152,7 +152,7 @@ Most clients are **stateless per call** except:
 |------|-----|
 | `PromptAssembler` | JIT system prompt for classifier |
 | `RoutingKernel` / `KernelAsserter` | Mangle routing |
-| `TraceStore` | Persist reasoning traces |
+| `TraceStore` | Persist interaction audit records |
 | `ProviderConfig.Engine` | Subscription backends |
 | `Worker` config block | Cheap secondary model |
 | Optional interfaces | ThinkingProvider, schemaCapableClient, DisableSemaphore |

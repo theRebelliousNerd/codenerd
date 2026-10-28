@@ -202,8 +202,9 @@ LLM sees and how it behaves.
 - "Few-shot examples: does this atom include examples? If so, are they representative of
   actual codeNERD usage? Toy examples teach toy behavior."
 
-- "Chain-of-thought steering: does this atom guide the LLM's reasoning process, or just its
-  output format? Steering reasoning is more powerful but harder to get right."
+- "Task guidance: does this atom define the required result, source evidence, and
+  validation criteria? Request concise explanations without private deliberation or
+  intermediate analysis transcripts."
 
 - "Is this atom task-type-specific? An atom that helps with debugging might hurt refactoring.
   How is the compiler told when to include vs. exclude it?"

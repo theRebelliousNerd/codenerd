@@ -348,7 +348,7 @@ input
 
 `learning.go` + `ConsolidationWorker`:
 
-- Meta-cognitive critic prompt extracts `learned_exemplar(...)` facts from reasoning traces.  
+- The vocabulary critic proposes `learned_exemplar(...)` facts from visible task results and explicit user corrections. Legacy control fields and native thinking blocks are excluded.
 - Async queue capacity 100; drops when full (never blocks chat).  
 - Successful facts may call `SharedSemanticClassifier.AddLearnedPattern`.  
 - Taxonomy persists learned rules to `.nerd/mangle/learned_taxonomy.mg` (not kernel `learned.mg`).
@@ -526,7 +526,7 @@ Constitutional `permitted(...)` is **kernel policy**, not enforced inside percep
 - `logging.Perception` / `PerceptionDebug` / `PerceptionError` with stage timers.  
 - Bottleneck labels: `LLM_API`, `PROMPT_BUILD`, `PARSE_ROUTE`.  
 - `LLMMetrics` process map keyed `shardCategory:shardType`.  
-- Reasoning traces for post-hoc learning.  
+- Interaction audit records for vocabulary learning from visible task results.
 - Auth probes for CLI/OAuth engines.
 
 See [11-OBSERVABILITY.md](11-OBSERVABILITY.md).

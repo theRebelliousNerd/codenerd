@@ -6,6 +6,14 @@
 > Primary package: `internal/store/`  
 > Role: **Multi-tier durable memory** (SQLite + optional sqlite-vec)
 
+## Interaction audit boundary
+
+The legacy `reasoning_traces` table stores ordinary assistant results and call
+metadata. Native thinking blocks and provider replay signatures are excluded.
+For Piggyback responses, the interaction audit stores only `surface_response`;
+runtime controls have their own processing path. Reflection embeddings describe
+task context, outcomes, and reported issues. The SQL name remains for compatibility.
+
 ## Scope
 
 This corpus documents codeNERD’s **store package**: `LocalStore` memory tiers (vector, graph, cold/archival, session, world, knowledge/prompt atoms, traces), plus satellite stores (`LearningStore`, `ToolStore`, embedded/learned corpora), migrations, reflection re-embed, and integration with boot / VirtualStore / world / prompt.

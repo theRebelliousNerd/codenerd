@@ -46,7 +46,7 @@ Evidence: `local_prompt.go`, migrations for `content_concise` / `content_min` / 
 
 **Score: 5**
 
-Cold facts with access tracking + archival, session turns, compressed states, world fingerprint cache, learnings with confidence decay, and reasoning traces all exist to reduce reliance on stuffing everything into the live prompt.
+Cold facts with access tracking + archival, session turns, compressed states, world fingerprint cache, learnings with confidence decay, and interaction audit records all exist to reduce reliance on stuffing everything into the live prompt.
 
 Evidence: `local_cold.go`, `local_session.go`, `local_world.go`, `learning.go`, `trace_store.go`.
 
