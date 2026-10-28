@@ -55,6 +55,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/graph_traversal/variation-1-bidirectional-reachability"
+  section_of: "language/mangle/docs/patterns/graph_traversal"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Graph Traversal Patterns: Variation 1: Bidirectional Reachability"
@@ -98,6 +100,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/graph_traversal/variation-2-path-length-distance"
+  section_of: "language/mangle/docs/patterns/graph_traversal"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Graph Traversal Patterns: Variation 2: Path Length (Distance)"
@@ -153,6 +157,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/graph_traversal/variation-3-cycle-detection"
+  section_of: "language/mangle/docs/patterns/graph_traversal"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Graph Traversal Patterns: Variation 3: Cycle Detection"
@@ -196,6 +202,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/graph_traversal/variation-4-bounded-depth-traversal"
+  section_of: "language/mangle/docs/patterns/graph_traversal"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Graph Traversal Patterns: Variation 4: Bounded Depth Traversal"
@@ -244,6 +252,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/graph_traversal/variation-5-all-nodes-in-component"
+  section_of: "language/mangle/docs/patterns/graph_traversal"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Graph Traversal Patterns: Variation 5: All Nodes in Component"
@@ -284,6 +294,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/graph_traversal/anti-patterns"
+  section_of: "language/mangle/docs/patterns/graph_traversal"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Graph Traversal Patterns: Anti-Patterns"
@@ -321,6 +333,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/graph_traversal/graph-traversal-patterns-performance-tips"
+  section_of: "language/mangle/docs/patterns/graph_traversal"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Graph Traversal Patterns: Graph Traversal Patterns Performance Tips"

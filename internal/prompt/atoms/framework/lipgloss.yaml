@@ -157,6 +157,8 @@
     ```
 
 - id: "framework/lipgloss/components/table-rendering"
+  section_of: "framework/lipgloss/components"
+  section_order: 1
   category: "framework"
   subcategory: "lipgloss"
   priority: 80
@@ -202,6 +204,8 @@
     ```
 
 - id: "framework/lipgloss/components/status-indicators"
+  section_of: "framework/lipgloss/components"
+  section_order: 2
   category: "framework"
   subcategory: "lipgloss"
   priority: 80

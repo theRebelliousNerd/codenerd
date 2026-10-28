@@ -55,6 +55,8 @@
     - A limit condition
 
 - id: "language/mangle/docs/engine/gas_limits/resource-exhaustion-behavior"
+  section_of: "language/mangle/docs/engine/gas_limits"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Gas Limits and Resource Control: Resource Exhaustion Behavior"
@@ -98,6 +100,8 @@
     ```
 
 - id: "language/mangle/docs/engine/gas_limits/other-resource-considerations"
+  section_of: "language/mangle/docs/engine/gas_limits"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Gas Limits and Resource Control: Other Resource Considerations"
@@ -132,6 +136,8 @@
     - **Careful rule design** - Ensure bounded recursion
 
 - id: "language/mangle/docs/engine/gas_limits/mangle-engine-gas-limits-and-resource"
+  section_of: "language/mangle/docs/engine/gas_limits"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Gas Limits and Resource Control: Mangle Engine: Gas Limits and Resource Control Best Practices"

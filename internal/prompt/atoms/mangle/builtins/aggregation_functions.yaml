@@ -33,6 +33,8 @@
     function"), `fn:CollectToMap`, `fn:pick_any`, `fn:map:get`.
 
 - id: "language/mangle/docs/builtins/aggregation_functions/the-shape"
+  section_of: "language/mangle/docs/builtins/aggregation_functions"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Functions: The shape"
@@ -61,6 +63,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/aggregation_functions/counting-distinct-values"
+  section_of: "language/mangle/docs/builtins/aggregation_functions"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Functions: Counting distinct values"
@@ -86,6 +90,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/aggregation_functions/rules-that-keep-aggregation-correct"
+  section_of: "language/mangle/docs/builtins/aggregation_functions"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Functions: Rules that keep aggregation correct"

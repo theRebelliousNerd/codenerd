@@ -44,6 +44,8 @@
     - Configure in `pyproject.toml` under `[tool.pytest.ini_options]`
 
 - id: "language/python/testing/fundamentals/assertions"
+  section_of: "language/python/testing/fundamentals"
+  section_order: 1
   category: "language"
   subcategory: "python"
   priority: 80
@@ -99,6 +101,8 @@
     ```
 
 - id: "language/python/testing/fundamentals/pytest-ini-pyproject-toml-configuration"
+  section_of: "language/python/testing/fundamentals"
+  section_order: 2
   category: "language"
   subcategory: "python"
   priority: 80
@@ -182,6 +186,8 @@
     - `autouse=True` for automatic execution
 
 - id: "language/python/testing/fixtures/fixture-composition"
+  section_of: "language/python/testing/fixtures"
+  section_order: 1
   category: "language"
   subcategory: "python"
   priority: 81
@@ -234,6 +240,8 @@
     ```
 
 - id: "language/python/testing/fixtures/autouse-fixtures"
+  section_of: "language/python/testing/fixtures"
+  section_order: 2
   category: "language"
   subcategory: "python"
   priority: 81
@@ -350,6 +358,8 @@
     - `request.param` in fixtures for parametrized values
 
 - id: "language/python/testing/parametrize/indirect-parametrization"
+  section_of: "language/python/testing/parametrize"
+  section_order: 1
   category: "language"
   subcategory: "python"
   priority: 79
@@ -440,6 +450,8 @@
     - `side_effect` for sequences, exceptions, or custom logic
 
 - id: "language/python/testing/mocking/patching"
+  section_of: "language/python/testing/mocking"
+  section_order: 1
   category: "language"
   subcategory: "python"
   priority: 78
@@ -480,6 +492,8 @@
     ```
 
 - id: "language/python/testing/mocking/patching-with-spec"
+  section_of: "language/python/testing/mocking"
+  section_order: 2
   category: "language"
   subcategory: "python"
   priority: 78
@@ -507,6 +521,8 @@
     ```
 
 - id: "language/python/testing/mocking/asyncmock"
+  section_of: "language/python/testing/mocking"
+  section_order: 3
   category: "language"
   subcategory: "python"
   priority: 78
@@ -545,6 +561,8 @@
     ```
 
 - id: "language/python/testing/mocking/side-effects"
+  section_of: "language/python/testing/mocking"
+  section_order: 4
   category: "language"
   subcategory: "python"
   priority: 78
@@ -616,6 +634,8 @@
     - Stateful testing with `RuleBasedStateMachine`
 
 - id: "language/python/testing/hypothesis/strategies"
+  section_of: "language/python/testing/hypothesis"
+  section_order: 1
   category: "language"
   subcategory: "python"
   priority: 77
@@ -669,6 +689,8 @@
     ```
 
 - id: "language/python/testing/hypothesis/assume-for-filtering"
+  section_of: "language/python/testing/hypothesis"
+  section_order: 2
   category: "language"
   subcategory: "python"
   priority: 77
@@ -778,6 +800,8 @@
     - Test timeouts with `pytest.raises(asyncio.TimeoutError)`
 
 - id: "language/python/testing/async/testing-taskgroup"
+  section_of: "language/python/testing/async"
+  section_order: 1
   category: "language"
   subcategory: "python"
   priority: 76
@@ -829,6 +853,8 @@
     ```
 
 - id: "language/python/testing/async/testing-timeouts"
+  section_of: "language/python/testing/async"
+  section_order: 2
   category: "language"
   subcategory: "python"
   priority: 76

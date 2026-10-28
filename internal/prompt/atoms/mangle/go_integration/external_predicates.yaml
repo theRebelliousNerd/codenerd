@@ -35,6 +35,8 @@
     - `error` - If the predicate fails or encounters an error
 
 - id: "language/mangle/docs/go_integration/external_predicates/basic-example"
+  section_of: "language/mangle/docs/go_integration/external_predicates"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Basic Example"
@@ -83,6 +85,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration/external_predicates/2-register-the-external-predicate"
+  section_of: "language/mangle/docs/go_integration/external_predicates"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: 2. Register the External Predicate"
@@ -115,6 +119,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration/external_predicates/pattern-input-only-predicate"
+  section_of: "language/mangle/docs/go_integration/external_predicates"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Pattern: Input-Only Predicate"
@@ -174,6 +180,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration/external_predicates/pattern-generator-predicate"
+  section_of: "language/mangle/docs/go_integration/external_predicates"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Pattern: Generator Predicate"
@@ -231,6 +239,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration/external_predicates/pattern-generator-predicate-cont"
+  section_of: "language/mangle/docs/go_integration/external_predicates"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Pattern: Generator Predicate cont"
@@ -251,6 +261,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration/external_predicates/pattern-lookup-predicate"
+  section_of: "language/mangle/docs/go_integration/external_predicates"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Pattern: Lookup Predicate"
@@ -308,6 +320,8 @@
                 Predicate: query.Predicate,
 
 - id: "language/mangle/docs/go_integration/external_predicates/pattern-lookup-predicate-cont"
+  section_of: "language/mangle/docs/go_integration/external_predicates"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Pattern: Lookup Predicate cont"
@@ -340,6 +354,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration/external_predicates/pattern-computation-predicate"
+  section_of: "language/mangle/docs/go_integration/external_predicates"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Pattern: Computation Predicate"
@@ -399,6 +415,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration/external_predicates/handling-variables"
+  section_of: "language/mangle/docs/go_integration/external_predicates"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Handling Variables"
@@ -457,6 +475,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration/external_predicates/mangle-external-predicates-implementing"
+  section_of: "language/mangle/docs/go_integration/external_predicates"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Mangle External Predicates: Implementing Custom Logic in Go Error Handling"
@@ -502,6 +522,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration/external_predicates/type-conversion-helpers"
+  section_of: "language/mangle/docs/go_integration/external_predicates"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Type Conversion Helpers"
@@ -559,6 +581,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration/external_predicates/mangle-external-predicates-implementing-2"
+  section_of: "language/mangle/docs/go_integration/external_predicates"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Mangle External Predicates: Implementing Custom Logic in Go Best Practices"
@@ -617,6 +641,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration/external_predicates/mangle-external-predicates-implementing-3"
+  section_of: "language/mangle/docs/go_integration/external_predicates"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Mangle External Predicates: Implementing Custom Logic in Go Complete Example"
@@ -695,6 +721,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration/external_predicates/advanced-topics"
+  section_of: "language/mangle/docs/go_integration/external_predicates"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Advanced Topics"
@@ -754,6 +782,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration/external_predicates/integration-with-virtual-store"
+  section_of: "language/mangle/docs/go_integration/external_predicates"
+  section_order: 15
   category: "language"
   subcategory: "mangle"
   description: "Mangle External Predicates: Implementing Custom Logic in Go: Integration with Virtual Store"

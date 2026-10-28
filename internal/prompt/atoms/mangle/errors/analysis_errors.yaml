@@ -60,6 +60,8 @@
     ```
 
 - id: "language/mangle/docs/errors/analysis_errors/1-1-program-cannot-be-stratified-cont"
+  section_of: "language/mangle/docs/errors/analysis_errors"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 1.1 Program Cannot Be Stratified cont"
@@ -98,6 +100,8 @@
     - Infinite recursion
 
 - id: "language/mangle/docs/errors/analysis_errors/2-unsafe-variable-errors"
+  section_of: "language/mangle/docs/errors/analysis_errors"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 2. Unsafe Variable Errors"
@@ -163,6 +167,8 @@
     ```
 
 - id: "language/mangle/docs/errors/analysis_errors/2-2-variable-will-not-have-value-yet"
+  section_of: "language/mangle/docs/errors/analysis_errors"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 2.2 Variable Will Not Have Value Yet"
@@ -205,6 +211,8 @@
     **Important:** Mangle evaluates body predicates **left to right**. Bind variables before using them.
 
 - id: "language/mangle/docs/errors/analysis_errors/2-3-variable-not-bound-in-apply-expression"
+  section_of: "language/mangle/docs/errors/analysis_errors"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 2.3 Variable Not Bound in Apply Expression"
@@ -244,6 +252,8 @@
     ```
 
 - id: "language/mangle/docs/errors/analysis_errors/2-4-variable-in-negation-not-bound"
+  section_of: "language/mangle/docs/errors/analysis_errors"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 2.4 Variable in Negation Not Bound"
@@ -300,6 +310,8 @@
     ```
 
 - id: "language/mangle/docs/errors/analysis_errors/3-variable-binding-in-transforms"
+  section_of: "language/mangle/docs/errors/analysis_errors"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 3. Variable Binding in Transforms"
@@ -337,6 +349,8 @@
     ```
 
 - id: "language/mangle/docs/errors/analysis_errors/3-2-variable-used-in-transform-not-in-clause"
+  section_of: "language/mangle/docs/errors/analysis_errors"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 3.2 Variable Used in Transform Not in Clause"
@@ -372,6 +386,8 @@
     ```
 
 - id: "language/mangle/docs/errors/analysis_errors/3-3-do-transforms-cannot-have-variable"
+  section_of: "language/mangle/docs/errors/analysis_errors"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 3.3 Do-Transforms Cannot Have Variable"
@@ -406,6 +422,8 @@
     ```
 
 - id: "language/mangle/docs/errors/analysis_errors/3-4-variable-must-be-part-of-group-by-or"
+  section_of: "language/mangle/docs/errors/analysis_errors"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 3.4 Variable Must Be Part of Group By or Aggregated"
@@ -470,6 +488,8 @@
     ```
 
 - id: "language/mangle/docs/errors/analysis_errors/3-5-group-by-arguments-must-be-distinct"
+  section_of: "language/mangle/docs/errors/analysis_errors"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 3.5 Group By Arguments Must Be Distinct Variables"
@@ -507,6 +527,8 @@
     ```
 
 - id: "language/mangle/docs/errors/analysis_errors/3-6-head-variable-neither-grouped-nor"
+  section_of: "language/mangle/docs/errors/analysis_errors"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 3.6 Head Variable Neither Grouped Nor Aggregated"
@@ -566,6 +588,8 @@
     ```
 
 - id: "language/mangle/docs/errors/analysis_errors/4-declaration-and-arity-errors"
+  section_of: "language/mangle/docs/errors/analysis_errors"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 4. Declaration and Arity Errors"
@@ -611,6 +635,8 @@
     ```
 
 - id: "language/mangle/docs/errors/analysis_errors/4-2-arity-mismatch"
+  section_of: "language/mangle/docs/errors/analysis_errors"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 4.2 Arity Mismatch"
@@ -663,6 +689,8 @@
     ```
 
 - id: "language/mangle/docs/errors/analysis_errors/4-3-predicate-defined-previously"
+  section_of: "language/mangle/docs/errors/analysis_errors"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 4.3 Predicate Defined Previously"
@@ -721,6 +749,8 @@
     ```
 
 - id: "language/mangle/docs/errors/analysis_errors/5-2-composing-multiple-transforms-not"
+  section_of: "language/mangle/docs/errors/analysis_errors"
+  section_order: 15
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 5.2 Composing Multiple Transforms Not Implemented"
@@ -762,6 +792,8 @@
     ```
 
 - id: "language/mangle/docs/errors/analysis_errors/5-3-cannot-have-transform-without-body"
+  section_of: "language/mangle/docs/errors/analysis_errors"
+  section_order: 16
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 5.3 Cannot Have Transform Without Body"
@@ -796,6 +828,8 @@
     ```
 
 - id: "language/mangle/docs/errors/analysis_errors/6-type-context-errors"
+  section_of: "language/mangle/docs/errors/analysis_errors"
+  section_order: 17
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: 6. Type Context Errors"
@@ -851,6 +885,8 @@
     ```
 
 - id: "language/mangle/docs/errors/analysis_errors/quick-diagnosis-guide"
+  section_of: "language/mangle/docs/errors/analysis_errors"
+  section_order: 18
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: Quick Diagnosis Guide"
@@ -874,6 +910,8 @@
     | "distinct variables" | Duplicate in group_by | Use each variable once |
 
 - id: "language/mangle/docs/errors/analysis_errors/safety-rules-summary"
+  section_of: "language/mangle/docs/errors/analysis_errors"
+  section_order: 19
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis Errors Reference: Safety Rules Summary"

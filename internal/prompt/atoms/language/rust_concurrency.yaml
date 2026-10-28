@@ -56,6 +56,8 @@
     - Use `move` to transfer ownership into thread
 
 - id: "language/rust/concurrency/threads/scoped-threads-rust-1-63"
+  section_of: "language/rust/concurrency/threads"
+  section_order: 1
   category: "language"
   subcategory: "rust"
   priority: 90
@@ -155,6 +157,8 @@
     - `RwLock<T>` - many readers OR one writer
 
 - id: "language/rust/concurrency/arc_mutex/arc-mutex-t-the-classic-pattern"
+  section_of: "language/rust/concurrency/arc_mutex"
+  section_order: 1
   category: "language"
   subcategory: "rust"
   priority: 92
@@ -211,6 +215,8 @@
     ```
 
 - id: "language/rust/concurrency/arc_mutex/mutex-poisoning"
+  section_of: "language/rust/concurrency/arc_mutex"
+  section_order: 2
   category: "language"
   subcategory: "rust"
   priority: 92
@@ -315,6 +321,8 @@
     - Drop all senders to close channel
 
 - id: "language/rust/concurrency/channels/non-blocking-operations"
+  section_of: "language/rust/concurrency/channels"
+  section_order: 1
   category: "language"
   subcategory: "rust"
   priority: 85
@@ -343,6 +351,8 @@
     ```
 
 - id: "language/rust/concurrency/channels/channel-patterns"
+  section_of: "language/rust/concurrency/channels"
+  section_order: 2
   category: "language"
   subcategory: "rust"
   priority: 85
@@ -421,6 +431,8 @@
     - `'static` required because threads may outlive caller
 
 - id: "language/rust/concurrency/send_sync/thread-safe-alternatives"
+  section_of: "language/rust/concurrency/send_sync"
+  section_order: 1
   category: "language"
   subcategory: "rust"
   priority: 93
@@ -544,6 +556,8 @@
     - NEVER hold locks across `.await`
 
 - id: "language/rust/concurrency/tokio_async/tokio-channels-tokio-sync-mpsc"
+  section_of: "language/rust/concurrency/tokio_async"
+  section_order: 1
   category: "language"
   subcategory: "rust"
   priority: 90
@@ -593,6 +607,8 @@
     ```
 
 - id: "language/rust/concurrency/tokio_async/critical-don-t-hold-locks-across-await"
+  section_of: "language/rust/concurrency/tokio_async"
+  section_order: 2
   category: "language"
   subcategory: "rust"
   priority: 90

@@ -24,6 +24,8 @@
     ## SECTION 1: Intent & Focus (Perception Layer Output)
 
 - id: "language/mangle/docs/codenerd/schemas/user-intent-5"
+  section_of: "language/mangle/docs/codenerd/schemas"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): user_intent/5"
@@ -65,6 +67,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/schemas/focus-resolution-4"
+  section_of: "language/mangle/docs/codenerd/schemas"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): focus_resolution/4"
@@ -102,6 +106,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/schemas/ambiguity-flag-3"
+  section_of: "language/mangle/docs/codenerd/schemas"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): ambiguity_flag/3"
@@ -132,6 +138,8 @@
     ## SECTION 2: World Model - File System
 
 - id: "language/mangle/docs/codenerd/schemas/file-topology-5"
+  section_of: "language/mangle/docs/codenerd/schemas"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): file_topology/5"
@@ -165,6 +173,8 @@
     **Language Values**: `/go`, `/python`, `/typescript`, `/javascript`, `/rust`, `/c`, `/cpp`, `/java`, `/markdown`, `/json`, `/yaml`, `/unknown`
 
 - id: "language/mangle/docs/codenerd/schemas/file-content-4"
+  section_of: "language/mangle/docs/codenerd/schemas"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): file_content/4"
@@ -207,6 +217,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/schemas/section-3-world-model-symbol-graph"
+  section_of: "language/mangle/docs/codenerd/schemas"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): SECTION 3: World Model - Symbol Graph"
@@ -244,6 +256,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/schemas/dependency-link-3"
+  section_of: "language/mangle/docs/codenerd/schemas"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): dependency_link/3"
@@ -282,6 +296,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/schemas/section-4-diagnostics"
+  section_of: "language/mangle/docs/codenerd/schemas"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): SECTION 4: Diagnostics"
@@ -328,6 +344,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/schemas/test-result-5"
+  section_of: "language/mangle/docs/codenerd/schemas"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): test_result/5"
@@ -359,6 +377,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/schemas/section-5-tdd-loop-state"
+  section_of: "language/mangle/docs/codenerd/schemas"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): SECTION 5: TDD Loop State"
@@ -412,6 +432,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/schemas/section-6-shard-management"
+  section_of: "language/mangle/docs/codenerd/schemas"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): SECTION 6: Shard Management"
@@ -475,6 +497,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/schemas/section-7-research-knowledge"
+  section_of: "language/mangle/docs/codenerd/schemas"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): SECTION 7: Research & Knowledge"
@@ -537,6 +561,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/schemas/section-8-observations-memory"
+  section_of: "language/mangle/docs/codenerd/schemas"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): SECTION 8: Observations & Memory"
@@ -598,6 +624,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/schemas/section-9-campaign-goals"
+  section_of: "language/mangle/docs/codenerd/schemas"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): SECTION 9: Campaign & Goals"
@@ -657,6 +685,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/schemas/section-10-autopoiesis-tool-generation"
+  section_of: "language/mangle/docs/codenerd/schemas"
+  section_order: 15
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): SECTION 10: Autopoiesis (Tool Generation)"
@@ -724,6 +754,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/schemas/section-11-taxonomy-intent-classification"
+  section_of: "language/mangle/docs/codenerd/schemas"
+  section_order: 16
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): SECTION 11: Taxonomy & Intent Classification"
@@ -788,6 +820,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/schemas/context-token-1"
+  section_of: "language/mangle/docs/codenerd/schemas"
+  section_order: 17
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): context_token/1"
@@ -834,6 +868,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/schemas/section-12-autopoiesis-state-ouroboros-loop"
+  section_of: "language/mangle/docs/codenerd/schemas"
+  section_order: 18
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): SECTION 12: Autopoiesis State (Ouroboros Loop)"
@@ -910,6 +946,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/schemas/usage-guidelines"
+  section_of: "language/mangle/docs/codenerd/schemas"
+  section_order: 19
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Mangle Schemas (EDB Declarations): Usage Guidelines"

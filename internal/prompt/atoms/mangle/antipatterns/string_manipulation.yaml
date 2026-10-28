@@ -57,6 +57,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-2-string-split"
+  section_of: "language/mangle/docs/antipatterns/string_manipulation"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 2: String Split"
@@ -112,6 +114,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-3-regular-expressions"
+  section_of: "language/mangle/docs/antipatterns/string_manipulation"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 3: Regular Expressions"
@@ -163,6 +167,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-4-substring-slicing"
+  section_of: "language/mangle/docs/antipatterns/string_manipulation"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 4: Substring / Slicing"
@@ -215,6 +221,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-5-string-formatting"
+  section_of: "language/mangle/docs/antipatterns/string_manipulation"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 5: String Formatting"
@@ -255,6 +263,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-6-case-conversion"
+  section_of: "language/mangle/docs/antipatterns/string_manipulation"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 6: Case Conversion"
@@ -301,6 +311,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-7-string-trimming"
+  section_of: "language/mangle/docs/antipatterns/string_manipulation"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 7: String Trimming"
@@ -344,6 +356,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-8-string-replace"
+  section_of: "language/mangle/docs/antipatterns/string_manipulation"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 8: String Replace"
@@ -387,6 +401,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-9-string-contains-index"
+  section_of: "language/mangle/docs/antipatterns/string_manipulation"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 9: String Contains / Index"
@@ -435,6 +451,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-10-multi-line-strings-heredoc"
+  section_of: "language/mangle/docs/antipatterns/string_manipulation"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 10: Multi-line Strings / Heredoc"
@@ -493,6 +511,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-11-string-reversal"
+  section_of: "language/mangle/docs/antipatterns/string_manipulation"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 11: String Reversal"
@@ -546,6 +566,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-12-string-length"
+  section_of: "language/mangle/docs/antipatterns/string_manipulation"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 12: String Length"
@@ -589,6 +611,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-13-string-building-in-loops"
+  section_of: "language/mangle/docs/antipatterns/string_manipulation"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 13: String Building in Loops"
@@ -642,6 +666,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-14-escape-sequences"
+  section_of: "language/mangle/docs/antipatterns/string_manipulation"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern 14: Escape Sequences"
@@ -693,6 +719,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/string_manipulation/pattern-string-processing-workflow"
+  section_of: "language/mangle/docs/antipatterns/string_manipulation"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Pattern: String Processing Workflow"
@@ -737,6 +765,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/string_manipulation/available-string-functions-check-your"
+  section_of: "language/mangle/docs/antipatterns/string_manipulation"
+  section_order: 15
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Available String Functions (Check Your Mangle Version)"
@@ -763,6 +793,8 @@
     **Always check** the `builtin` package documentation for your Mangle version!
 
 - id: "language/mangle/docs/antipatterns/string_manipulation/key-principle-mangle-is-not-a-string"
+  section_of: "language/mangle/docs/antipatterns/string_manipulation"
+  section_order: 16
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Key Principle: Mangle is Not a String Processor"
@@ -788,6 +820,8 @@
     | String builder loops | Aggregation or Go |
 
 - id: "language/mangle/docs/antipatterns/string_manipulation/anti-pattern-string-manipulation-migration"
+  section_of: "language/mangle/docs/antipatterns/string_manipulation"
+  section_order: 17
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Anti-Pattern: String Manipulation Migration Checklist"
@@ -817,6 +851,8 @@
     - [ ] Remember: Mangle reasons about strings, Go manipulates them
 
 - id: "language/mangle/docs/antipatterns/string_manipulation/pro-tip-strings-as-atoms"
+  section_of: "language/mangle/docs/antipatterns/string_manipulation"
+  section_order: 18
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: String Manipulation: Pro Tip: Strings as Atoms"

@@ -51,6 +51,8 @@
     6. **/integration** (Wiring): the assembler; `main.go`, E2E tests, dependency injection.
 
 - id: "methodology/librarian/layers/layer-1-scaffold"
+  section_of: "methodology/librarian/layers"
+  section_order: 1
   category: "methodology"
   subcategory: "classification"
   priority: 90
@@ -75,6 +77,8 @@
     - Database connection strings hardcoded in configuration loaders.
 
 - id: "methodology/librarian/layers/layer-2-domain-core"
+  section_of: "methodology/librarian/layers"
+  section_order: 2
   category: "methodology"
   subcategory: "classification"
   priority: 90
@@ -100,6 +104,8 @@
     - Importing "gorm" or "sqlx" tags in domain structs (leaky abstraction).
 
 - id: "methodology/librarian/layers/layer-3-data-layer"
+  section_of: "methodology/librarian/layers"
+  section_order: 3
   category: "methodology"
   subcategory: "classification"
   priority: 90
@@ -124,6 +130,8 @@
     - Returning 'sql.Rows' directly to the service layer.
 
 - id: "methodology/librarian/layers/layer-4-service"
+  section_of: "methodology/librarian/layers"
+  section_order: 4
   category: "methodology"
   subcategory: "classification"
   priority: 90
@@ -149,6 +157,8 @@
     - Reading "r.FormValue" in a service method.
 
 - id: "methodology/librarian/layers/layer-5-transport"
+  section_of: "methodology/librarian/layers"
+  section_order: 5
   category: "methodology"
   subcategory: "classification"
   priority: 90
@@ -173,6 +183,8 @@
     - Direct database access from a handler.
 
 - id: "methodology/librarian/layers/layer-6-integration"
+  section_of: "methodology/librarian/layers"
+  section_order: 6
   category: "methodology"
   subcategory: "classification"
   priority: 90

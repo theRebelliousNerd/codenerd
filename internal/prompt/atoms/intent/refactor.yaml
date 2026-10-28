@@ -41,6 +41,8 @@
        - Update docs/PRD refs if structure moved.
 
 - id: "intent/refactor/core/safety-checklist"
+  section_of: "intent/refactor/core"
+  section_order: 1
   category: "intent"
   subcategory: "refactor"
   priority: 95

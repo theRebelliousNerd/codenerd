@@ -27,6 +27,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/transform_functions/pipeline-operator"
+  section_of: "language/mangle/docs/builtins/transform_functions"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Pipeline Operator: `|>`"
@@ -65,6 +67,8 @@
     - Everything after `|>` is the transform operation
 
 - id: "language/mangle/docs/builtins/transform_functions/transform-keyword-do"
+  section_of: "language/mangle/docs/builtins/transform_functions"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Transform Keyword: `do`"
@@ -93,6 +97,8 @@
     - Multiple `let` bindings can follow (comma-separated)
 
 - id: "language/mangle/docs/builtins/transform_functions/grouping-function-fn-group-by"
+  section_of: "language/mangle/docs/builtins/transform_functions"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Grouping Function: `fn:group_by`"
@@ -147,6 +153,8 @@
     - ❌ Forgetting `fn:` prefix: `group_by(X)` should be `fn:group_by(X)`
 
 - id: "language/mangle/docs/builtins/transform_functions/binding-keyword-let"
+  section_of: "language/mangle/docs/builtins/transform_functions"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Binding Keyword: `let`"
@@ -195,6 +203,8 @@
     - ❌ Separating with semicolons: use commas between `let` clauses
 
 - id: "language/mangle/docs/builtins/transform_functions/complete-examples"
+  section_of: "language/mangle/docs/builtins/transform_functions"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Complete Examples"
@@ -237,6 +247,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/transform_functions/complete-examples-example-3-multiple"
+  section_of: "language/mangle/docs/builtins/transform_functions"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Complete Examples Example 3: Multiple Aggregations"
@@ -288,6 +300,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/transform_functions/complete-examples-example-6-collecting-to"
+  section_of: "language/mangle/docs/builtins/transform_functions"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Complete Examples Example 6: Collecting to Map"
@@ -317,6 +331,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/transform_functions/complete-examples-example-7-nested"
+  section_of: "language/mangle/docs/builtins/transform_functions"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Complete Examples Example 7: Nested Computations"
@@ -349,6 +365,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/transform_functions/variable-scoping-rules"
+  section_of: "language/mangle/docs/builtins/transform_functions"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Variable Scoping Rules"
@@ -404,6 +422,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/transform_functions/execution-model"
+  section_of: "language/mangle/docs/builtins/transform_functions"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Execution Model"
@@ -463,6 +483,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/transform_functions/comparison-with-sql"
+  section_of: "language/mangle/docs/builtins/transform_functions"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Comparison with SQL"
@@ -497,6 +519,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/transform_functions/limitations"
+  section_of: "language/mangle/docs/builtins/transform_functions"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Limitations"
@@ -568,6 +592,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/transform_functions/mangle-transform-pipeline-reference"
+  section_of: "language/mangle/docs/builtins/transform_functions"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Mangle Transform Pipeline Reference Performance Considerations"
@@ -590,6 +616,8 @@
     3. Use `fn:count` instead of `fn:collect` + `fn:list:len` when possible
 
 - id: "language/mangle/docs/builtins/transform_functions/mangle-transform-pipeline-reference-common"
+  section_of: "language/mangle/docs/builtins/transform_functions"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Mangle Transform Pipeline Reference Common Patterns"
@@ -651,6 +679,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/transform_functions/error-messages"
+  section_of: "language/mangle/docs/builtins/transform_functions"
+  section_order: 15
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipeline Reference: Error Messages"

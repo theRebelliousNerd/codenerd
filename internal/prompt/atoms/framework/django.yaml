@@ -87,6 +87,8 @@
     ```
 
 - id: "framework/django/views/class-based-view"
+  section_of: "framework/django/views"
+  section_order: 1
   category: "framework"
   subcategory: "django"
   priority: 85
@@ -122,6 +124,8 @@
     ```
 
 - id: "framework/django/views/api-view-drf"
+  section_of: "framework/django/views"
+  section_order: 2
   category: "framework"
   subcategory: "django"
   priority: 85

@@ -41,6 +41,8 @@
     6. **/integration** (Wiring): the assembler; instantiates repositories, injects them into services, mounts services to transport.
 
 - id: "campaign/librarian/layers/layer-1-scaffold"
+  section_of: "campaign/librarian/layers"
+  section_order: 1
   category: "knowledge"
   subcategory: "taxonomy"
   priority: 85
@@ -63,6 +65,8 @@
     - Functions: "LoadConfig", "Initialize", "Setup", "Teardown"
 
 - id: "campaign/librarian/layers/layer-2-domain-core"
+  section_of: "campaign/librarian/layers"
+  section_order: 2
   category: "knowledge"
   subcategory: "taxonomy"
   priority: 85
@@ -85,6 +89,8 @@
     - Definitions: "type User struct", "type UserRepository interface", "var ErrInvalidInput"
 
 - id: "campaign/librarian/layers/layer-3-data-layer"
+  section_of: "campaign/librarian/layers"
+  section_order: 3
   category: "knowledge"
   subcategory: "taxonomy"
   priority: 85
@@ -106,6 +112,8 @@
     - Structs: "UserDAO", "PostgresRepository", "RedisCache"
 
 - id: "campaign/librarian/layers/layer-4-service"
+  section_of: "campaign/librarian/layers"
+  section_order: 4
   category: "knowledge"
   subcategory: "taxonomy"
   priority: 85
@@ -125,6 +133,8 @@
     - Calls methods on the interfaces defined in Domain Core.
 
 - id: "campaign/librarian/layers/layer-5-transport"
+  section_of: "campaign/librarian/layers"
+  section_order: 5
   category: "knowledge"
   subcategory: "taxonomy"
   priority: 85
@@ -143,6 +153,8 @@
     - Maps "HTTP Error" (404, 500) from Domain Errors.
 
 - id: "campaign/librarian/layers/layer-6-integration"
+  section_of: "campaign/librarian/layers"
+  section_order: 6
   category: "knowledge"
   subcategory: "taxonomy"
   priority: 85

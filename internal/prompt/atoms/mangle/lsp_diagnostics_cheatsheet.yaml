@@ -25,6 +25,8 @@
     ```
 
 - id: "language/mangle/docs/lsp_diagnostics_cheatsheet/valid-code-baseline-no-errors-expected"
+  section_of: "language/mangle/docs/lsp_diagnostics_cheatsheet"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: VALID CODE (baseline - no errors expected)"
@@ -71,6 +73,8 @@
     ```
 
 - id: "language/mangle/docs/lsp_diagnostics_cheatsheet/parse-errors-syntax"
+  section_of: "language/mangle/docs/lsp_diagnostics_cheatsheet"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: PARSE ERRORS (Syntax)"
@@ -107,6 +111,8 @@
     ```
 
 - id: "language/mangle/docs/lsp_diagnostics_cheatsheet/e002-variable-in-head-not-bound-in-body"
+  section_of: "language/mangle/docs/lsp_diagnostics_cheatsheet"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E002 - Variable in head not bound in body (range restriction)"
@@ -147,6 +153,8 @@
     ```
 
 - id: "language/mangle/docs/lsp_diagnostics_cheatsheet/e004-variable-in-comparison-must-be-bound"
+  section_of: "language/mangle/docs/lsp_diagnostics_cheatsheet"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E004 - Variable in comparison must be bound before comparison"
@@ -187,6 +195,8 @@
     ```
 
 - id: "language/mangle/docs/lsp_diagnostics_cheatsheet/e006-built-in-predicate-arity-mismatch"
+  section_of: "language/mangle/docs/lsp_diagnostics_cheatsheet"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E006 - Built-in predicate arity mismatch"
@@ -224,6 +234,8 @@
     ```
 
 - id: "language/mangle/docs/lsp_diagnostics_cheatsheet/e008-unknown-built-in-function"
+  section_of: "language/mangle/docs/lsp_diagnostics_cheatsheet"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E008 - Unknown built-in function"
@@ -274,6 +286,8 @@
     ```
 
 - id: "language/mangle/docs/lsp_diagnostics_cheatsheet/e011-transform-must-start-with-do-fn-group"
+  section_of: "language/mangle/docs/lsp_diagnostics_cheatsheet"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E011 - Transform must start with do fn:group_by"
@@ -318,6 +332,8 @@
     ```
 
 - id: "language/mangle/docs/lsp_diagnostics_cheatsheet/e014-variable-in-equality-must-be-bound"
+  section_of: "language/mangle/docs/lsp_diagnostics_cheatsheet"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E014 - Variable in equality must be bound"
@@ -363,6 +379,8 @@
     ```
 
 - id: "language/mangle/docs/lsp_diagnostics_cheatsheet/e017-warning-recursive-may-be-unbounded"
+  section_of: "language/mangle/docs/lsp_diagnostics_cheatsheet"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E017 - Warning: Recursive may be unbounded"
@@ -410,6 +428,8 @@
     ```
 
 - id: "language/mangle/docs/lsp_diagnostics_cheatsheet/e020-function-doesn-t-exist-hallucinated"
+  section_of: "language/mangle/docs/lsp_diagnostics_cheatsheet"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E020 - Function doesn't exist (hallucinated)"
@@ -447,6 +467,8 @@
     ```
 
 - id: "language/mangle/docs/lsp_diagnostics_cheatsheet/e022-warning-late-negation"
+  section_of: "language/mangle/docs/lsp_diagnostics_cheatsheet"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E022 - Warning: Late negation"
@@ -488,6 +510,8 @@
     ```
 
 - id: "language/mangle/docs/lsp_diagnostics_cheatsheet/e025-declaration-bounds-count-mismatch"
+  section_of: "language/mangle/docs/lsp_diagnostics_cheatsheet"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E025 - Declaration bounds count mismatch"
@@ -532,6 +556,8 @@
     ```
 
 - id: "language/mangle/docs/lsp_diagnostics_cheatsheet/e031-package-names-must-be-lowercase"
+  section_of: "language/mangle/docs/lsp_diagnostics_cheatsheet"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E031 - Package names must be lowercase"
@@ -576,6 +602,8 @@
     ```
 
 - id: "language/mangle/docs/lsp_diagnostics_cheatsheet/e034-field-selector-arg-2-must-be-constant"
+  section_of: "language/mangle/docs/lsp_diagnostics_cheatsheet"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E034 - Field selector arg 2 must be constant"
@@ -620,6 +648,8 @@
     ```
 
 - id: "language/mangle/docs/lsp_diagnostics_cheatsheet/e037-duplicate-variable-in-fn-group-by"
+  section_of: "language/mangle/docs/lsp_diagnostics_cheatsheet"
+  section_order: 15
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E037 - Duplicate variable in fn:group_by"
@@ -657,6 +687,8 @@
     ```
 
 - id: "language/mangle/docs/lsp_diagnostics_cheatsheet/e039-warning-wildcard-in-head"
+  section_of: "language/mangle/docs/lsp_diagnostics_cheatsheet"
+  section_order: 16
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: E039 - Warning: Wildcard in head"
@@ -703,6 +735,8 @@
     ```
 
 - id: "language/mangle/docs/lsp_diagnostics_cheatsheet/complex-combined-errors"
+  section_of: "language/mangle/docs/lsp_diagnostics_cheatsheet"
+  section_order: 17
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: Complex Combined Errors"
@@ -735,6 +769,8 @@
     ```
 
 - id: "language/mangle/docs/lsp_diagnostics_cheatsheet/edge-cases"
+  section_of: "language/mangle/docs/lsp_diagnostics_cheatsheet"
+  section_order: 18
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: Edge Cases"
@@ -783,6 +819,8 @@
     ```
 
 - id: "language/mangle/docs/lsp_diagnostics_cheatsheet/valid-functions-for-reference"
+  section_of: "language/mangle/docs/lsp_diagnostics_cheatsheet"
+  section_order: 19
   category: "language"
   subcategory: "mangle"
   description: "Comprehensive LSP diagnostic and failure-mode cheat sheet for Mangle: Valid functions (for reference)"

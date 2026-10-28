@@ -95,6 +95,8 @@
     - [ ] Errors returned as expected
 
 - id: "reviewer/methodology/api_verification/verification-techniques"
+  section_of: "reviewer/methodology/api_verification"
+  section_order: 1
   category: "methodology"
   subcategory: "ai_review"
   priority: 92
@@ -397,6 +399,8 @@
     Simplify where appropriate.
 
 - id: "reviewer/methodology/ai_code_integration/codebase-context-questions"
+  section_of: "reviewer/methodology/ai_code_integration"
+  section_order: 1
   category: "methodology"
   subcategory: "ai_review"
   priority: 82

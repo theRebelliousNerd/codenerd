@@ -64,6 +64,8 @@
     - Conditional logic based on computed boolean values
 
 - id: "language/mangle/docs/builtins/special_predicates/list-membership-predicate"
+  section_of: "language/mangle/docs/builtins/special_predicates"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: List Membership Predicate"
@@ -89,6 +91,8 @@
     ## List Membership Predicate
 
 - id: "language/mangle/docs/builtins/special_predicates/list-member"
+  section_of: "language/mangle/docs/builtins/special_predicates"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: :list:member"
@@ -140,6 +144,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/special_predicates/list-member-cont"
+  section_of: "language/mangle/docs/builtins/special_predicates"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: :list:member cont"
@@ -197,6 +203,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/special_predicates/distance-predicate"
+  section_of: "language/mangle/docs/builtins/special_predicates"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: Distance Predicate"
@@ -224,6 +232,8 @@
     - Third arg: `Type<int>` or `Type<float64>` (distance threshold)
 
 - id: "language/mangle/docs/builtins/special_predicates/within-distance-cont"
+  section_of: "language/mangle/docs/builtins/special_predicates"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: :within_distance cont"
@@ -273,6 +283,8 @@
     - Similarity detection
 
 - id: "language/mangle/docs/builtins/special_predicates/within-distance-cont-2"
+  section_of: "language/mangle/docs/builtins/special_predicates"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: :within_distance cont"
@@ -298,6 +310,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/special_predicates/pattern-matching-predicates-summary"
+  section_of: "language/mangle/docs/builtins/special_predicates"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: Pattern Matching Predicates (Summary)"
@@ -333,6 +347,8 @@
     - **:match_pair(Pair, First, Second)** - Deconstruct pair (see `struct_functions.md`)
 
 - id: "language/mangle/docs/builtins/special_predicates/complete-examples"
+  section_of: "language/mangle/docs/builtins/special_predicates"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: Complete Examples"
@@ -386,6 +402,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/special_predicates/complete-examples-example-3-list-expansion"
+  section_of: "language/mangle/docs/builtins/special_predicates"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: Complete Examples Example 3: List Expansion and Filtering"
@@ -436,6 +454,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/special_predicates/mangle-special-predicates-common-patterns"
+  section_of: "language/mangle/docs/builtins/special_predicates"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: Mangle Special Predicates Common Patterns"
@@ -509,6 +529,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/special_predicates/mangle-special-predicates-performance-notes"
+  section_of: "language/mangle/docs/builtins/special_predicates"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: Mangle Special Predicates Performance Notes"
@@ -551,6 +573,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/special_predicates/error-conditions"
+  section_of: "language/mangle/docs/builtins/special_predicates"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: Error Conditions"
@@ -578,6 +602,8 @@
     - Unbound variables will fail (all must be bound)
 
 - id: "language/mangle/docs/builtins/special_predicates/summary-table"
+  section_of: "language/mangle/docs/builtins/special_predicates"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: Summary Table"
@@ -606,6 +632,8 @@
     - m = pattern/string length
 
 - id: "language/mangle/docs/builtins/special_predicates/mangle-special-predicates-best-practices"
+  section_of: "language/mangle/docs/builtins/special_predicates"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Mangle Special Predicates: Mangle Special Predicates Best Practices"

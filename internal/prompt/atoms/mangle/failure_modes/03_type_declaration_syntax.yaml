@@ -51,6 +51,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/03_type_declaration_syntax/failure-mode-3-type-declaration-syntax"
+  section_of: "language/mangle/docs/failure_modes/03_type_declaration_syntax"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 3: Type Declaration Syntax: Failure Mode 3: Type Declaration Syntax Correct Code"
@@ -87,6 +89,8 @@
     engine; a variable bound by an earlier atom panics the evaluation.
 
 - id: "language/mangle/docs/failure_modes/03_type_declaration_syntax/failure-mode-3-type-declaration-syntax-2"
+  section_of: "language/mangle/docs/failure_modes/03_type_declaration_syntax"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 3: Type Declaration Syntax: Failure Mode 3: Type Declaration Syntax Checklist"

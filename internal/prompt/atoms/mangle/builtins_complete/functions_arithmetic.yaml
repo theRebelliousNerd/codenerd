@@ -51,6 +51,8 @@
     **Note**: For summing over groups, use the `fn:sum` aggregator instead.
 
 - id: "language/mangle/docs/builtins_complete/functions_arithmetic/fn-minus"
+  section_of: "language/mangle/docs/builtins_complete/functions_arithmetic"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Arithmetic Operations: fn:minus"
@@ -120,6 +122,8 @@
     ```
 
 - id: "language/mangle/docs/builtins_complete/functions_arithmetic/fn-div"
+  section_of: "language/mangle/docs/builtins_complete/functions_arithmetic"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Arithmetic Operations: fn:div"
@@ -169,6 +173,8 @@
     **Special Case**: Returns MaxInt64 when input is MinInt64 (to avoid overflow).
 
 - id: "language/mangle/docs/builtins_complete/functions_arithmetic/floating-point-arithmetic"
+  section_of: "language/mangle/docs/builtins_complete/functions_arithmetic"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Arithmetic Operations: Floating-Point Arithmetic"
@@ -217,6 +223,8 @@
     ```
 
 - id: "language/mangle/docs/builtins_complete/functions_arithmetic/fn-float-div"
+  section_of: "language/mangle/docs/builtins_complete/functions_arithmetic"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Arithmetic Operations: fn:float_div"
@@ -273,6 +281,8 @@
     ```
 
 - id: "language/mangle/docs/builtins_complete/functions_arithmetic/type-conversion"
+  section_of: "language/mangle/docs/builtins_complete/functions_arithmetic"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Arithmetic Operations: Type Conversion"
@@ -299,6 +309,8 @@
     **Workaround**: Not explicitly documented. May need external predicate or special function.
 
 - id: "language/mangle/docs/builtins_complete/functions_arithmetic/comparison-with-aggregators"
+  section_of: "language/mangle/docs/builtins_complete/functions_arithmetic"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Arithmetic Operations: Comparison with Aggregators"
@@ -339,6 +351,8 @@
     ```
 
 - id: "language/mangle/docs/builtins_complete/functions_arithmetic/arithmetic-safety"
+  section_of: "language/mangle/docs/builtins_complete/functions_arithmetic"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Arithmetic Operations: Arithmetic Safety"
@@ -394,6 +408,8 @@
     ```
 
 - id: "language/mangle/docs/builtins_complete/functions_arithmetic/complete-arithmetic-function-list"
+  section_of: "language/mangle/docs/builtins_complete/functions_arithmetic"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Arithmetic Operations: Complete Arithmetic Function List"
@@ -417,6 +433,8 @@
     | `fn:sqrt` | (float) | float | Square root |
 
 - id: "language/mangle/docs/builtins_complete/functions_arithmetic/usage-patterns"
+  section_of: "language/mangle/docs/builtins_complete/functions_arithmetic"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Arithmetic Operations: Usage Patterns"

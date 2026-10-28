@@ -76,6 +76,8 @@
     - Arity mismatch errors
 
 - id: "language/mangle/docs/errors/runtime_errors/1-2-could-not-unify-fact-and-declaration"
+  section_of: "language/mangle/docs/errors/runtime_errors"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Runtime Errors Reference: 1.2 Could Not Unify Fact and Declaration"
@@ -120,6 +122,8 @@
     **Note:** See [type_errors.md](./type_errors.md) for comprehensive type mismatch patterns.
 
 - id: "language/mangle/docs/errors/runtime_errors/1-3-fact-found-extra-variables"
+  section_of: "language/mangle/docs/errors/runtime_errors"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Runtime Errors Reference: 1.3 Fact Found Extra Variables"
@@ -179,6 +183,8 @@
     - See [analysis_errors.md](./analysis_errors.md) for specific fixes
 
 - id: "language/mangle/docs/errors/runtime_errors/2-2-stratification-error-during-eval"
+  section_of: "language/mangle/docs/errors/runtime_errors"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Runtime Errors Reference: 2.2 Stratification Error During Eval"
@@ -234,6 +240,8 @@
     ```
 
 - id: "language/mangle/docs/errors/runtime_errors/2-4-no-decl-for-predicate"
+  section_of: "language/mangle/docs/errors/runtime_errors"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Runtime Errors Reference: 2.4 No Decl for Predicate"
@@ -270,6 +278,8 @@
     ```
 
 - id: "language/mangle/docs/errors/runtime_errors/3-external-predicate-errors"
+  section_of: "language/mangle/docs/errors/runtime_errors"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Runtime Errors Reference: 3. External Predicate Errors"
@@ -333,6 +343,8 @@
     ```
 
 - id: "language/mangle/docs/errors/runtime_errors/4-transform-evaluation-errors"
+  section_of: "language/mangle/docs/errors/runtime_errors"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Runtime Errors Reference: 4. Transform Evaluation Errors"
@@ -361,6 +373,8 @@
     - Split into multiple rules
 
 - id: "language/mangle/docs/errors/runtime_errors/5-inclusion-constraint-errors"
+  section_of: "language/mangle/docs/errors/runtime_errors"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Runtime Errors Reference: 5. Inclusion Constraint Errors"
@@ -405,6 +419,8 @@
     - Review inclusion constraint logic
 
 - id: "language/mangle/docs/errors/runtime_errors/6-query-execution-errors"
+  section_of: "language/mangle/docs/errors/runtime_errors"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Runtime Errors Reference: 6. Query Execution Errors"
@@ -469,6 +485,8 @@
     ```
 
 - id: "language/mangle/docs/errors/runtime_errors/6-2-predicate-not-declared-query"
+  section_of: "language/mangle/docs/errors/runtime_errors"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Runtime Errors Reference: 6.2 Predicate Not Declared (Query)"
@@ -526,6 +544,8 @@
     ```
 
 - id: "language/mangle/docs/errors/runtime_errors/7-codenerd-specific-runtime-errors"
+  section_of: "language/mangle/docs/errors/runtime_errors"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle Runtime Errors Reference: 7. codeNERD-Specific Runtime Errors"
@@ -586,6 +606,8 @@
     ```
 
 - id: "language/mangle/docs/errors/runtime_errors/7-3-failed-to-parse-schema"
+  section_of: "language/mangle/docs/errors/runtime_errors"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Mangle Runtime Errors Reference: 7.3 Failed to Parse Schema"
@@ -628,6 +650,8 @@
     - Fix safety/stratification issues
 
 - id: "language/mangle/docs/errors/runtime_errors/8-fact-insertion-errors"
+  section_of: "language/mangle/docs/errors/runtime_errors"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Mangle Runtime Errors Reference: 8. Fact Insertion Errors"
@@ -697,6 +721,8 @@
     ```
 
 - id: "language/mangle/docs/errors/runtime_errors/8-3-unsupported-fact-argument-type-codenerd"
+  section_of: "language/mangle/docs/errors/runtime_errors"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Mangle Runtime Errors Reference: 8.3 Unsupported Fact Argument Type (codeNERD)"
@@ -741,6 +767,8 @@
     ```
 
 - id: "language/mangle/docs/errors/runtime_errors/9-rule-evaluation-errors"
+  section_of: "language/mangle/docs/errors/runtime_errors"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Mangle Runtime Errors Reference: 9. Rule Evaluation Errors"
@@ -769,6 +797,8 @@
     - Not user-fixable
 
 - id: "language/mangle/docs/errors/runtime_errors/10-common-runtime-patterns"
+  section_of: "language/mangle/docs/errors/runtime_errors"
+  section_order: 15
   category: "language"
   subcategory: "mangle"
   description: "Mangle Runtime Errors Reference: 10. Common Runtime Patterns"
@@ -823,6 +853,8 @@
     ```
 
 - id: "language/mangle/docs/errors/runtime_errors/debugging-runtime-errors"
+  section_of: "language/mangle/docs/errors/runtime_errors"
+  section_order: 16
   category: "language"
   subcategory: "mangle"
   description: "Mangle Runtime Errors Reference: Debugging Runtime Errors"
@@ -871,6 +903,8 @@
     ```
 
 - id: "language/mangle/docs/errors/runtime_errors/performance-issues"
+  section_of: "language/mangle/docs/errors/runtime_errors"
+  section_order: 17
   category: "language"
   subcategory: "mangle"
   description: "Mangle Runtime Errors Reference: Performance Issues"

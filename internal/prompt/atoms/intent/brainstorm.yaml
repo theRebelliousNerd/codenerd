@@ -37,6 +37,8 @@
     - [ ] Exactly one recommendation with rationale and hand-off questions
 
 - id: "intent/brainstorm/core/required-context-1-2"
+  section_of: "intent/brainstorm/core"
+  section_order: 1
   category: "intent"
   subcategory: "brainstorm"
   priority: 95
@@ -57,6 +59,8 @@
        `/integration`).
 
 - id: "intent/brainstorm/core/required-context-3-5"
+  section_of: "intent/brainstorm/core"
+  section_order: 2
   category: "intent"
   subcategory: "brainstorm"
   priority: 95
@@ -82,6 +86,8 @@
        it.
 
 - id: "intent/brainstorm/core/workflow"
+  section_of: "intent/brainstorm/core"
+  section_order: 3
   category: "intent"
   subcategory: "brainstorm"
   priority: 95
@@ -131,6 +137,8 @@
     - Note coupling introduced: new cross-layer edges are a cost.
 
 - id: "intent/brainstorm/grounding/3-capabilities-inventory-extraction"
+  section_of: "intent/brainstorm/grounding"
+  section_order: 1
   category: "intent"
   subcategory: "brainstorm"
   priority: 90

@@ -61,6 +61,8 @@
     - Pure rename, comment, or formatting change -> no new test needed. Say so.
 
 - id: "methodology/tdd/coverage_mandate/the-two-evasions-do-not-use-them"
+  section_of: "methodology/tdd/coverage_mandate"
+  section_order: 1
   category: "methodology"
   subcategory: "tdd"
   priority: 96
@@ -83,6 +85,8 @@
        explicitly and explain why before changing it.
 
 - id: "methodology/tdd/coverage_mandate/verification-is-automatic-so-do-not-guess"
+  section_of: "methodology/tdd/coverage_mandate"
+  section_order: 2
   category: "methodology"
   subcategory: "tdd"
   priority: 96

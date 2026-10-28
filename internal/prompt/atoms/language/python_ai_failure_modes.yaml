@@ -457,6 +457,8 @@
     - Fix: Guard `__init__` with initialization flag
 
 - id: "language/python/ai_failures/init_vs_new/correct-singleton"
+  section_of: "language/python/ai_failures/init_vs_new"
+  section_order: 1
   category: "language"
   subcategory: "python"
   priority: 85
@@ -566,6 +568,8 @@
     5. Keep references to fire-and-forget tasks
 
 - id: "language/python/ai_failures/asyncio_mistakes/mistake-4-swallowing-cancellederror"
+  section_of: "language/python/ai_failures/asyncio_mistakes"
+  section_order: 1
   category: "language"
   subcategory: "python"
   priority: 91
@@ -663,6 +667,8 @@
     - Non-existent types: `typing.JSON`, `typing.URL`
 
 - id: "language/python/ai_failures/hallucinations/placeholder-code"
+  section_of: "language/python/ai_failures/hallucinations"
+  section_order: 1
   category: "language"
   subcategory: "python"
   priority: 92
@@ -773,6 +779,8 @@
     - Use context managers instead of try/finally for resources
 
 - id: "language/python/ai_failures/exception_handling/mistake-3-catching-and-ignoring"
+  section_of: "language/python/ai_failures/exception_handling"
+  section_order: 1
   category: "language"
   subcategory: "python"
   priority: 88
@@ -824,6 +832,8 @@
     ```
 
 - id: "language/python/ai_failures/exception_handling/mistake-5-return-in-finally"
+  section_of: "language/python/ai_failures/exception_handling"
+  section_order: 2
   category: "language"
   subcategory: "python"
   priority: 88

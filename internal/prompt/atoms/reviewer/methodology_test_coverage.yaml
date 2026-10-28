@@ -339,6 +339,8 @@
     FIX: Avoid timing assertions or use generous margins.
 
 - id: "reviewer/methodology/test_anti_patterns/anti-pattern-hidden-setup"
+  section_of: "reviewer/methodology/test_anti_patterns"
+  section_order: 1
   category: "methodology"
   subcategory: "testing"
   priority: 78

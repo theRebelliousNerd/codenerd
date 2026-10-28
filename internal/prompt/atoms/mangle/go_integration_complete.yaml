@@ -26,6 +26,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration_complete/basic-evaluation-flow"
+  section_of: "language/mangle/docs/go_integration_complete"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Go Integration - Complete Reference: Basic Evaluation Flow"
@@ -78,6 +80,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration_complete/creating-facts-from-go"
+  section_of: "language/mangle/docs/go_integration_complete"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Go Integration - Complete Reference: Creating Facts from Go"
@@ -130,6 +134,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration_complete/string-constants"
+  section_of: "language/mangle/docs/go_integration_complete"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Go Integration - Complete Reference: String Constants"
@@ -175,6 +181,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration_complete/maps-structs"
+  section_of: "language/mangle/docs/go_integration_complete"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Go Integration - Complete Reference: Maps/Structs"
@@ -211,6 +219,8 @@
     ## External Predicates (Virtual Predicates)
 
 - id: "language/mangle/docs/go_integration_complete/implementing-external-predicate"
+  section_of: "language/mangle/docs/go_integration_complete"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Go Integration - Complete Reference: Implementing External Predicate"
@@ -265,6 +275,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration_complete/registering-external-predicate"
+  section_of: "language/mangle/docs/go_integration_complete"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Go Integration - Complete Reference: Registering External Predicate"
@@ -303,6 +315,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration_complete/querying-results"
+  section_of: "language/mangle/docs/go_integration_complete"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Go Integration - Complete Reference: Querying Results"
@@ -352,6 +366,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration_complete/extract-constant-values"
+  section_of: "language/mangle/docs/go_integration_complete"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Go Integration - Complete Reference: Extract Constant Values"
@@ -404,6 +420,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration_complete/mangle-go-integration-complete-reference"
+  section_of: "language/mangle/docs/go_integration_complete"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Go Integration - Complete Reference: Mangle Go Integration - Complete Reference Error Handling"
@@ -449,6 +467,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration_complete/advanced-integration-patterns"
+  section_of: "language/mangle/docs/go_integration_complete"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle Go Integration - Complete Reference: Advanced Integration Patterns"
@@ -505,6 +525,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration_complete/toatom-pattern-codenerd-style"
+  section_of: "language/mangle/docs/go_integration_complete"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Mangle Go Integration - Complete Reference: ToAtom Pattern (codeNERD Style)"
@@ -541,6 +563,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration_complete/type-conversions"
+  section_of: "language/mangle/docs/go_integration_complete"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Mangle Go Integration - Complete Reference: Type Conversions"
@@ -596,6 +620,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration_complete/common-go-integration-errors"
+  section_of: "language/mangle/docs/go_integration_complete"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Mangle Go Integration - Complete Reference: Common Go Integration Errors"
@@ -633,6 +659,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration_complete/ignoring-binding-patterns-in-external"
+  section_of: "language/mangle/docs/go_integration_complete"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Mangle Go Integration - Complete Reference: Ignoring Binding Patterns in External Predicates"

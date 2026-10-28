@@ -850,32 +850,6 @@ func TestGuardian_OnTaskComplete_TriggersCheck(t *testing.T) {
 // UTILITY FUNCTION TESTS
 // =============================================================================
 
-func TestTruncate(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name   string
-		input  string
-		maxLen int
-		want   string
-	}{
-		{"short", "hello", 10, "hello"},
-		{"exact", "hello", 5, "hello"},
-		{"truncate", "hello world", 5, "hello..."},
-		{"empty", "", 5, ""},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got := truncate(tc.input, tc.maxLen)
-			if got != tc.want {
-				t.Errorf("truncate(%q, %d) = %q, want %q", tc.input, tc.maxLen, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestGuardian_ScoreToSeverity(t *testing.T) {
 	t.Parallel()
 

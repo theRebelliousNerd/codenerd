@@ -37,6 +37,8 @@
     Stratification prevents such circular dependencies through negation.
 
 - id: "language/mangle/docs/analysis/stratification/stratify-function"
+  section_of: "language/mangle/docs/analysis/stratification"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Stratification: Stratify Function"
@@ -69,6 +71,8 @@
     If a cycle passes through negation → **STRATIFICATION FAILS**
 
 - id: "language/mangle/docs/analysis/stratification/valid-stratification-examples"
+  section_of: "language/mangle/docs/analysis/stratification"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Stratification: Valid Stratification Examples"
@@ -123,6 +127,8 @@
     2. Then compute `unreachable` using negation
 
 - id: "language/mangle/docs/analysis/stratification/invalid-stratification-examples"
+  section_of: "language/mangle/docs/analysis/stratification"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Stratification: Invalid Stratification Examples"
@@ -169,6 +175,8 @@
     **Why it fails**: `a` → (negates) `c` → `a`, forming a cycle.
 
 - id: "language/mangle/docs/analysis/stratification/stratification-rules"
+  section_of: "language/mangle/docs/analysis/stratification"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Stratification: Stratification Rules"
@@ -214,6 +222,8 @@
     ```
 
 - id: "language/mangle/docs/analysis/stratification/stratified-evaluation-process"
+  section_of: "language/mangle/docs/analysis/stratification"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Stratification: Stratified Evaluation Process"
@@ -256,6 +266,8 @@
     3. Treat `path` as fixed, compute `no_path`
 
 - id: "language/mangle/docs/analysis/stratification/semipositive-datalog"
+  section_of: "language/mangle/docs/analysis/stratification"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Stratification: Semipositive Datalog"
@@ -297,6 +309,8 @@
     - SCC 2: `{descendant}` - depends on SCC 1
 
 - id: "language/mangle/docs/analysis/stratification/checking-stratification-in-go"
+  section_of: "language/mangle/docs/analysis/stratification"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Stratification: Checking Stratification in Go"
@@ -326,6 +340,8 @@
     ```
 
 - id: "language/mangle/docs/analysis/stratification/debugging-stratification-failures"
+  section_of: "language/mangle/docs/analysis/stratification"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Stratification: Debugging Stratification Failures"
@@ -374,6 +390,8 @@
     **Fix**: Redesign logic - this is likely a modeling error.
 
 - id: "language/mangle/docs/analysis/stratification/stratification-and-termination"
+  section_of: "language/mangle/docs/analysis/stratification"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Stratification: Stratification and Termination"

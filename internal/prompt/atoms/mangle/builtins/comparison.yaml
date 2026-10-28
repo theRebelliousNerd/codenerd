@@ -18,6 +18,8 @@
     All comparison predicates work on numeric types (`Type<int>` and `Type<float64>`). Arguments must be **input mode** (bound values).
 
 - id: "language/mangle/docs/builtins/comparison/lt-less-than"
+  section_of: "language/mangle/docs/builtins/comparison"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Comparison Predicates: :lt (Less Than)"
@@ -67,6 +69,8 @@
     - ❌ Wrong number of arguments: `:lt(1, 2, 3)` - error
 
 - id: "language/mangle/docs/builtins/comparison/le-less-than-or-equal"
+  section_of: "language/mangle/docs/builtins/comparison"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Comparison Predicates: :le (Less Than or Equal)"
@@ -107,6 +111,8 @@
     - ❌ Assuming it generates values - it only checks
 
 - id: "language/mangle/docs/builtins/comparison/gt-greater-than"
+  section_of: "language/mangle/docs/builtins/comparison"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Comparison Predicates: :gt (Greater Than)"
@@ -144,6 +150,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/comparison/ge-greater-than-or-equal"
+  section_of: "language/mangle/docs/builtins/comparison"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Comparison Predicates: :ge (Greater Than or Equal)"
@@ -195,6 +203,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/comparison/sorting-patterns"
+  section_of: "language/mangle/docs/builtins/comparison"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Comparison Predicates: Sorting Patterns"
@@ -254,6 +264,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/comparison/safety-rules"
+  section_of: "language/mangle/docs/builtins/comparison"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Comparison Predicates: Safety Rules"
@@ -321,6 +333,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/comparison/error-conditions"
+  section_of: "language/mangle/docs/builtins/comparison"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Comparison Predicates: Error Conditions"
@@ -365,6 +379,8 @@
     | `:ge` | ≥ | Greater or equal | `:ge(4, 4)` | Success |
 
 - id: "language/mangle/docs/builtins/comparison/mangle-comparison-predicates-performance"
+  section_of: "language/mangle/docs/builtins/comparison"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Comparison Predicates: Mangle Comparison Predicates Performance Notes"

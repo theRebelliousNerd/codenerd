@@ -164,6 +164,8 @@
     ```
 
 - id: "reviewer/methodology/feedback_formats/oir-rule-observation-impact-request"
+  section_of: "reviewer/methodology/feedback_formats"
+  section_order: 1
   category: "methodology"
   subcategory: "feedback"
   priority: 82
@@ -236,6 +238,8 @@
     - "I learned something from this"
 
 - id: "reviewer/methodology/feedback_phrasing/phrases-to-avoid"
+  section_of: "reviewer/methodology/feedback_phrasing"
+  section_order: 1
   category: "methodology"
   subcategory: "feedback"
   priority: 80
@@ -340,6 +344,8 @@
     ```
 
 - id: "reviewer/methodology/feedback_structure/comment-placement"
+  section_of: "reviewer/methodology/feedback_structure"
+  section_order: 1
   category: "methodology"
   subcategory: "feedback"
   priority: 78
@@ -430,6 +436,8 @@
     ```
 
 - id: "reviewer/methodology/feedback_examples/style-suggestion"
+  section_of: "reviewer/methodology/feedback_examples"
+  section_order: 1
   category: "methodology"
   subcategory: "feedback"
   priority: 75

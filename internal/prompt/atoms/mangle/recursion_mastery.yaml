@@ -39,6 +39,8 @@
     ```
 
 - id: "language/mangle/docs/recursion_mastery/path-construction-techniques"
+  section_of: "language/mangle/docs/recursion_mastery"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery: Path Construction Techniques"
@@ -105,6 +107,8 @@
     ```
 
 - id: "language/mangle/docs/recursion_mastery/cycle-detection-and-prevention"
+  section_of: "language/mangle/docs/recursion_mastery"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery: Cycle Detection and Prevention"
@@ -154,6 +158,8 @@
     ```
 
 - id: "language/mangle/docs/recursion_mastery/distance-and-optimization"
+  section_of: "language/mangle/docs/recursion_mastery"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery: Distance and Optimization"
@@ -209,6 +215,8 @@
     ```
 
 - id: "language/mangle/docs/recursion_mastery/mutual-recursion"
+  section_of: "language/mangle/docs/recursion_mastery"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery: Mutual Recursion"
@@ -260,6 +268,8 @@
     ```
 
 - id: "language/mangle/docs/recursion_mastery/transitive-closure-patterns"
+  section_of: "language/mangle/docs/recursion_mastery"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery: Transitive Closure Patterns"
@@ -303,6 +313,8 @@
     ```
 
 - id: "language/mangle/docs/recursion_mastery/tree-operations"
+  section_of: "language/mangle/docs/recursion_mastery"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery: Tree Operations"
@@ -364,6 +376,8 @@
     ```
 
 - id: "language/mangle/docs/recursion_mastery/termination-analysis"
+  section_of: "language/mangle/docs/recursion_mastery"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery: Termination Analysis"
@@ -421,6 +435,8 @@
     ```
 
 - id: "language/mangle/docs/recursion_mastery/advanced-recursive-patterns"
+  section_of: "language/mangle/docs/recursion_mastery"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery: Advanced Recursive Patterns"
@@ -491,6 +507,8 @@
     ```
 
 - id: "language/mangle/docs/recursion_mastery/recursion-with-memoization-via-rules"
+  section_of: "language/mangle/docs/recursion_mastery"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery: Recursion with Memoization (Via Rules)"
@@ -520,6 +538,8 @@
     ```
 
 - id: "language/mangle/docs/recursion_mastery/common-recursion-mistakes"
+  section_of: "language/mangle/docs/recursion_mastery"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery: Common Recursion Mistakes"
@@ -564,6 +584,8 @@
     ```
 
 - id: "language/mangle/docs/recursion_mastery/mangle-recursion-mastery-performance"
+  section_of: "language/mangle/docs/recursion_mastery"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Mangle Recursion Mastery: Mangle Recursion Mastery Performance Considerations"

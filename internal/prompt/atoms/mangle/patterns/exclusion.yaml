@@ -22,6 +22,8 @@
     - Complement queries
 
 - id: "language/mangle/docs/patterns/exclusion/core-pattern-safe-negation"
+  section_of: "language/mangle/docs/patterns/exclusion"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Core Pattern: Safe Negation"
@@ -68,6 +70,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/exclusion/variation-1-set-difference-a-b"
+  section_of: "language/mangle/docs/patterns/exclusion"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Variation 1: Set Difference (A - B)"
@@ -143,6 +147,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/exclusion/variation-3-orphaned-records"
+  section_of: "language/mangle/docs/patterns/exclusion"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Variation 3: Orphaned Records"
@@ -186,6 +192,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/exclusion/variation-4-never-occurred-events"
+  section_of: "language/mangle/docs/patterns/exclusion"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Variation 4: Never-Occurred Events"
@@ -230,6 +238,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/exclusion/variation-5-exclusive-or-xor"
+  section_of: "language/mangle/docs/patterns/exclusion"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Variation 5: Exclusive Or (XOR)"
@@ -274,6 +284,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/exclusion/variation-6-negation-with-multiple"
+  section_of: "language/mangle/docs/patterns/exclusion"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Variation 6: Negation with Multiple Conditions"
@@ -318,6 +330,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/exclusion/variation-7-complement-with-constraints"
+  section_of: "language/mangle/docs/patterns/exclusion"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Variation 7: Complement with Constraints"
@@ -364,6 +378,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/exclusion/variation-8-stratified-negation-negation-on"
+  section_of: "language/mangle/docs/patterns/exclusion"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Variation 8: Stratified Negation (Negation on Derived Predicate)"
@@ -416,6 +432,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/exclusion/variation-9-negation-with-aggregation"
+  section_of: "language/mangle/docs/patterns/exclusion"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Variation 9: Negation with Aggregation"
@@ -473,6 +491,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/exclusion/variation-10-double-negation-positive-logic"
+  section_of: "language/mangle/docs/patterns/exclusion"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Variation 10: Double Negation (Positive Logic)"
@@ -524,6 +544,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/exclusion/anti-patterns"
+  section_of: "language/mangle/docs/patterns/exclusion"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Anti-Patterns"
@@ -585,6 +607,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/exclusion/safety-rules-checklist"
+  section_of: "language/mangle/docs/patterns/exclusion"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Safety Rules (Checklist)"
@@ -608,6 +632,8 @@
     4. **Minimize Negation**: Positive logic is usually faster
 
 - id: "language/mangle/docs/patterns/exclusion/common-use-cases-in-codenerd"
+  section_of: "language/mangle/docs/patterns/exclusion"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Exclusion Patterns (Safe Negation): Common Use Cases in codeNERD"

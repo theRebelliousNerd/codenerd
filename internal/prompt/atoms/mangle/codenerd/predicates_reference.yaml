@@ -26,6 +26,8 @@
     ## Core Intent Predicates
 
 - id: "language/mangle/docs/codenerd/predicates_reference/user-intent-5"
+  section_of: "language/mangle/docs/codenerd/predicates_reference"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: user_intent/5"
@@ -67,6 +69,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/predicates_reference/focus-resolution-4"
+  section_of: "language/mangle/docs/codenerd/predicates_reference"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: focus_resolution/4"
@@ -115,6 +119,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/predicates_reference/clarification-needed-1"
+  section_of: "language/mangle/docs/codenerd/predicates_reference"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: clarification_needed/1"
@@ -148,6 +154,8 @@
     ## File System Predicates
 
 - id: "language/mangle/docs/codenerd/predicates_reference/file-topology-5"
+  section_of: "language/mangle/docs/codenerd/predicates_reference"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: file_topology/5"
@@ -191,6 +199,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/predicates_reference/file-imports-3"
+  section_of: "language/mangle/docs/codenerd/predicates_reference"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: file_imports/3"
@@ -236,6 +246,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/predicates_reference/impacted-1"
+  section_of: "language/mangle/docs/codenerd/predicates_reference"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: impacted/1"
@@ -272,6 +284,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/predicates_reference/symbol-graph-predicates"
+  section_of: "language/mangle/docs/codenerd/predicates_reference"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: Symbol Graph Predicates"
@@ -323,6 +337,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/predicates_reference/diagnostic-predicates"
+  section_of: "language/mangle/docs/codenerd/predicates_reference"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: Diagnostic Predicates"
@@ -383,6 +399,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/predicates_reference/tdd-loop-predicates"
+  section_of: "language/mangle/docs/codenerd/predicates_reference"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: TDD Loop Predicates"
@@ -421,6 +439,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/predicates_reference/next-action-1"
+  section_of: "language/mangle/docs/codenerd/predicates_reference"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: next_action/1"
@@ -464,6 +484,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/predicates_reference/permitted-3"
+  section_of: "language/mangle/docs/codenerd/predicates_reference"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: permitted/3"
@@ -501,6 +523,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/predicates_reference/strategy-predicates"
+  section_of: "language/mangle/docs/codenerd/predicates_reference"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: Strategy Predicates"
@@ -548,6 +572,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/predicates_reference/shard-predicates"
+  section_of: "language/mangle/docs/codenerd/predicates_reference"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: Shard Predicates"
@@ -605,6 +631,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/predicates_reference/context-selection-predicates"
+  section_of: "language/mangle/docs/codenerd/predicates_reference"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: Context Selection Predicates"
@@ -663,6 +691,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/predicates_reference/verb-taxonomy-predicates"
+  section_of: "language/mangle/docs/codenerd/predicates_reference"
+  section_order: 15
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: Verb Taxonomy Predicates"
@@ -742,6 +772,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/predicates_reference/campaign-predicates"
+  section_of: "language/mangle/docs/codenerd/predicates_reference"
+  section_order: 16
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: Campaign Predicates"
@@ -823,6 +855,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/predicates_reference/autopoiesis-predicates-ouroboros-loop"
+  section_of: "language/mangle/docs/codenerd/predicates_reference"
+  section_order: 17
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: Autopoiesis Predicates (Ouroboros Loop)"
@@ -882,6 +916,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/predicates_reference/effective-stability-2"
+  section_of: "language/mangle/docs/codenerd/predicates_reference"
+  section_order: 18
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: effective_stability/2"
@@ -946,6 +982,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/predicates_reference/safety-predicates"
+  section_of: "language/mangle/docs/codenerd/predicates_reference"
+  section_order: 19
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: Safety Predicates"
@@ -1010,6 +1048,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/predicates_reference/usage-patterns"
+  section_of: "language/mangle/docs/codenerd/predicates_reference"
+  section_order: 20
   category: "language"
   subcategory: "mangle"
   description: "codeNERD Predicates Reference: Usage Patterns"

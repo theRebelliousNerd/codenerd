@@ -53,6 +53,8 @@
     ```
 
 - id: "language/mangle/docs/aggregation_syntax/mangle-aggregation-syntax-common-patterns"
+  section_of: "language/mangle/docs/aggregation_syntax"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Aggregation Syntax: Mangle Aggregation Syntax Common Patterns"

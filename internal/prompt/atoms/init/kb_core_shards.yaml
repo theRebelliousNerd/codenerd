@@ -35,6 +35,8 @@
     3. Store knowledge in shard-specific SQLite DB
 
 - id: "init/kb_core_shards/creation/topics-and-modes"
+  section_of: "init/kb_core_shards/creation"
+  section_order: 1
   category: "init"
   subcategory: "kb_core_shards"
   priority: 75

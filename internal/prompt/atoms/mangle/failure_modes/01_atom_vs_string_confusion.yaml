@@ -41,6 +41,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/01_atom_vs_string_confusion/failure-mode-1-atom-vs-string-confusion"
+  section_of: "language/mangle/docs/failure_modes/01_atom_vs_string_confusion"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 1: Atom vs String Confusion: Failure Mode 1: Atom vs String Confusion Correct Code"
@@ -78,6 +80,8 @@
     - **Diagnostic**: If a fact like `status(/user, /active)` exists but `status(U, "active")` returns nothing
 
 - id: "language/mangle/docs/failure_modes/01_atom_vs_string_confusion/failure-mode-1-atom-vs-string-confusion-2"
+  section_of: "language/mangle/docs/failure_modes/01_atom_vs_string_confusion"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 1: Atom vs String Confusion: Failure Mode 1: Atom vs String Confusion Prevention"
@@ -111,6 +115,8 @@
     | `42` | `42`, `X` (variable) | `"42"`, `/42` |
 
 - id: "language/mangle/docs/failure_modes/01_atom_vs_string_confusion/failure-mode-1-atom-vs-string-confusion-3"
+  section_of: "language/mangle/docs/failure_modes/01_atom_vs_string_confusion"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 1: Atom vs String Confusion: Failure Mode 1: Atom vs String Confusion Training Bias Origins"

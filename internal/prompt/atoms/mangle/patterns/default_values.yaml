@@ -21,6 +21,8 @@
     - NULL coalescing
 
 - id: "language/mangle/docs/patterns/default_values/core-pattern-basic-default"
+  section_of: "language/mangle/docs/patterns/default_values"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Core Pattern: Basic Default"
@@ -84,6 +86,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/default_values/variation-1-cascading-defaults-coalesce"
+  section_of: "language/mangle/docs/patterns/default_values"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 1: Cascading Defaults (Coalesce)"
@@ -140,6 +144,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/default_values/variation-1-cascading-defaults-coalesce-2"
+  section_of: "language/mangle/docs/patterns/default_values"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 1: Cascading Defaults (Coalesce) Example"
@@ -174,6 +180,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/default_values/variation-2-numeric-defaults-zero-fill"
+  section_of: "language/mangle/docs/patterns/default_values"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 2: Numeric Defaults (Zero-Fill)"
@@ -229,6 +237,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/default_values/variation-3-inherited-defaults-hierarchy"
+  section_of: "language/mangle/docs/patterns/default_values"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 3: Inherited Defaults (Hierarchy)"
@@ -275,6 +285,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/default_values/variation-3-inherited-defaults-hierarchy-2"
+  section_of: "language/mangle/docs/patterns/default_values"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 3: Inherited Defaults (Hierarchy) Example"
@@ -308,6 +320,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/default_values/variation-4-conditional-defaults"
+  section_of: "language/mangle/docs/patterns/default_values"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 4: Conditional Defaults"
@@ -370,6 +384,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/default_values/variation-5-range-defaults-fill-missing"
+  section_of: "language/mangle/docs/patterns/default_values"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 5: Range Defaults (Fill Missing Numbers)"
@@ -426,6 +442,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/default_values/variation-6-interpolation-forward-fill"
+  section_of: "language/mangle/docs/patterns/default_values"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 6: Interpolation (Forward Fill)"
@@ -496,6 +514,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/default_values/variation-7-aggregate-based-defaults"
+  section_of: "language/mangle/docs/patterns/default_values"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 7: Aggregate-Based Defaults"
@@ -560,6 +580,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/default_values/variation-8-multi-attribute-defaults"
+  section_of: "language/mangle/docs/patterns/default_values"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 8: Multi-Attribute Defaults"
@@ -607,6 +629,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/default_values/solution-example"
+  section_of: "language/mangle/docs/patterns/default_values"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Solution Example"
@@ -644,6 +668,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/default_values/variation-9-computed-defaults"
+  section_of: "language/mangle/docs/patterns/default_values"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 9: Computed Defaults"
@@ -700,6 +726,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/default_values/variation-10-time-based-defaults"
+  section_of: "language/mangle/docs/patterns/default_values"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Variation 10: Time-Based Defaults"
@@ -760,6 +788,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/default_values/anti-patterns"
+  section_of: "language/mangle/docs/patterns/default_values"
+  section_order: 15
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Anti-Patterns"
@@ -812,6 +842,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/default_values/default-values-patterns-performance-tips"
+  section_of: "language/mangle/docs/patterns/default_values"
+  section_order: 16
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Default Values Patterns Performance Tips"
@@ -851,6 +883,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/default_values/test-timeout-defaults"
+  section_of: "language/mangle/docs/patterns/default_values"
+  section_order: 17
   category: "language"
   subcategory: "mangle"
   description: "Default Values Patterns: Test Timeout Defaults"

@@ -115,6 +115,8 @@
     ```
 
 - id: "exemplar/go/concurrency/channel-patterns"
+  section_of: "exemplar/go/concurrency"
+  section_order: 1
   category: "exemplar"
   subcategory: "go"
   priority: 85

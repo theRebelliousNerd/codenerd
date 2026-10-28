@@ -44,6 +44,8 @@
     **Explanation:** The head `adult(Name, Age)` is what you're "selecting". The body after `:-` contains the conditions.
 
 - id: "language/mangle/docs/antipatterns/sql_thinking/anti-pattern-2-inline-aggregation-sql-sum"
+  section_of: "language/mangle/docs/antipatterns/sql_thinking"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: SQL Thinking: Anti-Pattern 2: Inline Aggregation (SQL SUM/COUNT)"
@@ -87,6 +89,8 @@
     - Aggregation functions are in `fn:` namespace
 
 - id: "language/mangle/docs/antipatterns/sql_thinking/anti-pattern-3-implicit-group-by"
+  section_of: "language/mangle/docs/antipatterns/sql_thinking"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: SQL Thinking: Anti-Pattern 3: Implicit GROUP BY"
@@ -151,6 +155,8 @@
     **Explanation:** The shared variable `Id` creates the join. Mangle automatically performs the join through unification.
 
 - id: "language/mangle/docs/antipatterns/sql_thinking/anti-pattern-5-null-checking"
+  section_of: "language/mangle/docs/antipatterns/sql_thinking"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: SQL Thinking: Anti-Pattern 5: NULL Checking"
@@ -196,6 +202,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/sql_thinking/anti-pattern-6-string-concatenation-sql"
+  section_of: "language/mangle/docs/antipatterns/sql_thinking"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: SQL Thinking: Anti-Pattern 6: String Concatenation (SQL ||)"
@@ -259,6 +267,8 @@
     **Explanation:** If `item(/books, _)` appears 100 times, `category(/books)` is derived once. Mangle's semantics guarantee set behavior.
 
 - id: "language/mangle/docs/antipatterns/sql_thinking/anti-pattern-8-update-insert-thinking"
+  section_of: "language/mangle/docs/antipatterns/sql_thinking"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: SQL Thinking: Anti-Pattern 8: UPDATE/INSERT Thinking"
@@ -296,6 +306,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/sql_thinking/anti-pattern-9-case-when"
+  section_of: "language/mangle/docs/antipatterns/sql_thinking"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: SQL Thinking: Anti-Pattern 9: CASE/WHEN"
@@ -364,6 +376,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/sql_thinking/key-takeaways"
+  section_of: "language/mangle/docs/antipatterns/sql_thinking"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: SQL Thinking: Key Takeaways"

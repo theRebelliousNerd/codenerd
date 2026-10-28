@@ -41,6 +41,8 @@
     - Did the agent make assumptions that should have been validated?
 
 - id: "eval/judge/task_evaluator/error-categories"
+  section_of: "eval/judge/task_evaluator"
+  section_order: 1
   category: "eval"
   priority: 100
   is_mandatory: false
@@ -85,6 +87,8 @@
     ```
 
 - id: "eval/judge/task_evaluator/improvement-rule-guidelines"
+  section_of: "eval/judge/task_evaluator"
+  section_order: 2
   category: "eval"
   priority: 100
   is_mandatory: false

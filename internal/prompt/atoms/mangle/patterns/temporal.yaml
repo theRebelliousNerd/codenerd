@@ -20,6 +20,8 @@
     - Temporal relationships (before, after, during, overlaps)
 
 - id: "language/mangle/docs/patterns/temporal/core-pattern-event-ordering"
+  section_of: "language/mangle/docs/patterns/temporal"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Core Pattern: Event Ordering"
@@ -79,6 +81,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/temporal/variation-1-time-range-filtering"
+  section_of: "language/mangle/docs/patterns/temporal"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Variation 1: Time Range Filtering"
@@ -122,6 +126,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/temporal/variation-2-duration-calculation"
+  section_of: "language/mangle/docs/patterns/temporal"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Variation 2: Duration Calculation"
@@ -167,6 +173,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/temporal/variation-3-event-sequences-happens-before"
+  section_of: "language/mangle/docs/patterns/temporal"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Variation 3: Event Sequences (Happens-Before Chain)"
@@ -217,6 +225,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/temporal/variation-4-time-windows-bucketing"
+  section_of: "language/mangle/docs/patterns/temporal"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Variation 4: Time Windows / Bucketing"
@@ -261,6 +271,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/temporal/variation-5-overlapping-intervals"
+  section_of: "language/mangle/docs/patterns/temporal"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Variation 5: Overlapping Intervals"
@@ -306,6 +318,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/temporal/variation-6-sliding-window"
+  section_of: "language/mangle/docs/patterns/temporal"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Variation 6: Sliding Window"
@@ -354,6 +368,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/temporal/variation-7-time-to-event"
+  section_of: "language/mangle/docs/patterns/temporal"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Variation 7: Time-to-Event"
@@ -399,6 +415,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/temporal/variation-8-most-recent-event"
+  section_of: "language/mangle/docs/patterns/temporal"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Variation 8: Most Recent Event"
@@ -441,6 +459,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/temporal/variation-9-gap-detection"
+  section_of: "language/mangle/docs/patterns/temporal"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Variation 9: Gap Detection"
@@ -494,6 +514,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/temporal/variation-10-rate-limiting-frequency"
+  section_of: "language/mangle/docs/patterns/temporal"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Variation 10: Rate Limiting / Frequency"
@@ -539,6 +561,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/temporal/anti-patterns"
+  section_of: "language/mangle/docs/patterns/temporal"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Anti-Patterns"
@@ -575,6 +599,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/temporal/temporal-patterns-performance-tips"
+  section_of: "language/mangle/docs/patterns/temporal"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Temporal Patterns: Temporal Patterns Performance Tips"

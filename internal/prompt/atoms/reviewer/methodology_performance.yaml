@@ -167,6 +167,8 @@
     - Multiple queries for related data
 
 - id: "reviewer/methodology/database_performance/query-optimization-checklist"
+  section_of: "reviewer/methodology/database_performance"
+  section_order: 1
   category: "methodology"
   subcategory: "performance"
   priority: 90
@@ -219,6 +221,8 @@
     ```
 
 - id: "reviewer/methodology/database_performance/sql-complexity"
+  section_of: "reviewer/methodology/database_performance"
+  section_order: 2
   category: "methodology"
   subcategory: "performance"
   priority: 90
@@ -364,6 +368,8 @@
     - [ ] Eviction policy appropriate (LRU, LFU)
 
 - id: "reviewer/methodology/caching/cache-invalidation-patterns"
+  section_of: "reviewer/methodology/caching"
+  section_order: 1
   category: "methodology"
   subcategory: "performance"
   priority: 82

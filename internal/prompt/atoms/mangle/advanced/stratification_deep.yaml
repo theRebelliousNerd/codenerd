@@ -33,6 +33,8 @@
     **Mangle's response**: This program is **not stratified** and will be **rejected** at compile time.
 
 - id: "language/mangle/docs/advanced/stratification_deep/stratification-definition"
+  section_of: "language/mangle/docs/advanced/stratification_deep"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory: Stratification Definition"
@@ -55,6 +57,8 @@
     - **Negative dependency**: `p(X) :- !q(X).` → p depends negatively on q
 
 - id: "language/mangle/docs/advanced/stratification_deep/stratification-algorithm"
+  section_of: "language/mangle/docs/advanced/stratification_deep"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory: Stratification Algorithm"
@@ -114,6 +118,8 @@
     4. ...and so on
 
 - id: "language/mangle/docs/advanced/stratification_deep/examples-stratified-programs"
+  section_of: "language/mangle/docs/advanced/stratification_deep"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory: Examples: Stratified Programs"
@@ -194,6 +200,8 @@
     **Stratified** ✅
 
 - id: "language/mangle/docs/advanced/stratification_deep/examples-non-stratified-programs-invalid"
+  section_of: "language/mangle/docs/advanced/stratification_deep"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory: Examples: Non-Stratified Programs (INVALID)"
@@ -250,6 +258,8 @@
     **NOT stratified** ❌
 
 - id: "language/mangle/docs/advanced/stratification_deep/fixing-non-stratified-programs"
+  section_of: "language/mangle/docs/advanced/stratification_deep"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory: Fixing Non-Stratified Programs"
@@ -284,6 +294,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/stratification_deep/strategy-2-break-cycle-with-explicit-stratum"
+  section_of: "language/mangle/docs/advanced/stratification_deep"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory: Strategy 2: Break Cycle with Explicit Stratum"
@@ -341,6 +353,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/stratification_deep/detecting-stratification-violations"
+  section_of: "language/mangle/docs/advanced/stratification_deep"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory: Detecting Stratification Violations"
@@ -393,6 +407,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/stratification_deep/stratification-and-aggregation"
+  section_of: "language/mangle/docs/advanced/stratification_deep"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory: Stratification and Aggregation"
@@ -441,6 +457,8 @@
     **Problem**: `recursive_sum` depends on itself through aggregation → infinite stratum needed.
 
 - id: "language/mangle/docs/advanced/stratification_deep/stratification-checklist"
+  section_of: "language/mangle/docs/advanced/stratification_deep"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory: Stratification Checklist"
@@ -465,6 +483,8 @@
     **Mangle does NOT support well-founded semantics.** All programs must be stratified.
 
 - id: "language/mangle/docs/advanced/stratification_deep/mangle-stratification-complete-theory"
+  section_of: "language/mangle/docs/advanced/stratification_deep"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory: Mangle Stratification: Complete Theory Example: Full Stratification Analysis"
@@ -530,6 +550,8 @@
     4. Compute `isolated` (reachable is now fixed)
 
 - id: "language/mangle/docs/advanced/stratification_deep/mangle-stratification-complete-theory-2"
+  section_of: "language/mangle/docs/advanced/stratification_deep"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Complete Theory: Mangle Stratification: Complete Theory Summary"

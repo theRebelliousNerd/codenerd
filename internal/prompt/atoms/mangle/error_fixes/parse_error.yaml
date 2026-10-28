@@ -75,6 +75,8 @@
     ```
 
 - id: "language/mangle/docs/error_fixes/parse_error/5-missing-do-in-aggregation"
+  section_of: "language/mangle/docs/error_fixes/parse_error"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Fix: Parse Error: 5. Missing `do` in Aggregation"

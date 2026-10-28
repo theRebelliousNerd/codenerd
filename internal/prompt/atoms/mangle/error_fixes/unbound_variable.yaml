@@ -54,6 +54,8 @@
     ```
 
 - id: "language/mangle/docs/error_fixes/unbound_variable/common-binding-predicates"
+  section_of: "language/mangle/docs/error_fixes/unbound_variable"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Fix: Unbound Variable Error: Common Binding Predicates"

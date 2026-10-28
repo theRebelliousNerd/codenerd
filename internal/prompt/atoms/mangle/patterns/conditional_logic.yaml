@@ -63,6 +63,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/conditional_logic/variation-1-multiple-conditions-if-elif-else"
+  section_of: "language/mangle/docs/patterns/conditional_logic"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 1: Multiple Conditions (If-Elif-Else)"
@@ -132,6 +134,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/conditional_logic/variation-2-guard-clauses-early-exit"
+  section_of: "language/mangle/docs/patterns/conditional_logic"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 2: Guard Clauses (Early Exit)"
@@ -180,6 +184,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/conditional_logic/variation-3-nested-conditions"
+  section_of: "language/mangle/docs/patterns/conditional_logic"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 3: Nested Conditions"
@@ -240,6 +246,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/conditional_logic/variation-4-case-switch-statement"
+  section_of: "language/mangle/docs/patterns/conditional_logic"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 4: Case/Switch Statement"
@@ -297,6 +305,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/conditional_logic/variation-5-boolean-expressions-and-or-not"
+  section_of: "language/mangle/docs/patterns/conditional_logic"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 5: Boolean Expressions (AND, OR, NOT)"
@@ -352,6 +362,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/conditional_logic/variation-6-range-conditions"
+  section_of: "language/mangle/docs/patterns/conditional_logic"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 6: Range Conditions"
@@ -420,6 +432,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/conditional_logic/variation-7-ternary-operator-inline-if"
+  section_of: "language/mangle/docs/patterns/conditional_logic"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 7: Ternary Operator (Inline If)"
@@ -470,6 +484,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/conditional_logic/variation-8-state-machine"
+  section_of: "language/mangle/docs/patterns/conditional_logic"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 8: State Machine"
@@ -486,6 +502,8 @@
     Transition between states based on conditions.
 
 - id: "language/mangle/docs/patterns/conditional_logic/variation-8-state-machine-solution"
+  section_of: "language/mangle/docs/patterns/conditional_logic"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 8: State Machine Solution"
@@ -544,6 +562,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/conditional_logic/variation-8-state-machine-example"
+  section_of: "language/mangle/docs/patterns/conditional_logic"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 8: State Machine Example"
@@ -611,6 +631,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/conditional_logic/variation-10-complex-predicate-conditions"
+  section_of: "language/mangle/docs/patterns/conditional_logic"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 10: Complex Predicate Conditions"
@@ -674,6 +696,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/conditional_logic/variation-11-short-circuit-evaluation"
+  section_of: "language/mangle/docs/patterns/conditional_logic"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Variation 11: Short-Circuit Evaluation"
@@ -707,6 +731,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/conditional_logic/anti-patterns"
+  section_of: "language/mangle/docs/patterns/conditional_logic"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Anti-Patterns"
@@ -755,6 +781,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/conditional_logic/conditional-logic-patterns-performance-tips"
+  section_of: "language/mangle/docs/patterns/conditional_logic"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Conditional Logic Patterns Performance Tips"
@@ -786,6 +814,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/conditional_logic/file-type-classification"
+  section_of: "language/mangle/docs/patterns/conditional_logic"
+  section_order: 15
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: File Type Classification"
@@ -816,6 +846,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/conditional_logic/test-priority-assignment"
+  section_of: "language/mangle/docs/patterns/conditional_logic"
+  section_order: 16
   category: "language"
   subcategory: "mangle"
   description: "Conditional Logic Patterns: Test Priority Assignment"

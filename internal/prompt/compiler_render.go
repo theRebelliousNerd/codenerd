@@ -25,6 +25,13 @@ func (c *JITPromptCompiler) fitAndAssemble(ordered []*OrderedAtom, cc *Compilati
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to fit budget: %w", err)
 	}
+	// Fit admits atoms one by one; an admitted atom whose prerequisite did
+	// not fit (a section without its head) is removed with its dependents.
+	fitted, dropped, err := closeDependencies(fitted)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to fit budget: %w", err)
+	}
+	stats.ClosureDropped += len(dropped)
 	stats.FitBudgetMs = time.Since(fitStart).Milliseconds()
 
 	assembleStart := time.Now()
@@ -39,6 +46,18 @@ func (c *JITPromptCompiler) fitAndAssemble(ordered []*OrderedAtom, cc *Compilati
 	fitted, prompt, err = c.enforceAssembledBudget(fitted, cc, prompt, budget, budgetMgr, session)
 	if err != nil {
 		return nil, "", err
+	}
+	// Shedding removes single victims; their dependents go with them.
+	closed, dropped, err := closeDependencies(fitted)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(dropped) > 0 {
+		stats.ClosureDropped += len(dropped)
+		fitted = closed
+		if prompt, err = session.Assemble(fitted); err != nil {
+			return nil, "", fmt.Errorf("failed to assemble prompt: %w", err)
+		}
 	}
 	stats.AssembleMs = time.Since(assembleStart).Milliseconds()
 	return fitted, prompt, nil

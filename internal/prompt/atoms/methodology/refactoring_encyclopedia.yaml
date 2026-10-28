@@ -42,6 +42,8 @@
     - "Legacy code is code without tests" - Michael Feathers
 
 - id: "methodology/refactoring/foundation/the-kent-beck-sequence"
+  section_of: "methodology/refactoring/foundation"
+  section_order: 1
   category: "methodology"
   subcategory: "refactoring"
   priority: 100
@@ -110,6 +112,8 @@
     - Last resort when automated verification unavailable
 
 - id: "methodology/refactoring/behavior_preservation/characterization-tests"
+  section_of: "methodology/refactoring/behavior_preservation"
+  section_order: 1
   category: "methodology"
   subcategory: "refactoring"
   priority: 98
@@ -174,6 +178,8 @@
     - Loop extraction may change iteration semantics
 
 - id: "methodology/refactoring/catalog_composition/extract-variable-introduce-explaining"
+  section_of: "methodology/refactoring/catalog_composition"
+  section_order: 1
   category: "methodology"
   subcategory: "refactoring"
   priority: 95
@@ -215,6 +221,8 @@
     4. Run tests
 
 - id: "methodology/refactoring/catalog_composition/inline-method"
+  section_of: "methodology/refactoring/catalog_composition"
+  section_order: 2
   category: "methodology"
   subcategory: "refactoring"
   priority: 95
@@ -295,6 +303,8 @@
     6. Run tests
 
 - id: "methodology/refactoring/catalog_movement/move-statements-into-function"
+  section_of: "methodology/refactoring/catalog_movement"
+  section_order: 1
   category: "methodology"
   subcategory: "refactoring"
   priority: 94
@@ -326,6 +336,8 @@
     5. Run tests
 
 - id: "methodology/refactoring/catalog_movement/split-loop"
+  section_of: "methodology/refactoring/catalog_movement"
+  section_order: 2
   category: "methodology"
   subcategory: "refactoring"
   priority: 94
@@ -351,6 +363,8 @@
     - Clean code first, optimize measured bottlenecks later
 
 - id: "methodology/refactoring/catalog_movement/replace-loop-with-pipeline"
+  section_of: "methodology/refactoring/catalog_movement"
+  section_order: 3
   category: "methodology"
   subcategory: "refactoring"
   priority: 94
@@ -427,6 +441,8 @@
     ```
 
 - id: "methodology/refactoring/catalog_data/replace-magic-number-with-symbolic-constant"
+  section_of: "methodology/refactoring/catalog_data"
+  section_order: 1
   category: "methodology"
   subcategory: "refactoring"
   priority: 93
@@ -467,6 +483,8 @@
     5. Run tests
 
 - id: "methodology/refactoring/catalog_data/encapsulate-record-replace-record-with-data"
+  section_of: "methodology/refactoring/catalog_data"
+  section_order: 2
   category: "methodology"
   subcategory: "refactoring"
   priority: 93
@@ -513,6 +531,8 @@
     ```
 
 - id: "methodology/refactoring/catalog_data/replace-derived-variable-with-query"
+  section_of: "methodology/refactoring/catalog_data"
+  section_order: 3
   category: "methodology"
   subcategory: "refactoring"
   priority: 93
@@ -571,6 +591,8 @@
     ```
 
 - id: "methodology/refactoring/catalog_conditionals/consolidate-conditional-expression"
+  section_of: "methodology/refactoring/catalog_conditionals"
+  section_order: 1
   category: "methodology"
   subcategory: "refactoring"
   priority: 92
@@ -602,6 +624,8 @@
     ```
 
 - id: "methodology/refactoring/catalog_conditionals/replace-nested-conditional-with-guard"
+  section_of: "methodology/refactoring/catalog_conditionals"
+  section_order: 2
   category: "methodology"
   subcategory: "refactoring"
   priority: 92
@@ -646,6 +670,8 @@
     ```
 
 - id: "methodology/refactoring/catalog_conditionals/replace-conditional-with-polymorphism"
+  section_of: "methodology/refactoring/catalog_conditionals"
+  section_order: 3
   category: "methodology"
   subcategory: "refactoring"
   priority: 92
@@ -667,6 +693,8 @@
     5. Run tests
 
 - id: "methodology/refactoring/catalog_conditionals/introduce-special-case-introduce-null-object"
+  section_of: "methodology/refactoring/catalog_conditionals"
+  section_order: 4
   category: "methodology"
   subcategory: "refactoring"
   priority: 92
@@ -732,6 +760,8 @@
     6. Run tests at each step
 
 - id: "methodology/refactoring/catalog_api/separate-query-from-modifier-command-query"
+  section_of: "methodology/refactoring/catalog_api"
+  section_order: 1
   category: "methodology"
   subcategory: "refactoring"
   priority: 91
@@ -770,6 +800,8 @@
     ```
 
 - id: "methodology/refactoring/catalog_api/remove-flag-argument"
+  section_of: "methodology/refactoring/catalog_api"
+  section_order: 2
   category: "methodology"
   subcategory: "refactoring"
   priority: 91
@@ -809,6 +841,8 @@
     4. Run tests
 
 - id: "methodology/refactoring/catalog_api/replace-error-code-with-exception"
+  section_of: "methodology/refactoring/catalog_api"
+  section_order: 3
   category: "methodology"
   subcategory: "refactoring"
   priority: 91
@@ -890,6 +924,8 @@
     - Cyclomatic complexity > 10: Warning
 
 - id: "methodology/refactoring/smells_bloaters/large-class-god-class"
+  section_of: "methodology/refactoring/smells_bloaters"
+  section_order: 1
   category: "methodology"
   subcategory: "refactoring"
   priority: 90
@@ -936,6 +972,8 @@
     - Parameters > 7: Critical
 
 - id: "methodology/refactoring/smells_bloaters/primitive-obsession"
+  section_of: "methodology/refactoring/smells_bloaters"
+  section_order: 2
   category: "methodology"
   subcategory: "refactoring"
   priority: 90
@@ -966,6 +1004,8 @@
     - `string` for email -> `Email` with validation
 
 - id: "methodology/refactoring/smells_bloaters/data-clumps"
+  section_of: "methodology/refactoring/smells_bloaters"
+  section_order: 3
   category: "methodology"
   subcategory: "refactoring"
   priority: 90
@@ -1042,6 +1082,8 @@
     - Use composition instead of inheritance
 
 - id: "methodology/refactoring/smells_oo_abusers/refused-bequest"
+  section_of: "methodology/refactoring/smells_oo_abusers"
+  section_order: 1
   category: "methodology"
   subcategory: "refactoring"
   priority: 89
@@ -1079,6 +1121,8 @@
     - Extract Interface for polymorphism
 
 - id: "methodology/refactoring/smells_oo_abusers/temporary-field"
+  section_of: "methodology/refactoring/smells_oo_abusers"
+  section_order: 2
   category: "methodology"
   subcategory: "refactoring"
   priority: 89
@@ -1149,6 +1193,8 @@
     ### Parallel Inheritance Hierarchies (See OO Abusers)
 
 - id: "methodology/refactoring/smells_change_preventers/feature-envy"
+  section_of: "methodology/refactoring/smells_change_preventers"
+  section_order: 1
   category: "methodology"
   subcategory: "refactoring"
   priority: 88
@@ -1208,6 +1254,8 @@
     - TODO with ticket numbers
 
 - id: "methodology/refactoring/smells_dispensables/duplicate-code-dry-violation"
+  section_of: "methodology/refactoring/smells_dispensables"
+  section_order: 1
   category: "methodology"
   subcategory: "refactoring"
   priority: 87
@@ -1247,6 +1295,8 @@
     - Move Method to give class responsibility
 
 - id: "methodology/refactoring/smells_dispensables/dead-code"
+  section_of: "methodology/refactoring/smells_dispensables"
+  section_order: 2
   category: "methodology"
   subcategory: "refactoring"
   priority: 87
@@ -1319,6 +1369,8 @@
     - Hide Delegate to reduce knowledge
 
 - id: "methodology/refactoring/smells_couplers/message-chains-train-wreck"
+  section_of: "methodology/refactoring/smells_couplers"
+  section_order: 1
   category: "methodology"
   subcategory: "refactoring"
   priority: 86
@@ -1366,6 +1418,8 @@
     **Balance:** Some delegation is good (Hide Delegate). Too much creates Middle Man.
 
 - id: "methodology/refactoring/smells_couplers/incomplete-library-class"
+  section_of: "methodology/refactoring/smells_couplers"
+  section_order: 2
   category: "methodology"
   subcategory: "refactoring"
   priority: 86
@@ -1438,6 +1492,8 @@
     - Team can collaborate on different leaves
 
 - id: "methodology/refactoring/legacy_strategies/strangler-fig-pattern-system-migration"
+  section_of: "methodology/refactoring/legacy_strategies"
+  section_order: 1
   category: "methodology"
   subcategory: "refactoring"
   priority: 85
@@ -1481,6 +1537,8 @@
     - Business continues during migration
 
 - id: "methodology/refactoring/legacy_strategies/seams-working-effectively-with-legacy-code"
+  section_of: "methodology/refactoring/legacy_strategies"
+  section_order: 2
   category: "methodology"
   subcategory: "refactoring"
   priority: 85
@@ -1522,6 +1580,8 @@
     ```
 
 - id: "methodology/refactoring/legacy_strategies/branch-by-abstraction"
+  section_of: "methodology/refactoring/legacy_strategies"
+  section_order: 3
   category: "methodology"
   subcategory: "refactoring"
   priority: 85
@@ -1560,6 +1620,8 @@
     **Refactoring Goal:** Enable more unit tests, fewer integration tests.
 
 - id: "methodology/refactoring/testability/breaking-dependencies-for-testing"
+  section_of: "methodology/refactoring/testability"
+  section_order: 1
   category: "methodology"
   subcategory: "refactoring"
   priority: 84
@@ -1635,6 +1697,8 @@
     ```
 
 - id: "methodology/refactoring/testability/static-cling-problem"
+  section_of: "methodology/refactoring/testability"
+  section_order: 2
   category: "methodology"
   subcategory: "refactoring"
   priority: 84
@@ -1717,6 +1781,8 @@
     - Lock contention (what's synchronized?)
 
 - id: "methodology/refactoring/performance/high-value-optimizations"
+  section_of: "methodology/refactoring/performance"
+  section_order: 1
   category: "methodology"
   subcategory: "refactoring"
   priority: 83
@@ -1754,6 +1820,8 @@
     - Pre-computing trivial operations
 
 - id: "methodology/refactoring/performance/refactoring-for-performance-when-needed"
+  section_of: "methodology/refactoring/performance"
+  section_order: 2
   category: "methodology"
   subcategory: "refactoring"
   priority: 83
@@ -1822,6 +1890,8 @@
     Process: Analyze (smell, test coverage, dependencies) -> Propose (change, preservation argument, files) -> Execute atomically (smallest change, under 200 lines, each step compiles) -> Verify (existing tests, regressions, observable behavior) -> Document (why, trade-offs, related docs).
 
 - id: "methodology/refactoring/ai_safety/low-risk-refactorings"
+  section_of: "methodology/refactoring/ai_safety"
+  section_order: 1
   category: "methodology"
   subcategory: "refactoring"
   priority: 82
@@ -1857,6 +1927,8 @@
        - Value unchanged
 
 - id: "methodology/refactoring/ai_safety/moderate-and-high-risk"
+  section_of: "methodology/refactoring/ai_safety"
+  section_order: 2
   category: "methodology"
   subcategory: "refactoring"
   priority: 82
@@ -1904,6 +1976,8 @@
        - Multi-step process
 
 - id: "methodology/refactoring/ai_safety/process-steps"
+  section_of: "methodology/refactoring/ai_safety"
+  section_order: 3
   category: "methodology"
   subcategory: "refactoring"
   priority: 82
@@ -1939,6 +2013,8 @@
     - Update related documentation
 
 - id: "methodology/refactoring/ai_safety/common-mistakes-and-verification"
+  section_of: "methodology/refactoring/ai_safety"
+  section_order: 4
   category: "methodology"
   subcategory: "refactoring"
   priority: 82
@@ -2025,6 +2101,8 @@
     ```
 
 - id: "methodology/refactoring/ai_workflow/rollback-criteria"
+  section_of: "methodology/refactoring/ai_workflow"
+  section_order: 1
   category: "methodology"
   subcategory: "refactoring"
   priority: 81
@@ -2125,6 +2203,8 @@
     - Extract complex conditions to named variables/methods
 
 - id: "methodology/refactoring/goals_readability/comment-improvements"
+  section_of: "methodology/refactoring/goals_readability"
+  section_order: 1
   category: "methodology"
   subcategory: "refactoring"
   priority: 80
@@ -2198,6 +2278,8 @@
     - Compiler catches missing dependencies
 
 - id: "methodology/refactoring/goals_coupling/interface-segregation"
+  section_of: "methodology/refactoring/goals_coupling"
+  section_order: 1
   category: "methodology"
   subcategory: "refactoring"
   priority: 79
@@ -2250,6 +2332,8 @@
     ```
 
 - id: "methodology/refactoring/goals_coupling/law-of-demeter-compliance"
+  section_of: "methodology/refactoring/goals_coupling"
+  section_order: 2
   category: "methodology"
   subcategory: "refactoring"
   priority: 79
@@ -2317,6 +2401,8 @@
     ```
 
 - id: "methodology/refactoring/goals_testability/seam-creation-for-legacy-code"
+  section_of: "methodology/refactoring/goals_testability"
+  section_order: 1
   category: "methodology"
   subcategory: "refactoring"
   priority: 78
@@ -2419,6 +2505,8 @@
     ```
 
 - id: "methodology/refactoring/goals_features/open-closed-principle-refactoring"
+  section_of: "methodology/refactoring/goals_features"
+  section_order: 1
   category: "methodology"
   subcategory: "refactoring"
   priority: 77
@@ -2467,6 +2555,8 @@
     ```
 
 - id: "methodology/refactoring/goals_features/feature-toggle-infrastructure"
+  section_of: "methodology/refactoring/goals_features"
+  section_order: 2
   category: "methodology"
   subcategory: "refactoring"
   priority: 77

@@ -176,6 +176,8 @@
     - [ ] Rate limiting on MFA attempts
 
 - id: "reviewer/methodology/auth_security/authorization-checklist"
+  section_of: "reviewer/methodology/auth_security"
+  section_order: 1
   category: "methodology"
   subcategory: "security"
   priority: 95

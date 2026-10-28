@@ -39,6 +39,8 @@
     - Self-referential structs impossible in safe Rust
 
 - id: "language/rust/ai_failures/borrow_checker/failure-modifying-while-iterating"
+  section_of: "language/rust/ai_failures/borrow_checker"
+  section_order: 1
   category: "language"
   subcategory: "rust"
   priority: 100
@@ -71,6 +73,8 @@
     ```
 
 - id: "language/rust/ai_failures/borrow_checker/failure-holding-references-too-long"
+  section_of: "language/rust/ai_failures/borrow_checker"
+  section_order: 2
   category: "language"
   subcategory: "rust"
   priority: 100
@@ -102,6 +106,8 @@
     ```
 
 - id: "language/rust/ai_failures/borrow_checker/failure-self-referential-structs"
+  section_of: "language/rust/ai_failures/borrow_checker"
+  section_order: 3
   category: "language"
   subcategory: "rust"
   priority: 100
@@ -181,6 +187,8 @@
     - Cannot index strings directly (use `.chars()`)
 
 - id: "language/rust/ai_failures/string_types/failure-unnecessary-allocation"
+  section_of: "language/rust/ai_failures/string_types"
+  section_order: 1
   category: "language"
   subcategory: "rust"
   priority: 95
@@ -225,6 +233,8 @@
     ```
 
 - id: "language/rust/ai_failures/string_types/failure-bytes-vs-characters"
+  section_of: "language/rust/ai_failures/string_types"
+  section_order: 2
   category: "language"
   subcategory: "rust"
   priority: 95
@@ -305,6 +315,8 @@
     - `Box` for recursion, large data, trait objects
 
 - id: "language/rust/ai_failures/smart_pointers/failure-box-overuse"
+  section_of: "language/rust/ai_failures/smart_pointers"
+  section_order: 1
   category: "language"
   subcategory: "rust"
   priority: 90
@@ -350,6 +362,8 @@
     ```
 
 - id: "language/rust/ai_failures/smart_pointers/when-to-use-each"
+  section_of: "language/rust/ai_failures/smart_pointers"
+  section_order: 2
   category: "language"
   subcategory: "rust"
   priority: 90
@@ -419,6 +433,8 @@
     - `'static` only when truly needed (threads, globals)
 
 - id: "language/rust/ai_failures/lifetimes/failure-missing-lifetime-in-impl"
+  section_of: "language/rust/ai_failures/lifetimes"
+  section_order: 1
   category: "language"
   subcategory: "rust"
   priority: 95
@@ -466,6 +482,8 @@
     ```
 
 - id: "language/rust/ai_failures/lifetimes/failure-forgetting-elision-rules"
+  section_of: "language/rust/ai_failures/lifetimes"
+  section_order: 2
   category: "language"
   subcategory: "rust"
   priority: 95
@@ -546,6 +564,8 @@
     - Threads require `move` - data may outlive caller
 
 - id: "language/rust/ai_failures/move_copy/failure-move-in-loop"
+  section_of: "language/rust/ai_failures/move_copy"
+  section_order: 1
   category: "language"
   subcategory: "rust"
   priority: 92
@@ -577,6 +597,8 @@
     ```
 
 - id: "language/rust/ai_failures/move_copy/failure-closure-move-semantics"
+  section_of: "language/rust/ai_failures/move_copy"
+  section_order: 2
   category: "language"
   subcategory: "rust"
   priority: 92
@@ -654,6 +676,8 @@
     - Use guards: `x if x > 0 => ...`
 
 - id: "language/rust/ai_failures/pattern_matching/failure-ownership-in-patterns"
+  section_of: "language/rust/ai_failures/pattern_matching"
+  section_order: 1
   category: "language"
   subcategory: "rust"
   priority: 80
@@ -714,6 +738,8 @@
     ```
 
 - id: "language/rust/ai_failures/pattern_matching/failure-missing-pattern-guards"
+  section_of: "language/rust/ai_failures/pattern_matching"
+  section_order: 2
   category: "language"
   subcategory: "rust"
   priority: 80
@@ -777,6 +803,8 @@
     - Object safety: no generics, no Self return, need &self
 
 - id: "language/rust/ai_failures/traits/failure-dyn-trait-vs-impl-trait-confusion"
+  section_of: "language/rust/ai_failures/traits"
+  section_order: 1
   category: "language"
   subcategory: "rust"
   priority: 85
@@ -814,6 +842,8 @@
     ```
 
 - id: "language/rust/ai_failures/traits/failure-missing-trait-bounds"
+  section_of: "language/rust/ai_failures/traits"
+  section_order: 2
   category: "language"
   subcategory: "rust"
   priority: 85
@@ -905,6 +935,8 @@
     - Need runtime (`#[tokio::main]`) for async
 
 - id: "language/rust/ai_failures/async/failure-holding-locks-across-await"
+  section_of: "language/rust/ai_failures/async"
+  section_order: 1
   category: "language"
   subcategory: "rust"
   priority: 88
@@ -958,6 +990,8 @@
     ```
 
 - id: "language/rust/ai_failures/async/failure-send-bounds-in-async"
+  section_of: "language/rust/ai_failures/async"
+  section_order: 2
   category: "language"
   subcategory: "rust"
   priority: 88

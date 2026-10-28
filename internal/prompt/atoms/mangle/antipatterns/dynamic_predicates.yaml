@@ -20,6 +20,8 @@
     Trying to create predicates dynamically at runtime, use computed predicate names, or treat predicates as first-class values when Mangle requires static predicate definitions.
 
 - id: "language/mangle/docs/antipatterns/dynamic_predicates/anti-pattern-1-creating-predicates-at"
+  section_of: "language/mangle/docs/antipatterns/dynamic_predicates"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 1: Creating Predicates at Runtime"
@@ -79,6 +81,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/dynamic_predicates/anti-pattern-2-computed-predicate-names"
+  section_of: "language/mangle/docs/antipatterns/dynamic_predicates"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 2: Computed Predicate Names"
@@ -135,6 +139,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/dynamic_predicates/anti-pattern-3-predicates-as-first-class"
+  section_of: "language/mangle/docs/antipatterns/dynamic_predicates"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 3: Predicates as First-Class Values"
@@ -188,6 +194,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/dynamic_predicates/anti-pattern-4-reflection-introspection"
+  section_of: "language/mangle/docs/antipatterns/dynamic_predicates"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 4: Reflection / Introspection"
@@ -240,6 +248,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/dynamic_predicates/anti-pattern-5-dynamic-arity"
+  section_of: "language/mangle/docs/antipatterns/dynamic_predicates"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 5: Dynamic Arity"
@@ -301,6 +311,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/dynamic_predicates/anti-pattern-6-predicate-aliasing"
+  section_of: "language/mangle/docs/antipatterns/dynamic_predicates"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 6: Predicate Aliasing"
@@ -345,6 +357,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/dynamic_predicates/anti-pattern-7-conditional-predicate"
+  section_of: "language/mangle/docs/antipatterns/dynamic_predicates"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 7: Conditional Predicate Definition"
@@ -406,6 +420,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/dynamic_predicates/anti-pattern-8-predicate-overloading"
+  section_of: "language/mangle/docs/antipatterns/dynamic_predicates"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 8: Predicate Overloading"
@@ -462,6 +478,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/dynamic_predicates/anti-pattern-9-storing-predicates-in-data"
+  section_of: "language/mangle/docs/antipatterns/dynamic_predicates"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 9: Storing Predicates in Data Structures"
@@ -518,6 +536,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/dynamic_predicates/anti-pattern-10-meta-circular-evaluation"
+  section_of: "language/mangle/docs/antipatterns/dynamic_predicates"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 10: Meta-Circular Evaluation"
@@ -576,6 +596,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/dynamic_predicates/anti-pattern-11-higher-order-predicates"
+  section_of: "language/mangle/docs/antipatterns/dynamic_predicates"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 11: Higher-Order Predicates"
@@ -634,6 +656,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/dynamic_predicates/anti-pattern-12-dynamic-composition"
+  section_of: "language/mangle/docs/antipatterns/dynamic_predicates"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern 12: Dynamic Composition"
@@ -699,6 +723,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/dynamic_predicates/pattern-simulating-dynamic-behavior"
+  section_of: "language/mangle/docs/antipatterns/dynamic_predicates"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Pattern: Simulating Dynamic Behavior"
@@ -769,6 +795,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/dynamic_predicates/key-principle-static-predicates-dynamic-data"
+  section_of: "language/mangle/docs/antipatterns/dynamic_predicates"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Key Principle: Static Predicates, Dynamic Data"
@@ -796,6 +824,8 @@
     | Dynamic composition | Pre-define compositions |
 
 - id: "language/mangle/docs/antipatterns/dynamic_predicates/anti-pattern-dynamic-predicates-migration"
+  section_of: "language/mangle/docs/antipatterns/dynamic_predicates"
+  section_order: 15
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Anti-Pattern: Dynamic Predicates Migration Checklist"
@@ -824,6 +854,8 @@
     - [ ] Remember: static schema, dynamic data
 
 - id: "language/mangle/docs/antipatterns/dynamic_predicates/pro-tip-atoms-are-your-friends"
+  section_of: "language/mangle/docs/antipatterns/dynamic_predicates"
+  section_order: 16
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Dynamic Predicates: Pro Tip: Atoms Are Your Friends"

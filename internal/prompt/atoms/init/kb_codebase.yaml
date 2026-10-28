@@ -22,6 +22,8 @@
     - Entry points and test structure
 
 - id: "init/kb_codebase/creation/knowledge-atoms-to-generate"
+  section_of: "init/kb_codebase/creation"
+  section_order: 1
   category: "init"
   subcategory: "kb_codebase"
   priority: 75
@@ -67,6 +69,8 @@
     - test_patterns: Testing approach and structure
 
 - id: "init/kb_codebase/creation/quality-guidelines"
+  section_of: "init/kb_codebase/creation"
+  section_order: 2
   category: "init"
   subcategory: "kb_codebase"
   priority: 75

@@ -165,6 +165,8 @@
     - Use dependency injection
 
 - id: "reviewer/methodology/coupling_cohesion/cohesion-should-be-high"
+  section_of: "reviewer/methodology/coupling_cohesion"
+  section_order: 1
   category: "methodology"
   subcategory: "maintainability"
   priority: 78
@@ -258,6 +260,8 @@
     - FIX: Flatten hierarchy
 
 - id: "reviewer/methodology/code_smells/dispensables"
+  section_of: "reviewer/methodology/code_smells"
+  section_order: 1
   category: "methodology"
   subcategory: "maintainability"
   priority: 76
@@ -355,6 +359,8 @@
     - [ ] Error handling shown
 
 - id: "reviewer/methodology/documentation/documentation-anti-patterns"
+  section_of: "reviewer/methodology/documentation"
+  section_order: 1
   category: "methodology"
   subcategory: "maintainability"
   priority: 72

@@ -45,6 +45,8 @@
     Document Chunk follows.
 
 - id: "campaign/extractor/output/extraction-rigor"
+  section_of: "campaign/extractor/output"
+  section_order: 1
   category: "campaign"
   subcategory: "extractor"
   priority: 95

@@ -105,6 +105,8 @@
     - Legitimate: DOM with querySelector, after validation
 
 - id: "language/typescript/ai_failures/type_assertions/safe-alternatives"
+  section_of: "language/typescript/ai_failures/type_assertions"
+  section_order: 1
   category: "language"
   subcategory: "typescript"
   priority: 94
@@ -139,6 +141,8 @@
     ```
 
 - id: "language/typescript/ai_failures/type_assertions/legitimate-uses-of-type-assertions"
+  section_of: "language/typescript/ai_failures/type_assertions"
+  section_order: 2
   category: "language"
   subcategory: "typescript"
   priority: 94
@@ -202,6 +206,8 @@
     - Enable `noUncheckedIndexedAccess` in tsconfig
 
 - id: "language/typescript/ai_failures/non_null_assertion/safe-alternatives"
+  section_of: "language/typescript/ai_failures/non_null_assertion"
+  section_order: 1
   category: "language"
   subcategory: "typescript"
   priority: 93
@@ -244,6 +250,8 @@
     ```
 
 - id: "language/typescript/ai_failures/non_null_assertion/legitimate-uses-of"
+  section_of: "language/typescript/ai_failures/non_null_assertion"
+  section_order: 2
   category: "language"
   subcategory: "typescript"
   priority: 93
@@ -455,6 +463,8 @@
     - Build utility types yourself when needed
 
 - id: "language/typescript/ai_failures/hallucinations/javascript-typescript-confusion"
+  section_of: "language/typescript/ai_failures/hallucinations"
+  section_order: 1
   category: "language"
   subcategory: "typescript"
   priority: 90
@@ -495,6 +505,8 @@
     ```
 
 - id: "language/typescript/ai_failures/hallucinations/import-hallucinations"
+  section_of: "language/typescript/ai_failures/hallucinations"
+  section_order: 2
   category: "language"
   subcategory: "typescript"
   priority: 90

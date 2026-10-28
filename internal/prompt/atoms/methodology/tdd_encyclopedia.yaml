@@ -188,6 +188,8 @@
     Use t.Run for subtests. Maps randomize order to catch dependencies.
 
 - id: "methodology/tdd/table_driven_testing/why-use-maps-instead-of-slices"
+  section_of: "methodology/tdd/table_driven_testing"
+  section_order: 1
   category: "methodology"
   subcategory: "tdd"
   priority: 90
@@ -694,6 +696,8 @@
     - Include wantErr in table-driven tests
 
 - id: "methodology/tdd/error_path_testing/error-handling-test-checklist"
+  section_of: "methodology/tdd/error_path_testing"
+  section_order: 1
   category: "methodology"
   subcategory: "tdd"
   priority: 87

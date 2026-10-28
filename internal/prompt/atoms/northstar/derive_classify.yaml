@@ -1,5 +1,7 @@
 # Classify a read-candidate document. The caller pages oversized documents;
-# this atom is the only prompt text for that call.
+# this family is the only prompt text for that call. The sections carry the
+# output protocol; they are selected with their head (section_of), not by a
+# vector hit the derive compile does not have.
 
 - id: "northstar/derive/classify"
   category: "northstar"
@@ -26,6 +28,8 @@
     page is context, not a replacement for the bytes on that page.
 
 - id: "northstar/derive/classify/section-cont"
+  section_of: "northstar/derive/classify"
+  section_order: 1
   category: "northstar"
   subcategory: "derive"
   priority: 80
@@ -43,6 +47,8 @@
     Include every path in the request. Omit none.
 
 - id: "northstar/derive/classify/section-cont-2"
+  section_of: "northstar/derive/classify"
+  section_order: 2
   category: "northstar"
   subcategory: "derive"
   priority: 80

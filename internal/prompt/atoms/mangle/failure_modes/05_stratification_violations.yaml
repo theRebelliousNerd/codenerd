@@ -24,6 +24,8 @@
     Creating circular dependencies through negation. Mangle rejects programs where predicate A depends on "not B" and B depends on "not A" (or longer cycles).
 
 - id: "language/mangle/docs/failure_modes/05_stratification_violations/failure-mode-5-stratification-violations"
+  section_of: "language/mangle/docs/failure_modes/05_stratification_violations"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 5: Stratification Violations (Negative Cycles): Failure Mode 5: Stratification Violations (Negative Cycles) Wrong Code"
@@ -64,6 +66,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/05_stratification_violations/failure-mode-5-stratification-violations-2"
+  section_of: "language/mangle/docs/failure_modes/05_stratification_violations"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 5: Stratification Violations (Negative Cycles): Failure Mode 5: Stratification Violations (Negative Cycles) Correct Code"
@@ -116,6 +120,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/05_stratification_violations/failure-mode-5-stratification-violations-3"
+  section_of: "language/mangle/docs/failure_modes/05_stratification_violations"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 5: Stratification Violations (Negative Cycles): Failure Mode 5: Stratification Violations (Negative Cycles) Detection"
@@ -134,6 +140,8 @@
     - **Test**: Draw dependency graph; look for cycles passing through negation
 
 - id: "language/mangle/docs/failure_modes/05_stratification_violations/failure-mode-5-stratification-violations-4"
+  section_of: "language/mangle/docs/failure_modes/05_stratification_violations"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 5: Stratification Violations (Negative Cycles): Failure Mode 5: Stratification Violations (Negative Cycles) Prevention"
@@ -177,6 +185,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/05_stratification_violations/correct-patterns-reference"
+  section_of: "language/mangle/docs/failure_modes/05_stratification_violations"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 5: Stratification Violations (Negative Cycles): Correct Patterns Reference"
@@ -223,6 +233,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/05_stratification_violations/pattern-3-separate-concerns"
+  section_of: "language/mangle/docs/failure_modes/05_stratification_violations"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 5: Stratification Violations (Negative Cycles): Pattern 3: Separate Concerns"
@@ -265,6 +277,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/05_stratification_violations/complex-example-game-state-analysis"
+  section_of: "language/mangle/docs/failure_modes/05_stratification_violations"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 5: Stratification Violations (Negative Cycles): Complex Example: Game State Analysis"
@@ -317,6 +331,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/05_stratification_violations/why-stratification-matters"
+  section_of: "language/mangle/docs/failure_modes/05_stratification_violations"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 5: Stratification Violations (Negative Cycles): Why Stratification Matters"
@@ -355,6 +371,8 @@
     | Game Theory | "Winning = not losing" | Direct negative dependency |
 
 - id: "language/mangle/docs/failure_modes/05_stratification_violations/failure-mode-5-stratification-violations-5"
+  section_of: "language/mangle/docs/failure_modes/05_stratification_violations"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 5: Stratification Violations (Negative Cycles): Failure Mode 5: Stratification Violations (Negative Cycles) Quick Check"

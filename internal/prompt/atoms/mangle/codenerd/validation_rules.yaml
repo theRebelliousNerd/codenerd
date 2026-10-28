@@ -26,6 +26,8 @@
     AI models trained on SQL, Prolog, and Soufflé often force those syntaxes into Mangle.
 
 - id: "language/mangle/docs/codenerd/validation_rules/1-atom-vs-string-confusion"
+  section_of: "language/mangle/docs/codenerd/validation_rules"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 1. Atom vs. String Confusion"
@@ -84,6 +86,8 @@
     **Rule**: All variables MUST be UPPERCASE. Lowercase is reserved for predicate names.
 
 - id: "language/mangle/docs/codenerd/validation_rules/4-inline-aggregation-sql-style"
+  section_of: "language/mangle/docs/codenerd/validation_rules"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 4. Inline Aggregation (SQL Style)"
@@ -133,6 +137,8 @@
     **Rule**: Grouping is EXPLICIT via `do fn:group_by(...)` transform step. No implicit SQL-style GROUP BY.
 
 - id: "language/mangle/docs/codenerd/validation_rules/6-missing-periods"
+  section_of: "language/mangle/docs/codenerd/validation_rules"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 6. Missing Periods"
@@ -197,6 +203,8 @@
     - Never use `:=` (not valid Mangle syntax)
 
 - id: "language/mangle/docs/codenerd/validation_rules/ii-semantic-safety-logic-the-datalog-gap"
+  section_of: "language/mangle/docs/codenerd/validation_rules"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: II. Semantic Safety & Logic (The \"Datalog\" Gap)"
@@ -243,6 +251,8 @@
     **Rule**: All variables in a negated atom MUST be bound by positive atoms first.
 
 - id: "language/mangle/docs/codenerd/validation_rules/11-stratification-cycles"
+  section_of: "language/mangle/docs/codenerd/validation_rules"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 11. Stratification Cycles"
@@ -292,6 +302,8 @@
     **Rule**: Always bound recursion with a limit or finite domain (e.g., `N < 100`).
 
 - id: "language/mangle/docs/codenerd/validation_rules/13-cartesian-product-explosion"
+  section_of: "language/mangle/docs/codenerd/validation_rules"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 13. Cartesian Product Explosion"
@@ -351,6 +363,8 @@
     **Rule**: Multiple rules for same predicate create a UNION (logical OR). They do NOT overwrite.
 
 - id: "language/mangle/docs/codenerd/validation_rules/16-anonymous-variable-misuse"
+  section_of: "language/mangle/docs/codenerd/validation_rules"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 16. Anonymous Variable Misuse"
@@ -400,6 +414,8 @@
     **Rule**: Use `:match_entry(Map, /key, Val)` or `:match_field(Struct, /key, Val)`. No dot notation.
 
 - id: "language/mangle/docs/codenerd/validation_rules/18-list-indexing"
+  section_of: "language/mangle/docs/codenerd/validation_rules"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 18. List Indexing"
@@ -458,6 +474,8 @@
     **Rule**: Use `fn:string_concat` or build list structures. NO string interpolation.
 
 - id: "language/mangle/docs/codenerd/validation_rules/21-hallucinated-functions"
+  section_of: "language/mangle/docs/codenerd/validation_rules"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 21. Hallucinated Functions"
@@ -508,6 +526,8 @@
     **Rule**: Grouping variables MUST be bound in the rule body before the pipe `|>`.
 
 - id: "language/mangle/docs/codenerd/validation_rules/23-struct-syntax"
+  section_of: "language/mangle/docs/codenerd/validation_rules"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 23. Struct Syntax"
@@ -566,6 +586,8 @@
     **Rule**: Use `Query()`, `AddFact()`, `AddFacts()`, `GetFacts()`. No `Run()` method exists.
 
 - id: "language/mangle/docs/codenerd/validation_rules/26-ignoring-imports"
+  section_of: "language/mangle/docs/codenerd/validation_rules"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 26. Ignoring Imports"
@@ -612,6 +634,8 @@
     **Rule**: External predicates require `func(query engine.Query, cb func(engine.Fact)) error`.
 
 - id: "language/mangle/docs/codenerd/validation_rules/28-parsing-vs-execution"
+  section_of: "language/mangle/docs/codenerd/validation_rules"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 28. Parsing vs. Execution"
@@ -654,6 +678,8 @@
     **Rule**: Mangle is PURE. IO must happen in Go before execution (loading facts) or via external predicates.
 
 - id: "language/mangle/docs/codenerd/validation_rules/30-package-hallucination-slopsquatting"
+  section_of: "language/mangle/docs/codenerd/validation_rules"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: 30. Package Hallucination (Slopsquatting)"
@@ -706,6 +732,8 @@
     - Selectivity ordering
 
 - id: "language/mangle/docs/codenerd/validation_rules/validation-checklist"
+  section_of: "language/mangle/docs/codenerd/validation_rules"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: Validation Checklist"
@@ -734,6 +762,8 @@
     - [ ] Types match declarations (int vs float, atom vs string)
 
 - id: "language/mangle/docs/codenerd/validation_rules/quick-reference-card"
+  section_of: "language/mangle/docs/codenerd/validation_rules"
+  section_order: 15
   category: "language"
   subcategory: "mangle"
   description: "Mangle Validation Rules for codeNERD: Quick Reference Card"

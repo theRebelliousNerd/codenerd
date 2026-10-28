@@ -47,6 +47,8 @@
         *   **Rule**: Depends on /domain_core (to know what to save) and /scaffold (for config/db strings).
 
 - id: "campaign/taxonomy/six_phases/phases-4-6"
+  section_of: "campaign/taxonomy/six_phases"
+  section_order: 1
   category: "knowledge"
   subcategory: "build_phases"
   priority: 75

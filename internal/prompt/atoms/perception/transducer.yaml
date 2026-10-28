@@ -40,6 +40,8 @@
     Users can run `/agents` (list), `/spawn <type> <task>` (e.g. `/spawn reviewer check auth.go`), `/define-agent` (new persistent specialist).
 
 - id: "perception/transducer/capabilities/tools-and-commands"
+  section_of: "perception/transducer/capabilities"
+  section_order: 1
   category: "identity"
   subcategory: "capabilities"
   priority: 95
@@ -73,6 +75,8 @@
     The canonical archetype table follows in the INTENT LIBRARY pieces (match the closest row).
 
 - id: "perception/transducer/intent_library/archetypes-1"
+  section_of: "perception/transducer/intent_library"
+  section_order: 1
   category: "identity"
   subcategory: "intent_classification"
   priority: 90
@@ -96,6 +100,8 @@
     | "Build the project." | {verb: "/build", target: "project", category: "/mutation"} |
 
 - id: "perception/transducer/intent_library/archetypes-2"
+  section_of: "perception/transducer/intent_library"
+  section_order: 2
   category: "identity"
   subcategory: "intent_classification"
   priority: 90
@@ -119,6 +125,8 @@
     | "Search for all TODO comments." | {verb: "/search", target: "TODO", category: "/query"} |
 
 - id: "perception/transducer/intent_library/archetypes-3"
+  section_of: "perception/transducer/intent_library"
+  section_order: 3
   category: "identity"
   subcategory: "intent_classification"
   priority: 90
@@ -143,6 +151,8 @@
     | "Scaffold a new REST endpoint." | {verb: "/scaffold", target: "REST endpoint", category: "/mutation"} |
 
 - id: "perception/transducer/intent_library/archetypes-4"
+  section_of: "perception/transducer/intent_library"
+  section_order: 4
   category: "identity"
   subcategory: "intent_classification"
   priority: 90
@@ -166,6 +176,8 @@
     | "Hello!" | {verb: "/greet", target: "none", category: "/query"} |
 
 - id: "perception/transducer/intent_library/archetypes-5"
+  section_of: "perception/transducer/intent_library"
+  section_order: 5
   category: "identity"
   subcategory: "intent_classification"
   priority: 90
@@ -188,6 +200,8 @@
     | "Always do Y when Z." | {verb: "/remember", target: "preference", category: "/instruction"} + memory_operations |
 
 - id: "perception/transducer/intent_library/archetypes-6"
+  section_of: "perception/transducer/intent_library"
+  section_order: 6
   category: "identity"
   subcategory: "intent_classification"
   priority: 90
@@ -223,6 +237,8 @@
     - "undo", "revert", "rollback" → /undo
 
 - id: "perception/transducer/classification_guidelines/queries"
+  section_of: "perception/transducer/classification_guidelines"
+  section_order: 1
   category: "identity"
   subcategory: "intent_classification"
   priority: 85
@@ -254,6 +270,8 @@
     - "research", "learn about", "documentation" → /research
 
 - id: "perception/transducer/classification_guidelines/mutations"
+  section_of: "perception/transducer/classification_guidelines"
+  section_order: 2
   category: "identity"
   subcategory: "intent_classification"
   priority: 85

@@ -55,6 +55,8 @@
     - ❌ Expecting case-insensitive matching - it's case-sensitive
 
 - id: "language/mangle/docs/builtins/string_functions/string-ends-with"
+  section_of: "language/mangle/docs/builtins/string_functions"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle String Functions and Predicates: :string:ends_with"
@@ -96,6 +98,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/string_functions/string-contains"
+  section_of: "language/mangle/docs/builtins/string_functions"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle String Functions and Predicates: :string:contains"
@@ -143,6 +147,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/string_functions/string-functions-constructive"
+  section_of: "language/mangle/docs/builtins/string_functions"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle String Functions and Predicates: String Functions (Constructive)"
@@ -174,6 +180,8 @@
     - Names (`Type<name>`): converted via `fn:name:to_string`
 
 - id: "language/mangle/docs/builtins/string_functions/fn-string-concat-or-fn-string-concatenate"
+  section_of: "language/mangle/docs/builtins/string_functions"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle String Functions and Predicates: fn:string_concat (or fn:string:concatenate) cont"
@@ -217,6 +225,8 @@
     - ❌ No separator argument - must include spaces manually
 
 - id: "language/mangle/docs/builtins/string_functions/fn-string-replace"
+  section_of: "language/mangle/docs/builtins/string_functions"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle String Functions and Predicates: fn:string:replace"
@@ -278,6 +288,8 @@
     - ❌ Case sensitivity - "Hello" won't match "hello"
 
 - id: "language/mangle/docs/builtins/string_functions/name-prefix-matching-special-case"
+  section_of: "language/mangle/docs/builtins/string_functions"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle String Functions and Predicates: Name Prefix Matching (Special Case)"
@@ -321,6 +333,8 @@
     - ❌ Expecting equal names to match - prefix must be strictly shorter
 
 - id: "language/mangle/docs/builtins/string_functions/string-type-conversion"
+  section_of: "language/mangle/docs/builtins/string_functions"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle String Functions and Predicates: String Type Conversion"
@@ -378,6 +392,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/string_functions/comparison-table"
+  section_of: "language/mangle/docs/builtins/string_functions"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle String Functions and Predicates: Comparison Table"
@@ -399,6 +415,8 @@
     | `:match_prefix` | Predicate | Name prefix | (I,I) | `:match_prefix(/foo/bar, /foo)` |
 
 - id: "language/mangle/docs/builtins/string_functions/type-safety"
+  section_of: "language/mangle/docs/builtins/string_functions"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle String Functions and Predicates: Type Safety"
@@ -439,6 +457,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/string_functions/mangle-string-functions-and-predicates"
+  section_of: "language/mangle/docs/builtins/string_functions"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle String Functions and Predicates: Mangle String Functions and Predicates Performance Notes"

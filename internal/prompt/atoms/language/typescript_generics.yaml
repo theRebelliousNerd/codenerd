@@ -209,6 +209,8 @@
     - `Parameters<F>`: Function params as tuple
 
 - id: "language/typescript/generics/utility_types/record-type"
+  section_of: "language/typescript/generics/utility_types"
+  section_order: 1
   category: "language"
   subcategory: "typescript"
   priority: 85
@@ -250,6 +252,8 @@
     ```
 
 - id: "language/typescript/generics/utility_types/function-types"
+  section_of: "language/typescript/generics/utility_types"
+  section_order: 2
   category: "language"
   subcategory: "typescript"
   priority: 85

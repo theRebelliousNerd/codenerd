@@ -353,3 +353,12 @@ func TestTruncationMarker(t *testing.T) {
 		t.Errorf("TruncationMarker lost its detail: %q", got)
 	}
 }
+
+func TestEllipsize_RuneSafe(t *testing.T) {
+	if got := Ellipsize("héllo", 2); got != "h…" {
+		t.Fatalf("Ellipsize split a rune: %q", got)
+	}
+	if got := Ellipsize("short", 10); got != "short" {
+		t.Fatalf("Ellipsize changed short text: %q", got)
+	}
+}

@@ -217,6 +217,8 @@
     ```
 
 - id: "protocol/piggyback/context_feedback/field-descriptions"
+  section_of: "protocol/piggyback/context_feedback"
+  section_order: 1
   category: "protocol"
   subcategory: "feedback"
   priority: 70
@@ -250,6 +252,8 @@
     - Helps identify gaps in spreading activation
 
 - id: "protocol/piggyback/context_feedback/examples-by-task-type"
+  section_of: "protocol/piggyback/context_feedback"
+  section_order: 2
   category: "protocol"
   subcategory: "feedback"
   priority: 70

@@ -56,6 +56,8 @@
     **Rule**: This depends ONLY on /scaffold (for go.mod). It depends on NOTHING else. It handles pure logic definitions.
 
 - id: "campaign/taxonomist/six_phases/phase-3-data-layer-the-persistence"
+  section_of: "campaign/taxonomist/six_phases"
+  section_order: 1
   category: "methodology"
   subcategory: "build_phases"
   priority: 95
@@ -92,6 +94,8 @@
     **Rule**: Depends on /service (to call business logic).
 
 - id: "campaign/taxonomist/six_phases/phase-6-integration-the-assembly"
+  section_of: "campaign/taxonomist/six_phases"
+  section_order: 2
   category: "methodology"
   subcategory: "build_phases"
   priority: 95

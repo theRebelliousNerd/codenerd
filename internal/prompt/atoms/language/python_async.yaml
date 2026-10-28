@@ -42,6 +42,8 @@
     - I/O-bound only - use multiprocessing for CPU-bound
 
 - id: "language/python/async/fundamentals/creating-tasks"
+  section_of: "language/python/async/fundamentals"
+  section_order: 1
   category: "language"
   subcategory: "python"
   priority: 88
@@ -69,6 +71,8 @@
     ```
 
 - id: "language/python/async/fundamentals/async-context-managers"
+  section_of: "language/python/async/fundamentals"
+  section_order: 2
   category: "language"
   subcategory: "python"
   priority: 88
@@ -110,6 +114,8 @@
     ```
 
 - id: "language/python/async/fundamentals/async-generators"
+  section_of: "language/python/async/fundamentals"
+  section_order: 3
   category: "language"
   subcategory: "python"
   priority: 88
@@ -169,6 +175,8 @@
     - gather() = independent tasks that shouldn't affect each other
 
 - id: "language/python/async/gather_taskgroup/asyncio-taskgroup-python-3-11-preferred"
+  section_of: "language/python/async/gather_taskgroup"
+  section_order: 1
   category: "language"
   subcategory: "python"
   priority: 87
@@ -206,6 +214,8 @@
     | Use case | Independent tasks | Dependent tasks |
 
 - id: "language/python/async/gather_taskgroup/error-handling-with-taskgroup"
+  section_of: "language/python/async/gather_taskgroup"
+  section_order: 2
   category: "language"
   subcategory: "python"
   priority: 87
@@ -267,6 +277,8 @@
     - Always re-raise CancelledError after cleanup
 
 - id: "language/python/async/cancellation/shielding-critical-operations"
+  section_of: "language/python/async/cancellation"
+  section_order: 1
   category: "language"
   subcategory: "python"
   priority: 86
@@ -299,6 +311,8 @@
     ```
 
 - id: "language/python/async/cancellation/timeout-patterns"
+  section_of: "language/python/async/cancellation"
+  section_order: 2
   category: "language"
   subcategory: "python"
   priority: 86
@@ -338,6 +352,8 @@
     ```
 
 - id: "language/python/async/cancellation/graceful-shutdown"
+  section_of: "language/python/async/cancellation"
+  section_order: 3
   category: "language"
   subcategory: "python"
   priority: 86
@@ -416,6 +432,8 @@
     - Use `run_in_executor()` for unavoidable blocking calls
 
 - id: "language/python/async/pitfalls/nested-event-loops"
+  section_of: "language/python/async/pitfalls"
+  section_order: 1
   category: "language"
   subcategory: "python"
   priority: 89
@@ -458,6 +476,8 @@
     ```
 
 - id: "language/python/async/pitfalls/fire-and-forget-tasks-disappear"
+  section_of: "language/python/async/pitfalls"
+  section_order: 2
   category: "language"
   subcategory: "python"
   priority: 89

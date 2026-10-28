@@ -49,6 +49,8 @@
     - Ask: "Will someone understand this in 6 months?"
 
 - id: "reviewer/methodology/systematic_review_process/pass-timing-guidance"
+  section_of: "reviewer/methodology/systematic_review_process"
+  section_order: 1
   category: "methodology"
   subcategory: "code_review"
   priority: 95

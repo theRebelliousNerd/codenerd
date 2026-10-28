@@ -23,6 +23,8 @@
     - list_files / glob — enumerate files and directories
 
 - id: "shards/reviewer/tool_steering/do-not-shell-out-to-inspect-code"
+  section_of: "shards/reviewer/tool_steering"
+  section_order: 1
   category: "methodology"
   subcategory: "tools"
   priority: 78

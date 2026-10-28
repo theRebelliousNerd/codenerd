@@ -34,6 +34,8 @@
     | `fn:` | Function namespace | Prefix | `fn:sum`, `fn:count` |
 
 - id: "language/mangle/docs/transforms_complete/single-stage-aggregation"
+  section_of: "language/mangle/docs/transforms_complete"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipelines - Complete Guide: Single-Stage Aggregation"
@@ -88,6 +90,8 @@
     ```
 
 - id: "language/mangle/docs/transforms_complete/multi-stage-pipelines"
+  section_of: "language/mangle/docs/transforms_complete"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipelines - Complete Guide: Multi-Stage Pipelines"
@@ -143,6 +147,8 @@
     ```
 
 - id: "language/mangle/docs/transforms_complete/grouping-patterns"
+  section_of: "language/mangle/docs/transforms_complete"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipelines - Complete Guide: Grouping Patterns"
@@ -186,6 +192,8 @@
     ```
 
 - id: "language/mangle/docs/transforms_complete/nested-aggregation"
+  section_of: "language/mangle/docs/transforms_complete"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipelines - Complete Guide: Nested Aggregation"
@@ -235,6 +243,8 @@
     ```
 
 - id: "language/mangle/docs/transforms_complete/conditional-aggregation"
+  section_of: "language/mangle/docs/transforms_complete"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipelines - Complete Guide: Conditional Aggregation"
@@ -294,6 +304,8 @@
     ```
 
 - id: "language/mangle/docs/transforms_complete/window-functions-simulated"
+  section_of: "language/mangle/docs/transforms_complete"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipelines - Complete Guide: Window Functions (Simulated)"
@@ -347,6 +359,8 @@
     ```
 
 - id: "language/mangle/docs/transforms_complete/advanced-transform-patterns"
+  section_of: "language/mangle/docs/transforms_complete"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipelines - Complete Guide: Advanced Transform Patterns"
@@ -408,6 +422,8 @@
     ```
 
 - id: "language/mangle/docs/transforms_complete/aggregation-with-arithmetic"
+  section_of: "language/mangle/docs/transforms_complete"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipelines - Complete Guide: Aggregation with Arithmetic"
@@ -458,6 +474,8 @@
     ```
 
 - id: "language/mangle/docs/transforms_complete/common-pipeline-errors"
+  section_of: "language/mangle/docs/transforms_complete"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipelines - Complete Guide: Common Pipeline Errors"
@@ -543,6 +561,8 @@
     ```
 
 - id: "language/mangle/docs/transforms_complete/performance-optimization"
+  section_of: "language/mangle/docs/transforms_complete"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle Transform Pipelines - Complete Guide: Performance Optimization"

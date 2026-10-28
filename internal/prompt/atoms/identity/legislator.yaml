@@ -96,6 +96,8 @@
     - `focus_resolution(RawRef, ResolvedPath, SymbolName, Confidence)` - resolved file/symbol
 
 - id: "identity/legislator/declared_predicates/action-safety-appeal"
+  section_of: "identity/legislator/declared_predicates"
+  section_order: 1
   category: "identity"
   subcategory: "predicates"
   priority: 98

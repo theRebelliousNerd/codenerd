@@ -23,6 +23,8 @@
     - **Booleans** (represented as atoms: `/true`, `/false`)
 
 - id: "language/mangle/docs/builtins/type_functions/number-to-string-conversion"
+  section_of: "language/mangle/docs/builtins/type_functions"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: Number to String Conversion"
@@ -81,6 +83,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/type_functions/float-to-string-conversion"
+  section_of: "language/mangle/docs/builtins/type_functions"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: Float to String Conversion"
@@ -141,6 +145,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/type_functions/name-to-string-conversion"
+  section_of: "language/mangle/docs/builtins/type_functions"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: Name to String Conversion"
@@ -198,6 +204,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/type_functions/name-manipulation-functions"
+  section_of: "language/mangle/docs/builtins/type_functions"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: Name Manipulation Functions"
@@ -246,6 +254,8 @@
     - If no internal slash, returns the name itself
 
 - id: "language/mangle/docs/builtins/type_functions/fn-name-tip"
+  section_of: "language/mangle/docs/builtins/type_functions"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: fn:name:tip"
@@ -292,6 +302,8 @@
     - If no slash (other than leading), returns the name itself
 
 - id: "language/mangle/docs/builtins/type_functions/fn-name-list"
+  section_of: "language/mangle/docs/builtins/type_functions"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: fn:name:list"
@@ -345,6 +357,8 @@
     - Result is a list of names
 
 - id: "language/mangle/docs/builtins/type_functions/boolean-type"
+  section_of: "language/mangle/docs/builtins/type_functions"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: Boolean Type"
@@ -384,6 +398,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/type_functions/option-type"
+  section_of: "language/mangle/docs/builtins/type_functions"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: Option Type"
@@ -420,6 +436,8 @@
     **Note:** Most Mangle code doesn't need explicit option handling. Functions like `fn:list:get` that return options will raise errors on "none" rather than returning an option value to handle.
 
 - id: "language/mangle/docs/builtins/type_functions/type-checking-patterns"
+  section_of: "language/mangle/docs/builtins/type_functions"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: Type Checking Patterns"
@@ -461,6 +479,8 @@
     | `Type<string>` | None (passthrough) | `fn:string_concat("S=", "hi")` | `"S=hi"` |
 
 - id: "language/mangle/docs/builtins/type_functions/type-conversion-table"
+  section_of: "language/mangle/docs/builtins/type_functions"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: Type Conversion Table"
@@ -490,6 +510,8 @@
     - Float → Int (no built-in truncation)
 
 - id: "language/mangle/docs/builtins/type_functions/mangle-type-conversion-functions-common"
+  section_of: "language/mangle/docs/builtins/type_functions"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: Mangle Type Conversion Functions Common Patterns"
@@ -534,6 +556,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/type_functions/limitations"
+  section_of: "language/mangle/docs/builtins/type_functions"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: Limitations"
@@ -580,6 +604,8 @@
     - Prefer auto-conversion over explicit conversion when building strings
 
 - id: "language/mangle/docs/builtins/type_functions/complete-example-building-a-report"
+  section_of: "language/mangle/docs/builtins/type_functions"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Conversion Functions: Complete Example: Building a Report"

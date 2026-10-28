@@ -21,6 +21,8 @@
     - **Pairs** - Two-element tuples
 
 - id: "language/mangle/docs/builtins/struct_functions/struct-construction"
+  section_of: "language/mangle/docs/builtins/struct_functions"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: Struct Construction"
@@ -76,6 +78,8 @@
     - ❌ Duplicate keys: behavior undefined (last value may win)
 
 - id: "language/mangle/docs/builtins/struct_functions/struct-deconstruction"
+  section_of: "language/mangle/docs/builtins/struct_functions"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: Struct Deconstruction"
@@ -131,6 +135,8 @@
     - ❌ Using string keys: `:match_field(S, "key", V)` should be `:match_field(S, /key, V)`
 
 - id: "language/mangle/docs/builtins/struct_functions/fn-struct-get"
+  section_of: "language/mangle/docs/builtins/struct_functions"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: fn:struct:get"
@@ -175,6 +181,8 @@
     - ❌ Can't use for optional fields - use `:match_field` for that
 
 - id: "language/mangle/docs/builtins/struct_functions/map-construction"
+  section_of: "language/mangle/docs/builtins/struct_functions"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: Map Construction"
@@ -226,6 +234,8 @@
     - ❌ Duplicate keys: last value wins (order undefined)
 
 - id: "language/mangle/docs/builtins/struct_functions/map-deconstruction"
+  section_of: "language/mangle/docs/builtins/struct_functions"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: Map Deconstruction"
@@ -276,6 +286,8 @@
     **Important:** If the key is unbound, `:match_entry` can generate all entries in the map (non-deterministic iteration).
 
 - id: "language/mangle/docs/builtins/struct_functions/fn-map-get"
+  section_of: "language/mangle/docs/builtins/struct_functions"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: fn:map:get"
@@ -309,6 +321,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/struct_functions/pair-construction-and-deconstruction"
+  section_of: "language/mangle/docs/builtins/struct_functions"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: Pair Construction and Deconstruction"
@@ -384,6 +398,8 @@
     - ❌ Expecting more than 2 elements: use `fn:tuple` for N-tuples
 
 - id: "language/mangle/docs/builtins/struct_functions/tuples-n-ary"
+  section_of: "language/mangle/docs/builtins/struct_functions"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: Tuples (N-ary)"
@@ -432,6 +448,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/struct_functions/comparison-struct-vs-map-vs-pair"
+  section_of: "language/mangle/docs/builtins/struct_functions"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: Comparison: Struct vs Map vs Pair"
@@ -453,6 +471,8 @@
     | Use Case | Records with named fields | Key-value lookups | Simple pairs |
 
 - id: "language/mangle/docs/builtins/struct_functions/mangle-struct-and-map-functions-common"
+  section_of: "language/mangle/docs/builtins/struct_functions"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: Mangle Struct and Map Functions Common Patterns"
@@ -522,6 +542,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/struct_functions/iteration-patterns"
+  section_of: "language/mangle/docs/builtins/struct_functions"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: Iteration Patterns"
@@ -573,6 +595,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/struct_functions/mangle-struct-and-map-functions-performance"
+  section_of: "language/mangle/docs/builtins/struct_functions"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: Mangle Struct and Map Functions Performance Notes"
@@ -614,6 +638,8 @@
     Can't get "list of all keys" or "number of fields" directly. Must know structure ahead of time or iterate non-deterministically.
 
 - id: "language/mangle/docs/builtins/struct_functions/complete-examples"
+  section_of: "language/mangle/docs/builtins/struct_functions"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Mangle Struct and Map Functions: Complete Examples"

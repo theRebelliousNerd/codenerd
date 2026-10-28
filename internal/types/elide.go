@@ -151,6 +151,21 @@ func ClampHead(text string, maxChars int, label string) string {
 // The variant exists because the alternative was every inline caller inventing
 // its own "..." — which says that something was cut but not how much, and
 // reads to a model like the author's own ellipsis rather than the pipeline's.
+// Ellipsize shortens display-only text — a TUI cell, a CLI table column, a log
+// field — to at most maxBytes plus "…", on a rune boundary. It carries no
+// marker: use it only where a person reads the text and the whole value is
+// kept elsewhere. Text bound for a model, a store or a parser uses ClampText
+// or ClampInline, which say what was dropped, or is not shortened at all.
+func Ellipsize(text string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len(text) <= maxBytes {
+		return text
+	}
+	return trimUTF8Suffix(text[:maxBytes]) + "…"
+}
+
 func ClampInline(text string, maxChars int, label string) string {
 	if maxChars <= 0 {
 		return ""

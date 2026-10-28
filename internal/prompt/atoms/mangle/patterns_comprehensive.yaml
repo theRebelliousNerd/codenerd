@@ -61,6 +61,8 @@
     ```
 
 - id: "language/mangle/docs/patterns_comprehensive/negation-patterns"
+  section_of: "language/mangle/docs/patterns_comprehensive"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: Negation Patterns"
@@ -125,6 +127,8 @@
     ```
 
 - id: "language/mangle/docs/patterns_comprehensive/recursive-patterns"
+  section_of: "language/mangle/docs/patterns_comprehensive"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: Recursive Patterns"
@@ -188,6 +192,8 @@
     ```
 
 - id: "language/mangle/docs/patterns_comprehensive/path-with-cost"
+  section_of: "language/mangle/docs/patterns_comprehensive"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: Path with Cost"
@@ -252,6 +258,8 @@
     ```
 
 - id: "language/mangle/docs/patterns_comprehensive/aggregation-patterns"
+  section_of: "language/mangle/docs/patterns_comprehensive"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: Aggregation Patterns"
@@ -306,6 +314,8 @@
     ```
 
 - id: "language/mangle/docs/patterns_comprehensive/conditional-aggregation-having"
+  section_of: "language/mangle/docs/patterns_comprehensive"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: Conditional Aggregation (HAVING)"
@@ -358,6 +368,8 @@
     ```
 
 - id: "language/mangle/docs/patterns_comprehensive/bill-of-materials-recursive-quantities"
+  section_of: "language/mangle/docs/patterns_comprehensive"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: Bill of Materials (Recursive Quantities)"
@@ -403,6 +415,8 @@
     ```
 
 - id: "language/mangle/docs/patterns_comprehensive/data-lineage"
+  section_of: "language/mangle/docs/patterns_comprehensive"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: Data Lineage"
@@ -439,6 +453,8 @@
     ```
 
 - id: "language/mangle/docs/patterns_comprehensive/vulnerability-propagation"
+  section_of: "language/mangle/docs/patterns_comprehensive"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: Vulnerability Propagation"
@@ -493,6 +509,8 @@
     ```
 
 - id: "language/mangle/docs/patterns_comprehensive/temporal-validity"
+  section_of: "language/mangle/docs/patterns_comprehensive"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: Temporal Validity"
@@ -534,6 +552,8 @@
     ```
 
 - id: "language/mangle/docs/patterns_comprehensive/optimization-patterns"
+  section_of: "language/mangle/docs/patterns_comprehensive"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: Optimization Patterns"
@@ -592,6 +612,8 @@
     ```
 
 - id: "language/mangle/docs/patterns_comprehensive/sql-equivalence-table"
+  section_of: "language/mangle/docs/patterns_comprehensive"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: SQL Equivalence Table"
@@ -618,6 +640,8 @@
     | `SUM(col)` | `fn:sum(Var)` in pipeline |
 
 - id: "language/mangle/docs/patterns_comprehensive/common-anti-patterns-to-avoid"
+  section_of: "language/mangle/docs/patterns_comprehensive"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Mangle Patterns - Comprehensive Catalog: Common Anti-Patterns to Avoid"

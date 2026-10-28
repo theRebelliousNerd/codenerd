@@ -30,6 +30,8 @@
     Since rules can only derive facts from existing constants, and the fact space is finite, evaluation **must** reach a fixpoint.
 
 - id: "language/mangle/docs/engine/termination/lost-guarantees-mangle-extensions"
+  section_of: "language/mangle/docs/engine/termination"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Termination Conditions: Lost Guarantees: Mangle Extensions"
@@ -63,6 +65,8 @@
        - Without proper base cases, rules recurse forever
 
 - id: "language/mangle/docs/engine/termination/common-non-termination-patterns"
+  section_of: "language/mangle/docs/engine/termination"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Termination Conditions: Common Non-Termination Patterns"
@@ -105,6 +109,8 @@
     **Why it fails**: Creates unbounded strings.
 
 - id: "language/mangle/docs/engine/termination/safe-termination-patterns"
+  section_of: "language/mangle/docs/engine/termination"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Termination Conditions: Safe Termination Patterns"
@@ -150,6 +156,8 @@
     **Why it terminates**: Input lists are finite, recursion decreases list size each step.
 
 - id: "language/mangle/docs/engine/termination/ensuring-termination"
+  section_of: "language/mangle/docs/engine/termination"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Termination Conditions: Ensuring Termination"
@@ -195,6 +203,8 @@
     ```
 
 - id: "language/mangle/docs/engine/termination/stratification-and-termination"
+  section_of: "language/mangle/docs/engine/termination"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Termination Conditions: Stratification and Termination"
@@ -229,6 +239,8 @@
     - **Stratified programs**: Each stratum reaches fixpoint, then next proceeds
 
 - id: "language/mangle/docs/engine/termination/debugging-non-termination"
+  section_of: "language/mangle/docs/engine/termination"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Engine: Termination Conditions: Debugging Non-Termination"

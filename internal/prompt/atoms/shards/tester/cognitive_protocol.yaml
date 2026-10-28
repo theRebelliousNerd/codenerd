@@ -34,6 +34,8 @@
     - The OVERFLOW cases (values too large or too small)
 
 - id: "shards/tester/cognitive_protocol/phase-3-state-enumeration"
+  section_of: "shards/tester/cognitive_protocol"
+  section_order: 1
   category: "methodology"
   subcategory: "protocol"
   priority: 95
@@ -78,6 +80,8 @@
     - Include CLEANUP to prevent test pollution
 
 - id: "shards/tester/cognitive_protocol/phase-7-assertion-selection"
+  section_of: "shards/tester/cognitive_protocol"
+  section_order: 2
   category: "methodology"
   subcategory: "protocol"
   priority: 95

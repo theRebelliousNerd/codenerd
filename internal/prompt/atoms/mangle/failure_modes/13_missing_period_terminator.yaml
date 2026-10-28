@@ -49,6 +49,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/13_missing_period_terminator/failure-mode-13-missing-period-terminator"
+  section_of: "language/mangle/docs/failure_modes/13_missing_period_terminator"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 13: Missing Period Terminator: Failure Mode 13: Missing Period Terminator Correct Code"
@@ -99,6 +101,8 @@
     - **Test**: Each declaration, fact, and rule should end with `.`
 
 - id: "language/mangle/docs/failure_modes/13_missing_period_terminator/failure-mode-13-missing-period-terminator-2"
+  section_of: "language/mangle/docs/failure_modes/13_missing_period_terminator"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 13: Missing Period Terminator: Failure Mode 13: Missing Period Terminator Prevention"
@@ -132,6 +136,8 @@
     | SQL | Semicolon | Using `;` instead |
 
 - id: "language/mangle/docs/failure_modes/13_missing_period_terminator/mnemonic"
+  section_of: "language/mangle/docs/failure_modes/13_missing_period_terminator"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 13: Missing Period Terminator: Mnemonic"

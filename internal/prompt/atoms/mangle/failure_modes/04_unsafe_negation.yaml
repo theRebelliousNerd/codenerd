@@ -43,6 +43,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/04_unsafe_negation/failure-mode-4-unsafe-negation-unbounded"
+  section_of: "language/mangle/docs/failure_modes/04_unsafe_negation"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Failure Mode 4: Unsafe Negation (Unbounded Variables) Correct Code"
@@ -91,6 +93,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/04_unsafe_negation/failure-mode-4-unsafe-negation-unbounded-2"
+  section_of: "language/mangle/docs/failure_modes/04_unsafe_negation"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Failure Mode 4: Unsafe Negation (Unbounded Variables) Detection"
@@ -118,6 +122,8 @@
     3. ✓ Are you trying to enumerate all possible values? (This won't work!)
 
 - id: "language/mangle/docs/failure_modes/04_unsafe_negation/mental-model-generators-vs-filters"
+  section_of: "language/mangle/docs/failure_modes/04_unsafe_negation"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Mental Model: Generators vs Filters"
@@ -146,6 +152,8 @@
     **Rule**: Always generate before filtering!
 
 - id: "language/mangle/docs/failure_modes/04_unsafe_negation/safe-patterns-reference"
+  section_of: "language/mangle/docs/failure_modes/04_unsafe_negation"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Safe Patterns Reference"
@@ -193,6 +201,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/04_unsafe_negation/unsafe-patterns-do-not-use"
+  section_of: "language/mangle/docs/failure_modes/04_unsafe_negation"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Unsafe Patterns (DO NOT USE)"
@@ -222,6 +232,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/04_unsafe_negation/why-this-restriction-exists"
+  section_of: "language/mangle/docs/failure_modes/04_unsafe_negation"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Why This Restriction Exists"
@@ -256,6 +268,8 @@
     Negation requires knowing "what doesn't exist", but you can only test values that COULD exist (from generators).
 
 - id: "language/mangle/docs/failure_modes/04_unsafe_negation/complex-example-finding-missing"
+  section_of: "language/mangle/docs/failure_modes/04_unsafe_negation"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Complex Example: Finding Missing Relationships"
@@ -300,6 +314,8 @@
     | Python | `[x for x in ... if !pred(x)]` | Generator is explicit in Python |
 
 - id: "language/mangle/docs/failure_modes/04_unsafe_negation/failure-mode-4-unsafe-negation-unbounded-3"
+  section_of: "language/mangle/docs/failure_modes/04_unsafe_negation"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 4: Unsafe Negation (Unbounded Variables): Failure Mode 4: Unsafe Negation (Unbounded Variables) Quick Check"

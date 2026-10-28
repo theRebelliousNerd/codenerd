@@ -39,6 +39,8 @@
     ```
 
 - id: "language/mangle/docs/type_system/atoms-vs-strings-critical"
+  section_of: "language/mangle/docs/type_system"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type System: Atoms vs Strings (Critical)"
@@ -73,6 +75,8 @@
     ```
 
 - id: "language/mangle/docs/type_system/type-errors"
+  section_of: "language/mangle/docs/type_system"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type System: Type Errors"
@@ -129,6 +133,8 @@
     4. Aggregations have specific input/output types
 
 - id: "language/mangle/docs/type_system/common-type-fixes"
+  section_of: "language/mangle/docs/type_system"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type System: Common Type Fixes"

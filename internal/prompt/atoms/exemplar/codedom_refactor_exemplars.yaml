@@ -48,6 +48,8 @@
     ```
 
 - id: "exemplar/codedom_rename_field/step-3-plan-atomic-transaction"
+  section_of: "exemplar/codedom_rename_field"
+  section_order: 1
   category: "exemplar"
   subcategory: "semantic_editing"
   # Gated: these are worked examples of a conversational turn, envelope and all.
@@ -71,6 +73,8 @@
     4. `ts:frontend/src/types/auth.ts:LoginResponse.userId` → `subjectId`
 
 - id: "exemplar/codedom_rename_field/step-4-execute-with-transaction"
+  section_of: "exemplar/codedom_rename_field"
+  section_order: 2
   category: "exemplar"
   subcategory: "semantic_editing"
   # Gated: these are worked examples of a conversational turn, envelope and all.
@@ -129,6 +133,8 @@
     ```
 
 - id: "exemplar/codedom_rename_field/step-5-validation-automatic"
+  section_of: "exemplar/codedom_rename_field"
+  section_order: 3
   category: "exemplar"
   subcategory: "semantic_editing"
   # Gated: these are worked examples of a conversational turn, envelope and all.
@@ -225,6 +231,8 @@
     ```
 
 - id: "exemplar/codedom_safety_block/how-to-proceed"
+  section_of: "exemplar/codedom_safety_block"
+  section_order: 1
   category: "exemplar"
   subcategory: "semantic_editing"
   # Gated: these are worked examples of a conversational turn, envelope and all.
@@ -321,6 +329,8 @@
     3. Error collection mechanism
 
 - id: "exemplar/codedom_async_refactor/step-4-edit-with-safety"
+  section_of: "exemplar/codedom_async_refactor"
+  section_order: 1
   category: "exemplar"
   subcategory: "semantic_editing"
   # Gated: these are worked examples of a conversational turn, envelope and all.
@@ -348,6 +358,8 @@
     ```
 
 - id: "exemplar/codedom_async_refactor/step-5-validation-passes"
+  section_of: "exemplar/codedom_async_refactor"
+  section_order: 2
   category: "exemplar"
   subcategory: "semantic_editing"
   # Gated: these are worked examples of a conversational turn, envelope and all.
@@ -444,6 +456,8 @@
     ```
 
 - id: "exemplar/codedom_test_impact/step-3-run-only-impacted-tests"
+  section_of: "exemplar/codedom_test_impact"
+  section_order: 1
   category: "exemplar"
   subcategory: "semantic_editing"
   # Gated: these are worked examples of a conversational turn, envelope and all.

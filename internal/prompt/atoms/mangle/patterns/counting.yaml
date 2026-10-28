@@ -75,6 +75,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/counting/variation-1-count-distinct"
+  section_of: "language/mangle/docs/patterns/counting"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Variation 1: Count Distinct"
@@ -131,6 +133,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/counting/variation-2-conditional-count"
+  section_of: "language/mangle/docs/patterns/counting"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Variation 2: Conditional Count"
@@ -182,6 +186,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/counting/variation-3-count-with-zero-include-empty"
+  section_of: "language/mangle/docs/patterns/counting"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Variation 3: Count with Zero (Include Empty Groups)"
@@ -237,6 +243,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/counting/variation-4-running-total-cumulative-count"
+  section_of: "language/mangle/docs/patterns/counting"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Variation 4: Running Total / Cumulative Count"
@@ -282,6 +290,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/counting/variation-5-percentage-ratio"
+  section_of: "language/mangle/docs/patterns/counting"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Variation 5: Percentage / Ratio"
@@ -342,6 +352,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/counting/variation-6-threshold-filtering-having"
+  section_of: "language/mangle/docs/patterns/counting"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Variation 6: Threshold Filtering (HAVING)"
@@ -391,6 +403,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/counting/variation-7-multi-level-count"
+  section_of: "language/mangle/docs/patterns/counting"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Variation 7: Multi-Level Count"
@@ -444,6 +458,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/counting/variation-8-count-combinations"
+  section_of: "language/mangle/docs/patterns/counting"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Variation 8: Count Combinations"
@@ -488,6 +504,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/counting/variation-9-count-with-join"
+  section_of: "language/mangle/docs/patterns/counting"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Variation 9: Count with Join"
@@ -561,6 +579,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/counting/variation-10-top-n-by-count"
+  section_of: "language/mangle/docs/patterns/counting"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Variation 10: Top N by Count"
@@ -626,6 +646,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/counting/anti-patterns"
+  section_of: "language/mangle/docs/patterns/counting"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Anti-Patterns"
@@ -669,6 +691,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/counting/counting-patterns-performance-tips"
+  section_of: "language/mangle/docs/patterns/counting"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Counting Patterns: Counting Patterns Performance Tips"

@@ -21,6 +21,8 @@
     4. **Act**: VirtualStore executes tools/FFI, asserts new facts, updates memory tiers.
 
 - id: "domain/codenerd/architecture_overview/key-subsystems"
+  section_of: "domain/codenerd/architecture_overview"
+  section_order: 1
   category: "domain"
   subcategory: "architecture"
   priority: 92
@@ -42,6 +44,8 @@
       RAM (session), Vector (semantic), Graph (relations), Cold (preferences/invariants).
 
 - id: "domain/codenerd/architecture_overview/non-negotiable-invariants"
+  section_of: "domain/codenerd/architecture_overview"
+  section_order: 2
   category: "domain"
   subcategory: "architecture"
   priority: 92

@@ -60,6 +60,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/set_operations/variation-1-intersection"
+  section_of: "language/mangle/docs/patterns/set_operations"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Set Operations Patterns: Variation 1: Intersection"
@@ -136,6 +138,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/set_operations/variation-3-symmetric-difference-xor"
+  section_of: "language/mangle/docs/patterns/set_operations"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Set Operations Patterns: Variation 3: Symmetric Difference (XOR)"
@@ -182,6 +186,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/set_operations/variation-4-subset-check-a-b"
+  section_of: "language/mangle/docs/patterns/set_operations"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Set Operations Patterns: Variation 4: Subset Check (A \u2286 B)"
@@ -237,6 +243,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/set_operations/variation-5-proper-subset-a-b"
+  section_of: "language/mangle/docs/patterns/set_operations"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Set Operations Patterns: Variation 5: Proper Subset (A \u2282 B)"
@@ -301,6 +309,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/set_operations/variation-6-disjoint-sets"
+  section_of: "language/mangle/docs/patterns/set_operations"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Set Operations Patterns: Variation 6: Disjoint Sets"
@@ -356,6 +366,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/set_operations/variation-7-set-equality"
+  section_of: "language/mangle/docs/patterns/set_operations"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Set Operations Patterns: Variation 7: Set Equality"
@@ -421,6 +433,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/set_operations/variation-8-multiple-set-union"
+  section_of: "language/mangle/docs/patterns/set_operations"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Set Operations Patterns: Variation 8: Multiple Set Union"
@@ -463,6 +477,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/set_operations/variation-9-conditional-set-operations"
+  section_of: "language/mangle/docs/patterns/set_operations"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Set Operations Patterns: Variation 9: Conditional Set Operations"
@@ -504,6 +520,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/set_operations/variation-10-partitioning-disjoint-union"
+  section_of: "language/mangle/docs/patterns/set_operations"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Set Operations Patterns: Variation 10: Partitioning (Disjoint Union)"
@@ -549,6 +567,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/set_operations/variation-11-power-set-all-subsets"
+  section_of: "language/mangle/docs/patterns/set_operations"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Set Operations Patterns: Variation 11: Power Set (All Subsets)"
@@ -598,6 +618,8 @@
     Power sets are impractical in Datalog. Use explicit enumeration or property-based subsets instead.
 
 - id: "language/mangle/docs/patterns/set_operations/variation-12-cardinality-comparison"
+  section_of: "language/mangle/docs/patterns/set_operations"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Set Operations Patterns: Variation 12: Cardinality Comparison"
@@ -650,6 +672,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/set_operations/anti-patterns"
+  section_of: "language/mangle/docs/patterns/set_operations"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Set Operations Patterns: Anti-Patterns"
@@ -694,6 +718,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/set_operations/set-operations-patterns-performance-tips"
+  section_of: "language/mangle/docs/patterns/set_operations"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Set Operations Patterns: Set Operations Patterns Performance Tips"
@@ -711,6 +737,8 @@
     4. **Avoid Cartesian Products**: In multi-set operations
 
 - id: "language/mangle/docs/patterns/set_operations/common-use-cases-in-codenerd"
+  section_of: "language/mangle/docs/patterns/set_operations"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Set Operations Patterns: Common Use Cases in codeNERD"
@@ -780,6 +808,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/set_operations/set-algebra-laws-for-verification"
+  section_of: "language/mangle/docs/patterns/set_operations"
+  section_order: 15
   category: "language"
   subcategory: "mangle"
   description: "Set Operations Patterns: Set Algebra Laws (For Verification)"

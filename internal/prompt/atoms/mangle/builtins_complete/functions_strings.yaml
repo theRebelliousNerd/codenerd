@@ -43,6 +43,8 @@
     **Note**: Takes variable number of arguments (variadic).
 
 - id: "language/mangle/docs/builtins_complete/functions_strings/fn-string-replace"
+  section_of: "language/mangle/docs/builtins_complete/functions_strings"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: String Operations: fn:string_replace"
@@ -88,6 +90,8 @@
     - `N > 0` - Replace first N occurrences
 
 - id: "language/mangle/docs/builtins_complete/functions_strings/type-conversion-to-string"
+  section_of: "language/mangle/docs/builtins_complete/functions_strings"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: String Operations: Type Conversion to String"
@@ -160,6 +164,8 @@
     ```
 
 - id: "language/mangle/docs/builtins_complete/functions_strings/name-atom-path-operations"
+  section_of: "language/mangle/docs/builtins_complete/functions_strings"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: String Operations: Name (Atom) Path Operations"
@@ -216,6 +222,8 @@
     ```
 
 - id: "language/mangle/docs/builtins_complete/functions_strings/string-predicates-pattern-matching"
+  section_of: "language/mangle/docs/builtins_complete/functions_strings"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: String Operations: String Predicates (Pattern Matching)"
@@ -257,6 +265,8 @@
       - May be available via external predicates
 
 - id: "language/mangle/docs/builtins_complete/functions_strings/working-with-strings"
+  section_of: "language/mangle/docs/builtins_complete/functions_strings"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: String Operations: Working with Strings"
@@ -300,6 +310,8 @@
     ```
 
 - id: "language/mangle/docs/builtins_complete/functions_strings/string-constants"
+  section_of: "language/mangle/docs/builtins_complete/functions_strings"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: String Operations: String Constants"
@@ -336,6 +348,8 @@
     The documented functions work with strings. Byte operations may require different functions or external predicates.
 
 - id: "language/mangle/docs/builtins_complete/functions_strings/string-functions-summary"
+  section_of: "language/mangle/docs/builtins_complete/functions_strings"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: String Operations: String Functions Summary"
@@ -359,6 +373,8 @@
     | `fn:name_list` | (name) | list | Split into components |
 
 - id: "language/mangle/docs/builtins_complete/functions_strings/mangle-builtin-functions-string-operations"
+  section_of: "language/mangle/docs/builtins_complete/functions_strings"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: String Operations: Mangle Builtin Functions: String Operations Common Patterns"

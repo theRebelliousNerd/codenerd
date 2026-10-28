@@ -47,6 +47,8 @@
     4. **Tag Appropriately:** Add selectors for shard_types, languages, frameworks
 
 - id: "shards/researcher/knowledge_atom_extraction/selector-inference"
+  section_of: "shards/researcher/knowledge_atom_extraction"
+  section_order: 1
   category: "methodology"
   subcategory: "extraction"
   priority: 90

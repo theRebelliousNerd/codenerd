@@ -52,6 +52,8 @@
     - ❌ Using brackets: `[1,2,3]` - not valid Mangle syntax, use fn:list
 
 - id: "language/mangle/docs/builtins/list_functions/fn-cons"
+  section_of: "language/mangle/docs/builtins/list_functions"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates: fn:cons"
@@ -97,6 +99,8 @@
     - ❌ Using with non-list: `fn:cons(1, 2)` - second arg must be a list
 
 - id: "language/mangle/docs/builtins/list_functions/fn-append"
+  section_of: "language/mangle/docs/builtins/list_functions"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates: fn:append"
@@ -138,6 +142,8 @@
     - Prefer `fn:cons` when order doesn't matter or you're building lists
 
 - id: "language/mangle/docs/builtins/list_functions/list-deconstruction-predicates"
+  section_of: "language/mangle/docs/builtins/list_functions"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates: List Deconstruction Predicates"
@@ -176,6 +182,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/list_functions/match-cons"
+  section_of: "language/mangle/docs/builtins/list_functions"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates: :match_cons"
@@ -236,6 +244,8 @@
     - ❌ Unbound list variable - list must be bound before matching
 
 - id: "language/mangle/docs/builtins/list_functions/list-query-functions"
+  section_of: "language/mangle/docs/builtins/list_functions"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates: List Query Functions"
@@ -280,6 +290,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/list_functions/fn-list-get"
+  section_of: "language/mangle/docs/builtins/list_functions"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates: fn:list:get"
@@ -330,6 +342,8 @@
     - ❌ Out of bounds behavior - raises error, doesn't return "none"
 
 - id: "language/mangle/docs/builtins/list_functions/fn-list-contains"
+  section_of: "language/mangle/docs/builtins/list_functions"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates: fn:list:contains"
@@ -373,6 +387,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/list_functions/list-membership-predicate"
+  section_of: "language/mangle/docs/builtins/list_functions"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates: List Membership Predicate"
@@ -426,6 +442,8 @@
     - ❌ Performance - generates all members, can be expensive for large lists
 
 - id: "language/mangle/docs/builtins/list_functions/list-patterns"
+  section_of: "language/mangle/docs/builtins/list_functions"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates: List Patterns"
@@ -495,6 +513,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/list_functions/comparison-function-vs-predicate"
+  section_of: "language/mangle/docs/builtins/list_functions"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates: Comparison: Function vs Predicate"
@@ -530,6 +550,8 @@
     - Prefer direct iteration over indexed access
 
 - id: "language/mangle/docs/builtins/list_functions/type-safety"
+  section_of: "language/mangle/docs/builtins/list_functions"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Functions and Predicates: Type Safety"

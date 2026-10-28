@@ -34,6 +34,8 @@
     ```
 
 - id: "shards/reviewer/creative_first_pass/system-and-feature-output"
+  section_of: "shards/reviewer/creative_first_pass"
+  section_order: 1
   category: "methodology"
   subcategory: "review"
   priority: 90

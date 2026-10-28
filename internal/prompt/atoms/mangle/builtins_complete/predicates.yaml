@@ -42,6 +42,8 @@
     **Safety**: Variables become bound through unification with constants or other bound variables.
 
 - id: "language/mangle/docs/builtins_complete/predicates/inequality"
+  section_of: "language/mangle/docs/builtins_complete/predicates"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference: Inequality: !="
@@ -89,6 +91,8 @@
     ```
 
 - id: "language/mangle/docs/builtins_complete/predicates/less-than"
+  section_of: "language/mangle/docs/builtins_complete/predicates"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference: Less Than: <"
@@ -131,6 +135,8 @@
     ```
 
 - id: "language/mangle/docs/builtins_complete/predicates/less-than-or-equal"
+  section_of: "language/mangle/docs/builtins_complete/predicates"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference: Less Than or Equal: <="
@@ -167,6 +173,8 @@
     (`:float:lt`, `:string:contains`, ...).
 
 - id: "language/mangle/docs/builtins_complete/predicates/pattern-matching-predicates"
+  section_of: "language/mangle/docs/builtins_complete/predicates"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference: Pattern Matching Predicates"
@@ -208,6 +216,8 @@
     **Alternative**: Use accessor functions `fn:pair:fst` and `fn:pair:snd`.
 
 - id: "language/mangle/docs/builtins_complete/predicates/match-cons-match-cons"
+  section_of: "language/mangle/docs/builtins_complete/predicates"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference: Match Cons: :match_cons"
@@ -252,6 +262,8 @@
     **Safety**: `List` must be bound before matching.
 
 - id: "language/mangle/docs/builtins_complete/predicates/match-nil-match-nil"
+  section_of: "language/mangle/docs/builtins_complete/predicates"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference: Match Nil: :match_nil"
@@ -294,6 +306,8 @@
     **Alternative**: Can also use `L = []` directly.
 
 - id: "language/mangle/docs/builtins_complete/predicates/match-entry-match-entry"
+  section_of: "language/mangle/docs/builtins_complete/predicates"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference: Match Entry: :match_entry"
@@ -340,6 +354,8 @@
     **Safety**: `Map` must be bound. `Key` should be bound (though it could be a variable for iteration, but this is inefficient).
 
 - id: "language/mangle/docs/builtins_complete/predicates/match-field-match-field"
+  section_of: "language/mangle/docs/builtins_complete/predicates"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference: Match Field: :match_field"
@@ -389,6 +405,8 @@
     **Difference from maps**: Structs use atom keys (e.g., `/name`), maps can use any constant key.
 
 - id: "language/mangle/docs/builtins_complete/predicates/string-pattern-matching"
+  section_of: "language/mangle/docs/builtins_complete/predicates"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference: String Pattern Matching"
@@ -456,6 +474,8 @@
     ```
 
 - id: "language/mangle/docs/builtins_complete/predicates/built-in-type-checks"
+  section_of: "language/mangle/docs/builtins_complete/predicates"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference: Built-in Type Checks"
@@ -488,6 +508,8 @@
     **Note**: Explicit type predicates may not exist - type checking is typically done via pattern matching and type bounds in declarations.
 
 - id: "language/mangle/docs/builtins_complete/predicates/summary-table"
+  section_of: "language/mangle/docs/builtins_complete/predicates"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Predicates: Complete Reference: Summary Table"

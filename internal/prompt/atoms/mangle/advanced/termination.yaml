@@ -20,6 +20,8 @@
     ## Termination Proofs
 
 - id: "language/mangle/docs/advanced/termination/1-well-founded-ordering"
+  section_of: "language/mangle/docs/advanced/termination"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Termination Analysis: 1. Well-Founded Ordering"
@@ -62,6 +64,8 @@
     **Well-founded ordering**: Natural numbers with > relation. Each step decreases N.
 
 - id: "language/mangle/docs/advanced/termination/2-structural-recursion-on-lists"
+  section_of: "language/mangle/docs/advanced/termination"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Termination Analysis: 2. Structural Recursion on Lists"
@@ -115,6 +119,8 @@
     **Termination argument**: Depth decreases with each recursive call and is bounded below by 1.
 
 - id: "language/mangle/docs/advanced/termination/non-terminating-patterns-danger"
+  section_of: "language/mangle/docs/advanced/termination"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Termination Analysis: Non-Terminating Patterns (DANGER)"
@@ -196,6 +202,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/termination/termination-analysis-techniques"
+  section_of: "language/mangle/docs/advanced/termination"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Termination Analysis: Termination Analysis Techniques"
@@ -231,6 +239,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/termination/2-size-change-principle"
+  section_of: "language/mangle/docs/advanced/termination"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Termination Analysis: 2. Size-Change Principle"
@@ -269,6 +279,8 @@
     **Analysis**: Second clause has M=, N↓, which doesn't guarantee termination because the intermediate Temp can grow unbounded.
 
 - id: "language/mangle/docs/advanced/termination/3-ranking-functions"
+  section_of: "language/mangle/docs/advanced/termination"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Termination Analysis: 3. Ranking Functions"
@@ -332,6 +344,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/termination/2-depth-tracking"
+  section_of: "language/mangle/docs/advanced/termination"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Termination Analysis: 2. Depth Tracking"
@@ -390,6 +404,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/termination/termination-checklist"
+  section_of: "language/mangle/docs/advanced/termination"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Termination Analysis: Termination Checklist"
@@ -442,6 +458,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/termination/recursive-patterns-summary"
+  section_of: "language/mangle/docs/advanced/termination"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Termination Analysis: Recursive Patterns Summary"
@@ -464,6 +482,8 @@
     | Cyclic negation | ❌ Never | p(X) :- !q(X), q(X) :- !p(X) |
 
 - id: "language/mangle/docs/advanced/termination/advanced-semi-decidability"
+  section_of: "language/mangle/docs/advanced/termination"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle Termination Analysis: Advanced: Semi-Decidability"

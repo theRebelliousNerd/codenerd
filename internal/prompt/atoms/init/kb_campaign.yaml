@@ -21,6 +21,8 @@
     - Quality gates and validation
 
 - id: "init/kb_campaign/creation/knowledge-atoms-to-generate"
+  section_of: "init/kb_campaign/creation"
+  section_order: 1
   category: "init"
   subcategory: "kb_campaign"
   priority: 75
@@ -62,6 +64,8 @@
     - Human-in-the-loop gates (when to ask for confirmation)
 
 - id: "init/kb_campaign/creation/research-topics"
+  section_of: "init/kb_campaign/creation"
+  section_order: 2
   category: "init"
   subcategory: "kb_campaign"
   priority: 75
@@ -127,6 +131,8 @@
     - Include migration and rollback strategies
 
 - id: "init/kb_campaign/project_awareness/language-specific-workflows"
+  section_of: "init/kb_campaign/project_awareness"
+  section_order: 1
   category: "init"
   subcategory: "kb_campaign"
   priority: 70

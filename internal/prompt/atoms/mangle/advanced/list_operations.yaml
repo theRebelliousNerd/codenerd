@@ -81,6 +81,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/list_operations/built-in-list-functions"
+  section_of: "language/mangle/docs/advanced/list_operations"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Operations: Built-in List Functions"
@@ -151,6 +153,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/list_operations/fn-list-contains"
+  section_of: "language/mangle/docs/advanced/list_operations"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Operations: fn:list:contains"
@@ -199,6 +203,8 @@
     ## Recursive List Processing
 
 - id: "language/mangle/docs/advanced/list_operations/recursive-list-processing-example-1-sum-of"
+  section_of: "language/mangle/docs/advanced/list_operations"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Operations: Recursive List Processing Example 1: Sum of List"
@@ -253,6 +259,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/list_operations/recursive-list-processing-example-3-maximum"
+  section_of: "language/mangle/docs/advanced/list_operations"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Operations: Recursive List Processing Example 3: Maximum Element"
@@ -316,6 +324,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/list_operations/recursive-list-processing-example-5-map"
+  section_of: "language/mangle/docs/advanced/list_operations"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Operations: Recursive List Processing Example 5: Map (Transform Each Element)"
@@ -374,6 +384,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/list_operations/recursive-list-processing-example-7"
+  section_of: "language/mangle/docs/advanced/list_operations"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Operations: Recursive List Processing Example 7: Membership Check"
@@ -425,6 +437,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/list_operations/nested-lists"
+  section_of: "language/mangle/docs/advanced/list_operations"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Operations: Nested Lists"
@@ -494,6 +508,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/list_operations/mangle-list-operations-performance"
+  section_of: "language/mangle/docs/advanced/list_operations"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Operations: Mangle List Operations Performance Considerations"
@@ -562,6 +578,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/list_operations/mangle-list-operations-common-patterns"
+  section_of: "language/mangle/docs/advanced/list_operations"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Operations: Mangle List Operations Common Patterns"
@@ -637,6 +655,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/list_operations/mangle-list-operations-checklist"
+  section_of: "language/mangle/docs/advanced/list_operations"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle List Operations: Mangle List Operations Checklist"

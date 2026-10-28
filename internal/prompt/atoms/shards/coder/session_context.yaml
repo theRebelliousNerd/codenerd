@@ -34,6 +34,8 @@
     The TDD Retry count tells you how many times we've tried to fix this. If it's > 1, your previous fix was wrong. Think harder.
 
 - id: "shards/coder/session_context/priority-3-recent-findings"
+  section_of: "shards/coder/session_context"
+  section_order: 1
   category: "methodology"
   subcategory: "context"
   priority: 85
@@ -74,6 +76,8 @@
     If you see code that looks wrong, the git history might explain why it's actually right. Don't "fix" things you don't understand.
 
 - id: "shards/coder/session_context/priority-6-domain-knowledge"
+  section_of: "shards/coder/session_context"
+  section_order: 2
   category: "methodology"
   subcategory: "context"
   priority: 85

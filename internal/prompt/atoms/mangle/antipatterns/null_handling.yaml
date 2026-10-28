@@ -65,6 +65,8 @@
     **Key Insight:** Absence is represented by the non-existence of facts, not by null values.
 
 - id: "language/mangle/docs/antipatterns/null_handling/anti-pattern-2-nullable-fields-in-schema"
+  section_of: "language/mangle/docs/antipatterns/null_handling"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern 2: Nullable Fields in Schema"
@@ -127,6 +129,8 @@
     **Recommendation:** Use separate predicates (Option 1). It's more idiomatic in logic programming.
 
 - id: "language/mangle/docs/antipatterns/null_handling/anti-pattern-3-null-coalescing-default"
+  section_of: "language/mangle/docs/antipatterns/null_handling"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern 3: Null Coalescing / Default Values"
@@ -179,6 +183,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/null_handling/anti-pattern-4-null-propagation-safe"
+  section_of: "language/mangle/docs/antipatterns/null_handling"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern 4: Null Propagation / Safe Navigation"
@@ -225,6 +231,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/null_handling/anti-pattern-5-three-valued-logic-true"
+  section_of: "language/mangle/docs/antipatterns/null_handling"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern 5: Three-Valued Logic (True/False/Null)"
@@ -270,6 +278,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/null_handling/anti-pattern-6-null-in-comparisons"
+  section_of: "language/mangle/docs/antipatterns/null_handling"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern 6: Null in Comparisons"
@@ -311,6 +321,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/null_handling/anti-pattern-7-null-assignment-clearing"
+  section_of: "language/mangle/docs/antipatterns/null_handling"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern 7: Null Assignment / Clearing Values"
@@ -357,6 +369,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/null_handling/anti-pattern-8-optional-return-types"
+  section_of: "language/mangle/docs/antipatterns/null_handling"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern 8: Optional Return Types"
@@ -415,6 +429,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/null_handling/anti-pattern-9-null-object-pattern-revisited"
+  section_of: "language/mangle/docs/antipatterns/null_handling"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern 9: Null Object Pattern (Revisited)"
@@ -464,6 +480,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/null_handling/anti-pattern-10-database-null-vs-empty"
+  section_of: "language/mangle/docs/antipatterns/null_handling"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern 10: Database NULL vs Empty String"
@@ -521,6 +539,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/null_handling/anti-pattern-11-null-in-aggregation"
+  section_of: "language/mangle/docs/antipatterns/null_handling"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern 11: Null in Aggregation"
@@ -573,6 +593,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/null_handling/anti-pattern-12-null-as-sentinel-value"
+  section_of: "language/mangle/docs/antipatterns/null_handling"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern 12: Null as Sentinel Value"
@@ -637,6 +659,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/null_handling/closed-world-assumption-core-principle"
+  section_of: "language/mangle/docs/antipatterns/null_handling"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Closed World Assumption: Core Principle"
@@ -666,6 +690,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/null_handling/anti-pattern-null-handling-migration"
+  section_of: "language/mangle/docs/antipatterns/null_handling"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Anti-Pattern: Null Handling Migration Checklist"
@@ -694,6 +720,8 @@
     - [ ] Remember: absent = false, not unknown
 
 - id: "language/mangle/docs/antipatterns/null_handling/pattern-modeling-optional-data"
+  section_of: "language/mangle/docs/antipatterns/null_handling"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Pattern: Modeling Optional Data"
@@ -754,6 +782,8 @@
     **Cons:** Defaults in derivation rules
 
 - id: "language/mangle/docs/antipatterns/null_handling/pro-tip-think-existence-not-nullability"
+  section_of: "language/mangle/docs/antipatterns/null_handling"
+  section_order: 15
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Null Handling: Pro Tip: Think Existence, Not Nullability"

@@ -54,6 +54,8 @@
     - `Promise.any`: First to fulfill wins
 
 - id: "language/typescript/async/promises/promise-allsettled-capture-all-results"
+  section_of: "language/typescript/async/promises"
+  section_order: 1
   category: "language"
   subcategory: "typescript"
   priority: 80
@@ -149,6 +151,8 @@
     - Catch: `err.name === "AbortError"`
 
 - id: "language/typescript/async/abort/timeout-helper"
+  section_of: "language/typescript/async/abort"
+  section_order: 1
   category: "language"
   subcategory: "typescript"
   priority: 79
@@ -184,6 +188,8 @@
     ```
 
 - id: "language/typescript/async/abort/passing-signal-through-layers"
+  section_of: "language/typescript/async/abort"
+  section_order: 2
   category: "language"
   subcategory: "typescript"
   priority: 79
@@ -294,6 +300,8 @@
     - Retry with exponential backoff for transient errors
 
 - id: "language/typescript/async/error_handling/result-type-pattern"
+  section_of: "language/typescript/async/error_handling"
+  section_order: 1
   category: "language"
   subcategory: "typescript"
   priority: 81
@@ -330,6 +338,8 @@
     ```
 
 - id: "language/typescript/async/error_handling/retry-with-exponential-backoff"
+  section_of: "language/typescript/async/error_handling"
+  section_order: 2
   category: "language"
   subcategory: "typescript"
   priority: 81
@@ -381,6 +391,8 @@
     ```
 
 - id: "language/typescript/async/error_handling/critical-await-before-return"
+  section_of: "language/typescript/async/error_handling"
+  section_order: 3
   category: "language"
   subcategory: "typescript"
   priority: 81

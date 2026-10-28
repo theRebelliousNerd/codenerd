@@ -66,6 +66,8 @@
     - Share memory by communicating, not vice versa
 
 - id: "language/go/concurrency/fundamentals/channel-fundamentals"
+  section_of: "language/go/concurrency/fundamentals"
+  section_order: 1
   category: "language"
   subcategory: "go"
   priority: 85
@@ -147,6 +149,8 @@
     - Or-Done: Wrap channel with context cancellation
 
 - id: "language/go/concurrency/patterns/fan-out-fan-in-pattern"
+  section_of: "language/go/concurrency/patterns"
+  section_order: 1
   category: "language"
   subcategory: "go"
   priority: 84
@@ -205,6 +209,8 @@
     ```
 
 - id: "language/go/concurrency/patterns/pipeline-pattern"
+  section_of: "language/go/concurrency/patterns"
+  section_order: 2
   category: "language"
   subcategory: "go"
   priority: 84
@@ -249,6 +255,8 @@
     ```
 
 - id: "language/go/concurrency/patterns/semaphore-pattern-bounded-concurrency"
+  section_of: "language/go/concurrency/patterns"
+  section_order: 3
   category: "language"
   subcategory: "go"
   priority: 84
@@ -372,6 +380,8 @@
     - atomic: Lock-free counters, `atomic.AddInt64(&v, 1)`
 
 - id: "language/go/concurrency/sync_primitives/sync-once"
+  section_of: "language/go/concurrency/sync_primitives"
+  section_order: 1
   category: "language"
   subcategory: "go"
   priority: 83
@@ -424,6 +434,8 @@
     ```
 
 - id: "language/go/concurrency/sync_primitives/sync-map-concurrent-map"
+  section_of: "language/go/concurrency/sync_primitives"
+  section_order: 2
   category: "language"
   subcategory: "go"
   priority: 83
@@ -476,6 +488,8 @@
     - Not for connection pooling (use dedicated pool)
 
 - id: "language/go/concurrency/sync_primitives/atomic-package"
+  section_of: "language/go/concurrency/sync_primitives"
+  section_order: 3
   category: "language"
   subcategory: "go"
   priority: 83
@@ -547,6 +561,8 @@
     ```
 
 - id: "language/go/concurrency/errgroup/key-features"
+  section_of: "language/go/concurrency/errgroup"
+  section_order: 1
   category: "language"
   subcategory: "go"
   priority: 82
@@ -587,6 +603,8 @@
     ```
 
 - id: "language/go/concurrency/errgroup/errgroup-concurrent-error-handling-common"
+  section_of: "language/go/concurrency/errgroup"
+  section_order: 2
   category: "language"
   subcategory: "go"
   priority: 82
@@ -642,6 +660,8 @@
     ```
 
 - id: "language/go/concurrency/errgroup/errgroup-vs-waitgroup"
+  section_of: "language/go/concurrency/errgroup"
+  section_order: 3
   category: "language"
   subcategory: "go"
   priority: 82
@@ -760,6 +780,8 @@
     - Don't store in structs, pass to methods
 
 - id: "language/go/concurrency/context/context-best-practices"
+  section_of: "language/go/concurrency/context"
+  section_order: 1
   category: "language"
   subcategory: "go"
   priority: 86
@@ -821,6 +843,8 @@
     - NOT for optional parameters
 
 - id: "language/go/concurrency/context/context-errors"
+  section_of: "language/go/concurrency/context"
+  section_order: 2
   category: "language"
   subcategory: "go"
   priority: 86
@@ -933,6 +957,8 @@
     - Check-then-act needs atomic operation or mutex
 
 - id: "language/go/concurrency/race_conditions/detecting-race-conditions"
+  section_of: "language/go/concurrency/race_conditions"
+  section_order: 1
   category: "language"
   subcategory: "go"
   priority: 88
@@ -987,6 +1013,8 @@
     - Cannot find logic races (e.g., check-then-act)
 
 - id: "language/go/concurrency/race_conditions/check-then-act-races"
+  section_of: "language/go/concurrency/race_conditions"
+  section_order: 2
   category: "language"
   subcategory: "go"
   priority: 88

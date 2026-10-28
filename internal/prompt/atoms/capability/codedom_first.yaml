@@ -20,6 +20,8 @@
     - `create_file`: new Go or Mangle file. `repoint from=... to=... paths=[...]`: moves every use of a package-level name to another, across files, in one call.
 
 - id: "capability/codedom_first/see-and-trust"
+  section_of: "capability/codedom_first"
+  section_order: 1
   category: "capability"
   priority: 88
   is_mandatory: false
@@ -33,6 +35,8 @@
     2. **Trust the answer** - nothing is written unless the file parses, every other element keeps its bytes, the touched declaration is gofmt'd, and imports are derived: write no import lines, unused ones are dropped. The answer lists imports added or dropped and shows each changed element with its new rev, so do not read it again. `revision=<rev>` refuses the edit if the element changed since you saw it.
 
 - id: "capability/codedom_first/refusals"
+  section_of: "capability/codedom_first"
+  section_order: 2
   category: "capability"
   priority: 88
   is_mandatory: false

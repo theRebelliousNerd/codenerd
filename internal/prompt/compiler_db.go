@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -130,6 +132,13 @@ func (c *JITPromptCompiler) appendTag(atom *PromptAtom, dim, tag string) {
 		atom.ConflictsWith = append(atom.ConflictsWith, tag)
 	case "requires_tool":
 		atom.RequiresTools = append(atom.RequiresTools, tag)
+	case "section_of":
+		head, order, _ := strings.Cut(tag, "#")
+		atom.SectionOf = head
+		atom.SectionOrder, _ = strconv.Atoi(order)
+		if !slices.Contains(atom.DependsOn, head) {
+			atom.DependsOn = append(atom.DependsOn, head)
+		}
 	}
 }
 

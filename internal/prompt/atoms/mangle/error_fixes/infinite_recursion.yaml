@@ -74,6 +74,8 @@
     ```
 
 - id: "language/mangle/docs/error_fixes/infinite_recursion/4-cartesian-product-explosion"
+  section_of: "language/mangle/docs/error_fixes/infinite_recursion"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Fix: Infinite Recursion: 4. Cartesian Product Explosion"
@@ -112,6 +114,8 @@
     ```
 
 - id: "language/mangle/docs/error_fixes/infinite_recursion/prevention-strategies"
+  section_of: "language/mangle/docs/error_fixes/infinite_recursion"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Fix: Infinite Recursion: Prevention Strategies"
@@ -166,6 +170,8 @@
     ```
 
 - id: "language/mangle/docs/error_fixes/infinite_recursion/detection-checklist"
+  section_of: "language/mangle/docs/error_fixes/infinite_recursion"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Fix: Infinite Recursion: Detection Checklist"

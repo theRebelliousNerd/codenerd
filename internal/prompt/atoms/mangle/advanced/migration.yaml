@@ -73,6 +73,8 @@
     **Same!** ✓
 
 - id: "language/mangle/docs/advanced/migration/atoms-symbols"
+  section_of: "language/mangle/docs/advanced/migration"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: Atoms (Symbols)"
@@ -144,6 +146,8 @@
     - Mangle uses explicit pipe `|>` and `fn:sum()`
 
 - id: "language/mangle/docs/advanced/migration/subsumption-max-min"
+  section_of: "language/mangle/docs/advanced/migration"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: Subsumption (Max/Min)"
@@ -211,6 +215,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/migration/from-prolog"
+  section_of: "language/mangle/docs/advanced/migration"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: From Prolog"
@@ -280,6 +286,8 @@
     - List construction uses `:cons` instead of `[H|T]`
 
 - id: "language/mangle/docs/advanced/migration/cut"
+  section_of: "language/mangle/docs/advanced/migration"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: Cut (!)"
@@ -344,6 +352,8 @@
     - `N * F1` → `fn:mult(N, F1)`
 
 - id: "language/mangle/docs/advanced/migration/findall"
+  section_of: "language/mangle/docs/advanced/migration"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: Findall"
@@ -417,6 +427,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/migration/join"
+  section_of: "language/mangle/docs/advanced/migration"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: JOIN"
@@ -473,6 +485,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/migration/subqueries"
+  section_of: "language/mangle/docs/advanced/migration"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: Subqueries"
@@ -532,6 +546,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/migration/having"
+  section_of: "language/mangle/docs/advanced/migration"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: HAVING"
@@ -591,6 +607,8 @@
     **Change**: Multiple rules create union automatically.
 
 - id: "language/mangle/docs/advanced/migration/update-delete"
+  section_of: "language/mangle/docs/advanced/migration"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: UPDATE/DELETE"
@@ -632,6 +650,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/migration/key-differences-summary"
+  section_of: "language/mangle/docs/advanced/migration"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: Key Differences Summary"
@@ -655,6 +675,8 @@
     | **Update** | N/A | `assert/retract` | `UPDATE` | Not supported |
 
 - id: "language/mangle/docs/advanced/migration/migrating-to-mangle-from-other-logic"
+  section_of: "language/mangle/docs/advanced/migration"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: Migrating to Mangle from Other Logic Languages Migration Checklist"
@@ -697,6 +719,8 @@
     - [ ] Compute new state instead of `UPDATE`/`DELETE`
 
 - id: "language/mangle/docs/advanced/migration/migrating-to-mangle-from-other-logic-2"
+  section_of: "language/mangle/docs/advanced/migration"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Migrating to Mangle from Other Logic Languages: Migrating to Mangle from Other Logic Languages Example: Full Migration (SQL \u2192 Mangle)"

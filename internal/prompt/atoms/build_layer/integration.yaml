@@ -71,6 +71,8 @@
     ```
 
 - id: "build_layer/integration/adapter/adapter-implementation"
+  section_of: "build_layer/integration/adapter"
+  section_order: 1
   category: "build_layer"
   subcategory: "integration"
   priority: 90

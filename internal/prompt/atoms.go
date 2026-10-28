@@ -16,6 +16,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -214,6 +215,13 @@ type PromptAtom struct {
 	// DependsOn lists atom IDs that must be present for this atom to be selected
 	DependsOn []string `json:"depends_on,omitempty"`
 
+	// SectionOf names the head atom this one continues: one instruction
+	// authored as a head plus ordered sections. A section is selected with
+	// its head (in SectionOrder) while the budget allows and never without
+	// it; SectionOf implies a hard dependency on the head.
+	SectionOf    string `json:"section_of,omitempty"`
+	SectionOrder int    `json:"section_order,omitempty"`
+
 	// ConflictsWith lists atom IDs that cannot be present with this atom
 	ConflictsWith []string `json:"conflicts_with,omitempty"`
 
@@ -390,6 +398,7 @@ func (a *PromptAtom) ContextTags() []AtomTag {
 		{"depends_on", a.DependsOn},
 		{"conflicts_with", a.ConflictsWith},
 		{"requires_tool", a.RequiresTools},
+		{"section_of", sectionTag(a)},
 	}
 	total := 0
 	for _, d := range dims {
@@ -402,6 +411,14 @@ func (a *PromptAtom) ContextTags() []AtomTag {
 		}
 	}
 	return tags
+}
+
+// sectionTag encodes the section relation as one tag, "head#order".
+func sectionTag(a *PromptAtom) []string {
+	if a.SectionOf == "" {
+		return nil
+	}
+	return []string{a.SectionOf + "#" + strconv.Itoa(a.SectionOrder)}
 }
 
 // MatchesContext checks if this atom should be included for the given context.

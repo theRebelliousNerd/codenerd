@@ -36,6 +36,8 @@
     ```
 
 - id: "language/mangle/docs/negation_safety/safe-negation-in-mangle-common-patterns"
+  section_of: "language/mangle/docs/negation_safety"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Safe Negation in Mangle: Safe Negation in Mangle Common Patterns"
@@ -83,6 +85,8 @@
     ```
 
 - id: "language/mangle/docs/negation_safety/checklist-before-using-not"
+  section_of: "language/mangle/docs/negation_safety"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Safe Negation in Mangle: Checklist Before Using `not`"

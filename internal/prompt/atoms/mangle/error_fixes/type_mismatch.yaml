@@ -70,6 +70,8 @@
     ```
 
 - id: "language/mangle/docs/error_fixes/type_mismatch/4-float-vs-integer"
+  section_of: "language/mangle/docs/error_fixes/type_mismatch"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Fix: Type Mismatch Error: 4. Float vs Integer"
@@ -123,6 +125,8 @@
     | `float` | `42.0` | `42` |
 
 - id: "language/mangle/docs/error_fixes/type_mismatch/diagnosis"
+  section_of: "language/mangle/docs/error_fixes/type_mismatch"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Fix: Type Mismatch Error: Diagnosis"

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -45,6 +46,8 @@ type AtomDefinition struct {
 	IsMandatory   *bool    `yaml:"is_mandatory"`
 	IsExclusive   string   `yaml:"is_exclusive,omitempty"`
 	DependsOn     []string `yaml:"depends_on,omitempty"`
+	SectionOf     string   `yaml:"section_of,omitempty"`
+	SectionOrder  int      `yaml:"section_order,omitempty"`
 	ConflictsWith []string `yaml:"conflicts_with,omitempty"`
 	RequiresTools []string `yaml:"requires_tools,omitempty"`
 
@@ -151,6 +154,16 @@ type legacyAtomSelectors struct {
 }
 
 func (s legacyAtomSelectors) IsZero() bool { return !s.Present }
+
+// sectionDependsOn is the authored dependencies plus the head a section
+// continues: a section is never sent without its head.
+func sectionDependsOn(definition AtomDefinition) []string {
+	deps := append([]string(nil), definition.DependsOn...)
+	if head := strings.TrimSpace(definition.SectionOf); head != "" && !slices.Contains(deps, head) {
+		deps = append(deps, head)
+	}
+	return deps
+}
 
 var legacySelectorKeys = map[string]struct{}{
 	"always": {}, "operational_modes": {}, "campaign_phases": {},
@@ -559,7 +572,9 @@ func (definition AtomDefinition) toPromptAtom(sourcePath string, readContent Ato
 		Priority:         *definition.Priority,
 		IsMandatory:      *definition.IsMandatory,
 		IsExclusive:      definition.IsExclusive,
-		DependsOn:        append([]string(nil), definition.DependsOn...),
+		DependsOn:        sectionDependsOn(definition),
+		SectionOf:        strings.TrimSpace(definition.SectionOf),
+		SectionOrder:     definition.SectionOrder,
 		ConflictsWith:    append([]string(nil), definition.ConflictsWith...),
 		RequiresTools:    append([]string(nil), definition.RequiresTools...),
 		OperationalModes: append([]string(nil), definition.OperationalModes...),
@@ -688,6 +703,9 @@ func ValidatePromptAtomSet(atoms []*PromptAtom) error {
 			if _, ok := known[dependency]; !ok {
 				return fmt.Errorf("atom %q depends on missing atom %q", atom.ID, dependency)
 			}
+		}
+		if atom.SectionOf != "" && (atom.SectionOf == atom.ID || atom.SectionOrder < 1) {
+			return fmt.Errorf("atom %q: section_of needs another atom and a section_order of 1 or more", atom.ID)
 		}
 		for _, conflict := range atom.ConflictsWith {
 			if _, ok := known[conflict]; !ok {

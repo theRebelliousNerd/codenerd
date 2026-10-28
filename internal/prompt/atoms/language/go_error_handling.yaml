@@ -47,6 +47,8 @@
     - Sentinel errors: `var ErrNotFound = errors.New("not found")`
 
 - id: "language/go/errors/fundamentals/error-creation"
+  section_of: "language/go/errors/fundamentals"
+  section_order: 1
   category: "language"
   subcategory: "go"
   priority: 87
@@ -82,6 +84,8 @@
     ```
 
 - id: "language/go/errors/fundamentals/error-wrapping-go-1-13"
+  section_of: "language/go/errors/fundamentals"
+  section_order: 2
   category: "language"
   subcategory: "go"
   priority: 87
@@ -188,6 +192,8 @@
     ```
 
 - id: "language/go/errors/custom_types/error-with-wrapped-cause"
+  section_of: "language/go/errors/custom_types"
+  section_order: 1
   category: "language"
   subcategory: "go"
   priority: 85
@@ -251,6 +257,8 @@
     ```
 
 - id: "language/go/errors/custom_types/error-categories-with-interface"
+  section_of: "language/go/errors/custom_types"
+  section_order: 2
   category: "language"
   subcategory: "go"
   priority: 85
@@ -354,6 +362,8 @@
     - Must pattern: panic for unrecoverable init errors
 
 - id: "language/go/errors/patterns/panic-recovery"
+  section_of: "language/go/errors/patterns"
+  section_order: 1
   category: "language"
   subcategory: "go"
   priority: 84
@@ -396,6 +406,8 @@
     ```
 
 - id: "language/go/errors/patterns/must-pattern-panic-on-error"
+  section_of: "language/go/errors/patterns"
+  section_order: 2
   category: "language"
   subcategory: "go"
   priority: 84
@@ -423,6 +435,8 @@
     ```
 
 - id: "language/go/errors/patterns/retry-with-exponential-backoff"
+  section_of: "language/go/errors/patterns"
+  section_order: 3
   category: "language"
   subcategory: "go"
   priority: 84
@@ -462,6 +476,8 @@
     ```
 
 - id: "language/go/errors/patterns/error-logging-best-practices"
+  section_of: "language/go/errors/patterns"
+  section_order: 4
   category: "language"
   subcategory: "go"
   priority: 84
@@ -554,6 +570,8 @@
     - Don't over-wrap (readable chain > detailed chain)
 
 - id: "language/go/errors/anti_patterns/anti-pattern-3-wrapping-without-context"
+  section_of: "language/go/errors/anti_patterns"
+  section_order: 1
   category: "language"
   subcategory: "go"
   priority: 86
@@ -604,6 +622,8 @@
     ```
 
 - id: "language/go/errors/anti_patterns/anti-pattern-5-panic-for-normal-errors"
+  section_of: "language/go/errors/anti_patterns"
+  section_order: 2
   category: "language"
   subcategory: "go"
   priority: 86

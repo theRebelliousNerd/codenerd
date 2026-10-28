@@ -38,6 +38,8 @@
     }
 
 - id: "campaign/planner/decomposition/phase-structure"
+  section_of: "campaign/planner/decomposition"
+  section_order: 1
   category: "campaign"
   subcategory: "planner"
   priority: 90
@@ -57,6 +59,8 @@
     **Critical Rule**: You cannot put "Write HTTP Handler" in Phase 1 if the "User Struct" hasn't been defined yet.
 
 - id: "campaign/planner/decomposition/task-atomization"
+  section_of: "campaign/planner/decomposition"
+  section_order: 2
   category: "campaign"
   subcategory: "planner"
   priority: 90
@@ -82,6 +86,8 @@
     - **/verify**: Manual verification step.
 
 - id: "campaign/planner/decomposition/focus-and-risk"
+  section_of: "campaign/planner/decomposition"
+  section_order: 3
   category: "campaign"
   subcategory: "planner"
   priority: 90

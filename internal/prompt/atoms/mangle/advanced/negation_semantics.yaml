@@ -50,6 +50,8 @@
     **Why**: `manager(/e2)` cannot be proven, so `!manager(/e2)` succeeds.
 
 - id: "language/mangle/docs/advanced/negation_semantics/cwa-vs-owa"
+  section_of: "language/mangle/docs/advanced/negation_semantics"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics: CWA vs. OWA"
@@ -91,6 +93,8 @@
     **Mangle only uses CWA.** There is no "UNKNOWN" truth value.
 
 - id: "language/mangle/docs/advanced/negation_semantics/safety-rules-for-negation"
+  section_of: "language/mangle/docs/advanced/negation_semantics"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics: Safety Rules for Negation"
@@ -145,6 +149,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/negation_semantics/negation-patterns"
+  section_of: "language/mangle/docs/advanced/negation_semantics"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics: Negation Patterns"
@@ -201,6 +207,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/negation_semantics/3-universal-quantification-all"
+  section_of: "language/mangle/docs/advanced/negation_semantics"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics: 3. Universal Quantification (All)"
@@ -236,6 +244,8 @@
     **Logic**: ∀x ∈ Dept. trained(x) ≡ ¬∃x ∈ Dept. ¬trained(x)
 
 - id: "language/mangle/docs/advanced/negation_semantics/4-exclusion-constraints"
+  section_of: "language/mangle/docs/advanced/negation_semantics"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics: 4. Exclusion Constraints"
@@ -271,6 +281,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/negation_semantics/5-integrity-constraints-violations"
+  section_of: "language/mangle/docs/advanced/negation_semantics"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics: 5. Integrity Constraints (Violations)"
@@ -317,6 +329,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/negation_semantics/negation-and-the-anonymous-variable"
+  section_of: "language/mangle/docs/advanced/negation_semantics"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics: Negation and the Anonymous Variable"
@@ -362,6 +376,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/negation_semantics/negation-and-inequality"
+  section_of: "language/mangle/docs/advanced/negation_semantics"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics: Negation and Inequality"
@@ -414,6 +430,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/negation_semantics/negation-performance"
+  section_of: "language/mangle/docs/advanced/negation_semantics"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics: Negation Performance"
@@ -461,6 +479,8 @@
        ```
 
 - id: "language/mangle/docs/advanced/negation_semantics/common-pitfalls"
+  section_of: "language/mangle/docs/advanced/negation_semantics"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics: Common Pitfalls"
@@ -528,6 +548,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/negation_semantics/summary-table"
+  section_of: "language/mangle/docs/advanced/negation_semantics"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Mangle Negation Semantics: Summary Table"

@@ -37,6 +37,8 @@
     ```
 
 - id: "language/mangle/engine_truths_pinned/reducers-and-their-real-arity"
+  section_of: "language/mangle/engine_truths_pinned"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Behaviours of the pinned Mangle engine that were verified by running them, and the forms it rejects: Reducers and their real arity"
@@ -69,6 +71,8 @@
       negated projection. One aggregation per rule; each is its own stratum.
 
 - id: "language/mangle/engine_truths_pinned/external-virtual-predicates-join-on"
+  section_of: "language/mangle/engine_truths_pinned"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Behaviours of the pinned Mangle engine that were verified by running them, and the forms it rejects: External (virtual) predicates join on constants only"
@@ -89,6 +93,8 @@
     into a store, have Go assert the small relevant slice as facts for the turn.
 
 - id: "language/mangle/engine_truths_pinned/registering-a-go-handler-does-nothing"
+  section_of: "language/mangle/engine_truths_pinned"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Behaviours of the pinned Mangle engine that were verified by running them, and the forms it rejects: Registering a Go handler does nothing without an external() Decl"
@@ -119,6 +125,8 @@
     be served by an external at all on this engine. Have Go assert the facts instead.
 
 - id: "language/mangle/engine_truths_pinned/things-that-fail-quietly"
+  section_of: "language/mangle/engine_truths_pinned"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Behaviours of the pinned Mangle engine that were verified by running them, and the forms it rejects: Things that fail quietly"
@@ -146,6 +154,8 @@
       into one fact.
 
 - id: "language/mangle/engine_truths_pinned/cost"
+  section_of: "language/mangle/engine_truths_pinned"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Behaviours of the pinned Mangle engine that were verified by running them, and the forms it rejects: Cost"

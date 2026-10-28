@@ -39,6 +39,8 @@
     ```
 
 - id: "methodology/refactoring/go_workflow/3-manual-refactoring-patterns-in-go"
+  section_of: "methodology/refactoring/go_workflow"
+  section_order: 1
   category: "methodology"
   subcategory: "refactoring"
   priority: 95
@@ -103,6 +105,8 @@
     ```
 
 - id: "methodology/refactoring/go_workflow/common-go-refactoring-targets"
+  section_of: "methodology/refactoring/go_workflow"
+  section_order: 2
   category: "methodology"
   subcategory: "refactoring"
   priority: 95

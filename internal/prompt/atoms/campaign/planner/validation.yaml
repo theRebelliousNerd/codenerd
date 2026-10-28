@@ -46,6 +46,8 @@
     Goal and Context follow.
 
 - id: "campaign/planner/validation/hallucinations-mega-task-and-dependencies"
+  section_of: "campaign/planner/validation"
+  section_order: 1
   category: "campaign"
   subcategory: "planner"
   priority: 80
@@ -70,6 +72,8 @@
     - MITIGATION: For each task, ask "what must exist first?"
 
 - id: "campaign/planner/validation/hallucinations-context-and-complexity"
+  section_of: "campaign/planner/validation"
+  section_order: 2
   category: "campaign"
   subcategory: "planner"
   priority: 80
@@ -94,6 +98,8 @@
     - MITIGATION: Authentication, payments, external APIs = /high minimum
 
 - id: "campaign/planner/validation/planning-rigor-and-self-correction"
+  section_of: "campaign/planner/validation"
+  section_order: 3
   category: "campaign"
   subcategory: "planner"
   priority: 80

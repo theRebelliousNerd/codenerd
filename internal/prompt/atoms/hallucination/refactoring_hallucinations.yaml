@@ -45,6 +45,8 @@
     - Returning reference vs copy is semantically different
 
 - id: "hallucination/refactoring/behavior_changes/validation-and-edge-cases"
+  section_of: "hallucination/refactoring/behavior_changes"
+  section_order: 1
   category: "hallucination"
   subcategory: "refactoring"
   priority: 100
@@ -306,6 +308,8 @@
     If the test needs to change, the behavior changed - that's not refactoring.
 
 - id: "hallucination/refactoring/test_changes/when-test-changes-are-acceptable"
+  section_of: "hallucination/refactoring/test_changes"
+  section_order: 1
   category: "hallucination"
   subcategory: "refactoring"
   priority: 96
@@ -392,6 +396,8 @@
     ```
 
 - id: "hallucination/refactoring/chesterton_fence/hallucination-unused-parameters"
+  section_of: "hallucination/refactoring/chesterton_fence"
+  section_order: 1
   category: "hallucination"
   subcategory: "refactoring"
   priority: 95
@@ -497,6 +503,8 @@
     ```
 
 - id: "hallucination/refactoring/timing_semantics/mutex-lock-scope"
+  section_of: "hallucination/refactoring/timing_semantics"
+  section_order: 1
   category: "hallucination"
   subcategory: "refactoring"
   priority: 94

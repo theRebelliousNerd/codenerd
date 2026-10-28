@@ -37,6 +37,8 @@
     2.  **Next Phase**: What we *thought* we were going to do next -- each task with its ID in brackets, its type, and its write_set, every path marked `exists` or `ABSENT` on disk.
 
 - id: "campaign/replanning/reality_check/the-refinement-protocol"
+  section_of: "campaign/replanning/reality_check"
+  section_order: 1
   category: "methodology"
   subcategory: "state_reconciliation"
   priority: 75

@@ -26,6 +26,8 @@
     | **Constants** | Strings everywhere | Atoms (`/name`) are distinct type |
 
 - id: "language/mangle/docs/failure_modes/00_INDEX/failure-mode-catalog"
+  section_of: "language/mangle/docs/failure_modes/00_INDEX"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: Failure Mode Catalog"
@@ -56,6 +58,8 @@
     **Key Rule**: Always use `|> do fn:group_by(), let Sum = fn:sum(X)` pipeline
 
 - id: "language/mangle/docs/failure_modes/00_INDEX/03-type-declaration-syntax"
+  section_of: "language/mangle/docs/failure_modes/00_INDEX"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: 03. Type Declaration Syntax"
@@ -90,6 +94,8 @@
     **Key Rule**: Only `#` for comments (like Python/Shell)
 
 - id: "language/mangle/docs/failure_modes/00_INDEX/15-lowercase-variable-names"
+  section_of: "language/mangle/docs/failure_modes/00_INDEX"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: 15. Lowercase Variable Names"
@@ -118,6 +124,8 @@
     **Key Rule**: Generate (positive atom) before filtering (negation)
 
 - id: "language/mangle/docs/failure_modes/00_INDEX/05-stratification-violations-critical"
+  section_of: "language/mangle/docs/failure_modes/00_INDEX"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: 05. Stratification Violations \u26a0\ufe0f CRITICAL"
@@ -152,6 +160,8 @@
     **Key Rule**: Absence = false; derive "missing" from negation, not sentinel values
 
 - id: "language/mangle/docs/failure_modes/00_INDEX/category-3-performance-anti-patterns"
+  section_of: "language/mangle/docs/failure_modes/00_INDEX"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: Category 3: Performance Anti-Patterns"
@@ -182,6 +192,8 @@
     **Key Rule**: Use `:match_field(Struct, /key, Value)` for all field access
 
 - id: "language/mangle/docs/failure_modes/00_INDEX/category-5-go-integration-api-gaps"
+  section_of: "language/mangle/docs/failure_modes/00_INDEX"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: Category 5: Go Integration (API Gaps)"
@@ -202,6 +214,8 @@
     **Key Rule**: Use typed constructors (`engine.Atom`, `factstore.MakeFact`); parse before eval
 
 - id: "language/mangle/docs/failure_modes/00_INDEX/category-6-architectural-anti-patterns"
+  section_of: "language/mangle/docs/failure_modes/00_INDEX"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: Category 6: Architectural Anti-Patterns"
@@ -229,6 +243,8 @@
     **Key Rule**: Vector DB for search, Mangle for reasoning, Go for assembly
 
 - id: "language/mangle/docs/failure_modes/00_INDEX/quick-reference-by-symptom"
+  section_of: "language/mangle/docs/failure_modes/00_INDEX"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: Quick Reference by Symptom"
@@ -258,6 +274,8 @@
     | Variables don't unify | #15 Lowercase Variables | `15_lowercase_variable_names.md` |
 
 - id: "language/mangle/docs/failure_modes/00_INDEX/quick-reference-by-language-bias"
+  section_of: "language/mangle/docs/failure_modes/00_INDEX"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: Quick Reference by Language Bias"
@@ -283,6 +301,8 @@
     | C/C++/Java | `//` or `/* */` comments | #14 Comment Syntax |
 
 - id: "language/mangle/docs/failure_modes/00_INDEX/validation-checklist"
+  section_of: "language/mangle/docs/failure_modes/00_INDEX"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: Validation Checklist"
@@ -311,6 +331,8 @@
     - [ ] **No fuzzy matching**: Don't store 100+ patterns in Mangle
 
 - id: "language/mangle/docs/failure_modes/00_INDEX/critical-patterns-to-memorize"
+  section_of: "language/mangle/docs/failure_modes/00_INDEX"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: Critical Patterns to Memorize"
@@ -365,6 +387,8 @@
     4. **Context**: Atom includes wrong code, correct code, detection, and prevention
 
 - id: "language/mangle/docs/failure_modes/00_INDEX/usage-in-codenerd"
+  section_of: "language/mangle/docs/failure_modes/00_INDEX"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Mangle Failure Modes - Complete Index: Usage in codeNERD"

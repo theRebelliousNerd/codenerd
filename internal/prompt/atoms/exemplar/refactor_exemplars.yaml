@@ -47,6 +47,8 @@
     ```
 
 - id: "exemplar/refactor/extract_method/after"
+  section_of: "exemplar/refactor/extract_method"
+  section_order: 1
   category: "exemplar"
   subcategory: "refactor"
   priority: 90

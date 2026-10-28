@@ -52,6 +52,8 @@
     ```
 
 - id: "language/mangle/docs/error_fixes/stratification_error/fix-strategy"
+  section_of: "language/mangle/docs/error_fixes/stratification_error"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Fix: Stratification Error: Fix Strategy"
@@ -122,6 +124,8 @@
     ```
 
 - id: "language/mangle/docs/error_fixes/stratification_error/fix-stratification-error-prevention"
+  section_of: "language/mangle/docs/error_fixes/stratification_error"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Fix: Stratification Error: Fix: Stratification Error Prevention"

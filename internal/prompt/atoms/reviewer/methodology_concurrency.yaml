@@ -315,6 +315,8 @@
     ```
 
 - id: "reviewer/methodology/resource_cleanup/resource-leak-checklist"
+  section_of: "reviewer/methodology/resource_cleanup"
+  section_order: 1
   category: "methodology"
   subcategory: "concurrency"
   priority: 86

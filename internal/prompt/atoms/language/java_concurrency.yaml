@@ -49,6 +49,8 @@
     - Java 19+: try-with-resources for auto-shutdown
 
 - id: "language/java/concurrency/executor_service/proper-shutdown-pattern"
+  section_of: "language/java/concurrency/executor_service"
+  section_order: 1
   category: "language"
   subcategory: "java"
   priority: 90
@@ -91,6 +93,8 @@
     ```
 
 - id: "language/java/concurrency/executor_service/invoke-all-any"
+  section_of: "language/java/concurrency/executor_service"
+  section_order: 2
   category: "language"
   subcategory: "java"
   priority: 90
@@ -167,6 +171,8 @@
     - `orTimeout` (Java 9+) - fail on timeout
 
 - id: "language/java/concurrency/completable_future/completablefuture-patterns-error-handling"
+  section_of: "language/java/concurrency/completable_future"
+  section_order: 1
   category: "language"
   subcategory: "java"
   priority: 92
@@ -207,6 +213,8 @@
     ```
 
 - id: "language/java/concurrency/completable_future/timeout-java-9"
+  section_of: "language/java/concurrency/completable_future"
+  section_order: 2
   category: "language"
   subcategory: "java"
   priority: 92
@@ -294,6 +302,8 @@
     - `volatile` - visibility only, NOT atomicity
 
 - id: "language/java/concurrency/synchronization/reentrantlock"
+  section_of: "language/java/concurrency/synchronization"
+  section_order: 1
   category: "language"
   subcategory: "java"
   priority: 88
@@ -342,6 +352,8 @@
     ```
 
 - id: "language/java/concurrency/synchronization/readwritelock"
+  section_of: "language/java/concurrency/synchronization"
+  section_order: 2
   category: "language"
   subcategory: "java"
   priority: 88
@@ -402,6 +414,8 @@
     ```
 
 - id: "language/java/concurrency/synchronization/volatile-keyword"
+  section_of: "language/java/concurrency/synchronization"
+  section_order: 3
   category: "language"
   subcategory: "java"
   priority: 88
@@ -468,6 +482,8 @@
     - `CopyOnWriteArrayList` for read-heavy, rare writes
 
 - id: "language/java/concurrency/concurrent_collections/bulk-operations"
+  section_of: "language/java/concurrency/concurrent_collections"
+  section_order: 1
   category: "language"
   subcategory: "java"
   priority: 85
@@ -498,6 +514,8 @@
     ```
 
 - id: "language/java/concurrency/concurrent_collections/other-concurrent-collections"
+  section_of: "language/java/concurrency/concurrent_collections"
+  section_order: 2
   category: "language"
   subcategory: "java"
   priority: 85

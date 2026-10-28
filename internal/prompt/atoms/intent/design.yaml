@@ -39,6 +39,8 @@
     - [ ] No production code written; hand-off to `/implement` is explicit
 
 - id: "intent/design/core/required-context-1-2"
+  section_of: "intent/design/core"
+  section_order: 1
   category: "intent"
   subcategory: "design"
   priority: 95
@@ -57,6 +59,8 @@
        layer placement, kernel truth, prompt surface, failure modes.
 
 - id: "intent/design/core/required-context-3-5"
+  section_of: "intent/design/core"
+  section_order: 2
   category: "intent"
   subcategory: "design"
   priority: 95
@@ -75,6 +79,8 @@
        the change named.
 
 - id: "intent/design/core/workflow"
+  section_of: "intent/design/core"
+  section_order: 3
   category: "intent"
   subcategory: "design"
   priority: 95
@@ -117,6 +123,8 @@
     bar applies to placement claims).
 
 - id: "intent/design/architecture/kernel-truth-decision"
+  section_of: "intent/design/architecture"
+  section_order: 1
   category: "intent"
   subcategory: "design"
   priority: 90
@@ -144,6 +152,8 @@
     cheapest design reuses existing truth.
 
 - id: "intent/design/architecture/prompt-surface-only-if-the-design-adds"
+  section_of: "intent/design/architecture"
+  section_order: 2
   category: "intent"
   subcategory: "design"
   priority: 90
@@ -196,6 +206,8 @@
       `/file_modify`; the design states which per file.
 
 - id: "intent/design/constraints/prior-decisions-consistency"
+  section_of: "intent/design/constraints"
+  section_order: 1
   category: "intent"
   subcategory: "design"
   priority: 85

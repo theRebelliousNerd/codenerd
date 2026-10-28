@@ -67,6 +67,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/side_effects/anti-pattern-2-file-i-o"
+  section_of: "language/mangle/docs/antipatterns/side_effects"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern 2: File I/O"
@@ -126,6 +128,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/side_effects/anti-pattern-3-database-operations"
+  section_of: "language/mangle/docs/antipatterns/side_effects"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern 3: Database Operations"
@@ -184,6 +188,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/side_effects/anti-pattern-4-network-requests"
+  section_of: "language/mangle/docs/antipatterns/side_effects"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern 4: Network Requests"
@@ -243,6 +249,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/side_effects/anti-pattern-5-random-number-generation"
+  section_of: "language/mangle/docs/antipatterns/side_effects"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern 5: Random Number Generation"
@@ -291,6 +299,8 @@
     **Key Insight:** Randomness is an external input, loaded as facts. Derivation is deterministic.
 
 - id: "language/mangle/docs/antipatterns/side_effects/anti-pattern-6-current-time-date"
+  section_of: "language/mangle/docs/antipatterns/side_effects"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern 6: Current Time/Date"
@@ -343,6 +353,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/side_effects/anti-pattern-7-modifying-global-state"
+  section_of: "language/mangle/docs/antipatterns/side_effects"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern 7: Modifying Global State"
@@ -396,6 +408,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/side_effects/anti-pattern-8-sending-messages-events"
+  section_of: "language/mangle/docs/antipatterns/side_effects"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern 8: Sending Messages/Events"
@@ -457,6 +471,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/side_effects/anti-pattern-9-throwing-exceptions"
+  section_of: "language/mangle/docs/antipatterns/side_effects"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern 9: Throwing Exceptions"
@@ -512,6 +528,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/side_effects/anti-pattern-10-calling-external-apis"
+  section_of: "language/mangle/docs/antipatterns/side_effects"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern 10: Calling External APIs"
@@ -575,6 +593,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/side_effects/anti-pattern-11-timing-sleeping"
+  section_of: "language/mangle/docs/antipatterns/side_effects"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern 11: Timing/Sleeping"
@@ -628,6 +648,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/side_effects/anti-pattern-12-callbacks-event-handlers"
+  section_of: "language/mangle/docs/antipatterns/side_effects"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern 12: Callbacks/Event Handlers"
@@ -683,6 +705,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/side_effects/pattern-effect-systems-in-mangle"
+  section_of: "language/mangle/docs/antipatterns/side_effects"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Pattern: Effect Systems in Mangle"
@@ -734,6 +758,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/side_effects/key-principle-purity"
+  section_of: "language/mangle/docs/antipatterns/side_effects"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Key Principle: Purity"
@@ -761,6 +787,8 @@
     | `register_callback(...)` | Derive handler facts, execute in Go |
 
 - id: "language/mangle/docs/antipatterns/side_effects/external-predicates-the-exception"
+  section_of: "language/mangle/docs/antipatterns/side_effects"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: External Predicates: The Exception"
@@ -809,6 +837,8 @@
     Use sparingly! Most I/O should happen in Go before/after Mangle evaluation.
 
 - id: "language/mangle/docs/antipatterns/side_effects/anti-pattern-side-effects-migration"
+  section_of: "language/mangle/docs/antipatterns/side_effects"
+  section_order: 15
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Anti-Pattern: Side Effects Migration Checklist"
@@ -838,6 +868,8 @@
     - [ ] Remember: Mangle describes effects, Go executes them
 
 - id: "language/mangle/docs/antipatterns/side_effects/pro-tip-separate-concerns"
+  section_of: "language/mangle/docs/antipatterns/side_effects"
+  section_order: 16
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Side Effects: Pro Tip: Separate Concerns"

@@ -21,6 +21,8 @@
     6. **Type mismatch** (atom vs string confusion)
 
 - id: "language/mangle/docs/advanced/debugging/debugging-technique-1-tracing"
+  section_of: "language/mangle/docs/advanced/debugging"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Debugging Mangle Programs: Debugging Technique 1: Tracing"
@@ -70,6 +72,8 @@
     **Diagnosis**: `employee_salary` predicate has no facts.
 
 - id: "language/mangle/docs/advanced/debugging/debugging-technique-2-incremental-rule"
+  section_of: "language/mangle/docs/advanced/debugging"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Debugging Mangle Programs: Debugging Technique 2: Incremental Rule Building"
@@ -109,6 +113,8 @@
     **Diagnosis**: Clause 4 has no matching facts.
 
 - id: "language/mangle/docs/advanced/debugging/debugging-technique-3-print-intermediate"
+  section_of: "language/mangle/docs/advanced/debugging"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Debugging Mangle Programs: Debugging Technique 3: Print Intermediate Values"
@@ -147,6 +153,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/debugging/debugging-technique-4-count-results"
+  section_of: "language/mangle/docs/advanced/debugging"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Debugging Mangle Programs: Debugging Technique 4: Count Results"
@@ -177,6 +185,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/debugging/debugging-technique-5-negation-debugging"
+  section_of: "language/mangle/docs/advanced/debugging"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Debugging Mangle Programs: Debugging Technique 5: Negation Debugging"
@@ -230,6 +240,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/debugging/debugging-technique-6-stratification-check"
+  section_of: "language/mangle/docs/advanced/debugging"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Debugging Mangle Programs: Debugging Technique 6: Stratification Check"
@@ -281,6 +293,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/debugging/debugging-technique-8-check-variable-binding"
+  section_of: "language/mangle/docs/advanced/debugging"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Debugging Mangle Programs: Debugging Technique 8: Check Variable Binding"
@@ -348,6 +362,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/debugging/debugging-technique-10-minimize-failing-case"
+  section_of: "language/mangle/docs/advanced/debugging"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Debugging Mangle Programs: Debugging Technique 10: Minimize Failing Case"
@@ -406,6 +422,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/debugging/bug-3-wrong-variable-scope"
+  section_of: "language/mangle/docs/advanced/debugging"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Debugging Mangle Programs: Bug 3: Wrong Variable Scope"
@@ -442,6 +460,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/debugging/bug-5-empty-aggregation"
+  section_of: "language/mangle/docs/advanced/debugging"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Debugging Mangle Programs: Bug 5: Empty Aggregation"
@@ -474,6 +494,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/debugging/logging-and-instrumentation"
+  section_of: "language/mangle/docs/advanced/debugging"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Debugging Mangle Programs: Logging and Instrumentation"
@@ -522,6 +544,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/debugging/debugging-checklist"
+  section_of: "language/mangle/docs/advanced/debugging"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Debugging Mangle Programs: Debugging Checklist"
@@ -545,6 +569,8 @@
     - [ ] Rules have periods (`.`) at the end
 
 - id: "language/mangle/docs/advanced/debugging/interactive-debugging-session-example"
+  section_of: "language/mangle/docs/advanced/debugging"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Debugging Mangle Programs: Interactive Debugging Session Example"
@@ -598,6 +624,8 @@
     **Fix**: Lower threshold or add more purchase data.
 
 - id: "language/mangle/docs/advanced/debugging/tools"
+  section_of: "language/mangle/docs/advanced/debugging"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Debugging Mangle Programs: Tools"
@@ -647,6 +675,8 @@
     ```
 
 - id: "language/mangle/docs/advanced/debugging/debugging-mangle-programs-summary"
+  section_of: "language/mangle/docs/advanced/debugging"
+  section_order: 15
   category: "language"
   subcategory: "mangle"
   description: "Debugging Mangle Programs: Debugging Mangle Programs Summary"

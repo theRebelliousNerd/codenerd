@@ -36,6 +36,8 @@
     **Note**: Bracket notation `[...]` is syntactic sugar for `fn:list(...)`.
 
 - id: "language/mangle/docs/builtins_complete/functions_lists/fn-cons"
+  section_of: "language/mangle/docs/builtins_complete/functions_lists"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: List Operations: fn:cons"
@@ -95,6 +97,8 @@
     ```
 
 - id: "language/mangle/docs/builtins_complete/functions_lists/list-access"
+  section_of: "language/mangle/docs/builtins_complete/functions_lists"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: List Operations: List Access"
@@ -158,6 +162,8 @@
     **Complexity**: O(n) - must traverse the entire list.
 
 - id: "language/mangle/docs/builtins_complete/functions_lists/list-operations"
+  section_of: "language/mangle/docs/builtins_complete/functions_lists"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: List Operations: List Operations"
@@ -220,6 +226,8 @@
     ```
 
 - id: "language/mangle/docs/builtins_complete/functions_lists/list-processing-patterns"
+  section_of: "language/mangle/docs/builtins_complete/functions_lists"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: List Operations: List Processing Patterns"
@@ -293,6 +301,8 @@
     ```
 
 - id: "language/mangle/docs/builtins_complete/functions_lists/list-aggregation"
+  section_of: "language/mangle/docs/builtins_complete/functions_lists"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: List Operations: List Aggregation"
@@ -345,6 +355,8 @@
     ```
 
 - id: "language/mangle/docs/builtins_complete/functions_lists/list-comparison"
+  section_of: "language/mangle/docs/builtins_complete/functions_lists"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: List Operations: List Comparison"
@@ -417,6 +429,8 @@
     **Better**: Use cons and reverse, or build differently.
 
 - id: "language/mangle/docs/builtins_complete/functions_lists/list-functions-summary"
+  section_of: "language/mangle/docs/builtins_complete/functions_lists"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: List Operations: List Functions Summary"

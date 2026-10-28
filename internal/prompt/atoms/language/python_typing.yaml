@@ -51,6 +51,8 @@
     - `Callable[[args], return]` for function types
 
 - id: "language/python/typing/fundamentals/callable-types"
+  section_of: "language/python/typing/fundamentals"
+  section_order: 1
   category: "language"
   subcategory: "python"
   priority: 85
@@ -152,6 +154,8 @@
     - Covariant (output), Contravariant (input), Invariant (exact)
 
 - id: "language/python/typing/generics/python-3-12-type-parameter-syntax-preferred"
+  section_of: "language/python/typing/generics"
+  section_order: 1
   category: "language"
   subcategory: "python"
   priority: 84
@@ -260,6 +264,8 @@
     - Use Protocol over ABC when inheritance isn't required
 
 - id: "language/python/typing/protocol/protocol-with-generic"
+  section_of: "language/python/typing/protocol"
+  section_order: 1
   category: "language"
   subcategory: "python"
   priority: 86
@@ -299,6 +305,8 @@
     ```
 
 - id: "language/python/typing/protocol/protocol-vs-abc"
+  section_of: "language/python/typing/protocol"
+  section_order: 2
   category: "language"
   subcategory: "python"
   priority: 86
@@ -372,6 +380,8 @@
     - Essential for type-safe decorators in Python 3.10+
 
 - id: "language/python/typing/paramspec/concatenate-for-adding-parameters"
+  section_of: "language/python/typing/paramspec"
+  section_order: 1
   category: "language"
   subcategory: "python"
   priority: 83
@@ -408,6 +418,8 @@
     ```
 
 - id: "language/python/typing/paramspec/common-decorator-patterns"
+  section_of: "language/python/typing/paramspec"
+  section_order: 2
   category: "language"
   subcategory: "python"
   priority: 83
@@ -498,6 +510,8 @@
     - `cast()` is escape hatch - no runtime check
 
 - id: "language/python/typing/narrowing/typeis-for-precise-narrowing-python-3-13"
+  section_of: "language/python/typing/narrowing"
+  section_order: 1
   category: "language"
   subcategory: "python"
   priority: 82
@@ -542,6 +556,8 @@
     ```
 
 - id: "language/python/typing/narrowing/typing-cast-escape-hatch"
+  section_of: "language/python/typing/narrowing"
+  section_order: 2
   category: "language"
   subcategory: "python"
   priority: 82

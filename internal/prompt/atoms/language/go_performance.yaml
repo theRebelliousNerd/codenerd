@@ -132,6 +132,8 @@
     - Order struct fields by size (largest first)
 
 - id: "language/go/performance/allocation/strings-builder-for-concatenation"
+  section_of: "language/go/performance/allocation"
+  section_order: 1
   category: "language"
   subcategory: "go"
   priority: 79
@@ -327,6 +329,8 @@
     - atomic for counters, mutex for complex state
 
 - id: "language/go/performance/concurrency/lock-contention"
+  section_of: "language/go/performance/concurrency"
+  section_order: 1
   category: "language"
   subcategory: "go"
   priority: 76
@@ -462,6 +466,8 @@
     - Consider json-iterator for high-throughput JSON
 
 - id: "language/go/performance/io/json-performance"
+  section_of: "language/go/performance/io"
+  section_order: 1
   category: "language"
   subcategory: "go"
   priority: 75
@@ -584,6 +590,8 @@
     Compare: `benchstat old.txt new.txt`
 
 - id: "language/go/performance/benchmarking/avoiding-compiler-optimization"
+  section_of: "language/go/performance/benchmarking"
+  section_order: 1
   category: "language"
   subcategory: "go"
   priority: 74
@@ -640,6 +648,8 @@
     ```
 
 - id: "language/go/performance/benchmarking/common-mistakes"
+  section_of: "language/go/performance/benchmarking"
+  section_order: 2
   category: "language"
   subcategory: "go"
   priority: 74

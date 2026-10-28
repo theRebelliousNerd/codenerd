@@ -27,6 +27,8 @@
     Every row is `path:start-end  kind  ref  rev <rev>  signature`: a finished citation (repo-relative path, real lines) and an address every element tool accepts. Quote it as is; never retype a path from memory.
 
 - id: "capability/structure_queries/caller-marks-and-search-gate"
+  section_of: "capability/structure_queries"
+  section_order: 1
   category: "capability"
   subcategory: "structural_navigation"
   priority: 97  # Above codedom_selection: locating comes before editing

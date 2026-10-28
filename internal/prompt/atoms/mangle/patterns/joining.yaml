@@ -21,6 +21,8 @@
     - Join optimization (avoiding cartesian products)
 
 - id: "language/mangle/docs/patterns/joining/core-pattern-inner-join"
+  section_of: "language/mangle/docs/patterns/joining"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Core Pattern: Inner Join"
@@ -73,6 +75,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/joining/variation-1-multi-way-join-3-predicates"
+  section_of: "language/mangle/docs/patterns/joining"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Variation 1: Multi-Way Join (3+ Predicates)"
@@ -121,6 +125,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/joining/variation-2-left-join-outer-join"
+  section_of: "language/mangle/docs/patterns/joining"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Variation 2: Left Join (Outer Join)"
@@ -174,6 +180,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/joining/variation-3-self-join"
+  section_of: "language/mangle/docs/patterns/joining"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Variation 3: Self-Join"
@@ -218,6 +226,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/joining/variation-4-join-with-aggregation"
+  section_of: "language/mangle/docs/patterns/joining"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Variation 4: Join with Aggregation"
@@ -265,6 +275,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/joining/variation-5-conditional-join"
+  section_of: "language/mangle/docs/patterns/joining"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Variation 5: Conditional Join"
@@ -313,6 +325,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/joining/variation-6-star-join-fact-table-dimensions"
+  section_of: "language/mangle/docs/patterns/joining"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Variation 6: Star Join (Fact Table + Dimensions)"
@@ -360,6 +374,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/joining/variation-7-join-with-inequality"
+  section_of: "language/mangle/docs/patterns/joining"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Variation 7: Join with Inequality"
@@ -404,6 +420,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/joining/variation-8-anti-join-exclude-matching"
+  section_of: "language/mangle/docs/patterns/joining"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Variation 8: Anti-Join (Exclude Matching)"
@@ -451,6 +469,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/joining/variation-9-semi-join-exists-check"
+  section_of: "language/mangle/docs/patterns/joining"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Variation 9: Semi-Join (Exists Check)"
@@ -495,6 +515,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/joining/variation-10-chain-join-a-b-c-d"
+  section_of: "language/mangle/docs/patterns/joining"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Variation 10: Chain Join (A\u2192B\u2192C\u2192D)"
@@ -538,6 +560,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/joining/anti-patterns"
+  section_of: "language/mangle/docs/patterns/joining"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Anti-Patterns"
@@ -603,6 +627,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/joining/joining-patterns-performance-tips"
+  section_of: "language/mangle/docs/patterns/joining"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Joining Patterns Performance Tips"
@@ -653,6 +679,8 @@
        ```
 
 - id: "language/mangle/docs/patterns/joining/common-use-cases-in-codenerd"
+  section_of: "language/mangle/docs/patterns/joining"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Joining Patterns: Common Use Cases in codeNERD"

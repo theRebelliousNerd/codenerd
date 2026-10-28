@@ -44,6 +44,8 @@
     ```
 
 - id: "language/mangle/docs/stratification/how-to-fix"
+  section_of: "language/mangle/docs/stratification"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: How to Fix"
@@ -106,6 +108,8 @@
     ```
 
 - id: "language/mangle/docs/stratification/detection-checklist"
+  section_of: "language/mangle/docs/stratification"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Stratification: Detection Checklist"

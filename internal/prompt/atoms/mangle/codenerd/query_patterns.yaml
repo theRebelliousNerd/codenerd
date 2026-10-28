@@ -41,6 +41,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/query_patterns/intent-focus-queries"
+  section_of: "language/mangle/docs/codenerd/query_patterns"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Intent & Focus Queries"
@@ -94,6 +96,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/query_patterns/file-system-queries"
+  section_of: "language/mangle/docs/codenerd/query_patterns"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: File System Queries"
@@ -171,6 +175,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/query_patterns/impact-analysis-queries"
+  section_of: "language/mangle/docs/codenerd/query_patterns"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Impact Analysis Queries"
@@ -212,6 +218,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/query_patterns/symbol-graph-queries"
+  section_of: "language/mangle/docs/codenerd/query_patterns"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Symbol Graph Queries"
@@ -269,6 +277,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/query_patterns/diagnostic-queries"
+  section_of: "language/mangle/docs/codenerd/query_patterns"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Diagnostic Queries"
@@ -348,6 +358,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/query_patterns/tdd-loop-queries"
+  section_of: "language/mangle/docs/codenerd/query_patterns"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: TDD Loop Queries"
@@ -413,6 +425,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/query_patterns/permission-safety-queries"
+  section_of: "language/mangle/docs/codenerd/query_patterns"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Permission & Safety Queries"
@@ -459,6 +473,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/query_patterns/context-selection-queries"
+  section_of: "language/mangle/docs/codenerd/query_patterns"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Context Selection Queries"
@@ -492,6 +508,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/query_patterns/shard-management-queries"
+  section_of: "language/mangle/docs/codenerd/query_patterns"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Shard Management Queries"
@@ -540,6 +558,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/query_patterns/campaign-queries"
+  section_of: "language/mangle/docs/codenerd/query_patterns"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Campaign Queries"
@@ -608,6 +628,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/query_patterns/autopoiesis-queries-ouroboros-loop"
+  section_of: "language/mangle/docs/codenerd/query_patterns"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Autopoiesis Queries (Ouroboros Loop)"
@@ -665,6 +687,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/query_patterns/aggregation-queries"
+  section_of: "language/mangle/docs/codenerd/query_patterns"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Aggregation Queries"
@@ -723,6 +747,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/query_patterns/complex-join-queries"
+  section_of: "language/mangle/docs/codenerd/query_patterns"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Complex Join Queries"
@@ -784,6 +810,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/query_patterns/debugging-queries"
+  section_of: "language/mangle/docs/codenerd/query_patterns"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Debugging Queries"
@@ -826,6 +854,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/query_patterns/mangle-query-patterns-for-codenerd"
+  section_of: "language/mangle/docs/codenerd/query_patterns"
+  section_order: 15
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Mangle Query Patterns for codeNERD Performance Tips"
@@ -871,6 +901,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/query_patterns/mangle-query-patterns-for-codenerd-error"
+  section_of: "language/mangle/docs/codenerd/query_patterns"
+  section_order: 16
   category: "language"
   subcategory: "mangle"
   description: "Mangle Query Patterns for codeNERD: Mangle Query Patterns for codeNERD Error Handling"

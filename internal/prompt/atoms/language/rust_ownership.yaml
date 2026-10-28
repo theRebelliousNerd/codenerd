@@ -249,6 +249,8 @@
     - `Mutex<T>`: Thread-safe mutation
 
 - id: "language/rust/ownership/smart_pointers/refcell-t-interior-mutability"
+  section_of: "language/rust/ownership/smart_pointers"
+  section_order: 1
   category: "language"
   subcategory: "rust"
   priority: 85

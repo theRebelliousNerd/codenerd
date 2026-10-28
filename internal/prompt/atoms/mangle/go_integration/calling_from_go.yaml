@@ -57,6 +57,8 @@
     - `error` - Syntax errors if any
 
 - id: "language/mangle/docs/go_integration/calling_from_go/step-2-analyze-the-program"
+  section_of: "language/mangle/docs/go_integration/calling_from_go"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Calling Mangle from Go: Complete Integration Guide: Step 2: Analyze the Program"
@@ -102,6 +104,8 @@
     - `error` - If program cannot be stratified (cycle through negation)
 
 - id: "language/mangle/docs/go_integration/calling_from_go/step-4-prepare-fact-store"
+  section_of: "language/mangle/docs/go_integration/calling_from_go"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Calling Mangle from Go: Complete Integration Guide: Step 4: Prepare Fact Store"
@@ -153,6 +157,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration/calling_from_go/step-6-query-results"
+  section_of: "language/mangle/docs/go_integration/calling_from_go"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Calling Mangle from Go: Complete Integration Guide: Step 6: Query Results"
@@ -183,6 +189,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration/calling_from_go/working-with-facts"
+  section_of: "language/mangle/docs/go_integration/calling_from_go"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Calling Mangle from Go: Complete Integration Guide: Working with Facts"
@@ -248,6 +256,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration/calling_from_go/calling-mangle-from-go-complete-integration"
+  section_of: "language/mangle/docs/go_integration/calling_from_go"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Calling Mangle from Go: Complete Integration Guide: Calling Mangle from Go: Complete Integration Guide Complete Example"
@@ -320,6 +330,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration/calling_from_go/evaluation-options"
+  section_of: "language/mangle/docs/go_integration/calling_from_go"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Calling Mangle from Go: Complete Integration Guide: Evaluation Options"
@@ -353,6 +365,8 @@
     - `WithStackDepth(depth)` - Maximum recursion depth
 
 - id: "language/mangle/docs/go_integration/calling_from_go/calling-mangle-from-go-complete-integration-2"
+  section_of: "language/mangle/docs/go_integration/calling_from_go"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Calling Mangle from Go: Complete Integration Guide: Calling Mangle from Go: Complete Integration Guide Error Handling"
@@ -407,6 +421,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration/calling_from_go/querying-patterns"
+  section_of: "language/mangle/docs/go_integration/calling_from_go"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Calling Mangle from Go: Complete Integration Guide: Querying Patterns"
@@ -467,6 +483,8 @@
     ```
 
 - id: "language/mangle/docs/go_integration/calling_from_go/calling-mangle-from-go-complete-integration-3"
+  section_of: "language/mangle/docs/go_integration/calling_from_go"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Calling Mangle from Go: Complete Integration Guide: Calling Mangle from Go: Complete Integration Guide Performance Tips"
@@ -521,6 +539,8 @@
     `engine.NewStore()` creates fresh state. Don't reuse stores unless you want cumulative facts.
 
 - id: "language/mangle/docs/go_integration/calling_from_go/type-checking-integration"
+  section_of: "language/mangle/docs/go_integration/calling_from_go"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Calling Mangle from Go: Complete Integration Guide: Type Checking Integration"

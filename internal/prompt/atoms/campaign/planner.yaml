@@ -107,6 +107,8 @@
     - MITIGATION: /research task must check directory structure first
 
 - id: "campaign/planner/anti_patterns/hallucinations-1-4"
+  section_of: "campaign/planner/anti_patterns"
+  section_order: 1
   category: "safety"
   subcategory: "hallucination_prevention"
   priority: 70

@@ -63,6 +63,8 @@
     - Arithmetic computations
 
 - id: "language/mangle/docs/data_model/complete_reference/floating-point-numbers"
+  section_of: "language/mangle/docs/data_model/complete_reference"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Floating-Point Numbers"
@@ -130,6 +132,8 @@
     - Raw file content
 
 - id: "language/mangle/docs/data_model/complete_reference/structured-data-types"
+  section_of: "language/mangle/docs/data_model/complete_reference"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Structured Data Types"
@@ -182,6 +186,8 @@
     - Compound values
 
 - id: "language/mangle/docs/data_model/complete_reference/lists"
+  section_of: "language/mangle/docs/data_model/complete_reference"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Lists"
@@ -226,6 +232,8 @@
     - Paths, routes
 
 - id: "language/mangle/docs/data_model/complete_reference/maps"
+  section_of: "language/mangle/docs/data_model/complete_reference"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Maps"
@@ -266,6 +274,8 @@
     - Sparse data
 
 - id: "language/mangle/docs/data_model/complete_reference/structs"
+  section_of: "language/mangle/docs/data_model/complete_reference"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Structs"
@@ -314,6 +324,8 @@
     | Bytes | (varies) | `ast.BytesType` | Binary data |
 
 - id: "language/mangle/docs/data_model/complete_reference/constructed-types"
+  section_of: "language/mangle/docs/data_model/complete_reference"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Constructed Types"
@@ -367,6 +379,8 @@
     ```
 
 - id: "language/mangle/docs/data_model/complete_reference/union-types"
+  section_of: "language/mangle/docs/data_model/complete_reference"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Union Types"
@@ -433,6 +447,8 @@
     - Each `_` is distinct
 
 - id: "language/mangle/docs/data_model/complete_reference/predicates-and-facts"
+  section_of: "language/mangle/docs/data_model/complete_reference"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Predicates and Facts"
@@ -478,6 +494,8 @@
     - **Input data** - What you start with
 
 - id: "language/mangle/docs/data_model/complete_reference/atoms"
+  section_of: "language/mangle/docs/data_model/complete_reference"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Atoms"
@@ -541,6 +559,8 @@
     ```
 
 - id: "language/mangle/docs/data_model/complete_reference/data-equality"
+  section_of: "language/mangle/docs/data_model/complete_reference"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Data Equality"
@@ -590,6 +610,8 @@
     ```
 
 - id: "language/mangle/docs/data_model/complete_reference/data-model-best-practices"
+  section_of: "language/mangle/docs/data_model/complete_reference"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Data Model Best Practices"
@@ -609,6 +631,8 @@
     6. **Consistent types**: Don't mix numbers and strings in same field
 
 - id: "language/mangle/docs/data_model/complete_reference/memory-representation-internal"
+  section_of: "language/mangle/docs/data_model/complete_reference"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Mangle Data Model: Complete Reference: Memory Representation (Internal)"

@@ -19,6 +19,8 @@
     When final_page is true, return only one JSON object with keys: Mission, Problem, Vision, Personas, Capabilities, Risks, Requirements, Constraints, FieldSources. Mission, Problem and Vision must be nonempty. If a vision source is a draft or work in progress, keep the Vision string marked that way; do not promote it to a finished statement. Item shapes and sourcing follow in the next atoms.
 
 - id: "northstar/derive/vision/item-shapes"
+  section_of: "northstar/derive/vision"
+  section_order: 1
   category: "northstar"
   subcategory: "derive"
   priority: 80
@@ -33,6 +35,8 @@
     - Constraints: an array of strings.
 
 - id: "northstar/derive/vision/field-sources"
+  section_of: "northstar/derive/vision"
+  section_order: 2
   category: "northstar"
   subcategory: "derive"
   priority: 80

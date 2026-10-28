@@ -47,6 +47,8 @@
     - ❌ Using with strings - will cause type error
 
 - id: "language/mangle/docs/builtins/arithmetic/fn-minus"
+  section_of: "language/mangle/docs/builtins/arithmetic"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Arithmetic Functions: fn:minus"
@@ -91,6 +93,8 @@
     - ❌ Confusing order with multiple arguments - it's left-to-right subtraction
 
 - id: "language/mangle/docs/builtins/arithmetic/fn-mult"
+  section_of: "language/mangle/docs/builtins/arithmetic"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Arithmetic Functions: fn:mult"
@@ -130,6 +134,8 @@
     - ❌ Overflow not checked - large numbers may wrap around
 
 - id: "language/mangle/docs/builtins/arithmetic/fn-div"
+  section_of: "language/mangle/docs/builtins/arithmetic"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Arithmetic Functions: fn:div"
@@ -177,6 +183,8 @@
     - ❌ Negative division behavior - follows truncation toward zero
 
 - id: "language/mangle/docs/builtins/arithmetic/fn-mod"
+  section_of: "language/mangle/docs/builtins/arithmetic"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Arithmetic Functions: fn:mod"
@@ -206,6 +214,8 @@
     ## Floating-Point Arithmetic
 
 - id: "language/mangle/docs/builtins/arithmetic/fn-float-plus"
+  section_of: "language/mangle/docs/builtins/arithmetic"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Arithmetic Functions: fn:float:plus"
@@ -242,6 +252,8 @@
     - ❌ Expecting exact decimal arithmetic - floating-point has precision limits
 
 - id: "language/mangle/docs/builtins/arithmetic/fn-float-mult"
+  section_of: "language/mangle/docs/builtins/arithmetic"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Arithmetic Functions: fn:float:mult"
@@ -272,6 +284,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/arithmetic/fn-float-div"
+  section_of: "language/mangle/docs/builtins/arithmetic"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Arithmetic Functions: fn:float:div"
@@ -310,6 +324,8 @@
     ```
 
 - id: "language/mangle/docs/builtins/arithmetic/fn-sqrt"
+  section_of: "language/mangle/docs/builtins/arithmetic"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Arithmetic Functions: fn:sqrt"
@@ -360,6 +376,8 @@
     | `fn:sqrt` | ✓ | ✓ | Float64 |
 
 - id: "language/mangle/docs/builtins/arithmetic/mangle-arithmetic-functions-performance"
+  section_of: "language/mangle/docs/builtins/arithmetic"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Arithmetic Functions: Mangle Arithmetic Functions Performance Notes"

@@ -33,6 +33,8 @@
        - Highlight tricky or non‑obvious code paths.
 
 - id: "intent/explain/core/encyclopedic-explain-workflow"
+  section_of: "intent/explain/core"
+  section_order: 1
   category: "intent"
   subcategory: "explain"
   priority: 95

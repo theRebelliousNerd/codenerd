@@ -47,6 +47,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/14_comment_syntax_errors/failure-mode-14-comment-syntax-errors"
+  section_of: "language/mangle/docs/failure_modes/14_comment_syntax_errors"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 14: Comment Syntax Errors: Failure Mode 14: Comment Syntax Errors Correct Code"
@@ -89,6 +91,8 @@
     4. **No block comment syntax** - Use multiple single lines
 
 - id: "language/mangle/docs/failure_modes/14_comment_syntax_errors/quick-reference"
+  section_of: "language/mangle/docs/failure_modes/14_comment_syntax_errors"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 14: Comment Syntax Errors: Quick Reference"

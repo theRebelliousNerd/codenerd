@@ -63,6 +63,8 @@
     - Keep atoms concise (200-500 words each)
 
 - id: "init/kb_shared/creation/avoid-redundancy"
+  section_of: "init/kb_shared/creation"
+  section_order: 1
   category: "init"
   subcategory: "kb_shared"
   priority: 75

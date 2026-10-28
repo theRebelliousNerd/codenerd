@@ -109,6 +109,8 @@
     - **context7_fetch**: Use for external documentation lookups.
 
 - id: "identity/researcher/tool_usage/execution-protocol"
+  section_of: "identity/researcher/tool_usage"
+  section_order: 1
   category: "identity"
   subcategory: "tools"
   priority: 98

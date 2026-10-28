@@ -249,6 +249,8 @@
     ```
 
 - id: "language/go/ai_failures/defer_gotchas/gotcha-4-named-return-modification"
+  section_of: "language/go/ai_failures/defer_gotchas"
+  section_order: 1
   category: "language"
   subcategory: "go"
   priority: 92
@@ -354,6 +356,8 @@
     ```
 
 - id: "language/go/ai_failures/slice_append/bad-concurrent-append"
+  section_of: "language/go/ai_failures/slice_append"
+  section_order: 1
   category: "language"
   subcategory: "go"
   priority: 91
@@ -480,6 +484,8 @@
     ```
 
 - id: "language/go/ai_failures/map_safety/issue-3-map-iteration-order"
+  section_of: "language/go/ai_failures/map_safety"
+  section_order: 1
   category: "language"
   subcategory: "go"
   priority: 90
@@ -691,6 +697,8 @@
     ```
 
 - id: "language/go/ai_failures/context_misuse/misuse-3-using-background-in-request-handler"
+  section_of: "language/go/ai_failures/context_misuse"
+  section_order: 1
   category: "language"
   subcategory: "go"
   priority: 88
@@ -733,6 +741,8 @@
     ```
 
 - id: "language/go/ai_failures/context_misuse/misuse-5-not-checking-ctx-done"
+  section_of: "language/go/ai_failures/context_misuse"
+  section_order: 2
   category: "language"
   subcategory: "go"
   priority: 88

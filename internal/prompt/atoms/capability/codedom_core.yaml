@@ -107,6 +107,8 @@
     - `rs_derive(Ref, Trait)` - Derive macro applications
 
 - id: "capability/codedom_polyglot/stratum-1-semantic-archetypes-idb"
+  section_of: "capability/codedom_polyglot"
+  section_order: 1
   category: "capability"
   subcategory: "semantic_editing"
   priority: 88

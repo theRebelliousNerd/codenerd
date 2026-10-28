@@ -42,6 +42,8 @@
     **Rule:** Variables = UPPERCASE. Constants/Atoms = `/lowercase`.
 
 - id: "language/mangle/docs/antipatterns/prolog_thinking/anti-pattern-2-atom-syntax-no-slash"
+  section_of: "language/mangle/docs/antipatterns/prolog_thinking"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Prolog Thinking: Anti-Pattern 2: Atom Syntax (No Slash)"
@@ -74,6 +76,8 @@
     **Rule:** Atoms (constants/symbols) require `/` prefix. Strings need quotes: `"hello"`.
 
 - id: "language/mangle/docs/antipatterns/prolog_thinking/anti-pattern-3-anonymous-variable-anywhere"
+  section_of: "language/mangle/docs/antipatterns/prolog_thinking"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Prolog Thinking: Anti-Pattern 3: Anonymous Variable Anywhere"
@@ -114,6 +118,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/prolog_thinking/anti-pattern-4-cut-operator"
+  section_of: "language/mangle/docs/antipatterns/prolog_thinking"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Prolog Thinking: Anti-Pattern 4: Cut Operator (!)"
@@ -156,6 +162,8 @@
     **Note:** Both rules may fire. If you need exactly one answer, structure your logic to make rules mutually exclusive.
 
 - id: "language/mangle/docs/antipatterns/prolog_thinking/anti-pattern-5-assert-retract-dynamic-facts"
+  section_of: "language/mangle/docs/antipatterns/prolog_thinking"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Prolog Thinking: Anti-Pattern 5: Assert/Retract Dynamic Facts"
@@ -192,6 +200,8 @@
     **Design Principle:** Mangle derives facts from existing facts. Mutation happens at the engine level (Go API), not in rules.
 
 - id: "language/mangle/docs/antipatterns/prolog_thinking/anti-pattern-6-findall-bagof-setof"
+  section_of: "language/mangle/docs/antipatterns/prolog_thinking"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Prolog Thinking: Anti-Pattern 6: Findall/Bagof/Setof"
@@ -230,6 +240,8 @@
     **Explanation:** Mangle's transform system (`|>`) replaces Prolog's meta-predicates for collecting results.
 
 - id: "language/mangle/docs/antipatterns/prolog_thinking/anti-pattern-7-is-operator-for-arithmetic"
+  section_of: "language/mangle/docs/antipatterns/prolog_thinking"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Prolog Thinking: Anti-Pattern 7: Is Operator for Arithmetic"
@@ -294,6 +306,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/prolog_thinking/anti-pattern-9-dcg-definite-clause-grammar"
+  section_of: "language/mangle/docs/antipatterns/prolog_thinking"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Prolog Thinking: Anti-Pattern 9: DCG (Definite Clause Grammar)"
@@ -350,6 +364,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/prolog_thinking/anti-pattern-11-if-then-else"
+  section_of: "language/mangle/docs/antipatterns/prolog_thinking"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Prolog Thinking: Anti-Pattern 11: If-Then-Else ( -> ; )"
@@ -405,6 +421,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/prolog_thinking/anti-pattern-13-trace-debug-predicates"
+  section_of: "language/mangle/docs/antipatterns/prolog_thinking"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Prolog Thinking: Anti-Pattern 13: Trace/Debug Predicates"
@@ -462,6 +480,8 @@
     **Note:** For constraint solving, use an external solver and load results as facts.
 
 - id: "language/mangle/docs/antipatterns/prolog_thinking/key-differences-prolog-vs-mangle"
+  section_of: "language/mangle/docs/antipatterns/prolog_thinking"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Prolog Thinking: Key Differences: Prolog vs Mangle"
@@ -488,6 +508,8 @@
     | CLP | No constraints - external solver |
 
 - id: "language/mangle/docs/antipatterns/prolog_thinking/anti-pattern-prolog-thinking-migration"
+  section_of: "language/mangle/docs/antipatterns/prolog_thinking"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Prolog Thinking: Anti-Pattern: Prolog Thinking Migration Checklist"

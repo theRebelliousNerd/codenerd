@@ -47,6 +47,8 @@
     - Solution in disguise: "We need microservices" (that's a solution, not a problem)
 
 - id: "northstar/vision_alignment/validation_protocol/vision-statement-validation"
+  section_of: "northstar/vision_alignment/validation_protocol"
+  section_order: 1
   category: "northstar"
   subcategory: "vision_alignment"
   priority: 65
@@ -83,6 +85,8 @@
     - Aspirational only: "We want to serve everyone"
 
 - id: "northstar/vision_alignment/validation_protocol/capability-validation"
+  section_of: "northstar/vision_alignment/validation_protocol"
+  section_order: 2
   category: "northstar"
   subcategory: "vision_alignment"
   priority: 65
@@ -199,6 +203,8 @@
     - Do they serve the personas and vision?
 
 - id: "northstar/vision_alignment/consistency_checking/detecting-inconsistencies"
+  section_of: "northstar/vision_alignment/consistency_checking"
+  section_order: 1
   category: "northstar"
   subcategory: "vision_alignment"
   priority: 55
@@ -252,6 +258,8 @@
     - Preparing for real-world challenges
 
 - id: "northstar/vision_alignment/red_team_mindset/effective-red-team-questions"
+  section_of: "northstar/vision_alignment/red_team_mindset"
+  section_order: 1
   category: "northstar"
   subcategory: "vision_alignment"
   priority: 50
@@ -293,6 +301,8 @@
     - End red team phase with "So how do we address these?"
 
 - id: "northstar/vision_alignment/red_team_mindset/anti-patterns"
+  section_of: "northstar/vision_alignment/red_team_mindset"
+  section_order: 2
   category: "northstar"
   subcategory: "vision_alignment"
   priority: 50

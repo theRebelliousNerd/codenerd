@@ -88,6 +88,8 @@
     ```
 
 - id: "build_layer/service/patterns/service-definition-cont"
+  section_of: "build_layer/service/patterns"
+  section_order: 1
   category: "build_layer"
   subcategory: "service"
   priority: 90

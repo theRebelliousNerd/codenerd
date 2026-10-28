@@ -46,6 +46,8 @@
     - Type mismatch errors
 
 - id: "language/mangle/docs/errors/parse_errors/2-not-an-atom"
+  section_of: "language/mangle/docs/errors/parse_errors"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Parse Errors Reference: 2. Not an Atom"
@@ -89,6 +91,8 @@
     - Token recognition errors
 
 - id: "language/mangle/docs/errors/parse_errors/3-parse-error-generic"
+  section_of: "language/mangle/docs/errors/parse_errors"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Parse Errors Reference: 3. Parse Error (Generic)"
@@ -169,6 +173,8 @@
     ```
 
 - id: "language/mangle/docs/errors/parse_errors/4-token-recognition-error"
+  section_of: "language/mangle/docs/errors/parse_errors"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Parse Errors Reference: 4. Token Recognition Error"
@@ -232,6 +238,8 @@
     ```
 
 - id: "language/mangle/docs/errors/parse_errors/5-no-viable-alternative"
+  section_of: "language/mangle/docs/errors/parse_errors"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Parse Errors Reference: 5. No Viable Alternative"
@@ -299,6 +307,8 @@
     ```
 
 - id: "language/mangle/docs/errors/parse_errors/6-mismatched-input"
+  section_of: "language/mangle/docs/errors/parse_errors"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Parse Errors Reference: 6. Mismatched Input"
@@ -360,6 +370,8 @@
     ```
 
 - id: "language/mangle/docs/errors/parse_errors/7-empty-rule-clause"
+  section_of: "language/mangle/docs/errors/parse_errors"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Parse Errors Reference: 7. Empty Rule/Clause"
@@ -426,6 +438,8 @@
     ```
 
 - id: "language/mangle/docs/errors/parse_errors/9-invalid-atom-constant-name"
+  section_of: "language/mangle/docs/errors/parse_errors"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Parse Errors Reference: 9. Invalid Atom/Constant Name"
@@ -488,6 +502,8 @@
     ```
 
 - id: "language/mangle/docs/errors/parse_errors/diagnostic-patterns"
+  section_of: "language/mangle/docs/errors/parse_errors"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Parse Errors Reference: Diagnostic Patterns"
@@ -532,6 +548,8 @@
     **Fix the first error first**, then re-parse.
 
 - id: "language/mangle/docs/errors/parse_errors/quick-checklist-for-parse-errors"
+  section_of: "language/mangle/docs/errors/parse_errors"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Parse Errors Reference: Quick Checklist for Parse Errors"

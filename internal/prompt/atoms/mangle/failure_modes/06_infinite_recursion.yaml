@@ -24,6 +24,8 @@
     Unbounded recursive rules that generate infinite facts. Mangle uses **eager, exhaustive evaluation** - it computes ALL derivable facts, so unbounded generation causes infinite loops.
 
 - id: "language/mangle/docs/failure_modes/06_infinite_recursion/failure-mode-6-infinite-recursion-in"
+  section_of: "language/mangle/docs/failure_modes/06_infinite_recursion"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint: Failure Mode 6: Infinite Recursion in Fixpoint Wrong Code"
@@ -62,6 +64,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/06_infinite_recursion/failure-mode-6-infinite-recursion-in-2"
+  section_of: "language/mangle/docs/failure_modes/06_infinite_recursion"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint: Failure Mode 6: Infinite Recursion in Fixpoint Correct Code"
@@ -125,6 +129,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/06_infinite_recursion/failure-mode-6-infinite-recursion-in-3"
+  section_of: "language/mangle/docs/failure_modes/06_infinite_recursion"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint: Failure Mode 6: Infinite Recursion in Fixpoint Detection"
@@ -144,6 +150,8 @@
     - **Test**: Trace execution - do new facts keep being generated indefinitely?
 
 - id: "language/mangle/docs/failure_modes/06_infinite_recursion/failure-mode-6-infinite-recursion-in-4"
+  section_of: "language/mangle/docs/failure_modes/06_infinite_recursion"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint: Failure Mode 6: Infinite Recursion in Fixpoint Prevention"
@@ -201,6 +209,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/06_infinite_recursion/safe-recursion-patterns"
+  section_of: "language/mangle/docs/failure_modes/06_infinite_recursion"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint: Safe Recursion Patterns"
@@ -248,6 +258,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/06_infinite_recursion/pattern-4-stratified-dependencies"
+  section_of: "language/mangle/docs/failure_modes/06_infinite_recursion"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint: Pattern 4: Stratified Dependencies"
@@ -279,6 +291,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/06_infinite_recursion/dangerous-patterns-do-not-use"
+  section_of: "language/mangle/docs/failure_modes/06_infinite_recursion"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint: Dangerous Patterns (DO NOT USE)"
@@ -350,6 +364,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/06_infinite_recursion/complex-example-safe-path-finding"
+  section_of: "language/mangle/docs/failure_modes/06_infinite_recursion"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint: Complex Example: Safe Path Finding"
@@ -391,6 +407,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/06_infinite_recursion/why-this-matters"
+  section_of: "language/mangle/docs/failure_modes/06_infinite_recursion"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint: Why This Matters"
@@ -422,6 +440,8 @@
     | **Mangle** | **Eager fixpoint** | **NEVER allowed - will hang!** |
 
 - id: "language/mangle/docs/failure_modes/06_infinite_recursion/failure-mode-6-infinite-recursion-in-5"
+  section_of: "language/mangle/docs/failure_modes/06_infinite_recursion"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint: Failure Mode 6: Infinite Recursion in Fixpoint Training Bias Origins"
@@ -451,6 +471,8 @@
     4. **If no bound found** → Add one or restructure logic!
 
 - id: "language/mangle/docs/failure_modes/06_infinite_recursion/debugging-aid"
+  section_of: "language/mangle/docs/failure_modes/06_infinite_recursion"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 6: Infinite Recursion in Fixpoint: Debugging Aid"

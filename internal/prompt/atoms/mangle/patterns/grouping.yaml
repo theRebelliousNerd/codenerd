@@ -60,6 +60,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/grouping/variation-1-multi-attribute-grouping"
+  section_of: "language/mangle/docs/patterns/grouping"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 1: Multi-Attribute Grouping"
@@ -106,6 +108,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/grouping/variation-2-multiple-aggregations-per-group"
+  section_of: "language/mangle/docs/patterns/grouping"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 2: Multiple Aggregations per Group"
@@ -152,6 +156,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/grouping/variation-3-conditional-aggregation"
+  section_of: "language/mangle/docs/patterns/grouping"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 3: Conditional Aggregation"
@@ -168,6 +174,8 @@
     Aggregate only values that meet certain criteria.
 
 - id: "language/mangle/docs/patterns/grouping/variation-3-conditional-aggregation-solution"
+  section_of: "language/mangle/docs/patterns/grouping"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 3: Conditional Aggregation Solution"
@@ -222,6 +230,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/grouping/variation-3-conditional-aggregation-example"
+  section_of: "language/mangle/docs/patterns/grouping"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 3: Conditional Aggregation Example"
@@ -248,6 +258,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/grouping/variation-4-hierarchical-grouping-rollup"
+  section_of: "language/mangle/docs/patterns/grouping"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 4: Hierarchical Grouping (Rollup)"
@@ -311,6 +323,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/grouping/variation-5-grouping-with-filtering-having"
+  section_of: "language/mangle/docs/patterns/grouping"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 5: Grouping with Filtering (HAVING)"
@@ -366,6 +380,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/grouping/variation-6-grouping-with-min-max"
+  section_of: "language/mangle/docs/patterns/grouping"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 6: Grouping with Min/Max"
@@ -410,6 +426,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/grouping/variation-7-grouping-with-first-last"
+  section_of: "language/mangle/docs/patterns/grouping"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 7: Grouping with First/Last"
@@ -462,6 +480,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/grouping/variation-8-distinct-values-per-group"
+  section_of: "language/mangle/docs/patterns/grouping"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 8: Distinct Values per Group"
@@ -509,6 +529,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/grouping/variation-9-grouping-with-percentiles"
+  section_of: "language/mangle/docs/patterns/grouping"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 9: Grouping with Percentiles"
@@ -558,6 +580,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/grouping/variation-10-window-functions-running"
+  section_of: "language/mangle/docs/patterns/grouping"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 10: Window Functions (Running Aggregates)"
@@ -604,6 +628,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/grouping/variation-11-grouping-after-join"
+  section_of: "language/mangle/docs/patterns/grouping"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Variation 11: Grouping After Join"
@@ -653,6 +679,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/grouping/anti-patterns"
+  section_of: "language/mangle/docs/patterns/grouping"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Anti-Patterns"
@@ -707,6 +735,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/grouping/grouping-patterns-performance-tips"
+  section_of: "language/mangle/docs/patterns/grouping"
+  section_order: 15
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Grouping Patterns Performance Tips"
@@ -746,6 +776,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/grouping/code-complexity-by-module"
+  section_of: "language/mangle/docs/patterns/grouping"
+  section_order: 16
   category: "language"
   subcategory: "mangle"
   description: "Grouping Patterns: Code Complexity by Module"

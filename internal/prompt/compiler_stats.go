@@ -19,6 +19,9 @@ type CompilationStats struct {
 
 	// Phase-level timing breakdown (all in milliseconds for log parsing)
 	CollectAtomsMs int64 // Time to collect atoms from all sources
+	// ClosureDropped counts optional atoms removed because a prerequisite
+	// (for a section, its head) did not survive fitting or shedding.
+	ClosureDropped int
 	SelectAtomsMs  int64 // Time for Mangle selection + vector search
 	ResolveDepsMs  int64 // Time for dependency resolution
 	FitBudgetMs    int64 // Time for budget fitting with polymorphism

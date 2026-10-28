@@ -59,6 +59,8 @@
     - Key combinators: `map`, `and_then`, `unwrap_or`
 
 - id: "language/rust/errors/result_option/the-operator-error-propagation"
+  section_of: "language/rust/errors/result_option"
+  section_order: 1
   category: "language"
   subcategory: "rust"
   priority: 95
@@ -90,6 +92,8 @@
     ```
 
 - id: "language/rust/errors/result_option/essential-combinators"
+  section_of: "language/rust/errors/result_option"
+  section_order: 2
   category: "language"
   subcategory: "rust"
   priority: 95
@@ -172,6 +176,8 @@
     - `#[source]`: Error chaining
 
 - id: "language/rust/errors/thiserror/using-thiserror-errors"
+  section_of: "language/rust/errors/thiserror"
+  section_order: 1
   category: "language"
   subcategory: "rust"
   priority: 90
@@ -280,6 +286,8 @@
     - Combine with thiserror for domain errors
 
 - id: "language/rust/errors/anyhow/in-main"
+  section_of: "language/rust/errors/anyhow"
+  section_order: 1
   category: "language"
   subcategory: "rust"
   priority: 90
@@ -318,6 +326,8 @@
     ```
 
 - id: "language/rust/errors/anyhow/integration-with-thiserror"
+  section_of: "language/rust/errors/anyhow"
+  section_order: 2
   category: "language"
   subcategory: "rust"
   priority: 90
@@ -403,6 +413,8 @@
     - Messages: lowercase, no punctuation, specific
 
 - id: "language/rust/errors/conversion/box-dyn-error-quick-and-dirty"
+  section_of: "language/rust/errors/conversion"
+  section_order: 1
   category: "language"
   subcategory: "rust"
   priority: 80

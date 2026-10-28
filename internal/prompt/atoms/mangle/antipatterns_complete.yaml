@@ -52,6 +52,8 @@
     **Why**: Mangle requires explicit pipeline syntax with `|>`, `do`, `let` keywords.
 
 - id: "language/mangle/docs/antipatterns_complete/3-aggregation-missing-do-keyword"
+  section_of: "language/mangle/docs/antipatterns_complete"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog: 3. Aggregation - Missing `do` Keyword"
@@ -113,6 +115,8 @@
     **Why**: Mangle uses `Decl` (capital D); argument types go in a `bound [/type, ...]` list after the argument list.
 
 - id: "language/mangle/docs/antipatterns_complete/6-type-declaration-missing-type-wrapper"
+  section_of: "language/mangle/docs/antipatterns_complete"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog: 6. Type Declaration - Missing Type<> Wrapper"
@@ -173,6 +177,8 @@
     **Why**: No stable truth value - violates stratification.
 
 - id: "language/mangle/docs/antipatterns_complete/10-stratification-violation-game-theory"
+  section_of: "language/mangle/docs/antipatterns_complete"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog: 10. Stratification Violation - Game Theory Cycle"
@@ -219,6 +225,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns_complete/12-cartesian-product-explosion"
+  section_of: "language/mangle/docs/antipatterns_complete"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog: 12. Cartesian Product Explosion"
@@ -281,6 +289,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns_complete/15-list-indexing-array-style"
+  section_of: "language/mangle/docs/antipatterns_complete"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog: 15. List Indexing - Array Style"
@@ -348,6 +358,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns_complete/19-hallucinated-functions-string-operations"
+  section_of: "language/mangle/docs/antipatterns_complete"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog: 19. Hallucinated Functions - String Operations"
@@ -403,6 +415,8 @@
     **Why**: Mangle uses Closed World Assumption - a fact either exists (true) or doesn't (false). No NULL/UNKNOWN.
 
 - id: "language/mangle/docs/antipatterns_complete/22-go-integration-string-based-api"
+  section_of: "language/mangle/docs/antipatterns_complete"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog: 22. Go Integration - String-Based API"
@@ -465,6 +479,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns_complete/25-unsafe-head-variables"
+  section_of: "language/mangle/docs/antipatterns_complete"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog: 25. Unsafe Head Variables"
@@ -536,6 +552,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns_complete/29-duplicate-rule-heads-thinking-first-wins"
+  section_of: "language/mangle/docs/antipatterns_complete"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog: 29. Duplicate Rule Heads (Thinking First Wins)"
@@ -577,6 +595,8 @@
     **Actual**: Only core builtin predicates and functions exist (see builtins_complete.md).
 
 - id: "language/mangle/docs/antipatterns_complete/detection-checklist"
+  section_of: "language/mangle/docs/antipatterns_complete"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog: Detection Checklist"
@@ -605,6 +625,8 @@
     - [ ] Go integration uses proper AST types, not strings
 
 - id: "language/mangle/docs/antipatterns_complete/common-repair-patterns"
+  section_of: "language/mangle/docs/antipatterns_complete"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Mangle Anti-Patterns - Complete Error Catalog: Common Repair Patterns"

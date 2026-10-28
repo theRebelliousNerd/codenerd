@@ -119,6 +119,8 @@
     - CRITICAL: Use type guards with `.filter()` to narrow arrays
 
 - id: "language/typescript/types/narrowing/user-defined-type-guards-critical-pattern"
+  section_of: "language/typescript/types/narrowing"
+  section_order: 1
   category: "language"
   subcategory: "typescript"
   priority: 89
@@ -203,6 +205,8 @@
     - Perfect for: API responses, Redux actions, state machines
 
 - id: "language/typescript/types/discriminated_unions/exhaustiveness-checking-with-never"
+  section_of: "language/typescript/types/discriminated_unions"
+  section_order: 1
   category: "language"
   subcategory: "typescript"
   priority: 90
@@ -251,6 +255,8 @@
     ```
 
 - id: "language/typescript/types/discriminated_unions/redux-action-pattern"
+  section_of: "language/typescript/types/discriminated_unions"
+  section_order: 2
   category: "language"
   subcategory: "typescript"
   priority: 90
@@ -332,6 +338,8 @@
     - Use `never` to filter from unions
 
 - id: "language/typescript/types/conditional/the-infer-keyword"
+  section_of: "language/typescript/types/conditional"
+  section_order: 1
   category: "language"
   subcategory: "typescript"
   priority: 85
@@ -494,6 +502,8 @@
     - Combine: `{...} as const satisfies Type`
 
 - id: "language/typescript/types/satisfies_const/const-assertions"
+  section_of: "language/typescript/types/satisfies_const"
+  section_order: 1
   category: "language"
   subcategory: "typescript"
   priority: 86

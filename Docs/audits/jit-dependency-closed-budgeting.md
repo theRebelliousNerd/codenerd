@@ -167,3 +167,22 @@ For capability evaluation, choose tasks where guidance genuinely composes: speci
 | JIT-CLOSURE-04 | Closure-aware packing study | Same-quality task study and small exact-reference fixtures show whether better packing earns its host cost. |
 
 These are proposed local work items, not claims that the repository has adopted new specs. The first milestone is simple and testable: **a successful bounded prompt still contains the prerequisites of every instruction it retained.**
+
+## As built (2026-10-28)
+
+- **Sectioned atoms.** The 1,514 pieces the 2026-10-27 atom split produced (`e5489d53`) now declare `section_of: <head>` and `section_order: N` (`PromptAtom.SectionOf`/`SectionOrder`, persisted as the `section_of` context tag `head#N`). `section_of` implies a hard `depends_on` on the head. Sections stay optional (`is_mandatory: false`), as the operator ruled.
+- **Coherent selection** (`expandSections`, `internal/prompt/sections.go`, run right after selection in `compiler_pipeline.go`):
+  - A selected head brings its sections, each ranked just below the head and in authored order, so fitting admits them head-first and shedding removes the tail first.
+  - A section selected on its own (a vector hit) brings its head, or is dropped when its head is not eligible in this context. Sections inherit the head's admission; they carry the head's selectors.
+- **Closure certificate** (`closeDependencies`): after `Fit` and again after `ShedToFit`, any optional atom whose prerequisite is gone is removed, transitively, in one worklist pass over reverse edges, and the prompt is reassembled. A mandatory atom that would lose a prerequisite is an `errInfeasibleClosure` compile error, never a silently incomplete prompt. `CompilationStats.ClosureDropped` counts cascade removals.
+- **Measured** on the embedded corpus with the production kernel and no vector search. Before this, no split piece was ever selected without a vector hit, so prompts carried only the heads of split instructions.
+
+  | Compile | Before | After |
+  |---|---|---|
+  | coder /fix go | 30 atoms, 6,675 tok | 35 atoms (5 sections), 7,513 tok |
+  | reviewer /review go | 63 atoms, 16,509 tok | 76 atoms (13 sections), 18,904 tok |
+  | tester /test go | 44 atoms, 10,682 tok | 48 atoms (4 sections), 11,440 tok |
+  | researcher /research | 25 atoms, 5,305 tok | 27 atoms (2 sections), 5,730 tok |
+
+- **Northstar derive.** The phase guard accepts the phase atom's own sections, so `TestPhasePromptFor_DeriveAtomsOnly` passes: the classify output protocol lives in sections and now ships with its head.
+- **Deferred:** closure-aware packing that admits a root only if its incremental closure fits (section 5.2), and prerequisite-before-dependent ordering across tiers (section 4). The current tiered order is kept for prefix caching.

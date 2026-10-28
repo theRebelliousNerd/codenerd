@@ -21,6 +21,8 @@
     4. **Explicit Types**: When in doubt, be explicit about types
 
 - id: "language/mangle/docs/codenerd/fact_patterns/go-integration-patterns"
+  section_of: "language/mangle/docs/codenerd/fact_patterns"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Go Integration Patterns"
@@ -72,6 +74,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/fact_patterns/intent-focus-predicates"
+  section_of: "language/mangle/docs/codenerd/fact_patterns"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Intent & Focus Predicates"
@@ -139,6 +143,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/fact_patterns/file-system-predicates"
+  section_of: "language/mangle/docs/codenerd/fact_patterns"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: File System Predicates"
@@ -221,6 +227,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/fact_patterns/symbol-graph-predicates"
+  section_of: "language/mangle/docs/codenerd/fact_patterns"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Symbol Graph Predicates"
@@ -284,6 +292,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/fact_patterns/diagnostic-predicates"
+  section_of: "language/mangle/docs/codenerd/fact_patterns"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Diagnostic Predicates"
@@ -356,6 +366,8 @@
     **Status**: `/passed`, `/failed`, `/skipped`, `/panic`
 
 - id: "language/mangle/docs/codenerd/fact_patterns/tdd-loop-predicates"
+  section_of: "language/mangle/docs/codenerd/fact_patterns"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: TDD Loop Predicates"
@@ -387,6 +399,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/fact_patterns/shard-predicates"
+  section_of: "language/mangle/docs/codenerd/fact_patterns"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Shard Predicates"
@@ -437,6 +451,8 @@
     **Status**: `/idle`, `/running`, `/completed`, `/failed`
 
 - id: "language/mangle/docs/codenerd/fact_patterns/research-knowledge-predicates"
+  section_of: "language/mangle/docs/codenerd/fact_patterns"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Research & Knowledge Predicates"
@@ -479,6 +495,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/fact_patterns/memory-context-predicates"
+  section_of: "language/mangle/docs/codenerd/fact_patterns"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Memory & Context Predicates"
@@ -539,6 +557,8 @@
     **Source**: `/recency`, `/goal`, `/dependency`
 
 - id: "language/mangle/docs/codenerd/fact_patterns/campaign-predicates"
+  section_of: "language/mangle/docs/codenerd/fact_patterns"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Campaign Predicates"
@@ -588,6 +608,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/fact_patterns/verb-taxonomy-predicates"
+  section_of: "language/mangle/docs/codenerd/fact_patterns"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Verb Taxonomy Predicates"
@@ -641,6 +663,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/fact_patterns/autopoiesis-predicates-ouroboros"
+  section_of: "language/mangle/docs/codenerd/fact_patterns"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Autopoiesis Predicates (Ouroboros)"
@@ -725,6 +749,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/fact_patterns/generated-tool-predicates"
+  section_of: "language/mangle/docs/codenerd/fact_patterns"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Generated Tool Predicates"
@@ -769,6 +795,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/fact_patterns/mangle-fact-creation-patterns-for-codenerd"
+  section_of: "language/mangle/docs/codenerd/fact_patterns"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Mangle Fact Creation Patterns for codeNERD Common Patterns"
@@ -823,6 +851,8 @@
     ```
 
 - id: "language/mangle/docs/codenerd/fact_patterns/type-conversion-helpers"
+  section_of: "language/mangle/docs/codenerd/fact_patterns"
+  section_order: 15
   category: "language"
   subcategory: "mangle"
   description: "Mangle Fact Creation Patterns for codeNERD: Type Conversion Helpers"

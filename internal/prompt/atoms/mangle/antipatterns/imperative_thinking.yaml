@@ -61,6 +61,8 @@
     **Key Insight:** Rules can be written in ANY order. Mangle finds all facts that satisfy the logical constraints.
 
 - id: "language/mangle/docs/antipatterns/imperative_thinking/anti-pattern-2-loops-iteration"
+  section_of: "language/mangle/docs/antipatterns/imperative_thinking"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern 2: Loops / Iteration"
@@ -122,6 +124,8 @@
     **Warning:** Unbounded recursion will diverge! Always include a termination condition.
 
 - id: "language/mangle/docs/antipatterns/imperative_thinking/anti-pattern-3-variable-assignment-mutation"
+  section_of: "language/mangle/docs/antipatterns/imperative_thinking"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern 3: Variable Assignment / Mutation"
@@ -170,6 +174,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/imperative_thinking/anti-pattern-4-early-return-break"
+  section_of: "language/mangle/docs/antipatterns/imperative_thinking"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern 4: Early Return / Break"
@@ -220,6 +226,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/imperative_thinking/anti-pattern-5-if-else-branching"
+  section_of: "language/mangle/docs/antipatterns/imperative_thinking"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern 5: If-Else Branching"
@@ -274,6 +282,8 @@
     **Note:** Multiple rules may derive for the same input if their conditions overlap. Make them mutually exclusive if needed.
 
 - id: "language/mangle/docs/antipatterns/imperative_thinking/anti-pattern-6-try-catch-error-handling"
+  section_of: "language/mangle/docs/antipatterns/imperative_thinking"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern 6: Try-Catch Error Handling"
@@ -328,6 +338,8 @@
     **Design:** Errors are handled in Go before/after Mangle evaluation.
 
 - id: "language/mangle/docs/antipatterns/imperative_thinking/anti-pattern-7-state-machine-with"
+  section_of: "language/mangle/docs/antipatterns/imperative_thinking"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern 7: State Machine with Transitions"
@@ -389,6 +401,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/imperative_thinking/anti-pattern-8-counter-accumulator"
+  section_of: "language/mangle/docs/antipatterns/imperative_thinking"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern 8: Counter / Accumulator"
@@ -448,6 +462,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/imperative_thinking/anti-pattern-9-while-loop-do-while"
+  section_of: "language/mangle/docs/antipatterns/imperative_thinking"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern 9: While Loop / Do-While"
@@ -502,6 +518,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/imperative_thinking/anti-pattern-10-function-calls-with-side"
+  section_of: "language/mangle/docs/antipatterns/imperative_thinking"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern 10: Function Calls with Side Effects"
@@ -554,6 +572,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/imperative_thinking/anti-pattern-11-recursion-without-base-case"
+  section_of: "language/mangle/docs/antipatterns/imperative_thinking"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern 11: Recursion Without Base Case"
@@ -605,6 +625,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/imperative_thinking/anti-pattern-12-null-undefined-assignment"
+  section_of: "language/mangle/docs/antipatterns/imperative_thinking"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern 12: Null/Undefined Assignment"
@@ -658,6 +680,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/imperative_thinking/key-principles-declarative-vs-imperative"
+  section_of: "language/mangle/docs/antipatterns/imperative_thinking"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Key Principles: Declarative vs Imperative"
@@ -683,6 +707,8 @@
     | Null/undefined | Closed World (absent = false) |
 
 - id: "language/mangle/docs/antipatterns/imperative_thinking/mental-model-shift"
+  section_of: "language/mangle/docs/antipatterns/imperative_thinking"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Mental Model Shift"
@@ -722,6 +748,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/imperative_thinking/anti-pattern-imperative-thinking-migration"
+  section_of: "language/mangle/docs/antipatterns/imperative_thinking"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Anti-Pattern: Imperative Thinking Migration Checklist"
@@ -749,6 +777,8 @@
     - [ ] Think "what is true" not "what to do"
 
 - id: "language/mangle/docs/antipatterns/imperative_thinking/pro-tip-think-in-constraints"
+  section_of: "language/mangle/docs/antipatterns/imperative_thinking"
+  section_order: 15
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Imperative Thinking: Pro Tip: Think in Constraints"

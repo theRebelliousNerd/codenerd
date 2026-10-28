@@ -54,6 +54,8 @@
     - Can have methods and implement interfaces
 
 - id: "language/java/modern/records/records-with-methods"
+  section_of: "language/java/modern/records"
+  section_order: 1
   category: "language"
   subcategory: "java"
   priority: 90
@@ -225,6 +227,8 @@
     - Record patterns: `case Point(int x, int y) ->`
 
 - id: "language/java/modern/pattern_matching/pattern-matching-in-switch-java-21"
+  section_of: "language/java/modern/pattern_matching"
+  section_order: 1
   category: "language"
   subcategory: "java"
   priority: 92
@@ -252,6 +256,8 @@
     ```
 
 - id: "language/java/modern/pattern_matching/record-patterns-java-21"
+  section_of: "language/java/modern/pattern_matching"
+  section_order: 2
   category: "language"
   subcategory: "java"
   priority: 92
@@ -468,6 +474,8 @@
     - Auto-shutdown with try-with-resources
 
 - id: "language/java/modern/virtual_threads/virtual-thread-executor-preferred"
+  section_of: "language/java/modern/virtual_threads"
+  section_order: 1
   category: "language"
   subcategory: "java"
   priority: 85
@@ -507,6 +515,8 @@
     ```
 
 - id: "language/java/modern/virtual_threads/avoid-pinning"
+  section_of: "language/java/modern/virtual_threads"
+  section_order: 2
   category: "language"
   subcategory: "java"
   priority: 85

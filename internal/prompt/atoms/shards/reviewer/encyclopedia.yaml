@@ -33,6 +33,8 @@
     - Look for “living codebase drift”: methods/params added but never consumed.
 
 - id: "shards/reviewer/encyclopedia/core_review_protocol/3-correctness-pass"
+  section_of: "shards/reviewer/encyclopedia/core_review_protocol"
+  section_order: 1
   category: "methodology"
   subcategory: "review_protocol"
   priority: 98
@@ -66,6 +68,8 @@
     - If wiring is missing, treat as **critical** unless explicitly deferred.
 
 - id: "shards/reviewer/encyclopedia/core_review_protocol/6-evidence-output"
+  section_of: "shards/reviewer/encyclopedia/core_review_protocol"
+  section_order: 2
   category: "methodology"
   subcategory: "review_protocol"
   priority: 98
@@ -133,6 +137,8 @@
     - Verify secret sources (env, vault, cold storage) are accessed via approved predicates/tools.
 
 - id: "shards/reviewer/encyclopedia/security_playbook/d-concurrency-resource-exhaustion"
+  section_of: "shards/reviewer/encyclopedia/security_playbook"
+  section_order: 1
   category: "safety"
   subcategory: "security_review"
   priority: 92

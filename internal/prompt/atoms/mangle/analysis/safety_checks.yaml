@@ -21,6 +21,8 @@
     Safety violations lead to **infinite result sets** or **undefined behavior**.
 
 - id: "language/mangle/docs/analysis/safety_checks/checkrule-function"
+  section_of: "language/mangle/docs/analysis/safety_checks"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Safety Checks: CheckRule Function"
@@ -80,6 +82,8 @@
     `X` is bound by `person` first, then checked for absence in `parent`.
 
 - id: "language/mangle/docs/analysis/safety_checks/mode-declarations"
+  section_of: "language/mangle/docs/analysis/safety_checks"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Safety Checks: Mode Declarations"
@@ -120,6 +124,8 @@
     - It's unified with a constant or bound variable
 
 - id: "language/mangle/docs/analysis/safety_checks/unsafe-head-variables"
+  section_of: "language/mangle/docs/analysis/safety_checks"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Safety Checks: Unsafe Head Variables"
@@ -149,6 +155,8 @@
     ```
 
 - id: "language/mangle/docs/analysis/safety_checks/unsafe-negation"
+  section_of: "language/mangle/docs/analysis/safety_checks"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Safety Checks: Unsafe Negation"
@@ -198,6 +206,8 @@
     Project the column you don't care about away in a positive rule, then negate the projection. A negated literal takes no `_`: the pinned engine silently deletes a negation that contains one, so `!parent(_, X)` would exclude nothing.
 
 - id: "language/mangle/docs/analysis/safety_checks/equality-safety"
+  section_of: "language/mangle/docs/analysis/safety_checks"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Safety Checks: Equality Safety"
@@ -247,6 +257,8 @@
     Both bound by `person`, then filtered by inequality.
 
 - id: "language/mangle/docs/analysis/safety_checks/function-application-safety"
+  section_of: "language/mangle/docs/analysis/safety_checks"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Safety Checks: Function Application Safety"
@@ -297,6 +309,8 @@
       - Fix: Check function arity in builtin docs
 
 - id: "language/mangle/docs/analysis/safety_checks/mangle-analysis-safety-checks-best-practices"
+  section_of: "language/mangle/docs/analysis/safety_checks"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Analysis: Safety Checks: Mangle Analysis: Safety Checks Best Practices"

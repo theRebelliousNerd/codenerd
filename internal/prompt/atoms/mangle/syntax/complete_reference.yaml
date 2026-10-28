@@ -36,6 +36,8 @@
     **Critical**: Only `#` is valid for comments.
 
 - id: "language/mangle/docs/syntax/complete_reference/declarations"
+  section_of: "language/mangle/docs/syntax/complete_reference"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Declarations"
@@ -107,6 +109,8 @@
     This means value can be number OR string.
 
 - id: "language/mangle/docs/syntax/complete_reference/constants"
+  section_of: "language/mangle/docs/syntax/complete_reference"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Constants"
@@ -176,6 +180,8 @@
     - Escape sequences (likely): `\"`, `\\`, `\n`, `\t`
 
 - id: "language/mangle/docs/syntax/complete_reference/variables"
+  section_of: "language/mangle/docs/syntax/complete_reference"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Variables"
@@ -230,6 +236,8 @@
     - Lowercase predicate name
 
 - id: "language/mangle/docs/syntax/complete_reference/rules"
+  section_of: "language/mangle/docs/syntax/complete_reference"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Rules"
@@ -290,6 +298,8 @@
     - Requires stratification (no cycles through negation)
 
 - id: "language/mangle/docs/syntax/complete_reference/equality-and-inequality"
+  section_of: "language/mangle/docs/syntax/complete_reference"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Equality and Inequality"
@@ -338,6 +348,8 @@
     as infix. Negation (`!`) applies to atoms only, never to a comparison.
 
 - id: "language/mangle/docs/syntax/complete_reference/function-application"
+  section_of: "language/mangle/docs/syntax/complete_reference"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Function Application"
@@ -406,6 +418,8 @@
     ```
 
 - id: "language/mangle/docs/syntax/complete_reference/aggregation-and-transforms"
+  section_of: "language/mangle/docs/syntax/complete_reference"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Aggregation and Transforms"
@@ -463,6 +477,8 @@
     - `fn:collect(X)`, `fn:collect_distinct(X)` (with two arguments: a list of `fn:pair(K, V)`)
 
 - id: "language/mangle/docs/syntax/complete_reference/recursive-rules"
+  section_of: "language/mangle/docs/syntax/complete_reference"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Recursive Rules"
@@ -502,6 +518,8 @@
     - All rules are evaluated
 
 - id: "language/mangle/docs/syntax/complete_reference/syntax-errors-to-avoid"
+  section_of: "language/mangle/docs/syntax/complete_reference"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Syntax Errors to Avoid"
@@ -578,6 +596,8 @@
     ```
 
 - id: "language/mangle/docs/syntax/complete_reference/structured-data-syntax"
+  section_of: "language/mangle/docs/syntax/complete_reference"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Structured Data Syntax"
@@ -647,6 +667,8 @@
     ```
 
 - id: "language/mangle/docs/syntax/complete_reference/whitespace-rules"
+  section_of: "language/mangle/docs/syntax/complete_reference"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Whitespace Rules"
@@ -681,6 +703,8 @@
     - Space after commas
 
 - id: "language/mangle/docs/syntax/complete_reference/mangle-complete-syntax-reference-complete"
+  section_of: "language/mangle/docs/syntax/complete_reference"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Mangle Complete Syntax Reference Complete Example"
@@ -735,6 +759,8 @@
     ```
 
 - id: "language/mangle/docs/syntax/complete_reference/syntax-summary-table"
+  section_of: "language/mangle/docs/syntax/complete_reference"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Mangle Complete Syntax Reference: Syntax Summary Table"

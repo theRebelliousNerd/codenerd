@@ -47,6 +47,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern/failure-mode-12-jit-prompt-compiler-pattern"
+  section_of: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage) Correct Code"
@@ -81,6 +83,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern/mangle-compiler-logic"
+  section_of: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Mangle Compiler Logic"
@@ -125,6 +129,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern/mangle-compiler-logic-cont"
+  section_of: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Mangle Compiler Logic cont"
@@ -175,6 +181,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern/mangle-compiler-logic-cont-2"
+  section_of: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Mangle Compiler Logic cont"
@@ -200,6 +208,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern/go-implementation"
+  section_of: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Go Implementation"
@@ -253,6 +263,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern/go-implementation-cont"
+  section_of: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Go Implementation cont"
@@ -307,6 +319,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern/why-this-pattern-works"
+  section_of: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Why This Pattern Works"
@@ -334,6 +348,8 @@
     - **String matching**: No fuzzy/substring matching needed
 
 - id: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern/benefits-over-static-prompts"
+  section_of: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Benefits Over Static Prompts"
@@ -367,6 +383,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern/complete-example-safety-critical-compilation"
+  section_of: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Complete Example: Safety-Critical Compilation"
@@ -430,6 +448,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern/comparison-wrong-vs-right"
+  section_of: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Comparison: Wrong vs Right"
@@ -469,6 +489,8 @@
     - ✓ Prompt text stored in separate system (map, DB, files)
 
 - id: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern/prevention-avoiding-misuse"
+  section_of: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Prevention (Avoiding Misuse)"
@@ -499,6 +521,8 @@
     | Results | Empty (no exact match) | Comprehensive (logic-driven) |
 
 - id: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern/training-aid-checklist"
+  section_of: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Training Aid: Checklist"
@@ -524,6 +548,8 @@
     - [ ] No prompt text literals in Mangle facts
 
 - id: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern/quick-reference-division-of-labor"
+  section_of: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Quick Reference: Division of Labor"
@@ -559,6 +585,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern/summary-correct-neuro-symbolic-pattern"
+  section_of: "language/mangle/docs/failure_modes/12_jit_prompt_compiler_pattern"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 12: JIT Prompt Compiler Pattern (Correct Usage): Summary: Correct Neuro-Symbolic Pattern"

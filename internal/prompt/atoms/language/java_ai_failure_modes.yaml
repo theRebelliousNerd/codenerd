@@ -53,6 +53,8 @@
     - Don't use Optional for fields/parameters - only return types
 
 - id: "language/java/ai_failures/null_handling/failure-optional-misuse"
+  section_of: "language/java/ai_failures/null_handling"
+  section_order: 1
   category: "language"
   subcategory: "java"
   priority: 95
@@ -152,6 +154,8 @@
     - Use records or IDE generation to avoid bugs
 
 - id: "language/java/ai_failures/equals_hashcode/failure-mutable-fields-in-hashcode"
+  section_of: "language/java/ai_failures/equals_hashcode"
+  section_order: 1
   category: "language"
   subcategory: "java"
   priority: 95
@@ -255,6 +259,8 @@
     - PECS: Producer Extends, Consumer Super
 
 - id: "language/java/ai_failures/generics/failure-instanceof-with-generics"
+  section_of: "language/java/ai_failures/generics"
+  section_order: 1
   category: "language"
   subcategory: "java"
   priority: 90
@@ -307,6 +313,8 @@
     ```
 
 - id: "language/java/ai_failures/generics/use-wildcards-correctly"
+  section_of: "language/java/ai_failures/generics"
+  section_order: 2
   category: "language"
   subcategory: "java"
   priority: 90
@@ -370,6 +378,8 @@
     - `List.of()` is immutable, `unmodifiableList()` is just a view
 
 - id: "language/java/ai_failures/collections/failure-modifying-collection-during"
+  section_of: "language/java/ai_failures/collections"
+  section_order: 1
   category: "language"
   subcategory: "java"
   priority: 88
@@ -407,6 +417,8 @@
     ```
 
 - id: "language/java/ai_failures/collections/failure-wrong-collection-type"
+  section_of: "language/java/ai_failures/collections"
+  section_order: 2
   category: "language"
   subcategory: "java"
   priority: 88
@@ -500,6 +512,8 @@
     - `peek()` is for debugging only, not side effects
 
 - id: "language/java/ai_failures/streams/failure-stateful-lambda-in-parallel-stream"
+  section_of: "language/java/ai_failures/streams"
+  section_order: 1
   category: "language"
   subcategory: "java"
   priority: 85
@@ -540,6 +554,8 @@
     ```
 
 - id: "language/java/ai_failures/streams/failure-inefficient-terminal-operations"
+  section_of: "language/java/ai_failures/streams"
+  section_order: 2
   category: "language"
   subcategory: "java"
   priority: 85
@@ -620,6 +636,8 @@
     - Use `Objects.equals()` for null-safe comparison
 
 - id: "language/java/ai_failures/strings/failure-empty-string-check"
+  section_of: "language/java/ai_failures/strings"
+  section_order: 1
   category: "language"
   subcategory: "java"
   priority: 82
@@ -739,6 +757,8 @@
     - Always use try-with-resources for closeable resources
 
 - id: "language/java/ai_failures/exceptions/failure-losing-exception-cause"
+  section_of: "language/java/ai_failures/exceptions"
+  section_order: 1
   category: "language"
   subcategory: "java"
   priority: 80
@@ -781,6 +801,8 @@
     ```
 
 - id: "language/java/ai_failures/exceptions/failure-checked-vs-unchecked-confusion"
+  section_of: "language/java/ai_failures/exceptions"
+  section_order: 2
   category: "language"
   subcategory: "java"
   priority: 80

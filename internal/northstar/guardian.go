@@ -198,7 +198,7 @@ func (g *Guardian) Initialize() error {
 	g.mu.Unlock()
 
 	if vision != nil {
-		logging.Get(logging.CategoryNorthstar).Info("Northstar Guardian initialized with vision: %s", truncate(vision.Mission, 50))
+		logging.Get(logging.CategoryNorthstar).Info("Northstar Guardian initialized with vision: %s", types.Ellipsize(vision.Mission, 50))
 	} else {
 		visionPath := "<unknown>"
 		if g.store != nil {
@@ -320,7 +320,7 @@ func (g *Guardian) UpdateVision(vision *Vision) error {
 
 	g.refreshKernelFacts()
 
-	logging.Get(logging.CategoryNorthstar).Info("Vision updated: %s", truncate(vision.Mission, 50))
+	logging.Get(logging.CategoryNorthstar).Info("Vision updated: %s", types.Ellipsize(vision.Mission, 50))
 	return nil
 }
 
@@ -427,7 +427,7 @@ func (g *Guardian) logCheck(check *AlignmentCheck, msg string) {
 		"duration_ms": check.Duration.Milliseconds(),
 		"suggestions": len(check.Suggestions),
 		"has_vision":  g.HasVision(),
-		"explanation": truncate(check.Explanation, 200),
+		"explanation": types.Ellipsize(check.Explanation, 200),
 	})
 }
 
@@ -561,7 +561,9 @@ func (g *Guardian) ObserveTaskCompletion(sessionID, taskType, taskDesc, result s
 		Timestamp: time.Now(),
 		Type:      ObsTaskCompleted,
 		Subject:   taskType,
-		Content:   fmt.Sprintf("Task: %s\nResult: %s", taskDesc, truncate(result, 500)),
+		// Stored whole: an observation is evidence a later drift check reads,
+		// and a 500-byte prefix of a result is not what the task returned.
+		Content:   fmt.Sprintf("Task: %s\nResult: %s", taskDesc, result),
 		Relevance: 0.5, // Will be updated based on vision relevance
 		Tags:      []string{taskType},
 	}
@@ -781,13 +783,6 @@ func (g *Guardian) OnTaskComplete(ctx context.Context, taskDesc string) (*Alignm
 // =============================================================================
 // UTILITY
 // =============================================================================
-
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
-}
 
 func (g *Guardian) persistAlignmentOutcome(check *AlignmentCheck, subject string) {
 	if err := g.store.RecordAlignmentCheck(check); err != nil {

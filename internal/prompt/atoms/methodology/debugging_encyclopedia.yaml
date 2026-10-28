@@ -48,6 +48,8 @@
     4. Stack traces > user reports for evidence
 
 - id: "methodology/debugging/scientific_method/evidence-hierarchy-most-to-least-reliable"
+  section_of: "methodology/debugging/scientific_method"
+  section_order: 1
   category: "methodology"
   subcategory: "debugging"
   priority: 100
@@ -282,6 +284,8 @@
     - Power: conditional breaks, watchpoints, logpoints
 
 - id: "methodology/debugging/debugger_mastery/when-not-to-use-debugger"
+  section_of: "methodology/debugging/debugger_mastery"
+  section_order: 1
   category: "methodology"
   subcategory: "debugging"
   priority: 88
@@ -375,6 +379,8 @@
     - Heisenbugs: remove prints, atomic logging, stress test
 
 - id: "methodology/debugging/concurrent_debugging/deadlock-detection"
+  section_of: "methodology/debugging/concurrent_debugging"
+  section_order: 1
   category: "methodology"
   subcategory: "debugging"
   priority: 92
@@ -499,6 +505,8 @@
     - Memory leaks: heap profiles over time, compare growth
 
 - id: "methodology/debugging/performance_debugging/memory-debugging"
+  section_of: "methodology/debugging/performance_debugging"
+  section_order: 1
   category: "methodology"
   subcategory: "debugging"
   priority: 87
@@ -584,6 +592,8 @@
     - Log correlation: timestamp, trace ID, timeline
 
 - id: "methodology/debugging/error_messages/common-error-patterns"
+  section_of: "methodology/debugging/error_messages"
+  section_order: 1
   category: "methodology"
   subcategory: "debugging"
   priority: 85
@@ -641,6 +651,8 @@
     ```
 
 - id: "methodology/debugging/error_messages/log-correlation"
+  section_of: "methodology/debugging/error_messages"
+  section_order: 2
   category: "methodology"
   subcategory: "debugging"
   priority: 85
@@ -721,6 +733,8 @@
     - Verify: compile → run → test edges → read docs → security scan
 
 - id: "methodology/debugging/ai_code_debugging/looks-right-trap"
+  section_of: "methodology/debugging/ai_code_debugging"
+  section_order: 1
   category: "methodology"
   subcategory: "debugging"
   priority: 93
@@ -1034,6 +1048,8 @@
     - Java: jstack, jmap, jstat, async-profiler
 
 - id: "methodology/debugging/toolbox/language-specific-tools"
+  section_of: "methodology/debugging/toolbox"
+  section_order: 1
   category: "methodology"
   subcategory: "debugging"
   priority: 80

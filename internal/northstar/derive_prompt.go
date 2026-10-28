@@ -222,12 +222,13 @@ func compilePhasePrompt(ctx context.Context, phase string, target PhaseTarget) (
 	}
 	expected := "northstar/derive/" + strings.TrimPrefix(phase, "derive_")
 	found := false
-	// The identity atom is the skeleton every derive phase shares; any other
+	// The identity atom is the skeleton every derive phase shares, and the
+	// phase atom's own pieces (expected + "/...") are its protocol; any other
 	// atom would mix one phase's protocol into another.
 	for _, atom := range res.IncludedAtoms {
 		if atom.ID == expected {
 			found = true
-		} else if atom.ID != deriveIdentityAtom {
+		} else if atom.ID != deriveIdentityAtom && !strings.HasPrefix(atom.ID, expected+"/") {
 			return "", fmt.Errorf("northstar phase %q selected unrelated atom %q", phase, atom.ID)
 		}
 	}

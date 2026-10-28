@@ -69,6 +69,8 @@
     - **nice-to-have**: Optional, only if time/budget permits
 
 - id: "northstar/requirements/generation_protocol/input-analysis"
+  section_of: "northstar/requirements/generation_protocol"
+  section_order: 1
   category: "northstar"
   subcategory: "requirements"
   priority: 65

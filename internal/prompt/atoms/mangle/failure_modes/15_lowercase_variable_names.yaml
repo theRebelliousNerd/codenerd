@@ -43,6 +43,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/15_lowercase_variable_names/failure-mode-15-lowercase-variable-names"
+  section_of: "language/mangle/docs/failure_modes/15_lowercase_variable_names"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 15: Lowercase Variable Names: Failure Mode 15: Lowercase Variable Names Correct Code"
@@ -83,6 +85,8 @@
     - **Test**: Variables should be UPPERCASE, constants lowercase or `/atom`
 
 - id: "language/mangle/docs/failure_modes/15_lowercase_variable_names/what-happens"
+  section_of: "language/mangle/docs/failure_modes/15_lowercase_variable_names"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 15: Lowercase Variable Names: What Happens"
@@ -127,6 +131,8 @@
     | `fromNode` | **CONSTANT** | ⚠️ NOT a variable! |
 
 - id: "language/mangle/docs/failure_modes/15_lowercase_variable_names/correct-examples-by-use-case"
+  section_of: "language/mangle/docs/failure_modes/15_lowercase_variable_names"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 15: Lowercase Variable Names: Correct Examples by Use Case"
@@ -178,6 +184,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/15_lowercase_variable_names/complex-example-pattern-matching-importance"
+  section_of: "language/mangle/docs/failure_modes/15_lowercase_variable_names"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 15: Lowercase Variable Names: Complex Example: Pattern Matching Importance"
@@ -213,6 +221,8 @@
     | SQL | Uppercase (opposite!) | Confusion |
 
 - id: "language/mangle/docs/failure_modes/15_lowercase_variable_names/failure-mode-15-lowercase-variable-names-2"
+  section_of: "language/mangle/docs/failure_modes/15_lowercase_variable_names"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 15: Lowercase Variable Names: Failure Mode 15: Lowercase Variable Names Quick Check"

@@ -56,6 +56,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/hierarchy/variation-1-depth-level-in-hierarchy"
+  section_of: "language/mangle/docs/patterns/hierarchy"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Hierarchy Patterns: Variation 1: Depth/Level in Hierarchy"
@@ -107,6 +109,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/hierarchy/variation-2-subtree-extraction"
+  section_of: "language/mangle/docs/patterns/hierarchy"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Hierarchy Patterns: Variation 2: Subtree Extraction"
@@ -152,6 +156,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/hierarchy/variation-3-leaf-nodes"
+  section_of: "language/mangle/docs/patterns/hierarchy"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Hierarchy Patterns: Variation 3: Leaf Nodes"
@@ -200,6 +206,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/hierarchy/variation-4-siblings"
+  section_of: "language/mangle/docs/patterns/hierarchy"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Hierarchy Patterns: Variation 4: Siblings"
@@ -245,6 +253,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/hierarchy/variation-5-lowest-common-ancestor-lca"
+  section_of: "language/mangle/docs/patterns/hierarchy"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Hierarchy Patterns: Variation 5: Lowest Common Ancestor (LCA)"
@@ -312,6 +322,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/hierarchy/variation-6-path-to-root"
+  section_of: "language/mangle/docs/patterns/hierarchy"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Hierarchy Patterns: Variation 6: Path to Root"
@@ -366,6 +378,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/hierarchy/variation-7-n-ary-tree-children-count"
+  section_of: "language/mangle/docs/patterns/hierarchy"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Hierarchy Patterns: Variation 7: N-ary Tree Children Count"
@@ -423,6 +437,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/hierarchy/anti-patterns"
+  section_of: "language/mangle/docs/patterns/hierarchy"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Hierarchy Patterns: Anti-Patterns"
@@ -462,6 +478,8 @@
     ```
 
 - id: "language/mangle/docs/patterns/hierarchy/hierarchy-patterns-performance-tips"
+  section_of: "language/mangle/docs/patterns/hierarchy"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Hierarchy Patterns: Hierarchy Patterns Performance Tips"
@@ -479,6 +497,8 @@
     4. **Bound Recursion**: For deep trees, add depth limits
 
 - id: "language/mangle/docs/patterns/hierarchy/common-use-cases-in-codenerd"
+  section_of: "language/mangle/docs/patterns/hierarchy"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Hierarchy Patterns: Common Use Cases in codeNERD"

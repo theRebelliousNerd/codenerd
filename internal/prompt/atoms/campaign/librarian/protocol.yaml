@@ -31,6 +31,8 @@
     is no separate reasoning_trace and no envelope to put one in.
 
 - id: "campaign/librarian/protocol/classification-algorithm"
+  section_of: "campaign/librarian/protocol"
+  section_order: 1
   category: "campaign"
   subcategory: "librarian"
   priority: 95
@@ -66,6 +68,8 @@
         *   'main.go': **/integration**.
 
 - id: "campaign/librarian/protocol/self-correction-and-reasoning"
+  section_of: "campaign/librarian/protocol"
+  section_order: 2
   category: "campaign"
   subcategory: "librarian"
   priority: 95

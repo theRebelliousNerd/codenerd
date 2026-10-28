@@ -56,6 +56,8 @@
     Type code `n` means "name" (atom constant like `/active`)
 
 - id: "language/mangle/docs/declarations_complete/structured-types"
+  section_of: "language/mangle/docs/declarations_complete"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Declarations - Complete Reference: Structured Types"
@@ -124,6 +126,8 @@
     ```
 
 - id: "language/mangle/docs/declarations_complete/mode-declarations-advanced"
+  section_of: "language/mangle/docs/declarations_complete"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Declarations - Complete Reference: Mode Declarations (Advanced)"
@@ -178,6 +182,8 @@
     ```
 
 - id: "language/mangle/docs/declarations_complete/common-declaration-patterns"
+  section_of: "language/mangle/docs/declarations_complete"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Declarations - Complete Reference: Common Declaration Patterns"
@@ -216,6 +222,8 @@
     ```
 
 - id: "language/mangle/docs/declarations_complete/type-declaration-anti-patterns"
+  section_of: "language/mangle/docs/declarations_complete"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Declarations - Complete Reference: Type Declaration Anti-Patterns"
@@ -268,6 +276,8 @@
     ```
 
 - id: "language/mangle/docs/declarations_complete/type-code-reference"
+  section_of: "language/mangle/docs/declarations_complete"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Declarations - Complete Reference: Type Code Reference"
@@ -311,6 +321,8 @@
     ```
 
 - id: "language/mangle/docs/declarations_complete/type-inference"
+  section_of: "language/mangle/docs/declarations_complete"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Declarations - Complete Reference: Type Inference"
@@ -349,6 +361,8 @@
     - Types inferred from data
 
 - id: "language/mangle/docs/declarations_complete/virtual-predicate-type-mapping-go"
+  section_of: "language/mangle/docs/declarations_complete"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Declarations - Complete Reference: Virtual Predicate Type Mapping (Go Integration)"
@@ -387,6 +401,8 @@
     | `Type<{...}>` | `engine.Map` or `engine.Struct` |
 
 - id: "language/mangle/docs/declarations_complete/mangle-type-declarations-complete-reference"
+  section_of: "language/mangle/docs/declarations_complete"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Type Declarations - Complete Reference: Mangle Type Declarations - Complete Reference Best Practices"

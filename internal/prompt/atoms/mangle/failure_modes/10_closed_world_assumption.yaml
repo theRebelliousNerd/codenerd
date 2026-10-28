@@ -24,6 +24,8 @@
     Treating Mangle as "open world" (unknown ≠ false) when it uses "closed world" semantics (unknown = false). AI models often try to handle NULL, UNKNOWN, or UNDEFINED states that don't exist in Mangle.
 
 - id: "language/mangle/docs/failure_modes/10_closed_world_assumption/failure-mode-10-closed-world-assumption"
+  section_of: "language/mangle/docs/failure_modes/10_closed_world_assumption"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Failure Mode 10: Closed World Assumption Errors Wrong Code"
@@ -68,6 +70,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/10_closed_world_assumption/failure-mode-10-closed-world-assumption-2"
+  section_of: "language/mangle/docs/failure_modes/10_closed_world_assumption"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Failure Mode 10: Closed World Assumption Errors Correct Code"
@@ -116,6 +120,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/10_closed_world_assumption/failure-mode-10-closed-world-assumption-3"
+  section_of: "language/mangle/docs/failure_modes/10_closed_world_assumption"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Failure Mode 10: Closed World Assumption Errors Detection"
@@ -135,6 +141,8 @@
     - **Test**: Search for `null`, `undefined`, `case`, `else` keywords
 
 - id: "language/mangle/docs/failure_modes/10_closed_world_assumption/failure-mode-10-closed-world-assumption-4"
+  section_of: "language/mangle/docs/failure_modes/10_closed_world_assumption"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Failure Mode 10: Closed World Assumption Errors Prevention"
@@ -183,6 +191,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/10_closed_world_assumption/correct-patterns-reference"
+  section_of: "language/mangle/docs/failure_modes/10_closed_world_assumption"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Correct Patterns Reference"
@@ -236,6 +246,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/10_closed_world_assumption/pattern-3-three-state-logic"
+  section_of: "language/mangle/docs/failure_modes/10_closed_world_assumption"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Pattern 3: Three-State Logic"
@@ -281,6 +293,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/10_closed_world_assumption/pattern-5-conditional-logic-without-case"
+  section_of: "language/mangle/docs/failure_modes/10_closed_world_assumption"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Pattern 5: Conditional Logic Without Case"
@@ -313,6 +327,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/10_closed_world_assumption/complex-example-user-status-management"
+  section_of: "language/mangle/docs/failure_modes/10_closed_world_assumption"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Complex Example: User Status Management"
@@ -373,6 +389,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/10_closed_world_assumption/why-cwa-matters"
+  section_of: "language/mangle/docs/failure_modes/10_closed_world_assumption"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Why CWA Matters"
@@ -408,6 +426,8 @@
     - Fixpoint computation terminates
 
 - id: "language/mangle/docs/failure_modes/10_closed_world_assumption/failure-mode-10-closed-world-assumption-5"
+  section_of: "language/mangle/docs/failure_modes/10_closed_world_assumption"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Failure Mode 10: Closed World Assumption Errors Training Bias Origins"
@@ -436,6 +456,8 @@
     5. Is there a "default value" pattern? → Separate rules for explicit + derived
 
 - id: "language/mangle/docs/failure_modes/10_closed_world_assumption/debugging-aid"
+  section_of: "language/mangle/docs/failure_modes/10_closed_world_assumption"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Debugging Aid"
@@ -464,6 +486,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/10_closed_world_assumption/common-misconceptions"
+  section_of: "language/mangle/docs/failure_modes/10_closed_world_assumption"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Common Misconceptions"
@@ -525,6 +549,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/10_closed_world_assumption/comparison-table-sql-vs-mangle"
+  section_of: "language/mangle/docs/failure_modes/10_closed_world_assumption"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 10: Closed World Assumption Errors: Comparison Table: SQL vs Mangle"

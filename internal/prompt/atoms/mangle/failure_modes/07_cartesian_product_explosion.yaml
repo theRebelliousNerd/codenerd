@@ -24,6 +24,8 @@
     Poor predicate ordering that creates massive intermediate result sets. Placing large, unfiltered predicates before selective ones causes Mangle to compute huge Cartesian products.
 
 - id: "language/mangle/docs/failure_modes/07_cartesian_product_explosion/failure-mode-7-cartesian-product-explosion"
+  section_of: "language/mangle/docs/failure_modes/07_cartesian_product_explosion"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion: Failure Mode 7: Cartesian Product Explosion Wrong Code"
@@ -68,6 +70,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/07_cartesian_product_explosion/failure-mode-7-cartesian-product-explosion-2"
+  section_of: "language/mangle/docs/failure_modes/07_cartesian_product_explosion"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion: Failure Mode 7: Cartesian Product Explosion Correct Code"
@@ -122,6 +126,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/07_cartesian_product_explosion/correct-code-detection"
+  section_of: "language/mangle/docs/failure_modes/07_cartesian_product_explosion"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion: Correct Code Detection"
@@ -149,6 +155,8 @@
     - **Profile**: Trace intermediate result sizes during evaluation
 
 - id: "language/mangle/docs/failure_modes/07_cartesian_product_explosion/failure-mode-7-cartesian-product-explosion-3"
+  section_of: "language/mangle/docs/failure_modes/07_cartesian_product_explosion"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion: Failure Mode 7: Cartesian Product Explosion Prevention"
@@ -197,6 +205,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/07_cartesian_product_explosion/optimization-patterns-reference"
+  section_of: "language/mangle/docs/failure_modes/07_cartesian_product_explosion"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion: Optimization Patterns Reference"
@@ -260,6 +270,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/07_cartesian_product_explosion/pattern-4-existence-checks-last"
+  section_of: "language/mangle/docs/failure_modes/07_cartesian_product_explosion"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion: Pattern 4: Existence Checks Last"
@@ -288,6 +300,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/07_cartesian_product_explosion/complex-example-dependency-analysis"
+  section_of: "language/mangle/docs/failure_modes/07_cartesian_product_explosion"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion: Complex Example: Dependency Analysis"
@@ -333,6 +347,8 @@
     ```
 
 - id: "language/mangle/docs/failure_modes/07_cartesian_product_explosion/cardinality-estimation-table"
+  section_of: "language/mangle/docs/failure_modes/07_cartesian_product_explosion"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion: Cardinality Estimation Table"
@@ -359,6 +375,8 @@
     Order predicates by cardinality: **1 → 10 → 100 → 1K → 10K → ...**
 
 - id: "language/mangle/docs/failure_modes/07_cartesian_product_explosion/why-ordering-matters"
+  section_of: "language/mangle/docs/failure_modes/07_cartesian_product_explosion"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion: Why Ordering Matters"
@@ -412,6 +430,8 @@
     **Performance difference**: 10 trillion vs 50K = **200 million times faster!**
 
 - id: "language/mangle/docs/failure_modes/07_cartesian_product_explosion/failure-mode-7-cartesian-product-explosion-4"
+  section_of: "language/mangle/docs/failure_modes/07_cartesian_product_explosion"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion: Failure Mode 7: Cartesian Product Explosion Training Bias Origins"
@@ -439,6 +459,8 @@
     5. **Validate after filtering**: Existence checks last
 
 - id: "language/mangle/docs/failure_modes/07_cartesian_product_explosion/debugging-aid"
+  section_of: "language/mangle/docs/failure_modes/07_cartesian_product_explosion"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Failure Mode 7: Cartesian Product Explosion: Debugging Aid"

@@ -17,6 +17,8 @@
     Recommend agents based on detected technologies and project characteristics.
 
 - id: "init/agents/recommendation/agent-categories"
+  section_of: "init/agents/recommendation"
+  section_order: 1
   category: "init"
   subcategory: "agents"
   priority: 75
@@ -55,6 +57,8 @@
     - **TestArchitect**: Test strategy and coverage analysis
 
 - id: "init/agents/recommendation/agent-structure"
+  section_of: "init/agents/recommendation"
+  section_order: 2
   category: "init"
   subcategory: "agents"
   priority: 75

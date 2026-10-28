@@ -20,6 +20,8 @@
     // =============================================================================
 
 - id: "campaign/librarian/edge_cases/gin-web-framework"
+  section_of: "campaign/librarian/edge_cases"
+  section_order: 1
   category: "campaign"
   subcategory: "librarian"
   priority: 90

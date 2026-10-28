@@ -62,6 +62,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/meta_programming/anti-pattern-2-template-expansion"
+  section_of: "language/mangle/docs/antipatterns/meta_programming"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern 2: Template Expansion"
@@ -119,6 +121,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/meta_programming/anti-pattern-3-compile-time-computation"
+  section_of: "language/mangle/docs/antipatterns/meta_programming"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern 3: Compile-Time Computation"
@@ -178,6 +182,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/meta_programming/anti-pattern-4-code-as-data-homoiconicity"
+  section_of: "language/mangle/docs/antipatterns/meta_programming"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern 4: Code as Data (Homoiconicity)"
@@ -233,6 +239,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/meta_programming/anti-pattern-5-aspect-oriented-programming"
+  section_of: "language/mangle/docs/antipatterns/meta_programming"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern 5: Aspect-Oriented Programming"
@@ -289,6 +297,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/meta_programming/anti-pattern-6-self-modifying-code"
+  section_of: "language/mangle/docs/antipatterns/meta_programming"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern 6: Self-Modifying Code"
@@ -343,6 +353,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/meta_programming/anti-pattern-7-decorators-annotations"
+  section_of: "language/mangle/docs/antipatterns/meta_programming"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern 7: Decorators / Annotations"
@@ -402,6 +414,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/meta_programming/anti-pattern-8-reflection-on-types"
+  section_of: "language/mangle/docs/antipatterns/meta_programming"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern 8: Reflection on Types"
@@ -454,6 +468,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/meta_programming/anti-pattern-9-dynamic-schema-evolution"
+  section_of: "language/mangle/docs/antipatterns/meta_programming"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern 9: Dynamic Schema Evolution"
@@ -504,6 +520,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/meta_programming/anti-pattern-10-quasiquotation"
+  section_of: "language/mangle/docs/antipatterns/meta_programming"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern 10: Quasiquotation"
@@ -556,6 +574,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/meta_programming/anti-pattern-11-multiple-dispatch"
+  section_of: "language/mangle/docs/antipatterns/meta_programming"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern 11: Multiple Dispatch"
@@ -614,6 +634,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/meta_programming/anti-pattern-12-lazy-evaluation-control"
+  section_of: "language/mangle/docs/antipatterns/meta_programming"
+  section_order: 11
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern 12: Lazy Evaluation Control"
@@ -666,6 +688,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/meta_programming/pattern-code-generation-workflow"
+  section_of: "language/mangle/docs/antipatterns/meta_programming"
+  section_order: 12
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Pattern: Code Generation Workflow"
@@ -723,6 +747,8 @@
     ```
 
 - id: "language/mangle/docs/antipatterns/meta_programming/key-principle-no-runtime-meta-programming"
+  section_of: "language/mangle/docs/antipatterns/meta_programming"
+  section_order: 13
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Key Principle: No Runtime Meta-Programming"
@@ -750,6 +776,8 @@
     | Lazy evaluation control | Filter early, or compute in Go |
 
 - id: "language/mangle/docs/antipatterns/meta_programming/anti-pattern-meta-programming-migration"
+  section_of: "language/mangle/docs/antipatterns/meta_programming"
+  section_order: 14
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Anti-Pattern: Meta-Programming Migration Checklist"
@@ -778,6 +806,8 @@
     - [ ] Remember: Mangle schema is static, data is dynamic
 
 - id: "language/mangle/docs/antipatterns/meta_programming/pro-tip-mangle-go-powerful-meta-programming"
+  section_of: "language/mangle/docs/antipatterns/meta_programming"
+  section_order: 15
   category: "language"
   subcategory: "mangle"
   description: "Anti-Pattern: Meta-Programming: Pro Tip: Mangle + Go = Powerful Meta-Programming"

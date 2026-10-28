@@ -73,6 +73,8 @@
     **Alternative**: Use `:match_pair` pattern matching.
 
 - id: "language/mangle/docs/builtins_complete/functions_structured_data/tuples"
+  section_of: "language/mangle/docs/builtins_complete/functions_structured_data"
+  section_order: 1
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Structured Data: Tuples"
@@ -120,6 +122,8 @@
     **Note**: For exactly 2 elements, use `fn:pair` instead.
 
 - id: "language/mangle/docs/builtins_complete/functions_structured_data/maps"
+  section_of: "language/mangle/docs/builtins_complete/functions_structured_data"
+  section_order: 2
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Structured Data: Maps"
@@ -199,6 +203,8 @@
     ```
 
 - id: "language/mangle/docs/builtins_complete/functions_structured_data/structs"
+  section_of: "language/mangle/docs/builtins_complete/functions_structured_data"
+  section_order: 3
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Structured Data: Structs"
@@ -241,6 +247,8 @@
     **Access**: Use `:match_field(Struct, Label, Value)` to extract fields.
 
 - id: "language/mangle/docs/builtins_complete/functions_structured_data/struct-operations"
+  section_of: "language/mangle/docs/builtins_complete/functions_structured_data"
+  section_order: 4
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Structured Data: Struct Operations"
@@ -308,6 +316,8 @@
     ```
 
 - id: "language/mangle/docs/builtins_complete/functions_structured_data/complex-structured-data"
+  section_of: "language/mangle/docs/builtins_complete/functions_structured_data"
+  section_order: 5
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Structured Data: Complex Structured Data"
@@ -368,6 +378,8 @@
     ```
 
 - id: "language/mangle/docs/builtins_complete/functions_structured_data/construction-vs-deconstruction"
+  section_of: "language/mangle/docs/builtins_complete/functions_structured_data"
+  section_order: 6
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Structured Data: Construction vs. Deconstruction"
@@ -389,6 +401,8 @@
     **Pattern**: Constructors build, pattern matchers deconstruct.
 
 - id: "language/mangle/docs/builtins_complete/functions_structured_data/accessor-functions-vs-pattern-matching"
+  section_of: "language/mangle/docs/builtins_complete/functions_structured_data"
+  section_order: 7
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Structured Data: Accessor Functions vs. Pattern Matching"
@@ -424,6 +438,8 @@
     ```
 
 - id: "language/mangle/docs/builtins_complete/functions_structured_data/type-declarations-for-structured-data"
+  section_of: "language/mangle/docs/builtins_complete/functions_structured_data"
+  section_order: 8
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Structured Data: Type Declarations for Structured Data"
@@ -481,6 +497,8 @@
     ```
 
 - id: "language/mangle/docs/builtins_complete/functions_structured_data/mangle-builtin-functions-structured-data"
+  section_of: "language/mangle/docs/builtins_complete/functions_structured_data"
+  section_order: 9
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Structured Data: Mangle Builtin Functions: Structured Data Common Patterns"
@@ -511,6 +529,8 @@
     ```
 
 - id: "language/mangle/docs/builtins_complete/functions_structured_data/structured-data-functions-summary"
+  section_of: "language/mangle/docs/builtins_complete/functions_structured_data"
+  section_order: 10
   category: "language"
   subcategory: "mangle"
   description: "Mangle Builtin Functions: Structured Data: Structured Data Functions Summary"

@@ -99,6 +99,8 @@
     - Never use mutable state in lambdas
 
 - id: "language/java/streams/operations/terminal-operations-trigger-execution"
+  section_of: "language/java/streams/operations"
+  section_order: 1
   category: "language"
   subcategory: "java"
   priority: 88
@@ -138,6 +140,8 @@
     ```
 
 - id: "language/java/streams/operations/stream-operations-best-practices"
+  section_of: "language/java/streams/operations"
+  section_order: 2
   category: "language"
   subcategory: "java"
   priority: 88
@@ -214,6 +218,8 @@
     - Handle duplicate keys: `toMap(k, v, mergeFunction)`
 
 - id: "language/java/streams/collectors/grouping"
+  section_of: "language/java/streams/collectors"
+  section_order: 1
   category: "language"
   subcategory: "java"
   priority: 90
@@ -253,6 +259,8 @@
     ```
 
 - id: "language/java/streams/collectors/partitioning"
+  section_of: "language/java/streams/collectors"
+  section_order: 2
   category: "language"
   subcategory: "java"
   priority: 90
@@ -364,6 +372,8 @@
     - `findAny()` faster than `findFirst()` in parallel
 
 - id: "language/java/streams/parallel/concurrent-collectors"
+  section_of: "language/java/streams/parallel"
+  section_order: 1
   category: "language"
   subcategory: "java"
   priority: 80
