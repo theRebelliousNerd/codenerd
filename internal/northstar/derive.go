@@ -160,7 +160,6 @@ type EraView struct {
 	EndMonth   int64
 	Kind       string
 	Months     []MonthView
-	Subjects   []string
 	Documents  []string
 }
 
@@ -536,15 +535,8 @@ func renderBrief(brief OrientationBrief) string {
 	for _, era := range brief.Eras {
 		fmt.Fprintf(&b, "\n### Era %d months %d-%d kind %s\n", era.Index, era.StartMonth, era.EndMonth, era.Kind)
 		writeMonths(&b, era.Months)
-		b.WriteString("Commit subjects:\n")
-		if len(era.Subjects) == 0 {
-			b.WriteString("(none)\n")
-		}
-		for _, subject := range era.Subjects {
-			b.WriteString("- ")
-			b.WriteString(subject)
-			b.WriteByte('\n')
-		}
+		// No commit subjects are measured per era (orientation records
+		// counts, not messages), so none are claimed, not even "(none)".
 		if len(era.Documents) > 0 {
 			b.WriteString("Documents:\n")
 			for _, doc := range era.Documents {

@@ -46,11 +46,6 @@ const (
 type CostGuard struct {
 	mu sync.Mutex
 
-	// CooldownAfterError is the first backoff after a failed call.
-	// 0 takes llm_timeouts.retry_backoff_base. The wait is capped at
-	// llm_timeouts.retry_backoff_max either way.
-	CooldownAfterError time.Duration
-
 	// Validation budget for autopoiesis and Mangle-rule repair. These bound
 	// how many times one generated rule is rewritten, not how many tool
 	// calls a turn may make.
@@ -62,8 +57,8 @@ type CostGuard struct {
 	cooldownUntil   time.Time
 }
 
-// NewCostGuard creates a CostGuard. CooldownAfterError stays 0 so the
-// backoff comes from llm_timeouts rather than a second literal.
+// NewCostGuard creates a CostGuard. The backoff after a failed call starts at
+// llm_timeouts.retry_backoff_base and is capped at retry_backoff_max.
 func NewCostGuard() *CostGuard {
 	return &CostGuard{
 		MaxValidationRetries: 3,
@@ -133,10 +128,7 @@ func (g *CostGuard) RecordError() {
 	g.consecutiveErrs++
 
 	timeouts := config.GetLLMTimeouts()
-	base := g.CooldownAfterError
-	if base <= 0 {
-		base = timeouts.RetryBackoffBase
-	}
+	base := timeouts.RetryBackoffBase
 	maxBackoff := timeouts.RetryBackoffMax
 	if maxBackoff <= 0 {
 		maxBackoff = base

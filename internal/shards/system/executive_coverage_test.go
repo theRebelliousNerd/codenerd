@@ -695,7 +695,7 @@ func TestLLMClientAdapter_Complete_WhenNilClient_ShouldReturnError(t *testing.T)
 
 func TestLLMClientAdapter_Complete_WhenCostBlocked_ShouldReturnError(t *testing.T) {
 	g := NewCostGuard()
-	g.CooldownAfterError = time.Hour
+	useBackoffBase(t, time.Hour)
 	g.RecordError()
 
 	adapter := &llmClientAdapter{

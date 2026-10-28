@@ -17,9 +17,6 @@ import (
 func TestCostGuard_NewCostGuard_WhenCreated_ShouldHaveDefaults(t *testing.T) {
 	g := NewCostGuard()
 
-	if g.CooldownAfterError != 0 {
-		t.Errorf("CooldownAfterError = %v, want 0 so llm_timeouts supplies the backoff", g.CooldownAfterError)
-	}
 	if g.MaxValidationRetries != 3 {
 		t.Errorf("MaxValidationRetries = %d, want 3", g.MaxValidationRetries)
 	}
@@ -53,7 +50,7 @@ func TestCostGuard_CanCall_AfterManyCalls_ShouldAllow(t *testing.T) {
 
 func TestCostGuard_CanCall_WhenInCooldown_ShouldBlock(t *testing.T) {
 	g := NewCostGuard()
-	g.CooldownAfterError = 500 * time.Millisecond
+	useBackoffBase(t, 500*time.Millisecond)
 
 	g.RecordError()
 
@@ -81,7 +78,7 @@ func TestCostGuard_RecordCall_WhenCalled_ShouldResetConsecutiveErrors(t *testing
 
 func TestCostGuard_RecordError_WhenMultiple_ShouldExponentialBackoff(t *testing.T) {
 	g := NewCostGuard()
-	g.CooldownAfterError = 100 * time.Millisecond
+	useBackoffBase(t, 100*time.Millisecond)
 
 	g.RecordError() // 1st: 100ms
 	firstCooldown := g.cooldownUntil
@@ -527,7 +524,7 @@ func TestBaseSystemShard_GuardedLLMCall_WhenNoClient_ShouldReturnError(t *testin
 func TestBaseSystemShard_GuardedLLMCall_WhenCostBlocked_ShouldReturnError(t *testing.T) {
 	base := NewBaseSystemShard("guarded_blocked_test", StartupAuto)
 	base.SetLLMClient(&mockLLMClient{response: "ok"})
-	base.CostGuard.CooldownAfterError = time.Hour
+	useBackoffBase(t, time.Hour)
 	base.CostGuard.RecordError()
 
 	_, err := base.GuardedLLMCall(context.Background(), "sys", "user")
@@ -896,7 +893,7 @@ func TestStartupModeConstants(t *testing.T) {
 
 func TestCostGuard_RecordError_CapsAtConfiguredBackoffMax(t *testing.T) {
 	g := NewCostGuard()
-	g.CooldownAfterError = time.Second
+	useBackoffBase(t, time.Second)
 
 	for range 10 {
 		g.RecordError()
@@ -958,4 +955,15 @@ func TestDecodeActionPayload_WhenInvalidJSON_ShouldFallThrough(t *testing.T) {
 		t.Errorf("intentID = %q, want empty for invalid json", intentID)
 	}
 	_ = fmt.Sprintf("payload: %v", payload) // Use payload
+}
+
+// useBackoffBase installs llm_timeouts.retry_backoff_base for one test, the
+// only source of the CostGuard's first cooldown, and restores it afterwards.
+func useBackoffBase(t *testing.T, base time.Duration) {
+	t.Helper()
+	before := config.GetLLMTimeouts()
+	next := before
+	next.RetryBackoffBase = base
+	config.SetLLMTimeouts(next)
+	t.Cleanup(func() { config.SetLLMTimeouts(before) })
 }

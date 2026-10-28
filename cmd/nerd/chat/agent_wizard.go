@@ -25,7 +25,6 @@ type AgentWizardState struct {
 	Name          string
 	Role          string
 	Topics        string
-	Docs          []string
 	IsResearching bool
 }
 

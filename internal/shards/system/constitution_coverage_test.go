@@ -887,7 +887,7 @@ func TestConstitutionLLMAdapter_Complete_WhenNilClient_ShouldReturnError(t *test
 
 func TestConstitutionLLMAdapter_Complete_WhenCostBlocked_ShouldReturnError(t *testing.T) {
 	g := NewCostGuard()
-	g.CooldownAfterError = time.Hour
+	useBackoffBase(t, time.Hour)
 	g.RecordError()
 
 	adapter := &constitutionLLMAdapter{
