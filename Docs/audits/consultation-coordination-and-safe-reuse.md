@@ -135,3 +135,6 @@ Deferred:
 - Evidence-revision-keyed reuse: this needs a workspace generation source.
 - Moving the vote contract into a JIT prompt atom.
 - The complete-system evaluation: it needs live models.
+
+> **Closing note (2026-10-28).** The `internal/consultation` engine, typed partial batches and explicit votes were built earlier; re-verified on main. New this pass: the chat knowledge lane folds repeated asks into one consultation before the per-turn cap and routes `_any_specialist` through an ordered, word-aware table instead of random map order (`process_knowledge.go`, `knowledge_requests_test.go`).
+> Ruled out: a completed-advice cache (no evidence-revision source). Left: selective panel retry, per-advisor required-role coverage as a Mangle decision, follower/active-work bounds, moving the vote contract into a JIT atom (prompt corpus churn by another lane), live evaluation.

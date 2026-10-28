@@ -74,6 +74,12 @@ func (m *Model) handleKnowledgeRequests(
 	// value receiver), so the write would be discarded. The flag is carried on
 	// the returned message and applied on the Update thread.
 
+	// Resolve each request's specialist, then fold the requests that ask the
+	// same specialist the same thing: a repeated ask is one consultation, and
+	// must not spend a slot of the per-turn cap that a different question
+	// needed.
+	requests = m.dedupeKnowledgeRequests(requests)
+
 	var notRun []KnowledgeResult
 	if len(requests) > maxKnowledgeRequestsPerTurn {
 		logging.Get(logging.CategoryContext).Info(
@@ -96,11 +102,7 @@ func (m *Model) handleKnowledgeRequests(
 	for _, req := range requests {
 		r := req
 		wg.Go(func() {
-			// Resolve specialist type
-			shardType := r.Specialist
-			if shardType == "_any_specialist" {
-				shardType = m.matchSpecialistForQuery(r.Query)
-			}
+			shardType := r.Specialist // resolved by dedupeKnowledgeRequests
 
 			// Build task prompt for the specialist
 			task := fmt.Sprintf(`Knowledge Query: %s
@@ -172,6 +174,31 @@ If you need to search documentation or the web, do so to provide accurate inform
 		Parent:            parent,
 		AwaitingKnowledge: true,
 	}
+}
+
+// dedupeKnowledgeRequests resolves "_any_specialist" to a concrete specialist
+// and drops a request that repeats an earlier one (same specialist, same query
+// and purpose up to whitespace and case), keeping first-occurrence order.
+func (m *Model) dedupeKnowledgeRequests(requests []articulation.KnowledgeRequest) []articulation.KnowledgeRequest {
+	seen := make(map[string]bool, len(requests))
+	out := make([]articulation.KnowledgeRequest, 0, len(requests))
+	for _, r := range requests {
+		if r.Specialist == "_any_specialist" {
+			r.Specialist = m.matchSpecialistForQuery(r.Query)
+		}
+		key := strings.Join([]string{r.Specialist, normalizeAsk(r.Query), normalizeAsk(r.Purpose)}, "\x00")
+		if seen[key] {
+			logging.Get(logging.CategoryContext).Info("Knowledge request to '%s' repeats an earlier one; consulted once", r.Specialist)
+			continue
+		}
+		seen[key] = true
+		out = append(out, r)
+	}
+	return out
+}
+
+func normalizeAsk(s string) string {
+	return strings.ToLower(strings.Join(strings.Fields(s), " "))
 }
 
 // synthesizeWithKnowledge produces the final answer after specialist
@@ -308,19 +335,13 @@ func (m *Model) matchSpecialistForQuery(query string) string {
 		}
 	}
 
-	// Keyword-based specialist matching
-	specialists := map[string][]string{
-		"goexpert":       {"go ", "golang", "goroutine", "channel", "interface{}", "struct"},
-		"mangleexpert":   {"mangle", "datalog", "predicate", "fact", "rule", "logic"},
-		"uiexpert":       {"bubbletea", "tui", "terminal", "ui", "charm", "lipgloss"},
-		"securityexpert": {"security", "vulnerability", "cve", "injection", "xss", "csrf"},
-		"testexpert":     {"test", "testing", "coverage", "mock", "stub", "assert"},
-	}
-
-	for specialist, keywords := range specialists {
-		for _, kw := range keywords {
-			if strings.Contains(queryLower, kw) {
-				return specialist
+	// Keyword-based specialist matching, in a fixed order: the first
+	// specialist listed that matches wins. (This was a map, so a query that
+	// matched two specialists was routed by Go's randomized iteration order.)
+	for _, sp := range builtinSpecialistKeywords {
+		for _, kw := range sp.keywords {
+			if containsKeyword(queryLower, kw) {
+				return sp.name
 			}
 		}
 	}
@@ -360,5 +381,40 @@ func (m *Model) persistKnowledgeResults(results []KnowledgeResult) {
 				kr.Specialist, len(kr.Response),
 			)
 		}
+	}
+}
+
+// builtinSpecialistKeywords is the fallback routing table, ordered.
+var builtinSpecialistKeywords = []struct {
+	name     string
+	keywords []string
+}{
+	{"goexpert", []string{"go", "golang", "goroutine", "channel", "interface{}", "struct"}},
+	{"mangleexpert", []string{"mangle", "datalog", "predicate", "fact", "rule", "logic"}},
+	{"uiexpert", []string{"bubbletea", "tui", "terminal", "ui", "charm", "lipgloss"}},
+	{"securityexpert", []string{"security", "vulnerability", "cve", "injection", "xss", "csrf"}},
+	{"testexpert", []string{"test", "testing", "coverage", "mock", "stub", "assert"}},
+}
+
+// containsKeyword reports whether kw occurs in text starting at a word
+// boundary; a keyword of three letters or fewer must also end at one. A bare
+// substring match sent "build" to the UI specialist ("ui") and "category" to Go.
+func containsKeyword(text, kw string) bool {
+	isWord := func(b byte) bool {
+		return b >= 'a' && b <= 'z' || b >= '0' && b <= '9' || b == '_'
+	}
+	for from := 0; ; {
+		i := strings.Index(text[from:], kw)
+		if i < 0 {
+			return false
+		}
+		start := from + i
+		end := start + len(kw)
+		startOK := start == 0 || !isWord(text[start-1])
+		endOK := len(kw) > 3 || end == len(text) || !isWord(text[end])
+		if startOK && endOK {
+			return true
+		}
+		from = start + 1
 	}
 }
