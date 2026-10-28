@@ -462,3 +462,63 @@ Use deterministic fake embeddings, real SQLite fixtures, and the production kern
 Then vary registered experts, unrelated rows, duplicate-ID rate, vector dimensions, candidate count, cache hit/miss ratio, source churn, and failure/recovery frequency. Report rows scanned/decoded, provider requests, source-generation reads, selected IDs, exact prompt differences, CPU, allocations, peak retained memory, and end-to-end compile latency. Preserve model, tools, budgets, policy, and held-out task acceptance when evaluating capability. Fewer scanned vectors or fewer prompt tokens alone do not establish improvement. Include failed attempts and repair cost, not only successful compiles.
 
 **Checkable exit:** the source scope that names prompt content also names its scoring dependencies; canonical candidate identity survives vector retrieval; unrelated registered experts cannot silently alter or starve a compilation’s semantic candidate population; and selector fallback cannot bypass the existing degraded-result publication contract.
+
+## Post implementation refinement for learned strategy health propagation
+
+### Recommendation and evidence status
+
+**Propagate unavailable or incomplete learned-strategy reads through the existing degradation gate.** Preserve current-turn fallback, but do not publish that fallback as a healthy compiled-cache entry. Distinguish legitimate empty input from failed input; neither mandatory strategies nor a blanket cache TTL is warranted.
+
+This is a **static-source finding, inspected October 28, 2026**, not behavioral verification. No tests, fault injection, model calls, or benchmarks were executed; no latency or model-quality gains are established. Main `356f65e0e6bb639adaa90ab36212daa714114871`, feature `c2d39e539ef4fb7dcb6ca6ff809d6c4bc9ada86c`, and research `0c38d4fc987213a17f6570cc7d8dae34c87d8ace` have identical inspected blobs for `internal/prompt/{strategy_atoms,compiler_generation,compiler_pipeline,compiler_sources,compiler}.go`, `internal/autopoiesis/prompt_evolution/{strategy_atoms,strategy_store}.go`, and `internal/store/source_generation.go`.
+
+### Relationship to the existing audits
+
+The [as-built audit](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/Docs/audits/jit-generation-aware-optimization.md#L205-L237) broadly claims lookup errors/timeouts become degraded. This edge qualifies that claim and is distinct from its deferred cross-process StrategyStore-cache coherence issue. [Historical provider swallowing](https://github.com/theRebelliousNerd/codenerd/blob/c592ff223cd207fca4c29ae793d5eba57aa4781d/internal/prompt/strategy_atoms.go#L39-L60) and [success publication](https://github.com/theRebelliousNerd/codenerd/blob/c592ff223cd207fca4c29ae793d5eba57aa4781d/internal/prompt/compiler.go#L954-L986) predate the generation/degradation gate; that [earlier audit](https://github.com/theRebelliousNerd/codenerd/blob/c592ff223cd207fca4c29ae793d5eba57aa4781d/Docs/audits/jit-generation-aware-optimization.md#L95-L101) already specified a generic degraded-recovery contract. The [research audit](https://github.com/theRebelliousNerd/codenerd/blob/0c38d4fc987213a17f6570cc7d8dae34c87d8ace/Docs/audits/jit-generation-aware-optimization.md#L398-L408) covers selector degradation, not learned-strategy query, panic, or scan outcomes. This is a remaining outcome-propagation edge, not a new caching architecture.
+
+### Source to cache failure chain
+
+1. [Production wiring](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/system/factory_learning.go#L134-L141) registers the evolver provider. Its [real implementation](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/autopoiesis/prompt_evolution/strategy_atoms.go#L65-L93) logs `SelectStrategies` errors and returns nil atoms. This is not merely a fake-provider seam.
+2. The [provider interface and collector](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/strategy_atoms.go#L26-L67) expose no error result; the collector also recovers provider panics, warns, and returns nil. [Source collection](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_sources.go#L73-L104) records project/shard degradation, but passes no degradation accumulator or reason through the strategy call.
+3. The [publication gate](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_pipeline.go#L341-L366) rejects untracked, degraded, or changed-source results. If generation probes remain readable and unchanged, other collectors are healthy, and compilation succeeds, the erased strategy failure can nevertheless be published as healthy. There is no strategy degradation statistic/reason on this path.
+4. A later [same-key hit](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_pipeline.go#L110-L125) returns before collection, skipping the recovery probe. The [compiler LRU](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_cache.go#L31-L55) is size-bounded without a TTL. Prompt-byte differences require an otherwise eligible strategy to survive selection and budget; absent re-probing is the more direct observable.
+
+The storage layer also matters: [initial query errors](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/autopoiesis/prompt_evolution/strategy_store.go#L151-L190) are returned, then erased above. [Row scanning](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/autopoiesis/prompt_evolution/strategy_store.go#L386-L417) logs and skips scan failures without checking `rows.Err()`. `SelectStrategies` can therefore cache partial/empty results with nil error. Its [five-minute TTL](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/autopoiesis/prompt_evolution/strategy_store.go#L49-L54) and [cache helpers](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/autopoiesis/prompt_evolution/strategy_store.go#L420-L443) are independent of the compiler LRU.
+
+### Conditions and counterexamples
+
+Both generation probes must succeed unchanged. [Generation failures become untracked](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_generation.go#L119-L156), so closing the database/global outage is not a standalone stable-token witness. Missing-table/read-schema failures can coexist with readable generation, but schema restoration changes the schema token; malformed-data repair may increment generation. [Generation token construction](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/store/source_generation.go#L123-L165)
+
+The provider's [generation method delegates to its store](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/autopoiesis/prompt_evolution/strategy_atoms.go#L150-L157), and [vector equality requires tracked inputs](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/prompt/compiler_generation.go#L75-L79). A useful reproduction must record these probe outcomes separately from the strategy-read outcome, rather than assuming that a database failure leaves generation tracking intact.
+
+Cancellation or critical compilation failure, another degraded source, source churn, changed context/config/kernel, and eviction defeat the exact repeat path. No provider, legitimate disabled/no-shard input, and successful no-match queries are healthy empty cases. This finding concerns successful fallback publication, not a demonstrated turn crash or data corruption, and does not imply that every failure sticks.
+
+### Narrow remedy and full costs
+
+Carry structured health/error alongside atoms through **store → provider → collector**. Record recovered panics, surface scan failures, inspect iteration errors, and avoid caching incomplete store results as healthy. Feed existing degradation handling while preserving permitted current-turn fallback, scoring, budget, and healthy emptiness. This is a recommendation, not an implementation claim.
+
+Costs include typed-status bookkeeping and provider compatibility migration. The intended healthy cached path remains unchanged. During outages, rejecting partial inner-cache and compiled fallback entries increases repeated queries/classification and whole-miss collection, selection, and assembly: allocations, warnings, concurrent work and contention, and potentially configured embedding work elsewhere. Existing generation reads remain. [Strategy classification itself is regex-based](https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/autopoiesis/prompt_evolution/strategy_atoms.go#L60-L77), not an added strategy LLM call. Neither SQL complexity nor latency improvement is established. Separately evaluate bounded, observable backoff rather than silently healthy fallback; measure recovery, repeated work, contention, prompt differences, and downstream repair costs.
+
+### Primary foundation
+
+Go documents that [`Rows.Next`](https://pkg.go.dev/database/sql#Rows.Next) returning false can mean either exhaustion or error; [`Rows.Err`](https://pkg.go.dev/database/sql#Rows.Err) distinguishes iteration errors and remains usable after closure. **Source-derived inference:** unchanged generation tokens do not establish the successful completeness of a particular read.
+
+### Proposed evaluation
+
+None of the following checks was executed.
+
+| Case | Required observation |
+|---|---|
+| Stable generation; isolated one-shot provider failure, then recovery | First result degraded/uncacheable; next unchanged-key call re-probes. |
+| Recovered provider panic | Separate health propagation and recovery coverage. |
+| Real query, per-row scan, and iteration failures | Health reaches compiler; no incomplete inner result cached as healthy. |
+| Closed database negative control | Generation becomes untracked, not a stable-token witness. |
+| Genuine empty/disabled input | Healthy caching remains permitted. |
+| Changed generation/schema | Normal invalidation still operates. |
+| Eligible versus budget-excluded strategy | Conditional prompt difference; no forced inclusion. |
+| Failure pressure and concurrent same-key calls | Measure attempts, time, allocations, SQL, broader configured embedding work, and recovery latency. |
+
+Synthetic faults establish seam propagation, not production failure frequency; lower-layer coverage requires the real provider/storage path.
+
+### Checkable exit
+
+Healthy emptiness is distinguishable from unavailable/incomplete input; the latter never becomes healthy-cacheable. Unchanged-key recovery is observable without unrelated source churn, with measured recovery and total-work costs.
