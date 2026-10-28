@@ -148,6 +148,40 @@ func multiStepSignals(input string, intent perception.Intent) []string {
 	return signals
 }
 
+// anchorVerbPairToIntent gives a verb-pair decomposition ("create X and test",
+// "fix X and test") the request perception read, not the regex's guess. The
+// pattern's capture is whatever sat between the verb and "test": "add a test
+// for the empty case" captures "a", and the pair chain always took the first
+// pair, /create. The proposal then read "create a / write_tests for a", and
+// those were the tasks the shards were given. The intent's target is the thing
+// the request is about, its verb picks the pair, and its constraint (the
+// limits and acceptance the user stated) rides the first step.
+func anchorVerbPairToIntent(steps []TaskStep, pattern *MultiStepPattern, intent perception.Intent, workspace string) []TaskStep {
+	if pattern == nil || pattern.Decomposer != "verb_pair_chain" || len(steps) != 2 {
+		return steps
+	}
+	target := strings.TrimSpace(intent.Target)
+	if target == "" || target == "none" {
+		return steps
+	}
+	for _, pair := range pattern.VerbPairs {
+		if pair[0] == intent.Verb {
+			steps[0].Verb, steps[1].Verb = pair[0], pair[1]
+			break
+		}
+	}
+	for i := range steps {
+		constraint := "none"
+		if i == 0 && strings.TrimSpace(intent.Constraint) != "" {
+			constraint = intent.Constraint
+		}
+		steps[i].Target = target
+		steps[i].ShardType = perception.GetShardTypeForVerb(steps[i].Verb)
+		steps[i].Task = formatShardTask(steps[i].Verb, target, constraint, workspace)
+	}
+	return steps
+}
+
 // decomposeTask breaks a complex task into discrete steps using the encyclopedic corpus.
 // This function uses the multi-step pattern corpus for comprehensive decomposition.
 func decomposeTask(input string, intent perception.Intent, workspace string) []TaskStep {
@@ -158,7 +192,7 @@ func decomposeTask(input string, intent perception.Intent, workspace string) []T
 		// Use the corpus-based decomposition strategy
 		steps := DecomposeWithStrategy(input, captures, pattern, workspace)
 		if len(steps) > 1 {
-			return steps
+			return anchorVerbPairToIntent(steps, pattern, intent, workspace)
 		}
 		// If decomposition returned only 1 step, fall through to legacy handling
 	}

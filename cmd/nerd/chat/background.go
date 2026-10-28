@@ -13,6 +13,7 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/perception"
 	"codenerd/internal/types"
 )
 
@@ -227,4 +228,16 @@ func (m Model) backgroundFooter() string {
 // they are shown (formatInterpretedResult), in the foreground or not.
 func interpretsOutput(shard string) bool {
 	return shard == "reviewer" || shard == "tester"
+}
+
+// backgroundTask is the task of a read-only delegation. A /test query ("run
+// the tests and tell me what fails") runs the suite: formatShardTask turns a
+// /test with a named target into write_tests, which creates files, and the
+// background lane starts nothing that writes (and, as a /query, is never
+// held by the work mode).
+func (m Model) backgroundTask(intent perception.Intent) string {
+	if intent.Verb == "/test" {
+		return withTaskConstraint("run_tests", intent.Constraint)
+	}
+	return m.formatShardTaskWithContext(intent.Verb, intent.Target, intent.Constraint, m.workspace, m.lastShardResult)
 }

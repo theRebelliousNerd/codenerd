@@ -496,7 +496,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				job := backgroundJob{
 					ID:      fmt.Sprintf("%s-bg-%d", shardType, time.Now().UnixNano()),
 					Shard:   shardType,
-					Task:    m.formatShardTaskWithContext(intent.Verb, intent.Target, intent.Constraint, m.workspace, m.lastShardResult),
+					Task:    m.backgroundTask(intent),
 					Started: time.Now(),
 				}
 				if route.SelfDiagnosis {

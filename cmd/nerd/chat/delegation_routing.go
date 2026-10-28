@@ -322,7 +322,7 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 // on articulation behind /init. Honor the LLM suggestion.
 func resolveShardTypeForIntent(intent perception.Intent) string {
 	if st := perception.GetShardTypeForVerb(intent.Verb); st != "" && st != "/none" {
-		return strings.TrimPrefix(st, "/")
+		return readOnlyShardFor(intent, strings.TrimPrefix(st, "/"))
 	}
 	for _, a := range intent.Ambiguity {
 		if strings.HasPrefix(a, "shard=") {
@@ -333,6 +333,20 @@ func resolveShardTypeForIntent(intent perception.Intent) string {
 		}
 	}
 	return ""
+}
+
+// readOnlyShardFor is the shard that takes a read-only (/query) request whose
+// verb the corpus gives to the coder. /debug is the one such verb: "why does
+// this fail?" reads as a query, but the coder's persona verb is /fix, so a
+// delegation to it can only be judged as a write. Run in the background (the
+// lane every read-only delegation takes) it ends in the hollow-success guard
+// with "write-oriented intent /fix completed without a write", every time.
+// The reviewer investigates with the same read tools and no write intent.
+func readOnlyShardFor(intent perception.Intent, shard string) string {
+	if shard == "coder" && intent.Category == "/query" {
+		return "reviewer"
+	}
+	return shard
 }
 
 // shardTypeToTaskRequest hands a persona or intent verb to the task executor

@@ -26,7 +26,7 @@ import (
 //     decides whether the fix runs, is proposed, or waits for go.
 
 // selfDiagnosisFollowUp opens the chain's fix step; the diagnosis is appended.
-const selfDiagnosisFollowUp = "Fix the root causes this self-diagnosis of codeNERD found, in codeNERD's own source. Change only what each finding names, with tests."
+const selfDiagnosisFollowUp = "Fix the root causes this self-diagnosis of codeNERD found, in codeNERD's own source. Change only what each finding names, with tests. If it names no defect in codeNERD's own source (the failures came from the user's input or from outside), change nothing and say so in a sentence."
 
 // latestProblemsLog is the log debug logging is writing now, else the newest
 // one under .nerd/logs: a session without debug logging still diagnoses the

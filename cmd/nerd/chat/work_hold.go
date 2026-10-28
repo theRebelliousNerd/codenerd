@@ -77,6 +77,9 @@ func holdSurface(intent perception.Intent, route RouteDecision, mode config.Work
 // turn. With nothing held, a brief with a goal is the work: big runs start
 // from the brief.
 func (m Model) approvePendingWork() (Model, tea.Cmd) {
+	// "/go" typed into the box is spent once it is read; left there it sat in
+	// the input for the whole run.
+	m.textarea.Reset()
 	work := m.pendingWork
 	if work == nil {
 		if brief := m.currentBrief(); brief != nil && strings.TrimSpace(brief.Goal) != "" {
