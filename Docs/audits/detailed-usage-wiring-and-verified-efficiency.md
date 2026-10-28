@@ -131,3 +131,8 @@ Prioritize by **avoidable total task cost at unchanged correctness**, not estima
 
 - Task-cost exporter and shutdown drain barrier for in-flight broker calls, and sink completion/failure accounting for benchmark export: no exporter exists to own them yet; the terminal-after-settle ordering is the primitive one will wait on.
 - Pricing-version stamping and §4 verified-task evaluation: need a benchmark harness and live runs.
+
+## As-built note (2026-10-28)
+
+Re-verified on main: the 2026-10-27 build holds (`settle_usage_test.go`, `TestStreamConformance_BrokeredCacheDetailReachesTrackerAndReceipt` pass). Added: `broker.Drain`/`Pending` (settlement barrier, `inflight.go`), `FileSink.Completeness` + `jsonl.Appender.Dropped` (rotation/write loss), `UsageEvent.PriceVersion`, and Codex CLI usage from `turn.completed` events (`perception/codex_usage.go`; it was the one engine reporting nothing).
+Ruled out: a fleet-wide cache-loss claim (only the stream seam was real, already fixed). Left: a task-cost exporter that calls Drain/Completeness (none exists), receipt-level price stamping, and the Section 4 verified-task evaluation (needs live benchmark runs).

@@ -48,6 +48,30 @@ func (s *FileSink) Failures() (count int, first error) {
 	return s.log.Failures()
 }
 
+// Completeness says whether the log holds every receipt this sink was given.
+// A cost export that reads the log must refuse to call a task cheap when it
+// does not: a failed write or an overwritten rotation generation means a
+// receipt existed that the log cannot return.
+type Completeness struct {
+	// Failures is how many receipt writes failed, FirstError the first.
+	Failures   int
+	FirstError error
+	// DroppedGenerations is how many rotated generations were overwritten.
+	DroppedGenerations int
+}
+
+// Complete reports whether nothing was lost.
+func (c Completeness) Complete() bool { return c.Failures == 0 && c.DroppedGenerations == 0 }
+
+// Completeness reports what this sink has lost so far.
+func (s *FileSink) Completeness() Completeness {
+	if s == nil || s.log == nil {
+		return Completeness{}
+	}
+	n, first := s.log.Failures()
+	return Completeness{Failures: n, FirstError: first, DroppedGenerations: s.log.Dropped()}
+}
+
 // SetMaxBytes overrides the rotation threshold.
 func (s *FileSink) SetMaxBytes(n int64) {
 	if s == nil || s.log == nil {

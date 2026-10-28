@@ -346,7 +346,11 @@ func (c *CodexCLIClient) executeCLI(ctx context.Context, prompt, model string, s
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	runErr := cmd.Run()
+	// The CLI reports its own token accounting on stdout; it was billed
+	// whether or not the run succeeded.
+	c.reportCodexUsage(ctx, model, stdout.String())
+	if err := runErr; err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return "", fmt.Errorf("codex CLI timed out after %v: %w", c.timeout, ctx.Err())
 		}

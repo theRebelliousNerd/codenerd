@@ -119,3 +119,25 @@ func TestNilFileSinkIsInert(t *testing.T) {
 		t.Fatalf("nil sink Close: %v", err)
 	}
 }
+
+// A log that overwrote a rotated generation, or failed a write, cannot return
+// every receipt it was given; Completeness says so, so an export does not call
+// the task cheap.
+func TestFileSinkCompletenessReportsLostReceipts(t *testing.T) {
+	sink, err := NewFileSink(filepath.Join(t.TempDir(), "receipts.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sink.Close() })
+	sink.SetMaxBytes(1) // every receipt after the first rotates
+	if !sink.Completeness().Complete() {
+		t.Fatal("an unused sink must be complete")
+	}
+	for i := 0; i < 3; i++ {
+		sink.Record(Receipt{Model: "m"})
+	}
+	c := sink.Completeness()
+	if c.Complete() || c.DroppedGenerations == 0 {
+		t.Fatalf("Completeness = %+v after the rotated generation was overwritten", c)
+	}
+}

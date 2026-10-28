@@ -233,6 +233,11 @@ func runFakeCodex(args []string) int {
 		return 0
 	}
 	switch os.Getenv("CODEX_TEST_MODE") {
+	case "usage":
+		// `codex exec --json` reports each completed turn's token accounting.
+		fmt.Println(`{"type":"thread.started","thread_id":"t"}`)
+		fmt.Println(`{"type":"turn.completed","usage":{"input_tokens":1000,"cached_input_tokens":800,"output_tokens":50,"reasoning_output_tokens":20}}`)
+		return writeOut(os.Getenv("CODEX_TEST_PAYLOAD"))
 	case "rate_limit":
 		fmt.Fprintln(os.Stderr, fakeCLIRateLimitDetail("429 rate limit reached"))
 		return 1

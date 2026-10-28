@@ -1,6 +1,8 @@
 package usage
 
 import (
+	"fmt"
+	"hash/fnv"
 	"sort"
 	"strings"
 	"sync"
@@ -158,19 +160,36 @@ func priceKeys() []string {
 // route prefix ("openai/gpt-4o", "anthropic.claude-sonnet-4" → "gpt-4o",
 // "claude-sonnet-4"), because engines name the same model several ways.
 func LookupPrice(model string) (Price, bool) {
+	p, _, ok := LookupPriceVersion(model)
+	return p, ok
+}
+
+// LookupPriceVersion is LookupPrice plus the version of the entry that priced
+// the model: the table key it matched and a digest of its five rates. Stamped
+// on each usage event, it lets a cost export say which rates an estimate used
+// -- the table is list price and changes, and RegisterPrice overrides it, so a
+// dollar figure without its rates cannot be reproduced or compared.
+func LookupPriceVersion(model string) (Price, string, bool) {
 	name := normalizeModelName(model)
 	if name == "" {
-		return Price{}, false
+		return Price{}, "", false
 	}
 	for _, k := range priceKeys() {
 		if strings.HasPrefix(name, k) {
 			priceMu.RLock()
 			p := priceTable[k]
 			priceMu.RUnlock()
-			return p, true
+			return p, p.version(k), true
 		}
 	}
-	return Price{}, false
+	return Price{}, "", false
+}
+
+// version names a price entry: its table key and a digest of every rate.
+func (p Price) version(key string) string {
+	h := fnv.New32a()
+	fmt.Fprintf(h, "%g/%g/%g/%g", p.InputPerMTok, p.OutputPerMTok, p.CacheReadPerMTok, p.CacheWritePerMTok)
+	return fmt.Sprintf("%s@%08x", key, h.Sum32())
 }
 
 // RegisterPrice adds or overrides a price entry at runtime, for operators whose
@@ -210,9 +229,16 @@ func normalizeModelName(model string) string {
 
 // EstimateCostDetailed is EstimateCost with the cache sub-counts of input.
 func EstimateCostDetailed(model string, input, output, cacheRead, cacheWrite int64) (float64, bool) {
-	p, ok := LookupPrice(model)
+	cost, _, ok := EstimateCostVersioned(model, input, output, cacheRead, cacheWrite)
+	return cost, ok
+}
+
+// EstimateCostVersioned is EstimateCostDetailed plus the price entry's version
+// ("" when the model is unpriced, which is unpriced spend and not free spend).
+func EstimateCostVersioned(model string, input, output, cacheRead, cacheWrite int64) (float64, string, bool) {
+	p, version, ok := LookupPriceVersion(model)
 	if !ok {
-		return 0, false
+		return 0, "", false
 	}
-	return p.CostDetailed(input, output, cacheRead, cacheWrite), true
+	return p.CostDetailed(input, output, cacheRead, cacheWrite), version, true
 }

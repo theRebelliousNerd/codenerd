@@ -45,6 +45,9 @@ type UsageEvent struct {
 	SessionID     string  `json:"session_id"`
 	OperationType string  `json:"operation_type"`     // chat, embedding, tool_gen
 	CostUSD       float64 `json:"cost_usd,omitempty"` // estimate; 0 when the model is unpriced
+	// PriceVersion names the price entry CostUSD used (table key and rate
+	// digest); empty when the model is unpriced, which is unpriced spend.
+	PriceVersion string `json:"price_version,omitempty"`
 }
 
 // AggregatedStats holds counters broken down by various dimensions.

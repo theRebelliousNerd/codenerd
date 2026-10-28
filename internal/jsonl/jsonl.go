@@ -45,6 +45,9 @@ type Appender struct {
 	// writer has been broken since boot".
 	firstErr error
 	errCount int
+	// dropped counts rotated generations this appender overwrote: records the
+	// log once held that no reader can recover. Only one generation is kept.
+	dropped int
 }
 
 // Open creates or opens a log at path, creating parent directories.
@@ -124,6 +127,9 @@ func (a *Appender) rotateLocked() error {
 	// open. A `nerd meter` invocation reading the rotated generation is exactly
 	// such a process, so the second rotation in a workspace someone is watching
 	// would fail -- and fail on the agent's hot path, where this must not.
+	if _, statErr := os.Stat(a.path + ".1"); statErr == nil {
+		a.dropped++
+	}
 	if err := atomicfile.Replace(a.path, a.path+".1"); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -161,6 +167,15 @@ func (a *Appender) Failures() (count int, first error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.errCount, a.firstErr
+}
+
+// Dropped is how many rotated generations this appender has overwritten. A
+// reader that needs every record (a cost export) must treat a non-zero count
+// as an incomplete log, since a record older than the kept generation is gone.
+func (a *Appender) Dropped() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.dropped
 }
 
 // Path returns the live log path.

@@ -421,5 +421,14 @@ Interactive chat with ZAI, one coder shard:
 7. User opens Usage page → Stats tables show provider/model/shard type/operation.
 
 The same turn on any other HTTP engine now records identically, under that
-engine's config name. Only the CLI engines stay silent, and they stay silent
-because they report no tokens — not because the wiring is missing.
+engine's config name. The Claude CLI reports its `usage`/`modelUsage` block and
+the Codex CLI the `usage` of each `turn.completed` event on its `--json` stdout
+(`perception/codex_usage.go`, cache read and reasoning as sub-counts, summed
+over turns, reported even when the run failed). A run that emitted no usage
+stays unreported, never free.
+
+Each `UsageEvent` carries `PriceVersion` (price-table key and a digest of its
+five rates, `LookupPriceVersion`); an unpriced model has none. `broker.Drain(ctx)`
+blocks until every admitted call has settled its receipt (`broker.Pending()`);
+`FileSink.Completeness()` reports failed writes and rotated generations the
+log overwrote, so a cost export can refuse to call an incomplete log cheap.

@@ -173,6 +173,7 @@ func (c *core) admit(ctx context.Context, req *Request) (Receipt, *AdmissionErro
 	if !decision.Allowed {
 		return receipt, &AdmissionError{Decision: decision, Purpose: purpose}
 	}
+	inflight.begin() // ended by settle, the only exit of an admitted call
 	return receipt, nil
 }
 
@@ -188,6 +189,7 @@ func (c *core) admit(ctx context.Context, req *Request) (Receipt, *AdmissionErro
 // consistency evidence — a disagreement is recorded on the receipt, never
 // added as a second charge.
 func (c *core) settle(receipt Receipt, req *Request, obs *callObserver, reported *types.UsageMetadata, callErr error) {
+	defer inflight.end()
 	receipt.Duration = time.Since(receipt.Started)
 	if callErr != nil {
 		receipt.Err = callErr.Error()

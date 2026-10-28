@@ -649,7 +649,7 @@ func (t *tracker) Record(ctx context.Context, r Report) {
 	shardType := shardMetaFromContext(ctx, shardTypeKey)
 	sessionID := shardMetaFromContext(ctx, sessionIDKey)
 
-	cost, priced := EstimateCostDetailed(r.Model, int64(u.InputTokens), int64(u.OutputTokens), int64(u.CachedContentTokens), int64(u.CacheWriteTokens))
+	cost, priceVersion, priced := EstimateCostVersioned(r.Model, int64(u.InputTokens), int64(u.OutputTokens), int64(u.CachedContentTokens), int64(u.CacheWriteTokens))
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -700,6 +700,7 @@ func (t *tracker) Record(ctx context.Context, r Report) {
 			SessionID:        sessionID,
 			OperationType:    r.Operation,
 			CostUSD:          cost,
+			PriceVersion:     priceVersion,
 		})
 	}
 
