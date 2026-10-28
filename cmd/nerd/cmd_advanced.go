@@ -1073,6 +1073,15 @@ func runToolCommand(cmd *cobra.Command, args []string) error {
 			)
 		}
 
+		if loopRes.ReusedTool != "" {
+			// Jev read a registered tool as already doing this (tool_checks).
+			fmt.Printf("Reused existing tool: %s (nothing generated)\n", loopRes.ReusedTool)
+			if loopRes.ToolHandle != nil && loopRes.ToolHandle.Description != "" {
+				fmt.Printf("It does: %s\n", loopRes.ToolHandle.Description)
+			}
+			fmt.Println("\nUse 'nerd tool run <name>' to execute it.")
+			break
+		}
 		fmt.Printf("✅ Tool registered: %s\n", loopRes.ToolName)
 		if loopRes.CompileResult != nil && loopRes.CompileResult.OutputPath != "" {
 			fmt.Printf("Binary: %s\n", loopRes.CompileResult.OutputPath)

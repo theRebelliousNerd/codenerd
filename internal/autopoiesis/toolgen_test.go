@@ -557,8 +557,10 @@ func TestWriteTool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read tool file: %v", err)
 	}
-	if string(content) != tool.Code {
-		t.Error("Tool file content mismatch")
+	// The file is the code headed by its description (withDescriptionHeader),
+	// which Restore reads back after a restart.
+	if want := withDescriptionHeader(tool.Code, tool.Description); string(content) != want {
+		t.Errorf("Tool file content = %q, want %q", content, want)
 	}
 }
 

@@ -63,16 +63,31 @@ func (m Model) clearStaleRoutingFacts() {
 }
 
 func (m Model) processMemoryOperations(intent perception.Intent, warnings *[]string) {
-	// 1.3.1 MEMORY OPERATIONS: the person's "remember X" and "forget Y". They
-	// go through the same scoped implementation a control packet's operations
-	// do, so a remembered preference is stored as the type hydration loads and
-	// a forget names the memory it addressed. A person is told what became of
-	// each: a failure by its notice, a forget by its receipt.
-	for i, d := range memorycontext.ApplyMemoryOperations(m.memoryKernel(), m.memoryStore(), intent.MemoryOperations) {
-		if notice := d.Notice(); notice != "" {
-			*warnings = append(*warnings, notice)
-		} else if intent.MemoryOperations[i].Op == "forget" && d.Receipt != "" {
-			*warnings = append(*warnings, "[Memory] "+d.Receipt)
+	// 1.3.1 MEMORY OPERATIONS: Process promote_to_long_term, forget, etc.
+	// This enables "remember X" and "learn that Y" instructions
+	for _, memOp := range intent.MemoryOperations {
+		switch memOp.Op {
+		case "promote_to_long_term":
+			if m.localDB == nil {
+				*warnings = append(*warnings, "[Memory] failed to store: no long-term memory store is available")
+				continue
+			}
+			if err := m.localDB.StoreFact(memOp.Key, []any{memOp.Value}, "learned", 10); err != nil {
+				*warnings = append(*warnings, fmt.Sprintf("[Memory] failed to store: %v", err))
+			}
+		case "forget":
+			if m.kernel == nil {
+				*warnings = append(*warnings, "[Memory] failed to forget: kernel is not available")
+				continue
+			}
+			memoryKernel, ok := m.kernel.(memorycontext.MemoryKernel)
+			if !ok {
+				*warnings = append(*warnings, "[Memory] failed to forget: kernel does not support scoped memory retraction")
+				continue
+			}
+			if d := memorycontext.ApplyMemoryOperation(memoryKernel, nil, memOp); !d.Took() {
+				*warnings = append(*warnings, d.Notice())
+			}
 		}
 	}
 }

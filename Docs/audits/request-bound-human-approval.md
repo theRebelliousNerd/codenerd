@@ -231,9 +231,3 @@ The first useful milestone is not “Approve button appears.” It is one author
 - The dormant appeal arm (`has_active_override` → `permitted`, action-type broad) remains: nothing in production grants an appeal (`HandleAppeal` has no caller) and its facts land outside the policy shard, so it cannot fire; removing that machinery is a separate change.
 - A key or `/approvals` action to leave the modal review without deciding.
 - The external-writer race between `Reserve` and the write is disclosed, not closed: there is no filesystem compare-and-swap.
-
-## Status (2026-10-28, re-verified on main)
-
-Shipped design re-read as present; `internal/approval`, the policy human-approval tests and the session/MCP/UI approval tests pass. Built since: the modal review can be left without deciding (`q`/`esc` steps aside, the request keeps waiting and its worker stays blocked; only an unseen request reopens it; `/approvals review` returns). `cmd/nerd/chat/approval_host.go`, tested in `approval_host_test.go`.
-Ruled out: removing the dormant appeal arm now (`permitted <- has_active_override` in constitution.mg) - it cannot fire and `learned_grant_path_test.go` pins its heads as refused; deleting it needs those tests and `HandleAppeal` retired together.
-Open: APPROVAL-05 (live human trials), distributed approvers, the `Reserve`-to-write external-writer race, the appeal-arm removal above.

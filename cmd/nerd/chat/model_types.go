@@ -467,10 +467,6 @@ type Model struct {
 	// record (read-only).
 	approvals    *approval.Broker
 	approvalView ui.DiffApprovalView
-	// approvalAside holds the IDs of requests the person closed the review
-	// on without deciding. Only a request outside it reopens the modal;
-	// "/approvals review" reopens it for these.
-	approvalAside map[string]bool
 
 	// Boot State
 	isBooting bool

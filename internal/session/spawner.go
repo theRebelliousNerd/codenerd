@@ -105,9 +105,6 @@ type Spawner struct {
 
 	// Pre-reservation tracking for pending spawns
 	pendingSpawns int
-
-	// closed is set by Shutdown: no subagent is admitted after it.
-	closed bool
 }
 
 // SpawnerConfig holds configuration for the spawner.
@@ -380,10 +377,6 @@ type SpawnRequest struct {
 func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error) {
 	// Phase 1: Check capacity & pre-reserve (lock held briefly)
 	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
-		return nil, ErrSpawnerClosed
-	}
 	activeCount := s.countActive() + s.pendingSpawns
 	if activeCount >= s.maxActiveSubagents {
 		s.mu.Unlock()
@@ -489,19 +482,13 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 
 	// Phase 5: Register subagent (lock held briefly)
 	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
-		return nil, ErrSpawnerClosed
-	}
+	s.pendingSpawns--
 	// Re-check capacity after config generation (double-check active count only)
 	activeCount = s.countActive()
 	if activeCount >= s.maxActiveSubagents {
 		s.mu.Unlock()
 		return nil, fmt.Errorf("max active subagents reached during spawn: %d", s.maxActiveSubagents)
 	}
-	// The reservation becomes the registration; a refused return above leaves
-	// it to the deferred release, which used to run a second time here.
-	s.pendingSpawns--
 	s.subagents[agent.GetID()] = agent
 	success = true
 	s.mu.Unlock()

@@ -481,10 +481,6 @@ func (s *LocalStore) initialize() error {
 		return fmt.Errorf("failed to retire mislabelled dependency edges: %w", err)
 	}
 
-	if err := s.adoptRememberedPreferences(); err != nil {
-		return fmt.Errorf("failed to adopt remembered preferences: %w", err)
-	}
-
 	ensureReasoningTraceIndexes(s.db)
 
 	// Now create indexes that depend on migrated columns

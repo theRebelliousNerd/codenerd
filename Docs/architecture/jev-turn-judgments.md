@@ -238,6 +238,25 @@ of 8 tools, because this workspace has generated none.
   - A stub scored asked 0.01, and the wrong conversion direction scored 0.03.
   - The stub's extra score was 0.34, which is unsettled and acts on nothing.
 
+**Dogfood, 2026-10-28.** The runs used `nerd tool generate` in a scratch Go
+module, with this repository's config.
+
+- **Run 1 generated a JSON syntax checker in 4m47s.** In an earlier
+  workspace, the code check read a TODO lister as asked 0.94 and extra 0.25,
+  and accepted it.
+- **Run 2, a reworded request with `tool_checks` on**: "validate a .json config
+  and tell me where its first syntax mistake is". The duplicate check scored
+  0.92, chose the checker at 1.00, and reused it. The run took 3s, and nothing
+  was generated.
+- **Run 3, the same request with `tool_checks: false`.** It spent 153s
+  generating a second JSON checker, which then failed its own generated test.
+- **The probe exposed a bug, now fixed.** `RuntimeRegistry.Restore` gave every
+  tool the description "Restored from disk", because generated source carries
+  no `// Description:` line. In the first workspace, the duplicate check worked
+  only because the tool's name spelled out its purpose. `WriteTool` now heads
+  the source with the description (`withDescriptionHeader`, toolgen.go), so a
+  restart keeps what each tool does.
+
 ### Autopoiesis checks: switch `autopoiesis_checks`
 
 As built 2026-10-28. Questions: `internal/learnjudge/autopoiesis.go`. Operation

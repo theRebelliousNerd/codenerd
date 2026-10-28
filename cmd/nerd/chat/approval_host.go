@@ -100,48 +100,11 @@ func (m Model) syncApprovalView() Model {
 	m.approvalView.SyncRequests(pending)
 	switch {
 	case len(pending) > 0:
-		// A request the person already stepped aside from does not pull them
-		// back; one they have not seen does.
-		for _, r := range pending {
-			if !m.approvalAside[r.ID] {
-				m.approvalAside = nil
-				m.viewMode = ApprovalView
-				break
-			}
-		}
+		m.viewMode = ApprovalView
 	case m.viewMode == ApprovalView:
 		m.viewMode = ChatView
-		m.approvalAside = nil
-	default:
-		m.approvalAside = nil
 	}
 	return m
-}
-
-// stepAsideFromApproval closes the modal review without deciding. The requests
-// keep waiting (their worker stays blocked until they are decided, expire or
-// the session closes), so this says so and how to come back.
-func (m Model) stepAsideFromApproval() Model {
-	pending := m.approvalHost.Pending()
-	aside := make(map[string]bool, len(pending))
-	for _, r := range pending {
-		aside[r.ID] = true
-	}
-	m.approvalAside = aside
-	m.viewMode = ChatView
-	return m.addMessage(Message{Role: "system", Time: time.Now(),
-		Content: fmt.Sprintf("🔐 %d approval request(s) still wait for your decision and nothing runs until you decide or they expire. `/approvals review` reopens the review.", len(pending))})
-}
-
-// reopenApprovalReview returns to the modal for every pending request.
-func (m Model) reopenApprovalReview() (Model, bool) {
-	if m.approvalHost == nil || len(m.approvalHost.Pending()) == 0 {
-		return m, false
-	}
-	m.approvalAside = nil
-	m.approvalView.SyncRequests(m.approvalHost.Pending())
-	m.viewMode = ApprovalView
-	return m, true
 }
 
 // handleApprovalDecisions commits the person's decisions through the host and
@@ -181,9 +144,6 @@ func verdictWord(v approval.Verdict) string {
 
 // handleApprovalKey routes keys to the modal approval view.
 func (m Model) handleApprovalKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	if k := msg.String(); (k == "q" || k == "esc") && m.approvalHost != nil {
-		return m.stepAsideFromApproval(), nil
-	}
 	var cmd tea.Cmd
 	m.approvalView, cmd = m.approvalView.Update(msg)
 	return m, cmd
@@ -198,12 +158,6 @@ func (m Model) renderApprovalView() string {
 // its lifecycle state, or one request in full. It decides nothing; decisions
 // are only the review view's keys.
 func (m Model) handleCmdApprovals(_ string, parts []string) (tea.Model, tea.Cmd) {
-	if len(parts) > 1 && parts[1] == "review" {
-		if reopened, ok := m.reopenApprovalReview(); ok {
-			return reopened, nil
-		}
-		return m.pushAssistantMsg("No approval request waits for a decision."), nil
-	}
 	return m.pushAssistantMsg(formatApprovalStatus(m.approvals, parts[1:])), nil
 }
 

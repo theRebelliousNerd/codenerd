@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -225,4 +226,31 @@ func learnjudgeDup(p float64) learnjudge.DuplicateCheck {
 
 func learnjudgeCode(asked, extra float64) learnjudge.CodeCheck {
 	return learnjudge.CodeCheck{DoesAsked: asked, DoesExtra: extra}
+}
+
+// A written tool keeps its description across a restart: Restore reads the
+// header WriteTool puts above the package clause.
+func TestWriteTool_DescriptionSurvivesRestore(t *testing.T) {
+	dir := t.TempDir()
+	compiled := dir + "/.compiled"
+	tg := NewToolGenerator(&countingLLM{}, dir)
+	tool := &GeneratedTool{Name: "todo_finder", Description: "Lists TODO comments\nwith file and line.", Code: safeToolCode, FilePath: dir + "/todo_finder.go"}
+	if err := tg.WriteTool(tool); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(compiled, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(compiled+"/todo_finder", []byte("bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reg := NewRuntimeRegistry(dir, compiled)
+	reg.Restore(dir, compiled)
+	got, ok := reg.Get("todo_finder")
+	if !ok || got.Description != "Lists TODO comments with file and line." {
+		t.Fatalf("restored = %+v, want the written description", got)
+	}
+	if again := withDescriptionHeader("// Description: kept\npackage tools\n", "other"); again != "// Description: kept\npackage tools\n" {
+		t.Fatalf("an existing header must stay: %q", again)
+	}
 }

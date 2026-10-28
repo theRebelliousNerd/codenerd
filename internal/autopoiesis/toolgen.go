@@ -68,8 +68,9 @@ func (tg *ToolGenerator) WriteTool(tool *GeneratedTool) error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// Write main code
-	if err := writeFileAtomic(tool.FilePath, []byte(tool.Code), 0644); err != nil {
+	// Write main code, headed by its description so a restart restores what
+	// the tool does (RuntimeRegistry.Restore reads it), not a placeholder.
+	if err := writeFileAtomic(tool.FilePath, []byte(withDescriptionHeader(tool.Code, tool.Description)), 0644); err != nil {
 		return fmt.Errorf("failed to write tool code: %w", err)
 	}
 
@@ -81,6 +82,28 @@ func (tg *ToolGenerator) WriteTool(tool *GeneratedTool) error {
 	}
 
 	return nil
+}
+
+// withDescriptionHeader puts "// Description: <description>" above the
+// package clause when the source does not already carry one there. The tool
+// registry's Restore reads that line back: without it every restored tool was
+// "Restored from disk", and Jev's duplicate check (tool_jev.go) compared
+// requests against names alone. The description goes on one line, whole.
+func withDescriptionHeader(code, description string) string {
+	desc := strings.Join(strings.Fields(description), " ")
+	if desc == "" {
+		return code
+	}
+	for line := range strings.SplitSeq(code, "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "// Description:") || strings.HasPrefix(t, "//Description:") {
+			return code
+		}
+		if strings.HasPrefix(t, "package ") {
+			break
+		}
+	}
+	return "// Description: " + desc + "\n" + code
 }
 
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {

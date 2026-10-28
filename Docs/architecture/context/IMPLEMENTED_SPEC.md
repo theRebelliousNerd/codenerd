@@ -238,24 +238,14 @@ accounting, serialization, storage, and learning support. File by file
   (`internal/context/compressor_turns.go:715-736`): bound `2*window` `[seam]`,
   compress-before-prune, warned drop on a fresh slice. It bounds memory; it
   is not the normal eviction path.
-- Memory operations land in `ApplyMemoryOperation`
-  (`internal/context/memory_ops.go`), shared by the compressor, the session
-  executor and chat. `promote_to_long_term` stores type `preference` (the type
-  `HydrateLearnings` loads) from every producer; the store adopts legacy
-  `(preference, learned)` rows on open (`internal/store/user_memory.go`).
-  `forget` has two domains (`articulation.MemoryDomain`). A model packet's
-  forget is session-scoped: it drops one `session_note` and its disposition
-  `Receipt` says saved memory was not touched. A person's forget
-  (`Domain == MemoryDomainUserMemory`, set only by the perception adapter,
-  `json:"-"`) resolves the words to exactly one saved preference
-  (exact value, then containment of at least 4 runes, then a distinctive
-  key; never the shared `preference` key), deletes that row by id, retires
-  its `learned_preference` copy exactly, and acknowledges it. Several
-  matches, none, or a path with no removable store change nothing and say so
-  (`StageUnresolved` / `StageUnsupported`). No tombstones: hydration reads the
-  store, so a deleted row cannot republish, and a later remember is deliberate.
-  `store_vector` stores a vector `[seam]`; `note` records a session note;
-  unknown ops report `StageUnsupported`.
+- Long-term ops are `processMemoryOperation`
+  (`internal/context/compressor_turns.go:202-236`): `promote_to_long_term`
+  stores a preference (failure warns) `[seam]`; `forget` retracts `[seam]`;
+  `store_vector` stores a vector (failure warns, not recallable) `[seam]`;
+  `note` is accepted by schema but not implemented and is Warn-dropped
+  (body-read-adjacent `[seam]` at
+  `internal/context/compressor_turns.go:226-231`); unknown ops Warn-drop
+  `[seam]`.
 - Kernel-gated masking is shipped: `assertTurnAgeCategories`
   (`internal/context/compressor_metrics.go:671-700`) writes
   `/recent <= 3`, `/mid <= 8`, `/old <= 15`, else `/ancient` `[seam]`;

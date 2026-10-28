@@ -112,7 +112,7 @@ func DefaultDiffKeyMap() DiffKeyMap {
 		ScrollLeft:       key.NewBinding(key.WithKeys("ctrl+left"), key.WithHelp("ctrl+←", "Scroll Left")),
 		ScrollRight:      key.NewBinding(key.WithKeys("ctrl+right"), key.WithHelp("ctrl+→", "Scroll Right")),
 		ScrollToStart:    key.NewBinding(key.WithKeys("0"), key.WithHelp("0", "Scroll to Start")),
-		Quit:             key.NewBinding(key.WithKeys("q", "esc"), key.WithHelp("q/esc", "Review later")),
+		Quit:             key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q/ctrl+c", "Close")),
 	}
 }
 

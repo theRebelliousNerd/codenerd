@@ -706,12 +706,9 @@ func (t *UnderstandingTransducer) extractMemoryOperations(u *Understanding) []ar
 	case "forget":
 		// "Forget X" -> remove X
 		if u.Scope.Target != "" {
-			// The person's own words: the host, not a model packet, names the
-			// saved long-term memory as the domain.
 			ops = append(ops, articulation.MemoryOperation{
-				Op:     "forget",
-				Key:    u.Scope.Target,
-				Domain: articulation.MemoryDomainUserMemory,
+				Op:  "forget",
+				Key: u.Scope.Target,
 			})
 		}
 	}

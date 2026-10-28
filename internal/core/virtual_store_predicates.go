@@ -474,17 +474,6 @@ func toAtomOrString(v any) any {
 	return v
 }
 
-// LearnedProjection is the kernel fact a stored row becomes when hydrated:
-// metaPred(Predicate, Args) with Args collapsed to one /string. Hydration
-// asserts it and a forget retracts exactly it, so the two cannot disagree
-// about which kernel fact a stored row is.
-func LearnedProjection(metaPred string, stored Fact) Fact {
-	return Fact{
-		Predicate: metaPred,
-		Args:      []any{toAtomOrString(stored.Predicate), learnedArgsValue(stored.Args)},
-	}
-}
-
 // learnedArgsValue is the /string value the Args slot of a learned_* fact
 // carries: the bare value when the stored row has exactly one string argument
 // (the common case -- a preference is one sentence), "" when it has none, and
@@ -590,7 +579,10 @@ func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
 	// constraint in the store, on every boot: "hydrate learnings incomplete
 	// after 249 facts: ... arg 1 declared /string, got []interface {}".
 	assertLearned := func(metaPred string, fact Fact) error {
-		return kernel.Assert(LearnedProjection(metaPred, fact))
+		return kernel.Assert(Fact{
+			Predicate: metaPred,
+			Args:      []any{toAtomOrString(fact.Predicate), learnedArgsValue(fact.Args)},
+		})
 	}
 
 	// 1. Load all preferences (highest priority)

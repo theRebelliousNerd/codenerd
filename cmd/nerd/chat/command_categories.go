@@ -207,8 +207,8 @@ var CommandRegistry = []CommandInfo{
 	},
 	{
 		Name:        "/approvals",
-		Description: "List human-approval requests, show one in full (read-only), or reopen the review",
-		Usage:       "/approvals [request-id | review]",
+		Description: "List human-approval requests, or show one in full (read-only)",
+		Usage:       "/approvals [request-id]",
 		Category:    CategoryBasic,
 		ShowInHelp:  true,
 	},
