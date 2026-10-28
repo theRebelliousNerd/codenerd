@@ -217,6 +217,7 @@ Verified against current source first: §§2–5 still held. The cache key had n
 - **The embedded corpus and vector searcher are not in the vector.** They are construction-time constants of a compiler instance.
 - **Template placeholders expand in one pass.** It is deterministic and runs left to right over source text. Inserted values are never re-scanned, which closes the map-order-dependent re-expansion of placeholders inside data such as the specialist roster. The assembler's second whole-prompt pass is removed.
 - **No new knob.** Memo, catalog and fact-cache bounds are memory ceilings, not tunables, and an evicted entry is recomputed rather than served wrong.
+- **Found along the way:** `core.sanitizeFactForNumericPredicates` coerced numeric arguments in the caller's `Args` slice. Once typed fact slices were shared across concurrent compiles, that became a data race. It now coerces a private copy (`internal/core/kernel_facts_ownership_test.go`).
 
 **Tests**
 
