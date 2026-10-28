@@ -56,8 +56,8 @@ func (r *editRecorder) list() []EditedElement {
 }
 
 // RecordEdit notes code elements a tool call changed. It is a no-op outside a
-// registry execution, so a tool stays callable directly (tests, apply_edits
-// staging) without a recorder.
+// registry execution, so a tool stays callable directly (tests) without a
+// recorder.
 func RecordEdit(ctx context.Context, edits ...EditedElement) {
 	rec, _ := ctx.Value(editRecorderKey{}).(*editRecorder)
 	if rec == nil {

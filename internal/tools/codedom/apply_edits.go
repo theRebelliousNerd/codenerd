@@ -1,7 +1,6 @@
 package codedom
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,6 +9,7 @@ import (
 	"strings"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/observation/precondition"
 	"codenerd/internal/projectdoc"
 	"codenerd/internal/tools"
 )
@@ -22,7 +22,7 @@ const maxAggregateInputBytes = 1 << 20 // 1 MiB
 func ApplyEditsTool() *tools.Tool {
 	return &tools.Tool{
 		Name:        "apply_edits",
-		Description: "Transactionally apply 2-16 line edits across distinct existing files. Each entry is one of edit_lines, insert_lines, or delete_lines with the same arguments as the single-file tools. Every edit is staged and validated before commit; optimistic conflict checks and best-effort rollback protect against partial writes.",
+		Description: "Transactionally apply 2-16 line edits across distinct existing files. Each entry is one of edit_lines, insert_lines, or delete_lines with the same arguments as the single-file tools, including precondition: a supplied read handle is checked against the file before anything is planned, exactly as the single-file tool checks it. Every edit is planned and validated before commit; optimistic conflict checks and best-effort rollback protect against partial writes.",
 		Category:    tools.CategoryCode,
 		Priority:    80,
 		Execute:     executeApplyEdits,
@@ -31,7 +31,7 @@ func ApplyEditsTool() *tools.Tool {
 			Properties: map[string]tools.Property{
 				"edits": {
 					Type:        "array",
-					Description: "Array of 2-16 edit objects, each with operation and path plus operation-specific fields, one distinct existing file per edit",
+					Description: "Array of 2-16 edit objects, each with operation and path plus operation-specific fields, one distinct existing file per edit. Each object may carry " + precondition.Arg + ": " + precondition.ArgDescription,
 					Items:       &tools.PropertyItems{Type: "object"},
 				},
 			},
@@ -49,6 +49,27 @@ type parsedEdit struct {
 	afterLine  int
 	newContent string
 	content    string
+	// precondition is the caller's read handle for this entry, "" when none
+	// was supplied. It is checked against the original path and the exact
+	// snapshot bytes the batch plans from, before any entry is planned;
+	// minting a fresh handle would certify the batch's own read instead of
+	// the caller's.
+	precondition string
+}
+
+// Precondition states of one batch entry, reported per entry so a caller can
+// tell an unchecked edit from a checked one.
+const (
+	preconditionNotSupplied         = "not_supplied"
+	preconditionSatisfied           = "satisfied"
+	preconditionSatisfiedWithCaveat = "satisfied_with_caveat"
+)
+
+// entryPrecondition is one entry's precondition outcome in the result.
+type entryPrecondition struct {
+	Path   string `json:"path"`
+	State  string `json:"state"`
+	Caveat string `json:"caveat,omitempty"`
 }
 
 func executeApplyEdits(ctx context.Context, args map[string]any) (string, error) {
@@ -109,6 +130,13 @@ func executeApplyEdits(ctx context.Context, args map[string]any) (string, error)
 			return "", fmt.Errorf("edits[%d]: malformed shape — path must be a non-empty string", idx)
 		}
 		pe := parsedEdit{operation: op, rawPath: rawPath}
+		if pv, present := m[precondition.Arg]; present && pv != nil {
+			ps, ok := pv.(string)
+			if !ok {
+				return "", fmt.Errorf("edits[%d]: malformed shape — %s must be the string handle read_file reported", idx, precondition.Arg)
+			}
+			pe.precondition = strings.TrimSpace(ps)
+		}
 		switch op {
 		case "edit_lines":
 			sl, ok := applyCoerceInt(m["start_line"])
@@ -179,6 +207,7 @@ func executeApplyEdits(ctx context.Context, args map[string]any) (string, error)
 		edit    parsedEdit
 	}
 	var snaps []snapshot
+	conditions := make([]entryPrecondition, 0, len(parsed))
 	absSeen := make(map[string]int)
 	for i, pe := range parsed {
 		if err := ctx.Err(); err != nil {
@@ -210,6 +239,22 @@ func executeApplyEdits(ctx context.Context, args map[string]any) (string, error)
 		if err != nil {
 			return "", fmt.Errorf("failed to read %q: %w", pe.rawPath, err)
 		}
+		// The caller's observation is checked on the original identity and the
+		// exact bytes this batch will transform, before anything is planned. A
+		// refused entry refuses the whole batch: no file has changed yet.
+		cond := entryPrecondition{Path: filepath.ToSlash(rel), State: preconditionNotSupplied}
+		if pe.precondition != "" {
+			caveat, err := precondition.Enforce(map[string]any{precondition.Arg: pe.precondition}, abs, data)
+			if err != nil {
+				return "", fmt.Errorf("edits[%d] %s on %s: precondition refused, no file was changed: %w", i, pe.operation, pe.rawPath, err)
+			}
+			cond.State = preconditionSatisfied
+			if caveat != "" {
+				cond.State = preconditionSatisfiedWithCaveat
+				cond.Caveat = caveat
+			}
+		}
+		conditions = append(conditions, cond)
 		parsed[i].absPath = abs
 		parsed[i].relPath = filepath.ToSlash(rel)
 		snaps = append(snaps, snapshot{
@@ -220,74 +265,39 @@ func executeApplyEdits(ctx context.Context, args map[string]any) (string, error)
 			edit:    parsed[i],
 		})
 	}
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	stagingRoot, err := os.MkdirTemp("", "codedom-apply-*")
-	if err != nil {
-		return "", fmt.Errorf("failed to create staging workspace: %w", err)
-	}
-	defer os.RemoveAll(stagingRoot)
-	for _, sn := range snaps {
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
-		stagedPath := filepath.Join(stagingRoot, filepath.FromSlash(sn.relPath))
-		if err := os.MkdirAll(filepath.Dir(stagedPath), 0o755); err != nil {
-			return "", fmt.Errorf("staging mkdir failed for %s: %w", sn.relPath, err)
-		}
-		if err := os.WriteFile(stagedPath, sn.orig, sn.mode.Perm()); err != nil {
-			return "", fmt.Errorf("staging write failed for %s: %w", sn.relPath, err)
-		}
-	}
-	stagingCtx := context.WithValue(ctx, tools.CtxKeyWorkspaceRoot, stagingRoot)
-	for i := range snaps {
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
-		rel := snaps[i].relPath
-		var execErr error
-		switch snaps[i].edit.operation {
-		case "edit_lines":
-			_, execErr = executeEditLines(stagingCtx, map[string]any{
-				"path":        rel,
-				"start_line":  snaps[i].edit.startLine,
-				"end_line":    snaps[i].edit.endLine,
-				"new_content": snaps[i].edit.newContent,
-			})
-		case "insert_lines":
-			_, execErr = executeInsertLines(stagingCtx, map[string]any{
-				"path":       rel,
-				"after_line": snaps[i].edit.afterLine,
-				"content":    snaps[i].edit.content,
-			})
-		case "delete_lines":
-			_, execErr = executeDeleteLines(stagingCtx, map[string]any{
-				"path":       rel,
-				"start_line": snaps[i].edit.startLine,
-				"end_line":   snaps[i].edit.endLine,
-			})
-		default:
-			execErr = fmt.Errorf("unknown operation %q", snaps[i].edit.operation)
-		}
-		if execErr != nil {
-			return "", fmt.Errorf("preflight edits[%d] %s on %s failed: %w", i, snaps[i].edit.operation, snaps[i].edit.rawPath, execErr)
-		}
-	}
+	// Every entry is planned in memory against its snapshot with the same
+	// planner its single-file verb uses, so all validation precedes any write
+	// and nothing is reported as changed until the commit lands.
 	writes := make([]plannedWrite, 0, len(snaps))
 	for i, sn := range snaps {
-		stagedPath := filepath.Join(stagingRoot, filepath.FromSlash(sn.relPath))
-		data, err := projectdoc.ReadFileForTool(stagedPath)
-		if err != nil {
-			return "", fmt.Errorf("failed to read staged %s: %w", sn.relPath, err)
+		if err := ctx.Err(); err != nil {
+			return "", err
 		}
-		if bytes.Equal(data, sn.orig) {
+		var plan lineEditPlan
+		var planErr error
+		switch sn.edit.operation {
+		case "edit_lines":
+			plan, planErr = planEditLines(sn.absPath, sn.orig, sn.edit.startLine, sn.edit.endLine, sn.edit.newContent)
+		case "insert_lines":
+			plan, planErr = planInsertLines(sn.absPath, sn.orig, sn.edit.afterLine, sn.edit.content)
+		case "delete_lines":
+			plan, planErr = planDeleteLines(sn.absPath, sn.orig, sn.edit.startLine, sn.edit.endLine)
+		default:
+			planErr = fmt.Errorf("unknown operation %q", sn.edit.operation)
+		}
+		if planErr != nil {
+			return "", fmt.Errorf("preflight edits[%d] %s on %s failed: %w", i, sn.edit.operation, sn.edit.rawPath, planErr)
+		}
+		if plan.output == string(sn.orig) {
 			return "", fmt.Errorf("edits[%d] %s on %s produces no change", i, sn.edit.operation, sn.relPath)
 		}
-		writes = append(writes, plannedWrite{abs: sn.absPath, rel: sn.relPath, orig: sn.orig, data: data, mode: sn.mode})
+		writes = append(writes, plannedWrite{abs: sn.absPath, rel: sn.relPath, orig: sn.orig, data: []byte(plan.output), mode: sn.mode})
 	}
 	if err := commitFiles(ctx, writes); err != nil {
 		return "", err
+	}
+	for _, w := range writes {
+		tools.RecordChangedSource(ctx, w.abs, string(w.orig), string(w.data))
 	}
 	changed := make([]string, len(snaps))
 	ops := make([]string, len(snaps))
@@ -296,8 +306,9 @@ func executeApplyEdits(ctx context.Context, args map[string]any) (string, error)
 		ops[i] = sn.edit.operation
 	}
 	res := map[string]any{
-		"changed":    changed,
-		"operations": ops,
+		"changed":       changed,
+		"operations":    ops,
+		"preconditions": conditions,
 	}
 	b, err := json.Marshal(res)
 	if err != nil {

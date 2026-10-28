@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"codenerd/internal/atomicfile"
 	"codenerd/internal/logging"
 	"codenerd/internal/observation/precondition"
 	"codenerd/internal/projectdoc"
@@ -106,16 +105,25 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 	if err != nil {
 		return "", err
 	}
+	plan, err := planEditLines(path, content, startLine, endLine, newContent)
+	if err != nil {
+		return "", err
+	}
+	return publishLineEdit(ctx, "edit_lines", path, content, plan, staleWarning)
+}
 
+// planEditLines computes edit_lines' whole-file candidate from content
+// without writing it, so a batch can plan every entry before committing any.
+func planEditLines(path string, content []byte, startLine, endLine int, newContent string) (lineEditPlan, error) {
 	ending := tactile.DetectLineEnding(content)
 	lines := strings.Split(tactile.NormalizeLineEnding(string(content), "\n"), "\n")
 
 	// Validate line numbers
 	if startLine < 1 || startLine > len(lines) {
-		return "", fmt.Errorf("start_line %d out of range (file has %d lines)", startLine, len(lines))
+		return lineEditPlan{}, fmt.Errorf("start_line %d out of range (file has %d lines)", startLine, len(lines))
 	}
 	if endLine < startLine || endLine > len(lines) {
-		return "", fmt.Errorf("end_line %d out of range", endLine)
+		return lineEditPlan{}, fmt.Errorf("end_line %d out of range", endLine)
 	}
 
 	// Convert to 0-indexed
@@ -140,30 +148,21 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 	// file that looks like a successful write.
 	output := tactile.NormalizeLineEnding(strings.Join(result, "\n"), ending)
 	if err := checkDelimiterBalance(path, startLine, lines[startIdx:endIdx], string(content), output); err != nil {
-		return "", err
+		return lineEditPlan{}, err
 	}
-
-	// Write back
 	if err := tools.RejectGoSyntaxRegression(path, content, []byte(output)); err != nil {
-		return "", err
+		return lineEditPlan{}, err
 	}
-	if err := atomicfile.WriteFilePreservingMode(path, []byte(output), 0o644); err != nil {
-		return "", fmt.Errorf("failed to write file: %w", err)
-	}
-	// A refused edit returns above this write, so it records nothing.
-	// element_modified is asserted from these rows; without them a turn that
-	// edits with edit_lines (the default the atoms recommend) leaves
-	// impacted_test and run_impacted_tests empty.
-	tools.RecordChangedSource(ctx, path, string(content), output)
 
 	linesReplaced := endLine - startLine + 1
-	logging.Tools("edit_lines completed: %s (replaced %d lines with %d)", path, linesReplaced, len(newLines))
-	return fmt.Sprintf("Replaced lines %d-%d (%d lines) with %d new lines in %s.%s%s\nReplaced (old lines %d-%d):\n%s",
-		startLine, endLine, linesReplaced, len(newLines), path,
-		lineShiftNotice(startLine, len(newLines)-linesReplaced, len(result)),
-		staleNotice(staleWarning),
-		startLine, endLine,
-		numberedLines(lines[startIdx:endIdx], startLine)), nil
+	return lineEditPlan{
+		output: output,
+		summary: fmt.Sprintf("Replaced lines %d-%d (%d lines) with %d new lines in %s.%s",
+			startLine, endLine, linesReplaced, len(newLines), path,
+			lineShiftNotice(startLine, len(newLines)-linesReplaced, len(result))),
+		detail: fmt.Sprintf("\nReplaced (old lines %d-%d):\n%s",
+			startLine, endLine, numberedLines(lines[startIdx:endIdx], startLine)),
+	}, nil
 }
 
 // checkDelimiterBalance refuses an edit that would leave the whole file
@@ -440,13 +439,22 @@ func executeInsertLines(ctx context.Context, args map[string]any) (string, error
 	if err != nil {
 		return "", err
 	}
+	plan, err := planInsertLines(path, content, afterLine, insertContent)
+	if err != nil {
+		return "", err
+	}
+	return publishLineEdit(ctx, "insert_lines", path, content, plan, staleWarning)
+}
 
+// planInsertLines computes insert_lines' whole-file candidate without
+// writing it.
+func planInsertLines(path string, content []byte, afterLine int, insertContent string) (lineEditPlan, error) {
 	ending := tactile.DetectLineEnding(content)
 	lines := strings.Split(tactile.NormalizeLineEnding(string(content), "\n"), "\n")
 
 	// Validate line number
 	if afterLine < 0 || afterLine > len(lines) {
-		return "", fmt.Errorf("after_line %d out of range (file has %d lines)", afterLine, len(lines))
+		return lineEditPlan{}, fmt.Errorf("after_line %d out of range (file has %d lines)", afterLine, len(lines))
 	}
 
 	// Split insert content into lines
@@ -458,23 +466,16 @@ func executeInsertLines(ctx context.Context, args map[string]any) (string, error
 	result = append(result, newLines...)
 	result = append(result, lines[afterLine:]...)
 
-	// Write back
 	output := tactile.NormalizeLineEnding(strings.Join(result, "\n"), ending)
 	if err := tools.RejectGoSyntaxRegression(path, content, []byte(output)); err != nil {
-		return "", err
+		return lineEditPlan{}, err
 	}
-	if err := atomicfile.WriteFilePreservingMode(path, []byte(output), 0o644); err != nil {
-		return "", fmt.Errorf("failed to write file: %w", err)
-	}
-	// See executeEditLines: the impact chain reads element_modified, which
-	// only exists for edits RecordEdit reported.
-	tools.RecordChangedSource(ctx, path, string(content), output)
-
-	logging.Tools("insert_lines completed: %s (inserted %d lines after line %d)", path, len(newLines), afterLine)
-	return fmt.Sprintf("Inserted %d lines after line %d in %s.%s%s",
-		len(newLines), afterLine, path,
-		lineShiftNotice(afterLine+1, len(newLines), len(result)),
-		staleNotice(staleWarning)), nil
+	return lineEditPlan{
+		output: output,
+		summary: fmt.Sprintf("Inserted %d lines after line %d in %s.%s",
+			len(newLines), afterLine, path,
+			lineShiftNotice(afterLine+1, len(newLines), len(result))),
+	}, nil
 }
 
 // DeleteLinesTool returns a tool for deleting lines from a file.
@@ -556,16 +557,25 @@ func executeDeleteLines(ctx context.Context, args map[string]any) (string, error
 	if err != nil {
 		return "", err
 	}
+	plan, err := planDeleteLines(path, content, startLine, endLine)
+	if err != nil {
+		return "", err
+	}
+	return publishLineEdit(ctx, "delete_lines", path, content, plan, staleWarning)
+}
 
+// planDeleteLines computes delete_lines' whole-file candidate without
+// writing it.
+func planDeleteLines(path string, content []byte, startLine, endLine int) (lineEditPlan, error) {
 	ending := tactile.DetectLineEnding(content)
 	lines := strings.Split(tactile.NormalizeLineEnding(string(content), "\n"), "\n")
 
 	// Validate line numbers
 	if startLine < 1 || startLine > len(lines) {
-		return "", fmt.Errorf("start_line %d out of range (file has %d lines)", startLine, len(lines))
+		return lineEditPlan{}, fmt.Errorf("start_line %d out of range (file has %d lines)", startLine, len(lines))
 	}
 	if endLine < startLine || endLine > len(lines) {
-		return "", fmt.Errorf("end_line %d out of range", endLine)
+		return lineEditPlan{}, fmt.Errorf("end_line %d out of range", endLine)
 	}
 
 	// Convert to 0-indexed
@@ -577,26 +587,42 @@ func executeDeleteLines(ctx context.Context, args map[string]any) (string, error
 	result = append(result, lines[:startIdx]...)
 	result = append(result, lines[endIdx:]...)
 
-	// Write back
 	output := tactile.NormalizeLineEnding(strings.Join(result, "\n"), ending)
 	if err := tools.RejectGoSyntaxRegression(path, content, []byte(output)); err != nil {
+		return lineEditPlan{}, err
+	}
+	linesDeleted := endLine - startLine + 1
+	return lineEditPlan{
+		output: output,
+		summary: fmt.Sprintf("Deleted lines %d-%d (%d lines) from %s.%s",
+			startLine, endLine, linesDeleted, path,
+			lineShiftNotice(startLine, -linesDeleted, len(result))),
+		detail: fmt.Sprintf("\nDeleted (old lines %d-%d):\n%s",
+			startLine, endLine, numberedLines(lines[startIdx:endIdx], startLine)),
+	}, nil
+}
+
+// lineEditPlan is one line verb's candidate: the whole new file, and the
+// result the verb reports once it is written. A precondition caveat goes
+// between summary and detail.
+type lineEditPlan struct {
+	output  string
+	summary string
+	detail  string
+}
+
+// publishLineEdit writes a single line verb's plan and reports it. A refused
+// edit returns before the write and records nothing; element_modified is
+// asserted from the rows RecordChangedSource reports, and without them a turn
+// that edits with the line verbs leaves impacted_test and run_impacted_tests
+// empty.
+func publishLineEdit(ctx context.Context, verb, path string, content []byte, plan lineEditPlan, staleWarning string) (string, error) {
+	if err := commitLineEdit(ctx, path, content, plan.output); err != nil {
 		return "", err
 	}
-	if err := atomicfile.WriteFilePreservingMode(path, []byte(output), 0o644); err != nil {
-		return "", fmt.Errorf("failed to write file: %w", err)
-	}
-	// See executeEditLines: the impact chain reads element_modified, which
-	// only exists for edits RecordEdit reported.
-	tools.RecordChangedSource(ctx, path, string(content), output)
-
-	linesDeleted := endLine - startLine + 1
-	logging.Tools("delete_lines completed: %s (deleted %d lines)", path, linesDeleted)
-	return fmt.Sprintf("Deleted lines %d-%d (%d lines) from %s.%s%s\nDeleted (old lines %d-%d):\n%s",
-		startLine, endLine, linesDeleted, path,
-		lineShiftNotice(startLine, -linesDeleted, len(result)),
-		staleNotice(staleWarning),
-		startLine, endLine,
-		numberedLines(lines[startIdx:endIdx], startLine)), nil
+	tools.RecordChangedSource(ctx, path, string(content), plan.output)
+	logging.Tools("%s completed: %s", verb, plan.summary)
+	return plan.summary + staleNotice(staleWarning) + plan.detail, nil
 }
 
 // preconditionWarning checks a caller-supplied precondition against the bytes

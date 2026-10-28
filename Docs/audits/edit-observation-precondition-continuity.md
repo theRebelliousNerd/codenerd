@@ -209,3 +209,37 @@ Before implementation, reconcile owning tools/session specifications under the r
 [subagent]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/session/subagent.go#L270-L310
 [campaign-lock]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/campaign/write_set_lock_manager.go#L24-L86
 [line-tests]: https://github.com/theRebelliousNerd/codenerd/blob/356f65e0e6bb639adaa90ab36212daa714114871/internal/tools/codedom/lines_precondition_test.go#L63-L110
+
+## As-built status
+
+Verified and built 2026-10-28 on `main` (after `c28a1212`). Every claim was re-read against current source; the adapter and line-verb files were unchanged from the audited revision.
+
+### Claim ledger
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| E1: `apply_edits` parses no `precondition`, so a supplied stale/expired/wrong-file handle is silently dropped | Real, fixed | Before: `parsedEdit` had no field and the staged verb maps omitted it. Now parsed at `apply_edits.go:133`, a non-string handle is refused, and `precondition.Enforce` runs on the original absolute path and snapshot bytes at `apply_edits.go:247`, before any entry is planned |
+| The batch's optimistic commit check compares against its own later snapshot, not the caller's read | Real; unchanged and still needed | `commit.go` `commitFiles` re-checks `plannedWrite.orig`; E1 is closed by the check above, not by this one |
+| The staged success strings (and any caveat) are discarded | Real, fixed | Per-entry `preconditions` with `not_supplied` / `satisfied` / `satisfied_with_caveat` and the caveat (`apply_edits.go:311`) |
+| Forwarding the handle to the staged path would be refused as another file; minting a fresh one would certify the adapter's read | Confirmed; avoided | The staging directory is gone: entries are planned in memory against the snapshot (`apply_edits.go:280`) |
+| §4: line verbs read, transform, then `atomicfile.WriteFilePreservingMode` outside `commitMu`, so a cooperating codedom commit after the read is overwritten by the stale whole-file candidate | Real, fixed for codedom writers | `publishLineEdit` -> `commitLineEdit` -> `commitFiles` (`lines.go:619`, `commit.go:57`); the read bytes are re-checked under `commitMu` (`commit.go:90`) |
+| `atomicfile`'s striped locks begin inside `WriteFile`, after the caller's read | Confirmed; not changed | `atomicfile.go:167` |
+| Native batch calls in one turn execute sequentially; campaign write-set locks exist above | Confirmed; not changed | `executor_tools.go` accounting path; `campaign/write_set_lock_manager.go` |
+| External editors, formatters and other processes are outside every in-process protocol | Confirmed; stated in the code comment and spec | `commit.go` `commitLineEdit` doc |
+| `apply_edits` recorded changed elements during staging, before (and regardless of) commit | Found while building, fixed | `RecordChangedSource` now runs per write only after `commitFiles` succeeds (`apply_edits.go:300`) |
+
+### What was built
+
+- Ruling: the batch's caller condition is evaluated on the original identity and the exact bytes the batch transforms, and the batch stops staging through a temp directory. The three line verbs were split into pure planners (`planEditLines`, `planInsertLines`, `planDeleteLines`) and one publisher; `apply_edits` reuses the planners, so direct and batch validation (range, delimiter balance, Go syntax regression) cannot drift.
+- Ruling (variant C): single-file line verbs publish through `commitFiles`, the boundary the batch, element, create and repoint verbs already share. No new lock hierarchy. `errOptimisticConflict` makes the refusal typed; the line verb adds "nothing was written, read again".
+- Spec: `Docs/architecture/tools/IMPLEMENTED_SPEC.md` §7.2 rewritten as built.
+
+### Tests
+
+`internal/tools/codedom/apply_edits_precondition_test.go`: the audit's witness (stale handle refuses the whole batch, neither file changes, the direct verb refuses the same handle); unknown, non-string and wrong-file handles refuse; per-entry states including the intact-region caveat; each line verb refuses an interleaved codedom commit instead of overwriting it. The precondition tests and the interleave test were each confirmed failing with the change disabled. `go test ./internal/tools/codedom/ ./internal/tools/` pass.
+
+### Left open
+
+- Non-participating writers (another process, an editor, a formatter): no shared protocol exists; stated, not claimed.
+- EDIT-COND-04 (production paired study) and the cost measurements in §7: not run.
+- Variant D (path-set coordination instead of the one `commitMu`): no contention evidence; not built.

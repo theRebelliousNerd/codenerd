@@ -275,9 +275,11 @@ Compose argv → string → `executeRunCommand`. `git_operation` whitelists oper
 
 Regex maps for go/py/js-ts/java-kt-scala/rs/c-cpp + generic fallback. `EndLine` is currently start line only (comment in code: needs block tracking). Explicit note: full AST is VirtualStore/world territory; this is lightweight.
 
-### 7.2 Line tools
+### 7.2 Line tools (verified 2026-10-28)
 
-Read entire file, slice lines, rewrite. Accept int and float64 for line numbers. **No workspace containment** — absolute paths work if process can open them.
+`edit_lines`, `insert_lines` and `delete_lines` (`internal/tools/codedom/lines.go`) resolve the path through `ResolveWorkspacePath`, read the whole file, enforce an optional `precondition` read handle (`precondition.Enforce`), then build a whole-file candidate with `planEditLines` / `planInsertLines` / `planDeleteLines`, which never write. `publishLineEdit` writes the plan through `commitLineEdit` -> `commitFiles` (`commit.go`): under `commitMu` the bytes the verb read are re-checked, so a codedom commit that landed after the read is an `optimistic conflict` refusal, not an overwrite of the other writer's change. Writers outside codedom are not serialized by `commitMu`.
+
+`apply_edits` (`apply_edits.go`) plans 2-16 entries in memory with the same planners against one snapshot per file, after checking each entry's supplied `precondition` against the original path and those snapshot bytes (a stale, unknown, wrong-file or non-string handle refuses the whole batch before any write). It commits through `commitFiles` and reports per-entry `preconditions` (`not_supplied`, `satisfied`, `satisfied_with_caveat` with the caveat). Changed elements are recorded only after the commit lands.
 
 ### 7.3 Test impact DI
 

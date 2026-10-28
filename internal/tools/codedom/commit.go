@@ -3,6 +3,7 @@ package codedom
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,6 +29,10 @@ var commitWriteFile = atomicfile.WriteFile
 // and before the commit verifies it, deterministically.
 var commitBeforeHook func()
 
+// errOptimisticConflict marks a commit refused because a planned file no
+// longer holds the bytes its plan was computed from.
+var errOptimisticConflict = errors.New("optimistic conflict")
+
 // plannedWrite is one file a commit writes.
 type plannedWrite struct {
 	abs, rel string
@@ -37,6 +42,28 @@ type plannedWrite struct {
 	create bool
 	data   []byte
 	mode   os.FileMode
+}
+
+// commitLineEdit publishes one line verb's candidate through commitFiles.
+//
+// A line verb reads the whole file, checks the caller's precondition, and
+// builds a whole-file candidate from that read. Writing the candidate straight
+// to disk would overwrite anything another codedom writer committed after the
+// read, including a change to a different declaration, since the candidate
+// carries the old copy of the rest of the file. Under commitMu the bytes the
+// verb read are re-checked before the write, so an interleaved codedom commit
+// is a refusal to re-read, not a silent overwrite. Writers outside codedom are
+// not serialized by commitMu; for them the check narrows the window.
+func commitLineEdit(ctx context.Context, abs string, before []byte, output string) error {
+	mode := os.FileMode(0o644)
+	if info, err := os.Stat(abs); err == nil {
+		mode = info.Mode().Perm()
+	}
+	err := commitFiles(ctx, []plannedWrite{{abs: abs, rel: abs, orig: before, data: []byte(output), mode: mode}})
+	if errors.Is(err, errOptimisticConflict) {
+		return fmt.Errorf("%w; nothing was written. Read the file again and redo the edit against what it holds now", err)
+	}
+	return err
 }
 
 // readDependency is evidence an edit was planned from that its own writes do
@@ -76,16 +103,16 @@ func commitFiles(ctx context.Context, planned []plannedWrite, reads ...readDepen
 	unchanged := func(p plannedWrite) error {
 		if p.create {
 			if _, err := os.Stat(p.abs); err == nil {
-				return fmt.Errorf("optimistic conflict: %s now exists", p.rel)
+				return fmt.Errorf("%w: %s now exists", errOptimisticConflict, p.rel)
 			}
 			return nil
 		}
 		cur, err := projectdoc.ReadFileForTool(p.abs)
 		if err != nil {
-			return fmt.Errorf("optimistic conflict: failed to re-read %s: %w", p.rel, err)
+			return fmt.Errorf("%w: failed to re-read %s: %w", errOptimisticConflict, p.rel, err)
 		}
 		if !bytes.Equal(cur, p.orig) {
-			return fmt.Errorf("optimistic conflict: file %s changed since snapshot", p.rel)
+			return fmt.Errorf("%w: file %s changed since snapshot", errOptimisticConflict, p.rel)
 		}
 		return nil
 	}
