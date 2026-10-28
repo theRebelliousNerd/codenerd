@@ -42,6 +42,12 @@ type OllamaEngine struct {
 	// ceiling is the model's input window as learned from its refusals; a
 	// longer text is split and pooled (long_input.go).
 	ceiling inputCeiling
+
+	// keepAlive is sent with every request (embedding.ollama_keep_alive):
+	// how long Ollama keeps the model loaded after it. Ollama's own default
+	// unloads it after five idle minutes, and the next embed then reloads it
+	// (~2.6 s measured 2026-10-27) in the middle of a turn.
+	keepAlive string
 }
 
 // NewOllamaEngine creates a new Ollama embedding engine.
@@ -124,8 +130,9 @@ func (e *OllamaEngine) embedOnce(ctx context.Context, text string) ([]float32, e
 		model := e.Model()
 
 		req := ollamaEmbedRequest{
-			Model:  model,
-			Prompt: text,
+			Model:     model,
+			Prompt:    text,
+			KeepAlive: e.keepAlive,
 		}
 
 		body, err := json.Marshal(req)
@@ -273,7 +280,7 @@ const (
 // per-text Embed for the chunk, which is also the path that splits an input
 // longer than the model's window.
 func (e *OllamaEngine) embedBatchNative(ctx context.Context, texts []string) ([][]float32, error) {
-	body, err := json.Marshal(ollamaBatchEmbedRequest{Model: e.Model(), Input: texts})
+	body, err := json.Marshal(ollamaBatchEmbedRequest{Model: e.Model(), Input: texts, KeepAlive: e.keepAlive})
 	if err != nil {
 		return nil, fmt.Errorf("marshal batch request: %w", err)
 	}
@@ -644,8 +651,9 @@ func truncateForLog(s string, max int) string {
 // =============================================================================
 
 type ollamaEmbedRequest struct {
-	Model  string `json:"model"`
-	Prompt string `json:"prompt"`
+	Model     string `json:"model"`
+	Prompt    string `json:"prompt"`
+	KeepAlive string `json:"keep_alive,omitempty"`
 }
 
 type ollamaEmbedResponse struct {
@@ -653,8 +661,9 @@ type ollamaEmbedResponse struct {
 }
 
 type ollamaBatchEmbedRequest struct {
-	Model string   `json:"model"`
-	Input []string `json:"input"`
+	Model     string   `json:"model"`
+	Input     []string `json:"input"`
+	KeepAlive string   `json:"keep_alive,omitempty"`
 }
 
 type ollamaBatchEmbedResponse struct {

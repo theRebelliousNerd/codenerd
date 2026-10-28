@@ -1410,6 +1410,7 @@ func initKernel(bctx *bootContext) error {
 			return err
 		}
 		bctx.kernel = cortex
+		go refreshOrientationInBackground(bctx.workspace, cortex)
 	}
 
 	if err := perception.InitPerceptionLayerWithContext(bctx.ctx, bctx.kernel, bctx.appCfg); err != nil {

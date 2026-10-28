@@ -282,6 +282,11 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		}
 		// One embedding HTTP call. Absent takes the default; a present value
 		// that does not parse would otherwise install silently as 60s.
+		if raw := strings.TrimSpace(c.Embedding.OllamaKeepAlive); raw != "" && raw != "-1" {
+			if d, err := time.ParseDuration(raw); err != nil || d < 0 {
+				add(SeverityError, "embedding.ollama_keep_alive", fmt.Sprintf("%q is not a non-negative duration", raw), `a Go duration such as "30m", "-1" to keep the model loaded, or remove the key for the default (30m)`)
+			}
+		}
 		if raw := strings.TrimSpace(c.Embedding.RequestTimeout); raw != "" {
 			d, err := time.ParseDuration(raw)
 			switch {

@@ -70,6 +70,9 @@ type Config struct {
 	// Dimensions is the vector length the Ollama model returns. Required for
 	// provider=ollama; no default.
 	Dimensions int `json:"dimensions"`
+	// OllamaKeepAlive is how long Ollama keeps the model loaded after each
+	// request (a Go duration such as "30m", or "-1" for until it is stopped).
+	OllamaKeepAlive string `json:"ollama_keep_alive"`
 
 	// GenAI Configuration
 	GenAIAPIKey string `json:"genai_api_key"`
@@ -82,8 +85,9 @@ type Config struct {
 // DefaultConfig returns sensible defaults.
 func DefaultConfig() Config {
 	return Config{
-		Provider:       "ollama", // Default to local Ollama
-		OllamaEndpoint: "http://localhost:11434",
+		Provider:        "ollama", // Default to local Ollama
+		OllamaEndpoint:  "http://localhost:11434",
+		OllamaKeepAlive: "30m",
 		// No model: the workspace names one for its provider in
 		// .nerd/config.json, or NewEngine refuses.
 		TaskType: "SEMANTIC_SIMILARITY",
@@ -126,6 +130,7 @@ func newEngineWithStartupTimeout(ctx context.Context, cfg Config, startupTimeout
 		var oe *OllamaEngine
 		oe, err = NewOllamaEngine(cfg.OllamaEndpoint, cfg.OllamaModel, cfg.Dimensions)
 		if err == nil {
+			oe.keepAlive = cfg.OllamaKeepAlive
 			// Best-effort ensure at construction so first embed isn't the first
 			// time we discover a missing model. Short timeout so a down Ollama
 			// does not block boot; Embed will retry EnsureModel later.

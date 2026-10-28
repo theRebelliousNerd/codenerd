@@ -39,6 +39,10 @@ type EmbeddingConfig struct {
 	// first vector that comes back a different length is an error that names
 	// both numbers. Changing it means `nerd embedding reembed`.
 	Dimensions int `yaml:"dimensions" json:"dimensions"`
+	// OllamaKeepAlive is how long Ollama keeps the model loaded after each
+	// request (default "30m"; "-1" keeps it until Ollama stops). Ollama's own
+	// five idle minutes made the next embed reload the model mid-turn.
+	OllamaKeepAlive string `yaml:"ollama_keep_alive" json:"ollama_keep_alive,omitempty"`
 
 	// GenAI Configuration (Google cloud embedding)
 	GenAIAPIKey string `yaml:"genai_api_key" json:"genai_api_key"`
@@ -193,15 +197,16 @@ func (c *EmbeddingConfig) MissingModel() string {
 func DefaultEmbeddingConfig() *EmbeddingConfig {
 	d := embedding.DefaultConfig()
 	return &EmbeddingConfig{
-		Provider:       d.Provider,
-		OllamaEndpoint: d.OllamaEndpoint,
-		OllamaModel:    d.OllamaModel,
-		Dimensions:     d.Dimensions,
-		GenAIAPIKey:    d.GenAIAPIKey,
-		GenAIModel:     d.GenAIModel,
-		TaskType:       d.TaskType,
-		RequestTimeout: "60s",
-		PullTimeout:    "30m",
+		Provider:        d.Provider,
+		OllamaEndpoint:  d.OllamaEndpoint,
+		OllamaModel:     d.OllamaModel,
+		Dimensions:      d.Dimensions,
+		OllamaKeepAlive: d.OllamaKeepAlive,
+		GenAIAPIKey:     d.GenAIAPIKey,
+		GenAIModel:      d.GenAIModel,
+		TaskType:        d.TaskType,
+		RequestTimeout:  "60s",
+		PullTimeout:     "30m",
 	}
 }
 
@@ -325,13 +330,18 @@ func EmbeddingPullTimeout() time.Duration {
 // fallback) built engines from embedding.DefaultConfig and never read the
 // user's file -- invisible while a default model existed.
 func (c EmbeddingConfig) EngineConfig() embedding.Config {
+	keepAlive := strings.TrimSpace(c.OllamaKeepAlive)
+	if keepAlive == "" {
+		keepAlive = embedding.DefaultConfig().OllamaKeepAlive
+	}
 	return embedding.Config{
-		Provider:       c.Provider,
-		OllamaEndpoint: c.OllamaEndpoint,
-		OllamaModel:    c.OllamaModel,
-		Dimensions:     c.Dimensions,
-		GenAIAPIKey:    c.GenAIAPIKey,
-		GenAIModel:     c.GenAIModel,
-		TaskType:       c.TaskType,
+		OllamaKeepAlive: keepAlive,
+		Provider:        c.Provider,
+		OllamaEndpoint:  c.OllamaEndpoint,
+		OllamaModel:     c.OllamaModel,
+		Dimensions:      c.Dimensions,
+		GenAIAPIKey:     c.GenAIAPIKey,
+		GenAIModel:      c.GenAIModel,
+		TaskType:        c.TaskType,
 	}
 }

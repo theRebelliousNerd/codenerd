@@ -1,7 +1,6 @@
 package core
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +9,6 @@ import (
 
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
-	"codenerd/internal/orient"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
 	"codeberg.org/TauCeti/mangle-go/factstore"
@@ -484,11 +482,14 @@ func (k *RealKernel) loadMangleFiles() error {
 		if !orientationLoaded {
 			orientationLoaded = true
 			orientationPath := k.nerdPath(filepath.Join("orientation", "orientation.mg"))
+			// The kernel boots on the projection the last refresh saved. It
+			// is not refreshed here: a refresh after a new commit re-evaluates
+			// the whole orientation program (~55 s measured 2026-10-27) and
+			// every kernel waited on it. The cortex boot refreshes it in the
+			// background and applies the delta to the running kernels
+			// (system.refreshOrientationInBackground); a scan applies it too.
 			if _, err := os.Stat(orientationPath); err == nil {
-				_, refreshErr := orient.Refresh(context.Background(), k.workspaceRoot, nil)
-				if refreshErr != nil {
-					logging.Get(logging.CategoryKernel).Warn("Orientation refresh failed; projection withheld: %v", refreshErr)
-				} else if decls, facts, err := loadOrientationProjection(orientationPath); err == nil {
+				if decls, facts, err := loadOrientationProjection(orientationPath); err == nil {
 					schemasBuilder.WriteString("\n\n# Repository Orientation\n")
 					schemasBuilder.WriteString(decls)
 					k.bootFacts = append(k.bootFacts, facts...)
