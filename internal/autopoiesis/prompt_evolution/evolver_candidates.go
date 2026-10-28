@@ -82,11 +82,15 @@ func (pe *PromptEvolver) atomStoragePathLocked(atomID string, promoted bool) str
 }
 
 // autoPromoteAtoms promotes candidates that meet the confidence threshold on
-// ledger-derived evidence. Must hold pe.mu.
-func (pe *PromptEvolver) autoPromoteAtoms() ([]promotionEvent, int) {
+// ledger-derived evidence, except those the promotion check held
+// (jev_promotion.go). Must hold pe.mu.
+func (pe *PromptEvolver) autoPromoteAtoms(held map[string]string) ([]promotionEvent, int) {
 	promoted := 0
 	var pending []promotionEvent
 	for id, ga := range pe.evolvedAtoms {
+		if _, hold := held[id]; hold {
+			continue
+		}
 		if ga.ShouldPromote(pe.config.ConfidenceThreshold) && ga.PromotedAt.IsZero() {
 			cb, promotedAt, err := pe.promoteAtomLocked(id)
 			if err == nil {

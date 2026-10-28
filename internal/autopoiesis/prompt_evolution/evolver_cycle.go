@@ -93,8 +93,9 @@ func (pe *PromptEvolver) RunEvolutionCycle(ctx context.Context) (*EvolutionResul
 
 	// 4. Opt-in auto-promotion over ledger-derived counts.
 	if cfg.AutoPromote {
+		held := pe.promotionHolds(ctx)
 		pe.mu.Lock()
-		pending, promoted := pe.autoPromoteAtoms()
+		pending, promoted := pe.autoPromoteAtoms(held)
 		pe.mu.Unlock()
 		result.AtomsPromoted = promoted
 		firePromotions(pending)

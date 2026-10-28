@@ -50,3 +50,19 @@ func TestProblemTypeAndSharedCause_FailLoudly(t *testing.T) {
 		t.Fatal("problem kind is not a Choice over every kind")
 	}
 }
+
+// One question per promoted atom, at most atomMaxComparisons, and the state
+// says how many were left out.
+func TestAtomCheckRequest_ShapeAndBound(t *testing.T) {
+	existing := make([]AtomText, atomMaxComparisons+2)
+	for i := range existing {
+		existing[i] = AtomText{ID: "a", Content: "x"}
+	}
+	state, qs := AtomCheckRequest(AtomText{ID: "c", Content: "do y"}, existing)
+	if len(qs) != atomMaxComparisons+1 || state["existing_atoms_omitted"] != 2 {
+		t.Fatalf("questions %d omitted %v", len(qs), state["existing_atoms_omitted"])
+	}
+	if _, err := CheckAtom(context.Background(), &autopoiesisAsker{err: errors.New("503")}, AtomText{ID: "c", Content: "do y"}, nil); err == nil {
+		t.Fatal("a failed atom check must be an error")
+	}
+}

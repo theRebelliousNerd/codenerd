@@ -247,6 +247,9 @@ func (pe *PromptEvolver) afterEvidence(exposed, credited []CandidateRef) {
 	}
 	var pending []promotionEvent
 	trialMoved := len(exposed) > 0
+	// With the promotion check on, promotion waits for the cycle, which
+	// checks before it promotes (jev_promotion.go).
+	promoteNow := !pe.promotionCheckOn()
 	pe.mu.Lock()
 	for _, ref := range credited {
 		ga := pe.evolvedAtoms[ref.ID]
@@ -257,7 +260,7 @@ func (pe *PromptEvolver) afterEvidence(exposed, credited []CandidateRef) {
 		if err := pe.persistAtomLocked(ga); err != nil {
 			logging.Get(logging.CategoryAutopoiesis).Warn("Failed to persist atom usage for %s: %v", ref.ID, err)
 		}
-		if pe.config.AutoPromote && ga.PromotedAt.IsZero() && ga.ShouldPromote(pe.config.ConfidenceThreshold) {
+		if promoteNow && pe.config.AutoPromote && ga.PromotedAt.IsZero() && ga.ShouldPromote(pe.config.ConfidenceThreshold) {
 			cb, promotedAt, err := pe.promoteAtomLocked(ref.ID)
 			if err != nil {
 				logging.Get(logging.CategoryAutopoiesis).Warn("Failed to auto-promote atom %s: %v", ref.ID, err)

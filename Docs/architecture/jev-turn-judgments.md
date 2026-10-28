@@ -483,6 +483,29 @@ regex-classified problem type bought one.
   0.96 and three empty-slice panics 0.98. A timeout, a stray edit and a syntax
   error scored 0.03, and three provider outages 0.04.
 
+The promotion check, under the same switch: before auto-promotion moves an
+evolved atom into the agent's instructions (`RunEvolutionCycle`, step 4).
+
+- Questions (`internal/learnjudge/atomcheck.go`): `describes_one_task` ("Is
+  `candidate` about one specific past task rather than guidance for many
+  tasks?"), and `contradicts_N`, one Noul per atom already promoted for the same
+  shard ("Would following `candidate` mean going against `atom`?"). At most 40
+  comparisons; the state says how many were left out.
+- Decision (`promotionHoldReason`, `prompt_evolution/jev_promotion.go`): one
+  task yes or unsettled holds; any contradiction yes or unsettled holds; a clean
+  no on all promotes. A held atom stays pending for the operator. With no
+  answer, the usage threshold (`ShouldPromote`) decides as before, logged. While
+  the check is on, promotion at record time waits for the cycle, so nothing
+  skips the check. An operator's `PromoteAtom` is not checked: the decision is
+  the operator's.
+- Scope: it compares against promoted evolved atoms only, not the shipped atom
+  corpus. Comparing against the corpus would mean selecting from it, which is
+  the JIT selector's job.
+- Probe (`atom_checks-promotion`, 6 candidates against 3 promoted atoms): 23 of
+  24 right. One wrong: "Max must return 0 ...; TestMaxEmpty covers it" read as
+  going against "run a test before claiming it passes" (0.81). That candidate
+  is held anyway, on `describes_one_task` 0.98.
+
 ## Latency and cost
 
 - The turn judgments run beside perception. Routing waits for them, so they are

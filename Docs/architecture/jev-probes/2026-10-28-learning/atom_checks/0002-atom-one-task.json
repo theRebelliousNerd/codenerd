@@ -1,0 +1,84 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "agent": "codeNERD, a coding agent; an atom is one piece of its standing instructions",
+  "candidate": "In internal/stats/stats.go, Max must return 0 when values is empty; TestMaxEmpty covers it."
+ },
+ "questions": {
+  "contradicts_0": {
+   "type": "noul",
+   "instructions": {
+    "atom": {
+     "text": "Before claiming a test passes, run it with run_tests and quote the result; a claim without a recorded run is not done."
+    },
+    "question": "Would following `candidate` mean going against `atom`?"
+   },
+   "criteria": {
+    "true": "The two instructions tell the agent to do opposite or incompatible things in the same situation.",
+    "false": "The two can both be followed: they agree, cover different situations, or are unrelated."
+   }
+  },
+  "contradicts_1": {
+   "type": "noul",
+   "instructions": {
+    "atom": {
+     "text": "Prefer editing the smallest function that fixes the bug; do not reformat unrelated code in the same change."
+    },
+    "question": "Would following `candidate` mean going against `atom`?"
+   },
+   "criteria": {
+    "true": "The two instructions tell the agent to do opposite or incompatible things in the same situation.",
+    "false": "The two can both be followed: they agree, cover different situations, or are unrelated."
+   }
+  },
+  "contradicts_2": {
+   "type": "noul",
+   "instructions": {
+    "atom": {
+     "text": "When a request names a file, read that file before searching elsewhere."
+    },
+    "question": "Would following `candidate` mean going against `atom`?"
+   },
+   "criteria": {
+    "true": "The two instructions tell the agent to do opposite or incompatible things in the same situation.",
+    "false": "The two can both be followed: they agree, cover different situations, or are unrelated."
+   }
+  },
+  "describes_one_task": {
+   "type": "noul",
+   "instructions": "Is `candidate` about one specific past task rather than guidance for many tasks?",
+   "criteria": {
+    "true": "The instruction only makes sense for one task: it names one file, function, bug or request and says what to do about that one case.",
+    "false": "The instruction states a practice the agent can follow on many different tasks, even if it gives one example."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "contradicts_0": {
+   "type": "noul",
+   "noul": 0.81
+  },
+  "contradicts_1": {
+   "type": "noul",
+   "noul": 0.1
+  },
+  "contradicts_2": {
+   "type": "noul",
+   "noul": 0.13
+  },
+  "describes_one_task": {
+   "type": "noul",
+   "noul": 0.98
+  }
+ },
+ "usage": {
+  "input_tokens": 733,
+  "output_tokens": 84
+ }
+}
+}
