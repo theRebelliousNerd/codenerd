@@ -561,7 +561,7 @@ func (d *Decomposer) linkRequirementsToTasks(requirements []Requirement, campaig
 	logging.CampaignDebug("Requirement linking complete: %d links created", linkedCount)
 }
 
-// cleanJSONResponse extracts JSON from LLM response that may contain reasoning traces.
+// cleanJSONResponse extracts JSON from LLM response that may include surrounding commentary.
 // It looks for JSON objects/arrays in the response, handling markdown fences and preamble text.
 func cleanJSONResponse(resp string) string {
 	resp = strings.TrimSpace(resp)

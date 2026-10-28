@@ -50,6 +50,9 @@ const (
 	StageFailed ControlStage = "failed"
 	// StagePartiallyApplied: a multi-step control completed some of its steps.
 	StagePartiallyApplied ControlStage = "partially_applied"
+	// StageUnresolved: the control named something the host could not resolve
+	// to exactly one record (no match, or several), so it changed nothing.
+	StageUnresolved ControlStage = "unresolved"
 	// StageApplied: the write landed.
 	StageApplied ControlStage = "applied"
 )
@@ -65,6 +68,10 @@ type ControlDisposition struct {
 	Stage  ControlStage `json:"stage"`
 	Detail string       `json:"detail,omitempty"` // what the control was, short
 	Reason string       `json:"reason,omitempty"` // why it did not take effect
+	// Receipt is what the host did, in the host's words and naming the memory
+	// domain it addressed. A person is told it for a control they asked for
+	// (a forget), applied or not, so "done" is never read as "everywhere".
+	Receipt string `json:"receipt,omitempty"`
 }
 
 // Took reports whether the control took full effect.
@@ -93,6 +100,7 @@ func (d ControlDisposition) Notice() string {
 		StageUnsupported:      "is not supported here",
 		StageFailed:           "failed",
 		StagePartiallyApplied: "was only partly applied",
+		StageUnresolved:       "changed nothing",
 	}[d.Stage]
 	if state == "" {
 		state = "did not take effect (" + string(d.Stage) + ")"

@@ -330,12 +330,12 @@ func TestResponseProcessor_Process_TypeCoercion(t *testing.T) {
 	}
 }
 
-func TestResponseProcessor_Process_MassiveReasoningTrace(t *testing.T) {
+func TestResponseProcessor_Process_MassiveDecisionSummary(t *testing.T) {
 	rp := NewResponseProcessor()
 
-	// Create a 50MB reasoning trace
+	// Create a 50MB decision summary
 	massiveTrace := strings.Repeat("A", 50*1024*1024)
-	raw := fmt.Sprintf(`{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"reasoning_trace":"%s"},"surface_response":"hi"}`, massiveTrace)
+	raw := fmt.Sprintf(`{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"decision_summary":"%s"},"surface_response":"hi"}`, massiveTrace)
 
 	res, err := rp.Process(raw)
 	if err != nil {
@@ -343,8 +343,8 @@ func TestResponseProcessor_Process_MassiveReasoningTrace(t *testing.T) {
 	}
 
 	// The model's own output is never cut: the whole trace survives parsing.
-	if res.Control.ReasoningTrace != massiveTrace {
-		t.Fatalf("ReasoningTrace was altered: len=%d, want %d", len(res.Control.ReasoningTrace), len(massiveTrace))
+	if res.Control.DecisionSummary != massiveTrace {
+		t.Fatalf("DecisionSummary was altered: len=%d, want %d", len(res.Control.DecisionSummary), len(massiveTrace))
 	}
 }
 
@@ -363,7 +363,7 @@ func TestResponseProcessor_Process_RecursionDepth(t *testing.T) {
 	}
 
 	// This will likely fail to parse, but shouldn't stack overflow
-	raw := fmt.Sprintf(`{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"reasoning_trace":%s},"surface_response":"hi"}`, sb.String())
+	raw := fmt.Sprintf(`{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"decision_summary":%s},"surface_response":"hi"}`, sb.String())
 
 	_, _ = rp.Process(raw) // We just want to ensure it doesn't crash
 }
@@ -477,7 +477,7 @@ Decoy: {"control_packet":{"intent_classification":{"category":"/decoy","verb":"/
 func TestResponseProcessor_Process_NonASCII(t *testing.T) {
 	rp := NewResponseProcessor()
 
-	raw := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"reasoning_trace":"🤔💡"},"surface_response":"こんにちは"}`
+	raw := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"decision_summary":"🤔💡"},"surface_response":"こんにちは"}`
 
 	res, err := rp.Process(raw)
 	if err != nil {
@@ -487,8 +487,8 @@ func TestResponseProcessor_Process_NonASCII(t *testing.T) {
 	if res.Surface != "こんにちは" {
 		t.Fatalf("Expected Japanese surface, got %q", res.Surface)
 	}
-	if res.Control.ReasoningTrace != "🤔💡" {
-		t.Fatalf("Expected Emoji reasoning trace, got %q", res.Control.ReasoningTrace)
+	if res.Control.DecisionSummary != "🤔💡" {
+		t.Fatalf("Expected Emoji decision summary, got %q", res.Control.DecisionSummary)
 	}
 }
 
@@ -542,6 +542,33 @@ func TestResponseProcessor_StrictSchemaUnknownFields(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unknown field") {
 		t.Errorf("Expected error to mention unknown field, got: %v", err)
+	}
+}
+
+// TestResponseProcessor_DecisionSummaryReplacesReasoningTrace pins the
+// control packet's rename: decision_summary is read into DecisionSummary, and
+// the retired reasoning_trace is an unknown field that strict mode refuses,
+// with no fallback that still accepts the old name.
+func TestResponseProcessor_DecisionSummaryReplacesReasoningTrace(t *testing.T) {
+	rp := NewResponseProcessor()
+	rp.RequireValidJSON = true
+
+	const summary = "Read auth.go before editing because the nil check may already exist."
+	ok := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"decision_summary":"` + summary + `"},"surface_response":"hi"}`
+	res, err := rp.Process(ok)
+	if err != nil {
+		t.Fatalf("decision_summary envelope rejected: %v", err)
+	}
+	if res.Control.DecisionSummary != summary {
+		t.Fatalf("DecisionSummary = %q, want %q", res.Control.DecisionSummary, summary)
+	}
+
+	retired := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"reasoning_trace":"old"},"surface_response":"hi"}`
+	if _, err := rp.Process(retired); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("strict mode must refuse the retired reasoning_trace field, got err=%v", err)
+	}
+	if !strings.Contains(PiggybackEnvelopeSchema, `"decision_summary"`) || strings.Contains(PiggybackEnvelopeSchema, "reasoning_trace") {
+		t.Fatal("PiggybackEnvelopeSchema must name decision_summary and not reasoning_trace")
 	}
 }
 

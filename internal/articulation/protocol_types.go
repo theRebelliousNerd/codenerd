@@ -11,8 +11,8 @@ import (
 // PIGGYBACK PROTOCOL TYPES - The Dual-Payload envelope and control schema
 // =============================================================================
 
-// PiggybackEnvelope represents the Dual-Payload JSON Schema (v1.2.0 - Thought-First).
-// THOUGHT-FIRST ORDERING (Bug #14 Fix): control_packet MUST appear before surface_response
+// PiggybackEnvelope represents the dual-payload JSON schema.
+// CONTROL-PACKET FIELD ORDER: control_packet MUST appear before surface_response
 // in JSON to prevent "Premature Articulation" - where the LLM says it did something before
 // actually emitting the action to the kernel. If generation fails mid-stream, the user
 // sees nothing (or partial JSON) instead of a false promise.
@@ -27,7 +27,10 @@ type ControlPacket struct {
 	MangleUpdates        []string             `json:"mangle_updates"`
 	MemoryOperations     []MemoryOperation    `json:"memory_operations"`
 	SelfCorrection       *SelfCorrection      `json:"self_correction,omitempty"`
-	ReasoningTrace       string               `json:"reasoning_trace,omitempty"`
+	// DecisionSummary is one or two sentences stating what the model decided
+	// this turn and the supporting evidence. It is a brief explanation for
+	// logs and chat, not intermediate deliberation or control input.
+	DecisionSummary string `json:"decision_summary,omitempty"`
 	// KnowledgeRequests allows the LLM to request specialist consultation or research.
 	// When populated, the TUI orchestrator will spawn specialists and re-invoke the LLM
 	// with gathered knowledge before generating the final response.
@@ -209,6 +212,11 @@ type MemoryOperation struct {
 	Op    string `json:"op"`    // promote_to_long_term, forget, store_vector, note
 	Key   string `json:"key"`   // Fact predicate or preference key
 	Value string `json:"value"` // Fact value or preference value
+
+	// Domain is the memory a forget addresses. The host sets it from the
+	// person's own instruction; the model's JSON cannot (json:"-"), so a
+	// control packet's forget stays a session-note forget.
+	Domain MemoryDomain `json:"-"`
 }
 
 // SelfCorrection represents an internal hypothesis about errors.

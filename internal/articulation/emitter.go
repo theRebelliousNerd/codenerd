@@ -23,7 +23,7 @@ func looksLikePartialEnvelope(s string) bool {
 		return false
 	}
 	return strings.Contains(trimmed, `"control_packet"`) ||
-		strings.Contains(trimmed, `"reasoning_trace"`) ||
+		strings.Contains(trimmed, `"decision_summary"`) ||
 		strings.Contains(trimmed, `"intent_classification"`)
 }
 
@@ -66,24 +66,26 @@ func salvageSurfaceFromPartial(raw string) string {
 
 // truncatedEnvelopeMessage builds a friendly user-facing message when the
 // model produced a partial envelope with no recoverable surface_response.
-// If a reasoning_trace was captured before truncation, we surface it so
-// the user has some idea what the model was working on.
+// If a decision_summary was captured before truncation, we surface it so
+// the user has some idea what the model had decided.
 func truncatedEnvelopeMessage(raw string) string {
-	reasoning := extractStringField(raw, "reasoning_trace")
-	if reasoning != "" {
+	summary := extractStringField(raw, "decision_summary")
+	if summary != "" {
 		// Rune cut: a byte cut can split a multi-byte rune and hand the
 		// user invalid UTF-8 in the one message meant to reassure them.
-		if runes := []rune(reasoning); len(runes) > 600 {
-			reasoning = string(runes[:600]) + "…"
+		// The summary is meant to be two sentences; the cut only bounds a
+		// model that ignored that, and is marked with an ellipsis.
+		if runes := []rune(summary); len(runes) > 600 {
+			summary = string(runes[:600]) + "…"
 		}
-		return "_The model's response was cut off before it could write a reply (likely an output-token limit). It was working on:_\n\n> " + reasoning
+		return "_The model's response was cut off before it could write a reply (likely an output-token limit). It had decided:_\n\n> " + summary
 	}
 	return "_The model's response was cut off before it could write a reply (likely an output-token limit). Please ask again — possibly more narrowly._"
 }
 
 // extractStringField pulls the value of a JSON string field out of a possibly
 // malformed/truncated envelope. Used by truncatedEnvelopeMessage to recover
-// reasoning_trace. Returns "" if not found or the value is non-string. Shares
+// decision_summary. Returns "" if not found or the value is non-string. Shares
 // the key lookup and value scan with the surface salvager.
 func extractStringField(raw, field string) string {
 	keyIdx := findKeyOutsideStrings(raw, field)
@@ -409,7 +411,7 @@ func (rp *ResponseProcessor) rejectAmbiguous(result *ArticulationResult, amb *am
 
 // applyCaps validates the control packet and bounds the parts of it that are
 // not the answer: injected Mangle atoms and memory operations (defensive
-// against a hallucinated flood) and the reasoning trace (telemetry). The
+// against a hallucinated flood). The decision summary (telemetry) is left whole. The
 // surface response and the tool and knowledge requests are never cut here.
 // The surface is the answer, and an answer that does not fit the provider's
 // ceiling is sent back by the broker to be restated within it; the requests
@@ -510,9 +512,8 @@ func (rp *ResponseProcessor) applyCaps(result *ArticulationResult) {
 		logging.ArticulationWarn("memory operations truncated to %d items (dropped %d)", maxMemoryOps, dropped)
 	}
 
-	// The reasoning trace is the model's own output and stays whole. It was cut
-	// at 50 KB with "[TRUNCATED]" (f5bd4224f, "to avoid OOMs"), but the trace is
-	// a slice of a response already held in memory, so the cut bounded nothing,
+	// The decision summary is the model's own output and stays whole: it is a
+	// slice of a response already held in memory, so a cut would bound nothing,
 	// and every reader (the chat's thought summary, the planner's log line)
 	// takes what it shows itself.
 }
@@ -558,7 +559,7 @@ var schemaAllowedKeys = map[string]any{
 			"triggered":  nil,
 			"hypothesis": nil,
 		},
-		"reasoning_trace": nil,
+		"decision_summary": nil,
 		"knowledge_requests": map[string]any{
 			"specialist": nil,
 			"query":      nil,
@@ -1027,7 +1028,7 @@ type ProcessedLLMResponse struct {
 }
 
 // placeholderSurfacePattern matches angle-bracket placeholders such as
-// <SURFACE_RESPONSE...> or <REASONING_TRACE...>. Schema examples use
+// <SURFACE_RESPONSE...> or <DECISION_SUMMARY...>. Schema examples use
 // angle-bracket instructions that must never be emitted verbatim.
 var placeholderSurfacePattern = regexp.MustCompile(`^<[A-Z_]+(:[^>]*)?>$`)
 

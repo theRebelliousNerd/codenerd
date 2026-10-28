@@ -730,7 +730,7 @@ func (o *Orchestrator) executeFileTaskFallback(ctx context.Context, task *Task, 
 		return nil, fail(fmt.Errorf("generate %s: %w", targetPath, err))
 	}
 
-	// Extract code block from LLM response (removes reasoning traces and markdown fences)
+	// Extract code block from LLM response (removes surrounding commentary and markdown fences)
 	lang := getLangFromPath(targetPath)
 	content = extractCodeBlock(content, lang)
 	logging.CampaignDebug("Extracted code block for %s (lang=%s, %d bytes)", targetPath, lang, len(content))

@@ -54,9 +54,9 @@ func TestEnvelopeStateHelpers(t *testing.T) {
 }
 
 func TestExtractStringField(t *testing.T) {
-	raw := `{"reasoning_trace":"thinking about it","other":"x"}`
-	if got := extractStringField(raw, "reasoning_trace"); got != "thinking about it" {
-		t.Errorf("extractStringField(reasoning_trace)=%q", got)
+	raw := `{"decision_summary":"thinking about it","other":"x"}`
+	if got := extractStringField(raw, "decision_summary"); got != "thinking about it" {
+		t.Errorf("extractStringField(decision_summary)=%q", got)
 	}
 	if got := extractStringField(raw, "missing"); got != "" {
 		t.Errorf("missing field should yield empty, got %q", got)
@@ -64,12 +64,27 @@ func TestExtractStringField(t *testing.T) {
 }
 
 func TestTruncatedEnvelopeMessage(t *testing.T) {
-	withReasoning := truncatedEnvelopeMessage(`{"reasoning_trace":"I was analyzing the bug"}`)
-	if !strings.Contains(withReasoning, "I was analyzing the bug") {
-		t.Errorf("truncated message should surface the reasoning trace, got %q", withReasoning)
+	withSummary := truncatedEnvelopeMessage(`{"control_packet":{"decision_summary":"Fix the nil check in validateToken because the token can be absent.`)
+	if !strings.Contains(withSummary, "It had decided:") ||
+		!strings.Contains(withSummary, "Fix the nil check in validateToken because the token can be absent.") {
+		t.Errorf("truncated message should surface the decision summary, got %q", withSummary)
 	}
-	// No reasoning trace -> generic fallback (does not contain the "working on" lead-in).
-	if strings.Contains(truncatedEnvelopeMessage(`{}`), "working on") {
-		t.Error("no-reasoning message should be the generic fallback")
+	// The retired field name is not read: a reply that still carries it gets
+	// the generic fallback, not a recovered summary.
+	if got := truncatedEnvelopeMessage(`{"reasoning_trace":"I was analyzing the bug"}`); strings.Contains(got, "I was analyzing the bug") {
+		t.Errorf("retired reasoning_trace must not be recovered, got %q", got)
+	}
+	// No decision summary -> generic fallback (does not contain the "had decided" lead-in).
+	if strings.Contains(truncatedEnvelopeMessage(`{}`), "had decided") {
+		t.Error("no-summary message should be the generic fallback")
+	}
+}
+
+// TestLooksLikePartialEnvelope_DecisionSummary pins the renamed marker: a
+// truncated envelope that reached only the decision summary is still seen as
+// an envelope, so its control JSON is never shown to the user as a reply.
+func TestLooksLikePartialEnvelope_DecisionSummary(t *testing.T) {
+	if !looksLikePartialEnvelope(`{"decision_summary":"Read the file first because`) {
+		t.Error("a partial envelope opening with decision_summary must be recognised")
 	}
 }

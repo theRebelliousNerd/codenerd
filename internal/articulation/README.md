@@ -16,7 +16,7 @@ LLM Response → ResponseProcessor → PiggybackEnvelope
                      ┌──────────────────┴───────────────────┐
                      ↓                                      ↓
               surface_response                      control_packet
-              (for user display)          (kernel state updates - hidden)
+              (for user display)          (structured runtime updates)
 ```
 
 ## Structure
@@ -45,7 +45,7 @@ type ControlPacket struct {
     MangleUpdates        []string             `json:"mangle_updates"`
     MemoryOperations     []MemoryOperation    `json:"memory_operations"`
     SelfCorrection       *SelfCorrection      `json:"self_correction,omitempty"`
-    ReasoningTrace       string               `json:"reasoning_trace,omitempty"`
+    DecisionSummary      string               `json:"decision_summary,omitempty"` // brief decision and evidence
 }
 ```
 
@@ -63,12 +63,17 @@ type PromptContext struct {
 
 ## Piggyback Protocol
 
-Dual-channel steganographic communication:
+`decision_summary` is a brief explanation of the decision or result and the
+supporting evidence. It may be empty. It never requests intermediate analysis,
+private deliberation, or reconstruction of a hidden thought process. JSON field
+order is a transport convention: controls precede the displayed answer.
+
+Explicit JSON channels for the answer and runtime controls:
 
 | Channel | Purpose | Visibility |
 |---------|---------|------------|
 | `surface_response` | User-visible text | Shown to user |
-| `control_packet` | Kernel state updates | Hidden from user |
+| `control_packet` | Kernel state updates | Processed by runtime |
 
 **Critical:** `control_packet` MUST appear before `surface_response` in JSON to prevent "Premature Articulation" (Bug #14).
 

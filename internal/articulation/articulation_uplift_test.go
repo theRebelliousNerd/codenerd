@@ -28,7 +28,7 @@ func feed(t *testing.T, chunks []string) (string, *StreamParser) {
 // TEST_GAP decoy-marker item in stream_parser_test.go.)
 func TestStreamParser_IgnoresDecoyMarker(t *testing.T) {
 	out, _ := feed(t, []string{
-		`{"control_packet":{"reasoning_trace":"I will write \"surface_response\": \"decoy\" later"},`,
+		`{"control_packet":{"decision_summary":"I will write \"surface_response\": \"decoy\" later"},`,
 		`"surface_response":"real deal"}`,
 	})
 	if out != "real deal" {
@@ -40,7 +40,7 @@ func TestStreamParser_IgnoresDecoyMarker(t *testing.T) {
 // Every partition through the surface key and its value separator must produce
 // the same decoded surface as the complete response.
 func TestStreamParser_RecognizesSurfaceKeyAcrossChunkBoundaries(t *testing.T) {
-	raw := `{"control_packet":{"reasoning_trace":"\"surface_response\": \"decoy\""},"surface_response":"A\u00e9 says \"go\" \uD83D\uDE00"}`
+	raw := `{"control_packet":{"decision_summary":"\"surface_response\": \"decoy\""},"surface_response":"A\u00e9 says \"go\" \uD83D\uDE00"}`
 	parsed, err := NewResponseProcessor().Process(raw)
 	if err != nil {
 		t.Fatalf("nonstream parse: %v", err)
@@ -132,7 +132,7 @@ func TestScanJSONString_EscapesAndTruncation(t *testing.T) {
 }
 
 func TestFindKeyOutsideStrings_SkipsDecoys(t *testing.T) {
-	raw := `{"reasoning_trace":"note: \"surface_response\": \"decoy\" here","surface_response":"real"}`
+	raw := `{"decision_summary":"note: \"surface_response\": \"decoy\" here","surface_response":"real"}`
 	idx := findKeyOutsideStrings(raw, "surface_response")
 	if idx == -1 {
 		t.Fatal("real key not found")
@@ -146,7 +146,7 @@ func TestFindKeyOutsideStrings_SkipsDecoys(t *testing.T) {
 }
 
 func TestSalvageSurface_SkipsDecoyAndDecodesEscapes(t *testing.T) {
-	raw := `{"control_packet":{"reasoning_trace":"say \"surface_response\": \"decoy\""},"surface_response":"caf\u00e9 au lait is ready and`
+	raw := `{"control_packet":{"decision_summary":"say \"surface_response\": \"decoy\""},"surface_response":"caf\u00e9 au lait is ready and`
 	got := salvageSurfaceFromPartial(raw)
 	if !strings.HasPrefix(got, "café au lait") || !strings.HasSuffix(got, "[…truncated]") {
 		t.Errorf("salvaged = %q, want the café prefix with truncation marker", got)
@@ -183,7 +183,7 @@ func TestApplyCaps_RejectsExtendedShellMetachars(t *testing.T) {
 			`"intent_classification":{"category":"/query","verb":"/read","target":"t","confidence":0.9},` +
 			`"mangle_updates":[` + fmt.Sprintf("%q", atom) + `],` +
 			`"memory_operations":[],"self_correction":{"triggered":false},` +
-			`"knowledge_requests":[],"reasoning_trace":"r",` +
+			`"knowledge_requests":[],"decision_summary":"r",` +
 			`"tool_requests":[]},` +
 			`"surface_response":"ok"}`
 		res := ProcessLLMResponse(raw)

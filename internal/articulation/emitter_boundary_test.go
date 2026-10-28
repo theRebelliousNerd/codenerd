@@ -125,9 +125,9 @@ func TestResponseProcessor_Boundary_TypeCoercion(t *testing.T) {
 	})
 }
 
-// TestResponseProcessor_Boundary_MassiveReasoningTrace checks for OOM/Panics
+// TestResponseProcessor_Boundary_MassiveDecisionSummary checks for OOM/Panics
 // with large input strings.
-func TestResponseProcessor_Boundary_MassiveReasoningTrace(t *testing.T) {
+func TestResponseProcessor_Boundary_MassiveDecisionSummary(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping massive input test in short mode")
 	}
@@ -146,7 +146,7 @@ func TestResponseProcessor_Boundary_MassiveReasoningTrace(t *testing.T) {
 				"confidence": 1.0
 			},
 			"mangle_updates": [],
-			"reasoning_trace": "` + massiveTrace + `"
+			"decision_summary": "` + massiveTrace + `"
 		},
 		"surface_response": "ok"
 	}`
@@ -156,8 +156,8 @@ func TestResponseProcessor_Boundary_MassiveReasoningTrace(t *testing.T) {
 		t.Fatalf("Process() failed with massive trace: %v", err)
 	}
 	// The model's own output is never cut: the trace survives parsing whole.
-	if res.Control.ReasoningTrace != massiveTrace {
-		t.Fatalf("ReasoningTrace was altered: got %d bytes, want %d", len(res.Control.ReasoningTrace), len(massiveTrace))
+	if res.Control.DecisionSummary != massiveTrace {
+		t.Fatalf("DecisionSummary was altered: got %d bytes, want %d", len(res.Control.DecisionSummary), len(massiveTrace))
 	}
 	for _, w := range res.Warnings {
 		if strings.Contains(w, "truncated") && strings.Contains(w, "easoning") {

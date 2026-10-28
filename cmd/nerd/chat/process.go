@@ -1053,10 +1053,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				return
 			}
 
-			thoughtSummary := ""
-			if artOutput.Envelope.Control.ReasoningTrace != "" {
-				thoughtSummary = artOutput.Envelope.Control.ReasoningTrace
-			}
+			thoughtSummary := artOutput.Envelope.Control.DecisionSummary
 
 			var srPayload *ShardResultPayload
 			// If we had a recent payload we could attach it, but typically articulation doesn't return one directly here.

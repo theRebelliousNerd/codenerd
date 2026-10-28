@@ -1075,9 +1075,10 @@ func (s *SessionPlannerShard) routeControlPacketToKernel(control *articulation.C
 		_ = kernel.Assert(selfCorrFact)
 	}
 
-	// 3. Log reasoning trace for debugging/learning
-	if control.ReasoningTrace != "" {
-		logging.SystemShardsDebug("[SessionPlanner] Reasoning trace: %.200s...", control.ReasoningTrace)
+	// 3. Log the decision summary for debugging/learning. It is one or two
+	// sentences by contract, so it is logged whole.
+	if control.DecisionSummary != "" {
+		logging.SystemShardsDebug("[SessionPlanner] Decision summary: %s", control.DecisionSummary)
 	}
 }
 

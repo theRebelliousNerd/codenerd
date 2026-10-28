@@ -18,7 +18,7 @@ package articulation
 //	    "mangle_updates": ["atom1", "atom2", ...],
 //	    "memory_operations": [{ op, key, value }, ...],
 //	    "self_correction": { triggered, hypothesis },
-//	    "reasoning_trace": "step-by-step thinking",
+//	    "decision_summary": "what was decided and why, in one or two sentences",
 //	    "knowledge_requests": [{ specialist, query, purpose, priority }, ...],
 //	    "context_feedback": { overall_usefulness, helpful_facts, noise_facts, missing_context }
 //	  },
@@ -37,7 +37,7 @@ const PiggybackEnvelopeSchema = `{
         "mangle_updates",
         "memory_operations",
         "self_correction",
-        "reasoning_trace",
+        "decision_summary",
         "knowledge_requests",
         "context_feedback",
         "tool_requests"
@@ -118,9 +118,9 @@ const PiggybackEnvelopeSchema = `{
           },
           "description": "Self-correction signals for autopoiesis"
         },
-        "reasoning_trace": {
+        "decision_summary": {
           "type": "string",
-          "description": "Step-by-step reasoning (for debugging)"
+          "description": "One or two sentences stating the decision or result and supporting evidence; omit private deliberation and intermediate analysis"
         },
         "knowledge_requests": {
           "type": "array",

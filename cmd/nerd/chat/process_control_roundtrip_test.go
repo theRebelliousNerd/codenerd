@@ -385,7 +385,7 @@ func articulationResponseForTest(
 				"triggered":  selfCorrection,
 				"hypothesis": "chat control probe",
 			},
-			"reasoning_trace":    "",
+			"decision_summary":   "",
 			"knowledge_requests": knowledgeRequests,
 			"context_feedback": map[string]any{
 				"overall_usefulness": 0,
@@ -447,4 +447,24 @@ func awaitCompressedTurn(t *testing.T, compressor *ctxcompress.Compressor) ctxco
 	}
 	t.Fatal("compressor did not record the articulation turn")
 	return ctxcompress.CompressedTurn{}
+}
+
+// TestArticulationPrompt_AsksForDecisionSummary pins the control packet field
+// the chat articulation prompt teaches: a short decision_summary, never the
+// retired free-form reasoning_trace.
+func TestArticulationPrompt_AsksForDecisionSummary(t *testing.T) {
+	intent := perception.Intent{Category: "/query", Verb: "/explain", Target: "auth.go"}
+	client := NewMockLLMClient()
+	_, _ = articulateWithConversation(context.Background(), client, intent,
+		payloadForArticulation(intent, nil), nil, "sys", &ConversationContext{}, nil, nil)
+	client.mu.Lock()
+	prompt := client.lastPrompt
+	client.mu.Unlock()
+
+	if !strings.Contains(prompt, `"decision_summary": "one or two sentences: what you decided this turn and why"`) {
+		t.Fatalf("articulation prompt does not ask for a decision_summary:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "reasoning_trace") {
+		t.Fatalf("articulation prompt still names the retired reasoning_trace:\n%s", prompt)
+	}
 }

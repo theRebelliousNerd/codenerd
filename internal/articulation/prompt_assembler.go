@@ -1021,7 +1021,7 @@ You MUST output a JSON object with this exact structure. No exceptions.
         "priority": "required|optional"
       }
     ],
-    "reasoning_trace": "<REASONING_TRACE: your actual step-by-step reasoning>",
+    "decision_summary": "<DECISION_SUMMARY: one or two sentences: what you decided this turn and why>",
     "context_feedback": {
       "overall_usefulness": 0.0,
       "helpful_facts": [],
@@ -1043,10 +1043,12 @@ You MUST output a JSON object with this exact structure. No exceptions.
 
 Angle-bracket text in this example is a placeholder describing what to write; never emit it verbatim. "helpful_facts" and "noise_facts" list the injected predicate names that helped or hurt; leave them empty when none did.
 
-## CRITICAL: THOUGHT-FIRST ORDERING
+## CONTROL-PACKET FIELD ORDER
 
 The control_packet MUST be fully formed BEFORE you write the surface_response.
-Think first, speak second. The control packet is your commitment to what you're about to say.
+This is a transport convention. decision_summary is a brief explanation of the
+result and supporting evidence; do not include private deliberation or
+intermediate analysis steps. Use an empty string when no summary is useful.
 
 ## MANGLE UPDATES FORMAT
 
