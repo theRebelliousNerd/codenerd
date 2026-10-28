@@ -109,3 +109,25 @@ The existing token corpus already proposes cache-aware context, stable catalog a
 
 Prioritize by **avoidable total task cost at unchanged correctness**, not estimated bytes trimmed. Make unknown reachability, absent telemetry and actual defects separate queue states. The immediate output of this document is a falsifiable wiring brief and a measurement contract—not a best-in-world claim.
 
+
+## As built (2026-10-27)
+
+**Implemented**
+
+- One normalized report, two consumers: `internal/types/usage.go:UsageMetadata` gains `Known` (`UsageFields`: tokens, cache read, cache write, reasoning) and `Partial`; `Plus` and `SameCounts` define multi-attempt sums and cross-route agreement. `internal/usage/observer.go:Report` + `Observer.Observed(Report)`; `internal/usage/usage_tracker.go:RecordFromContext` delivers the same `Report` to `tracker.Record` and the observer (replaces `Track`/`TrackDetailed`/`TrackFromContext`/`TrackDetailedFromContext`).
+- Provider normalization once per adapter: `internal/perception/usage_track.go:reportUsage`, `chatUsage.metadata` (OpenAI-shaped vendors; pointer detail blocks so absence stays unknown), `geminiUsage.metadata` (thoughts folded into output, kept as reasoning), `client_meta_responses.go:metaResponsesUsage.metadata` (Muse Spark reasoning + cached), `client_types.go:anthropicUsage.usageMetadata` (cache read/write known). Response-carried `LLMToolResponse.Usage` now uses the same constructors (Gemini's used to omit thoughts and would have disagreed with the billed count).
+- Tracker: `TokenCounts.Reasoning`, `PartialReports`; `UsageEvent.ReasoningTokens/Known/Partial`. Defect fixed: `contributionSince`/`addTokenCounts` dropped cache sub-counts on every cross-process merge (`TestSave_MergePreservesCacheAndReasoningSubCounts`).
+- Broker: `internal/broker/broker.go:callObserver` accumulates normalized reports; `settle` takes the observer as primary, the response/terminal block as fallback or consistency evidence (`UsageConflict`, never a second charge), enriches only categories the observer lacked, and records `UsageStatus` (reported/partial/unreported), `UsageKnown`, `Attempts` on `types.go:Receipt`. Calibration and reconciliation run only for a single, non-partial attempt.
+- Settlement lifecycle: `internal/broker/stream.go:proxyStream` settles the receipt before publishing the stream's terminal result, so observing the terminal proves accounting is complete.
+- Witnesses: `internal/broker/settle_usage_test.go` (dual source, presence, retry identity, enrichment), `stream_test.go:TestStreamedCacheDetailReachesTheReceipt`, `internal/perception/stream_conformance_test.go:TestStreamConformance_BrokeredCacheDetailReachesTrackerAndReceipt` (real Anthropic adapter + real broker wrapper), `internal/usage/report_test.go`.
+
+**Ruled differently**
+
+- No delta/snapshot flag on the report: adapters own native semantics and only ever emit per-attempt totals, so nothing downstream can mistake a delta for a bill.
+- No compatibility adapter for the old observer: every producer and consumer moved to `Report`, so there is nothing to adapt.
+- Retry identity is a count (`Receipt.Attempts`), not per-attempt IDs: enough to keep multi-attempt totals out of calibration; attempt IDs would need provider request IDs threaded through every adapter.
+
+**Deferred**
+
+- Task-cost exporter and shutdown drain barrier for in-flight broker calls, and sink completion/failure accounting for benchmark export: no exporter exists to own them yet; the terminal-after-settle ordering is the primitive one will wait on.
+- Pricing-version stamping and §4 verified-task evaluation: need a benchmark harness and live runs.

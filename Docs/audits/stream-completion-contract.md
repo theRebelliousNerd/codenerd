@@ -178,3 +178,24 @@ These local research IDs refine the existing provider-failure contract; they do 
 | STREAM-TERM-05 | Verified total-system value | Paired normal/faulted task study reports completion, false acceptance, full cost and recovery without weaker authority or acceptance checks. |
 
 The narrow first step is to make every adapter tell the truth about how generation ended. Only then should higher-level retry, history and task policy decide what happens next.
+
+## As built (2026-10-27)
+
+**Implemented**
+
+- Contract (STREAM-TERM-01/03): `types.LLMClient.CompleteWithStreaming` and `types.ThoughtStreamer.CompleteWithStreamingAndThoughts` now return provisional chunk channels plus `<-chan types.StreamResult` carrying exactly one terminal `{StopReason, Usage, Err}` (`internal/types/stream.go`). `StreamOutcomeOf` classifies complete / truncated (`*OutputTruncated`) / refused / filtered / canceled / unsupported / protocol_failed / incomplete / failed via `*types.StreamError`. A terminal channel closed without a value is `ErrStreamIncomplete`. Producers publish through `StreamWriter` (Finish exactly once, after the last chunk; `Close` without Finish = incomplete); wrappers use `RelayStream`/`CaptureStream`; whole-text engines use `StreamWhole`.
+- Framing (STREAM-TERM-02): `internal/perception/stream_sse.go:sseReader` implements WHATWG framing (multi-line data, comments, `event:`, bounded 1 MiB events). Malformed known events are protocol failures, never skipped.
+- Provider terminal state machines: `stream_chat.go:readChatStream` (OpenAI, OpenRouter, Z.AI, Meta/DashScope/Moonshot via OpenAICompat): finish_reason is the evidence, `[DONE]` alone is not; `anthropic_stream.go:readAnthropicStream` (message_stop after stop_reason; refusal → refused); `client_gemini_streaming.go:readGeminiStream` (finishReason; non-STOP no longer a log warning; promptFeedback block → filtered). Shared classification in `stream_terminal.go` (empty stream rejected unless `WithAllowEmptyCompletion`; usage partial when the usage block never arrived). xAI, xAI OAuth, Claude CLI, Codex CLI and Meta web-search stream their validated whole completion (`StreamWhole`); the Claude CLI's line adapter, which forwarded nothing from real stream-json output, is deleted with `CompleteStreaming`/`StreamChunk`.
+- Consumers: `cmd/nerd/chat/helpers_articulation.go:articulateWithConversation` requires a complete terminal before the response processor sees the text; `model_update.go` clears an incomplete streamed prefix on error. Wrappers forward the terminal after their own work: broker (settles first), `core/scheduled_llm_client.go` (now also routes streams via `clientFor`, releases the slot before publishing), `perception/tracing_client.go`, `key_pool.go:Stream` (retry only before emission), `client_fallback.go` (no failover after output, and never on refused/filtered/truncated).
+- Conformance (§6): `internal/perception/stream_conformance_test.go` runs one scenario table (complete, EOF-without-terminal, length, malformed, multiline, filter/refusal, tool finish, missing usage tail, heartbeat/comments, provider error, cancel-while-blocked, multiline ≡ single-line) against OpenAI, OpenRouter, Meta, DashScope, Z.AI, Anthropic and Gemini fake HTTP servers; consumer witnesses in `cmd/nerd/chat/stream_terminal_test.go`.
+
+**Ruled differently**
+
+- Changed the channel API now instead of the doc's two-step migration (§4.2): an error-only channel cannot express "closed without terminal evidence", which is the defect.
+- No attempt/logical-call IDs or content digest on the terminal: no consumer needs them yet; retry identity is carried by broker `Receipt.Attempts`.
+- Tool-call finish on the text surface is `unsupported`, not a separate tool contract; text streams never carry tool calls.
+
+**Deferred**
+
+- STREAM-TERM-04 UI replace/restart contract for regenerated attempts (no regeneration path streams today) and STREAM-TERM-05 paired fault-injection study (needs live models).
+- Thought streaming for Anthropic (`thinking_delta` → thoughts) would enable thinking on chat turns and change cost; not done without a decision.
