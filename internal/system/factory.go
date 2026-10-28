@@ -414,6 +414,10 @@ type Cortex struct {
 	Workspace       string
 	JITCompiler     *prompt.JITPromptCompiler
 	PromptAssembler *articulation.PromptAssembler
+	// RolePrompts compiles the system prompt of every non-persona model call
+	// (critic, rule generator, analyzers) from its atoms. Non-nil whenever
+	// JITCompiler is.
+	RolePrompts types.RolePromptCompiler
 	// PromptEvolver is the System Prompt Learning loop. Non-nil on every boot
 	// that has a JIT compiler; see factory_learning.go for why it is owned
 	// here rather than by the chat TUI that used to build it.
@@ -926,6 +930,7 @@ type bootContext struct {
 	projectDB             *sql.DB
 	atomLoader            *prompt.AtomLoader
 	jitCompiler           *prompt.JITPromptCompiler
+	rolePrompts           types.RolePromptCompiler
 	promptAssembler       *articulation.PromptAssembler
 	shardManager          *coreshards.ShardManager
 	executor              tactile.Executor
@@ -1807,12 +1812,22 @@ func initIntelligenceLayer(bctx *bootContext) error {
 		return fmt.Errorf("failed to init JIT compiler: %w", err)
 	}
 	bctx.jitCompiler = jitCompiler
+	rolePrompts, err := prompt.NewRoleCompiler(jitCompiler, bctx.jitCfg)
+	if err != nil {
+		return fmt.Errorf("failed to init role prompt compiler: %w", err)
+	}
+	bctx.rolePrompts = rolePrompts
 	// Ownership of the project DB transfers to JITCompiler on success.
 	bctx.projectDB = nil
 	// The kernel's rule generator and the MCP tool analyzer compile their
 	// system prompts from role atoms, so both are wired after the compiler.
 	if rk, ok := bctx.kernel.(*core.RealKernel); ok {
 		rk.SetRolePrompts(bctx.rolePrompts)
+	}
+	// The learning critic (perception.LearnFromInteraction) compiles its
+	// system prompt from the learning_critic role atoms.
+	if perception.SharedTaxonomy != nil {
+		perception.SharedTaxonomy.SetRolePrompts(bctx.rolePrompts)
 	}
 	initMCPBridge(bctx)
 
@@ -2038,6 +2053,7 @@ func shardRegistryContext(bctx *bootContext) shards.RegistryContext {
 		Workspace:    bctx.workspace,
 		JITCompiler:  bctx.jitCompiler,
 		JITConfig:    bctx.jitCfg,
+		RolePrompts:  bctx.rolePrompts,
 		World:        bctx.appCfg.GetWorldConfig(),
 	}
 	// The firewall classifies through the same resolved client as the
@@ -2902,6 +2918,7 @@ func cortexFromBootContext(bctx *bootContext) *Cortex {
 		EmbeddingEngine:       bctx.embeddingEngine,
 		Workspace:             bctx.workspace,
 		JITCompiler:           bctx.jitCompiler,
+		RolePrompts:           bctx.rolePrompts,
 		PromptAssembler:       bctx.promptAssembler,
 		PromptEvolver:         bctx.promptEvolver,
 		ContextFeedback:       bctx.contextFeedback,
