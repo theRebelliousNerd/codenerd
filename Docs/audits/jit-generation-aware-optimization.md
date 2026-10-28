@@ -193,3 +193,44 @@ For capability, pair tasks requiring different languages, tool envelopes, phase-
 * [SQLite PRAGMA data_version documentation](https://www.sqlite.org/pragma.html#pragma_data_version): its connection-local comparison semantics constrain invalidation design. A pooled connection handle is not automatically a stable source-generation oracle.
 
 These are established mechanisms applied to concrete CodeNERD seams. No novelty, measured speedup, token reduction or superiority claim is established. The goal is to make the same trustworthy JIT decision with less repeated work, and to improve the decision only through a separately measured quality contract.
+
+## As built (2026-10-27)
+
+Verified against current source first: §§2–5 still held. The cache key had no source generation, `clearPromptCache` cleared without fencing in-flight publishes, every hit cloned and walked the kernel, project/expert atoms were re-joined on every miss, selector metadata was rendered to Mangle text and re-parsed per compile, and placeholders were expanded per atom, again over the whole prompt, and again on every shed pass. `compiler.go` (1,971 lines) is now split into `compiler{,_cache,_generation,_kernel,_pipeline,_preflight,_render,_result,_sources,_stats}.go`.
+
+**Implemented**
+
+| Item | Where | What |
+|---|---|---|
+| JIT-REUSE-01 source vector | `internal/store/source_generation.go#ReadSourceGeneration`; `internal/prompt/compiler_generation.go#captureSourceVector`; `compiler_pipeline.go#compileMiss` | Owned, trigger-maintained version rows that commit with the write, from any connection or process. Each token includes the schema version, and the read self-repairs missing triggers. The vector covers: a registration epoch, the project DB, the selected expert DB (its prompt atoms plus knowledge), LocalStore knowledge and vectors, every LearningStore shard, the evolved-set generation, and `StrategyProvider.SourceGeneration`. The key carries the vector captured before collection; the result is published only if a re-capture matches, every source is tracked, and nothing degraded. |
+| Degraded/untracked contract | `compiler_generation.go#degradation`; `compiler_db.go#collectKnowledgeAtomsFrom`, `#collectLearningAtomsFrom`; `compiler_sources.go` | Lookup errors and timeouts (not empty results) mark the compile degraded. A degraded result is returned but not cached, so every identical call re-probes. An unreadable generation means no lookup and no publish. |
+| JIT-REUSE-02 metrics | `compiler_stats.go#compilerCounters`, `CompilerStats`, `CompilationStats.{PreflightMs,PreflightReused,DegradedSources,Uncacheable}`; `cmd/nerd/cmd_advanced.go` (`nerd jit`) | Hits, joiners, preflights (count and mean), memo reuses, catalog reuses, uncacheable/degraded/churn counts, all separate from the compile average. |
+| JIT-REUSE-03 catalog + typed metadata | `compiler_generation.go#atomCatalog`; `selector_facts.go#appendCandidateFacts` | Project and expert atoms are reused per handle and generation, installed only after revalidation. Candidate facts are typed `Fact`s whose name constants are `types.MangleAtom`; static facts are cached per immutable atom, and only `is_mandatory`/`prompt_atom` are built per compile. `KernelAdapter.AssertBatch` takes them without parsing. Mangle still selects. |
+| JIT-REUSE-04 shared preflight | `internal/core/kernel_generation.go#SnapshotIdentity`, `#CloneWithIdentity`; `internal/system/factory_adapters.go#SnapshotIdentity`; `internal/prompt/compiler_preflight.go` | The kernel generation advances in `markDirtyLocked`, alongside a per-kernel instance id. The identity is read under the same lock as the clone. It is `Reusable` only when no rule reads an external predicate and the program is analysed. The dynamic snapshot is memoized by identity, context facts, shard and config revision, so a hit over an unchanged kernel clones nothing. A miss acquires its scope and re-snapshots if the scope's identity differs. |
+| JIT-REUSE-05 render once | `assembler.go#RenderSession`, `#expandTemplate`; `budget.go#TokenCounter`; `compiler_render.go#fitAndAssemble` | One session per compile renders each (atom, mode) fragment once. Fit and ShedToFit charge `max(declared, rendered)`, and reassembly reuses fragments. The final whole-prompt check is kept. |
+
+**Ruled differently**
+
+- **No snapshot handle or ownership lease.** This follows the doc's own "first implementation": a generation number memoizes the fingerprint, and selection still runs on private scopes.
+- **Source generations come from trigger-maintained rows, not `PRAGMA data_version`.** This is the doc's preference, and it covers writes from other processes.
+- **Latest-at-return semantics.** A result whose sources moved during the compile is returned to its caller, marked uncacheable. There is no retry, so a source that changes constantly cannot cause an endless recompile loop.
+- **The embedded corpus and vector searcher are not in the vector.** They are construction-time constants of a compiler instance.
+- **Template placeholders expand in one pass.** It is deterministic and runs left to right over source text. Inserted values are never re-scanned, which closes the map-order-dependent re-expansion of placeholders inside data such as the specialist roster. The assembler's second whole-prompt pass is removed.
+- **No new knob.** Memo, catalog and fact-cache bounds are memory ceilings, not tunables, and an evicted entry is recomputed rather than served wrong.
+
+**Tests**
+
+- `internal/store/source_generation_test.go`
+- `internal/core/kernel_generation_test.go`
+- `internal/prompt/compiler_generation_test.go`: in-place write, catalog, degraded→recovery, mid-compile churn, untracked, registration epoch.
+- `internal/prompt/compiler_preflight_test.go`: no clone on hit, kernel write, non-reusable, memo→miss.
+- `internal/prompt/compiler_render_test.go`: no re-expansion, render once, rendered charge, typed facts equal their parsed text over the whole shipped corpus.
+- `internal/system/prompt_preflight_reuse_test.go`: production adapter and real kernel, end to end.
+
+**Deferred**
+
+- **JIT-REUSE-06 eligibility-aware vector retrieval.** The doc requires threshold-population and recall evidence first, and gathering it needs live embedding backends.
+- **Analyzed dependency projection** (§2.4). Whole-kernel generation stays the conservative identity.
+- **Provider-tokenizer counting at the request owner** (§5.5). It is outside this package.
+- **The §7 capability and latency sweeps.** They need live models and workloads.
+- **Cross-process staleness in `StrategyStore`'s 5-minute in-memory cache.** It predates this change: the source vector moves, but the store may answer from its cache until the TTL expires.

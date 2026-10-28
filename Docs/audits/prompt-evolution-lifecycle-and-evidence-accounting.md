@@ -1,7 +1,7 @@
 ---
 doc-class: deep-dive
 subsystem: autopoiesis
-implementation-status: planned
+implementation-status: partial
 last-verified: 2026-10-27
 verified-against: fb1d74d0f13b7d0d647c968ae3c1d830eae9b555
 supersedes: []
