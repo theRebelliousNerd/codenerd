@@ -12,6 +12,7 @@ import (
 
 	"codenerd/internal/broker"
 	"codenerd/internal/northstar"
+	"codenerd/internal/perception"
 	"codenerd/internal/types"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -254,13 +255,10 @@ func matchesAnyTrigger(input string, triggers []string) bool {
 	return false
 }
 
-// isNegativeFeedback checks for common frustration signals.
-// Uses word boundaries to avoid false-positives (e.g., "how do I fail gracefully" won't trigger).
+// isNegativeFeedback reports a rebuke of the assistant's last answer
+// (perception.IsRebuke), which starts the learning loop in place of the turn.
 func isNegativeFeedback(input string) bool {
-	return matchesAnyTrigger(input, []string{
-		"bad bot", "wrong", "stop", "no that's not right",
-		"you didn't", "fail", "incorrect", "mistake",
-	})
+	return perception.IsRebuke(input)
 }
 
 // isDreamConfirmation checks if user is confirming dream state learnings

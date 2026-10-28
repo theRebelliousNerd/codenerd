@@ -369,27 +369,48 @@ func (m Model) stageLearningCandidateFromFact(fact, reason string) (clarificatio
 	}, nil
 }
 
-func (m Model) confirmLearningCandidate(candidate *learningCandidate) error {
+// learningContext is the context of a foreground "learn this" operation: the
+// session's, so quitting cancels a pending embedding or write.
+func (m Model) learningContext() context.Context {
+	if m.shutdownCtx != nil {
+		return m.shutdownCtx
+	}
+	return context.Background()
+}
+
+// partialLearningNote says, in one sentence, which projections of a confirmed
+// correction did not commit. Empty when everything that has a backend did.
+func partialLearningNote(outcome perception.PersistOutcome) string {
+	if outcome.Complete() {
+		return ""
+	}
+	return fmt.Sprintf(" Only part of it was stored (%s): %v", outcome, outcome.Err())
+}
+
+// confirmLearningCandidate persists a confirmed mapping and returns what was
+// actually committed. The error is non-nil only when nothing durable was
+// learned; a failed projection is in the outcome.
+func (m Model) confirmLearningCandidate(candidate *learningCandidate) (perception.PersistOutcome, error) {
 	if candidate == nil {
-		return fmt.Errorf("no learning candidate available")
+		return perception.PersistOutcome{}, fmt.Errorf("no learning candidate available")
 	}
 	if strings.TrimSpace(candidate.Phrase) == "" {
-		return fmt.Errorf("invalid learning candidate phrase")
+		return perception.PersistOutcome{}, fmt.Errorf("invalid learning candidate phrase")
 	}
 	if m.localDB != nil {
 		if err := m.localDB.ConfirmLearningCandidateMatch(candidate.Phrase, candidate.Verb, candidate.Target, candidate.Reason); err != nil && err != sql.ErrNoRows {
-			return err
+			return perception.PersistOutcome{}, err
 		}
 	}
 	if perception.SharedTaxonomy == nil {
-		return fmt.Errorf("taxonomy engine not available")
+		return perception.PersistOutcome{}, fmt.Errorf("taxonomy engine not available")
 	}
 	if fact := m.loadLearningCandidateFact(candidate); fact != "" {
-		return perception.SharedTaxonomy.PersistLearnedFact(fact)
+		return perception.SharedTaxonomy.PersistLearnedFact(m.learningContext(), fact)
 	}
 	verb := normalizeVerbAtom(candidate.Verb)
 	if verb == "" {
-		return fmt.Errorf("invalid verb for learning candidate")
+		return perception.PersistOutcome{}, fmt.Errorf("invalid verb for learning candidate")
 	}
 	fact := fmt.Sprintf(
 		`learned_exemplar("%s", %s, "%s", "", 0.90).`,
@@ -397,7 +418,7 @@ func (m Model) confirmLearningCandidate(candidate *learningCandidate) error {
 		verb,
 		escapeMangleString(candidate.Target),
 	)
-	return perception.SharedTaxonomy.PersistLearnedFact(fact)
+	return perception.SharedTaxonomy.PersistLearnedFact(m.learningContext(), fact)
 }
 
 func (m Model) rejectLearningCandidate(candidate *learningCandidate) error {
@@ -492,7 +513,8 @@ func (m Model) processClarificationResponse(response string, pendingIntent *perc
 				rejected = true
 			}
 			if confirmed {
-				if err := m.confirmLearningCandidate(candidate); err != nil {
+				outcome, err := m.confirmLearningCandidate(candidate)
+				if err != nil {
 					return errorMsg(fmt.Errorf("failed to confirm learning candidate: %w", err))
 				}
 				m.clearLearningCandidateFacts()
@@ -500,7 +522,7 @@ func (m Model) processClarificationResponse(response string, pendingIntent *perc
 					return m.processInput(context)()
 				}
 				return assistantMsg{
-					Surface: fmt.Sprintf("Learned mapping: \"%s\" -> %s. You can retry the request when ready.", candidate.Phrase, candidate.Verb),
+					Surface: fmt.Sprintf("Learned mapping: \"%s\" -> %s. You can retry the request when ready.%s", candidate.Phrase, candidate.Verb, partialLearningNote(outcome)),
 				}
 			}
 			if err := m.rejectLearningCandidate(candidate); err != nil {

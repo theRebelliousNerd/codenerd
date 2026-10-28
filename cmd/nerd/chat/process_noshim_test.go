@@ -50,12 +50,13 @@ func TestProcessInputRefersToArticulationDirectly(t *testing.T) {
 		}
 	}
 
-	// Guard against a vacuous pass: the canonical spellings the change
-	// introduced must actually be present in the function body.
-	if !strings.Contains(fn, "articulation.ControlPacket") {
-		t.Fatal("processInput does not build articulation.ControlPacket; expected direct canonical use")
-	}
-	if !strings.Contains(fn, "articulation.MemoryOperation") {
-		t.Fatal("processInput does not use articulation.MemoryOperation; expected direct canonical use")
+	// Guard against a vacuous pass: processInput builds the turn's control
+	// packet through the helpers that spell the articulation types (the packet
+	// and its memory operations live in control_outcome.go), so the function
+	// body must still reach them.
+	for _, call := range []string{"applyArticulationControlPacket(", "compressionControlPacket("} {
+		if !strings.Contains(fn, call) {
+			t.Fatalf("processInput does not call %s; expected the canonical articulation helpers", call)
+		}
 	}
 }

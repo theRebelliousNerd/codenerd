@@ -33,6 +33,12 @@ type ToolCall struct {
 	ID   string
 	Name string
 	Args map[string]any
+
+	// restrictedTurn is the turn whose restriction binds this call
+	// (turn_restriction.go), set by executeToolCall from the turn's context;
+	// empty when the turn carries none. It is the host's measurement of who
+	// owns the call, never something the model supplies.
+	restrictedTurn types.MangleAtom
 }
 
 // runToolLoop drives the LLM ↔ tools cycle. It performs the initial generation
@@ -101,7 +107,7 @@ func (e *Executor) runToolLoopPass(
 	if llmResponse == nil {
 		return nil, nil, errors.New("initial LLM generation returned a nil response")
 	}
-	e.promotePiggybackToolRequests(llmResponse)
+	e.promotePiggybackToolRequests(llmResponse, result)
 
 	// No tools requested.
 	//
@@ -143,7 +149,7 @@ func (e *Executor) runToolLoopPass(
 				// even if the model still chose a prose-only conclusion; returning
 				// the original planning text discards the entire retry.
 				llmResponse = retried
-				e.promotePiggybackToolRequests(llmResponse)
+				e.promotePiggybackToolRequests(llmResponse, result)
 				if len(retried.ToolCalls) == 0 {
 					return llmResponse, nil, nil
 				}
@@ -369,7 +375,7 @@ func (e *Executor) runToolLoopPass(
 		if nextResp == nil {
 			return currentResponse, toolErrs, errors.New("tool-result follow-up returned a nil response")
 		}
-		e.promotePiggybackToolRequests(nextResp)
+		e.promotePiggybackToolRequests(nextResp, result)
 		currentResponse = nextResp
 
 		// Append the next assistant turn to history (whether or not it has more
@@ -800,7 +806,7 @@ func (e *Executor) forceFinalAnswer(
 	if final == nil {
 		return pending, toolErrs, errors.New("final completion returned nothing")
 	}
-	e.promotePiggybackToolRequests(final)
+	e.promotePiggybackToolRequests(final, result)
 
 	// Preserve original tool calls for history before clearing. The returned
 	// response must clear ToolCalls so callers do not replay them, but the
@@ -2355,6 +2361,10 @@ const toolTimeoutGrace = 30 * time.Second
 // 2. Ouroboros tools (core.ToolRegistry) - compiled binary tools
 func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *config.EffectiveAgentRuntimeConfig) (output string, err error) {
 	executorCfg := e.configSnapshot()
+	call, bindErr := bindRestriction(ctx, call)
+	if bindErr != nil {
+		return "", bindErr
+	}
 	// A human-approved call records its outcome on every exit: refused
 	// before dispatch is a known no-dispatch failure, anything after
 	// dispatch started is completed or unknown, never "nothing happened".
@@ -2453,7 +2463,7 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 			// The constitution says a person may approve this exact request.
 			// Block for the decision (no model turn, no fact or lease held),
 			// then rerun the gate with the claimed approval for this call.
-			claimed, approvalErr := e.awaitHumanApproval(ctx, call, cfg, canonicalArgs, verdict.reason)
+			claimed, approvalErr := e.awaitHumanApproval(ctx, call, cfg, canonicalArgs, verdict.reason, verdict.personRequired)
 			if approvalErr != nil {
 				return "", approvalErr
 			}
@@ -2769,6 +2779,10 @@ type safetyVerdict struct {
 	// human_approval_required for this exact pending action: a person may
 	// approve it. A hard prohibition never sets it.
 	approvable bool
+	// personRequired is set when the denial is the user's own "confirm first"
+	// on this request: only a person may approve it, and the operator's
+	// standing yolo instruction does not (approval.Broker.AwaitPerson).
+	personRequired bool
 }
 
 // checkSafetyWithLease asks the constitution about one call. With approved
@@ -2782,12 +2796,12 @@ func (e *Executor) checkSafetyWithLease(call ToolCall, safetyGateEnabled bool, c
 		humanApprovalAdmission.RLock()
 		defer humanApprovalAdmission.RUnlock()
 	}
-	var approvable bool
-	allowed, reason := e.admitToolCall(call, safetyGateEnabled, canonicalPayload, lease, approved, &approvable)
-	return safetyVerdict{allowed: allowed, reason: reason, approvable: approvable}
+	var approvable, personRequired bool
+	allowed, reason := e.admitToolCall(call, safetyGateEnabled, canonicalPayload, lease, approved, &approvable, &personRequired)
+	return safetyVerdict{allowed: allowed, reason: reason, approvable: approvable, personRequired: personRequired}
 }
 
-func (e *Executor) admitToolCall(call ToolCall, safetyGateEnabled bool, canonicalPayload string, lease *func(), approved *humanApproval, approvable *bool) (allowed bool, reason string) {
+func (e *Executor) admitToolCall(call ToolCall, safetyGateEnabled bool, canonicalPayload string, lease *func(), approved *humanApproval, approvable, personRequired *bool) (allowed bool, reason string) {
 	if lease != nil {
 		e.generatedAuthorizationMu.Lock()
 		defer e.generatedAuthorizationMu.Unlock()
@@ -2934,6 +2948,24 @@ func (e *Executor) admitToolCall(call ToolCall, safetyGateEnabled bool, canonica
 		}
 	})
 
+	// 2-restriction. The turn's restriction binds this call: its owning turn
+	// and its tool's declared effect, retracted with the pending_action. A
+	// fact the kernel could not be told is a guard that did not run, so the
+	// call is refused (policy/constitution.mg, section 7D).
+	for _, fact := range callRestrictionFacts(call, "exec-"+call.ID) {
+		fact := fact
+		if err := e.kernel.Assert(fact); err != nil {
+			logging.Get(logging.CategorySession).Error("Safety check failed: could not assert %s: %v", fact.Predicate, err)
+			e.assertSecurityViolation(actionAtom, "failed to assert the turn restriction")
+			return false, "failed to assert the turn restriction"
+		}
+		cleanup = append(cleanup, func() {
+			if err := e.kernel.RetractFact(fact); err != nil {
+				logging.Get(logging.CategorySession).Warn("Failed to retract %s: %v", fact.Predicate, err)
+			}
+		})
+	}
+
 	// 2a. A claimed human approval names this exact pending action. It is
 	// asserted only now, beside the tuple it admits, and retracted with it.
 	if approved != nil {
@@ -3046,8 +3078,17 @@ func (e *Executor) admitToolCall(call ToolCall, safetyGateEnabled bool, canonica
 	if approved == nil && approvable != nil {
 		rows, qErr := e.kernel.Query(fmt.Sprintf("human_approval_required(%s)", strconv.Quote("exec-"+call.ID)))
 		*approvable = qErr == nil && len(rows) > 0
+		if *approvable && personRequired != nil {
+			owed, oErr := e.kernel.Query(fmt.Sprintf("confirmation_owed(%s)", strconv.Quote("exec-"+call.ID)))
+			*personRequired = oErr == nil && len(owed) > 0
+		}
 	}
 	reason = fmt.Sprintf("action not permitted: target=%s", target)
+	if call.restrictedTurn != "" {
+		if rows, qErr := e.kernel.Query(fmt.Sprintf("restricted_action(%s)", strconv.Quote("exec-"+call.ID))); qErr == nil && len(rows) > 0 {
+			reason = restrictionDenial(call)
+		}
+	}
 	if touchesSecret {
 		// Say why, so the model does not try the same content another way.
 		reason = fmt.Sprintf("action not permitted: %s is a secret file (execution.secret_paths); no tool may read, write, copy or search its contents", target)

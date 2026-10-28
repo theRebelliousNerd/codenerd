@@ -29,31 +29,6 @@ func TestResolvePath(t *testing.T) {
 	}
 }
 
-func TestReadFileContent_Truncates(t *testing.T) {
-	workspace := t.TempDir()
-	path := filepath.Join(workspace, "sample.txt")
-	content := "abcdef"
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatalf("write file: %v", err)
-	}
-
-	got, err := readFileContent(workspace, "sample.txt", 4)
-	if err != nil {
-		t.Fatalf("readFileContent: %v", err)
-	}
-	if got != "abcd" {
-		t.Fatalf("readFileContent truncated = %q, want %q", got, "abcd")
-	}
-
-	full, err := readFileContent(workspace, "sample.txt", 10)
-	if err != nil {
-		t.Fatalf("readFileContent full: %v", err)
-	}
-	if full != content {
-		t.Fatalf("readFileContent full = %q, want %q", full, content)
-	}
-}
-
 func TestCountFileLines(t *testing.T) {
 	workspace := t.TempDir()
 
@@ -496,15 +471,20 @@ func TestIsNegativeFeedback(t *testing.T) {
 	}{
 		{"bad bot", "bad bot", true},
 		{"wrong", "wrong", true},
-		{"stop", "stop doing that", true},
 		{"no that's not right", "no that's not right", true},
 		{"you didn't", "you didn't do what I asked", true},
-		{"fail", "fail", true},
 		{"incorrect", "that's incorrect", true},
 		{"mistake", "you made a mistake", true},
 		{"case insensitive", "WRONG!", true},
+		{"phrase at any length", "no that's not right, Max panics on an empty slice rather than returning zero", true},
 
 		// Negative cases
+		// A bare stop is the user stopping running work, not a rebuke.
+		{"stop", "stop", false},
+		{"stop doing that", "stop doing that", false},
+		{"fail is a report", "the tests fail", false},
+		// A request that mentions a failure is a task, not a complaint.
+		{"long request mentioning wrong", "Mean in stats.go is wrong - go test says TestMean fails and it returns 6 instead of 4", false},
 		{"empty", "", false},
 		{"random", "hello world", false},
 		{"positive", "good job", false},

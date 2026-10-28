@@ -286,6 +286,10 @@ type Requirement struct {
 	Type        string `json:"type"` // "functional", "non_functional", "constraint"
 	Description string `json:"description"`
 	Priority    string `json:"priority"` // "must_have", "should_have", "nice_to_have"
+	// Source is where the requirement came from ("user", "research",
+	// "red-team", "auto-generated"). Provenance, not a projected fact: it is
+	// kept so an edit round trip does not erase who proposed a requirement.
+	Source string `json:"source,omitempty"`
 	// Supports lists capability IDs this requirement realizes.
 	// Projected as northstar_supports(ReqID, CapID).
 	Supports []string `json:"supports,omitempty"`

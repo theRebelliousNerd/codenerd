@@ -2856,10 +2856,10 @@
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/chat_read_boundary_test.go": {
-    "hash": "b4fe29723a3d0c17455e67352f876c8e5dd550090965e3d73f9c97c8b67465ba",
-    "mod_time": 1793175549529403324,
-    "size": 4761,
-    "gen": 1793175549529403324,
+    "hash": "5ae2c90e9ef81e03bb0c085570e84d2b126ddc58390a7ad0f0998cfaf686002c",
+    "mod_time": 1793178241077125402,
+    "size": 4764,
+    "gen": 1793178241077125402,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -2936,18 +2936,18 @@
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/commands_handlers.go": {
-    "hash": "bcad376a278fbecf1ec09620b44339757d086a819f09ab3a7d6c9af4708bc835",
-    "mod_time": 1793175549531403339,
-    "size": 32089,
-    "gen": 1793175549531403339,
+    "hash": "96722cdf4829766a3575e7080f3722aee6e5f04d3e88c0370c1e8cb4c63f811d",
+    "mod_time": 1793178241084712510,
+    "size": 32800,
+    "gen": 1793178241084712510,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/commands_handlers_analysis.go": {
-    "hash": "c7983ae2abaf50a6c49fe69536b92cdceb79fd8d8cdb822882979a96ee29078f",
-    "mod_time": 1793175549531403339,
-    "size": 21436,
-    "gen": 1793175549531403339,
+    "hash": "e9cfacc547aafea99b0c7e7253acc10f5ad9ddd74d5a5d84b149ffb1b1f26bf5",
+    "mod_time": 1793178241092331020,
+    "size": 21905,
+    "gen": 1793178241092331020,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -3055,6 +3055,22 @@
     "gen_ok": true,
     "gen_is_clock": true
   },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/control_outcome.go": {
+    "hash": "c909d5b365934938ca46f7f703aec8748686c22a99468a738e2ed04561d60c07",
+    "mod_time": 1793178241685240506,
+    "size": 2521,
+    "gen": 1793178241685240506,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/control_outcome_test.go": {
+    "hash": "a2fd3dd31dab63b63ef2b4790567c122f9343a2192354a3d0bc5de34aefd4ffe",
+    "mod_time": 1793178241692935078,
+    "size": 4728,
+    "gen": 1793178241692935078,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/delegation.go": {
     "hash": "6f05c867676b5a490cc10c7557621b3ccf8041aac03723e597ce0c28a525ad59",
     "mod_time": 1793175549533403353,
@@ -3104,10 +3120,10 @@
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/delegation_routing.go": {
-    "hash": "9484bb705ee0e69f1a8a59e04d7acdf4984a76ef135c2c08d1c51523f14a3335",
-    "mod_time": 1793175549534403361,
-    "size": 13801,
-    "gen": 1793175549534403361,
+    "hash": "db1534df3c252c93d0df4512aa7e78b233e573721d7c5199077394a11715b4e7",
+    "mod_time": 1793178241100124788,
+    "size": 14448,
+    "gen": 1793178241100124788,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -3208,18 +3224,18 @@
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/helpers_articulation.go": {
-    "hash": "3b9ef6fb8066c92016252723dda10c0dc1339c09da2e72df6a4bbb077c733465",
-    "mod_time": 1793175549535403368,
-    "size": 17973,
-    "gen": 1793175549535403368,
+    "hash": "42875db7ce888777d3cba7ae765ae509f77b31e156730e97c6de125d34649d4c",
+    "mod_time": 1793178241108860260,
+    "size": 18863,
+    "gen": 1793178241108860260,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/helpers_files.go": {
-    "hash": "269bfb5c8399ddf0caa5554ad65962f0e23d4f76f174c23d1698828dd5cfb841",
-    "mod_time": 1793175549535403368,
-    "size": 8940,
-    "gen": 1793175549535403368,
+    "hash": "d203ad3603e6185d76ab32bee6fbc9c2e6613f80eca3057b7840b7ee08e388b8",
+    "mod_time": 1793178241116003484,
+    "size": 8537,
+    "gen": 1793178241116003484,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -3232,10 +3248,10 @@
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/helpers_test.go": {
-    "hash": "fd48969b4b5e979a966b84c667a5881b23e8aba06760d2922536775467256857",
-    "mod_time": 1793175549536403376,
-    "size": 42802,
-    "gen": 1793175549536403376,
+    "hash": "73d8a18a0a405247935b2a0db6241dc741a0ecf8f5addb00104862e68f7d85df",
+    "mod_time": 1793178241123432004,
+    "size": 42457,
+    "gen": 1793178241123432004,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -3272,10 +3288,10 @@
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/jev_turn.go": {
-    "hash": "ab1b735a2d8d1a0b0a37ec3cc9d93efc3ca0ba72cfcdfc4fdac2bc2fe4a00a28",
-    "mod_time": 1793176775219499663,
-    "size": 6089,
-    "gen": 1793176775219499663,
+    "hash": "17fa093e7ac4f1b0861cf9fda3f1949558bc8a23d70b55a10208a2c11b5f7ba6",
+    "mod_time": 1793178125406755559,
+    "size": 6417,
+    "gen": 1793178125406755559,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -3292,6 +3308,14 @@
     "mod_time": 1793176642797650826,
     "size": 9430,
     "gen": 1793176642797650826,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/journey_side_turn_test.go": {
+    "hash": "abfc01b5f96f4f50201173f731b6608466892d38d6a2198494afb3b3e482ad63",
+    "mod_time": 1793177565590859129,
+    "size": 5146,
+    "gen": 1793177565590859129,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -3352,10 +3376,10 @@
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/model_handlers.go": {
-    "hash": "f1dfcd2134d0dd3830d001ed27c685468485210401cb05683dda6a26f58ea373",
-    "mod_time": 1793175549539403398,
-    "size": 24666,
-    "gen": 1793175549539403398,
+    "hash": "b82561ede1492473d4b2073a1fc1bfb0f309f064938092e85a2c4e66eb1ccd60",
+    "mod_time": 1793178241131012451,
+    "size": 25758,
+    "gen": 1793178241131012451,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -3376,18 +3400,18 @@
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/model_key_handler.go": {
-    "hash": "a5dfc5d378e461a4e1aba5900c4513f112b66a7b52dd670753e3859f4604cffe",
-    "mod_time": 1793175549539403398,
-    "size": 12494,
-    "gen": 1793175549539403398,
+    "hash": "c447895a00772a9086fbfa1c458f3e4307de30b70835d1b5b692ba0aaa047db1",
+    "mod_time": 1793177461316847755,
+    "size": 12810,
+    "gen": 1793177461316847755,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/model_lifecycle.go": {
-    "hash": "74a38a36e17e20671f0138a0ab295616b06392bdd928fe5e50ca84db14d1f3cd",
-    "mod_time": 1793175549540403405,
-    "size": 11790,
-    "gen": 1793175549540403405,
+    "hash": "b9339e762ada8fa680e537a0e53131172e94bdb7bec953de4b803e06cd44b47e",
+    "mod_time": 1793178241139393806,
+    "size": 11987,
+    "gen": 1793178241139393806,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -3400,18 +3424,18 @@
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/model_types.go": {
-    "hash": "fb6acc9b29f570d6d389c5caf85d94a6fcbdd04b48e8e8c78dab9c8b45a80abd",
-    "mod_time": 1793176093131781899,
-    "size": 33706,
-    "gen": 1793176093131781899,
+    "hash": "00de197affa17cde43a43e7dbd8f29740e4bd743c0b1314fb7d0d3b3fee3f3c7",
+    "mod_time": 1793177461319088906,
+    "size": 33798,
+    "gen": 1793177461319088906,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/model_update.go": {
-    "hash": "9d0cae2afbf861d87b202bb877b466c29b338aeb683a6ea0b4ba51d430a65180",
-    "mod_time": 1793175549541403412,
-    "size": 38140,
-    "gen": 1793175549541403412,
+    "hash": "407f0287ed6b02649002304c12752df8a3a18a6b51ed13cd56b24a32318584c5",
+    "mod_time": 1793177461318391132,
+    "size": 38565,
+    "gen": 1793177461318391132,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -3455,11 +3479,27 @@
     "gen_ok": true,
     "gen_is_clock": true
   },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/northstar_edit.go": {
+    "hash": "f9da52a56a59c8e93e4c3c83c3c06e7f63806db7f6b861eb3b6f0ce5f958b23e",
+    "mod_time": 1793178241699631640,
+    "size": 8647,
+    "gen": 1793178241699631640,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/northstar_edit_test.go": {
+    "hash": "cbc8f75494872bb8b5fcc16d036167c79d4265a5493235e079938b3a05169785",
+    "mod_time": 1793178241705853157,
+    "size": 16847,
+    "gen": 1793178241705853157,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/northstar_llm.go": {
-    "hash": "3dc7bcec912babba215df2bde852e24118c827f7d4c3df9750c8fa32d8633f19",
-    "mod_time": 1793175549541403412,
-    "size": 4443,
-    "gen": 1793175549541403412,
+    "hash": "0b5e6b2da15eb472a31eace32bf70fe5aa4612b2b2ece393f9258dcff09dfd3a",
+    "mod_time": 1793178241148298387,
+    "size": 4592,
+    "gen": 1793178241148298387,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -3472,50 +3512,50 @@
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/northstar_llm_test.go": {
-    "hash": "21ac2ae163d563789c057e0e74a31d0b0053aeef95410d298fac257eb535f622",
-    "mod_time": 1793175549542403420,
-    "size": 5403,
-    "gen": 1793175549542403420,
+    "hash": "75b8e05b9bcbf3bd584c906d70515b3f0bac1e3b867173bbd02a762547ec9a2f",
+    "mod_time": 1793178241155713066,
+    "size": 6993,
+    "gen": 1793178241155713066,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/northstar_navigation.go": {
-    "hash": "4df9dda51701df6fd82fc5053b9735016979935c8ca5095039f4541dc159f8c8",
-    "mod_time": 1793175549542403420,
-    "size": 8104,
-    "gen": 1793175549542403420,
+    "hash": "8f8c1b4315255e8915b19daa6f9431e02771e307744032e58fde092f666eeb70",
+    "mod_time": 1793178241163230760,
+    "size": 8115,
+    "gen": 1793178241163230760,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/northstar_persistence.go": {
-    "hash": "978db675371c178a1786a310fc59e5fbe9b3d96d624040c592fbbc81fdfba47d",
-    "mod_time": 1793175549542403420,
-    "size": 15032,
-    "gen": 1793175549542403420,
+    "hash": "52ec4f0d0bd363b2ff2898f981726aee04c274e0a698fd3f5d17704888b6919d",
+    "mod_time": 1793178241170591753,
+    "size": 7905,
+    "gen": 1793178241170591753,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/northstar_persistence_test.go": {
-    "hash": "2ec2873a10f60d274bdb9199a2f67e682864e315b64570a5ceabaf2da314c6c8",
-    "mod_time": 1793175549542403420,
-    "size": 3931,
-    "gen": 1793175549542403420,
+    "hash": "11a75f13ff84e0582c1b050939082b3e152e3527933cbed4cf4e4f1dcf865a31",
+    "mod_time": 1793178241178418193,
+    "size": 1412,
+    "gen": 1793178241178418193,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/northstar_types.go": {
-    "hash": "cd89f54c2e6e680d0c65dd2930c7914571809a53827d617d4f98ef364efdd6e4",
-    "mod_time": 1793175549542403420,
-    "size": 6313,
-    "gen": 1793175549542403420,
+    "hash": "d097acf15bdf9c5357bda2e87b732e89aa3be1166f249968a2d662e6a577dfe3",
+    "mod_time": 1793178241186338120,
+    "size": 4535,
+    "gen": 1793178241186338120,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/northstar_types_test.go": {
-    "hash": "59c2be1c16bf3b5ef9147c4e59f743eedfca25785a0444b0d26cf41d8f9df47b",
-    "mod_time": 1793175549542403420,
-    "size": 1707,
-    "gen": 1793175549542403420,
+    "hash": "aecd1a11ef612b3465874eaa2ee1f0ca5c1c31692810a670051f2b04eecd934c",
+    "mod_time": 1793178241193922163,
+    "size": 395,
+    "gen": 1793178241193922163,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -3536,10 +3576,10 @@
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/northstar_wizard.go": {
-    "hash": "79b63fff3cac2c7a9478acc8d444a954b383b462fa67587cdb05666f4ae229c7",
-    "mod_time": 1793175549542403420,
-    "size": 24610,
-    "gen": 1793175549542403420,
+    "hash": "4b9c121b913388702d426e623b2c43963887c5490af7082470996098cb9a7764",
+    "mod_time": 1793178241201465360,
+    "size": 24642,
+    "gen": 1793178241201465360,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -3616,10 +3656,10 @@
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/process.go": {
-    "hash": "2f1240aaaf43be9661ec4b198e0e00d91c6e6ed7a805dfb2efa445356c873bd9",
-    "mod_time": 1793176913513527229,
-    "size": 50673,
-    "gen": 1793176913513527229,
+    "hash": "640a065bdbb44cc873f1333b7bc20838a146cb2db2f9f90a449336fdef26a559",
+    "mod_time": 1793178241210245095,
+    "size": 51758,
+    "gen": 1793178241210245095,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -3648,18 +3688,18 @@
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/process_dream.go": {
-    "hash": "5db18f8258a076f6987b4046d0557971cbeec53b09b7ab5096d9c56a48f49b3c",
-    "mod_time": 1793175549545403442,
-    "size": 25925,
-    "gen": 1793175549545403442,
+    "hash": "3cd31fc26ad9de7449beef552e101ca7426627324183dfb929db95058c1948ae",
+    "mod_time": 1793178241217596951,
+    "size": 25823,
+    "gen": 1793178241217596951,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/process_dream_delegation.go": {
-    "hash": "cb818351c8b7e1cd643bbe455fc7c889019c9cf02e2c9334502fee7768cb3895",
-    "mod_time": 1793175549545403442,
-    "size": 17611,
-    "gen": 1793175549545403442,
+    "hash": "d99b4b414203c3d57989eadd722aa5078a634f14f9e0ac829469c867ef81fd43",
+    "mod_time": 1793178241225163783,
+    "size": 17969,
+    "gen": 1793178241225163783,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -3680,10 +3720,10 @@
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/process_helpers.go": {
-    "hash": "baf756a3078951e86bb3cb4dd7d78a94450ba1c24d13f1334cf93379240d89d2",
-    "mod_time": 1793175549545403442,
-    "size": 6226,
-    "gen": 1793175549545403442,
+    "hash": "a81876463c3fafc7f0c3d6ecce03c25d61b40176424fcd51c4ac685db2c05724",
+    "mod_time": 1793178241233574683,
+    "size": 7174,
+    "gen": 1793178241233574683,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -3696,18 +3736,18 @@
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/process_noshim_test.go": {
-    "hash": "b79a2a636da280d2ab73fbdc7f9d61dcc3557359ac67d7856b9a6723acfc887b",
-    "mod_time": 1793175549545403442,
-    "size": 2103,
-    "gen": 1793175549545403442,
+    "hash": "e1939fa4aad22007248d8b08d816ab80ad8de89691351cc3ffa6d72ec932b07d",
+    "mod_time": 1793178241241097702,
+    "size": 2142,
+    "gen": 1793178241241097702,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/process_seed.go": {
-    "hash": "6e43711f82c3dc755a61f41e25e8d4531b92ab6e6da36e2033b6b74dbe411253",
-    "mod_time": 1793176599943163418,
-    "size": 7127,
-    "gen": 1793176599943163418,
+    "hash": "32b65f360f978fcb559aa58db92726f560980b15717dfd119afdf17bab4825ee",
+    "mod_time": 1793178125421908658,
+    "size": 7294,
+    "gen": 1793178125421908658,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -3748,6 +3788,14 @@
     "mod_time": 1793175549546403449,
     "size": 12070,
     "gen": 1793175549546403449,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/restriction_routing_test.go": {
+    "hash": "fd9f8420423989721b56d8248ef81129d0465f8bc56c82c761493b710912fcf9",
+    "mod_time": 1793178241712261496,
+    "size": 3788,
+    "gen": 1793178241712261496,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -3832,18 +3880,18 @@
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/self_diagnosis.go": {
-    "hash": "588b5f3cdde2ccecc3486f76f6201ccb2f0cd01cfe48b07d4b7452bcc64285a2",
-    "mod_time": 1793176920404926937,
-    "size": 5040,
-    "gen": 1793176920404926937,
+    "hash": "06e68ff1d50c5ef01422aea8dbd1006b492c4a21afdcde3bae262a53f423651e",
+    "mod_time": 1793178125414013909,
+    "size": 5084,
+    "gen": 1793178125414013909,
     "gen_ok": true,
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/session.go": {
-    "hash": "254ab9f1366f531cbafa37a89a2244fbb23d05e82c57a99fc87dcbdec9581741",
-    "mod_time": 1793176093132833029,
-    "size": 8154,
-    "gen": 1793176093132833029,
+    "hash": "5d7abaddc1e78c08dd3964659e74e82375c2a08e9e60be473627190761c0e6f3",
+    "mod_time": 1793177461319219251,
+    "size": 8193,
+    "gen": 1793177461319219251,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -3951,6 +3999,14 @@
     "gen_ok": true,
     "gen_is_clock": true
   },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/side_turn.go": {
+    "hash": "2d4f42c5d6dd85ea3ab35c6de32a460c1fba7d1eed6238e5f93a731d79e95286",
+    "mod_time": 1793177461293024524,
+    "size": 7485,
+    "gen": 1793177461293024524,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/specialist_policy_test.go": {
     "hash": "02153dbe5f8f46859c392d564541a487e170a58a044e51ef9b6b2a3277fa7891",
     "mod_time": 1793175549550403479,
@@ -4016,10 +4072,10 @@
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/testutil_test.go": {
-    "hash": "cf0c42edeee0415ef380e4ea151df9fd5c96f45974057012c9cb4bcb0e41253c",
-    "mod_time": 1793175549551403486,
-    "size": 29403,
-    "gen": 1793175549551403486,
+    "hash": "fe2aefd5114bc983c1f57894667e317c2b494e6009c5aec26731bc5013080ded",
+    "mod_time": 1793177461319328487,
+    "size": 29441,
+    "gen": 1793177461319328487,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -4028,6 +4084,38 @@
     "mod_time": 1793175549552403494,
     "size": 31103,
     "gen": 1793175549552403494,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/turn_evidence.go": {
+    "hash": "86193c1ec926edf1522cab310ce6f70af935c2582ed0eb41012a8241d695eb37",
+    "mod_time": 1793178241719300523,
+    "size": 6933,
+    "gen": 1793178241719300523,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/turn_evidence_test.go": {
+    "hash": "f6a98d2b13517e89a512ecaaf624bdb1dde8b992979f89ec07657d28fdab9d1c",
+    "mod_time": 1793178241727248342,
+    "size": 10870,
+    "gen": 1793178241727248342,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/turn_results.go": {
+    "hash": "cca97b1b4b1ac1197aade012d40ec19ad9e66216c622a82cac9f9f5229405081",
+    "mod_time": 1793178241734337654,
+    "size": 3167,
+    "gen": 1793178241734337654,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/turn_results_test.go": {
+    "hash": "3aeecee026b7ff8e7d2b7f5f0293a987bee611f6591ba360f8e0ef47dd805cba",
+    "mod_time": 1793178241741209716,
+    "size": 4279,
+    "gen": 1793178241741209716,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -4080,10 +4168,10 @@
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/chat/view.go": {
-    "hash": "3a9f784326e959d649d895d9ccedb9425cb1d7790c84b3ae98b583cc59e13e8c",
-    "mod_time": 1793175549553403501,
-    "size": 24605,
-    "gen": 1793175549553403501,
+    "hash": "834e6733a4f668627585140ce169410756961467a8d64a1e02b710e670a3c19e",
+    "mod_time": 1793177461318667152,
+    "size": 24672,
+    "gen": 1793177461318667152,
     "gen_ok": true,
     "gen_is_clock": true
   },
@@ -4192,10 +4280,10 @@
     "gen_is_clock": true
   },
   "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/a7e5ac71-2090-4bf7-b55e-1c2f6185f0c3/scratchpad/probewt/cmd/nerd/cli_uplift_test.go": {
-    "hash": "d171ce45bc1a9b00d2273630d2fe126067279131d8698711dc982436ba67d486",
-    "mod_time": 1793175549554403509,
-    "size": 4441,
-    "gen": 1793175549554403509,
+    "hash": "b8491d3b4de1f3974af350bd5272cafe815d2278c02d6255a3934e881f621da4",
+    "mod_time": 1793177346047388175,
+    "size": 4453,
+    "gen": 1793177346047388175,
     "gen_ok": true,
     "gen_is_clock": true
   },

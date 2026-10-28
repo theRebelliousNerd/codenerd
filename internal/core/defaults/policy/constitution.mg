@@ -8,7 +8,18 @@ permitted(Action, Target, Payload) :-
     safe_action(Action),
     pending_action(_, Action, Target, Payload, _),
     !dangerous_content(Action, Payload),
-    !dangerous_content(Action, Target).
+    !dangerous_content(Action, Target),
+    !restricted_tuple(Action, Target, Payload),
+    !consent_gated_tuple(Action, Target, Payload).
+
+# A turn restriction (section 7D below) is joined into every arm of
+# permitted/3 as a negation. restricted_tuple/3 is a call the user's own
+# limit bars for this turn (no changes, read-only, dry run, what-if);
+# consent_gated_tuple/3 is a call the user asked to confirm first and has not
+# yet decided. Neither adds a permission: a barred call stays barred even if
+# another arm would have derived it, and a call owed confirmation is permitted
+# again only by the person's decision for that exact call, through the
+# human-approval arm below.
 
 # Request-bound human approval: the only human-consent arm.
 #
@@ -30,7 +41,8 @@ permitted(Action, Target, Payload) :-
     pending_action(ActionID, Action, Target, Payload, _),
     human_approval_granted(ActionID, Action, Target, Payload, _),
     !dangerous_content(Action, Payload),
-    !dangerous_content(Action, Target).
+    !dangerous_content(Action, Target),
+    !restricted_tuple(Action, Target, Payload).
 
 # Which denials a person may answer. Only these two action types; every other
 # requires_permission action (git_push, git_force, system_modify,
@@ -49,7 +61,20 @@ human_approval_required(ActionID) :-
     human_approvable(Action),
     !permitted(Action, Target, Payload),
     !dangerous_content(Action, Payload),
-    !dangerous_content(Action, Target).
+    !dangerous_content(Action, Target),
+    !restricted_tuple(Action, Target, Payload).
+
+# A call the user asked to confirm first (section 7D below), on an action
+# the constitution otherwise permits, opens the same request. A restricted
+# call never does: a person cannot approve what their own request barred.
+human_approval_required(ActionID) :-
+    pending_action(ActionID, Action, Target, Payload, _),
+    confirmation_owed(ActionID),
+    safe_action(Action),
+    !permitted(Action, Target, Payload),
+    !dangerous_content(Action, Payload),
+    !dangerous_content(Action, Target),
+    !restricted_tuple(Action, Target, Payload).
 
 # A delete the repository can undo.
 #
@@ -67,12 +92,16 @@ permitted(/delete_file, Target, Payload) :-
     pending_action(_, /delete_file, Target, Payload, _),
     file_recoverable(Target),
     !dangerous_content(/delete_file, Payload),
-    !dangerous_content(/delete_file, Target).
+    !dangerous_content(/delete_file, Target),
+    !restricted_tuple(/delete_file, Target, Payload),
+    !consent_gated_tuple(/delete_file, Target, Payload).
 
 # Downstream executor bridge:
 permitted(Action, Target, Payload) :-
     permitted_action(ActionID, Action, Target, Payload, _),
-    permission_check_result(ActionID, /permit, _, _).
+    permission_check_result(ActionID, /permit, _, _),
+    !restricted_tuple(Action, Target, Payload),
+    !consent_gated_tuple(Action, Target, Payload).
 
 # Bound-negation helpers. See SECTION 11C in schemas_safety.mg: a negated
 # literal containing an anonymous wildcard excludes nothing in this Mangle
@@ -658,7 +687,9 @@ has_active_override(ActionType) :-
 # Appeal granted should permit the action
 permitted(ActionType, Target, Payload) :-
     has_active_override(ActionType),
-    pending_action(_, ActionType, Target, Payload, _).
+    pending_action(_, ActionType, Target, Payload, _),
+    !restricted_tuple(ActionType, Target, Payload),
+    !consent_gated_tuple(ActionType, Target, Payload).
 
 # Count denied appeals for thresholding
 # appeal_denial_count(Count) :-
@@ -679,3 +710,133 @@ excessive_appeal_denials() :-
 appeal_pattern_detected(ActionType) :-
     appeal_grant_count(ActionType, Count),
     Count >= 2.
+
+
+# SECTION 7D: Turn restriction. The limit a user put on the request being served, enforced
+# where a tool is offered and where it is admitted
+# (Docs/audits/perception-restriction-continuity.md).
+#
+# Perception recognises the limit (read-only, no changes, dry run, a what-if,
+# "confirm with me first") and the session executor carries it on the turn's
+# context (internal/perception/restriction.go). Go measures: it asserts the
+# turn's restriction kinds and each tool's reviewed effect (tools.LookupEffect,
+# /unknown when the tool declares none), and nothing more. This section derives
+# what a restriction forbids and what it owes. A restriction narrows: it is
+# joined into every permitted/3 arm (above) as a negation, so no
+# independently derived permission outranks it, and it never grants anything.
+# The user's own words are not an approval; a person's decision arrives only
+# as human_approval_granted, through the request-bound approval broker.
+#
+# EDB, per turn (retracted with the turn's other facts):
+#   turn_restriction(Turn, Kind)                 each recognised kind
+#   restriction_tool_effect(Turn, Tool, Effect)  the catalog's tools, measured
+# EDB, per admitted call (retracted with its pending_action):
+#   pending_action_turn(ActionID, Turn)          the turn whose restriction binds it
+#   pending_action_effect(ActionID, Effect)      its tool's declared effect
+#
+# Only turns that carry a restriction assert anything here, so an unrestricted
+# turn pays nothing and joins nothing.
+
+Decl turn_restriction(Turn, Kind) bound [/name, /name].
+Decl restriction_tool_effect(Turn, Tool, Effect) bound [/name, /name, /name].
+Decl pending_action_turn(ActionID, Turn) bound [/string, /name].
+Decl pending_action_effect(ActionID, Effect) bound [/string, /name].
+
+Decl effect_barring_kind(Kind) bound [/name].
+Decl barred_effect(Effect) bound [/name].
+Decl consequential_effect(Effect) bound [/name].
+Decl turn_bars_effects(Turn) bound [/name].
+Decl turn_owes_confirmation(Turn) bound [/name].
+Decl pending_action_effect_known(ActionID) bound [/string].
+Decl restriction_withholds_tool(Turn, Tool) bound [/name, /name].
+Decl restricted_action(ActionID) bound [/string].
+Decl restricted_tuple(Action, Target, Payload) bound [/name, /string, /string].
+Decl confirmation_owed(ActionID) bound [/string].
+Decl consent_given(ActionID) bound [/string].
+Decl consent_gated_tuple(Action, Target, Payload) bound [/name, /string, /string].
+
+# --- What a restriction forbids ------------------------------------------------
+
+# These kinds all say the workspace stays as it is. They differ in what the
+# user said, not in what they forbid; the receipt names the user's word.
+effect_barring_kind(/read_only).
+effect_barring_kind(/no_changes).
+effect_barring_kind(/dry_run).
+effect_barring_kind(/hypothetical).
+
+# A tool that writes, runs a command, or declares no effect is barred. An
+# unknown effect is never read-only. /external (web, browser, MCP) is not
+# barred: the manifest does not separate a lookup from a remote mutation, so
+# the restriction is a statement about the workspace, and an external call is
+# outside what it can honestly promise.
+barred_effect(/write).
+barred_effect(/execute).
+barred_effect(/unknown).
+
+turn_bars_effects(Turn) :-
+    turn_restriction(Turn, Kind),
+    effect_barring_kind(Kind).
+
+# The catalog: a barred tool is not offered to the turn, so its schema and the
+# atoms that teach it never reach the model. Admission below is the second
+# line for a call made anyway.
+restriction_withholds_tool(Turn, Tool) :-
+    turn_bars_effects(Turn),
+    restriction_tool_effect(Turn, Tool, Effect),
+    barred_effect(Effect).
+
+# Admission. A call whose effect was not measured is barred too: a measurement
+# that failed is a guard that did not run.
+pending_action_effect_known(ActionID) :-
+    pending_action_effect(ActionID, _).
+
+restricted_action(ActionID) :-
+    pending_action_turn(ActionID, Turn),
+    turn_bars_effects(Turn),
+    pending_action_effect(ActionID, Effect),
+    barred_effect(Effect).
+restricted_action(ActionID) :-
+    pending_action_turn(ActionID, Turn),
+    turn_bars_effects(Turn),
+    !pending_action_effect_known(ActionID).
+
+# permitted/3 is keyed by the tuple, so the arms negate the tuple.
+restricted_tuple(Action, Target, Payload) :-
+    pending_action(ActionID, Action, Target, Payload, _),
+    restricted_action(ActionID).
+
+# --- What a restriction owes ---------------------------------------------------
+
+# "Confirm first" owes the user's decision before a consequential effect: a
+# write, a command, or an effect nobody declared. Reading owes nothing.
+consequential_effect(/write).
+consequential_effect(/execute).
+consequential_effect(/unknown).
+
+turn_owes_confirmation(Turn) :-
+    turn_restriction(Turn, /confirm_first).
+
+confirmation_owed(ActionID) :-
+    pending_action_turn(ActionID, Turn),
+    turn_owes_confirmation(Turn),
+    pending_action_effect(ActionID, Effect),
+    consequential_effect(Effect).
+confirmation_owed(ActionID) :-
+    pending_action_turn(ActionID, Turn),
+    turn_owes_confirmation(Turn),
+    !pending_action_effect_known(ActionID).
+
+# The person's decision on this exact pending action (the request-bound
+# broker, constitution.mg): same ActionID, Action, Target and Payload.
+consent_given(ActionID) :-
+    pending_action(ActionID, Action, Target, Payload, _),
+    human_approval_granted(ActionID, Action, Target, Payload, _).
+
+# A call that owes confirmation and has none is not permitted by any arm
+# except the human-approval arm. Once the person has decided for this exact
+# call, the gate no longer holds it back, and the ordinary arms and every other
+# check run as they always did.
+consent_gated_tuple(Action, Target, Payload) :-
+    pending_action(ActionID, Action, Target, Payload, _),
+    confirmation_owed(ActionID),
+    !consent_given(ActionID).

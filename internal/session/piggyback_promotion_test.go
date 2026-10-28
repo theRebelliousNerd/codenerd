@@ -241,7 +241,7 @@ func TestPromotePiggybackToolRequests_NativePrecedence(t *testing.T) {
 		Text:      originalText,
 		ToolCalls: []types.ToolCall{originalCall},
 	}
-	ok := executor.promotePiggybackToolRequests(resp)
+	ok := executor.promotePiggybackToolRequests(resp, nil)
 	if ok {
 		t.Fatalf("promotePiggybackToolRequests returned true, want false when native ToolCalls present")
 	}

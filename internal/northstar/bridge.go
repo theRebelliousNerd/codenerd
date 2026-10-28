@@ -211,6 +211,7 @@ func (d *WizardDocument) ToVision() *Vision {
 			Type:        r.Type,
 			Description: r.Description,
 			Priority:    r.Priority,
+			Source:      r.Source,
 			Supports:    append([]string(nil), r.Supports...),
 			Addresses:   append([]string(nil), r.Addresses...),
 		})
@@ -263,6 +264,7 @@ func WizardDocumentFromVision(v *Vision) *WizardDocument {
 			Type:        r.Type,
 			Description: r.Description,
 			Priority:    r.Priority,
+			Source:      r.Source,
 			Supports:    append([]string(nil), r.Supports...),
 			Addresses:   append([]string(nil), r.Addresses...),
 		})

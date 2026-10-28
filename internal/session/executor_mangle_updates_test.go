@@ -26,7 +26,7 @@ func TestProcessMangleUpdates_CheckpointVerdictReachesKernel(t *testing.T) {
 			},
 		},
 	}
-	e.processMangleUpdatesFromEnvelope(env)
+	e.processMangleUpdatesFromEnvelope(env, nil)
 
 	verdicts, err := kernel.Query("checkpoint_verdict")
 	if err != nil {
@@ -79,7 +79,7 @@ func TestProcessMangleUpdates_AProseVerdictKeepsItsPunctuationOnTheShardedKernel
 			},
 		},
 	}
-	e.processMangleUpdatesFromEnvelope(env)
+	e.processMangleUpdatesFromEnvelope(env, nil)
 
 	verdicts, err := cortex.Query("checkpoint_verdict")
 	if err != nil {

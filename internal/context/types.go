@@ -187,6 +187,13 @@ type CompressedTurn struct {
 	MangleUpdates    []string // Raw mangle_updates from control packet
 	MemoryOperations []articulation.MemoryOperation
 
+	// ControlOutcomes records the controls of this turn that did not take full
+	// effect (removed, refused, failed, partly applied), so a later reader of
+	// the compressed history learns "asked to remember X, the store refused"
+	// and not "X remembered". Controls that took effect are the ones in
+	// MangleUpdates and MemoryOperations.
+	ControlOutcomes []articulation.ControlDisposition
+
 	// IMPORTANT: No surface text stored - this is the key to compression
 }
 
@@ -318,6 +325,12 @@ type Turn struct {
 	// Parsed outputs (from Piggyback Protocol)
 	SurfaceResponse string
 	ControlPacket   *articulation.ControlPacket
+
+	// ControlOutcomes is what the host's own application of this turn's
+	// controls left undone. Only meaningful to ProcessTurnWithAppliedControls,
+	// whose caller applied the controls and knows; ProcessTurn applies them
+	// itself and records its own outcomes.
+	ControlOutcomes []articulation.ControlDisposition
 
 	// Extracted atoms
 	ExtractedAtoms []core.Fact

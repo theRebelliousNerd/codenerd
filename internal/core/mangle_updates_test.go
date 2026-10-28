@@ -84,3 +84,25 @@ func TestMangleUpdates_SchemaValidation(t *testing.T) {
 		t.Error("Expected arity mismatch block for safe_check(1, 2)")
 	}
 }
+
+// A block names the position of the update it refused, so two equal updates are
+// two decisions and a consumer can account for every position it sent.
+func TestFilterMangleUpdates_BlocksCarryTheirPosition(t *testing.T) {
+	updates := []string{
+		`observation("a", "b").`,
+		`test_state(/passing).`,
+		`observation("a", "b").`,
+		`good_rule(X) :- other(X).`,
+	}
+	facts, blocked := FilterMangleUpdates(nil, updates, ModelObservationPolicy())
+	if len(facts) != 2 {
+		t.Fatalf("facts = %d, want the two observations", len(facts))
+	}
+	var got []int
+	for _, b := range blocked {
+		got = append(got, b.Index)
+	}
+	if len(got) != 2 || got[0] != 1 || got[1] != 3 {
+		t.Fatalf("blocked positions = %v, want [1 3]", got)
+	}
+}

@@ -256,6 +256,13 @@ func (p *PerceptionFirewallShard) ensureTransducer() perception.Transducer {
 	if p.promptAssembler != nil {
 		t.SetPromptAssembler(articulation.NewPromptAssemblerAdapter(p.promptAssembler))
 	}
+	// The firewall's transducer reads the same kernel the firewall asserts
+	// into. Without it deriveRouting takes its no-kernel path: the model's
+	// suggested mode and shards pass through, no blocked tools are derived and
+	// no routing facts are published, on exactly the path chat prefers.
+	if tk, ok := t.(perception.TransducerWithKernel); ok && p.Kernel != nil {
+		tk.SetKernel(p.Kernel)
+	}
 	p.transducer = t
 	return t
 }

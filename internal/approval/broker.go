@@ -142,6 +142,20 @@ func (b *Broker) Get(id string) (Request, bool) {
 // No kernel fact, lock or lease is held while it waits. On approval it returns
 // a Grant the caller must Reserve against the operation as it stands then.
 func (b *Broker) Await(ctx context.Context, intentID string, subject Subject, preview Preview) (*Grant, Request, error) {
+	return b.await(ctx, intentID, subject, preview, true)
+}
+
+// AwaitPerson is Await for a request only a person may decide: the standing
+// yolo instruction does not approve it. It is for an obligation the user put
+// on this very request ("confirm with me first"), which is more specific than
+// the operator's general instruction to proceed without asking and so outranks
+// it. With no host attached nobody can decide, and the request is refused as
+// any unattended approvable denial is.
+func (b *Broker) AwaitPerson(ctx context.Context, intentID string, subject Subject, preview Preview) (*Grant, Request, error) {
+	return b.await(ctx, intentID, subject, preview, false)
+}
+
+func (b *Broker) await(ctx context.Context, intentID string, subject Subject, preview Preview, mayAutoApprove bool) (*Grant, Request, error) {
 	if strings.TrimSpace(intentID) == "" {
 		return nil, Request{}, fmt.Errorf("approval request needs an execution intent")
 	}
@@ -152,7 +166,7 @@ func (b *Broker) Await(ctx context.Context, intentID string, subject Subject, pr
 	if !preview.Verify() {
 		return nil, Request{}, fmt.Errorf("approval preview is not sealed with its own digest")
 	}
-	if b.Autonomous() {
+	if mayAutoApprove && b.Autonomous() {
 		return b.autoApprove(intentID, subject, digest, preview)
 	}
 	id, err := b.open(intentID, subject, digest, preview)

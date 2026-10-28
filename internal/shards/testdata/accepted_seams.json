@@ -6,7 +6,7 @@
     "reason": "override path, architect's call"
   },
   {
-    "clause": "permitted(ActionType,Target,Payload) :- has_active_override(ActionType), pending_action(_,ActionType,Target,Payload,_).",
+    "clause": "permitted(ActionType,Target,Payload) :- has_active_override(ActionType), pending_action(_,ActionType,Target,Payload,_), !restricted_tuple(ActionType,Target,Payload), !consent_gated_tuple(ActionType,Target,Payload).",
     "file": "constitution.mg",
     "head": "permitted",
     "reason": "override path, architect's call"

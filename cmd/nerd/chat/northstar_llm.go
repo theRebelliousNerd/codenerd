@@ -33,6 +33,12 @@ func (m Model) northstarClient() (types.LLMClient, northstar.PhasePrompt) {
 }
 
 func (m Model) generateRequirementsWithLLM() tea.Cmd {
+	// Every capability and risk needs its stable ID before the model is shown
+	// them: the links it returns name those IDs. Done here, on the caller's
+	// goroutine, not inside the command that runs concurrently with the UI.
+	if m.northstarWizard != nil {
+		m.northstarWizard.ensureIDs()
+	}
 	return func() tea.Msg {
 		client, phasePrompt := m.northstarClient()
 		if client == nil || m.northstarWizard == nil {
@@ -48,10 +54,10 @@ func (m Model) generateRequirementsWithLLM() tea.Cmd {
 		}
 		out := make([]NorthstarRequirement, 0, len(reqs))
 		for _, req := range reqs {
-			if len(req.Supports) > 0 || len(req.Addresses) > 0 {
-				return requirementsGeneratedMsg{err: fmt.Errorf("automatic requirements include capability or risk links that this wizard cannot preserve")}
-			}
-			out = append(out, NorthstarRequirement{ID: req.ID, Type: req.Type, Description: req.Description, Priority: req.Priority, Source: req.Source})
+			out = append(out, NorthstarRequirement{
+				ID: req.ID, Type: req.Type, Description: req.Description, Priority: req.Priority, Source: req.Source,
+				Supports: req.Supports, Addresses: req.Addresses,
+			})
 		}
 		return requirementsGeneratedMsg{requirements: out}
 	}
@@ -105,14 +111,14 @@ func northstarRequirementsInput(w *NorthstarWizardState) northstar.WizardRequire
 	for _, p := range w.Personas {
 		state.Personas = append(state.Personas, northstar.WizardPersona{Name: p.Name, PainPoints: p.PainPoints, Needs: p.Needs})
 	}
-	for i, c := range w.Capabilities {
-		state.Capabilities = append(state.Capabilities, northstar.WizardCapability{ID: fmt.Sprintf("cap_%d", i+1), Description: c.Description, Timeline: c.Timeline, Priority: c.Priority})
+	for _, c := range w.Capabilities {
+		state.Capabilities = append(state.Capabilities, northstar.WizardCapability{ID: c.ID, Description: c.Description, Timeline: c.Timeline, Priority: c.Priority})
 	}
-	for i, r := range w.Risks {
-		state.Risks = append(state.Risks, northstar.WizardRisk{ID: fmt.Sprintf("risk_%d", i+1), Description: r.Description, Likelihood: r.Likelihood, Impact: r.Impact, Mitigation: r.Mitigation})
+	for _, r := range w.Risks {
+		state.Risks = append(state.Risks, northstar.WizardRisk{ID: r.ID, Description: r.Description, Likelihood: r.Likelihood, Impact: r.Impact, Mitigation: r.Mitigation})
 	}
 	for _, r := range w.Requirements {
-		state.ExistingRequirements = append(state.ExistingRequirements, northstar.WizardRequirement{ID: r.ID, Type: r.Type, Description: r.Description, Priority: r.Priority, Source: r.Source})
+		state.ExistingRequirements = append(state.ExistingRequirements, northstar.WizardRequirement{ID: r.ID, Type: r.Type, Description: r.Description, Priority: r.Priority, Source: r.Source, Supports: r.Supports, Addresses: r.Addresses})
 	}
 	return state
 }

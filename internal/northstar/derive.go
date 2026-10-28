@@ -461,7 +461,7 @@ func DeriveRequirements(ctx context.Context, client Completer, prompt PhasePromp
 		if err != nil {
 			return nil, err
 		}
-		reqs, perr := parseRequirements(resp, state.ExistingRequirements)
+		reqs, perr := parseRequirements(resp, state)
 		if perr == nil {
 			return reqs, nil
 		}

@@ -244,6 +244,8 @@ func (fs *FactSerializer) SerializeCompressedTurn(turn CompressedTurn) string {
 		sb.WriteString("\n")
 	}
 
+	writeControlOutcomes(&sb, turn)
+
 	return sb.String()
 }
 

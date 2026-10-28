@@ -371,16 +371,14 @@ func TestResponseProcessor_Process_RecursionDepth(t *testing.T) {
 func TestResponseProcessor_Process_DuplicateKeys(t *testing.T) {
 	rp := NewResponseProcessor()
 
-	// Standard JSON decoding in Go uses last-wins for duplicate keys
 	raw := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1}},"surface_response":"first","surface_response":"second"}`
 
 	res, err := rp.Process(raw)
 	if err != nil {
 		t.Fatalf("Process() error = %v", err)
 	}
-
-	if res.Surface != "second" {
-		t.Fatalf("Expected last-wins for duplicate keys, got %q", res.Surface)
+	if res.Admission != AdmissionAmbiguous {
+		t.Fatalf("a duplicated surface_response must be ambiguous, got admission %q surface %q", res.Admission, res.Surface)
 	}
 }
 
@@ -400,20 +398,14 @@ func TestResponseProcessor_ExtractEmbeddedJSON_CatastrophicBacktracking(t *testi
 func TestResponseProcessor_ExtractEmbeddedJSON_DecoyInjection(t *testing.T) {
 	rp := NewResponseProcessor()
 
-	// Real comes second, Decoy comes first
+	// An example envelope before the real one: two complete envelopes, so the
+	// reply is ambiguous rather than resolved by position.
 	raw := `Example: {"control_packet":{"intent_classification":{"category":"/decoy","verb":"/decoy","target":"x","constraint":"none","confidence":1}},"surface_response":"decoy"}
 Real: {"control_packet":{"intent_classification":{"category":"/real","verb":"/real","target":"x","constraint":"none","confidence":1}},"surface_response":"real"}`
 
-	env, err := rp.extractEmbeddedJSON(raw)
-	if err != nil {
-		t.Fatalf("extractEmbeddedJSON() error = %v", err)
-	}
-
-	if env.Surface != "real" {
-		t.Fatalf("Expected real surface to win, got %q", env.Surface)
-	}
-	if env.Control.IntentClassification.Category != "/real" {
-		t.Fatalf("Expected real intent to win, got %q", env.Control.IntentClassification.Category)
+	_, err := rp.extractEmbeddedJSON(raw)
+	if _, ok := isAmbiguousEnvelope(err); !ok {
+		t.Fatalf("extractEmbeddedJSON() error = %v, want an ambiguous-envelope error", err)
 	}
 }
 

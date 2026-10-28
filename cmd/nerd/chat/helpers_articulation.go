@@ -93,6 +93,12 @@ type ArticulationOutput struct {
 	ParseMethod       string
 	Warnings          []string
 	GroundingSources  []string // URLs used to ground the response (from Google Search/URL Context)
+
+	// Admission is how the reply was classified (one envelope, plain text, an
+	// unfinished envelope, or an ambiguous one). Dispositions records the
+	// controls the parser removed, by position in the list the model sent.
+	Admission    articulation.AdmissionOutcome
+	Dispositions []articulation.ControlDisposition
 }
 
 // ConversationContext holds recent conversation history for LLM context injection.
@@ -107,6 +113,11 @@ type ConversationContext struct {
 	// DebugSelfReport is the rendered new-problem set for this turn
 	// (self_debug.go); empty unless debug-self is on and something is new.
 	DebugSelfReport string
+	// Evidence is the workspace sources the host read for this turn (or the
+	// typed reason it could not). They are rendered into the answering
+	// request itself: a kernel fact is not in the prompt, so a read that only
+	// reached the kernel never reached the model.
+	Evidence []evidenceObservation
 }
 
 // articulateWithConversation performs articulation with full conversation context.
@@ -235,6 +246,13 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 	if convCtx != nil && convCtx.DebugSelfReport != "" {
 		sb.WriteString(convCtx.DebugSelfReport)
 		sb.WriteString("\n")
+	}
+
+	// Workspace evidence the host read for this turn, with its coverage.
+	if convCtx != nil {
+		if evidence := renderEvidence(convCtx.Evidence); evidence != "" {
+			sb.WriteString(evidence)
+		}
 	}
 
 	// The kernel's contribution to this prompt used to be rendered here, from a
@@ -379,6 +397,8 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 		ContextFeedback:   result.Control.ContextFeedback, // NEW: Extract context usefulness feedback
 		ParseMethod:       result.ParseMethod,
 		Warnings:          result.Warnings,
+		Admission:         result.Admission,
+		Dispositions:      result.Dispositions,
 	}
 
 	// Check for self-correction

@@ -445,17 +445,26 @@ func (m Model) handleCmdEdit(input string, parts []string) (tea.Model, tea.Cmd) 
 		})
 	} else {
 		path := parts[1]
-		content, err := readFileContent(m.workspace, path, 16000)
-		if err != nil {
+		obs := readEvidenceFile(m.workspace, path, 16000)
+		if obs.Coverage == coverageUnavailable {
 			m = m.addMessage(Message{
 				Role:    "assistant",
-				Content: fmt.Sprintf("Failed to read file for editing: %v", err),
+				Content: fmt.Sprintf("Failed to read file for editing: %s", obs.Diagnostic),
 				Time:    time.Now(),
+			})
+		} else if obs.Coverage == coverageSpan {
+			// A prefix is not the file: offering it for `/write` would
+			// overwrite the file with the prefix.
+			m = m.addMessage(Message{
+				Role: "assistant",
+				Content: fmt.Sprintf("**%s** is %d bytes; only the first %d fit here, so it is not offered for editing. Use `/read %s` with a line range, or `/append`.",
+					path, obs.SourceBytes, obs.ReturnedBytes, path),
+				Time: time.Now(),
 			})
 		} else {
 			m = m.addMessage(Message{
 				Role:    "assistant",
-				Content: fmt.Sprintf("**Editing %s:**\n\n```\n%s\n```\n\nUse `/write %s <new content>` to save changes.", path, content, path),
+				Content: fmt.Sprintf("**Editing %s:**\n\n```\n%s\n```\n\nUse `/write %s <new content>` to save changes.", path, obs.Body, path),
 				Time:    time.Now(),
 			})
 		}

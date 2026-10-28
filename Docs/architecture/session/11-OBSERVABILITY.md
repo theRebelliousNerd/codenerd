@@ -32,7 +32,7 @@ Convenience helpers:
 | Safety deny / fail closed | checkSafety | Warn/Error |
 | safe_action fallback allow | checkSafety | Warn |
 | Executive gate block | executeToolCall | Warn |
-| Piggyback control detected | processPiggybackControlPacket | Info |
+| Piggyback control detected | admitResponseControls | Info |
 | Self-correction / memory ops | same | Info/Debug |
 | Blocked mangle_updates | processMangleUpdates | Debug |
 | SubAgent start/complete/fail | Run | Info/Error |

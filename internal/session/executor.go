@@ -1177,6 +1177,13 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 		}
 		intent = observed
 	}
+	// The limit the user put on this request: from the intent perception
+	// returned, and from the turn that spawned this one. A delegated task adds
+	// to its parent's restriction and never drops it, and it is not
+	// re-perceived to find it (perception/restriction.go).
+	restriction := intent.Restriction.Merge(perception.RestrictionFromContext(ctx))
+	intent.Restriction = restriction
+	ctx = perception.WithRestriction(ctx, restriction)
 	result.Intent = intent
 
 	// What the system understood the user to mean is the first link in every
@@ -1229,6 +1236,16 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// re-derived; the facts still stand so the /check gate can see the check.
 	e.prepareTurnCatalog(ctx, result, intent.Verb)
 	ctx = withCatalogTurn(ctx, result.turnAtom())
+	// Told to the kernel before the catalog is narrowed and before any call is
+	// admitted (policy/constitution.mg, section 7D); a restriction that cannot be
+	// recorded ends the turn rather than running it unrestricted.
+	if restrictErr := e.assertTurnRestriction(result.turnAtom(), restriction); restrictErr != nil {
+		e.cleanupTurnFacts()
+		result.Error = restrictErr
+		result.Duration = time.Since(start)
+		e.closeAcceptanceEvidence(ctx, result)
+		return result, restrictErr
+	}
 
 	// 2. ORIENT: Build compilation context from intent + world state
 	compilationCtx := e.buildCompilationContext(ctx, intent)
@@ -1251,6 +1268,7 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// once, before the compile, so the atoms that teach a tool and the tool
 	// loop's catalog agree, and held for the turn.
 	turnWithheld := e.turnWithheldTools(compilationCtx.Language, input)
+	turnWithheld = append(turnWithheld, e.restrictionWithheldTools(result.turnAtom(), restriction, compilationCtx.AvailableTools)...)
 	compilationCtx.AvailableTools = withoutTools(compilationCtx.AvailableTools, turnWithheld)
 
 	// 3. JIT: Compile prompt with persona, skills, context
@@ -1285,6 +1303,10 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 		EffectiveAgentRuntimeConfig = &config.EffectiveAgentRuntimeConfig{}
 	} else {
 		EffectiveAgentRuntimeConfig = configWithoutTools(EffectiveAgentRuntimeConfig, turnWithheld)
+		// The compiled allowlist is measured too: it can name tools the
+		// compilation context did not.
+		EffectiveAgentRuntimeConfig = configWithoutTools(EffectiveAgentRuntimeConfig,
+			e.restrictionWithheldTools(result.turnAtom(), restriction, EffectiveAgentRuntimeConfig.AllowedTools))
 		logging.Session("Config compiled: %d tools allowed", len(EffectiveAgentRuntimeConfig.AllowedTools))
 	}
 
@@ -1305,7 +1327,8 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	}
 
 	// 7. Articulate response — process Piggyback control packet (best-effort)
-	result.Response = withSafetyNotices(e.processPiggybackControlPacket(llmResponse.Text), result.safetyNotices)
+	surface := e.admitResponseControls(llmResponse, result)
+	result.Response = withSafetyNotices(surface, result.safetyNotices)
 	if result.StepReport != "" {
 		result.Response = strings.TrimSpace(result.Response) + "\n\n" + result.StepReport
 	}
@@ -1825,29 +1848,27 @@ func (e *Executor) generateResponseWithPiggybackTools(ctx context.Context, clien
 		return nil, err
 	}
 
+	// Controls are applied here, once, and the response says so: its Text is
+	// the surface, which the tool loop's tail must not read as an envelope.
+	// This path used to apply the mangle_updates and drop everything else the
+	// packet carried (memory operations, self-correction, context feedback).
 	processed := articulation.ProcessLLMResponse(text)
-	if processed.Control != nil {
-		envelope := &articulation.PiggybackEnvelope{
-			Surface: processed.Surface,
-			Control: *processed.Control,
-		}
-		// Process mangle_updates (including missing_tool_for for Ouroboros)
-		e.processMangleUpdatesFromEnvelope(envelope)
-		processed.Surface = envelope.Surface
-		processed.Control = &envelope.Control
+	surface, dispositions := e.applyPiggybackControls(processed)
+	var turn *ExecutionResult
+	if loop := activeWorkingLoop(ctx); loop != nil {
+		turn = loop.result
 	}
+	carryControlNotices(turn, dispositions)
 
 	// Parse tool_requests from Piggyback envelope
 	toolCalls := e.parseToolRequestsFromControl(processed.Control)
 	logging.Session("Parsed %d tool_requests from Piggyback response", len(toolCalls))
 
-	// Extract surface response (user-facing text)
-	surfaceResponse := processed.Surface
-
 	return &types.LLMToolResponse{
-		Text:       surfaceResponse,
-		ToolCalls:  toolCalls,
-		StopReason: "end_turn",
+		Text:            surface,
+		ToolCalls:       toolCalls,
+		StopReason:      "end_turn",
+		ControlsApplied: true,
 	}, nil
 }
 
@@ -1978,17 +1999,35 @@ func (e *Executor) parseToolRequestsFromControl(control *articulation.ControlPac
 // This includes:
 // 1. Asserting allowed Mangle facts to the kernel
 // 2. Detecting missing_tool_for facts and triggering Ouroboros tool generation
-func (e *Executor) processMangleUpdatesFromEnvelope(envelope *articulation.PiggybackEnvelope) {
+//
+// It returns one disposition per update, by position in the list the model
+// sent (origins maps the envelope's updates back to it; nil means they are
+// the model's own list): refused by policy, failed at the kernel, or applied. Until the
+// dispositions existed an assertion failure was a log line and the turn went
+// on as though the kernel held the fact.
+func (e *Executor) processMangleUpdatesFromEnvelope(envelope *articulation.PiggybackEnvelope, origins []int) []articulation.ControlDisposition {
 	if envelope == nil || len(envelope.Control.MangleUpdates) == 0 {
-		return
+		return nil
 	}
+	updates := envelope.Control.MangleUpdates
 
 	if e.kernel == nil {
 		logging.SessionDebug("Skipping mangle_updates: no kernel configured")
-		return
+		out := make([]articulation.ControlDisposition, 0, len(updates))
+		for i, update := range updates {
+			index := i
+			if i < len(origins) {
+				index = origins[i]
+			}
+			out = append(out, articulation.ControlDisposition{
+				Kind: articulation.ControlMangleUpdate, Index: index, Stage: articulation.StageUnsupported,
+				Detail: update, Reason: "no kernel is configured on this path",
+			})
+		}
+		return out
 	}
 
-	facts, blocked := core.FilterMangleUpdates(e.kernel, envelope.Control.MangleUpdates, core.ModelObservationPolicy())
+	facts, blocked := core.FilterMangleUpdates(e.kernel, updates, core.ModelObservationPolicy())
 	if len(blocked) > 0 {
 		blockedAtoms := make([]string, 0, len(blocked))
 		for _, b := range blocked {
@@ -1998,18 +2037,19 @@ func (e *Executor) processMangleUpdatesFromEnvelope(envelope *articulation.Piggy
 		articulation.ApplyConstitutionalOverride(envelope, blockedAtoms, "blocked unsafe mangle_updates")
 	}
 
-	if len(facts) == 0 {
-		return
-	}
-
-	if batcher, ok := e.kernel.(interface{ AssertBatch([]types.Fact) error }); ok {
-		if err := batcher.AssertBatch(facts); err != nil {
-			logging.Get(logging.CategorySession).Warn("Failed to assert mangle_updates batch: %v", err)
-		}
-	} else {
-		for _, fact := range facts {
-			if err := e.kernel.Assert(fact); err != nil {
-				logging.Get(logging.CategorySession).Warn("Failed to assert mangle update: %v", err)
+	var batchErr error
+	factErr := make(map[int]error)
+	if len(facts) > 0 {
+		if batcher, ok := e.kernel.(interface{ AssertBatch([]types.Fact) error }); ok {
+			if batchErr = batcher.AssertBatch(facts); batchErr != nil {
+				logging.Get(logging.CategorySession).Warn("Failed to assert mangle_updates batch: %v", batchErr)
+			}
+		} else {
+			for k, fact := range facts {
+				if err := e.kernel.Assert(fact); err != nil {
+					factErr[k] = err
+					logging.Get(logging.CategorySession).Warn("Failed to assert mangle update: %v", err)
+				}
 			}
 		}
 	}
@@ -2021,6 +2061,13 @@ func (e *Executor) processMangleUpdatesFromEnvelope(envelope *articulation.Piggy
 			logging.Session("Detected missing_tool_for: intent=%s capability=%s", intent, capability)
 		}
 	}
+
+	return articulation.MangleUpdateDispositions(updates, origins, blocked, func(admitted int) error {
+		if batchErr != nil {
+			return batchErr
+		}
+		return factErr[admitted]
+	})
 }
 
 // buildToolDefinitions converts tool names from EffectiveAgentRuntimeConfig to ToolDefinition structs.
@@ -2382,22 +2429,69 @@ func (e *Executor) persistTurn(ctx context.Context, input string, intent percept
 	}()
 }
 
-// processPiggybackControlPacket performs best-effort parsing of the LLM response
-// as a Piggyback Protocol envelope. When the LLM emits structured JSON with a
-// control_packet, this method extracts and processes:
-//   - Self-correction signals (logged + asserted to kernel)
-//   - Memory operations (logged for future Cold Storage wiring)
-//   - Mangle updates (asserted to kernel via existing processMangleUpdatesFromEnvelope)
-//   - Context feedback (logged for spreading activation tuning)
+// admitResponseControls reads a response's Piggyback envelope once, applies its
+// control effects, and returns the surface (user-facing text). The response
+// then carries the surface as its Text and is marked ControlsApplied, so
+// nothing downstream (the task tail, a later round, a forced final answer) can
+// read that display text as control input again: an answer that explains the
+// Piggyback format may contain a well-formed envelope of its own, and parsing
+// it as the model's controls would apply an example.
 //
-// Returns the surface response (user-facing text). If parsing fails, returns
-// the original raw text unchanged — this is best-effort, never fatal.
-func (e *Executor) processPiggybackControlPacket(rawText string) string {
-	// Best-effort parse — don't fail if the response isn't Piggyback-formatted
-	processed := articulation.ProcessLLMResponseAllowPlain(rawText)
+// A response that was already admitted returns its Text unchanged. A reply
+// that carried no envelope is returned as written, still marked, because
+// plain text has no controls to find. A reply that was ambiguous (a repeated
+// key, two envelopes) has no controls and its Text becomes the host's notice.
+//
+// Controls that did not take effect are carried to the user as notices on
+// result (nil result: the notices are only logged). Best-effort by design:
+// parsing never fails the turn.
+//
+//   - Self-correction signals (logged + asserted to kernel)
+//   - Memory operations (applied through the shared scoped implementation)
+//   - Mangle updates (asserted to kernel via processMangleUpdatesFromEnvelope)
+//   - Context feedback (logged for spreading activation tuning)
+func (e *Executor) admitResponseControls(resp *types.LLMToolResponse, result *ExecutionResult) string {
+	if resp == nil {
+		return ""
+	}
+	if resp.ControlsApplied {
+		return resp.Text
+	}
+	processed := articulation.ProcessLLMResponseAllowPlain(resp.Text)
+	surface, dispositions := e.applyPiggybackControls(processed)
+	carryControlNotices(result, dispositions)
+	if processed.Control != nil || processed.Admission == articulation.AdmissionAmbiguous {
+		resp.Rewrite(surface, resp.ToolCalls)
+	}
+	resp.ControlsApplied = true
+	return surface
+}
+
+// carryControlNotices puts a notice on the turn for every control that did not
+// take full effect. A kernel update refused by policy is excluded: the
+// constitutional override already put its own safety notice on the surface.
+func carryControlNotices(result *ExecutionResult, dispositions []articulation.ControlDisposition) {
+	for _, d := range dispositions {
+		if d.Took() || (d.Kind == articulation.ControlMangleUpdate && d.Stage == articulation.StageRejectedPolicy) {
+			continue
+		}
+		notice := d.Notice()
+		logging.Get(logging.CategorySession).Warn("Control did not take effect: %s", notice)
+		if result != nil {
+			result.safetyNotices = append(result.safetyNotices, notice)
+		}
+	}
+}
+
+// applyPiggybackControls applies the effects of one admitted envelope, exactly
+// once, and returns its surface with the disposition of every control the
+// parser removed, the policy refused, or a store failed. A response with no
+// control packet returns its surface and nothing else.
+func (e *Executor) applyPiggybackControls(processed *articulation.ProcessedLLMResponse) (string, []articulation.ControlDisposition) {
+	dispositions := append([]articulation.ControlDisposition(nil), processed.Dispositions...)
 	if processed.Control == nil {
 		// No control packet found — return raw surface as-is
-		return processed.Surface
+		return processed.Surface, dispositions
 	}
 
 	logging.Session("Piggyback control packet detected (method=%s, confidence=%.2f)",
@@ -2450,15 +2544,13 @@ func (e *Executor) processPiggybackControlPacket(rawText string) string {
 			kernel = e.kernel
 		}
 		store := e.memoryStore()
-		for _, op := range memOps {
-			working.ApplyMemoryOperation(kernel, store, op)
-		}
+		dispositions = append(dispositions, working.ApplyMemoryOperations(kernel, store, memOps)...)
 	}
 
 	// --- Mangle Updates ---
 	if len(envelope.Control.MangleUpdates) > 0 {
 		logging.Session("Piggyback mangle_updates: %d atoms", len(envelope.Control.MangleUpdates))
-		e.processMangleUpdatesFromEnvelope(&envelope)
+		dispositions = append(dispositions, e.processMangleUpdatesFromEnvelope(&envelope, processed.MangleOrigins)...)
 	}
 
 	// --- Context Feedback ---
@@ -2491,7 +2583,7 @@ func (e *Executor) processPiggybackControlPacket(rawText string) string {
 	// so the user was never told the model had tried to write a protected
 	// fact. The single-shot Piggyback path kept the notice; every path that
 	// promotes an envelope through here did not.
-	return envelope.Surface
+	return envelope.Surface, dispositions
 }
 
 // turnSeq numbers turn verdicts across the process, so two executors sharing a

@@ -3,6 +3,7 @@ package perception
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,18 +14,80 @@ import (
 	"codenerd/internal/logging"
 )
 
-// learnedPatternContext bounds one embedding call while a learned pattern is
-// stored. It does not derive from the consolidation worker: Stop drains the
-// queue, and a pattern the critic already accepted is still worth embedding.
-// The worker has no context of its own (it stops on its quit channel); a
-// process-cancel parent would abort that drain. The deadline is
-// embedding.request_timeout — one HTTP call, not a job clock. The Ollama
-// engine's socket timeout is still a separate literal
-// (internal/embedding/ollama.go); a request_timeout above that cannot extend
-// an Ollama embed until that client reads it.
-// Kept as a var so tests can substitute a cancelled context.
-var learnedPatternContext = func() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), config.EmbeddingRequestTimeout())
+// learnedPatternContext bounds the semantic projection of one learned pattern
+// to embedding.request_timeout, parented on the caller's operation context so
+// its cancellation reaches the backend embedding and SQL write. The
+// consolidation worker passes its own work context, not a finished turn's: an
+// accepted job outlives the turn that queued it, and a bounded Shutdown
+// cancels it. The deadline is the embedding engine's configured request bound;
+// engines that retry add attempts under it, so it clocks the operation, not a
+// single HTTP call. Kept as a var so tests can substitute a cancelled context.
+var learnedPatternContext = func(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(parent, config.EmbeddingRequestTimeout())
+}
+
+// ProjectionStatus is what happened to one stage of persisting a learned fact.
+type ProjectionStatus string
+
+const (
+	// ProjectionInstalled: the stage committed.
+	ProjectionInstalled ProjectionStatus = "installed"
+	// ProjectionFailed: the stage was attempted and did not commit.
+	ProjectionFailed ProjectionStatus = "failed"
+	// ProjectionUnavailable: the stage's backend is not configured in this
+	// runtime (no knowledge store, no semantic classifier). Not a failure.
+	ProjectionUnavailable ProjectionStatus = "unavailable"
+	// ProjectionNotAttempted: an earlier stage failed or the operation was
+	// cancelled before this stage began.
+	ProjectionNotAttempted ProjectionStatus = "not_attempted"
+)
+
+// PersistOutcome says what PersistLearnedFact actually committed. Persisting a
+// learned fact is a multi-stage operation across an engine, files and two
+// databases, not a transaction; a nil error with a failed projection is a
+// partly learned correction, and callers read it here instead of from logs.
+type PersistOutcome struct {
+	// Taxonomy: hot-load into the running Mangle engine.
+	Taxonomy ProjectionStatus
+	// File: append to .nerd/mangle/learned_taxonomy.mg, the durable record the
+	// engine reloads from. Written before the derived projections below.
+	File ProjectionStatus
+	// Knowledge: the taxonomy store's learned exemplar row.
+	Knowledge ProjectionStatus
+	// Semantic: the learned-pattern vector store consulted by recall.
+	Semantic ProjectionStatus
+
+	KnowledgeErr error
+	SemanticErr  error
+}
+
+func newPersistOutcome() PersistOutcome {
+	return PersistOutcome{
+		Taxonomy:  ProjectionNotAttempted,
+		File:      ProjectionNotAttempted,
+		Knowledge: ProjectionNotAttempted,
+		Semantic:  ProjectionNotAttempted,
+	}
+}
+
+// Complete reports that no attempted stage failed and every stage ran or has
+// no backend here. A cancelled or aborted operation is not complete.
+func (o PersistOutcome) Complete() bool {
+	for _, st := range []ProjectionStatus{o.Taxonomy, o.File, o.Knowledge, o.Semantic} {
+		if st == ProjectionFailed || st == ProjectionNotAttempted {
+			return false
+		}
+	}
+	return true
+}
+
+// Err joins the projection errors recorded in the outcome.
+func (o PersistOutcome) Err() error {
+	return errors.Join(o.KnowledgeErr, o.SemanticErr)
+}
+
+func (o PersistOutcome) String() string {
+	return fmt.Sprintf("taxonomy=%s file=%s knowledge=%s semantic=%s", o.Taxonomy, o.File, o.Knowledge, o.Semantic)
 }
 
 // CriticSystemPrompt defines the persona for the Meta-Cognitive Supervisor.
@@ -235,10 +298,22 @@ func (t *TaxonomyEngine) LearnFromInteraction(ctx context.Context, history []Rea
 	return fact, nil
 }
 
-// PersistLearnedFact writes the new rule to the learned.mg file and reloads definitions.
-func (t *TaxonomyEngine) PersistLearnedFact(fact string) error {
+// PersistLearnedFact learns one critic fact: it hot-loads the rule into the
+// running engine, appends it to learned_taxonomy.mg, then writes the derived
+// projections (knowledge-graph row, semantic vector). The returned error is
+// non-nil only when the authoritative stages (hot-load, file append) failed or
+// ctx ended first; a failed projection is reported in the PersistOutcome with
+// a nil error, because the correction is learned for Mangle matching but not
+// for semantic recall. The projections run last and take ctx, so a cancelled
+// operation cannot leave the file and the running engine disagreeing.
+func (t *TaxonomyEngine) PersistLearnedFact(ctx context.Context, fact string) (PersistOutcome, error) {
 	timer := logging.StartTimer(logging.CategoryPerception, "PersistLearnedFact")
 	defer timer.Stop()
+
+	outcome := newPersistOutcome()
+	if err := ctx.Err(); err != nil {
+		return outcome, err
+	}
 
 	logging.Perception("PersistLearnedFact: persisting fact: %s", fact)
 
@@ -251,7 +326,7 @@ func (t *TaxonomyEngine) PersistLearnedFact(fact string) error {
 		// parse (trailing clauses, wrong arity) is refused here instead of
 		// reaching the engine as unvalidated source.
 		logging.Get(logging.CategoryPerception).Warn("PersistLearnedFact: refusing unparseable fact: %v", err)
-		return fmt.Errorf("refusing to persist unparseable learned fact: %w", err)
+		return outcome, fmt.Errorf("refusing to persist unparseable learned fact: %w", err)
 	}
 	logging.PerceptionDebug("PersistLearnedFact: normalized fact: %s", normalizedFact)
 
@@ -259,68 +334,91 @@ func (t *TaxonomyEngine) PersistLearnedFact(fact string) error {
 	logging.PerceptionDebug("PersistLearnedFact: hot-loading fact into running engine")
 	if err := t.engine.LoadSchemaString(normalizedFact); err != nil {
 		logging.Get(logging.CategoryPerception).Error("PersistLearnedFact: failed to hot-load fact: %v", err)
-		return fmt.Errorf("failed to hot-load fact: %w", err)
+		outcome.Taxonomy = ProjectionFailed
+		return outcome, fmt.Errorf("failed to hot-load fact: %w", err)
 	}
+	outcome.Taxonomy = ProjectionInstalled
 	logging.PerceptionDebug("PersistLearnedFact: hot-load successful")
 
-	// 2. Parse and Persist to DB (Knowledge Graph)
-	// We attempt this for robustness, but don't fail hard if it fails (the file is the source of truth for Mangle)
-	pat, v, tgt, cons, conf, parseErr := ParseLearnedFact(fact) // Parse original to get float
-	if parseErr != nil {
-		logging.Get(logging.CategoryPerception).Warn("PersistLearnedFact: failed to parse fact: %v", parseErr)
-	}
-
-	if t.store != nil && parseErr == nil {
-		logging.PerceptionDebug("PersistLearnedFact: persisting to knowledge graph DB")
-		if err := t.store.StoreLearnedExemplar(pat, v, tgt, cons, conf); err != nil {
-			logging.Get(logging.CategoryPerception).Warn("PersistLearnedFact: failed to persist to DB: %v", err)
-		} else {
-			logging.PerceptionDebug("PersistLearnedFact: DB persistence successful")
-		}
-	} else if t.store == nil {
-		logging.PerceptionDebug("PersistLearnedFact: no store configured, skipping DB persistence")
-	}
-
-	// 2b. Add to SemanticClassifier for vector-based matching
-	// This enables the learned pattern to be found via semantic similarity search,
-	// not just exact string matching in Mangle rules.
-	if SharedSemanticClassifier != nil && parseErr == nil {
-		logging.PerceptionDebug("PersistLearnedFact: adding pattern to SemanticClassifier")
-		ctx, cancel := learnedPatternContext()
-		defer cancel()
-		if err := SharedSemanticClassifier.AddLearnedPattern(ctx, pat, v, tgt, cons, conf); err != nil {
-			// Non-fatal: Mangle-based matching still works
-			logging.Get(logging.CategoryPerception).Warn("PersistLearnedFact: failed to add to SemanticClassifier: %v", err)
-		} else {
-			logging.PerceptionDebug("PersistLearnedFact: SemanticClassifier pattern added successfully")
-		}
-	}
-
-	// 3. Append to persistent storage (Long-term Memory)
-	// We separate "Schema" (learning.mg) from taxonomy data (learned_taxonomy.mg)
-	// Write to user's workspace using explicit workspace root if set
+	// 2. Append to persistent storage (Long-term Memory), the record the
+	// projections below are derived from. "Schema" (learning.mg) is separate
+	// from taxonomy data (learned_taxonomy.mg); the user's workspace root is
+	// used when set.
 	targetDir := t.nerdPath("mangle")
 	logging.PerceptionDebug("PersistLearnedFact: ensuring mangle directory exists: %s", targetDir)
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		logging.Get(logging.CategoryPerception).Error("PersistLearnedFact: failed to create directory %s: %v", targetDir, err)
-		return fmt.Errorf("failed to create learning directory: %w", err)
+		outcome.File = ProjectionFailed
+		return outcome, fmt.Errorf("failed to create learning directory: %w", err)
 	}
 	path := filepath.Join(targetDir, "learned_taxonomy.mg")
 
 	logging.PerceptionDebug("PersistLearnedFact: writing to file: %s", path)
+	if err := appendLearnedFactFile(path, normalizedFact); err != nil {
+		outcome.File = ProjectionFailed
+		return outcome, err
+	}
+	outcome.File = ProjectionInstalled
+	logging.Perception("PersistLearnedFact: successfully persisted to %s", path)
+
+	// 3. Parse the original (float confidence) for the derived projections.
+	pat, v, tgt, cons, conf, parseErr := ParseLearnedFact(fact)
+	if parseErr != nil {
+		logging.Get(logging.CategoryPerception).Warn("PersistLearnedFact: failed to parse fact for projections: %v", parseErr)
+		outcome.Knowledge, outcome.Semantic = ProjectionFailed, ProjectionFailed
+		outcome.KnowledgeErr, outcome.SemanticErr = parseErr, parseErr
+		return outcome, nil
+	}
+
+	// 3a. Knowledge graph row.
+	switch {
+	case t.store == nil:
+		outcome.Knowledge = ProjectionUnavailable
+		logging.PerceptionDebug("PersistLearnedFact: no store configured, skipping DB persistence")
+	default:
+		if err := t.store.StoreLearnedExemplar(pat, v, tgt, cons, conf); err != nil {
+			logging.Get(logging.CategoryPerception).Warn("PersistLearnedFact: failed to persist to DB: %v", err)
+			outcome.Knowledge, outcome.KnowledgeErr = ProjectionFailed, err
+		} else {
+			outcome.Knowledge = ProjectionInstalled
+		}
+	}
+
+	// 3b. SemanticClassifier, so the pattern is found by similarity search and
+	// not only by exact matching in Mangle rules.
+	if SharedSemanticClassifier == nil {
+		outcome.Semantic = ProjectionUnavailable
+		return outcome, nil
+	}
+	opCtx, cancel := learnedPatternContext(ctx)
+	defer cancel()
+	if err := SharedSemanticClassifier.AddLearnedPattern(opCtx, pat, v, tgt, cons, conf); err != nil {
+		logging.Get(logging.CategoryPerception).Warn("PersistLearnedFact: failed to add to SemanticClassifier: %v", err)
+		outcome.Semantic, outcome.SemanticErr = ProjectionFailed, err
+	} else {
+		outcome.Semantic = ProjectionInstalled
+		logging.PerceptionDebug("PersistLearnedFact: SemanticClassifier pattern added successfully")
+	}
+	return outcome, nil
+}
+
+// appendLearnedFactFile appends one normalized fact to the learned taxonomy
+// file and surfaces the close error, which is where a buffered write fails.
+func appendLearnedFactFile(path, fact string) (err error) {
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		logging.Get(logging.CategoryPerception).Error("PersistLearnedFact: failed to open file %s: %v", path, err)
 		return fmt.Errorf("failed to open learning schema: %w", err)
 	}
-	defer f.Close()
-
-	if _, err := f.WriteString("\n" + normalizedFact); err != nil {
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("failed to close learning schema: %w", closeErr)
+		}
+	}()
+	if _, err := f.WriteString("\n" + fact); err != nil {
 		logging.Get(logging.CategoryPerception).Error("PersistLearnedFact: failed to write to file: %v", err)
 		return fmt.Errorf("failed to write fact: %w", err)
 	}
-
-	logging.Perception("PersistLearnedFact: successfully persisted to %s", path)
 	return nil
 }
 

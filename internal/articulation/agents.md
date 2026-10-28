@@ -18,3 +18,9 @@
   malformed text without the full typed validation path.
 - Run package tests, focused `-race`, and relevant session/chat consumer gates;
   reconcile `Docs/architecture/articulation/` after contract or wiring changes.
+- One reply, one reading: a member name is unique after decoding and case folding
+  (`admission.go`), one complete envelope is selected or the reply is ambiguous and
+  yields no control. The stream parser and `Process` share that key rule.
+- Display text is never control input. A host that applied a response's controls
+  marks it (`LLMToolResponse.ControlsApplied`); never parse a surface again. Every
+  applied control returns a `ControlDisposition`; do not drop one into a log line.

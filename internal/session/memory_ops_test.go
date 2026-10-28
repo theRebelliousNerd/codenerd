@@ -43,7 +43,7 @@ func TestPiggybackMemoryOperationsLandInKernelAndStore(t *testing.T) {
 		`{"op":"promote_to_long_term","key":"user_preference/indent","value":"tabs"},` +
 		`{"op":"store_vector","key":"snippet/retry","value":"backoff doubles each attempt"}` +
 		`]},"surface_response":"noted"}`
-	if got := executor.processPiggybackControlPacket(envelope); got != "noted" {
+	if got := executor.admitResponseControls(&types.LLMToolResponse{Text: envelope}, nil); got != "noted" {
 		t.Fatalf("surface = %q", got)
 	}
 

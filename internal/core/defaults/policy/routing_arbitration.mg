@@ -17,6 +17,7 @@
 #   intent_signal(/has_surface_response)   — perception already wrote a reply
 #   intent_signal(/scope_is_file)          — the turn names a concrete file
 #   intent_signal(/suggests_tools)         — perception named tools it needs
+#   intent_signal(/hypothetical)           — the request is a what-if
 #   delegation_candidate(/current_intent, Shard, Conf)
 #   multi_step_signal(Signal)
 #   multi_step_plan_step(Index, Shard)     — the decomposition /multi_step
@@ -31,9 +32,11 @@
 #   route_decision(/clarify, /none)           — ask before acting
 #   route_decision(/multi_step, /none)        — decompose into steps
 #   route_decision(/delegate, Shard)          — hand to a shard
+#   route_decision(/gather_evidence, /none)   — read the workspace evidence the
+#                                               turn needs, no shard to take it
 #
 # Lane precedence, derived here so that one lane at most holds:
-#   perception_answer > dream > assault > respond_directly > multi_step > clarify > delegate
+#   perception_answer > dream > assault > respond_directly > multi_step > clarify > delegate > gather_evidence
 # The three early lanes exclude everything after them (!early_lane());
 # respond_directly excludes the rest (!wants_direct_answer()); multi_step
 # excludes clarify and delegate (!multi_step_lane()); clarify excludes delegate
@@ -165,6 +168,18 @@ dream_lane() :-
     user_intent(/current_intent, _, /dream, _, _),
     !perception_answer_lane().
 
+# A what-if perception recognised (its is_hypothetical signal, carried as the
+# turn's restriction) takes the same lane whatever verb it was classified
+# under: "what would happen if we modified retryLoop?" is a /fix by action and
+# a hypothetical by meaning, and meaning governs. Until 2026-10-28 only a
+# /dream verb reached this lane, and the recognised hypothetical was dropped
+# in the conversion to an intent. A turn held for a go-ahead is not a what-if.
+dream_lane() :-
+    intent_signal(/hypothetical),
+    user_intent(/current_intent, _, _, _, _),
+    !perception_answer_lane(),
+    !approve_lane().
+
 # An adversarial assault on the workspace -- a soak, stress or torture test
 # campaign -- is a campaign of its own (/campaign assault): a long run with its
 # own artifacts, not one shard's task and not prose, whether or not it is
@@ -270,6 +285,29 @@ work_awaiting_go() :- multi_step_lane(), !work_admitted().
 
 route_decision(/hold, /none) :-
     work_awaiting_go().
+
+# Evidence needs a disposition. A read-only turn that needs the workspace
+# (needs_workspace_evidence: it names a file, or perception named tools) is
+# vetoed from the direct-answer lane, but nothing guaranteed another lane took
+# it: with no shard candidate, or one below the confidence gate, no lane
+# derived and articulation answered tool-less, as if it had looked. This lane
+# is that guarantee. The host reads the file the turn names, under the same
+# workspace containment and no new authority, or reports that none is named,
+# and articulation is handed that evidence or that absence. It derives only
+# when nothing else does: a delegation, a clarification and the early lanes
+# keep the turn.
+delegate_lane_derived() :- delegate_lane_ready(_).
+
+evidence_lane() :-
+    needs_workspace_evidence(),
+    user_intent(/current_intent, /query, _, _, _),
+    !wants_direct_answer(),
+    !early_lane(),
+    !clarify_lane(),
+    !delegate_lane_derived().
+
+route_decision(/gather_evidence, /none) :-
+    evidence_lane().
 
 # Read-only delegated work runs in the background: the chat answers at once
 # and stays open while a reviewer or researcher reads, and the result comes

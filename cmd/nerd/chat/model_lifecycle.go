@@ -77,6 +77,16 @@ func (m *Model) Shutdown() {
 			m.mangleWatcher.Stop()
 		}
 
+		// The taxonomy consolidation worker persists through the classifier,
+		// embedding engine and LocalStore that Cortex.Close releases, so it is
+		// joined first (bug #17: it also leaks past chat shutdown otherwise).
+		// SharedTaxonomy is a package singleton started in init(); the call
+		// closes admission, so a late turn's history is rejected_closed, and
+		// is idempotent for the other callers (perception close, tests).
+		if err := perception.ShutdownSharedTaxonomy(); err != nil {
+			fmt.Printf("[Shutdown] Warning: learning worker: %v\n", err)
+		}
+
 		// The Cortex owns the usage tracker (its Close flushes .nerd/usage.json),
 		// the shard manager, the ToolStore, the Ouroboros listener, the
 		// browser manager and the local DB; one Close covers all of them.
@@ -89,13 +99,6 @@ func (m *Model) Shutdown() {
 		} else if m.shardMgr != nil {
 			m.shardMgr.StopAll()
 		}
-
-		// Bug #17: stop the shared taxonomy consolidation worker.
-		// SharedTaxonomy is a package-level singleton started in init();
-		// without this call the worker goroutine leaks past chat shutdown.
-		// StopWorker is nil-guarded and idempotent (sync.Once), so multiple
-		// callers (e.g. chat + tests) can invoke it safely.
-		perception.ShutdownSharedTaxonomy()
 	})
 }
 

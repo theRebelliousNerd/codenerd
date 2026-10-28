@@ -867,7 +867,7 @@ func (e *Executor) runPlannedSteps(
 			// The closing word is the envelope's surface text, not its first
 			// brace: a model that answers in the Piggyback envelope closes
 			// with a JSON object.
-			if text := strings.TrimSpace(e.processPiggybackControlPacket(resp.Text)); text != "" {
+			if text := strings.TrimSpace(e.admitResponseControls(resp, result)); text != "" {
 				step.Note = text
 			}
 			last = resp

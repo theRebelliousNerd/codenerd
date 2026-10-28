@@ -260,6 +260,16 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// else the join splits and no approval could ever admit a
 				// call -- or, worse, a stale one could outlive its tuple.
 				"human_approval_granted",
+				// The turn's restriction (constitution.mg section 7D): the
+				// executor asserts these beside the pending_action they bind,
+				// and restricted_tuple / consent_gated_tuple join them with
+				// it, so they live where pending_action does or the
+				// restriction never bars anything on the production kernel.
+				"turn_restriction",
+				"restriction_tool_effect",
+				"pending_action_turn",
+				"pending_action_effect",
+				"consent_given",
 				"blocked",
 				"constitution",
 				"commit_barrier",

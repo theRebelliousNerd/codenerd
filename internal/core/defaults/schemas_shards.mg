@@ -42,7 +42,7 @@ Decl should_delegate(ShardType) bound [/name].
 # route_decision(Route, ShardType) - derived: the single routing outcome for
 # the current turn. Route: /perception_answer, /dream, /assault,
 # /respond_directly, /clarify, /multi_step, /delegate, /hold,
-# /approve_pending.
+# /approve_pending, /gather_evidence.
 # ShardType carries the target shard for /delegate and is /none otherwise.
 Decl route_decision(Route, ShardType) bound [/name, /name].
 
@@ -201,6 +201,13 @@ Decl work_proposal_pending() bound [].
 Decl work_hold_requested() bound [].
 Decl work_admitted() bound [].
 Decl delegate_lane_ready(ShardType) bound [/name].
+
+# delegate_lane_derived() - derived: some shard would take the turn
+# (delegate_lane_ready for any shard); the nullary form lets a rule negate it.
+Decl delegate_lane_derived() bound [].
+# evidence_lane() - derived: a read-only turn that needs the workspace and
+# has no shard, clarification or early lane: the host reads what it names.
+Decl evidence_lane() bound [].
 Decl work_awaiting_go() bound [].
 Decl approve_lane() bound [].
 Decl needs_clarification() bound [].

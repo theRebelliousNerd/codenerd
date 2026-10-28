@@ -309,7 +309,7 @@ See §5.
 
 #### Phase H — Articulate / post-process
 
-1. `processPiggybackControlPacket` extracts surface text + control side-effects  
+1. `admitResponseControls` extracts surface text + control side-effects  
 2. History append user + assistant (incl. thought summary/signature if present)  
 3. Cap history at 50 turns  
 4. `perception.SharedTaxonomy.QueueForLearning` if available  
@@ -726,7 +726,7 @@ When editing session:
 | 8 | No-tool nudge | optional | Best-effort single retry |
 | 9 | Safety per tool | `checkSafety` | Block tool |
 | 10 | Executive gate | type assert | Skip if absent |
-| 11 | Piggyback post | `processPiggybackControlPacket` | Raw text fallback |
+| 11 | Piggyback post | `admitResponseControls` | Raw text fallback |
 | 12 | History / learn / persist | append / Queue / go Store | Best-effort |
 
 This is the authoritative living spec for `internal/session` as of **2026-07-13**.

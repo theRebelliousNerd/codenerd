@@ -103,16 +103,10 @@ func (m Model) processInput(input string) tea.Cmd {
 		// below; zero new problems injects and announces nothing.
 		selfProblems := pendingSelfProblemsForTurn(m)
 
-		// Baseline counts for system action facts so we can surface new ones.
-		baseRoutingCount, baseExecCount := 0, 0
-		if m.kernel != nil {
-			if facts, err := m.kernel.Query("routing_result"); err == nil {
-				baseRoutingCount = len(facts)
-			}
-			if facts, err := m.kernel.Query("execution_result"); err == nil {
-				baseExecCount = len(facts)
-			}
-		}
+		// Rows standing when the turn began, by identity (turn_results.go). It
+		// is taken again below, after the stale-fact clear, so the clear
+		// cannot make this turn's own first result look old.
+		resultBase := m.snapshotSystemResults()
 
 		// NOTE: the pre-perception follow-up substring detector that used to
 		// live here was removed deliberately. It hijacked any input containing
@@ -161,6 +155,11 @@ func (m Model) processInput(input string) tea.Cmd {
 				Content: msg.Content,
 			})
 		}
+
+		// Last turn's routing facts leave before perception publishes this
+		// turn's (clearStaleRoutingFacts); the stale-fact clear after
+		// perception must not be the one that removes them.
+		m.clearStaleRoutingFacts()
 
 		intentHandledBySystem := false
 		var intent perception.Intent
@@ -212,6 +211,11 @@ func (m Model) processInput(input string) tea.Cmd {
 			m.recordBrief(intent.Brief)
 		}
 		m.recordTurnJudgments(ctx, judged)
+		// The limit the user put on this request (read-only, dry run, what-if,
+		// confirm first) rides the turn's context, so every delegation,
+		// preset task and subagent this turn starts runs under it and none can
+		// drop it (perception/restriction.go; policy/constitution.mg, section 7D).
+		ctx = perception.WithRestriction(ctx, intent.Restriction)
 		for _, job := range m.stopRequestedBackground() {
 			warnings = append(warnings, fmt.Sprintf("Stopping background %s: %s", job.Shard, oneLine(job.Task)))
 		}
@@ -246,6 +250,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		// Seed the shared kernel immediately so system shards can begin deriving actions.
 		if m.kernel != nil {
 			m.clearStaleKernelFacts()
+			resultBase = m.snapshotSystemResults()
 			// Only assert user_intent ourselves if the PerceptionFirewall shard didn't already do it.
 			if !intentHandledBySystem {
 				// Use a stable ID so the kernel doesn't accumulate historical intents.
@@ -330,7 +335,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		if route.Kind == RoutePerceptionAnswer {
 			logging.Routing("[processInput] PERCEPTION ANSWER: verb=%s | responseLen=%d | OODA total=%dms",
 				intent.Verb, len(intent.Response), time.Since(oodaStart).Milliseconds())
-			return responseMsg(m.appendSystemSummary(intent.Response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
+			return responseMsg(m.appendSystemSummary(intent.Response, m.collectSystemSummary(ctx, resultBase)))
 		}
 
 		if m.kernel != nil {
@@ -400,7 +405,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			if res, err := m.runClarifierShard(ctx, input); err == nil && res != "" {
 				surface := m.appendSystemSummary(
 					res+"\n\nReply with answers, then use `/launchcampaign <goal>` when you are ready to start.",
-					m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount),
+					m.collectSystemSummary(ctx, resultBase),
 				)
 				return assistantMsg{
 					Surface: surface,
@@ -518,13 +523,13 @@ func (m Model) processInput(input string) tea.Cmd {
 			if intent.Category == "/mutation" && !route.Verify {
 				return assistantMsg{Surface: m.appendSystemSummary(
 					formatUnverifiedDelegationResponse(intent, shardType, "the kernel did not derive the required verification obligation", false),
-					m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount),
+					m.collectSystemSummary(ctx, resultBase),
 				)}
 			}
 			if route.Verify && m.verifier == nil {
 				return assistantMsg{Surface: m.appendSystemSummary(
 					formatUnverifiedDelegationResponse(intent, shardType, "no task verifier is configured for this session", false),
-					m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount),
+					m.collectSystemSummary(ctx, resultBase),
 				)}
 			}
 
@@ -563,7 +568,7 @@ func (m Model) processInput(input string) tea.Cmd {
 					if errors.Is(verifyErr, verification.ErrMaxRetriesExceeded) {
 						response := formatVerificationEscalation(task, shardType, verdict)
 						return assistantMsg{
-							Surface:     m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)),
+							Surface:     m.appendSystemSummary(response, m.collectSystemSummary(ctx, resultBase)),
 							ShardResult: srPayload,
 						}
 					}
@@ -572,7 +577,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				if verdict == nil || !verdict.Accepted {
 					response := formatUnverifiedDelegationResponse(intent, shardType, "the verifier returned no successful verdict", true)
 					return assistantMsg{
-						Surface:     m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)),
+						Surface:     m.appendSystemSummary(response, m.collectSystemSummary(ctx, resultBase)),
 						ShardResult: srPayload,
 					}
 				}
@@ -580,7 +585,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				// Format response with verification confidence
 				response := formatVerifiedResponse(intent, shardType, task, result, verdict)
 				return assistantMsg{
-					Surface:     m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)),
+					Surface:     m.appendSystemSummary(response, m.collectSystemSummary(ctx, resultBase)),
 					ShardResult: srPayload,
 				}
 			}
@@ -673,7 +678,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				}
 
 				response := m.formatInterpretedResult(ctx, input, shardType, task, result, validationWarning)
-				surface := m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount))
+				surface := m.appendSystemSummary(response, m.collectSystemSummary(ctx, resultBase))
 
 				// CONTINUATION PROTOCOL: Check for pending subtasks before returning
 				if cont := m.checkContinuation(shardType, task, ret); cont != nil {
@@ -693,7 +698,7 @@ func (m Model) processInput(input string) tea.Cmd {
 
 			// Format a rich response combining LLM surface response and shard result
 			response := formatDelegatedResponse(intent, shardType, task, result)
-			surface := m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount))
+			surface := m.appendSystemSummary(response, m.collectSystemSummary(ctx, resultBase))
 
 			// CONTINUATION PROTOCOL: Check for pending subtasks before returning
 			if cont := m.checkContinuation(shardType, task, ret); cont != nil {
@@ -718,10 +723,10 @@ func (m Model) processInput(input string) tea.Cmd {
 			if err != nil {
 				return responseMsg(m.appendSystemSummary(
 					fmt.Sprintf("Stats error: %v", err),
-					m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount),
+					m.collectSystemSummary(ctx, resultBase),
 				))
 			}
-			return responseMsg(m.appendSystemSummary(statsResp, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
+			return responseMsg(m.appendSystemSummary(statsResp, m.collectSystemSummary(ctx, resultBase)))
 		}
 
 		// 1.8 AUTOPOIESIS CHECK: Analyze for complexity, persistence, and tool needs
@@ -744,7 +749,7 @@ func (m Model) processInput(input string) tea.Cmd {
 						// Return immediately with clarifying questions; user can answer then start campaign
 						return responseMsg(m.appendSystemSummary(
 							clarifierMsg+"\n\nReply with answers, then run `/campaign start <goal>` to kick off the plan.",
-							m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount),
+							m.collectSystemSummary(ctx, resultBase),
 						))
 					} else if err != nil {
 						warnings = append(warnings, fmt.Sprintf("Clarifier shard unavailable: %v", err))
@@ -833,7 +838,14 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 		}
 
-		executionResults, mangleUpdates := m.executeInfoGatheringActions(ctx, input, intent, actions, &warnings)
+		executionResults, mangleUpdates, evidence := m.executeInfoGatheringActions(ctx, input, intent, actions, &warnings)
+		// The kernel derived that this turn needs the workspace and no shard
+		// can take it (route_decision(/gather_evidence)): read what it names
+		// here, so the answer is written from evidence or from an honest
+		// "none was obtained", never from prose as though the file were seen.
+		if route.Kind == RouteGatherEvidence {
+			evidence = append(evidence, gatherWorkspaceEvidence(m.workspace, intent, evidence)...)
+		}
 		// Feed execution results back into kernel for re-evaluation
 		if len(executionResults) > 0 {
 			if m.kernel != nil {
@@ -847,9 +859,11 @@ func (m Model) processInput(input string) tea.Cmd {
 		// (wants_direct_answer guard in delegation.mg) and the handler's
 		// result-poll would add up to 1.2s of dead wait before articulation.
 		if !answerDirectly {
-			if msg := m.handleSystemDelegations(ctx, input, intent, baseRoutingCount, baseExecCount); msg != nil {
+			msg, blockers := m.handleSystemDelegations(ctx, input, intent, resultBase)
+			if msg != nil {
 				return msg
 			}
+			warnings = append(warnings, blockers...)
 		}
 
 		// 5. ARTICULATION (Response Generation)
@@ -886,6 +900,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			TurnNumber:      m.turnCount,
 			ShardHistory:    m.shardResultHistory, // Blackboard: all recent shard results
 			CompressedCtx:   compressedCtx,        // Infinite context: compressed session (empty if not active)
+			Evidence:        evidence,
 		}
 		if !selfProblems.Empty() {
 			convCtx.DebugSelfReport = selfProblems.Render()
@@ -968,8 +983,8 @@ func (m Model) processInput(input string) tea.Cmd {
 			// Apply articulation effects before knowledge consultation. The
 			// compressor records the sanitized metadata through its
 			// already-applied-controls path and does not repeat any effect.
-			controlWarnings, recordedUpdates := m.applyArticulationControlPacket(artOutput)
-			warnings = append(warnings, controlWarnings...)
+			applied := m.applyArticulationControlPacket(artOutput)
+			warnings = append(warnings, applied.Warnings...)
 			if !selfProblems.Empty() {
 				// One visible line via the system-warnings path. Appended
 				// here, not before articulation, so it is not also fed to
@@ -983,21 +998,14 @@ func (m Model) processInput(input string) tea.Cmd {
 			// Only the sanitized controls are retained; the compressor skips
 			// their effects because the governed chat path applied them above.
 			if m.compressor != nil {
-				controlPacket := &articulation.ControlPacket{
-					IntentClassification: articulation.IntentClassification{
-						Category: intent.Category,
-						Verb:     intent.Verb,
-						Target:   intent.Target,
-					},
-					MemoryOperations: append([]articulation.MemoryOperation(nil), artOutput.MemoryOperations...),
-					MangleUpdates:    recordedUpdates,
-				}
+				controlPacket := compressionControlPacket(intent, applied)
 				turn := ctxcompress.Turn{
 					Number:          m.turnCount,
 					Role:            "assistant",
 					UserInput:       input,
 					SurfaceResponse: response,
 					ControlPacket:   controlPacket,
+					ControlOutcomes: applied.NotApplied,
 					Timestamp:       time.Now(),
 				}
 				go m.compressor.ProcessTurnWithAppliedControls(dialogueCompressionContext(m.shutdownCtx), turn)
@@ -1023,7 +1031,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			// If we had a recent payload we could attach it, but typically articulation doesn't return one directly here.
 
 			resultChan <- assistantMsg{
-				Surface:           m.appendSystemSummary(response, m.collectSystemSummary(streamCtx, baseRoutingCount, baseExecCount)),
+				Surface:           m.appendSystemSummary(response, m.collectSystemSummary(streamCtx, resultBase)),
 				ShardResult:       srPayload,
 				DreamHypothetical: m.lastDreamHypothetical,
 				ThoughtSummary:    thoughtSummary,
@@ -1045,9 +1053,9 @@ func (m Model) processInput(input string) tea.Cmd {
 // operations use the shared scoped implementation; self-correction has its
 // own structured field. The compressor records the turn separately and never
 // receives these effects.
-func (m Model) applyArticulationControlPacket(output *ArticulationOutput) ([]string, []string) {
+func (m Model) applyArticulationControlPacket(output *ArticulationOutput) appliedControls {
 	if output == nil {
-		return nil, nil
+		return appliedControls{}
 	}
 
 	var warnings []string
@@ -1206,11 +1214,17 @@ func (m Model) applyArticulationControlPacket(output *ArticulationOutput) ([]str
 		}
 	}
 
-	for _, op := range output.MemoryOperations {
-		ctxcompress.ApplyMemoryOperation(m.kernel, m.localDB, op)
-	}
+	// Memory operations: each one's outcome decides what is told to the user
+	// and what history keeps. The packet's list is not a record of what was
+	// remembered.
+	memory := m.applyMemoryOperations(output.MemoryOperations)
 
-	return warnings, recordedUpdates
+	return appliedControls{
+		Warnings:        append(warnings, memory.warnings...),
+		RecordedUpdates: recordedUpdates,
+		RecordedMemory:  memory.applied,
+		NotApplied:      append(append([]articulation.ControlDisposition(nil), output.Dispositions...), memory.notApplied...),
+	}
 }
 
 func formatUnverifiedDelegationResponse(intent perception.Intent, shardType, reason string, attempted bool) string {

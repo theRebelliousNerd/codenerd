@@ -524,6 +524,7 @@ func (t *UnderstandingTransducer) understandingToIntent(u *Understanding) Intent
 		ScopeFile:   u.Scope.File,
 		ToolsNeeded: u.SuggestedApproach.ToolsNeeded,
 		Brief:       u.Brief,
+		Restriction: RestrictionFrom(u),
 
 		// Preserve Understanding in Ambiguity for debugging
 		Ambiguity: ambiguityInfo,
@@ -856,6 +857,16 @@ Look for phrases like:
 - "don't change the API" → preserve interfaces
 - "just explain, don't fix" → read-only
 - "without external dependencies" → no new deps
+
+Four limits are enforced by the harness, not left to prose. When the user sets
+one, put its exact token in user_constraints, beside any other constraint:
+- no_changes: change nothing ("don't touch anything", "no actual changes")
+- read_only: only read and report ("just look", "just explain, don't fix")
+- dry_run: simulate, change nothing ("simulation only", "dry run")
+- confirm_first: ask the user before acting ("check with me first",
+  "show me before you apply it"); also set requires_confirmation
+A "what if" request sets is_hypothetical. Never use a token the user did not
+ask for: a restricted request cannot do its work.
 
 ### 7. Implicit Assumptions
 

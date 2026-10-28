@@ -52,6 +52,10 @@ const (
 	// RouteApprovePending is the user's go-ahead on the pending proposal:
 	// that proposal's work runs now, with its own saved intent.
 	RouteApprovePending
+	// RouteGatherEvidence is a read-only turn that needs the workspace and has
+	// no shard to take it: the host reads the file it names (or reports that it
+	// names none) and articulation answers from that evidence, not from prose.
+	RouteGatherEvidence
 )
 
 // String renders the lane for logs and Glass Box events.
@@ -75,6 +79,8 @@ func (k RouteKind) String() string {
 		return "hold"
 	case RouteApprovePending:
 		return "approve_pending"
+	case RouteGatherEvidence:
+		return "gather_evidence"
 	default:
 		return "none"
 	}
@@ -201,6 +207,11 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 	if strings.TrimSpace(intent.Response) != "" {
 		signals = append(signals, "/has_surface_response")
 	}
+	// A what-if perception recognised, whatever verb it was classified under:
+	// the dream lane consults and acts on nothing (routing_arbitration.mg).
+	if intent.Restriction.Has(perception.RestrictHypothetical) {
+		signals = append(signals, "/hypothetical")
+	}
 	// This turn is the approved proposal itself: the user said go.
 	if m.goAheadWork != nil {
 		signals = append(signals, "/user_go_ahead")
@@ -278,6 +289,8 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 		decision = RouteDecision{Kind: RouteClarify}
 	case "/approve_pending":
 		decision = RouteDecision{Kind: RouteApprovePending}
+	case "/gather_evidence":
+		decision = RouteDecision{Kind: RouteGatherEvidence}
 	case "/hold":
 		// What the held work would be: the shard a delegation would go to,
 		// or the plan a decomposition would run.

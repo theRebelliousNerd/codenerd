@@ -87,29 +87,10 @@ func resolvePath(workspace, path string) string {
 	return filepath.Join(workspace, path)
 }
 
-func readFileContent(workspace, path string, maxBytes int) (string, error) {
-	root := workspace
-	if strings.TrimSpace(root) == "" {
-		root = "."
-	}
-	full, err := tools.ResolveWorkspacePath(context.Background(), root, path)
-	if err != nil {
-		return "", err
-	}
-	data, err := os.ReadFile(full)
-	if err != nil {
-		return "", err
-	}
-	if len(data) > maxBytes {
-		data = data[:maxBytes]
-	}
-	return string(data), nil
-}
-
 // readFileRange reads lines [startLine, endLine] (1-based, inclusive;
 // endLine <= 0 means to end of file) up to maxBytes, counting every line in
 // the file. truncated reports that the byte cap cut the requested range —
-// readFileContent's silent cap is how /read once handed the user (and the
+// a silent cap (the old readFileContent) is how /read once handed the user (and the
 // history) 16000 of a 24857-byte problems log with no sign the tail, where
 // the newest errors were, was missing.
 func readFileRange(workspace, path string, startLine, endLine, maxBytes int) (content string, first, last, totalLines int, truncated bool, err error) {

@@ -38,7 +38,7 @@ func TestPromotedPiggybackCallsReachTheTurnAppendedToHistory(t *testing.T) {
 		},
 	}
 
-	if !executor.promotePiggybackToolRequests(resp) {
+	if !executor.promotePiggybackToolRequests(resp, nil) {
 		t.Fatal("promotion did not fire, so this test proves nothing about it")
 	}
 
@@ -83,7 +83,7 @@ func TestPromotionLeavesAFlatResponseFlat(t *testing.T) {
 	resp := &types.LLMToolResponse{
 		Text: piggySingleRequest("reading y", "req-blocks-2", "read_file", map[string]any{"path": "y"}),
 	}
-	if !executor.promotePiggybackToolRequests(resp) {
+	if !executor.promotePiggybackToolRequests(resp, nil) {
 		t.Fatal("promotion did not fire")
 	}
 	if resp.Blocks != nil {

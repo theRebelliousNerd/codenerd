@@ -17,7 +17,7 @@ func runChatFileRead(t *testing.T, root, target string) ([]core.Fact, []string) 
 	t.Helper()
 	m := NewTestModel(WithWorkspace(root))
 	warnings := []string{}
-	results, _ := m.executeInfoGatheringActions(
+	results, _, _ := m.executeInfoGatheringActions(
 		context.Background(),
 		"read the requested file",
 		perception.Intent{Target: target},

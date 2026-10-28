@@ -103,6 +103,16 @@ content: |
   - "just explain, don't fix" → read-only
   - "without external dependencies" → no new deps
 
+  Four limits are enforced by the harness, not left to prose. When the user sets
+  one, put its exact token in `user_constraints`, beside any other constraint:
+  - `no_changes`: change nothing ("don't touch anything", "no actual changes")
+  - `read_only`: only read and report ("just look", "just explain, don't fix")
+  - `dry_run`: simulate, change nothing ("simulation only", "dry run")
+  - `confirm_first`: ask the user before acting ("check with me first",
+    "show me before you apply it"); also set `requires_confirmation`
+  A "what if" request sets `is_hypothetical`. Never use a token the user did not
+  ask for: a restricted request cannot do its work.
+
   ### 7. Implicit Assumptions
 
   What is the user assuming that they didn't say?
@@ -236,7 +246,7 @@ content: |
     "understanding": {
       "primary_intent": "analyze", "semantic_type": "hypothetical", "action_type": "investigate", "domain": "architecture",
       "scope": {"level": "module", "target": "caching layer", "file": "", "symbol": ""},
-      "user_constraints": ["simulation only", "no actual changes"], "confidence": 0.92,
+      "user_constraints": ["dry_run", "no_changes"], "confidence": 0.92,
       "signals": {"is_question": true, "is_hypothetical": true, "is_multi_step": false, "is_negated": false, "requires_confirmation": false, "urgency": "low"},
       "suggested_approach": {"mode": "dream", "primary_shard": "reviewer", "supporting_shards": [], "tools_needed": ["ast_query", "grep", "read_file"], "context_needed": ["cache_usage", "dependencies", "performance_impact"]}
     },
