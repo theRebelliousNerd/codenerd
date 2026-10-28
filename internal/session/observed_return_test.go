@@ -8,6 +8,7 @@ import (
 
 	"codenerd/internal/evidence"
 	"codenerd/internal/observation"
+	"codenerd/internal/types"
 )
 
 // TestJITExecutor_ImplementsObservedTaskExecutor pins the assertion the
@@ -175,5 +176,33 @@ func TestObservedReturn_CarriesTheClosingSnapshot(t *testing.T) {
 	stale := &ExecutionResult{Acceptance: &evidence.Report{Status: "unverified", After: "stale"}}
 	if got := observedReturn("coder", "t", stale).Snapshot; got != "" {
 		t.Fatalf("snapshot = %q, want none: an unverified report's snapshot binds nothing", got)
+	}
+}
+
+// The parent used to get WrittenPaths and nothing of the receipts behind
+// them, so a write its validation rejected crossed as an ordinary change.
+func TestObservedReturn_ProjectsToolReceipts(t *testing.T) {
+	t.Parallel()
+	res := &ExecutionResult{
+		Response:     "wrote cfg.json",
+		WrittenPaths: []string{"cfg.json"},
+		ToolReceipts: []ToolEffectReceipt{{
+			CallID: "call-1", Tool: "write_file", Seq: 2,
+			Effects:    []ResourceEffect{{Path: "cfg.json", Before: "absent", After: "sha256:ab", State: EffectChanged}},
+			Validation: types.ToolValidation{State: types.ToolValidationRejected, Reason: "invalid JSON"},
+			Recovery:   "/repair",
+		}},
+	}
+	ret := observedReturn("coder", "write config", res)
+	if len(ret.Effects) != 1 {
+		t.Fatalf("effects = %+v, want the one receipt", ret.Effects)
+	}
+	got := ret.Effects[0]
+	if got.Call != "call-1" || got.Tool != "write_file" || got.Seq != 2 || got.Validation != "rejected" ||
+		got.Recovery != "/repair" || len(got.Effects) != 1 || got.Effects[0].After != "sha256:ab" || got.Effects[0].State != "changed" {
+		t.Fatalf("receipt projected as %+v", got)
+	}
+	if text := observation.ProjectReturn(ret, observation.ReturnLimits{}).Text(""); !strings.Contains(text, "owed recovery /repair") {
+		t.Fatalf("parent projection does not show the owed recovery:\n%s", text)
 	}
 }

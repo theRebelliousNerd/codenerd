@@ -150,6 +150,13 @@ type Return struct {
 	// says which revision it describes, and never invents one.
 	Snapshot string `json:"snapshot,omitempty"`
 
+	// Workspace is the root the turn worked in: the tree Snapshot was
+	// measured over and Writes are paths in. A consumer that holds the
+	// evidence past the turn (the delegation judge) measures that tree again
+	// to say whether the evidence still describes it. Empty means the
+	// producer knew no root, and applicability cannot be measured.
+	Workspace string `json:"workspace,omitempty"`
+
 	// Untested is the production files this turn wrote with no test file
 	// alongside them. It is carried as a field rather than only as the Note
 	// built from it because a consumer deriving "this needs tests" must join
@@ -161,6 +168,11 @@ type Return struct {
 	// writes without clobbering a later writer's. It is file content, kept for
 	// the process that ran the turn, and never serialized.
 	Writes []FileWrite `json:"-"`
+
+	// Effects is every tool-effect receipt the run produced: the per-call
+	// account behind Changed. A receipt whose validation rejected or never
+	// measured its change is projected as uncertainty.
+	Effects []EffectReceipt `json:"effects,omitempty"`
 }
 
 // FileWrite is one path a turn wrote: Before is what it held before the
@@ -766,6 +778,7 @@ func structuralUncertainty(r Return) []string {
 	var out []string
 	out = append(out, verificationUncertainty("build", r.Build)...)
 	out = append(out, verificationUncertainty("tests", r.Tests)...)
+	out = append(out, unsettledEffects(r.Effects)...)
 	out = append(out, r.Notes...)
 	return out
 }

@@ -36,6 +36,7 @@ func (r Return) PartialState() string {
 	if len(r.Missing) > 0 {
 		lines = append(lines, "Not established: "+strings.Join(r.Missing, ", "))
 	}
+	lines = append(lines, unsettledEffects(r.Effects)...)
 	for _, f := range r.Findings {
 		lines = append(lines, fmt.Sprintf("Finding %s:%d %s", f.File, f.Line, f.Message))
 	}

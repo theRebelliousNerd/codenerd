@@ -203,3 +203,34 @@ Before implementation, reconcile the owning session/tools/core specs without rep
 - Effects are observed for write-mutation tools only. Shell and generated-tool effects keep their existing gates and receipts.
 
 **Deferred:** the durable replay/rendezvous ledger and duplicate-identity conflict detection (ablation C / TOOL-EFFECT-03's replay half). The doc itself rates B as possibly sufficient, and replay needs crash-coupled storage. Also deferred: attribution under concurrent writers (no exclusive-ownership CAS exists to prove authorship), and the TOOL-EFFECT-04 production-entry evaluation, which needs live models.
+
+## As-built status
+
+Re-verified 2026-10-28 on `main` (after `4be8b4a8`). The 2026-10-27 "As built" section above still holds; this closes the open receipt-projection item and records the re-check.
+
+### Claim ledger
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| §3: a post-validator rejection returned empty output and skipped write accounting | Real, fixed earlier; still fixed | `executor_tools.go:1045` calls `settleToolEffects` before any error returns; `PostconditionError` carries the output (`tool_effects.go`) |
+| §4: the bridge inspected only the first failure, and cancellation read as no opinion | Real, fixed earlier; still fixed | `SummarizeValidation` (`action_validator.go:312`), `classifyValidation` (`:283`); `FirstFailure`/`ValidateAll` no longer exist in `internal/` |
+| Receipts feed Mangle; acceptance withholds `turn_verified` on a rejected or unmeasured effect | Confirmed | `policy/tool_effects.mg`; `coder_safety.mg:730`, `:734` |
+| `SuccessfulWriteTools` defined the write set | Fixed earlier (renamed `WriteToolEffects`, widened) | `change_evidence.go:75` |
+| Open: receipts did not cross to the parent through `observation.Return` | Real, fixed | `Return.Effects` (`observation/subagent.go`), filled by `projectReceipts` (`observed_return.go`); unsettled receipts projected by `unsettledEffects` into `structuralUncertainty` and `PartialState` |
+| TOOL-EFFECT-03 replay half (durable rendezvous, duplicate-identity conflict) | Still not built | No crash-coupled receipt store exists |
+| Attribution under concurrent writers | Still open | `commitMu` now covers codedom line verbs (see `edit-observation-precondition-continuity.md`), but non-codedom writers have no ownership protocol |
+
+### What was built
+
+- Ruling on the identity/redaction/retention question the delegated-turn work left open: a parent receives every receipt with call id, tool, write-clock seq, per-path before/after content identities (`sha256:`/`absent`/unknown), validation state and reason, handler error and the policy's recovery. Identities only, never content, so the receipt is safe to serialize and retain with the return and nothing is cut.
+- `observation.EffectReceipt` / `ResourceEffect` (`internal/observation/effects.go`). A receipt with a recovery is projected as `tool effect not settled: <tool> (<call>) changed <paths>; validation <state> (<reason>); owed recovery <move>` in the parent's `unsettled` list and in `PartialState`; a measured receipt adds nothing.
+- Spec: `Docs/architecture/session/IMPLEMENTED_SPEC.md` Phase I.
+
+### Tests
+
+`internal/observation/effects_test.go` (unsettled receipt reaches the projection and the partial state, an unchanged resource is not named, a measured receipt adds no uncertainty, JSON round trip); `internal/session/observed_return_test.go` `TestObservedReturn_ProjectsToolReceipts` (executor receipt to parent text). `go test ./internal/observation ./internal/session -run ObservedReturn` pass.
+
+### Left open
+
+- Replay/rendezvous ledger and duplicate-identity detection (TOOL-EFFECT-03 replay half): needs crash-coupled storage; ablation B remains the shipped point.
+- TOOL-EFFECT-04 production-entry evaluation: needs live models; not run.

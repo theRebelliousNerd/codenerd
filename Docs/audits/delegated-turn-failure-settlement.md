@@ -230,7 +230,7 @@ Covered by a deterministic fixture: write then provider error; cancel after a co
 
 ### Left open
 
-- Receipt projection to the parent (`ToolReceipts` through `observation.Return`): not built. The changed paths, preimages and checks now cross; per-call receipts need an identity, redaction and retention decision that this work did not make.
+- ~~Receipt projection to the parent (`ToolReceipts` through `observation.Return`)~~ Closed 2026-10-28: `Return.Effects` carries every receipt with content identities only (`observed_return.go` `projectReceipts`; see the as-built status of `tool-effect-receipts-and-validation-completeness.md`).
 - ~~`shardTypeToTaskRequest` builds only `{IntentVerb, Task}`~~ Closed: `spawnTaskWithContext` takes a `session.TaskRequest`; routed work builds it with `intentTaskRequest` (Target and `taskConstraint(intent.Constraint)`), background jobs carry both, and multi-step steps pass their `Target` (`delegation_routing.go`, `background.go`, `process_dream.go`).
 - Closure has no wall-clock bound of its own and the repository has no config knob for one; the work it does after a cancel is a workspace snapshot and kernel/file writes. A bound would be a new `config.json` key.
 - Persistence is still best-effort and logged: a failed durable write is not surfaced as a distinct delivery-failed state, and nothing recovers a turn across a restart.

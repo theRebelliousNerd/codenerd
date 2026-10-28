@@ -82,6 +82,7 @@ func observedReturn(agent, task string, res *ExecutionResult) observation.Return
 	// WrittenPaths is the write set of successful mutations, which is what
 	// "changed artifacts" means when it is a fact rather than a claim.
 	out.Changed = append(out.Changed, res.WrittenPaths...)
+	out.Effects = projectReceipts(res.ToolReceipts)
 
 	if res.BuildCheck.Ran || res.BuildCheck.OK || res.BuildCheck.Output != "" || res.BuildCheck.Outcome != "" {
 		out.Build = &observation.Verification{
@@ -157,4 +158,31 @@ func firstLine(s string) string {
 		return strings.TrimSpace(s[:i])
 	}
 	return s
+}
+
+// projectReceipts carries every tool-effect receipt to the parent, with
+// content identities and no content.
+func projectReceipts(receipts []ToolEffectReceipt) []observation.EffectReceipt {
+	if len(receipts) == 0 {
+		return nil
+	}
+	out := make([]observation.EffectReceipt, 0, len(receipts))
+	for _, r := range receipts {
+		er := observation.EffectReceipt{
+			Call:         r.CallID,
+			Tool:         r.Tool,
+			Seq:          r.Seq,
+			Validation:   string(r.Validation.State),
+			Reason:       r.Validation.Reason,
+			HandlerError: r.HandlerError,
+			Recovery:     r.Recovery,
+		}
+		for _, eff := range r.Effects {
+			er.Effects = append(er.Effects, observation.ResourceEffect{
+				Path: eff.Path, Before: eff.Before, After: eff.After, State: string(eff.State),
+			})
+		}
+		out = append(out, er)
+	}
+	return out
 }
