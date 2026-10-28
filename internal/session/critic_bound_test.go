@@ -57,7 +57,7 @@ func TestVerifyAndUpliftWithCritic_AddsNoClockOfItsOwn(t *testing.T) {
 	uplift := &deadlineUplift{}
 
 	e.verifyAndUpliftWithCritic(context.Background(), uplift, "", nil, nil, nil,
-		&ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"a.go"}})
+		&ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"a.go"}})
 
 	if critic.hadDeadline {
 		t.Errorf("the review carried a deadline %v from now; a caller with none gave it none", time.Until(critic.deadline).Round(time.Second))

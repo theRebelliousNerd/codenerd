@@ -8,8 +8,8 @@ import (
 func TestTurnFactsForFinalAnswer_NamesWrittenFiles(t *testing.T) {
 	t.Run("names written files", func(t *testing.T) {
 		result := &ExecutionResult{
-			WrittenPaths:         []string{"a.go", "b.go"},
-			SuccessfulWriteTools: 2,
+			WrittenPaths:     []string{"a.go", "b.go"},
+			WriteToolEffects: 2,
 		}
 		got := turnFactsForFinalAnswer(result)
 		if !strings.Contains(got, "a.go") {

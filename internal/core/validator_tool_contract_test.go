@@ -7,6 +7,7 @@ import (
 
 	"codenerd/internal/tools"
 	coretools "codenerd/internal/tools/core"
+	"codenerd/internal/types"
 )
 
 func TestFileValidatorMatchesRealToolLineEndingContract(t *testing.T) {
@@ -28,8 +29,8 @@ func TestFileValidatorMatchesRealToolLineEndingContract(t *testing.T) {
 	}
 	registry := NewValidatorRegistry()
 	RegisterAllValidators(registry)
-	if got := registry.Validate(ctx, request, ActionResult{Success: true, Output: out}); !ValidateAll(got) {
-		t.Fatalf("production validator pipeline rejected write: %+v", got)
+	if got := registry.Validate(ctx, request, ActionResult{Success: true, Output: out}); SummarizeValidation(path, got).State != types.ToolValidationVerified {
+		t.Fatalf("production validator pipeline did not verify the write: %+v", got)
 	}
 	if err := os.WriteFile(path, []byte("package fixture\r\nconst Value = 99\r\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -74,13 +75,13 @@ func TestApplyEditsValidatesEveryResultingFile(t *testing.T) {
 	RegisterAllValidators(r)
 	v := &VirtualStore{workingDir: root, validators: r}
 	args := map[string]any{"edits": []any{map[string]any{"path": "a.txt"}, map[string]any{"path": "b.txt"}}}
-	if err := v.ValidateInteractiveToolResult(t.Context(), "batch", "apply_edits", args, "applied", true); err != nil {
-		t.Fatal(err)
+	if got := v.ValidateInteractiveToolResult(t.Context(), "batch", "apply_edits", args, "applied", true); got.State == types.ToolValidationRejected {
+		t.Fatalf("both artifacts present, yet rejected: %+v", got)
 	}
 	if err := os.Remove(filepath.Join(root, "b.txt")); err != nil {
 		t.Fatal(err)
 	}
-	if err := v.ValidateInteractiveToolResult(t.Context(), "batch", "apply_edits", args, "applied", true); err == nil {
-		t.Fatal("missing second artifact accepted")
+	if got := v.ValidateInteractiveToolResult(t.Context(), "batch", "apply_edits", args, "applied", true); got.State != types.ToolValidationRejected {
+		t.Fatalf("missing second artifact not rejected: %+v", got)
 	}
 }

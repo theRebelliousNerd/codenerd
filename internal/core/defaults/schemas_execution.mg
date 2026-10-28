@@ -129,6 +129,16 @@ Decl action_validation_failed(ActionID, ActionType, Reason, Details, Timestamp) 
 # Tracks which validation method was applied to each action.
 Decl validation_method_used(ActionID, Method) bound [/string, /name].
 
+# action_validation_skipped(ActionID, ActionType, Method, Timestamp)
+# A validator held no opinion (nothing registered for the type, or it
+# deferred). Not an affirmative reading: it used to be action_verified at 0.
+Decl action_validation_skipped(ActionID, ActionType, Method, Timestamp) bound [/string, /name, /name, /number].
+
+# action_validation_unavailable(ActionID, ActionType, Details, Timestamp)
+# A validator could not complete (canceled, timed out): nothing was measured.
+# Not a failure: it used to be action_validation_failed.
+Decl action_validation_unavailable(ActionID, ActionType, Details, Timestamp) bound [/string, /name, /string, /number].
+
 # action_pre_state(ActionID, StateHash)
 # Captures state before action execution (for rollback).
 Decl action_pre_state(ActionID, StateHash) bound [/string, /string].

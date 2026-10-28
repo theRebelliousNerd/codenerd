@@ -672,7 +672,7 @@ turn_done(Turn) :- turn_executed(Turn), turn_verified(Turn).
 # A verified caller contract still verifies: it witnesses the requested
 # behaviour itself.
 turn_verified(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), !turn_wrote(Turn), !turn_self_reported_incomplete(Turn).
-turn_verified(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), turn_wrote(Turn), !has_unmet_gate(Turn), !has_red_gate(Turn), !turn_has_untested(Turn), !turn_has_uncovered(Turn), !turn_vet_red(Turn), !turn_self_reported_incomplete(Turn), !turn_has_unwitnessed(Turn).
+turn_verified(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), turn_wrote(Turn), !has_unmet_gate(Turn), !has_red_gate(Turn), !turn_has_untested(Turn), !turn_has_uncovered(Turn), !turn_vet_red(Turn), !turn_self_reported_incomplete(Turn), !turn_has_unwitnessed(Turn), !turn_has_rejected_effect(Turn), !turn_has_unmeasured_effect(Turn).
 turn_verified(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), has_turn_acceptance(Turn).
 
 # has_turn_acceptance projects turn_acceptance/3 to a single argument, matching
@@ -721,6 +721,12 @@ turn_missing_evidence(Turn, /change_not_pinned) :- turn_unverified(Turn), turn_r
 turn_missing_evidence(Turn, /tests_removed) :- turn_unverified(Turn), turn_unmet_gate(Turn, /test_retention).
 turn_missing_evidence(Turn, /tests_removed) :- turn_unverified(Turn), turn_red_gate(Turn, /test_retention).
 turn_missing_evidence(Turn, /self_reported_incomplete) :- turn_unverified(Turn), turn_self_reported_incomplete(Turn).
+# A change this turn left on disk that its validator rejected, or that no
+# validation measured (tool_effects.mg). The gates measure the tree, but a
+# green build that never reads a JSON file does not answer the syntax
+# validator that rejected it.
+turn_missing_evidence(Turn, /effect_rejected) :- turn_unverified(Turn), turn_has_rejected_effect(Turn).
+turn_missing_evidence(Turn, /effect_unmeasured) :- turn_unverified(Turn), turn_has_unmeasured_effect(Turn).
 
 # A red build is a failed turn, not merely an unverified one. turn_executed
 # already excludes it; this names it so the outcome can say /failed instead of

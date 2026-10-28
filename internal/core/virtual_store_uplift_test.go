@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"codenerd/internal/tactile"
+	"codenerd/internal/types"
 )
 
 // nilExecutorStore builds the hazardous combination the constructor permits:
@@ -573,11 +574,8 @@ func TestValidatorAlias_CampaignWritesVerified(t *testing.T) {
 		t.Fatalf("tamper: %v", err)
 	}
 	results = r.Validate(ctx, req, res)
-	if ValidateAll(results) {
-		t.Fatalf("tampered campaign write verified: %+v", results)
-	}
-	if f := FirstFailure(results); f == nil || f.Confidence < 0.8 {
-		t.Fatalf("tamper not caught at high confidence: %+v", results)
+	if got := SummarizeValidation(path, results); got.State != types.ToolValidationRejected {
+		t.Fatalf("tamper not rejected definitively: %+v (results %+v)", got, results)
 	}
 }
 

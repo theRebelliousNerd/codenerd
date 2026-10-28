@@ -405,11 +405,11 @@ func TestVerifyAndUpliftWithCritic_SkipsWhenNotApplicable(t *testing.T) {
 		cfgOn  bool
 		result *ExecutionResult
 	}{
-		{"disabled by config", false, &ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"a.go"}}},
+		{"disabled by config", false, &ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"a.go"}}},
 		{"nil result", true, nil},
-		{"no successful writes", true, &ExecutionResult{SuccessfulWriteTools: 0, WrittenPaths: []string{"a.go"}}},
-		{"wrote no Go", true, &ExecutionResult{SuccessfulWriteTools: 2, WrittenPaths: []string{"README.md"}}},
-		{"only test files", true, &ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"a_test.go"}}},
+		{"no successful writes", true, &ExecutionResult{WriteToolEffects: 0, WrittenPaths: []string{"a.go"}}},
+		{"wrote no Go", true, &ExecutionResult{WriteToolEffects: 2, WrittenPaths: []string{"README.md"}}},
+		{"only test files", true, &ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"a_test.go"}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -530,7 +530,7 @@ func TestVerifyAndUpliftWithCritic_AbandonsAStalledReview(t *testing.T) {
 	go func() {
 		defer close(done)
 		e.verifyAndUpliftWithCritic(ctx, stubToolResults{}, "", nil, nil, nil,
-			&ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"a.go"}})
+			&ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"a.go"}})
 	}()
 
 	select {
@@ -741,7 +741,7 @@ func TestVerifyAndUpliftWithCritic_FiresUpliftOnHighSeverityFinding(t *testing.T
 	cfg.WorkspaceRoot = ws
 	e := &Executor{config: cfg, llmClient: critic, kernel: realKernel(t)}
 
-	result := &ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"a.go"}}
+	result := &ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"a.go"}}
 
 	_, err := e.verifyAndUpliftWithCritic(
 		context.Background(), trp, "sys", nil, nil, nil, result)
@@ -786,7 +786,7 @@ func TestVerifyAndUpliftWithCritic_LowSeverityDoesNotFireUplift(t *testing.T) {
 	cfg := DefaultExecutorConfig()
 	cfg.WorkspaceRoot = ws
 	e := &Executor{config: cfg, llmClient: critic, kernel: realKernel(t)}
-	result := &ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"a.go"}}
+	result := &ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"a.go"}}
 
 	if _, err := e.verifyAndUpliftWithCritic(context.Background(), trp, "sys", nil, nil, nil, result); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -814,7 +814,7 @@ func TestVerifyAndUpliftWithCritic_NoFindingsCostsNothingExtra(t *testing.T) {
 	cfg := DefaultExecutorConfig()
 	cfg.WorkspaceRoot = ws
 	e := &Executor{config: cfg, llmClient: critic, kernel: realKernel(t)}
-	result := &ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"a.go"}}
+	result := &ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"a.go"}}
 
 	errs, err := e.verifyAndUpliftWithCritic(context.Background(), trp, "sys", nil, nil, nil, result)
 	if err != nil || errs != nil {

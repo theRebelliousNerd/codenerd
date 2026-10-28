@@ -107,25 +107,21 @@ func TestActionValidator_PriorityStability(t *testing.T) {
 	// just ensure it didn't panic or drop
 }
 
-func TestActionValidator_EmptyResultsSlice(t *testing.T) {
-	var results []ValidationResult
-
-	if !ValidateAll(results) {
-		t.Error("ValidateAll should return true for empty results")
-	}
-
-	if ff := FirstFailure(results); ff != nil {
-		t.Error("FirstFailure should return nil for empty results")
-	}
-}
-
 func TestValidationResult_ToFacts_ClampsConfidence(t *testing.T) {
-	for _, c := range []float64{math.NaN(), math.Inf(1), math.Inf(-1), 1.5, -0.5} {
+	for _, c := range []float64{math.Inf(1), 1.5} {
 		vr := ValidationResult{Verified: true, Confidence: c}
 		facts := vr.ToFacts()
 		confVal := facts[0].Args[3].(int64)
 		if confVal < 0 || confVal > 100 {
 			t.Errorf("Confidence %v clamped incorrectly to %d", c, confVal)
+		}
+	}
+	// A verified reading with no positive confidence affirms nothing: it
+	// is a deferral, not a pass at 0.
+	for _, c := range []float64{math.NaN(), math.Inf(-1), -0.5} {
+		vr := ValidationResult{Verified: true, Confidence: c}
+		if facts := vr.ToFacts(); facts[0].Predicate != "action_validation_skipped" {
+			t.Errorf("Confidence %v asserted %s, want action_validation_skipped", c, facts[0].Predicate)
 		}
 	}
 }

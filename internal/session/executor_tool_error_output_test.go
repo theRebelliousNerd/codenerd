@@ -16,8 +16,11 @@ type failingValidationStore struct {
 	err error
 }
 
-func (s *failingValidationStore) ValidateInteractiveToolResult(context.Context, string, string, map[string]any, string, bool) error {
-	return s.err
+func (s *failingValidationStore) ValidateInteractiveToolResult(context.Context, string, string, map[string]any, string, bool) types.ToolValidation {
+	if s.err != nil {
+		return types.ToolValidation{State: types.ToolValidationRejected, Reason: s.err.Error()}
+	}
+	return types.ToolValidation{State: types.ToolValidationVerified}
 }
 
 func TestToolErrorOutput_FailedToolOutputReachesModel(t *testing.T) {
@@ -99,8 +102,14 @@ func TestInteractiveGateValidation_FailureSurfacesAsError(t *testing.T) {
 	if !strings.Contains(err.Error(), "post-action validation failed") {
 		t.Fatalf("expected error to contain %q, got %q", "post-action validation failed", err.Error())
 	}
-	if out != "" {
-		t.Fatalf("expected empty output, got %q", out)
+	// The handler's output travels with the rejection: a failed
+	// postcondition is not proof of no mutation.
+	if out != "wrote x.go" {
+		t.Fatalf("expected the handler's output with the rejection, got %q", out)
+	}
+	var pc *PostconditionError
+	if !errors.As(err, &pc) || pc.Validation.State != types.ToolValidationRejected {
+		t.Fatalf("expected a PostconditionError carrying the rejection, got %T %v", err, err)
 	}
 }
 

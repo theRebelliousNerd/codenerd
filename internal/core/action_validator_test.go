@@ -238,60 +238,6 @@ func TestValidatorRegistry_ContextCancellation(t *testing.T) {
 	}
 }
 
-func TestValidateAll(t *testing.T) {
-	tests := []struct {
-		name     string
-		results  []ValidationResult
-		expected bool
-	}{
-		{
-			name:     "all passed",
-			results:  []ValidationResult{{Verified: true}, {Verified: true}},
-			expected: true,
-		},
-		{
-			name:     "one failed",
-			results:  []ValidationResult{{Verified: true}, {Verified: false}},
-			expected: false,
-		},
-		{
-			name:     "empty",
-			results:  []ValidationResult{},
-			expected: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := ValidateAll(tt.results); got != tt.expected {
-				t.Errorf("ValidateAll() = %v, want %v", got, tt.expected)
-			}
-		})
-	}
-}
-
-func TestFirstFailure(t *testing.T) {
-	results := []ValidationResult{
-		{Verified: true, ActionID: "1"},
-		{Verified: false, ActionID: "2", Error: "first error"},
-		{Verified: false, ActionID: "3", Error: "second error"},
-	}
-
-	failure := FirstFailure(results)
-	if failure == nil {
-		t.Fatal("expected a failure result")
-	}
-	if failure.ActionID != "2" {
-		t.Errorf("expected first failure to be action 2, got %s", failure.ActionID)
-	}
-
-	// Test with no failures
-	allPassed := []ValidationResult{{Verified: true}, {Verified: true}}
-	if FirstFailure(allPassed) != nil {
-		t.Error("expected nil for all-passed results")
-	}
-}
-
 func TestValidationResult_ToFacts(t *testing.T) {
 	t.Run("verified result", func(t *testing.T) {
 		vr := &ValidationResult{

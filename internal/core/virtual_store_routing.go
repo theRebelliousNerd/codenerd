@@ -163,17 +163,15 @@ func (v *VirtualStore) RouteActionResult(ctx context.Context, action Fact) (Acti
 		validationResults := v.validators.Validate(ctx, validationReq, result)
 		v.processValidationResults(validationReq, result, validationResults)
 
-		// If validation failed with high confidence, update the result
-		if !ValidateAll(validationResults) {
-			if failure := FirstFailure(validationResults); failure != nil && failure.Confidence >= 0.8 {
-				logging.Get(logging.CategoryVirtualStore).Warn(
-					"Post-action validation failed: %s - %s (confidence=%.2f)",
-					req.Type, failure.Error, failure.Confidence)
-				// Mark result as failed due to validation
-				result.Success = false
-				result.Error = "validation failed: " + failure.Error
-				validationErr = fmt.Errorf("post-action validation failed: %s", failure.Error)
-			}
+		// A definitive failure anywhere in the pass fails the result. An
+		// incomplete or opinion-less pass does not, and is not a success
+		// claim either: the validation facts say which it was.
+		if summary := SummarizeValidation(validationReq.Target, validationResults); summary.State == types.ToolValidationRejected {
+			logging.Get(logging.CategoryVirtualStore).Warn(
+				"Post-action validation failed: %s - %s", req.Type, summary.Reason)
+			result.Success = false
+			result.Error = "validation failed: " + summary.Reason
+			validationErr = fmt.Errorf("post-action validation failed: %s", summary.Reason)
 		}
 	}
 

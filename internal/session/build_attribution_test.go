@@ -86,10 +86,10 @@ func TestBuildAttribution_ForeignPackageIsNotCharged(t *testing.T) {
 	e.config.VerifyBuildAfterEdits = true
 	e.config.VerifyTestsAfterEdits = false
 	result := &ExecutionResult{
-		SuccessfulToolCalls:  1,
-		SuccessfulWriteTools: 1,
-		WrittenPaths:         []string{"mine/mine.go"},
-		roundsRan:            map[string]bool{"/build": true},
+		SuccessfulToolCalls: 1,
+		WriteToolEffects:    1,
+		WrittenPaths:        []string{"mine/mine.go"},
+		roundsRan:           map[string]bool{"/build": true},
 	}
 	result.Intent.Verb = "/fix"
 	result.Intent.Category = "/mutation"
@@ -161,8 +161,8 @@ func TestBuildAttribution_TransitiveImporterIsRed(t *testing.T) {
 	e.config.EnableSafetyGate = false
 	e.config.VerifyBuildAfterEdits = true
 	result := &ExecutionResult{
-		SuccessfulWriteTools: 1,
-		WrittenPaths:         []string{"a/a.go"},
+		WriteToolEffects: 1,
+		WrittenPaths:     []string{"a/a.go"},
 	}
 	probe := &buildGateProbe{e: e, result: result}
 	ctx := inTurnWorkingLoop(t, e)

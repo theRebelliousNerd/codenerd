@@ -65,11 +65,11 @@ func newUnverifiedExec(t *testing.T) *Executor {
 
 func unverifiedResult(response string, testRunCalls int) *ExecutionResult {
 	res := &ExecutionResult{
-		Response:             response,
-		ToolCallsExecuted:    2,
-		SuccessfulToolCalls:  2,
-		SuccessfulWriteTools: 1,
-		TestRunCalls:         testRunCalls,
+		Response:            response,
+		ToolCallsExecuted:   2,
+		SuccessfulToolCalls: 2,
+		WriteToolEffects:    1,
+		TestRunCalls:        testRunCalls,
 	}
 	res.Intent.Verb = "/fix"
 	res.Intent.Category = "/mutation"

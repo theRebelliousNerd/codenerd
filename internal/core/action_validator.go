@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"codenerd/internal/types"
 )
 
 // ValidationResult captures the outcome of post-action verification.
@@ -42,7 +44,36 @@ type ValidationResult struct {
 
 	// Timestamp when validation completed
 	Timestamp time.Time
+
+	// Validator names the validator that produced this result. The registry
+	// sets it.
+	Validator string
+
+	// State is what this reading established: pass, fail, skipped (the
+	// validator holds no opinion) or unavailable (it could not complete).
+	// The registry classifies every result it returns (classifyValidation);
+	// a validator may set it itself. Verified alone conflated a deferral
+	// ("Verified: true, Confidence: 0") with a pass, and a canceled
+	// validator with a failed one.
+	State ValidationState
 }
+
+// ValidationState is one validator's reading of one action.
+type ValidationState string
+
+const (
+	ValidationPass        ValidationState = "pass"
+	ValidationFail        ValidationState = "fail"
+	ValidationSkipped     ValidationState = "skipped"
+	ValidationUnavailable ValidationState = "unavailable"
+)
+
+// DefinitiveValidationConfidence is the confidence at or above which a failed
+// validation is definitive: the result did not do what it claimed. Below it a
+// failure is an objection the result stands over. The interactive bridge and
+// RouteAction both read it (SummarizeValidation); each used to carry its own
+// 0.8.
+const DefinitiveValidationConfidence = 0.8
 
 // ValidationMethod constants for consistent method reporting
 const (
@@ -53,6 +84,7 @@ const (
 	ValidationMethodOutputScan     = "output_scan"
 	ValidationMethodCodeDOMRefresh = "codedom_refresh"
 	ValidationMethodSkipped        = "skipped"
+	ValidationMethodUnavailable    = "unavailable"
 )
 
 // ActionValidator verifies that an action actually succeeded after execution.
@@ -183,6 +215,7 @@ func (r *ValidatorRegistry) Validate(ctx context.Context, req ActionRequest, res
 			Verified:   true,
 			Confidence: 0.0,
 			Method:     ValidationMethodSkipped,
+			State:      ValidationSkipped,
 			Details:    map[string]any{"reason": "no validators registered for action type"},
 			Timestamp:  time.Now(),
 		}}
@@ -192,11 +225,15 @@ func (r *ValidatorRegistry) Validate(ctx context.Context, req ActionRequest, res
 	for _, v := range validators {
 		select {
 		case <-ctx.Done():
-			// Context cancelled - return partial results with error
+			// The caller's context ended: this validator, and every one
+			// after it, could not run. That is unavailable, not failed --
+			// nothing about the result was measured.
 			results = append(results, ValidationResult{
 				ActionID:   req.ActionID,
 				ActionType: req.Type,
-				Verified:   false,
+				Validator:  v.Name(),
+				Method:     ValidationMethodUnavailable,
+				State:      ValidationUnavailable,
 				Error:      fmt.Sprintf("validation cancelled: %v", ctx.Err()),
 				Timestamp:  time.Now(),
 			})
@@ -207,6 +244,7 @@ func (r *ValidatorRegistry) Validate(ctx context.Context, req ActionRequest, res
 		valCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		start := time.Now()
 		vr := v.Validate(valCtx, req, result)
+		timedOut := valCtx.Err() != nil
 		cancel()
 
 		vr.Duration = time.Since(start)
@@ -219,11 +257,18 @@ func (r *ValidatorRegistry) Validate(ctx context.Context, req ActionRequest, res
 		if vr.ActionType == "" {
 			vr.ActionType = req.Type
 		}
+		if vr.Validator == "" {
+			vr.Validator = v.Name()
+		}
+		if vr.State == "" {
+			vr.State = classifyValidation(vr, timedOut)
+		}
 
 		results = append(results, vr)
 
-		// If a high-confidence validator fails, we can short-circuit
-		if !vr.Verified && vr.Confidence >= 0.8 {
+		// A definitive failure ends the pass: the result is rejected, and
+		// what the remaining validators would say does not change that.
+		if vr.State == ValidationFail && vr.Confidence >= DefinitiveValidationConfidence {
 			break
 		}
 	}
@@ -231,24 +276,75 @@ func (r *ValidatorRegistry) Validate(ctx context.Context, req ActionRequest, res
 	return results
 }
 
-// ValidateAll checks if all validation results passed.
-func ValidateAll(results []ValidationResult) bool {
-	for _, r := range results {
-		if !r.Verified {
-			return false
-		}
+// classifyValidation is the state of a reading its validator did not state.
+// A failure whose own deadline expired measured nothing; a "verified" result
+// with no confidence is the deferral convention ("Verified: true, Confidence:
+// 0, defer to other validators"), not a pass.
+func classifyValidation(vr ValidationResult, timedOut bool) ValidationState {
+	switch {
+	case !vr.Verified && timedOut:
+		return ValidationUnavailable
+	case !vr.Verified:
+		return ValidationFail
+	case !(vr.Confidence > 0) || vr.Method == ValidationMethodSkipped || strings.HasSuffix(vr.Method, "_skipped"):
+		// NaN and non-positive confidence alike affirm nothing.
+		return ValidationSkipped
+	default:
+		return ValidationPass
 	}
-	return true
 }
 
-// FirstFailure returns the first failed validation result, or nil if all passed.
-func FirstFailure(results []ValidationResult) *ValidationResult {
+// stateOf is a result's state, classifying one built outside the registry.
+func stateOf(vr ValidationResult) ValidationState {
+	if vr.State != "" {
+		return vr.State
+	}
+	return classifyValidation(vr, false)
+}
+
+// SummarizeValidation is what a validation pass established, typed: rejected
+// when ANY reading failed definitively (not only the first failure -- a
+// low-confidence objection ahead of a definitive one used to hide it),
+// incomplete when a validator could not complete, verified when one affirmed
+// the result, and unvalidated when none held an opinion. A failure below
+// DefinitiveValidationConfidence is an objection the result stands over: it
+// stays visible in the observations and decides nothing.
+func SummarizeValidation(resource string, results []ValidationResult) types.ToolValidation {
+	out := types.ToolValidation{State: types.ToolValidationUnvalidated}
+	var rejected, incomplete, passed bool
+	var rejectReason, incompleteReason string
 	for _, r := range results {
-		if !r.Verified {
-			return &r
+		state := stateOf(r)
+		out.Observations = append(out.Observations, types.ValidatorObservation{
+			Resource:   resource,
+			Validator:  r.Validator,
+			Method:     r.Method,
+			State:      string(state),
+			Confidence: r.Confidence,
+			Detail:     r.Error,
+		})
+		switch state {
+		case ValidationFail:
+			if r.Confidence >= DefinitiveValidationConfidence && !rejected {
+				rejected, rejectReason = true, r.Error
+			}
+		case ValidationUnavailable:
+			if !incomplete {
+				incomplete, incompleteReason = true, r.Error
+			}
+		case ValidationPass:
+			passed = true
 		}
 	}
-	return nil
+	switch {
+	case rejected:
+		out.State, out.Reason = types.ToolValidationRejected, rejectReason
+	case incomplete:
+		out.State, out.Reason = types.ToolValidationIncomplete, incompleteReason
+	case passed:
+		out.State = types.ToolValidationVerified
+	}
+	return out
 }
 
 // ToFacts converts validation results to Mangle facts for kernel assertion.
@@ -282,7 +378,26 @@ func (vr *ValidationResult) ToFacts() []Fact {
 	actionTypeAtom := MangleAtom("/" + sanitizeAtomTail(actionTypeStr))
 	methodAtom := MangleAtom("/" + sanitizeAtomTail(vr.Method))
 
-	if vr.Verified {
+	switch stateOf(*vr) {
+	case ValidationSkipped:
+		// action_validation_skipped(ActionID, ActionType, Method, Timestamp):
+		// the validator held no opinion. It used to be action_verified at
+		// confidence 0, an affirmative row for a reading that affirmed
+		// nothing.
+		facts = append(facts, Fact{
+			Predicate: "action_validation_skipped",
+			Args:      []any{vr.ActionID, actionTypeAtom, methodAtom, vr.Timestamp.Unix()},
+		})
+	case ValidationUnavailable:
+		// action_validation_unavailable(ActionID, ActionType, Details,
+		// Timestamp): the validator could not complete. It used to be
+		// action_validation_failed, which sent a canceled check down the
+		// self-healing arms as a broken artifact.
+		facts = append(facts, Fact{
+			Predicate: "action_validation_unavailable",
+			Args:      []any{vr.ActionID, actionTypeAtom, errorStr, vr.Timestamp.Unix()},
+		})
+	case ValidationPass:
 		// action_verified(ActionID, ActionType, Method, Confidence, Timestamp)
 		facts = append(facts, Fact{
 			Predicate: "action_verified",
@@ -294,7 +409,7 @@ func (vr *ValidationResult) ToFacts() []Fact {
 				vr.Timestamp.Unix(),
 			},
 		})
-	} else {
+	default:
 		// action_validation_failed(ActionID, ActionType, Reason, Details, Timestamp).
 		// The error text is free-form so we derive a stable /name category
 		// for Reason and stash the full text in Details (/string).
@@ -328,12 +443,13 @@ func (vr *ValidationResult) ToFacts() []Fact {
 		})
 	}
 
-	// Always emit the method used
+	// Always emit the method used. Method is a /name in the schema; the raw
+	// string failed schema validation, so this row never landed.
 	facts = append(facts, Fact{
 		Predicate: "validation_method_used",
 		Args: []any{
 			vr.ActionID,
-			vr.Method,
+			methodAtom,
 		},
 	})
 

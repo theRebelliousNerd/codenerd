@@ -142,7 +142,7 @@ func verifyGateExecutor(t *testing.T) (*Executor, *ExecutionResult) {
 	e := &Executor{config: cfg}
 	// As the round driver leaves a Go write: the closure remeasures the gates
 	// whose rounds ran (turn_rounds.mg schedules these for a Go write).
-	result := &ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"main.go"}, roundsRan: goWriteRounds()}
+	result := &ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"main.go"}, roundsRan: goWriteRounds()}
 	return e, result
 }
 

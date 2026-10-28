@@ -2,6 +2,7 @@ package session
 
 import (
 	"codenerd/internal/tools"
+	"codenerd/internal/types"
 	"context"
 	"fmt"
 	"strings"
@@ -13,8 +14,8 @@ type testExecutiveStore struct{ MockVirtualStore }
 func (*testExecutiveStore) PreflightDestructiveToolCall(context.Context, string, string, map[string]any) error {
 	return nil
 }
-func (*testExecutiveStore) ValidateInteractiveToolResult(context.Context, string, string, map[string]any, string, bool) error {
-	return nil
+func (*testExecutiveStore) ValidateInteractiveToolResult(context.Context, string, string, map[string]any, string, bool) types.ToolValidation {
+	return types.ToolValidation{State: types.ToolValidationVerified}
 }
 
 func TestEffectfulExecutionRequiresExecutiveAdapter(t *testing.T) {

@@ -333,8 +333,8 @@ func TestRunToolLoop_PiggybackRunsPostEditBuildGate(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "edits broke the build") {
 		t.Fatalf("Piggyback write bypassed the build gate: %v", err)
 	}
-	if result.SuccessfulWriteTools != 1 {
-		t.Fatalf("successful writes=%d, want 1", result.SuccessfulWriteTools)
+	if result.WriteToolEffects != 1 {
+		t.Fatalf("successful writes=%d, want 1", result.WriteToolEffects)
 	}
 }
 
@@ -386,8 +386,8 @@ func TestRunToolLoop_ForcedFinalRunsPostEditBuildGate(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "edits broke the build") {
 		t.Fatalf("forced final bypassed the build gate: %v", err)
 	}
-	if result.SuccessfulWriteTools != 1 {
-		t.Fatalf("successful writes = %d, want 1: the write must have landed before the drift", result.SuccessfulWriteTools)
+	if result.WriteToolEffects != 1 {
+		t.Fatalf("successful writes = %d, want 1: the write must have landed before the drift", result.WriteToolEffects)
 	}
 	// working_finalize_rounds(16) after the write, not a round ceiling.
 	if client.rounds < 17 {
@@ -482,8 +482,8 @@ func TestForceFinalAnswer_ExecutesOfferedWriteThenClearsIt(t *testing.T) {
 	if err != nil || len(errs) != 0 {
 		t.Fatalf("forceFinalAnswer error=%v toolErrors=%v", err, errs)
 	}
-	if executions != 1 || result.SuccessfulWriteTools != 1 {
-		t.Fatalf("executions=%d successfulWrites=%d, want 1/1", executions, result.SuccessfulWriteTools)
+	if executions != 1 || result.WriteToolEffects != 1 {
+		t.Fatalf("executions=%d successfulWrites=%d, want 1/1", executions, result.WriteToolEffects)
 	}
 	if len(final.ToolCalls) != 0 {
 		t.Fatalf("returned response still advertises executed calls: %v", final.ToolCalls)

@@ -90,7 +90,7 @@ func TestVerifyAndRepairBuild_FailureCarriesSentinel(t *testing.T) {
 	cfg := DefaultExecutorConfig()
 	cfg.WorkspaceRoot = ws
 	e := &Executor{config: cfg}
-	result := &ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"main.go"}}
+	result := &ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"main.go"}}
 
 	_, _, err := e.verifyAndRepairBuild(context.Background(), nil, "", nil, nil, nil, nil, result)
 	if err == nil {

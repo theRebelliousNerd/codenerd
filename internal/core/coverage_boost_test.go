@@ -351,56 +351,6 @@ func TestFilterMangleUpdates_WhenWhitespaceOnly_ShouldSkip(t *testing.T) {
 // action_validator.go - pure utility functions
 // =============================================================================
 
-func TestValidateAll_WhenAllPass_ShouldReturnTrue(t *testing.T) {
-	results := []ValidationResult{
-		{Verified: true, Confidence: 1.0},
-		{Verified: true, Confidence: 0.8},
-	}
-	if !ValidateAll(results) {
-		t.Error("expected ValidateAll to return true when all pass")
-	}
-}
-
-func TestValidateAll_WhenOneFails_ShouldReturnFalse(t *testing.T) {
-	results := []ValidationResult{
-		{Verified: true, Confidence: 1.0},
-		{Verified: false, Confidence: 0.9, Error: "fail"},
-	}
-	if ValidateAll(results) {
-		t.Error("expected ValidateAll to return false when one fails")
-	}
-}
-
-func TestValidateAll_WhenEmpty_ShouldReturnTrue(t *testing.T) {
-	if !ValidateAll(nil) {
-		t.Error("expected ValidateAll to return true for nil input")
-	}
-}
-
-func TestFirstFailure_WhenAllPass_ShouldReturnNil(t *testing.T) {
-	results := []ValidationResult{
-		{Verified: true},
-		{Verified: true},
-	}
-	if got := FirstFailure(results); got != nil {
-		t.Errorf("expected nil, got %+v", got)
-	}
-}
-
-func TestFirstFailure_WhenSecondFails_ShouldReturnSecond(t *testing.T) {
-	results := []ValidationResult{
-		{Verified: true},
-		{Verified: false, Error: "second_failed"},
-	}
-	got := FirstFailure(results)
-	if got == nil {
-		t.Fatal("expected non-nil failure")
-	}
-	if got.Error != "second_failed" {
-		t.Errorf("expected error 'second_failed', got %q", got.Error)
-	}
-}
-
 func TestValidationResult_ToFacts_WhenVerified_ShouldReturnActionVerified(t *testing.T) {
 	vr := &ValidationResult{
 		ActionID:   "act-1",
@@ -442,7 +392,7 @@ func TestValidationResult_ToFacts_WhenFailed_ShouldReturnValidationFailed(t *tes
 	}
 }
 
-func TestValidationResult_ToFacts_WhenNaNConfidence_ShouldClampToZero(t *testing.T) {
+func TestValidationResult_ToFacts_WhenNaNConfidence_ShouldBeSkipped(t *testing.T) {
 	vr := &ValidationResult{
 		ActionID:   "act-nan",
 		ActionType: ActionReadFile,
@@ -456,13 +406,13 @@ func TestValidationResult_ToFacts_WhenNaNConfidence_ShouldClampToZero(t *testing
 	if len(facts) < 1 {
 		t.Fatal("expected at least 1 fact")
 	}
-	// Check confidence arg is 0 (scaled: int64(0.0*100))
-	if conf, ok := facts[0].Args[3].(int64); ok && conf != 0 {
-		t.Errorf("expected confidence 0 for NaN, got %d", conf)
+	// A NaN confidence affirms nothing: the reading is a deferral.
+	if facts[0].Predicate != "action_validation_skipped" {
+		t.Errorf("NaN confidence asserted %s, want action_validation_skipped", facts[0].Predicate)
 	}
 }
 
-func TestValidationResult_ToFacts_WhenNegativeConfidence_ShouldClampToZero(t *testing.T) {
+func TestValidationResult_ToFacts_WhenNegativeConfidence_ShouldBeSkipped(t *testing.T) {
 	vr := &ValidationResult{
 		ActionID:   "act-neg",
 		ActionType: ActionReadFile,
@@ -472,8 +422,8 @@ func TestValidationResult_ToFacts_WhenNegativeConfidence_ShouldClampToZero(t *te
 		Timestamp:  time.Now(),
 	}
 	facts := vr.ToFacts()
-	if conf, ok := facts[0].Args[3].(int64); ok && conf != 0 {
-		t.Errorf("expected confidence 0 for negative, got %d", conf)
+	if facts[0].Predicate != "action_validation_skipped" {
+		t.Errorf("negative confidence asserted %s, want action_validation_skipped", facts[0].Predicate)
 	}
 }
 

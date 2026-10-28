@@ -616,8 +616,8 @@ func TestE2E_PiggybackExecutor_ControlPacket_EndToEnd_HardBoundary(t *testing.T)
 		if result.ToolCallsExecuted != 3 {
 			t.Errorf("Expected ToolCallsExecuted == 3 (safe, forbidden and write all attempted), got %d", result.ToolCallsExecuted)
 		}
-		if result.SuccessfulWriteTools != 1 {
-			t.Errorf("Expected exactly 1 successful write-mutation tool, got %d", result.SuccessfulWriteTools)
+		if result.WriteToolEffects != 1 {
+			t.Errorf("Expected exactly 1 successful write-mutation tool, got %d", result.WriteToolEffects)
 		}
 
 		// But only 1 actually ran (safe tool), 1 was blocked (forbidden tool)

@@ -96,7 +96,7 @@ func TestVerifyAndRepairBuild_ClosesReadingOnTheSecondRound(t *testing.T) {
 
 	cfg := &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{readTool, writeTool}}
 	toolDefs := e.buildToolDefinitions(cfg)
-	result := &ExecutionResult{SuccessfulWriteTools: 1, WrittenPaths: []string{"main.go"}}
+	result := &ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"main.go"}}
 
 	if _, _, err := e.verifyAndRepairBuild(ctx, client, "system", nil, nil, toolDefs, cfg, result); err != nil {
 		t.Fatalf("verifyAndRepairBuild: %v", err)

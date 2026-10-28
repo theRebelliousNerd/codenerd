@@ -571,7 +571,7 @@ func (e *Executor) formatWrittenGo(result *ExecutionResult, when string) {
 // wrote nothing owes nothing. With writes, a kernel that cannot be asked is
 // an error: the rounds are what make a write count.
 func (e *Executor) nextPostEditRound(result *ExecutionResult) (string, error) {
-	if result.SuccessfulWriteTools == 0 {
+	if result.WriteToolEffects == 0 {
 		return "", nil
 	}
 	if e.kernel == nil {
@@ -581,7 +581,7 @@ func (e *Executor) nextPostEditRound(result *ExecutionResult) (string, error) {
 	e.assertTurnVerb(turn, result.Intent.Verb, result)
 	e.assertTurnWrites(turn, result)
 	if !result.writeToolsAsserted {
-		if !e.assertTurnFact(types.Fact{Predicate: "turn_write_tools", Args: []any{turn, int64(result.SuccessfulWriteTools)}}) {
+		if !e.assertTurnFact(types.Fact{Predicate: "turn_write_tools", Args: []any{turn, int64(result.WriteToolEffects)}}) {
 			return "", errors.New("assert turn_write_tools")
 		}
 		result.writeToolsAsserted = true
@@ -732,9 +732,9 @@ func turnFactsForFinalAnswer(result *ExecutionResult) string {
 	if len(result.WrittenPaths) > 0 {
 		written = strings.Join(result.WrittenPaths, ", ")
 	}
-	return fmt.Sprintf("Facts for this turn: files written: %s; successful write tools: %d; successful tool calls: %d. "+
+	return fmt.Sprintf("Facts for this turn: files written: %s; write calls that changed or wrote files: %d; successful tool calls: %d. "+
 		"Your answer must agree with these facts: if files are listed, do not say nothing was written; if none are listed, do not claim an edit landed.",
-		written, result.SuccessfulWriteTools, result.SuccessfulToolCalls)
+		written, result.WriteToolEffects, result.SuccessfulToolCalls)
 }
 
 // forceFinalAnswer executes any still-pending tool calls and then re-invokes the
@@ -776,7 +776,7 @@ func (e *Executor) forceFinalAnswer(
 	// mutation retain write tools. intentRequiresToolCall is broader: /commit,
 	// /test, and /research also require real tools, but offering write_file as
 	// their only final capability would not let them complete correctly.
-	needsWrite := e.writeOrientedIntent(result.Intent.Verb) && result.SuccessfulWriteTools == 0
+	needsWrite := e.writeOrientedIntent(result.Intent.Verb) && result.WriteToolEffects == 0
 
 	nudge := readOnlyExplorationClosedNudge
 	var finalTools []types.ToolDefinition
@@ -982,14 +982,19 @@ func (e *Executor) executeAndRecordToolCall(
 	result *ExecutionResult,
 ) (string, error) {
 	var guardErr error
+	var effectTargets []ResourceEffect
 	if isWriteMutationTool(call.Name) {
-		// A write the guard refuses never runs: no preimage, no write.
-		if guardErr = guardWrite(ctx, call.Name, call.Input, e.workspaceForVerification()); guardErr == nil {
-			snapshotPreWriteContents(result, call.Input, e.workspaceForVerification())
+		// A write the guard refuses never runs: no preimage, no write, no
+		// receipt.
+		workspace := e.workspaceForVerification()
+		if guardErr = guardWrite(ctx, call.Name, call.Input, workspace); guardErr == nil {
+			snapshotPreWriteContents(result, call.Input, workspace)
+			effectTargets = snapshotEffectTargets(call.Input, workspace)
 		}
 	}
 	toolCtx, testRuns := tools.WithTestRunLog(ctx)
 	toolCtx, checkRuns := tools.WithAcceptanceRunLog(toolCtx)
+	toolCtx, validationOf := withToolValidationLog(toolCtx)
 	// A test call that names no packages tests what this turn wrote, the same
 	// packages verifyTests runs after the turn, and not the whole module.
 	toolCtx = tools.WithTestScope(toolCtx, func() []string { return packagesForPaths(result.WrittenPaths) })
@@ -1022,24 +1027,15 @@ func (e *Executor) executeAndRecordToolCall(
 			e.noteCheckRun(result, run.ExitCode)
 		}
 	}
+	// The write's effect is accounted on every terminal path, before any
+	// post-action error is returned: a failed postcondition is not proof of
+	// no mutation (tool_effects.go).
+	out = e.settleToolEffects(ctx, call, effectTargets, out, err, validationOf, result)
 	memoryErr := e.recordWorkingResult(ctx, call, out, err)
 	if err != nil {
 		return out, errors.Join(err, memoryErr)
 	}
-
 	result.SuccessfulToolCalls++
-	if isWriteMutationTool(call.Name) {
-		result.SuccessfulWriteTools++
-		// A run before this write says nothing about what the write left.
-		// The receipt facts stay; the write's seq is what puts them before it.
-		result.TestRunSinceLastWrite = nil
-		e.noteWrite(result)
-		if err := recordWrittenPaths(result, call.Input, e.workspaceForVerification()); err != nil {
-			logging.Get(logging.CategorySession).Warn(
-				"successful write %s returned invalid target metadata: %v", call.Name, err)
-		}
-		recordLastWrittenContents(result, call.Input, e.workspaceForVerification())
-	}
 	return out, memoryErr
 }
 
@@ -2619,20 +2615,26 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 			return "", fmt.Errorf("modular tool returned error: %w", result.Error)
 		}
 
+		// Track creations for the turn: a file the call created that did not
+		// previously exist. Non-test .go → created_source, _test.go →
+		// test_file_for pairing exactly as the world scanner does. Recorded
+		// before the validation verdict: a rejected file still exists, and
+		// still owes its test.
+		e.recordGoFileCreations(preGoExistence, canonicalToPhys)
 		// POST-execution validation: verify the side effect actually landed
 		// (file written, build passed, etc.) and assert validation facts to the
-		// kernel so policy (e.g. task_complete/1) can reason over them. A
-		// high-confidence validator failure is surfaced as an error so the model
-		// sees the validation failure and can inspect the actual artifact.
+		// kernel so policy (e.g. task_complete/1) can reason over them. What it
+		// established is recorded for the call's receipt, whichever state it
+		// is. A rejection is surfaced as an error WITH the tool's output: the
+		// handler may well have changed the file, and the model needs to see
+		// what it did to repair it rather than re-run it blind.
 		if gate, ok := e.interactiveGate(); ok {
-			if valErr := gate.ValidateInteractiveToolResult(toolCtx, call.ID, call.Name, call.Args, result.Result, true); valErr != nil {
-				return "", fmt.Errorf("post-action validation failed: %w", valErr)
+			validation := gate.ValidateInteractiveToolResult(toolCtx, call.ID, call.Name, call.Args, result.Result, true)
+			recordToolValidation(ctx, validation)
+			if validation.State == types.ToolValidationRejected {
+				return result.Result, &PostconditionError{Validation: validation}
 			}
 		}
-		// Track creations for the turn: only on successful call that created a
-		// file that did not previously exist. Non-test .go → created_source,
-		// _test.go → test_file_for pairing exactly as the world scanner does.
-		e.recordGoFileCreations(preGoExistence, canonicalToPhys)
 		return result.Result, nil
 	}
 

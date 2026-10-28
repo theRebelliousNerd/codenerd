@@ -140,7 +140,7 @@ func TestE2E_VirtualStoreDreamer_StateCorruption_ConcurrentValidation(t *testing
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			err := vs.ValidateInteractiveToolResult(context.Background(), "a1", "write_file", map[string]any{"filepath": testFile, "content": "hello"}, "out", true)
+			err := rejection(vs.ValidateInteractiveToolResult(context.Background(), "a1", "write_file", map[string]any{"filepath": testFile, "content": "hello"}, "out", true))
 			if err != nil {
 				t.Errorf("Concurrent validation failed unexpectedly: %v", err)
 			}
@@ -165,7 +165,7 @@ func TestE2E_VirtualStoreDreamer_StateCorruption_PreflightAndValidate(t *testing
 	}()
 	go func() {
 		defer wg.Done()
-		err := vs.ValidateInteractiveToolResult(context.Background(), "a1", "write_file", map[string]any{"filepath": testFile, "content": "hello"}, "out", true)
+		err := rejection(vs.ValidateInteractiveToolResult(context.Background(), "a1", "write_file", map[string]any{"filepath": testFile, "content": "hello"}, "out", true))
 		if err != nil {
 			t.Errorf("Validate failed unexpectedly: %v", err)
 		}
@@ -224,7 +224,7 @@ func TestE2E_VirtualStoreDreamer_Cascading_ValidatorDoesNotBlockSuccess(t *testi
 	vs := newDreamerStore(t)
 	testFile := dreamerFile(t)
 
-	err := vs.ValidateInteractiveToolResult(context.Background(), "a1", "unknown_tool", map[string]any{"filepath": testFile, "content": "hello"}, "out", true)
+	err := rejection(vs.ValidateInteractiveToolResult(context.Background(), "a1", "unknown_tool", map[string]any{"filepath": testFile, "content": "hello"}, "out", true))
 	if err != nil {
 		t.Fatalf("Expected nil on unmapped tools, got %v", err)
 	}
@@ -316,7 +316,7 @@ func TestE2E_VirtualStoreDreamer_Contract_Validate_NotSuccess(t *testing.T) {
 	// Verifies that a failed action execution does not trigger validation.
 	vs := newDreamerStore(t)
 	testFile := dreamerFile(t)
-	err := vs.ValidateInteractiveToolResult(context.Background(), "a1", "write_file", map[string]any{"filepath": testFile, "content": "hello"}, "out", false)
+	err := rejection(vs.ValidateInteractiveToolResult(context.Background(), "a1", "write_file", map[string]any{"filepath": testFile, "content": "hello"}, "out", false))
 	if err != nil {
 		t.Fatalf("Expected nil because tool execution failed, got %v", err)
 	}
@@ -326,7 +326,7 @@ func TestE2E_VirtualStoreDreamer_Contract_Validate_EmptyOutput(t *testing.T) {
 	// Verifies behavior when output is empty string.
 	vs := newDreamerStore(t)
 	testFile := dreamerFile(t)
-	err := vs.ValidateInteractiveToolResult(context.Background(), "a1", "write_file", map[string]any{"filepath": testFile, "content": "hello"}, "", true)
+	err := rejection(vs.ValidateInteractiveToolResult(context.Background(), "a1", "write_file", map[string]any{"filepath": testFile, "content": "hello"}, "", true))
 	if err != nil {
 		t.Fatalf("Expected nil or handled correctly for empty output, got %v", err)
 	}
@@ -545,7 +545,7 @@ func TestE2E_VirtualStoreDreamer_Contract_Validate_NilArgs(t *testing.T) {
 	// is the correct verdict on a write with nothing to verify, and the test
 	// must not panic on the nil map — which is what it is really for.
 	vs := newDreamerStore(t)
-	err := vs.ValidateInteractiveToolResult(context.Background(), "a1", "write_file", nil, "out", true)
+	err := rejection(vs.ValidateInteractiveToolResult(context.Background(), "a1", "write_file", nil, "out", true))
 	if err == nil {
 		t.Fatal("a write validation with no target at all reported success")
 	}
@@ -554,7 +554,7 @@ func TestE2E_VirtualStoreDreamer_Contract_Validate_NilArgs(t *testing.T) {
 func TestE2E_VirtualStoreDreamer_Contract_Validate_EmptyActionID(t *testing.T) {
 	vs := newDreamerStore(t)
 	testFile := dreamerFile(t)
-	err := vs.ValidateInteractiveToolResult(context.Background(), "", "write_file", map[string]any{"path": testFile, "content": "hello"}, "out", true)
+	err := rejection(vs.ValidateInteractiveToolResult(context.Background(), "", "write_file", map[string]any{"path": testFile, "content": "hello"}, "out", true))
 	if err != nil {
 		t.Fatalf("Expected nil, got %v", err)
 	}
@@ -564,7 +564,7 @@ func TestE2E_VirtualStoreDreamer_Contract_Validate_LongToolName(t *testing.T) {
 	vs := newDreamerStore(t)
 	testFile := dreamerFile(t)
 	toolName := strings.Repeat("a", 1000)
-	err := vs.ValidateInteractiveToolResult(context.Background(), "a1", toolName, map[string]any{"path": testFile, "content": "hello"}, "out", true)
+	err := rejection(vs.ValidateInteractiveToolResult(context.Background(), "a1", toolName, map[string]any{"path": testFile, "content": "hello"}, "out", true))
 	if err != nil {
 		t.Fatalf("Expected nil, got %v", err)
 	}
@@ -575,7 +575,7 @@ func TestE2E_VirtualStoreDreamer_Edge_ValidateWithCanceledContext(t *testing.T) 
 	testFile := dreamerFile(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	err := vs.ValidateInteractiveToolResult(ctx, "a1", "write_file", map[string]any{"path": testFile, "content": "hello"}, "out", true)
+	err := rejection(vs.ValidateInteractiveToolResult(ctx, "a1", "write_file", map[string]any{"path": testFile, "content": "hello"}, "out", true))
 	if err != nil {
 		t.Fatalf("Expected nil, got %v", err)
 	}
@@ -586,7 +586,7 @@ func TestE2E_VirtualStoreDreamer_Edge_ValidateWithDeadlineContext(t *testing.T) 
 	testFile := dreamerFile(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 0)
 	defer cancel()
-	err := vs.ValidateInteractiveToolResult(ctx, "a1", "write_file", map[string]any{"path": testFile, "content": "hello"}, "out", true)
+	err := rejection(vs.ValidateInteractiveToolResult(ctx, "a1", "write_file", map[string]any{"path": testFile, "content": "hello"}, "out", true))
 	if err != nil {
 		t.Fatalf("Expected nil, got %v", err)
 	}
@@ -596,7 +596,7 @@ func TestE2E_VirtualStoreDreamer_Recovery_MultipleValidations(t *testing.T) {
 	vs := newDreamerStore(t)
 	testFile := dreamerFile(t)
 	for i := 0; i < 5; i++ {
-		err := vs.ValidateInteractiveToolResult(context.Background(), "a1", "write_file", map[string]any{"path": testFile, "content": "hello"}, "out", true)
+		err := rejection(vs.ValidateInteractiveToolResult(context.Background(), "a1", "write_file", map[string]any{"path": testFile, "content": "hello"}, "out", true))
 		if err != nil {
 			t.Fatalf("Expected nil on iteration %d, got %v", i, err)
 		}
@@ -606,7 +606,7 @@ func TestE2E_VirtualStoreDreamer_Recovery_MultipleValidations(t *testing.T) {
 func TestE2E_VirtualStoreDreamer_Cascading_NilExecutorValidate(t *testing.T) {
 	testFile := dreamerFile(t)
 	vs := core.NewVirtualStore(nil)
-	err := vs.ValidateInteractiveToolResult(context.Background(), "a1", "write_file", map[string]any{"path": testFile, "content": "hello"}, "out", true)
+	err := rejection(vs.ValidateInteractiveToolResult(context.Background(), "a1", "write_file", map[string]any{"path": testFile, "content": "hello"}, "out", true))
 	if err != nil {
 		t.Fatalf("Expected nil, got %v", err)
 	}
@@ -621,7 +621,7 @@ func TestE2E_VirtualStoreDreamer_StateCorruption_ConcurrentValidationsWithDiffer
 		go func(idx int) {
 			defer wg.Done()
 			args := map[string]any{"path": testFile, "content": "hello"}
-			err := vs.ValidateInteractiveToolResult(context.Background(), "a1", "write_file", args, "out", true)
+			err := rejection(vs.ValidateInteractiveToolResult(context.Background(), "a1", "write_file", args, "out", true))
 			if err != nil {
 				t.Errorf("Expected nil on goroutine %d, got %v", idx, err)
 			}
@@ -663,7 +663,7 @@ func TestE2E_VirtualStoreDreamer_StateCorruption_ConcurrentMixedOperations(t *te
 					t.Errorf("Expected nil on goroutine %d, got %v", idx, err)
 				}
 			} else {
-				err := vs.ValidateInteractiveToolResult(context.Background(), "a1", "write_file", args, "out", true)
+				err := rejection(vs.ValidateInteractiveToolResult(context.Background(), "a1", "write_file", args, "out", true))
 				if err != nil {
 					t.Errorf("Expected nil on goroutine %d, got %v", idx, err)
 				}
@@ -676,7 +676,7 @@ func TestE2E_VirtualStoreDreamer_StateCorruption_ConcurrentMixedOperations(t *te
 func TestE2E_VirtualStoreDreamer_Smoke_ValidateSafeAction(t *testing.T) {
 	vs := newDreamerStore(t)
 	testFile := dreamerFile(t)
-	err := vs.ValidateInteractiveToolResult(context.Background(), "a1", "read_file", map[string]any{"filepath": testFile, "content": "hello"}, "out", true)
+	err := rejection(vs.ValidateInteractiveToolResult(context.Background(), "a1", "read_file", map[string]any{"filepath": testFile, "content": "hello"}, "out", true))
 	if err != nil {
 		t.Fatalf("Expected nil for safe action, got %v", err)
 	}
@@ -685,7 +685,7 @@ func TestE2E_VirtualStoreDreamer_Smoke_ValidateSafeAction(t *testing.T) {
 func TestE2E_VirtualStoreDreamer_Smoke_ValidateFailOpen_MissingDreamer(t *testing.T) {
 	vs := newDreamerStore(t)
 	testFile := dreamerFile(t)
-	err := vs.ValidateInteractiveToolResult(context.Background(), "a1", "write_file", map[string]any{"filepath": testFile, "content": "hello"}, "out", true)
+	err := rejection(vs.ValidateInteractiveToolResult(context.Background(), "a1", "write_file", map[string]any{"filepath": testFile, "content": "hello"}, "out", true))
 	if err != nil {
 		t.Fatalf("Expected nil, got %v", err)
 	}
@@ -714,7 +714,7 @@ func TestE2E_VirtualStoreDreamer_Pipeline_WriteAndValidate(t *testing.T) {
 	// Executor step: the file dreamerFile created stands in for a successful
 	// write, which is what the validator below goes and checks.
 
-	err = vs.ValidateInteractiveToolResult(ctx, "a1", "write_file", args, "success", true)
+	err = rejection(vs.ValidateInteractiveToolResult(ctx, "a1", "write_file", args, "success", true))
 	if err != nil {
 		t.Fatalf("Validation failed: %v", err)
 	}
@@ -732,7 +732,7 @@ func TestE2E_VirtualStoreDreamer_Pipeline_WriteFailValidateSkip(t *testing.T) {
 	}
 
 	// Executor fails
-	err = vs.ValidateInteractiveToolResult(ctx, "a1", "write_file", args, "error", false)
+	err = rejection(vs.ValidateInteractiveToolResult(ctx, "a1", "write_file", args, "error", false))
 	if err != nil {
 		t.Fatalf("Validation should not run/fail on unsuccessful execution, got %v", err)
 	}

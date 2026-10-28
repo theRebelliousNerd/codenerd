@@ -113,7 +113,7 @@ func TestVerifyAndUpliftWithCritic_WhenTheFindingIsInUntouchedCode_ShouldNotFire
 	cfg.WorkspaceRoot = ws
 	e := &Executor{config: cfg, llmClient: critic}
 	result := &ExecutionResult{
-		SuccessfulWriteTools: 1, WrittenPaths: []string{"a.go"},
+		WriteToolEffects: 1, WrittenPaths: []string{"a.go"},
 		PreWriteContents: map[string]PreImage{
 			canonicalizeWrittenPath("a.go", ws): {Existed: true, Content: before.String()},
 		},

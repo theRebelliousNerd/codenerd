@@ -68,7 +68,7 @@ func (e *Executor) auditFinalReport(ctx context.Context, input string, result *E
 		return
 	}
 	report := strings.TrimSpace(result.Response)
-	if report == "" || (result.SuccessfulWriteTools == 0 && !e.writeOrientedIntent(result.Intent.Verb)) {
+	if report == "" || (result.WriteToolEffects == 0 && !e.writeOrientedIntent(result.Intent.Verb)) {
 		return
 	}
 	e.mu.RLock()

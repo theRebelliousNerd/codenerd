@@ -461,11 +461,11 @@ func (a *sessionVirtualStoreAdapter) PreflightDestructiveToolCall(ctx context.Co
 
 // ValidateInteractiveToolResult delegates to the wrapped VirtualStore's
 // post-action validator registry, satisfying session.InteractiveExecutiveGate.
-// Nil store => no validation (a post-action check cannot fail closed without a
-// side effect to verify).
-func (a *sessionVirtualStoreAdapter) ValidateInteractiveToolResult(ctx context.Context, actionID, toolName string, args map[string]any, output string, success bool) error {
+// Nil store => no validator holds an opinion, which is unvalidated, never
+// verified (the nil store's preflight already refuses destructive tools).
+func (a *sessionVirtualStoreAdapter) ValidateInteractiveToolResult(ctx context.Context, actionID, toolName string, args map[string]any, output string, success bool) types.ToolValidation {
 	if a == nil || a.vs == nil {
-		return nil
+		return types.ToolValidation{State: types.ToolValidationUnvalidated, Reason: "no VirtualStore"}
 	}
 	return a.vs.ValidateInteractiveToolResult(ctx, actionID, toolName, args, output, success)
 }

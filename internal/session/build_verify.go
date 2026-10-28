@@ -769,7 +769,7 @@ func (e *Executor) repairRound(
 	for {
 		before := 0
 		if result != nil {
-			before = result.SuccessfulWriteTools
+			before = result.WriteToolEffects
 		}
 		repaired, err := e.completeWithWorkingContext(ctx, trp, systemPrompt, *history, toolDefs)
 		if err != nil {
@@ -805,7 +805,7 @@ func (e *Executor) repairRound(
 				break
 			}
 		}
-		wrote = result != nil && result.SuccessfulWriteTools > before
+		wrote = result != nil && result.WriteToolEffects > before
 		if wrote {
 			*history = append(*history,
 				types.AssistantMessageFrom(repaired),

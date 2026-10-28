@@ -21,9 +21,9 @@ func TestRemovedTestsGate_DerivedFromRealRemoval(t *testing.T) {
 	e := NewExecutor(realKernel(t), &testExecutiveStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
 	e.config.WorkspaceRoot = ws
 	result := &ExecutionResult{
-		SuccessfulWriteTools: 1,
-		WrittenPaths:         []string{"x_test.go"},
-		PreWriteContents:     map[string]PreImage{"x_test.go": existed(kept + gone)},
+		WriteToolEffects: 1,
+		WrittenPaths:     []string{"x_test.go"},
+		PreWriteContents: map[string]PreImage{"x_test.go": existed(kept + gone)},
 	}
 	turn := result.turnAtom()
 

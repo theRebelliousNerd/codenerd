@@ -172,9 +172,9 @@ func TestVerifyAndRepairRemovedTests_NoModelToAskFailsNamingThem(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := &ExecutionResult{
-		SuccessfulWriteTools: 1,
-		WrittenPaths:         []string{"x_test.go"},
-		PreWriteContents:     map[string]PreImage{"x_test.go": existed(kept + "\nfunc TestGone(t *testing.T) {}\n")},
+		WriteToolEffects: 1,
+		WrittenPaths:     []string{"x_test.go"},
+		PreWriteContents: map[string]PreImage{"x_test.go": existed(kept + "\nfunc TestGone(t *testing.T) {}\n")},
 	}
 	_, _, err := h.executor.verifyAndRepairRemovedTests(context.Background(), nil, "", nil, nil, nil, result)
 	if err == nil || !errors.Is(err, ErrVerificationFailed) || !strings.Contains(err.Error(), "x_test.go:TestGone") {

@@ -77,7 +77,7 @@ func TestAuditFinalReport(t *testing.T) {
 			client := &auditClient{answer: tc.answer}
 			e := NewExecutor(nil, nil, client, nil, nil, nil)
 			e.config = DefaultExecutorConfig()
-			result := &ExecutionResult{Response: report, SuccessfulWriteTools: tc.writes}
+			result := &ExecutionResult{Response: report, WriteToolEffects: tc.writes}
 			e.auditFinalReport(context.Background(), "Delete the 189 generated files.", result)
 			if (client.calls == 1) != tc.wantCall {
 				t.Errorf("classifier calls = %d, want call=%v", client.calls, tc.wantCall)
@@ -101,7 +101,7 @@ func TestAuditFinalReport_ShowsTheClassifierTheRequest(t *testing.T) {
 	e := NewExecutor(nil, nil, client, nil, nil, nil)
 	e.config = DefaultExecutorConfig()
 	request := "Bring the check to a pass by changing Docs/a.md. The check runs again when this task is done."
-	result := &ExecutionResult{Response: "Added the missing line to Docs/a.md.", SuccessfulWriteTools: 1}
+	result := &ExecutionResult{Response: "Added the missing line to Docs/a.md.", WriteToolEffects: 1}
 	e.auditFinalReport(context.Background(), request, result)
 	if !strings.Contains(client.prompt, "Task:\n"+request) {
 		t.Errorf("the classifier was not shown the request:\n%s", client.prompt)

@@ -56,8 +56,8 @@ func TestWriteGuard_ARefusedWriteNeverRuns(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(ws, "free.go")); err != nil {
 		t.Fatalf("free.go was not written: %v", err)
 	}
-	if result.SuccessfulWriteTools != 1 || len(result.WrittenPaths) != 1 || result.WrittenPaths[0] != "free.go" {
-		t.Fatalf("SuccessfulWriteTools=%d WrittenPaths=%v, want only free.go", result.SuccessfulWriteTools, result.WrittenPaths)
+	if result.WriteToolEffects != 1 || len(result.WrittenPaths) != 1 || result.WrittenPaths[0] != "free.go" {
+		t.Fatalf("WriteToolEffects=%d WrittenPaths=%v, want only free.go", result.WriteToolEffects, result.WrittenPaths)
 	}
 	if _, snapped := result.PreWriteContents["held.go"]; snapped {
 		t.Fatal("a refused write left a preimage")

@@ -72,7 +72,7 @@ func (e *Executor) closeChangeEvidence(ctx context.Context, result *ExecutionRes
 		return nil
 	}
 	workspace := e.workspaceForVerification()
-	if result.SuccessfulWriteTools > 0 {
+	if result.WriteToolEffects > 0 {
 		result.ChangeStage = "artifact_changed"
 		// The build round ran: the gates it and the rounds after it measured
 		// are this turn's evidence, remeasured on what the rounds left.
@@ -301,7 +301,7 @@ func (e *Executor) closeAcceptanceEvidence(ctx context.Context, result *Executio
 		}
 		return
 	}
-	if result.SuccessfulWriteTools > 0 && result.ChangeStage == "checks_passed" {
+	if result.WriteToolEffects > 0 && result.ChangeStage == "checks_passed" {
 		current, err := evidence.Snapshot(ctx, e.workspaceForVerification())
 		if err != nil || current != result.ChecksSnapshot {
 			result.ChangeStage = "artifact_changed"
@@ -331,7 +331,7 @@ func (e *Executor) appendEvidenceSummary(result *ExecutionResult) {
 		result.Response += "\n\n" + result.Acceptance.Summary()
 		return
 	}
-	if result.SuccessfulWriteTools == 0 {
+	if result.WriteToolEffects == 0 {
 		return
 	}
 	stage := result.ChangeStage

@@ -321,8 +321,8 @@ func TestForceFinalAnswer_PiggybackOfferedWriteExecutes(t *testing.T) {
 	if execCount != 1 {
 		t.Fatalf("execCount=%d, want 1", execCount)
 	}
-	if result.SuccessfulWriteTools != 1 {
-		t.Fatalf("SuccessfulWriteTools=%d, want 1", result.SuccessfulWriteTools)
+	if result.WriteToolEffects != 1 {
+		t.Fatalf("WriteToolEffects=%d, want 1", result.WriteToolEffects)
 	}
 	if len(final.ToolCalls) != 0 {
 		t.Fatalf("final.ToolCalls=%v, want cleared", final.ToolCalls)
