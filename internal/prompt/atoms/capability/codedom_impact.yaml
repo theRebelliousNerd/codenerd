@@ -71,7 +71,7 @@
 
     A single `edit_element` call commits this way on its own. For an atomic
     change across files, put the line edits in one `apply_edits edits=[...]`
-    call (2-16 entries, one distinct existing file per entry): every entry
+    call (1-16 entries, one distinct existing file per entry): every entry
     is staged and validated before the commit, and the commit writes all
     files or rolls back to the snapshots.
 

@@ -22,7 +22,7 @@ const maxAggregateInputBytes = 1 << 20 // 1 MiB
 func ApplyEditsTool() *tools.Tool {
 	return &tools.Tool{
 		Name:        "apply_edits",
-		Description: "Transactionally apply 2-16 line edits across distinct existing files. Each entry is one of edit_lines, insert_lines, or delete_lines with the same arguments as the single-file tools, including precondition: a supplied read handle is checked against the file before anything is planned, exactly as the single-file tool checks it. Every edit is planned and validated before commit; optimistic conflict checks and best-effort rollback protect against partial writes.",
+		Description: "Transactionally apply 1-16 line edits across distinct existing files. Each entry is one of edit_lines, insert_lines, or delete_lines with the same arguments as the single-file tools, including precondition: a supplied read handle is checked against the file before anything is planned, exactly as the single-file tool checks it. Every edit is planned and validated before commit; optimistic conflict checks and best-effort rollback protect against partial writes.",
 		Category:    tools.CategoryCode,
 		Priority:    80,
 		Execute:     executeApplyEdits,
@@ -31,7 +31,7 @@ func ApplyEditsTool() *tools.Tool {
 			Properties: map[string]tools.Property{
 				"edits": {
 					Type:        "array",
-					Description: "Array of 2-16 edit objects, each with operation and path plus operation-specific fields, one distinct existing file per edit. Each object may carry " + precondition.Arg + ": " + precondition.ArgDescription,
+					Description: "Array of 1-16 edit objects, each with operation and path plus operation-specific fields, one distinct existing file per edit. Each object may carry " + precondition.Arg + ": " + precondition.ArgDescription,
 					Items:       &tools.PropertyItems{Type: "object"},
 				},
 			},
@@ -93,8 +93,11 @@ func executeApplyEdits(ctx context.Context, args map[string]any) (string, error)
 		return "", fmt.Errorf("edits must be an array")
 	}
 	n := len(rawSlice)
-	if n < 2 {
-		return "", fmt.Errorf("edits must contain at least 2 entries (got %d)", n)
+	// One entry is a valid transaction: the same edit as the single-file
+	// tool, staged and validated the same way. A floor of two refused it
+	// and cost the turn a round (problems log 2026-10-28).
+	if n < 1 {
+		return "", fmt.Errorf("edits must contain at least 1 entry (got %d)", n)
 	}
 	if n > 16 {
 		return "", fmt.Errorf("edits must contain at most 16 entries (got %d)", n)

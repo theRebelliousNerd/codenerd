@@ -234,7 +234,7 @@ func TestApplyEdits_SymlinkEscapeRejected(t *testing.T) {
 	if err := os.Symlink(outsideFile, linkAbs); err != nil {
 		t.Skipf("symlink not supported: %v", err)
 	}
-	// Need at least 2 edits, so create a real file too
+	// A real file beside the link: the escape is refused even mid-batch.
 	realRel := "real.txt"
 	writeFixture(t, dir, realRel, "real\n")
 	ctx := ctxForDir(dir)
@@ -426,17 +426,22 @@ func TestApplyEdits_Bounds(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "at most 16") {
 		t.Fatalf("expected at most 16 error, got %v", err)
 	}
-	// 1 should fail
-	_, err := executeApplyEdits(ctx, map[string]any{
+	// One edit is a valid transaction (problems log 2026-10-28: a single
+	// edit was refused "at least 2 entries" and cost the turn a round).
+	if _, err := executeApplyEdits(ctx, map[string]any{
 		"edits": []any{
-			map[string]any{"operation": "edit_lines", "path": files[0], "start_line": 1, "end_line": 1, "new_content": "HI"},
+			map[string]any{"operation": "edit_lines", "path": files[16], "start_line": 1, "end_line": 1, "new_content": "ONE"},
 		},
-	})
-	if err == nil {
-		t.Fatal("1 edit should fail (at least 2)")
+	}); err != nil {
+		t.Fatalf("1 edit should succeed: %v", err)
 	}
-	if !strings.Contains(err.Error(), "at least 2") {
-		t.Fatalf("expected at least 2, got %v", err)
+	if got, _ := os.ReadFile(filepath.Join(dir, files[16])); string(got) != "ONE\n" {
+		t.Fatalf("the single edit did not land: %q", got)
+	}
+	// None is not a request.
+	_, err := executeApplyEdits(ctx, map[string]any{"edits": []any{}})
+	if err == nil || !strings.Contains(err.Error(), "at least 1") {
+		t.Fatalf("0 edits: err = %v, want at least 1", err)
 	}
 }
 
