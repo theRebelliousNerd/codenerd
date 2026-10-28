@@ -22,7 +22,6 @@ This registry provides detailed documentation for all skills in the codeNERD dev
 | [SK-012](#sk-012-stress-tester) | stress-tester | Testing & QA | Utility |
 | [SK-015](#sk-015-codenerd-codex-exec) | codenerd-codex-exec | Codex Runtime | Core |
 | [SK-016](#sk-016-arch-propose) | arch-propose | Architecture (pre-impl) | Core |
-| [SK-017](#sk-017-corpus-build) | corpus-build | Architecture → Code | Core |
 | [SK-018](#sk-018-claude-to-codex-porter) | claude-to-codex-porter | Codex Migration | Utility |
 
 ---
@@ -718,59 +717,10 @@ cmd/nerd/chat/commands.go                 - /config engine command
 
 | Integrates With | Relationship |
 |-----------------|--------------|
-| corpus-build | Downstream realization of the corpus |
 | codenerd-builder | Architecture patterns during design |
 | mangle-programming | Planned Decl/policy surfaces |
 | prompt-architect | Planned prompt-atom surfaces |
 | spec-doc-sprint | Post-code documentation (not pre-impl) |
-
----
-
-## SK-017: corpus-build
-
-**Name:** `corpus-build`
-
-**Domain:** Spec-Driven Implementation
-
-**Description:** Spec-to-code engine. Reads architecture corpus, judges gaps, DAG-orders work units, serial build/test gates, surface-registry wiring, auditable skips.
-
-### Trigger Conditions
-
-- realize / build from spec / corpus-build / implement the architecture
-- Build missing code from `Docs/architecture/<subsystem>/`
-
-### Key Capabilities
-
-| Capability | Description |
-|------------|-------------|
-| Gap judgment | NONE/PARTIAL/MISSING/UNWIRED/DIVERGENT |
-| DAG build | Parallel worktrees with reserved-file intents |
-| Surface registry | `surfaces.yaml` + verify_surfaces.py |
-| Fleet | reader, judge, builder, critic, wiring, doc auditors |
-
-### Bundled Resources
-
-| Resource | Type | Purpose |
-|----------|------|---------|
-| `references/surfaces.yaml` | Registry | Machine-authoritative surfaces |
-| `references/01-work-unit-types.md` | Reference | WU routing |
-| `references/03-dag-ordering-rules.md` | Reference | Levels + intents |
-| `references/vision-summary.md` | Reference | North-star inject |
-| `scripts/build_dag.py` | Script | Topo levels |
-| `scripts/record_skip.py` | Script | Auditable skips |
-| `scripts/verify_surfaces.py` | Script | Surface verdicts |
-| `.codex/agents/corpus-*.toml` | Agents | Native Codex implementation fleet |
-
-### Integration Points
-
-| Integrates With | Relationship |
-|-----------------|--------------|
-| arch-propose | Upstream design corpus |
-| go-architect | Implementation quality |
-| mangle-logic-architect | Non-trivial `.mg` WUs |
-| integration-auditor / wiring-auditor | Wiring adjudication |
-| spec-doc-sprint | Post-landing Spec reconcile |
-| nerd-evolve | Later optimization |
 
 ---
 
@@ -817,7 +767,7 @@ surfaces with a classified ledger and surface-specific validation.
 | skill-creator | Greenfield or materially redesigned skill packages |
 | codenerd-builder | codeNERD architecture and repository invariants |
 | integration-auditor | Activation and registry verification |
-| corpus-build / arch-propose | Fleet and skill ecosystems migrated by the porter |
+| arch-propose | Fleet and skill ecosystems migrated by the porter |
 
 ---
 

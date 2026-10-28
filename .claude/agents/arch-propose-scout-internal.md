@@ -132,7 +132,6 @@ Check these directories for prior findings that might apply:
 - `.arch-propose/research/cross-pollination/` (seeds)
 - `.codenerd-discover/research/cross-pollination/` (seeds from codenerd-discover)
 - `.codenerd-formulate/research/` (formulate runs touching adjacent math)
-- `.codenerd-evolve/research/` (evolve runs on adjacent packages)
 
 Record any reusable findings with their source path.
 

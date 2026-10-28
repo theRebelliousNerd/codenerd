@@ -21,6 +21,3 @@ enabled = true
 path = "C:/CodeProjects/codeNERD/.codex/skills/arch-propose"
 enabled = true
 
-[[skills.config]]
-path = "C:/CodeProjects/codeNERD/.codex/skills/corpus-build"
-enabled = true

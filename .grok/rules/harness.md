@@ -21,15 +21,14 @@ over sequential monolithic searching.
 | Config / boot / engines | skill `codenerd-config-expert` |
 | After substantial edits | skill `check-work` (or run build + targeted tests yourself) |
 | Design feature before code | skill `arch-propose` in `.agents/skills/` (imported from sibling Codex CLI port; **never edit `.codex/`**) |
-| Realize architecture corpus → code | skill `corpus-build` + micro-skills in `.agents/skills/` (imported from Codex; Grok owns this copy) |
 | Sibling Codex CLI | `.codex/` is **read-only** for Grok — see `Docs/architecture/_rebuild/CODEX_PORT_IS_CANONICAL.md` |
 | Fill Docs/Spec from existing code | skill `spec-doc-sprint` |
 
-**Design → build pipeline**: `arch-propose` → (human go) → `corpus-build` → optional `spec-doc-sprint` / `nerd-evolve`.
+**Design → build pipeline**: `arch-propose` → (human go) → implement → optional `spec-doc-sprint`.
 
 Built-ins always available: `general-purpose`, `explore`, `plan`.
 
-Project agents also present: `mangle-logic-architect`, `nerd-evolve-*`, `arch-propose-*`, `corpus-*`.
+Project agents also present: `mangle-logic-architect`, `arch-propose-*`.
 
 ## Wiring before deletion
 

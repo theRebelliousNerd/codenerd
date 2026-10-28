@@ -37,8 +37,6 @@ internal/campaign/.nerd/
 !.agents/skills/codenerd-codex-exec/**
 !.agents/skills/arch-propose/
 !.agents/skills/arch-propose/**
-!.agents/skills/corpus-build/
-!.agents/skills/corpus-build/**
 !.claude/
 .claude/*
 !.claude/agents/
@@ -77,29 +75,12 @@ internal/campaign/.nerd/
 .codex/agents/*
 !.codex/agents/arch-propose-*.toml
 !.codex/agents/arch-writer.toml
-!.codex/agents/corpus-*.toml
 !.codex/agents/requirements-interrogator.toml
 !.codex/agents/stress-tester.toml
 !.codex/skills/arch-propose/
 !.codex/skills/arch-propose/**
 !.codex/skills/claude-to-codex-porter/
 !.codex/skills/claude-to-codex-porter/**
-!.codex/skills/corpus-build/
-!.codex/skills/corpus-build/**
-!.codex/skills/corpus-comms-plumber/
-!.codex/skills/corpus-comms-plumber/**
-!.codex/skills/corpus-consumables-keeper/
-!.codex/skills/corpus-consumables-keeper/**
-!.codex/skills/corpus-critic/
-!.codex/skills/corpus-critic/**
-!.codex/skills/corpus-defense-auditor/
-!.codex/skills/corpus-defense-auditor/**
-!.codex/skills/corpus-doc-auditor/
-!.codex/skills/corpus-doc-auditor/**
-!.codex/skills/corpus-feature-tagging/
-!.codex/skills/corpus-feature-tagging/**
-!.codex/skills/corpus-jules-dispatcher/
-!.codex/skills/corpus-jules-dispatcher/**
 !.codex/skills/requirements-interrogator/
 !.codex/skills/requirements-interrogator/**
 !.codex/skills/stress-tester/
@@ -148,9 +129,8 @@ tmp*/
 Docs/research/
 Docs/plans/
 
-# arch-propose / corpus-build run scratch (skills own the durable templates)
+# arch-propose run scratch (the skill owns the durable templates)
 .arch-propose/
-.corpus-build/
 Docs/Spec/
 /scratch_*/
 vet_output.txt
@@ -194,8 +174,6 @@ internal/campaign/.nerd/campaigns/c_test_triage/
 
 !.claude/skills/arch-propose/
 !.claude/skills/arch-propose/**
-!.claude/skills/corpus-build/
-!.claude/skills/corpus-build/**
 
 
 # stress-tester skill (CLI live matrix surfaces) — track core docs
@@ -213,20 +191,6 @@ internal/campaign/.nerd/campaigns/c_test_triage/
 
 !.agents/skills/requirements-interrogator/
 !.agents/skills/requirements-interrogator/**
-!.agents/skills/corpus-comms-plumber/
-!.agents/skills/corpus-comms-plumber/**
-!.agents/skills/corpus-consumables-keeper/
-!.agents/skills/corpus-consumables-keeper/**
-!.agents/skills/corpus-critic/
-!.agents/skills/corpus-critic/**
-!.agents/skills/corpus-defense-auditor/
-!.agents/skills/corpus-defense-auditor/**
-!.agents/skills/corpus-doc-auditor/
-!.agents/skills/corpus-doc-auditor/**
-!.agents/skills/corpus-feature-tagging/
-!.agents/skills/corpus-feature-tagging/**
-!.agents/skills/corpus-jules-dispatcher/
-!.agents/skills/corpus-jules-dispatcher/**
 
 # Campaign test artifacts (written by internal/campaign tests)
 internal/campaign/campaigns/

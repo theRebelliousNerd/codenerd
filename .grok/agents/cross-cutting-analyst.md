@@ -341,7 +341,7 @@ When Pre-Implementation Mode is active:
 - **ENGINE-INTEGRATION-SURFACE**: frame every engine's row as what the feature INTENDS to produce/consume once built. For each engine marked in/out/both, the integration file:line is the planned file path with "(planned)" marker AND the adjacent-subsystem file:line where the hook would attach. That adjacent file:line is real, cite it.
 - **MISSION-CONTROLLABILITY**: describe planned mission integration. If the candidate doesn't specify mission scoping, flag as an OPEN-QUESTION and recommend the default (mission name = package-scope name).
 - **TESTING-REMEDIATION-SURFACE**: expected failure signatures derive from the candidate's stated invariants (in the synthetic audit §14 Key Findings). Each invariant gets a violation signature.
-- **STORYWORLD-INTEGRATION**: coverage rows are `planned` only — the PROPOSED beat from the winning candidate (case-side or analyst-frame), the planned seed-fixture shape, and the named follow-up owner (the corpus-build run). Never a status above `planned`; never fabricated scenes or fixtures. See the Pre-Implementation variant note in the template.
+- **STORYWORLD-INTEGRATION**: coverage rows are `planned` only — the PROPOSED beat from the winning candidate (case-side or analyst-frame), the planned seed-fixture shape, and the named follow-up owner (the implementation that builds the beat). Never a status above `planned`; never fabricated scenes or fixtures. See the Pre-Implementation variant note in the template.
 - **Mangle**: if the feature plans deductive predicates, name the planned `.mg` files (e.g., `mangle/<feature>/rules.mg`). Never embed Mangle rules in Go code per `.claude/rules/mangle.md`.
 
 # Persistent Agent Memory

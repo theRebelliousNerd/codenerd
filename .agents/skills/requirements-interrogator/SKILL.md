@@ -5,7 +5,7 @@ description: >
   ambiguous feature plans into pinned contracts by probing Mangle predicates,
   constitutional permission paths, JIT prompt behavior, lifecycle wiring,
   persistence, recovery, observability, tests, and migration risk. Use before
-  substantial corpus-build or arch-propose decisions. Do not use for routine
+  substantial implementation or arch-propose decisions. Do not use for routine
   implementation or generic brainstorming.
 metadata:
   version: 1.0.0
@@ -21,7 +21,7 @@ Interrogate a plan until its behavior can be implemented and falsified.
 
 Require a plan or candidate plus available code/corpus evidence. Write the
 interrogation record to the path supplied by the orchestrator, normally under
-`.arch-propose/interrogations/` or `.corpus-build/contracts/`.
+`.arch-propose/interrogations/`.
 
 ## Dimensions
 

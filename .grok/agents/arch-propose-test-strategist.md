@@ -20,7 +20,6 @@ skills:
   - arch-propose
   - go-architect
   - stress-tester
-  - corpus-build
 ---
 
 > **codeNERD port of full Vectryx agent body.** Creative center = LLM; executive = Mangle kernel. Fact flow: `user_intent` → `next_action` → VirtualStore → articulation. JIT prompt atoms; constitutional `permitted(...)` (default deny). Architecture corpora live under `Docs/architecture/`. Prefer extend-existing packages; audit wiring before deleting “unused” code.

@@ -395,7 +395,6 @@ The high-value section. Convert every prior section's findings into a phase-orde
 - [ ] `make test-all` green
 - [ ] `make test-cyber-torture-race` green (if §2.11 added security surface)
 - [ ] `make mangle-antipattern-check` green (if §2.8 added Mangle rules)
-- [ ] `corpus-build <feature>` produces no gaps
 - [ ] `integration-auditor` skill reports no wiring gaps
 - [ ] /arch <feature> regenerates docs from actual code (transitions corpus from Pre-Implementation to shipped)
 ```
@@ -424,7 +423,6 @@ The high-value section. Convert every prior section's findings into a phase-orde
 - `agent-corpus-manager` — to generate the new agent's corpus
 - `codenerd-train` or `onnx-training` — if §2.9 added models
 - `mangle-programming` + `mangle-cli` — if §2.8 added Mangle rules
-- `corpus-build` — to drive implementation from this corpus
 - `integration-auditor` — to verify wiring after Phase 5
 - `test-forge:grind` — to execute the testing strategy
 

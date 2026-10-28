@@ -19,7 +19,7 @@ skills to load, and which subagents/personas to use.
 Grok also loads these via harness compatibility — leave them where they live:
 
 - **Skills**: `.agents/skills/*`, `.claude/skills/*` (codenerd-builder, mangle-programming, …)
-- **Claude agents**: `.claude/agents/*` (mangle-logic-architect, nerd-evolve-*)
+- **Claude agents**: `.claude/agents/*` (mangle-logic-architect, arch-propose-*)
 - **Root rules**: `AGENTS.md`, `Claude.md`
 
 ## Quick use

@@ -7,8 +7,7 @@ description: >
   an evidence-grounded feature corpus under Docs/architecture/.
   Use for new subsystem design, architecture exploration, or expanding an
   incomplete pre-implementation corpus. Do not use for code-first documentation
-  of an existing implementation (use spec-doc-sprint) or spec-to-code work (use
-  corpus-build).
+  of an existing implementation (use spec-doc-sprint) or spec-to-code work.
 metadata:
   version: 3.0.0
   author: codeNERD
@@ -215,7 +214,7 @@ Write `.arch-propose/journal/<date>_<feature>.md` containing:
 - generated file manifest
 - compliance results
 - reusable seeds
-- recommended `corpus-build` entry conditions
+- recommended implementation entry conditions
 
 Keep the user report short and point to exact artifact paths.
 
