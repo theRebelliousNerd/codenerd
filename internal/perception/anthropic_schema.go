@@ -40,7 +40,7 @@ func (c *AnthropicClient) CompleteWithSchema(ctx context.Context, system, user, 
 		req.OutputConfig = &AnthropicOutputConfig{}
 	}
 	req.OutputConfig.Format = &AnthropicOutputFormat{Type: "json_schema", Schema: wire}
-	result, err := c.completeText(ctx, req, "CompleteWithSchema", usageOpChat)
+	result, err := c.completeText(ctx, req, anthropicInput{history: userTurn(user)}, "CompleteWithSchema", usageOpChat)
 	if err != nil {
 		return "", err
 	}

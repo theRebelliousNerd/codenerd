@@ -47,6 +47,19 @@ jev_disputes_mutation() :-
 
 needs_clarification() :- jev_disputes_mutation().
 
+# A request Jev reads as wanting files changed, with no file, function or
+# feature named, asks first, whatever category perception gave it. "Make the
+# word handling better" arrived as a low-confidence /query /review: no lane
+# derived, and the legacy delegate_task path ran a reviewer on it. A turn that
+# answers held work is not a request: it names nothing because the held work
+# does.
+needs_clarification() :-
+    user_intent(/current_intent, _, _, _, _),
+    jev_yes("changes_files"),
+    jev_no("names_target"),
+    !work_proposal_pending(),
+    !approve_lane().
+
 # A go-ahead perception did not read as one ("yes, ship it" classified as a
 # fix): Jev says the user approves the held work and asks for nothing beyond
 # it ("go, and also add a test" is a new request, not the held one).
@@ -93,3 +106,12 @@ review_suspect(ReviewID, "jev_refuted_finding") :-
 injectable_context("*", Text) :-
     review_finding_refuted(ReviewID, File, Line),
     Text = fn:string:concat("A review finding at ", File, ":", fn:number:to_string(Line), " is not visible in the code it cites; verify it before acting on it.").
+
+# Restrictions Jev reads that perception's vocabulary missed ("just look,
+# don't touch anything"; a what-if). The chat merges them into the turn's
+# restriction (perception.Restriction.Merge), which only ever adds kinds, so
+# constitution.mg section 7D then bars the effects. Jev can make a turn more
+# restricted, never less.
+Decl jev_restriction(Kind) bound [/name].
+jev_restriction(/read_only) :- jev_yes("rules_out_changes").
+jev_restriction(/hypothetical) :- jev_yes("hypothetical").

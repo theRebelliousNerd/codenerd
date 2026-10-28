@@ -1150,7 +1150,7 @@ func (c *OpenAICompatClient) admit(ctx context.Context, system string, messages 
 			return fmt.Errorf("shard profile reasoning_effort %q: %w", effort, err)
 		}
 	}
-	return admitInputWindow(c.maxInputTokens, c.vendor, c.GetModel(), system, messages, tools)
+	return admitInputWindow(c.maxInputTokens, c.vendor, c.GetModel(), system, messages, tools, 0)
 }
 
 func (c *OpenAICompatClient) ModelIdentity() (string, string) {

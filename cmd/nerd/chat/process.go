@@ -215,6 +215,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		// confirm first) rides the turn's context, so every delegation,
 		// preset task and subagent this turn starts runs under it and none can
 		// drop it (perception/restriction.go; policy/constitution.mg, section 7D).
+		intent.Restriction = intent.Restriction.Merge(m.jevRestriction())
 		ctx = perception.WithRestriction(ctx, intent.Restriction)
 		for _, job := range m.stopRequestedBackground() {
 			warnings = append(warnings, fmt.Sprintf("Stopping background %s: %s", job.Shard, oneLine(job.Task)))

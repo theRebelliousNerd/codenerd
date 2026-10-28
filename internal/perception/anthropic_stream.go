@@ -21,7 +21,8 @@ func (c *AnthropicClient) CompleteWithStreaming(ctx context.Context, system, use
 		defer w.Close()
 		ctx, cancel := context.WithTimeout(ctx, c.httpClient.Timeout)
 		defer cancel()
-		if err := c.admitInput(system, userTurn(user), nil); err != nil {
+		// A streamed request declares no server tool, so none is counted.
+		if err := c.admit(system, userTurn(user), nil, nil); err != nil {
 			w.Fail(err)
 			return
 		}

@@ -276,23 +276,23 @@ The defining capability is simple: when codeNERD says it has learned a qualified
 
 ## As-built (2026-10-28, branch feat/conversation-brief)
 
-Status: **partial**. The perception-side findings (operation context, worker admission and lifetime, honest persistence outcome) are built and tested. The SQL qualifier round trip needs a change in `internal/store/learned_store.go`, which another lane owns; it is specified below and not built.
+Status: **partial**. The perception-side findings (operation context, worker admission and lifetime, honest persistence outcome), the SQL qualifier round trip, the store's own use-after-close and lock-wait defense, and the headless shutdown drain are built and tested. What remains is GAP-LCI-04's crash-durable retry, the automatic-learning admission policy and GAP-LCI-05 (see Deliberately left open).
 
 ### Claims re-verified against the working tree
 
 | Claim | Verdict | Evidence now |
 |---|---|---|
 | Contextless constructors are test seams, `WithContext` forms are live | True | `internal/store/test_seams_test.go:11-17`; production uses `perception.NewLearnedCorpusStoreWithContext` (`semantic_classifier.go:1123`) |
-| SQL ANN query scans `constraint_text` and drops it | Real, open | `store/learned_store.go:550,571,577` scan into a local never copied; `SemanticMatch` has no constraint field (`:617-625`) |
-| Brute-force fallback does not select the constraint | Real, open | `store/learned_store.go:470` selects `pattern, verb, target, embedding` only |
-| Perception adapter returns `Constraint: ""` | Real, open (blocked on the store field) | `semantic_classifier.go:1201` |
+| SQL ANN query scans `constraint_text` and drops it | **Fixed** | `store/learned_store.go` `searchVec` copies `constraintText` into `match.Constraint` (`:635`); `SemanticMatch.Constraint` (`:668` struct) |
+| Brute-force fallback does not select the constraint | **Fixed** | `searchBruteForce` selects `constraint_text` and scans it into the match (`:520`, `:543`) |
+| Perception adapter returns `Constraint: ""` | **Fixed** | `semantic_classifier.go:1207` passes `m.Constraint` |
 | Durable `Add` replaces the operation context | **Fixed** | `LearnedCorpusStore.Add` now takes `ctx` and passes it to `backend.AddPattern` (`semantic_classifier.go`, `Add`) |
 | Stale comment describes an Ollama literal socket timeout | **Fixed** (comment rewritten) | Ollama reads `EmbedRequestTimeout()` at `embedding/ollama.go:79-87`; `learning.go` `learnedPatternContext` comment now says so |
 | `Enqueue` checks capacity only; admissible after `Stop`; no result | **Fixed** | `consolidation.go` `Enqueue` returns `Admission`, linearized with closure on one mutex |
 | Queue bound is count only | **Fixed** | `consolidationQueueBytes` budget over retained trace text (an empty queue still admits one history) |
-| Cortex close does not drain the worker; chat stops it after | **Fixed on the chat path and in `ClosePerceptionLayer`; headless Cortex close still needs one change in `internal/system/cortex_close.go`** | `model_lifecycle.go` joins the worker before `cortex.Close()`; `transducer.go` `ClosePerceptionLayer` joins it before closing the classifier. `cortex_close.go:223` still runs that step under the 8 s `closeStepTimeout` (`:20`, `:292-311`), which abandons the call and goes on to `LocalDB.Close` while a long drain continues |
-| `AddPattern` can dereference a nil `s.db` after a concurrent `Close` | Real, open (store lane) | `store/learned_store.go:387` takes the write lock and calls `s.db.ExecContext` with no closed check, while `Close` sets `s.db = nil` (`:599-610`). Search checks `s.db == nil` (`:441`); Add does not |
-| Write-lock wait ignores the context | Real, open (store lane) | `store/learned_store.go:387` plain `s.mu.Lock()` |
+| Cortex close does not drain the worker; chat stops it after | **Fixed** (chat path, `ClosePerceptionLayer`, and now headless `Cortex.Close`) | `model_lifecycle.go` joins the worker before `cortex.Close()`; `transducer.go` `ClosePerceptionLayer` joins it before closing the classifier. `cortex_close.go` `closePerceptionLayer` (`:290-309`, called at `:223`) joins the worker untimed (`perception.ShutdownSharedTaxonomy()`, budgeted inside by `per_call_timeout + embedding.request_timeout`) before the timed `ClosePerceptionLayer` step, so the 8 s `closeStepTimeout` can no longer abandon a drain ahead of `LocalDB.Close` |
+| `AddPattern` can dereference a nil `s.db` after a concurrent `Close` | **Fixed** | `AddPattern` re-checks `s.db == nil` and `ctx.Err()` after taking the write lock (`store/learned_store.go:430-437`); `Close` still sets `s.db = nil` (`:649`) |
+| Write-lock wait ignores the context | **Fixed** | the write lock (`:424`) and the engine-snapshot read lock (`:399`) are taken through `acquireContext` (`:360`): a contended wait ends with the context and hands the lock back when it is finally granted, with no new dependency |
 | `PersistLearnedFact` returns success when semantic/knowledge writes fail | **Fixed** | returns a `PersistOutcome` |
 | Prompt-evolution lifecycle work does not cover the taxonomy worker | True, unchanged | separate subsystem |
 
@@ -317,11 +317,16 @@ Status: **partial**. The perception-side findings (operation context, worker adm
 
 Existing tests updated for the new signatures: `learning_uplift_test.go`, `wallclock_cleanup_test.go`, `semantic_classifier_test.go`.
 
+### Store and shutdown leftovers, built
+
+- **Qualifier parity (GAP-LCI-01, store half).** `SemanticMatch.Constraint` is set by both search paths, and `LearnedCorpusStore.Search` in perception passes it on, so a qualified mapping survives a reopen to the exemplar `BuildPrompt` renders.
+- **Store defense.** `AddPattern` refuses a closed store (`learned corpus store not initialized`) and an ended context after the lock, and its lock waits honour the context (`lockContext`, `rlockContext`, `acquireContext`).
+- **Headless shutdown.** `closePerceptionLayer(stepTimeout)` in `internal/system/cortex_close.go` runs `perception.ShutdownSharedTaxonomy()` untimed, reports a drain that ran out of its own budget as a Close error (`consolidation worker: ...`), then runs `ClosePerceptionLayer` under the step timeout, where the second shutdown is a no-op.
+
+Tests added: `internal/store/learned_constraint_test.go`: `TestLearnedStore_ConstraintSurvivesReopenOnBothSearchPaths` (ANN and brute force, a non-empty and an empty constraint), `TestLearnedStore_AddPatternAfterCloseIsRefused`, `TestLearnedStore_CloseDuringEmbeddingIsRefused`, `TestLearnedStore_AddPatternObservesContextAfterTheLock`, `TestLearnedStore_AddPatternLockWaitsHonourContext` (contended at the start and taken while embedding; the store takes a write afterwards). `internal/perception/learned_constraint_test.go`: `TestLearnedCorpusStore_SearchCarriesTheQualifierAfterReopen` (real SQLite backend, reopen, selected `SemanticMatch.Constraint` and the rendered `BuildPrompt` exemplar, plus the empty case). `internal/system/cortex_close_consolidation_test.go`: `TestClosePerceptionLayer_DrainOutlivesTheStepTimeout` (a critic call that outlives the step timeout has finished when the close returns).
+
 ### Deliberately left open
 
-- **GAP-LCI-01, qualifier parity (needs `internal/store/learned_store.go`).** Required change: add `Constraint string` to `store.SemanticMatch`; in `searchVec` set `match.Constraint = constraintText.String`; in `searchBruteForce` select `constraint` (`constraint_text`) and scan it into the match. Then `LearnedCorpusStore.Search` in perception sets `Constraint: m.Constraint` instead of `""`. Tests to add on that change: write with a nonempty constraint, search via ANN and via brute force (drop `vec_learned`), close and reopen, and assert the selected `SemanticMatch.Constraint` and the rendered `BuildPrompt` example both carry it; plus an empty-constraint case so absence is not confused with loss. Not built here to avoid editing the store lane's files; nothing in perception can read the column without it.
-- **Store use-after-close and lock-wait cancellation (store lane).** `AddPattern` must re-check `s.db != nil` and `ctx.Err()` after taking the lock, and take the lock in a context-aware way (or document a bounded wait). Until then, the join-before-close ordering above is what prevents the nil-database interleaving in production; the store should still defend itself.
-- **Headless `Cortex.Close` (`internal/system/cortex_close.go`, not editable here).** `perception.ClosePerceptionLayer` now drains the worker, but `runCloseStep("ClosePerceptionLayer", closeStepTimeout, ...)` (`:223`) gives up after 8 s and proceeds to `LocalDB.Close`. The step should be called directly and un-timed like `JITCompiler.Close` (the drain is already budgeted inside `ShutdownSharedTaxonomy`), or `perception.ShutdownSharedTaxonomy()` should be called un-timed just before it.
 - **Durable outbox / crash recovery, retry identity (GAP-LCI-04, P2).** The outcome is honest and in memory; there is no restart reconciliation of a pending semantic projection, and the in-memory queue is not crash-durable. A projection that failed is reported to the caller and the worker log, not retried.
 - **Automatic-learning admission policy.** The consolidation path still persists the critic's fact directly while chat stages candidates for confirmation. The doc asks for that decision to be written down, not changed; no kernel policy was added.
 - **Same-process re-initialization.** A stopped `SharedTaxonomy` is not restarted; its submissions are rejected visibly. No production path reinitializes within a process.

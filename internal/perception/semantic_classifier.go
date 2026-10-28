@@ -1204,7 +1204,7 @@ func (s *LearnedCorpusStore) Search(queryEmbed []float32, topK int) ([]SemanticM
 				TextContent: m.TextContent,
 				Verb:        m.Verb,
 				Target:      m.Target,
-				Constraint:  "",
+				Constraint:  m.Constraint,
 				Similarity:  m.Similarity,
 				Rank:        m.Rank,
 				Source:      "learned",

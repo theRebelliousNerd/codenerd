@@ -220,7 +220,7 @@ func (c *Cortex) Close() error {
 	c.EmbeddingEngine = nil
 
 	if c.perceptionInitialized {
-		if err := runCloseStep("ClosePerceptionLayer", closeStepTimeout, perception.ClosePerceptionLayer); err != nil {
+		if err := closePerceptionLayer(closeStepTimeout); err != nil {
 			errs = append(errs, err)
 		}
 		c.perceptionInitialized = false
@@ -285,6 +285,27 @@ func (c *Cortex) Close() error {
 		return errors.Join(errs...)
 	}
 	return nil
+}
+
+// closePerceptionLayer joins the learning consolidation worker, then closes
+// the perception layer under stepTimeout. The worker persists through the
+// classifier and the stores closed after this step, and its drain waits for
+// the in-flight critic call and embedding. That wait is budgeted inside
+// ShutdownSharedTaxonomy (llm_timeouts.per_call_timeout plus
+// embedding.request_timeout) and always ends with the worker joined, so it
+// runs untimed: under stepTimeout a long drain would be abandoned while the
+// worker went on using what Close tears down next. A drain that ran out of its
+// own budget is reported, not swallowed. ClosePerceptionLayer joins the worker
+// too; after this it is a no-op.
+func closePerceptionLayer(stepTimeout time.Duration) error {
+	var errs []error
+	if err := perception.ShutdownSharedTaxonomy(); err != nil {
+		errs = append(errs, fmt.Errorf("consolidation worker: %w", err))
+	}
+	if err := runCloseStep("ClosePerceptionLayer", stepTimeout, perception.ClosePerceptionLayer); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
 }
 
 // runCloseStep runs fn with a hard timeout. On timeout it logs and returns

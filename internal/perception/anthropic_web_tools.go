@@ -8,6 +8,7 @@ import (
 
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/prompt"
 	"codenerd/internal/types"
 )
 
@@ -40,18 +41,51 @@ func (c *AnthropicClient) serverTools(model string) []AnthropicTool {
 	return tools
 }
 
+// anthropicInput is a request's input in the neutral form the slot's input
+// cap measures: the transcript and the codeNERD tool catalog the request was
+// built from. exchange needs it beside the wire request because a resumption
+// is admitted as the executor measures a request, and the wire form is not
+// that measure.
+type anthropicInput struct {
+	history []types.Message
+	defs    []types.ToolDefinition
+}
+
+// serverDeclarationTokens is the tokens the server tool declarations put in a
+// request, measured as a codeNERD tool catalog is: their JSON through
+// prompt.EstimateTokens. It is the declarations alone. The provider's own
+// prompt for the tools they enable is defined by the provider and is not
+// measured here, so an admitted count for a request with web tools stays a
+// lower bound by that much.
+func serverDeclarationTokens(server []AnthropicTool) (int, error) {
+	if len(server) == 0 {
+		return 0, nil
+	}
+	encoded, err := json.Marshal(server)
+	if err != nil {
+		return 0, fmt.Errorf("encode the server tool declarations: %w", err)
+	}
+	return prompt.EstimateTokens(string(encoded)), nil
+}
+
 // exchange sends a non-streaming request with the slot's server web tools
-// declared and returns the turn whole. A turn the endpoint paused while its
-// server tools ran (pause_turn) is resumed by sending the paused content back
-// as the assistant's turn so far, up to anthropicMaxPauseResumes times; the
-// returned response carries every part's content in order and the usage of
-// every request, each of which was billed. The turn's grounding sources --
-// the results its searches and fetches returned and the URLs its text cites
-// -- are recorded for GetLastGroundingSources, cleared first so a later call
-// never reports a page it did not use.
-func (c *AnthropicClient) exchange(ctx context.Context, req AnthropicRequest, plan anthropicCachePlan) (*AnthropicResponse, error) {
+// declared and returns the turn whole. in is the neutral form of req's input.
+// A turn the endpoint paused while its server tools ran (pause_turn) is
+// resumed by sending the paused content back as the assistant's turn so far,
+// up to anthropicMaxPauseResumes times; the returned response carries every
+// part's content in order and the usage of every request, each of which was
+// billed. The first request was admitted by the caller; each resumption is a
+// larger request (the paused content is cumulative and carries every fetched
+// page), so it is admitted here, after a cancelled context is seen and before
+// it is sent, against the same window and with the same declarations as the
+// first. The turn's grounding sources -- the results its searches and fetches
+// returned and the URLs its text cites -- are recorded for
+// GetLastGroundingSources, cleared first so a later call never reports a page
+// it did not use.
+func (c *AnthropicClient) exchange(ctx context.Context, req AnthropicRequest, plan anthropicCachePlan, in anthropicInput) (*AnthropicResponse, error) {
 	c.recordGroundingSources(nil)
-	if server := c.serverTools(req.Model); len(server) > 0 {
+	server := c.serverTools(req.Model)
+	if len(server) > 0 {
 		req.Tools = append(append([]AnthropicTool(nil), req.Tools...), server...)
 	}
 	resp, err := c.postMessages(ctx, req, plan)
@@ -61,6 +95,14 @@ func (c *AnthropicClient) exchange(ctx context.Context, req AnthropicRequest, pl
 	for resumes := 0; resp.StopReason == "pause_turn"; resumes++ {
 		if resumes == anthropicMaxPauseResumes {
 			return nil, fmt.Errorf("Anthropic paused the turn %d times while its server tools ran; it was not completed", resumes+1)
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("resume the paused Anthropic turn: %w", err)
+		}
+		paused := types.NewAssistantMessage(blocksFromAnthropicContent(resp.Content)...)
+		grown := append(in.history[:len(in.history):len(in.history)], paused)
+		if err := c.admit(req.System, grown, in.defs, server); err != nil {
+			return nil, fmt.Errorf("resume the paused Anthropic turn: the continuation was not sent, and the %d request(s) before it were: %w", resumes+1, err)
 		}
 		next := req
 		next.Messages = append(append([]AnthropicMessage(nil), req.Messages...), AnthropicMessage{Role: "assistant", Content: resp.Content})

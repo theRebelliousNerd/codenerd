@@ -21,6 +21,7 @@ const (
 	Hypothetical     = "hypothetical"
 	AboutCodeNERD    = "about_codenerd"
 	WantsToStop      = "wants_to_stop"
+	RulesOutChanges  = "rules_out_changes"
 	ApprovesHeldWork = "approves_held_work"
 	AddsToHeldWork   = "adds_to_held_work"
 	answeredPrefix   = "answered_"
@@ -62,6 +63,13 @@ func fixedQuestions() map[string]typesafe.Question {
 			Criteria: &typesafe.NoulCriteria{
 				True:  "The user asks why the assistant failed, asks it to debug itself, or points it at its own logs.",
 				False: "The user asks about their own code or project, even code that has bugs.",
+			},
+		},
+		RulesOutChanges: typesafe.Noul{
+			Instructions: "Has the user ruled out changing any files for this request?",
+			Criteria: &typesafe.NoulCriteria{
+				True:  "The user says to only look, read, explain or report, and not to change, edit, write or touch anything.",
+				False: "The user asks for changes, allows them, or says nothing about whether files may change.",
 			},
 		},
 		WantsToStop: typesafe.Noul{

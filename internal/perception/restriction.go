@@ -109,6 +109,13 @@ func newRestriction(kinds []RestrictionKind, text string, unenforced []string) R
 	return Restriction{kinds: kinds, text: text, unenforced: seen}
 }
 
+// RestrictionOf is a restriction of the given kinds from another reader of
+// the turn than perception (Jev's judgments, policy/jev_evidence.mg). It only
+// ever adds to the turn's restriction through Merge.
+func RestrictionOf(text string, kinds ...RestrictionKind) Restriction {
+	return newRestriction(kinds, text, nil)
+}
+
 // Kinds returns the enforceable kinds, sorted. The slice is a copy.
 func (r Restriction) Kinds() []RestrictionKind { return slices.Clone(r.kinds) }
 

@@ -431,5 +431,42 @@
    "hypothetical": true,
    "changes_files": false
   }
+ },
+ {
+  "id": "look-dont-touch",
+  "message": "just look at the retry code and tell me what's wrong, don't change anything",
+  "expect": {
+   "rules_out_changes": true,
+   "changes_files": false
+  }
+ },
+ {
+  "id": "read-only-review",
+  "message": "review internal/auth, read-only please",
+  "expect": {
+   "rules_out_changes": true
+  }
+ },
+ {
+  "id": "fix-allowed",
+  "message": "fix the retry bug in internal/retry",
+  "expect": {
+   "rules_out_changes": false,
+   "changes_files": true
+  }
+ },
+ {
+  "id": "question-no-rule",
+  "message": "where do we configure the retry policy?",
+  "expect": {
+   "rules_out_changes": false
+  }
+ },
+ {
+  "id": "report-only",
+  "message": "don't fix it yet, just report what you find in the parser",
+  "expect": {
+   "rules_out_changes": true
+  }
  }
 ]

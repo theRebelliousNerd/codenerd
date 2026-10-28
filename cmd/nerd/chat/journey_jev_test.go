@@ -120,6 +120,23 @@ func TestJevJourney_DisputedMutationAsksFirst(t *testing.T) {
 	}
 }
 
+// "Make the word handling better": perception read a low-confidence query,
+// Jev reads a request to change files that names no code. It asks first
+// instead of letting a reviewer run on a guess.
+func TestJevJourney_UnnamedChangeRequestAsksFirstWhateverPerceptionCalledIt(t *testing.T) {
+	m, exec := journeyModel(t, config.WorkModeYolo, perception.Intent{})
+	m = withJev(t, m, &fakeJevServer{probs: map[string]float64{"changes_files": 0.88, "names_target": 0.09}})
+	intent := perception.Intent{Category: "/query", Verb: "/review", Target: "word handling", Confidence: 0.45, IsQuestion: true}
+	assertRouteIntent(t, m, intent)
+	m.recordTurnJudgments(m.shutdownCtx, m.startTurnJudgments(m.shutdownCtx, "make the word handling better", nil))
+	if route := m.decideRoute("make the word handling better", intent, "reviewer"); route.Kind != RouteClarify {
+		t.Fatalf("route = %s, want clarify", route.Kind)
+	}
+	if exec.callCount() != 0 {
+		t.Fatal("work ran on an unnamed change request")
+	}
+}
+
 // Perception kept an open question that the user's message answers: Jev's
 // judgment closes it, and yolo starts the work instead of holding.
 func TestJevJourney_AnsweredOpenQuestionUnblocksYolo(t *testing.T) {
@@ -246,4 +263,24 @@ func (m Model) shardMgrOrKernelSaysSuspect(t *testing.T, reviewID string) bool {
 		}
 	}
 	return false
+}
+
+// "Just look, don't touch anything" that perception's restriction vocabulary
+// missed still restricts the turn: Jev's rules_out_changes adds read_only,
+// and its what-if judgment adds hypothetical. Jev only ever adds limits.
+func TestJevJourney_RuledOutChangesRestrictsTheTurn(t *testing.T) {
+	m, _ := journeyModel(t, config.WorkModeYolo)
+	m = withJev(t, m, &fakeJevServer{probs: map[string]float64{"rules_out_changes": 0.94, "hypothetical": 0.1}})
+	m.recordTurnJudgments(m.shutdownCtx, m.startTurnJudgments(m.shutdownCtx, "look at the retry code, don't change anything", nil))
+	r := m.jevRestriction()
+	if !r.Has(perception.RestrictReadOnly) || r.Has(perception.RestrictHypothetical) {
+		t.Fatalf("restriction kinds = %v, want read_only only", r.Kinds())
+	}
+
+	m2, _ := journeyModel(t, config.WorkModeYolo)
+	m2 = withJev(t, m2, &fakeJevServer{probs: map[string]float64{"rules_out_changes": 0.5, "hypothetical": 0.5}})
+	m2.recordTurnJudgments(m2.shutdownCtx, m2.startTurnJudgments(m2.shutdownCtx, "hmm", nil))
+	if r := m2.jevRestriction(); !r.IsZero() {
+		t.Fatalf("unsettled judgments restricted the turn: %v", r.Kinds())
+	}
 }

@@ -188,3 +188,22 @@ func (m Model) checkReviewFindings(ctx context.Context, reviewID, result string)
 	}
 	return "\n\n**Findings Jev could not see in the code they cite** (verify before acting):" + b.String()
 }
+
+// jevRestriction is the restriction the kernel derives from Jev's judgments
+// (jev_restriction, policy/jev_evidence.mg); zero when there is none.
+func (m Model) jevRestriction() perception.Restriction {
+	if m.kernel == nil {
+		return perception.Restriction{}
+	}
+	rows, err := m.kernel.Query("jev_restriction")
+	if err != nil {
+		return perception.Restriction{}
+	}
+	var kinds []perception.RestrictionKind
+	for _, r := range rows {
+		if len(r.Args) == 1 {
+			kinds = append(kinds, perception.RestrictionKind(strings.TrimPrefix(types.ExtractString(r.Args[0]), "/")))
+		}
+	}
+	return perception.RestrictionOf("Jev read a limit on this request", kinds...)
+}

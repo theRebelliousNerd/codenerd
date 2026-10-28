@@ -39,7 +39,10 @@
   requires reconciliation, not an unproved exactly-once claim.
 - The Cortex owns the process browser manager. Bind modular research tools to
   that manager and adapt browser facts into `SystemKernel.AssertBatch`; a
-  private browser-only Mangle engine makes runtime evidence invisible.
+  private browser-only Mangle engine makes runtime evidence invisible. The
+  research runtime (`research.BrowserRuntime`) is Cortex-owned too: boot
+  creates it, `Cortex.Close` and boot rollback close it before the manager,
+  and it owns the lazily launched headless Chrome page reads use.
 - Apply the effective logging configuration before initializing workspace sinks,
   including override-config boot. A directory selected by disabled defaults must
   not become a stream of failed log opens after enabling logging.
