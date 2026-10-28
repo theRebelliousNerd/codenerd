@@ -3,6 +3,7 @@ package system
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -218,31 +219,24 @@ func TestMangleRepairShard_SetPredicateSelectorDirectly(t *testing.T) {
 	t.Log("SetPredicateSelector properly stores the provided selector")
 }
 
-func TestMangleRepairShard_UsesSchemaCapableClient(t *testing.T) {
+// Without a JIT-ready prompt assembler there is no repair prompt, and the
+// repair fails with ErrRolePromptUnavailable before the model is asked: there
+// is no embedded prompt to ask it under instead.
+func TestMangleRepairShard_NoPromptAssemblerFailsTheRepair(t *testing.T) {
 	shard := NewMangleRepairShard()
 	shard.maxRetries = 1
-
-	mock := &schemaCapableLLMMock{
-		response: `{"format":"mangle_synth_v1","program":{"clauses":[{"head":{"pred":"next_action","args":[{"kind":"name","value":"/run_tests"}]}}]}}`,
-	}
+	mock := &schemaCapableLLMMock{response: `{"format":"mangle_synth_v1"}`}
 	shard.SetLLMClient(mock)
 
-	rule := "next_action(/run_tests) :- not test_state(X)."
-	result, err := shard.ValidateAndRepair(context.Background(), rule)
-	if err != nil {
-		t.Fatalf("ValidateAndRepair failed: %v", err)
+	result, err := shard.ValidateAndRepair(context.Background(), "next_action(/run_tests) :- not test_state(X).")
+	if !errors.Is(err, types.ErrRolePromptUnavailable) {
+		t.Fatalf("ValidateAndRepair err = %v (result %+v), want ErrRolePromptUnavailable", err, result)
 	}
-	if result.Rejected {
-		t.Fatalf("Expected repair, got rejection: %s (errors: %v)", result.RejectionReason, result.Errors)
+	if mock.schemaCalls+mock.systemCalls != 0 {
+		t.Fatalf("the model was asked %d times without a compiled prompt", mock.schemaCalls+mock.systemCalls)
 	}
-	if !result.WasRepaired {
-		t.Fatalf("Expected rule to be repaired")
-	}
-	if mock.schemaCalls == 0 {
-		t.Fatalf("Expected schema-based completion to be used")
-	}
-	if mock.systemCalls != 0 {
-		t.Fatalf("Expected CompleteWithSystem to be skipped when schema is supported")
+	if _, err := shard.InterceptLearnedRule(context.Background(), "next_action(/run_tests) :- not test_state(X)."); !errors.Is(err, types.ErrRolePromptUnavailable) {
+		t.Fatalf("InterceptLearnedRule err = %v, want ErrRolePromptUnavailable", err)
 	}
 }
 

@@ -337,7 +337,12 @@ func (m *MangleRepairShard) ValidateAndRepair(ctx context.Context, rule string) 
 		}
 
 		logging.SystemShardsDebug("[MangleRepair] Attempt %d: calling LLM for repair", attempt)
-		systemPrompt := m.getSystemPrompt(ctx, errors)
+		systemPrompt, err := m.getSystemPrompt(ctx, errors)
+		if err != nil {
+			// No prompt, no repair: the rule is not persisted unrepaired, and
+			// the caller sees why.
+			return nil, fmt.Errorf("mangle repair: %w", err)
+		}
 		if traceLLMIO {
 			logging.Get(logging.CategorySystemShards).StructuredLog("debug", "mangle_repair_llm_request", map[string]any{
 				"shard_id":      m.ID,
@@ -348,7 +353,6 @@ func (m *MangleRepairShard) ValidateAndRepair(ctx context.Context, rule string) 
 			})
 		}
 		var rawResponse string
-		var err error
 		schemaJSON := synth.SchemaV1SingleClauseJSON()
 		schemaUsed := false
 		if schemaJSON != "" {
@@ -948,52 +952,34 @@ func dedupeValidationErrors(errors []feedback.ValidationError) []feedback.Valida
 	return result
 }
 
-// getSystemPrompt returns the system prompt for repair.
-func (m *MangleRepairShard) getSystemPrompt(ctx context.Context, errors []string) string {
-	if m.promptAssembler != nil && m.promptAssembler.JITReady() {
-		semanticQuery := m.buildRepairSemanticQuery(errors)
-		pc := &articulation.PromptContext{
-			ShardID:       m.ID,
-			ShardType:     "mangle_repair",
-			SessionCtx:    m.Config.SessionContext,
-			SemanticQuery: semanticQuery,
-			SemanticTopK:  100,
-		}
-		jitPrompt, err := m.promptAssembler.AssembleSystemPrompt(ctx, pc)
-		if err == nil && jitPrompt != "" {
-			logging.SystemShards("[MangleRepair] [JIT] Using JIT-compiled system prompt (%d bytes)", len(jitPrompt))
-			return jitPrompt
-		}
-		logging.Get(logging.CategorySystemShards).Warn(
-			"[MangleRepair] JIT prompt unavailable (err=%v, empty=%v); repairing with the built-in fallback prompt", err, jitPrompt == "")
-	} else {
-		logging.Get(logging.CategorySystemShards).Warn(
-			"[MangleRepair] no JIT-ready prompt assembler; repairing with the built-in fallback prompt")
+// getSystemPrompt compiles the repair system prompt from the /mangle_repair
+// atoms (atoms/system/mangle_repair.yaml, atoms/mangle/*). There is no
+// embedded prompt: without a JIT-ready assembler, or when the compile fails or
+// comes back empty, the error wraps types.ErrRolePromptUnavailable and the
+// repair fails rather than asking the model under a different prompt.
+func (m *MangleRepairShard) getSystemPrompt(ctx context.Context, errors []string) (string, error) {
+	m.mu.RLock()
+	assembler := m.promptAssembler
+	m.mu.RUnlock()
+	if assembler == nil || !assembler.JITReady() {
+		return "", fmt.Errorf("%w: mangle_repair has no JIT-ready prompt assembler", types.ErrRolePromptUnavailable)
 	}
-
-	// The fallback degrades the cognition, never the authority: a repaired
-	// rule still has to compile in the sandbox and pass learned-rule
-	// validation. It must at least teach the syntax the parser accepts --
-	// until 2026-09-25 it wrote negation as "not negative(X)", which Mangle
-	// does not parse, so a repair made under it failed on its own advice.
-	return `You are a Mangle (Datalog) expert. Your task is to repair invalid Mangle rules.
-
-Key Mangle syntax rules:
-- Variables are UPPERCASE (X, Y, Result)
-- Constants/atoms use /slash syntax (/active, /pending)
-- Strings use "double quotes"
-- Rules end with a period (.)
-- Negation is written with !, and its variables must be bound first: positive(X), !negative(X)
-- Aggregation uses pipe syntax: source() |> do fn:group_by(K), let N = fn:count()
-
-When repairing rules:
-- Replace undefined predicates with similar declared ones
-- Ensure all head variables appear in the body
-- Add binding predicates before any negation
-- Preserve the semantic intent of the original rule
-
-Output ONLY a MangleSynth JSON object (format mangle_synth_v1). No explanation.
-If Piggyback Protocol is active, the surface_response field must be the JSON object and nothing else.`
+	pc := &articulation.PromptContext{
+		ShardID:       m.ID,
+		ShardType:     "mangle_repair",
+		SessionCtx:    m.Config.SessionContext,
+		SemanticQuery: m.buildRepairSemanticQuery(errors),
+		SemanticTopK:  100,
+	}
+	jitPrompt, err := assembler.AssembleSystemPrompt(ctx, pc)
+	if err != nil {
+		return "", fmt.Errorf("%w: compile the mangle_repair prompt: %w", types.ErrRolePromptUnavailable, err)
+	}
+	if strings.TrimSpace(jitPrompt) == "" {
+		return "", fmt.Errorf("%w: the mangle_repair prompt compiled empty", types.ErrRolePromptUnavailable)
+	}
+	logging.SystemShards("[MangleRepair] [JIT] Using JIT-compiled system prompt (%d bytes)", len(jitPrompt))
+	return jitPrompt, nil
 }
 
 func (m *MangleRepairShard) buildRepairSemanticQuery(errors []string) string {
