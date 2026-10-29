@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -342,11 +343,56 @@ func (k *RealKernel) evaluateConeLocked(stats *EvaluationStats) error {
 
 	plan := k.cone.plan(k.dirtyPreds)
 
-	// Remove every fact, extensional and derived, of every touched predicate.
-	var doomed []ast.Atom
+	// The EDB rows of every touched predicate, as atoms. Each is the atom
+	// admission converted under this program; a row without one (indexed by a
+	// rebuild, or admitted under an older program) is converted once and
+	// remembered.
+	edb := make(map[string][]ast.Atom, len(plan.touched))
 	for _, pred := range plan.touched {
+		bucket := k.factIndex.bucket(pred)
+		atoms := make([]ast.Atom, 0, len(bucket))
+		for key, f := range bucket {
+			atom, ok := k.factIndex.atomOf(pred, key, k.programInfo)
+			if !ok {
+				var err error
+				if atom, err = k.factToAtomLocked(f); err != nil {
+					return fmt.Errorf("cone: convert %s: %w", f.Predicate, err)
+				}
+				k.factIndex.rememberAtom(pred, key, atom, k.programInfo)
+			}
+			atoms = append(atoms, atom)
+		}
+		edb[pred] = atoms
+	}
+
+	// Remove every derived fact of every touched predicate, and every stored
+	// row of a written predicate the EDB no longer holds (a retraction since
+	// the last evaluation). A row the EDB still holds of a predicate no rule
+	// derives stays: removing and re-adding the unchanged rows was the whole
+	// preparation of a write to a world predicate (0.55 s for dependency_link's
+	// 162k rows, measured 2026-10-29). A program fact of such a predicate is
+	// removed with the rest and re-added by the engine, as before.
+	var doomed []ast.Atom
+	stored := make(map[string][]bool, len(plan.touched)) // per EDB row: kept in the store
+	for _, pred := range plan.touched {
+		_, derived := k.cone.heads[pred]
+		var held map[uint64][]int
+		if !derived {
+			held = make(map[uint64][]int, len(edb[pred]))
+			for i, atom := range edb[pred] {
+				h := atom.Hash()
+				held[h] = append(held[h], i)
+			}
+			stored[pred] = make([]bool, len(edb[pred]))
+		}
 		for _, sym := range k.cone.symbolsOf(pred, k.factIndex.aritiesOf(pred)) {
 			if err := k.store.GetFacts(ast.NewQuery(sym), func(a ast.Atom) error {
+				if !derived {
+					if i := slices.IndexFunc(held[a.Hash()], func(i int) bool { return edb[pred][i].Equals(a) }); i >= 0 {
+						stored[pred][held[a.Hash()][i]] = true
+						return nil
+					}
+				}
 				doomed = append(doomed, a)
 				return nil
 			}); err != nil {
@@ -358,13 +404,13 @@ func (k *RealKernel) evaluateConeLocked(stats *EvaluationStats) error {
 		remover.Remove(atom)
 	}
 
-	// Put back what the EDB holds for them now.
+	// Put back what the EDB holds for them now and the store does not.
 	restored := 0
 	for _, pred := range plan.touched {
-		for _, f := range k.factIndex.bucket(pred) {
-			atom, err := k.factToAtomLocked(f)
-			if err != nil {
-				return fmt.Errorf("cone: convert %s: %w", f.Predicate, err)
+		kept := stored[pred]
+		for i, atom := range edb[pred] {
+			if kept != nil && kept[i] {
+				continue
 			}
 			k.store.Add(atom)
 			restored++
