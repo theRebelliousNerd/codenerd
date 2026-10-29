@@ -77,7 +77,7 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 	// page, when the orient threshold says so) is stored whole. The vector
 	// row carries the source; a vector failure does not drop the atom.
 	for _, chunk := range ecosystemKnowledgeChunks(i.config.Workspace, agent.Name) {
-		added, err := appendKnowledgeAtom(ctx, agentDB, chunk.Concept, chunk.Content, 0.95, existingHashes)
+		added, err := appendKnowledgeAtom(ctx, agentDB, chunk.Concept, chunk.Content, 0.95, "init/ecosystem", existingHashes)
 		if err != nil {
 			logging.Boot("Warning: failed to store ecosystem atom for %s: %v", agent.Name, err)
 			continue
@@ -130,7 +130,7 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 					// Parse research result into knowledge atoms
 					atoms := i.parseResearchResult(topic, result)
 					for _, atom := range atoms {
-						added, err := appendKnowledgeAtom(ctx, agentDB, atom.Concept, atom.Content, atom.Confidence, existingHashes)
+						added, err := appendKnowledgeAtom(ctx, agentDB, atom.Concept, atom.Content, atom.Confidence, "init/research", existingHashes)
 						if err != nil {
 							logging.Boot("Warning: failed to store research atom: %v", err)
 							continue
@@ -254,7 +254,7 @@ func computeAtomHash(concept, content string) string {
 
 // appendKnowledgeAtom adds a knowledge atom if it doesn't already exist.
 // Returns true if the atom was added, false if it was skipped (duplicate).
-func appendKnowledgeAtom(ctx context.Context, db *store.LocalStore, concept, content string, confidence float64, existingHashes map[string]bool) (bool, error) {
+func appendKnowledgeAtom(ctx context.Context, db *store.LocalStore, concept, content string, confidence float64, source string, existingHashes map[string]bool) (bool, error) {
 	hash := computeAtomHash(concept, content)
 
 	// Check if this atom already exists
@@ -265,7 +265,7 @@ func appendKnowledgeAtom(ctx context.Context, db *store.LocalStore, concept, con
 	// Store the new atom with its embedding so semantic search can find it.
 	// StoreKnowledgeAtom alone leaves the vectors table empty, which is how
 	// agents ended up with knowledge_atoms rows but zero searchable vectors.
-	if err := db.StoreKnowledgeAtomWithEmbedding(ctx, concept, content, confidence); err != nil {
+	if err := db.StoreKnowledgeAtomWithEmbedding(ctx, concept, content, confidence, source); err != nil {
 		return false, err
 	}
 

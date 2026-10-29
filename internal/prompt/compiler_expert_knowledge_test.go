@@ -38,7 +38,7 @@ func createProjectKnowledgeStore(t *testing.T, concept, content string) *store.L
 	t.Helper()
 	ls, err := store.NewLocalStore(filepath.Join(t.TempDir(), "knowledge.db"))
 	require.NoError(t, err)
-	require.NoError(t, ls.StoreKnowledgeAtom(concept, content, 0.9))
+	require.NoError(t, ls.StoreKnowledgeAtom(concept, content, 0.9, "test"))
 	return ls
 }
 

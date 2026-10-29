@@ -386,7 +386,7 @@ func (i *Initializer) extractAndStoreDocKnowledge(
 			if confidence <= 0 || confidence > 1 {
 				confidence = 0.7
 			}
-			if err := db.StoreKnowledgeAtomWithEmbedding(ctx, fmt.Sprintf("doc/%s/%s", doc.Path, concept), content, confidence); err != nil {
+			if err := db.StoreKnowledgeAtomWithEmbedding(ctx, fmt.Sprintf("doc/%s/%s", doc.Path, concept), content, confidence, "init/document"); err != nil {
 				failures = append(failures, fmt.Errorf("store atom %s: %w", concept, err))
 				continue
 			}

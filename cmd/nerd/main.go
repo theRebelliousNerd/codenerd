@@ -31,6 +31,7 @@
 //
 // Mangle Validation & LSP:
 //   - cmd_mangle_check.go - checkMangleCmd, runCheckMangle(), checkFile()
+//   - cmd_check_kb.go     - checkKBCmd, auditShardKBs(), printKBGaps() (knowledge-fill gate)
 //   - cmd_mangle_lsp.go   - mangleLSPCmd, runMangleLSP() (Language Server Protocol for IDE integration)
 //
 // Query & Status:
@@ -280,6 +281,7 @@ func init() {
 		whyCmd,
 		campaignCmd,
 		checkMangleCmd,
+		checkKBCmd,
 		mangleLSPCmd,
 		authCmd,
 		logsCmd,

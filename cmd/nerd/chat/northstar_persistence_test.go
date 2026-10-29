@@ -18,7 +18,7 @@ type kbCall struct {
 	confidence float64
 }
 
-func (s *stubKB) StoreKnowledgeAtom(concept, content string, confidence float64) error {
+func (s *stubKB) StoreKnowledgeAtom(concept, content string, confidence float64, _ string) error {
 	s.calls = append(s.calls, kbCall{
 		concept:    concept,
 		content:    content,

@@ -39,7 +39,7 @@ func walkCommandPaths(t *testing.T) map[string]*cobra.Command {
 func TestCLI_TopLevelCommands_MatchExpectedSet(t *testing.T) {
 	want := []string{
 		"agents", "analyze", "audit", "auth", "autopoiesis", "browser",
-		"campaign", "chat", "check-mangle", "commit", "config", "context-stats",
+		"campaign", "chat", "check-kb", "check-mangle", "commit", "config", "context-stats",
 		"create", "define-agent", "docs", "dom", "dream", "embedding", "explain",
 		"features", "fix", "gates", "glassbox", "init", "jit", "knowledge", "logic",
 		"logs", "mangle-lsp", "mcp", "memory", "meter", "northstar",
@@ -115,10 +115,10 @@ func TestCLI_SubcommandGroups_MatchExpectedSets(t *testing.T) {
 
 func TestCLI_TotalCommandCount(t *testing.T) {
 	paths := walkCommandPaths(t)
-	// Root + 59 top-level + 82 subcommands. Any add/remove must update this
+	// Root + 60 top-level + 82 subcommands. Any add/remove must update this
 	// pin deliberately, with the group sets above saying where it landed.
-	if len(paths) != 142 {
-		t.Errorf("reachable command paths = %d, want 142", len(paths))
+	if len(paths) != 143 {
+		t.Errorf("reachable command paths = %d, want 143", len(paths))
 	}
 }
 

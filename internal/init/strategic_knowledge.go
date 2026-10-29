@@ -167,7 +167,7 @@ func (i *Initializer) PersistStrategicKnowledge(ctx context.Context, knowledge *
 	stored := 0
 	var errs []error
 	for _, atom := range atoms {
-		if err := db.StoreKnowledgeAtomWithEmbedding(ctx, atom.concept, atom.content, atom.confidence); err != nil {
+		if err := db.StoreKnowledgeAtomWithEmbedding(ctx, atom.concept, atom.content, atom.confidence, "init/strategic"); err != nil {
 			errs = append(errs, fmt.Errorf("store %s: %w", atom.concept, err))
 			continue
 		}

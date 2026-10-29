@@ -95,12 +95,12 @@ func TestAppendKnowledgeAtom_Embeds(t *testing.T) {
 	db.SetEmbeddingEngine(seedStubEngine{dim: 8})
 
 	hashes := map[string]bool{}
-	ok, err := appendKnowledgeAtom(context.Background(), db, "guide/x", "embedded content", 0.9, hashes)
+	ok, err := appendKnowledgeAtom(context.Background(), db, "guide/x", "embedded content", 0.9, "test", hashes)
 	if err != nil || !ok {
 		t.Fatalf("appendKnowledgeAtom = %v,%v, want true,nil", ok, err)
 	}
 	// Duplicate is skipped.
-	ok, err = appendKnowledgeAtom(context.Background(), db, "guide/x", "embedded content", 0.9, hashes)
+	ok, err = appendKnowledgeAtom(context.Background(), db, "guide/x", "embedded content", 0.9, "test", hashes)
 	if err != nil || ok {
 		t.Fatalf("duplicate append = %v,%v, want false,nil", ok, err)
 	}

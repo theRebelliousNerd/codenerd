@@ -99,7 +99,7 @@ func TestKnowledgeAtom_DualWriteAndDegrade(t *testing.T) {
 	ctx := context.Background()
 	s := openLocalTestStore(t)
 	s.SetEmbeddingEngine(&MockEmbeddingEngine{})
-	if err := s.StoreKnowledgeAtomWithEmbedding(ctx, "strategic/x", "hold the north star", 0.9); err != nil {
+	if err := s.StoreKnowledgeAtomWithEmbedding(ctx, "strategic/x", "hold the north star", 0.9, "test"); err != nil {
 		t.Fatalf("StoreKnowledgeAtomWithEmbedding: %v", err)
 	}
 	byPrefix, err := s.GetKnowledgeAtomsByPrefix("strategic/")
@@ -118,7 +118,7 @@ func TestKnowledgeAtom_DualWriteAndDegrade(t *testing.T) {
 	}
 
 	plain := openLocalTestStore(t)
-	if err := plain.StoreKnowledgeAtomWithEmbedding(ctx, "c", "content", 0.5); err != nil {
+	if err := plain.StoreKnowledgeAtomWithEmbedding(ctx, "c", "content", 0.5, "test"); err != nil {
 		t.Fatalf("engineless store: %v", err)
 	}
 	sem, err = plain.SearchKnowledgeAtomsSemantic(ctx, "content", 5)

@@ -146,6 +146,11 @@ type PromptAtom struct {
 	// Estimated token count (cached for budget calculations)
 	TokenCount int `json:"token_count"`
 
+	// SourceFile is the file the atom was loaded from, as the database row's
+	// source_file records it (a shard agent's ".nerd/agents/<name>/prompts.yaml",
+	// an ingested document). Empty for an atom no file produced.
+	SourceFile string `json:"source_file,omitempty"`
+
 	// SHA256 hash of Content for deduplication and cache invalidation
 	ContentHash string `json:"content_hash"`
 

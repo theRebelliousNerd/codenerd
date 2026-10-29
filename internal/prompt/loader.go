@@ -197,10 +197,23 @@ func (l *AtomLoader) ParseYAML(path string) ([]*PromptAtom, error) {
 	}
 	logAtomMigrations(migrations)
 	atoms := make([]*PromptAtom, 0, len(parsed))
+	source := AtomSourceFile(path)
 	for _, record := range parsed {
+		record.Atom.SourceFile = source
 		atoms = append(atoms, record.Atom)
 	}
 	return atoms, nil
+}
+
+// AtomSourceFile is how a loaded file is recorded in prompt_atoms.source_file:
+// slash-separated and, for a file under a workspace's .nerd directory,
+// from ".nerd/" on, so the row does not carry the machine's checkout path.
+func AtomSourceFile(path string) string {
+	slash := filepath.ToSlash(path)
+	if i := strings.LastIndex(slash, "/.nerd/"); i >= 0 {
+		return slash[i+1:]
+	}
+	return slash
 }
 
 func logAtomMigrations(migrations []AtomSchemaMigration) {
@@ -311,20 +324,20 @@ func (l *AtomLoader) ReplaceAtoms(ctx context.Context, db *sql.DB, atoms []*Prom
 	}
 
 	// SQLite maximum variables per query is 32766, but 999 is safer for older versions.
-	// We have 16 columns per atom insert. So max chunk size is 999 / 16 = 62 (60 x 16 = 960 stays under 999)
-	chunkSize := 60
+	// We have 17 columns per atom insert. So max chunk size is 999 / 17 = 58 (55 x 17 = 935 stays under 999)
+	chunkSize := 55
 	for i := 0; i < len(atoms); i += chunkSize {
 		end := min(i+chunkSize, len(atoms))
 		chunk := atoms[i:end]
 		chunkEmbeds := embeddings[i:end]
 
 		// Build the query
-		query := "INSERT INTO prompt_atoms (atom_id, version, content, token_count, content_hash, description, content_concise, content_min, category, subcategory, importance, is_mandatory, is_exclusive, embedding, embedding_task, embedding_model) VALUES "
+		query := "INSERT INTO prompt_atoms (atom_id, version, content, token_count, content_hash, description, content_concise, content_min, category, subcategory, importance, is_mandatory, is_exclusive, embedding, embedding_task, embedding_model, source_file) VALUES "
 		var vals []any
 		var placeholders []string
 
 		for j, atom := range chunk {
-			placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+			placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
 
 			var embeddingBlob []byte
 			if len(chunkEmbeds[j]) > 0 {
@@ -346,7 +359,7 @@ func (l *AtomLoader) ReplaceAtoms(ctx context.Context, db *sql.DB, atoms []*Prom
 				nullableString(atom.Description), nullableString(atom.ContentConcise), nullableString(atom.ContentMin),
 				string(atom.Category), nullableString(atom.Subcategory),
 				importanceColumn(atom.Importance), atom.IsMandatory, nullableString(atom.IsExclusive),
-				embeddingBlob, etask, emodel,
+				embeddingBlob, etask, emodel, nullableString(atom.SourceFile),
 			)
 		}
 
@@ -469,8 +482,8 @@ func (l *AtomLoader) writeAtomTx(ctx context.Context, tx *sql.Tx, atom *PromptAt
 			description, content_concise, content_min,
 			category, subcategory,
 			importance, is_mandatory, is_exclusive,
-			embedding, embedding_task, embedding_model
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			embedding, embedding_task, embedding_model, source_file
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(atom_id) DO UPDATE SET
 			version = excluded.version,
 			content = excluded.content,
@@ -486,12 +499,13 @@ func (l *AtomLoader) writeAtomTx(ctx context.Context, tx *sql.Tx, atom *PromptAt
 			is_exclusive = excluded.is_exclusive,
 			embedding = excluded.embedding,
 			embedding_task = excluded.embedding_task,
-			embedding_model = excluded.embedding_model`,
+			embedding_model = excluded.embedding_model,
+			source_file = excluded.source_file`,
 		atom.ID, atom.Version, atom.Content, atom.TokenCount, atom.ContentHash,
 		nullableString(atom.Description), nullableString(atom.ContentConcise), nullableString(atom.ContentMin),
 		string(atom.Category), nullableString(atom.Subcategory),
 		importanceColumn(atom.Importance), atom.IsMandatory, nullableString(atom.IsExclusive),
-		embeddingBlob, nullableString(embeddingTask), embeddingModel,
+		embeddingBlob, nullableString(embeddingTask), embeddingModel, nullableString(atom.SourceFile),
 	)
 	if err != nil {
 		return fmt.Errorf("upsert atom failed: %w", err)

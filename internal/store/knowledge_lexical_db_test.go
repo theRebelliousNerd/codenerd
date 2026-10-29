@@ -17,11 +17,11 @@ func TestKnowledgeLexicalDB_RankingBoundsAndProvenance(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	for i := 0; i < 40; i++ {
-		if err := s.StoreKnowledgeAtom(fmt.Sprintf("noise/%d", i), "quartz partial match", 1); err != nil {
+		if err := s.StoreKnowledgeAtom(fmt.Sprintf("noise/%d", i), "quartz partial match", 1, "test"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := s.StoreKnowledgeAtom("guide/Z01", "quartz zephyr bounded indexing hypothesis", 0.4); err != nil {
+	if err := s.StoreKnowledgeAtom("guide/Z01", "quartz zephyr bounded indexing hypothesis", 0.4, "test"); err != nil {
 		t.Fatal(err)
 	}
 	hits, err := SearchKnowledgeAtomsLexicalDB(t.Context(), s.db, "quartz zephyr", 1)
@@ -46,7 +46,7 @@ func TestKnowledgeLexicalDB_LiteralWildcardsAndMissingKnowledge(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	if err := s.StoreKnowledgeAtom("ordinary", "unrelated data", 1); err != nil {
+	if err := s.StoreKnowledgeAtom("ordinary", "unrelated data", 1, "test"); err != nil {
 		t.Fatal(err)
 	}
 	for _, query := range []string{"unknownword", "xx%", "xx_", "x' UNION SELECT 'zz"} {

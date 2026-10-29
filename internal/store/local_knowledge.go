@@ -41,8 +41,11 @@ type KnowledgeAtom struct {
 }
 
 // StoreKnowledgeAtom stores a knowledge atom for agent knowledge bases.
-// This is used by Type 3 agents to persist their expertise.
-func (s *LocalStore) StoreKnowledgeAtom(concept, content string, confidence float64) error {
+// This is used by Type 3 agents to persist their expertise. source names the
+// producer that learned it ("init/research", "chat/ingest", ...): the row's
+// source column, which no writer filled until the knowledge-fill gate
+// (internal/kbfill) named it.
+func (s *LocalStore) StoreKnowledgeAtom(concept, content string, confidence float64, source string) error {
 	timer := logging.StartTimer(logging.CategoryStore, "StoreKnowledgeAtom")
 	defer timer.Stop()
 
@@ -56,8 +59,8 @@ func (s *LocalStore) StoreKnowledgeAtom(concept, content string, confidence floa
 
 	// Insert the knowledge atom with content_hash
 	_, err := s.db.Exec(
-		`INSERT INTO knowledge_atoms (concept, content, confidence, content_hash) VALUES (?, ?, ?, ?)`,
-		concept, content, confidence, contentHash,
+		`INSERT INTO knowledge_atoms (concept, content, confidence, content_hash, source) VALUES (?, ?, ?, ?, ?)`,
+		concept, content, confidence, contentHash, source,
 	)
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to store knowledge atom %s: %v", concept, err)
@@ -378,12 +381,12 @@ func (s *LocalStore) RecentKnowledgeAtoms(limit int) ([]KnowledgeAtom, error) {
 // This enables knowledge atoms to be:
 // 1. Queried by exact concept prefix (via GetKnowledgeAtomsByPrefix)
 // 2. Semantically searched (via SearchKnowledgeAtomsSemantic)
-func (s *LocalStore) StoreKnowledgeAtomWithEmbedding(ctx context.Context, concept, content string, confidence float64) error {
+func (s *LocalStore) StoreKnowledgeAtomWithEmbedding(ctx context.Context, concept, content string, confidence float64, source string) error {
 	timer := logging.StartTimer(logging.CategoryStore, "StoreKnowledgeAtomWithEmbedding")
 	defer timer.Stop()
 
 	// 1. Store to knowledge_atoms table (existing behavior)
-	if err := s.StoreKnowledgeAtom(concept, content, confidence); err != nil {
+	if err := s.StoreKnowledgeAtom(concept, content, confidence, source); err != nil {
 		return err
 	}
 

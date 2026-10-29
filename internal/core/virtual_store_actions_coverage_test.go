@@ -1435,7 +1435,7 @@ func TestGetStrategicSummary(t *testing.T) {
 	}
 
 	for _, a := range atoms {
-		err = db.StoreKnowledgeAtom(a.concept, a.content, a.confidence)
+		err = db.StoreKnowledgeAtom(a.concept, a.content, a.confidence, "test")
 		if err != nil {
 			t.Fatalf("failed to store knowledge atom: %v", err)
 		}

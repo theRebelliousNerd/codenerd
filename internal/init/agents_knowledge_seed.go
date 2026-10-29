@@ -80,7 +80,7 @@ func seedBaselineKnowledge(ctx context.Context, db *store.LocalStore, agent Reco
 	}
 	added := 0
 	for _, atom := range baselineAgentAtoms(agent) {
-		ok, err := appendKnowledgeAtom(ctx, db, atom.Concept, atom.Content, atom.Confidence, existingHashes)
+		ok, err := appendKnowledgeAtom(ctx, db, atom.Concept, atom.Content, atom.Confidence, "init/baseline", existingHashes)
 		if err != nil {
 			logging.Boot("Warning: failed to store baseline atom for %s: %v", agent.Name, err)
 			continue

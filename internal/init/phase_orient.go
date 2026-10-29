@@ -472,7 +472,7 @@ func syncStrategicSources(ctx context.Context, db *store.LocalStore, sources map
 	sort.Strings(concepts)
 	var errs []error
 	for _, concept := range concepts {
-		if err := db.StoreKnowledgeAtomWithEmbedding(ctx, concept, pending[concept], 1); err != nil {
+		if err := db.StoreKnowledgeAtomWithEmbedding(ctx, concept, pending[concept], 1, "init/orientation"); err != nil {
 			errs = append(errs, fmt.Errorf("orientation source %s: %w", strings.TrimPrefix(concept, "strategic/source/"), err))
 		}
 	}

@@ -39,10 +39,10 @@ func TestBackfillKnowledgeAtomVectors_EmbedsMissing(t *testing.T) {
 	s.SetEmbeddingEngine(backfillStubEngine{dim: 8})
 
 	// Write atoms without embeddings (legacy path).
-	if err := s.StoreKnowledgeAtom("guide/test", "unembedded content one", 0.9); err != nil {
+	if err := s.StoreKnowledgeAtom("guide/test", "unembedded content one", 0.9, "test"); err != nil {
 		t.Fatalf("StoreKnowledgeAtom: %v", err)
 	}
-	if err := s.StoreKnowledgeAtom("guide/test2", "unembedded content two", 0.8); err != nil {
+	if err := s.StoreKnowledgeAtom("guide/test2", "unembedded content two", 0.8, "test"); err != nil {
 		t.Fatalf("StoreKnowledgeAtom: %v", err)
 	}
 
@@ -82,7 +82,7 @@ func TestStoreKnowledgeAtomWithEmbedding_WritesBothHalves(t *testing.T) {
 	defer s.Close()
 	s.SetEmbeddingEngine(backfillStubEngine{dim: 8})
 
-	if err := s.StoreKnowledgeAtomWithEmbedding(context.Background(), "guide/seed", "searchable content", 0.9); err != nil {
+	if err := s.StoreKnowledgeAtomWithEmbedding(context.Background(), "guide/seed", "searchable content", 0.9, "test"); err != nil {
 		t.Fatalf("StoreKnowledgeAtomWithEmbedding: %v", err)
 	}
 	atoms, err := s.GetAllKnowledgeAtoms()

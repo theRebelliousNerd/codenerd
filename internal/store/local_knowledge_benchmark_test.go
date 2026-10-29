@@ -26,7 +26,7 @@ func BenchmarkStoreKnowledgeAtom(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		concept := fmt.Sprintf("concept_%d", i)
 		content := fmt.Sprintf("This is the content for concept %d", i)
-		err := store.StoreKnowledgeAtom(concept, content, 1.0)
+		err := store.StoreKnowledgeAtom(concept, content, 1.0, "test")
 		if err != nil {
 			b.Fatalf("StoreKnowledgeAtom failed: %v", err)
 		}

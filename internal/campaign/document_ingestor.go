@@ -74,7 +74,7 @@ func (di *DocumentIngestor) Ingest(ctx context.Context, campaignID string, fileC
 				logging.StoreWarn("DocumentIngestor: failed to store vector for %s chunk %d: %v", path, idx, err)
 			}
 			// Knowledge atom for lightweight recall
-			if err := di.store.StoreKnowledgeAtom(path, chunk, 0.9); err != nil {
+			if err := di.store.StoreKnowledgeAtom(path, chunk, 0.9, "campaign/document"); err != nil {
 				logging.StoreWarn("DocumentIngestor: failed to store knowledge atom for %s: %v", path, err)
 			}
 			// Graph link for chunk navigation

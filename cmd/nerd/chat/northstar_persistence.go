@@ -145,52 +145,52 @@ func (m Model) northstarSaveRefused(err error) Model {
 // saveNorthstarToKnowledgeBase stores northstar data in the knowledge database
 // Returns a slice of errors encountered during storage (empty if all succeeded)
 func saveNorthstarToKnowledgeBase(db interface {
-	StoreKnowledgeAtom(concept, content string, confidence float64) error
+	StoreKnowledgeAtom(concept, content string, confidence float64, source string) error
 }, v *northstar.Vision) []error {
 	var errs []error
 
 	// Store mission
-	if err := db.StoreKnowledgeAtom("northstar:mission", v.Mission, 1.0); err != nil {
+	if err := db.StoreKnowledgeAtom("northstar:mission", v.Mission, 1.0, "northstar"); err != nil {
 		errs = append(errs, err)
 	}
-	if err := db.StoreKnowledgeAtom("northstar:problem", v.Problem, 1.0); err != nil {
+	if err := db.StoreKnowledgeAtom("northstar:problem", v.Problem, 1.0, "northstar"); err != nil {
 		errs = append(errs, err)
 	}
-	if err := db.StoreKnowledgeAtom("northstar:vision", v.VisionStmt, 1.0); err != nil {
+	if err := db.StoreKnowledgeAtom("northstar:vision", v.VisionStmt, 1.0, "northstar"); err != nil {
 		errs = append(errs, err)
 	}
 
 	// Store personas
 	for _, p := range v.Personas {
-		if err := db.StoreKnowledgeAtom("northstar:persona", fmt.Sprintf("%s: %s", p.Name, strings.Join(p.Needs, ", ")), 0.9); err != nil {
+		if err := db.StoreKnowledgeAtom("northstar:persona", fmt.Sprintf("%s: %s", p.Name, strings.Join(p.Needs, ", ")), 0.9, "northstar"); err != nil {
 			errs = append(errs, err)
 		}
 	}
 
 	// Store capabilities
 	for _, c := range v.Capabilities {
-		if err := db.StoreKnowledgeAtom("northstar:capability", fmt.Sprintf("[%s/%s] %s", c.Timeline, c.Priority, c.Description), 0.9); err != nil {
+		if err := db.StoreKnowledgeAtom("northstar:capability", fmt.Sprintf("[%s/%s] %s", c.Timeline, c.Priority, c.Description), 0.9, "northstar"); err != nil {
 			errs = append(errs, err)
 		}
 	}
 
 	// Store risks
 	for _, r := range v.Risks {
-		if err := db.StoreKnowledgeAtom("northstar:risk", fmt.Sprintf("[%s/%s] %s - Mitigation: %s", r.Likelihood, r.Impact, r.Description, r.Mitigation), 0.85); err != nil {
+		if err := db.StoreKnowledgeAtom("northstar:risk", fmt.Sprintf("[%s/%s] %s - Mitigation: %s", r.Likelihood, r.Impact, r.Description, r.Mitigation), 0.85, "northstar"); err != nil {
 			errs = append(errs, err)
 		}
 	}
 
 	// Store requirements
 	for _, r := range v.Requirements {
-		if err := db.StoreKnowledgeAtom("northstar:requirement", fmt.Sprintf("[%s] %s: %s (%s)", r.ID, r.Type, r.Description, r.Priority), 0.95); err != nil {
+		if err := db.StoreKnowledgeAtom("northstar:requirement", fmt.Sprintf("[%s] %s: %s (%s)", r.ID, r.Type, r.Description, r.Priority), 0.95, "northstar"); err != nil {
 			errs = append(errs, err)
 		}
 	}
 
 	// Store constraints
 	for _, c := range v.Constraints {
-		if err := db.StoreKnowledgeAtom("northstar:constraint", c, 0.9); err != nil {
+		if err := db.StoreKnowledgeAtom("northstar:constraint", c, 0.9, "northstar"); err != nil {
 			errs = append(errs, err)
 		}
 	}

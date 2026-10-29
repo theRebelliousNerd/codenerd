@@ -30,10 +30,10 @@ func TestEnsureAllAgentKnowledge_HealsEmptyAndUnembedded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewLocalStore vec: %v", err)
 	}
-	if err := vecDB.StoreKnowledgeAtom("guide/a", "legacy content a", 0.9); err != nil {
+	if err := vecDB.StoreKnowledgeAtom("guide/a", "legacy content a", 0.9, "test"); err != nil {
 		t.Fatalf("StoreKnowledgeAtom: %v", err)
 	}
-	if err := vecDB.StoreKnowledgeAtom("guide/b", "legacy content b", 0.8); err != nil {
+	if err := vecDB.StoreKnowledgeAtom("guide/b", "legacy content b", 0.8, "test"); err != nil {
 		t.Fatalf("StoreKnowledgeAtom: %v", err)
 	}
 	vecDB.Close()

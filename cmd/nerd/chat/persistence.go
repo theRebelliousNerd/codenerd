@@ -181,7 +181,7 @@ func (m Model) persistTurnToKnowledge(turn ctxcompress.Turn, intent perception.I
 		content := fmt.Sprintf("User intent: %s on %s. Response: %s",
 			intent.Verb, intent.Target, response)
 
-		if err := m.localDB.StoreKnowledgeAtom(concept, content, 0.8); err != nil {
+		if err := m.localDB.StoreKnowledgeAtom(concept, content, 0.8, "chat/session"); err != nil {
 			fmt.Printf("[Knowledge] Warning: Failed to store knowledge atom: %v\n", err)
 		}
 	}

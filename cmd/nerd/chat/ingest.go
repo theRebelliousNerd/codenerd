@@ -142,6 +142,7 @@ func (m Model) ingestAgentDocs(agentName, docPath string) tea.Cmd {
 				content := fmt.Sprintf("SOURCE: %s (chunk %d/%d)\n\n%s", rel, idx+1, len(chunks), chunk)
 				atom := prompt.NewPromptAtom(atomID, prompt.CategoryDomain, content)
 				atom.IsMandatory = false
+				atom.SourceFile = rel
 
 				if err := atomLoader.StoreAtom(ctx, db, atom); err == nil {
 					promptAtomsStored++
@@ -158,7 +159,7 @@ func (m Model) ingestAgentDocs(agentName, docPath string) tea.Cmd {
 					}
 					batchContents = append(batchContents, chunk)
 					batchMeta = append(batchMeta, meta)
-					_ = localDB.StoreKnowledgeAtom(rel, chunk, 0.9)
+					_ = localDB.StoreKnowledgeAtom(rel, chunk, 0.9, "chat/ingest")
 					_ = localDB.StoreLink(rel, "/has_chunk", fmt.Sprintf("%s#%d", rel, idx), 0.5, meta)
 				}
 			}

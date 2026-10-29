@@ -295,7 +295,7 @@ func TestVirtualStorePredicates_DbOperations(t *testing.T) {
 	}
 
 	// 7. Strategic Knowledge
-	if err := db.StoreKnowledgeAtom("strategic/vision", "long horizon goal", 0.95); err != nil {
+	if err := db.StoreKnowledgeAtom("strategic/vision", "long horizon goal", 0.95, "test"); err != nil {
 		t.Fatalf("failed to store knowledge atom: %v", err)
 	}
 	sk, err := vs.QueryStrategicKnowledge("vision")
@@ -363,7 +363,7 @@ func TestVirtualStorePredicates_AtomTypesMatchSchemas(t *testing.T) {
 	if err := db.LogActivation("fact-typed", 0.81); err != nil {
 		t.Fatalf("log activation: %v", err)
 	}
-	if err := db.StoreKnowledgeAtom("strategic/vision", "typed", 0.92); err != nil {
+	if err := db.StoreKnowledgeAtom("strategic/vision", "typed", 0.92, "test"); err != nil {
 		t.Fatalf("store strategic atom: %v", err)
 	}
 	if err := db.GetTraceStore().StoreReasoningTrace(&store.ReasoningTrace{
@@ -439,7 +439,7 @@ func TestVirtualStorePredicateFactsMatchLiveKernelSchemas(t *testing.T) {
 	if err := db.LogActivation("live-fact", 0.73); err != nil {
 		t.Fatalf("log activation: %v", err)
 	}
-	if err := db.StoreKnowledgeAtom("strategic/pattern", "live pattern", 0.88); err != nil {
+	if err := db.StoreKnowledgeAtom("strategic/pattern", "live pattern", 0.88, "test"); err != nil {
 		t.Fatalf("store strategic atom: %v", err)
 	}
 	if err := db.GetTraceStore().StoreReasoningTrace(&store.ReasoningTrace{
@@ -634,7 +634,7 @@ func TestVirtualStorePredicates_GetAtoms(t *testing.T) {
 		DurationMs:    200,
 	}
 	_ = db.GetTraceStore().StoreReasoningTrace(trace)
-	_ = db.StoreKnowledgeAtom("strategic/vision", "our vision", 0.9)
+	_ = db.StoreKnowledgeAtom("strategic/vision", "our vision", 0.9, "test")
 
 	// Helper to get query atom
 	getQueryAtom := func(pred string, args ...any) ast.Atom {

@@ -370,7 +370,7 @@ func (m *Model) persistKnowledgeResults(results []KnowledgeResult) {
 		)
 
 		// Store with high confidence (specialist knowledge is authoritative)
-		if err := m.localDB.StoreKnowledgeAtom(concept, kr.Response, 0.85); err != nil {
+		if err := m.localDB.StoreKnowledgeAtom(concept, kr.Response, 0.85, "chat/knowledge_request"); err != nil {
 			logging.Get(logging.CategoryContext).Warn(
 				"Failed to persist knowledge from %s: %v",
 				kr.Specialist, err,

@@ -13,7 +13,7 @@ func TestLocalStore_Knowledge_Extra(t *testing.T) {
 	defer s.Close()
 
 	// 1. StoreKnowledgeAtom
-	err = s.StoreKnowledgeAtom("concept1", "content1", 0.9)
+	err = s.StoreKnowledgeAtom("concept1", "content1", 0.9, "test")
 	if err != nil {
 		t.Errorf("StoreKnowledgeAtom failed: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestLocalStore_Knowledge_Extra(t *testing.T) {
 
 	// 6. StoreKnowledgeAtomWithEmbedding / SearchKnowledgeAtomsSemantic (with nil embeddingEngine)
 	ctx := context.Background()
-	err = s.StoreKnowledgeAtomWithEmbedding(ctx, "concept-embed", "content-embed", 0.95)
+	err = s.StoreKnowledgeAtomWithEmbedding(ctx, "concept-embed", "content-embed", 0.95, "test")
 	if err != nil {
 		t.Errorf("StoreKnowledgeAtomWithEmbedding failed: %v", err)
 	}

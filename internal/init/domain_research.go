@@ -162,7 +162,7 @@ func (i *Initializer) researchDomainQuestions(ctx context.Context, db *store.Loc
 		}
 		footer := fmt.Sprintf("\n\nQuestion: %s\nSources: %s\nRetrieved: %s", question.Question, strings.Join(sources, " ; "), now.Format(domainRetrievedLayout))
 		for index, section := range sections {
-			ok, err := appendKnowledgeAtom(ctx, db, fmt.Sprintf("%ssection_%d", prefix, index), section+footer, 0.85, existingHashes)
+			ok, err := appendKnowledgeAtom(ctx, db, fmt.Sprintf("%ssection_%d", prefix, index), section+footer, 0.85, "init/domain_research", existingHashes)
 			if err != nil {
 				notes = append(notes, fmt.Sprintf("%s: storing research for %q failed: %v", agent.Name, question.Question, err))
 				break

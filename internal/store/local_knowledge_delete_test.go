@@ -51,7 +51,7 @@ func TestDeleteKnowledgeAtoms(t *testing.T) {
 				{"strategic/visionary", "unrelated concept sharing a prefix"},
 				{"doc/a.md/x", "doc atom"},
 			} {
-				if err := s.StoreKnowledgeAtomWithEmbedding(ctx, atom.concept, atom.content, 1); err != nil {
+				if err := s.StoreKnowledgeAtomWithEmbedding(ctx, atom.concept, atom.content, 1, "test"); err != nil {
 					t.Fatalf("store %s: %v", atom.concept, err)
 				}
 			}

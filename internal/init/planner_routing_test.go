@@ -316,7 +316,7 @@ func TestInitialize_ReinitOnlyRedoesWhatChanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	old := time.Now().AddDate(0, 0, -90).Format(domainRetrievedLayout)
-	if err := kb.StoreKnowledgeAtom(prefix+"section_0", "An old answer about agent techniques that a newer release has replaced.\n\nSources: https://example.test/old\nRetrieved: "+old, 0.85); err != nil {
+	if err := kb.StoreKnowledgeAtom(prefix+"section_0", "An old answer about agent techniques that a newer release has replaced.\n\nSources: https://example.test/old\nRetrieved: "+old, 0.85, "test"); err != nil {
 		t.Fatal(err)
 	}
 	_ = kb.Close()
