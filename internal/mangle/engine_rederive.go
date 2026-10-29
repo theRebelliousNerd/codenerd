@@ -58,14 +58,26 @@ func isNegated(t ast.Term) bool {
 
 // A merge lattice is non-monotone too: an added fact can replace a row, and a
 // conclusion drawn from the replaced row would otherwise survive.
+//
+// A lattice is also downstream of its merge predicate, which no rule body
+// names: the Decl calls it. A change to what the comparator reads changes
+// which row the lattice keeps, so the edge merge -> lattice carries the
+// comparator's inputs to the lattice and its consumers (audit
+// mangle-generic-merge-invalidation; the action kernel's cone index has the
+// same edge, internal/core/kernel_eval_cone.go).
 func buildRuleGraph(rules []ast.Clause, decls map[ast.PredicateSym]*ast.Decl) ruleGraph {
 	g := ruleGraph{consumers: make(map[string][]string), nonMonotone: make(map[string]struct{})}
+	edges := make(map[string]map[string]struct{})
 	for sym, decl := range decls {
 		if isLattice(decl) {
 			g.nonMonotone[sym.Symbol] = struct{}{}
+			_, merge := decl.MergePredicate()
+			if edges[merge.Symbol] == nil {
+				edges[merge.Symbol] = make(map[string]struct{})
+			}
+			edges[merge.Symbol][sym.Symbol] = struct{}{}
 		}
 	}
-	edges := make(map[string]map[string]struct{})
 	for _, rule := range rules {
 		head := rule.Head.Predicate.Symbol
 		if rule.Transform != nil {
