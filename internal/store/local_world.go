@@ -109,11 +109,7 @@ func (s *LocalStore) ReplaceWorldFactsForFile(path, depth, fingerprint string, f
 	defer stmt.Close()
 
 	for _, f := range facts {
-		argsJSON, err := encodeFactArgs(f.Args)
-		if err != nil {
-			return err
-		}
-		if _, err := stmt.Exec(path, depth, fingerprint, f.Predicate, string(argsJSON)); err != nil {
+		if _, err := stmt.Exec(path, depth, fingerprint, f.Predicate, encodeWorldArgs(f.Args)); err != nil {
 			return err
 		}
 	}
@@ -146,12 +142,13 @@ func (s *LocalStore) LoadWorldFactsForFile(path, depth string) ([]WorldFactInput
 	var out []WorldFactInput
 	var fp string
 	for rows.Next() {
-		var pred, argsJSON, fingerprint string
-		if err := rows.Scan(&pred, &argsJSON, &fingerprint); err != nil {
+		var pred, fingerprint string
+		var encoded []byte
+		if err := rows.Scan(&pred, &encoded, &fingerprint); err != nil {
 			continue
 		}
 		fp = fingerprint
-		args, err := decodeFactArgs(argsJSON)
+		args, err := decodeWorldArgs(encoded)
 		if err != nil {
 			continue
 		}
@@ -186,11 +183,12 @@ func (s *LocalStore) LoadAllWorldFacts(depth string) ([]WorldFactInput, error) {
 
 	out := make([]WorldFactInput, 0)
 	for rows.Next() {
-		var pred, argsJSON string
-		if err := rows.Scan(&pred, &argsJSON); err != nil {
+		var pred string
+		var encoded []byte
+		if err := rows.Scan(&pred, &encoded); err != nil {
 			continue
 		}
-		args, err := decodeFactArgs(argsJSON)
+		args, err := decodeWorldArgs(encoded)
 		if err != nil {
 			continue
 		}
@@ -263,11 +261,7 @@ func (s *LocalStore) UpdateWorldFilesAndFacts(depth string, updates []FileUpdate
 		}
 
 		for _, f := range u.Facts {
-			argsJSON, err := encodeFactArgs(f.Args)
-			if err != nil {
-				return err
-			}
-			if _, err := factStmt.Exec(u.Meta.Path, depth, u.Meta.Fingerprint, f.Predicate, string(argsJSON)); err != nil {
+			if _, err := factStmt.Exec(u.Meta.Path, depth, u.Meta.Fingerprint, f.Predicate, encodeWorldArgs(f.Args)); err != nil {
 				return err
 			}
 		}
