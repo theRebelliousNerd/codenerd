@@ -1,1 +1,3 @@
-- [Mangle playbook](mangle-playbook.md) — stance, lab and showcase loop, and v0.7 findings (unchecked bounds, negated externals, termination, lattice store)
+- [Lattice host traps](lattice-host-cone-and-preorder.md) — cone eval must carry merge/deferred rules; merges must be total preorders; fixed in codeNERD 2026-10-28
+- [Jev Choice lattice](jev-choice-lattice.md) — conversation act: jev_choice rows, jev_choice_top lattice, act truth table; companion Noul dead end; probe numbers
+- [Lab module layout](lab-module-layout.md) — _mangle_lab is module mangle_lab; skill now lives in the MangleLSP plugin

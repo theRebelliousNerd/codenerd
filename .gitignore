@@ -47,6 +47,8 @@ internal/campaign/.nerd/
 !.claude/hooks/**
 !.claude/agent-memory/
 !.claude/agent-memory/**
+!.claude/mangle-project.md
+!.claude/settings.json
 !.claude/skills/
 .claude/skills/*
 !.claude/skills/codenerd-builder/
@@ -61,8 +63,6 @@ internal/campaign/.nerd/
 !.claude/skills/codenerd-dogfood/SKILL.md
 !.claude/skills/codenerd-dogfood/references/
 !.claude/skills/codenerd-dogfood/references/**
-!.claude/skills/mangle-programming/
-!.claude/skills/mangle-programming/**
 !.codex/
 .codex/*
 !.codex/skills/

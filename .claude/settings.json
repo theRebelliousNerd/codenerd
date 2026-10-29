@@ -1,0 +1,10 @@
+{
+  "extraKnownMarketplaces": {
+    "mangle-tools": {
+      "source": { "source": "github", "repo": "theRebelliousNerd/MangleLSP" }
+    }
+  },
+  "enabledPlugins": {
+    "mangle@mangle-tools": true
+  }
+}
