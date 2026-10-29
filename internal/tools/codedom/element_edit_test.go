@@ -137,6 +137,51 @@ func TestEditElement_RevisionPreconditionAndRefusalsLeaveTheFile(t *testing.T) {
 	}
 }
 
+func TestEditElement_MalformedRevisionIsNotConcurrentChange(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		revision string
+	}{
+		{"latest", "latest"},
+		{"short", "1f11f9cf40f"},
+		{"long", "1f11f9cf40f70"},
+		{"non_hex", "1f11f9cf40fg"},
+		{"uppercase", "1F11F9CF40F7"},
+		{"prefix", "rev 1f11f9cf40f7"},
+		{"observation_handle", "obs:fr:1f11f9cf40f7"},
+		{"same_length_non_ascii", "1f11f9cf4é0"},
+		{"embedded_space", "1f11f cf40f7"},
+		{"non_ascii", "１f11f9cf40f7"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reg, abs, rel := editFixture(t, "demo.go", twoMethods)
+			before := fileText(t, abs)
+			_, edits, err := execTool(reg, "edit_element", map[string]any{
+				"path": rel, "ref": "T.M", "old": "return t.a", "new": "return t.b", "revision": tc.revision,
+			})
+			if err == nil {
+				t.Fatal("a malformed revision must refuse the edit")
+			}
+			for _, want := range []string{"malformed revision", "12 lowercase hexadecimal", "1f11f9cf40f7", "get_element", "get_elements"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("malformed revision refusal must include %q, got: %v", want, err)
+				}
+			}
+			for _, unwanted := range []string{"precondition failed", "changed since it was read"} {
+				if strings.Contains(err.Error(), unwanted) {
+					t.Errorf("malformed revision is not evidence of a concurrent change: %v", err)
+				}
+			}
+			if got := fileText(t, abs); got != before {
+				t.Fatal("a malformed revision refusal must leave the file byte-for-byte")
+			}
+			if len(edits) != 0 {
+				t.Fatalf("a refused edit must not record changed elements: %v", edits)
+			}
+		})
+	}
+}
+
 func TestEditElement_MissingRevisionIsNotConcurrentChange(t *testing.T) {
 	for _, rev := range []any{nil, "", "None", "none", "NULL", "null", "nil", "<nil>", "undefined", "  None  "} {
 		reg, abs, rel := editFixture(t, "demo.go", twoMethods)

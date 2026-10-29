@@ -171,14 +171,17 @@ func parsedTarget(ctx context.Context, path, ref string) (*resolvedElement, erro
 	return re, nil
 }
 
-// checkRevision refuses an edit whose precondition names a revision the
-// element no longer has, and hands back the element as it is now so the edit
-// can be redone without a read.
+// checkRevision refuses malformed preconditions with format guidance, and
+// stale revisions with the element as it is now so the edit can be redone
+// without a read.
 func checkRevision(re *resolvedElement, rev string) error {
 	if isMissingRevision(rev) {
 		return nil
 	}
 	rev = strings.TrimSpace(rev)
+	if len(rev) != 12 || strings.Trim(rev, "0123456789abcdef") != "" {
+		return fmt.Errorf("malformed revision %q: expected 12 lowercase hexadecimal characters (for example 1f11f9cf40f7); use the element's rev from get_element or get_elements, or omit revision to edit without a precondition", rev)
+	}
 	if rev == re.elem.Revision {
 		return nil
 	}

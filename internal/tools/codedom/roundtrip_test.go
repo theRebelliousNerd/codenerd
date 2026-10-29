@@ -76,8 +76,16 @@ func TestRegistryRoundTrip_ElementReadEditReadAndStaleRevision(t *testing.T) {
 		"path": path, "ref": before.ref, "revision": before.revision,
 		"old": "return a + b + 1", "new": "return a + b + 2",
 	})
-	if err == nil || !strings.Contains(err.Error(), "precondition failed") {
-		t.Fatalf("an old revision must be refused after an element edit, got %v", err)
+	if err == nil {
+		t.Fatal("an old revision must be refused after an element edit")
+	}
+	for _, want := range []string{"precondition failed", "changed since it was read", "at rev " + after.revision, "not " + before.revision, "It is now:", "return a + b + 1"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("stale revision refusal must include %q, got: %v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "malformed") {
+		t.Errorf("a genuine stale revision is not malformed: %v", err)
 	}
 	if got := readRel(t, root, path); got != committed {
 		t.Fatal("a refused stale-revision edit changed the file")
