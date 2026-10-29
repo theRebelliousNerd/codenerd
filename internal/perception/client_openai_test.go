@@ -455,3 +455,54 @@ func TestOpenAI_ThrottleSpacesRequests(t *testing.T) {
 		t.Errorf("3 requests in %v; want >= 200ms of spacing", elapsed)
 	}
 }
+
+// The pair is checked per request, not only at construction: SetModel (the
+// /model path) can move a valid client onto a model that rejects its effort.
+func TestOpenAI_AModelChangeRevalidatesTheSlotEffort(t *testing.T) {
+	rec := newOpenAIRecorder(t, jsonReply(openAIResponsesBody(3, 1)))
+	c := openAIClientWith(t, rec.srv.URL, func(cfg *OpenAIConfig) { cfg.Model = "gpt-6.1-terra"; cfg.ReasoningEffort = "none" })
+	c.SetModel("gpt-6.1-sol")
+	_, err := c.Complete(context.Background(), "hello")
+	if err == nil || !strings.Contains(err.Error(), "slot's reasoning_effort") {
+		t.Fatalf("Sol with the slot's effort none: err=%v, want a refusal naming the slot's effort", err)
+	}
+	content, done := c.CompleteWithStreaming(context.Background(), "", "hello", false)
+	if _, res := types.CollectStream(context.Background(), content, done, nil); res.Err == nil {
+		t.Fatal("the streaming route sent Sol with effort none")
+	}
+	if rec.count() != 0 {
+		t.Fatalf("%d incompatible request(s) reached the wire", rec.count())
+	}
+	// A profile model on the context is held to the same rule.
+	terra := openAIClientWith(t, rec.srv.URL, func(cfg *OpenAIConfig) { cfg.Model = "gpt-6.1-terra"; cfg.ReasoningEffort = "none" })
+	if _, err := terra.Complete(types.WithModelName(context.Background(), "gpt-6.1-sol"), "hello"); err == nil {
+		t.Fatal("a profile model that rejects the slot's effort was sent")
+	}
+}
+
+// codeNERD's research catalog has a local DuckDuckGo function named
+// web_search. It is an ordinary function tool and must be sent while hosted
+// search is off; only alongside the hosted web_search tool is it refused.
+func TestOpenAI_ALocalWebSearchFunctionIsSentWhenHostedSearchIsOff(t *testing.T) {
+	rec := newOpenAIRecorder(t, jsonReply(openAIResponsesBody(3, 1)))
+	tools := []ToolDefinition{
+		{Name: "web_search", Description: "DuckDuckGo", InputSchema: map[string]any{"type": "object"}},
+		{Name: "read_file", Description: "read", InputSchema: map[string]any{"type": "object"}},
+	}
+	c := openAIClientWith(t, rec.srv.URL, nil)
+	if _, err := c.CompleteWithTools(context.Background(), "sys", "find it", tools); err != nil {
+		t.Fatalf("the research catalog was refused with hosted search off: %v", err)
+	}
+	sent := rec.body(0)["tools"].([]any)
+	if len(sent) != 2 || sent[0].(map[string]any)["type"] != "function" || sent[0].(map[string]any)["name"] != "web_search" {
+		t.Fatalf("tools on the wire = %v, want both functions and no hosted tool", sent)
+	}
+	on := true
+	hosted := openAIClientWith(t, rec.srv.URL, func(cfg *OpenAIConfig) { cfg.Options.EnableWebSearch = &on })
+	if _, err := hosted.CompleteWithTools(context.Background(), "sys", "find it", tools); err == nil || !strings.Contains(err.Error(), "hosted web_search") {
+		t.Fatalf("a web_search function beside hosted search: err=%v, want the conflict named", err)
+	}
+	if rec.count() != 1 {
+		t.Fatalf("requests = %d, want only the hosted-off one", rec.count())
+	}
+}

@@ -44,7 +44,11 @@ func (c *OpenAIClient) stream(ctx context.Context, systemPrompt, userPrompt stri
 	if isPiggybackPrompt(ctx, systemPrompt, userPrompt) {
 		withStructuredOutput(&req)
 	}
-	c.finalize(&req, false)
+	if err := c.finalize(&req, false); err != nil {
+		res := types.StreamResult{Err: err}
+		logStreamEnd("openai", start, res)
+		return res
+	}
 
 	resp, err := c.openStream(ctx, &req)
 	if err != nil {

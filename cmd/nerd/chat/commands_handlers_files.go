@@ -93,16 +93,30 @@ func (m Model) handleCmdModel(input string, parts []string) (tea.Model, tea.Cmd)
 				Content: fmt.Sprintf("Error: `%s` is not a recognized model for provider `%s`.\nUse `/model` to see list of valid models.", newModel, activeProvider),
 				Time:    time.Now(),
 			})
+		} else if err := config.ValidateReasoningEffort(activeProvider, newModel, cfg.GetReasoningEffort()); err != nil {
+			// A model switch is a change of the effective (model, effort) pair:
+			// an effort the new model rejects would be sent on every request.
+			// Refused before anything is written or switched; the user picks a
+			// compatible pair, nothing substitutes an effort for them.
+			m = m.addMessage(Message{
+				Role: "assistant",
+				Content: fmt.Sprintf("Error: `%s` cannot run with the configured reasoning_effort `%s`: %s.\nSet a reasoning_effort the model accepts in .nerd/config.json, then switch.",
+					newModel, cfg.GetReasoningEffort(), err.Error()),
+				Time: time.Now(),
+			})
 		} else {
-			cfg.Model = newModel
-			if err := cfg.Save(m.userConfigPath()); err != nil {
+			// The candidate is a copy: a failed save leaves the live config,
+			// and the client, on the previous model.
+			candidate := *cfg
+			candidate.Model = newModel
+			if err := candidate.Save(m.userConfigPath()); err != nil {
 				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("Error saving config: %s", err.Error()),
 					Time:    time.Now(),
 				})
 			} else {
-				m.Config = cfg
+				m.Config = &candidate
 				// Set the model on the active client if possible
 				setModelRecursive(m.client, newModel)
 				m = m.addMessage(Message{
