@@ -68,7 +68,7 @@ Go's official documentation explains that build constraints determine file inclu
 
 ## Why the remaining checks are not equivalent
 
-The session write guard calls the projected build-exclusion check before execution. The registered virtual-store write guard calls the same projector. Both locations are useful defenses, but both inherit this revision shortcut; counting them as two independent checks would overstate coverage. [Session guard][session-guard] [Registered guard][registered-guard]
+The native and Piggyback shared accounting path invokes the session write guard before dispatch. That guard calls the projected build-exclusion check, and the registered virtual-store write guard calls the same projector. Both locations are useful defenses, but both inherit this revision shortcut; counting them as two independent checks would overstate coverage. [Serving write path][serving-write-path] [Session guard][session-guard] [Registered guard][registered-guard]
 
 The element handler applies a structured edit. `codemodel.Apply` parses and formats source, handles imports, and checks preservation of sibling elements. Its successful parse verdict does not establish that the file remains included under the active build context. A syntactically valid build constraint can change inclusion without breaking those invariants. [Structured application][structured-apply] [Parse verdict][parse-verdict]
 
@@ -106,7 +106,7 @@ Future evaluation should compare the current baseline, shared revision semantics
 
 Include recognized sentinel variants, omitted and empty revisions, exact and padded current revisions, genuine stale revisions, and meaningful non-sentinel strings. Pair header edits and replacements with ordinary body edits. Test already excluded files, satisfied versus unsatisfied new tags, invalid or duplicate constraints, and body-only mentions.
 
-Preserve denials for permissions, protected targets, repair-scope restrictions, canceled contexts, unresolved references, and foreign writes. Record projector classification, handler classification, skip reason, proposed bytes, actual file bytes, guard results, and commit count. A genuinely rejected operation must not mutate; a permitted ordinary edit should remain possible.
+Preserve denials for permissions, protected targets, repair-scope restrictions, canceled contexts, unresolved references, and foreign writes. Record projector classification, handler classification, skip reason, proposed bytes, actual file bytes, guard results, and commit count. A pre-dispatch refusal must not mutate; a permitted ordinary edit should remain possible. Keep post-execution rejection separate because it can follow an already recorded effect.
 
 Measure classification disagreements, missed exclusion checks, false rejections, parse count, bytes inspected, wall time, memory, repair rounds, and model tokens. Keep downstream build or final-task outcomes separate: the primary success criterion is parity at the mechanical boundary, not a requirement to demonstrate false completion. All evaluation remains future work.
 
@@ -137,4 +137,5 @@ Measure classification disagreements, missed exclusion checks, false rejections,
 [syntax-validator]: https://github.com/theRebelliousNerd/codenerd/blob/9dcb01b9736bf4763aa3ac391d29f133d73c6611/internal/core/validator_syntax.go#L155-L159
 [codedom-validator]: https://github.com/theRebelliousNerd/codenerd/blob/9dcb01b9736bf4763aa3ac391d29f133d73c6611/internal/core/validator_codedom.go#L141-L169
 [dreamer]: https://github.com/theRebelliousNerd/codenerd/blob/9dcb01b9736bf4763aa3ac391d29f133d73c6611/internal/core/dreamer.go#L435-L474
+[serving-write-path]: https://github.com/theRebelliousNerd/codenerd/blob/9dcb01b9736bf4763aa3ac391d29f133d73c6611/internal/session/executor_tools.go#L1017-L1049
 
