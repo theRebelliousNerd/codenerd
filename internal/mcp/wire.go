@@ -398,6 +398,13 @@ func listPaged[T any](ctx context.Context, caller rpcCaller, kind, method, key s
 		if err != nil {
 			return incompleteOrFail(items, kind, page-1, "a page request failed", fmt.Errorf("%s: %w", method, err))
 		}
+		// A page that arrives after the caller gave up is not part of the
+		// collection: the outcome is the cancellation, whichever the transport
+		// noticed first. Checked before the page is counted, so a cancel during
+		// the request never reads as a repeated cursor or a reached bound.
+		if err := ctx.Err(); err != nil {
+			return incompleteOrFail(items, kind, page-1, "collection canceled", err)
+		}
 		batch, next, err := decodeCatalogPage[T](resp.Result, key)
 		if err != nil {
 			return incompleteOrFail(items, kind, page-1, "a page could not be parsed", fmt.Errorf("%s: %w", method, err))
