@@ -134,3 +134,17 @@ that joined `shard_can_handle` were deleted. Tool-create tasks (`orchestrator_to
 registered tool that provides the capability, `/dangerous` fails it with the reason; otherwise the task waits
 for `tool_registered` or `has_capability`, ends with an error on `tool_generation_failed`, and fails after 30
 minutes.
+
+## Error-free work in recurse (as built 2026-10-29)
+
+With `RecurseCycleConfig.MeasureGates` (`internal/campaign/recurse_error_free.go`), `refreshGates` measures in full
+before the first visit and after `FullGateMeasureEvery` cycles, and groups the baseline into `gates.FindingGroups`:
+every finding of one check, from one gate (vet, staticcheck, golangci_lint), in one package. Each group is a
+finding of its package's node and is asserted as `recurse_ef_group(ID, Gate, Check, Files)`; `policy/recurse.mg`
+ranks single-file groups with lint findings, multi-file groups at 6, and excludes U1000 and unused
+(`recurse_finding_excluded`). The attempt carries the findings and what should hold as evidence, and
+`gates.WitnessArgv` (the gate over the package with only that check) as the campaign's acceptance witness. After
+the attempt the ratchet runs the witness itself (`gates.RunWitness`), measures the lint gates scoped to the touched
+packages, compares against `Snapshot.RestrictTo` of the baseline, and on keep lays the result over the baseline
+(`Snapshot.Overlay`). Campaign tasks consult shard agents only through the session executor (`expert_spawn`);
+`orchestrator_experts.go` records the selection as events (`specialist_executes`, `specialist_consulted`).

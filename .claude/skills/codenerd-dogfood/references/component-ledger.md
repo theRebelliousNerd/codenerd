@@ -6156,3 +6156,15 @@ also never written to the session record, so the driver's `wait` hung (R1-31 and
 `TestGrepGlobListFilesHonorGitignore` fails with the production files reverted; the workspace package's own new
 tests fail to compile without them. Three production files (membership.go, git.go, walk.go). My log watcher
 missed this run (it globbed an unpadded PID). **Streak 0.**
+
+## R1-27 rerun -- landed (2026-10-29, 17:40-18:01)
+
+Same brief, rerun on `8decae576` after its blockers were fixed (guard `db13edc5a`, `run_lint`, tracked
+`internal/build` visible). Two coder steps (the second from codeNERD's own adversarial review), 27 model calls on
+`gpt-6.1-sol`, 1.0M input of which 82% cache reads, ~$0.62. **Landed** `ac058dc7a`: `element_edit.go` (4 lines)
+plus its tests; the whitespace trim kept (run 1's criterion-7 regression gone). Fail-before:
+`TestEditElement_MalformedRevisionIsNotConcurrentChange` fails with the fix reverted. G1-G3 green. Finding: the
+model believed `run_lint` takes no build tags and ran untagged vet itself (queued to lane B). Same day, from the
+receipts: the three-key Anthropic pool round-robined every call of a conversation onto a new key (126/126 hops, 17%
+cache reads vs ~80% single-key), fixed by conversation affinity `962a1e2ff`; and `.nerd/usage.json` attributes
+100% of tokens to shard "unknown" (brief R1-32). **Streak 1.**

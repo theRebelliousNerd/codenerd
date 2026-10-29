@@ -374,3 +374,18 @@ claiming completion for registration, readiness, recovery, or JIT consistency.
 The authoritative proposed changes are in [TODO.md](TODO.md), evidence order is
 in [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md), and unresolved ownership choices are
 in [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md).
+
+### 6.3 Critique, phantom verbs, and the fill gate (as built 2026-10-29)
+
+`expert_critique(Task, Agent)` (`policy/shard_experts.mg`) derives when the verb's `execution_mode` is
+`/advisory_with_critique`. `session.Executor.recordExpertCritics` asserts `turn_expert_critic`, and
+`turn_rounds.mg` owes `/expert_critique` (order 4). `session.Executor.reviewWithShardExperts`
+(`internal/session/expert_critique_round.go`) has each agent review the turn's change views (`turnChangeViews`,
+shared with the build critic) through the consultation spawner; on-change findings are asserted as
+`turn_expert_finding`, triaged by `turn_expert_actionable` at the critic's bar, and actionable ones return as one
+repair round checked by `recheckUplift`. `session.turnUserAgent` treats every taxonomy verb
+(`perception.IsTaxonomyVerb`) as no user agent. Expert selection owns all its facts: the target extension is
+`expert_task_extension(Task, File, Ext)`, joined with `extension_language(Ext, Lang)` (`policy/coder_language.mg`).
+Program item #14: `internal/kbfill` is the fill gate; `kbfill_test.go` ratchets `testdata/kb_fill_gaps.txt` over the
+embedded corpora and a producer-built shard KB, `nerd check-kb` (`cmd/nerd/cmd_check_kb.go`) audits a workspace's
+shard KBs, and `prompt_atoms.source_file` and `knowledge_atoms.source` are written by their producers.
