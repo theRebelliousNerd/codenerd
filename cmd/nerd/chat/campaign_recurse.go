@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"codenerd/internal/campaign"
+	"codenerd/internal/observation"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -163,7 +164,9 @@ func (m Model) runRecurseLoop(ctx context.Context, st *recurseState, cfg campaig
 			Passes:     cfg.MaxWaves,
 			Subsystems: cfg.Subsystems,
 			Progress:   out,
-			Execute: func(ctx context.Context, a campaign.RecurseAttempt) error {
+			// The attempt's own writes are its orchestrator's kept writes:
+			// the loop undoes exactly those when it stops or reverts it.
+			Execute: func(ctx context.Context, a campaign.RecurseAttempt) ([]observation.FileWrite, error) {
 				camp := campaign.RecurseAttemptCampaign(m.workspace, a)
 				camp.ContextBudget = cfg.ContextBudget
 				defer func() {
@@ -194,13 +197,14 @@ func (m Model) runRecurseLoop(ctx context.Context, st *recurseState, cfg campaig
 				// client, like a started campaign.
 				orch, err := m.newCampaignOrchestrator(progress, events, promptProvider)
 				if err != nil {
-					return fmt.Errorf("recurse attempt: %w", err)
+					return nil, fmt.Errorf("recurse attempt: %w", err)
 				}
 				defer func() { _ = orch.Close() }()
 				if err := orch.SetCampaign(camp); err != nil {
-					return fmt.Errorf("failed to set recurse campaign: %w", err)
+					return nil, fmt.Errorf("failed to set recurse campaign: %w", err)
 				}
-				return orch.Run(ctx)
+				err = orch.Run(ctx)
+				return orch.KeptWrites(), err
 			},
 		})
 		out.flush()

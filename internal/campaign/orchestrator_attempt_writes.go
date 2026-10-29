@@ -106,6 +106,28 @@ func (o *Orchestrator) endAttempt(task *Task) attemptRecord {
 	return *rec
 }
 
+// keepAttemptWrites adds a successful attempt's writes to the run's kept
+// writes: what this orchestrator's run left in the workspace, in order.
+// A failed attempt's writes are undone with it and never kept.
+func (o *Orchestrator) keepAttemptWrites(writes []observation.FileWrite) {
+	if len(writes) == 0 {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.keptWrites = append(o.keptWrites, writes...)
+}
+
+// KeptWrites returns the writes this orchestrator's successful attempts left
+// in the workspace, in order. A recurse attempt's executor returns them, so
+// the loop's cancel and revert undo exactly the attempt's own writes
+// (undoAttemptWrites) and leave every other writer's.
+func (o *Orchestrator) KeptWrites() []observation.FileWrite {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return append([]observation.FileWrite(nil), o.keptWrites...)
+}
+
 func (rec attemptRecord) release() {
 	for _, lease := range rec.leases {
 		lease.release()

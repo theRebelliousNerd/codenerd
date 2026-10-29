@@ -14,6 +14,7 @@ import (
 	"codenerd/internal/campaign"
 	"codenerd/internal/gates"
 	"codenerd/internal/northstar"
+	"codenerd/internal/observation"
 	coresys "codenerd/internal/system"
 
 	"github.com/spf13/cobra"
@@ -196,7 +197,9 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 	startCampaignEventPrinter(eventChan)
 
 	attempts := 0
-	execute := func(ctx context.Context, a campaign.RecurseAttempt) error {
+	// The attempt's own writes are the orchestrator's kept writes: the loop
+	// undoes exactly those when it stops or reverts the attempt.
+	execute := func(ctx context.Context, a campaign.RecurseAttempt) ([]observation.FileWrite, error) {
 		camp := campaign.RecurseAttemptCampaign(cwd, a)
 		camp.ContextBudget = cfg.ContextBudget
 		defer func() {
@@ -210,10 +213,11 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 		// like a started campaign.
 		orchestrator, err := newCampaignOrchestrator(attemptCfg, promptProvider)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		defer func() { _ = orchestrator.Close() }()
-		return executeCampaignPlan(ctx, cmd, orchestrator, camp)
+		err = executeCampaignPlan(ctx, cmd, orchestrator, camp)
+		return orchestrator.KeptWrites(), err
 	}
 
 	fmt.Printf("\nRecurse: improving %s node by node (%s).\n", cwd, recurseBoundText(cfg))

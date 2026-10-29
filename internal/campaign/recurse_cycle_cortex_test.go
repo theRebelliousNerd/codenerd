@@ -65,7 +65,7 @@ func TestRecurseCycles_OnTheProductionKernel(t *testing.T) {
 	attempts := map[string]int{}
 	res, err := campaign.RunRecurseCycles(context.Background(), campaign.RecurseCycleConfig{
 		Workspace: root, Kernel: ck, Passes: 3,
-		Execute: func(ctx context.Context, a campaign.RecurseAttempt) error {
+		Execute: campaign.OwnWrites(root, func(ctx context.Context, a campaign.RecurseAttempt) error {
 			if a.Angle == "stabilize" && a.Node.ID == "store" {
 				return os.WriteFile(filepath.Join(root, "store", "more_test.go"), []byte("package store\n\nimport \"testing\"\n\nfunc TestGetIsStable(t *testing.T) {\n\tif Get() != Get() {\n\t\tt.Fatal(\"unstable\")\n\t}\n}\n"), 0o644)
 			}
@@ -77,7 +77,7 @@ func TestRecurseCycles_OnTheProductionKernel(t *testing.T) {
 				return os.WriteFile(filepath.Join(root, "store", "store.go"), []byte("package store\n\nfunc Get() int { return 2 }\n"), 0o644)
 			}
 			return nil
-		},
+		}),
 	})
 	if err != nil {
 		t.Fatalf("RunRecurseCycles: %v", err)

@@ -43,7 +43,7 @@ func recurseFixture(t *testing.T, extra map[string]string) string {
 	return gitFixture(t, files).root
 }
 
-func runRecurse(t *testing.T, ctx context.Context, root string, passes int, execute RecurseExecutor) (*RecurseCycleResult, error) {
+func runRecurse(t *testing.T, ctx context.Context, root string, passes int, execute attemptFn) (*RecurseCycleResult, error) {
 	t.Helper()
 	k, err := core.NewRealKernelWithWorkspace(t.TempDir())
 	if err != nil {
@@ -51,7 +51,7 @@ func runRecurse(t *testing.T, ctx context.Context, root string, passes int, exec
 	}
 	var progress strings.Builder
 	res, err := RunRecurseCycles(ctx, RecurseCycleConfig{
-		Workspace: root, Kernel: k, Execute: execute, Passes: passes, Progress: &progress,
+		Workspace: root, Kernel: k, Execute: ownWrites(root, execute), Passes: passes, Progress: &progress,
 	})
 	t.Logf("progress:\n%s", progress.String())
 	return res, err
@@ -90,7 +90,7 @@ func improvements(recs []recurseRecord) []recurseRecord {
 
 // onlyFixes runs fn for fix attempts and leaves improvement attempts
 // untouched, so they revert as changing nothing.
-func onlyFixes(fn RecurseExecutor) RecurseExecutor {
+func onlyFixes(fn attemptFn) attemptFn {
 	return func(ctx context.Context, a RecurseAttempt) error {
 		if a.Angle != "" {
 			return nil

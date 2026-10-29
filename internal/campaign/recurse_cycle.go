@@ -14,6 +14,7 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/gates"
+	"codenerd/internal/observation"
 	"codenerd/internal/projectdoc"
 	"codenerd/internal/tools"
 )
@@ -84,9 +85,15 @@ type PriorAttempt struct {
 }
 
 // RecurseExecutor runs one attempt to completion: a model turn or a one-task
-// campaign that edits the workspace. What it reports is not evidence -- the
-// loop re-measures -- so its error is recorded, never trusted either way.
-type RecurseExecutor func(ctx context.Context, a RecurseAttempt) error
+// campaign that edits the workspace. Its error is recorded, never trusted
+// either way -- the loop re-measures. Its writes are the attempt's own
+// (observation.FileWrite, each with what the file held before and after;
+// the campaign path returns Orchestrator.KeptWrites): when the attempt is
+// stopped or reverted, the loop undoes exactly these, each only while the
+// file still holds what the attempt left, and leaves every other writer's
+// change in place, named in the journal (audit
+// recurse-compensation-write-ownership).
+type RecurseExecutor func(ctx context.Context, a RecurseAttempt) ([]observation.FileWrite, error)
 
 // RecurseCycleConfig configures a run.
 type RecurseCycleConfig struct {
@@ -932,14 +939,15 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 	if spec.finding != nil {
 		a.Finding = *spec.finding
 	}
-	execErr := r.cfg.Execute(ctx, a)
+	owned, execErr := r.cfg.Execute(ctx, a)
 	if ctx.Err() != nil {
-		// Stopped mid-attempt: put the tree back now rather than leave it for
-		// the next start. The in-flight record stays until that succeeds.
-		if changed, err := r.changedByAttempt(context.WithoutCancel(ctx), untracked); err == nil {
-			if err := r.git.revert(context.WithoutCancel(ctx), changed); err == nil {
-				_ = os.Remove(inFlightPath(r.root))
-			}
+		// Stopped mid-attempt: undo the attempt's own writes now rather than
+		// leave them for the next start. The in-flight record stays until
+		// that succeeds; the journal names what was left in place.
+		if detail, err := r.undoOwned(context.WithoutCancel(ctx), untracked, owned); err == nil {
+			_ = r.journal.append(recurseRecord{Step: stepRatchet, Pass: v.pass, Cycle: cycle, Node: node.ID, Finding: findingID, Angle: spec.angle,
+				Outcome: outcomeReverted, Detail: strings.TrimSpace("stopped mid-attempt; " + detail)})
+			_ = os.Remove(inFlightPath(r.root))
 		}
 		return ctx.Err()
 	}
@@ -1059,9 +1067,11 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 	case ratchetRefuse, ratchetRevert:
 		// Read what the attempt did before the revert erases it.
 		rec.Tried = r.git.attemptDiff(ctx, changed, recurseEvidenceLimit)
-		if err := r.git.revert(ctx, changed); err != nil {
+		detail, err := r.undoOwned(ctx, untracked, owned)
+		if err != nil {
 			return err
 		}
+		rec.Detail = strings.TrimSpace(rec.Detail + " " + detail)
 		rec.Outcome = outcomeReverted
 		switch {
 		case verdict == ratchetRefuse:
@@ -1377,4 +1387,40 @@ func (r *recurseRun) resume(history []recurseRecord) (int, map[string]bool, erro
 		return pass + 1, nil, nil
 	}
 	return pass, done, nil
+}
+
+// undoOwned undoes the attempt's own writes (undoAttemptWrites: each only
+// while the file still holds what the attempt left) and names what stays
+// changed: a path another writer changed since the attempt wrote it, and any
+// difference from HEAD the attempt did not record -- another process's edit,
+// which is not the attempt's to put back. It reports "" when nothing is left.
+func (r *recurseRun) undoOwned(ctx context.Context, untrackedBefore map[string]bool, owned []observation.FileWrite) (string, error) {
+	held, err := undoAttemptWrites(owned)
+	if err != nil {
+		return "", fmt.Errorf("recurse: undo the attempt's writes: %w", err)
+	}
+	stillChanged, err := r.changedByAttempt(ctx, untrackedBefore)
+	if err != nil {
+		return "", err
+	}
+	if len(held) == 0 && len(stillChanged) == 0 {
+		return "", nil
+	}
+	var parts []string
+	for _, h := range held {
+		if rel, rerr := filepath.Rel(r.root, h); rerr == nil && !strings.HasPrefix(rel, "..") {
+			h = filepath.ToSlash(rel)
+		}
+		parts = append(parts, h)
+	}
+	seen := map[string]bool{}
+	for _, p := range parts {
+		seen[strings.Fields(p)[0]] = true
+	}
+	for _, p := range stillChanged {
+		if !seen[p] {
+			parts = append(parts, p+" (not this attempt's write)")
+		}
+	}
+	return "left in place: " + strings.Join(parts, ", "), nil
 }

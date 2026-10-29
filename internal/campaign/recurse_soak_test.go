@@ -97,7 +97,7 @@ func TestRecurseCycles_ALongRunLeavesBoundedState(t *testing.T) {
 	// node but fails differently every time. Improvements move nothing.
 	res, err := RunRecurseCycles(ctx, RecurseCycleConfig{
 		Workspace: root, Kernel: k,
-		Execute: func(ctx context.Context, a RecurseAttempt) error {
+		Execute: ownWrites(root, func(ctx context.Context, a RecurseAttempt) error {
 			if a.Cycle >= cycles {
 				cancel()
 				return nil
@@ -118,7 +118,7 @@ func TestRecurseCycles_ALongRunLeavesBoundedState(t *testing.T) {
 				write(t, root, node+"/value.txt", "wrong "+strings.Repeat("x", a.Cycle%17+1)+"\n")
 			}
 			return nil
-		},
+		}),
 	})
 	if err != nil && ctx.Err() == nil {
 		t.Fatalf("RunRecurseCycles: %v", err)

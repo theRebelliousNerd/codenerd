@@ -5,6 +5,7 @@ import (
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/northstar"
+	"codenerd/internal/observation"
 	"codenerd/internal/perception"
 	"codenerd/internal/session"
 	"codenerd/internal/tactile"
@@ -40,6 +41,8 @@ type Orchestrator struct {
 	// leases its write guard took -- by task ID
 	// (orchestrator_attempt_writes.go). Guarded by mu.
 	attempts map[string]*attemptRecord
+	// keptWrites are the successful attempts' writes, in order (KeptWrites).
+	keptWrites []observation.FileWrite
 
 	// Campaign-specific components
 	contextPager                *ContextPager

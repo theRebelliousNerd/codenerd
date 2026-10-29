@@ -15,7 +15,7 @@ import (
 // the journal names the gate. Without the measurement the same attempt is kept.
 func TestRecurseCycles_AFixThatWorsensAnErrorFreeGateIsReverted(t *testing.T) {
 	t.Parallel()
-	fixAndLeaveUnformatted := func(root string) RecurseExecutor {
+	fixAndLeaveUnformatted := func(root string) attemptFn {
 		return onlyFixes(func(ctx context.Context, a RecurseAttempt) error {
 			write(t, root, "store/store.go", fixedStore)
 			write(t, root, "web/ugly.go", "package web\n\nfunc  Ugly()  {}\n")
@@ -29,7 +29,7 @@ func TestRecurseCycles_AFixThatWorsensAnErrorFreeGateIsReverted(t *testing.T) {
 		}
 		var progress strings.Builder
 		res, err := RunRecurseCycles(context.Background(), RecurseCycleConfig{
-			Workspace: root, Kernel: k, Execute: fixAndLeaveUnformatted(root), Passes: 1, Progress: &progress,
+			Workspace: root, Kernel: k, Execute: ownWrites(root, fixAndLeaveUnformatted(root)), Passes: 1, Progress: &progress,
 			MeasureGates: measure,
 		})
 		t.Logf("progress:\n%s", progress.String())

@@ -159,7 +159,7 @@ func runRecurseEndToEnd(t *testing.T, breakWeb bool) {
 		Kernel:    tk,
 		Passes:    1,
 		Progress:  &progress,
-		Execute: func(ctx context.Context, a RecurseAttempt) error {
+		Execute: ownWrites(root, func(ctx context.Context, a RecurseAttempt) error {
 			if a.Angle != "" {
 				return nil
 			}
@@ -177,7 +177,7 @@ func runRecurseEndToEnd(t *testing.T, breakWeb bool) {
 			}
 			assertAttemptAcceptancePassed(t, ctx, tk, root, a)
 			return nil
-		},
+		}),
 	})
 	t.Logf("progress:\n%s", progress.String())
 	if err != nil {

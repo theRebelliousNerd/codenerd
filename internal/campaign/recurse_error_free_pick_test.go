@@ -70,7 +70,7 @@ func TestRecurseCycles_PicksErrorFreeFindingsAndProvesEachWithItsWitness(t *test
 	}
 	var progress strings.Builder
 	res, err := RunRecurseCycles(context.Background(), RecurseCycleConfig{
-		Workspace: root, Kernel: k, Execute: execute, Passes: 1, Progress: &progress,
+		Workspace: root, Kernel: k, Execute: ownWrites(root, execute), Passes: 1, Progress: &progress,
 		MeasureGates: measure,
 	})
 	t.Logf("progress:\n%s", progress.String())

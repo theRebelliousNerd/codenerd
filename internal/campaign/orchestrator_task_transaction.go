@@ -99,7 +99,9 @@ func (o *Orchestrator) withTaskMutationSnapshot(task *Task, run func() (any, err
 		err = validateFileModifyOutcome(task, snapshot, o.attemptWrites(task))
 	}
 	if err == nil {
-		o.endAttempt(task).release()
+		rec := o.endAttempt(task)
+		o.keepAttemptWrites(rec.writes)
+		rec.release()
 		return result, nil
 	}
 	return nil, o.undoFailedAttempt(task, snapshot, err)
