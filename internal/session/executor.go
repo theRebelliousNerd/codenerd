@@ -953,6 +953,10 @@ type ExecutionResult struct {
 	// reportReading is the turn_report_reading asserted last for this turn,
 	// replaced by each new reading (finish_round.go).
 	reportReading *types.Fact
+	// gateRuns are the test-gate measurements this turn has made, keyed by
+	// what was measured and the content of every file the turn wrote
+	// (gate_memo.go).
+	gateRuns map[string]gateRun
 
 	// WrittenPaths records the target of every successful write mutation, so
 	// post-edit build verification can tell a turn that touched Go source from
