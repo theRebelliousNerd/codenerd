@@ -75,7 +75,7 @@ func (r *requestLog) all() []session.TaskRequest {
 // on the shipped corpus with a two-agent roster: a Mangle expert (a language
 // domain, which advises) and a Bubble Tea expert (an import domain, which
 // policy/shards.mg classifies as an executor).
-func runExpertTask(t *testing.T, target string, world []types.Fact) []session.TaskRequest {
+func runExpertTask(t *testing.T, target string, world []types.Fact) ([]session.TaskRequest, []OrchestratorEvent) {
 	t.Helper()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
@@ -86,17 +86,18 @@ func runExpertTask(t *testing.T, target string, world []types.Fact) []session.Ta
 		{Predicate: "shard_agent", Args: []any{types.MangleAtom("/bubbleteaexpert")}},
 		{Predicate: "shard_agent_domain", Args: []any{types.MangleAtom("/mangleexpert"), types.MangleAtom("/mangle"), types.MangleAtom("/registry")}},
 		{Predicate: "shard_agent_domain", Args: []any{types.MangleAtom("/bubbleteaexpert"), types.MangleAtom("/bubbletea"), types.MangleAtom("/registry")}},
-		{Predicate: "technology_import_exact", Args: []any{"github.com/charmbracelet/bubbletea", types.MangleAtom("/bubbletea")}},
-		// An advisor-classified agent (policy/shards.mg) with import evidence
-		// advises: a language-only match lends knowledge and spawns nothing.
-		{Predicate: "shard_agent", Args: []any{types.MangleAtom("/testarchitect")}},
-		{Predicate: "shard_agent_domain", Args: []any{types.MangleAtom("/testarchitect"), types.MangleAtom("/testify"), types.MangleAtom("/registry")}},
-		{Predicate: "technology_import_exact", Args: []any{"github.com/stretchr/testify", types.MangleAtom("/testify")}},
+		{Predicate: "technology_import_prefix", Args: []any{"github.com/charmbracelet/bubbletea", types.MangleAtom("/bubbletea")}},
+		// An agent policy/shards.mg does not classify as an executor: an
+		// import match makes it an advisor (specialist_should_advise).
+		{Predicate: "shard_agent", Args: []any{types.MangleAtom("/yamlexpert")}},
+		{Predicate: "shard_agent_domain", Args: []any{types.MangleAtom("/yamlexpert"), types.MangleAtom("/yaml"), types.MangleAtom("/registry")}},
+		{Predicate: "technology_import_prefix", Args: []any{"gopkg.in/yaml.v3", types.MangleAtom("/yaml")}},
 	}
 	if err := kernel.AssertBatch(append(roster, world...)); err != nil {
 		t.Fatalf("assert roster: %v", err)
 	}
 	workspace := t.TempDir()
+	events := make(chan OrchestratorEvent, 256)
 	log := &requestLog{workspace: workspace, advice: "Keep every negation bound; declare each new predicate."}
 	c := &Campaign{
 		ID: "/campaign_experts", Type: CampaignTypeFeature, Title: "experts", Goal: "route to the expert",
@@ -115,7 +116,7 @@ func runExpertTask(t *testing.T, target string, world []types.Fact) []session.Ta
 	orch, err := NewOrchestrator(OrchestratorConfig{
 		Workspace: workspace, Kernel: kernel, LLMClient: &MockLLMClient{}, PlanningLLMClient: &MockLLMClient{}, TaskExecutor: log,
 		Executor: tactile.NewDirectExecutor(), VirtualStore: &core.VirtualStore{},
-		Campaign: testCampaignConfig(fastRetries(1)),
+		Campaign: testCampaignConfig(fastRetries(1)), EventChan: events,
 	})
 	if err != nil {
 		t.Fatalf("NewOrchestrator: %v", err)
@@ -133,32 +134,56 @@ func runExpertTask(t *testing.T, target string, world []types.Fact) []session.Ta
 	if got := orch.campaign.Phases[0].Tasks[0].Status; got != TaskCompleted {
 		t.Fatalf("task status = %s, want completed", got)
 	}
-	return log.all()
+	var got []OrchestratorEvent
+	for {
+		select {
+		case e := <-events:
+			got = append(got, e)
+		default:
+			return log.all(), got
+		}
+	}
 }
 
-// A campaign task on a file importing testify needs the test architect, an
-// advisor by classification, at import strength: specialist_should_advise. The
-// agent is consulted before the turn, on the campaign's own task executor, and
-// the turn carries its advice and aims at the file, so its compile carries the
-// expert's knowledge.
-func TestCampaignTask_AnAdvisingShardAgentIsConsultedFirst(t *testing.T) {
+func eventsOf(events []OrchestratorEvent, kind OrchestratorEventType) []OrchestratorEvent {
+	var out []OrchestratorEvent
+	for _, e := range events {
+		if e.Type == kind {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// A campaign task on a file importing gopkg.in/yaml.v3 needs the YAML expert,
+// an advisor (an import match on an agent that is not an executor). There is
+// one consultation path: the session
+// executor's, which runs the consultations the kernel spawns for the turn's
+// Target (internal/session/expert_spawn.go; counted once per task by
+// TestCampaignShapedTaskConsultsItsExpertOncePerTask). The campaign sends the
+// task's turn, aimed at the file, and no consultation of its own -- it used to
+// send one too, so the advisor was asked twice per task -- and records the
+// selection as an event.
+func TestCampaignTask_AnAdvisingShardAgentIsConsultedOnlyByTheTurn(t *testing.T) {
 	t.Parallel()
-	const target = "internal/policy/rules_test.go"
-	reqs := runExpertTask(t, target, []types.Fact{
-		{Predicate: "dependency_link", Args: []any{target, "pkg:github.com/stretchr/testify", "github.com/stretchr/testify"}},
+	const target = "internal/config/load.go"
+	reqs, events := runExpertTask(t, target, []types.Fact{
+		{Predicate: "dependency_link", Args: []any{target, "pkg:gopkg.in/yaml.v3", "gopkg.in/yaml.v3"}},
 	})
-	if len(reqs) != 2 {
-		t.Fatalf("requests = %+v, want a consultation then the task's turn", reqs)
+	consultations := 0
+	for _, r := range reqs {
+		if strings.HasPrefix(r.IntentVerb, "/consult/") {
+			consultations++
+		}
 	}
-	consult, turn := reqs[0], reqs[1]
-	if consult.IntentVerb != "/consult/testarchitect" || !strings.Contains(consult.Task, target) {
-		t.Fatalf("first request = %+v, want the test architect consulted on %s", consult, target)
+	if consultations != 0 || len(reqs) != 1 {
+		t.Fatalf("requests = %+v: the campaign sent %d consultation(s), want only the task's turn", reqs, consultations)
 	}
-	if turn.Target != target {
-		t.Fatalf("the task's turn aims at %q, want %s", turn.Target, target)
+	if reqs[0].Target != target {
+		t.Fatalf("the task's turn aims at %q, want %s", reqs[0].Target, target)
 	}
-	if !strings.Contains(turn.Task, "ADVICE FROM SHARD AGENT testarchitect") || !strings.Contains(turn.Task, "Keep every negation bound") {
-		t.Fatalf("the task's turn does not carry the agent's advice:\n%s", turn.Task)
+	if got := eventsOf(events, EventSpecialistConsulted); len(got) != 1 || got[0].Message != "yamlexpert" {
+		t.Fatalf("specialist_consulted events = %+v, want one for yamlexpert", got)
 	}
 }
 
@@ -169,7 +194,7 @@ func TestCampaignTask_AnAdvisingShardAgentIsConsultedFirst(t *testing.T) {
 func TestCampaignTask_AnExecutingShardAgentOwnsTheTurn(t *testing.T) {
 	t.Parallel()
 	const target = "cmd/app/view.go"
-	reqs := runExpertTask(t, target, []types.Fact{
+	reqs, events := runExpertTask(t, target, []types.Fact{
 		{Predicate: "dependency_link", Args: []any{target, "pkg:github.com/charmbracelet/bubbletea", "github.com/charmbracelet/bubbletea"}},
 	})
 	if len(reqs) != 1 {
@@ -177,6 +202,9 @@ func TestCampaignTask_AnExecutingShardAgentOwnsTheTurn(t *testing.T) {
 	}
 	if reqs[0].Target != target || strings.HasPrefix(reqs[0].IntentVerb, "/consult/") {
 		t.Fatalf("the task's turn = %+v, want it aimed at %s and not a consultation", reqs[0], target)
+	}
+	if got := eventsOf(events, EventSpecialistExecutes); len(got) != 1 || got[0].Message != "bubbleteaexpert" {
+		t.Fatalf("specialist_executes events = %+v, want one for bubbleteaexpert", got)
 	}
 }
 
@@ -191,7 +219,7 @@ func TestCampaignTask_SelectsFromTheKernelDecision(t *testing.T) {
 	if err := kernel.AssertBatch([]types.Fact{
 		{Predicate: "shard_agent", Args: []any{types.MangleAtom("/bubbleteaexpert")}},
 		{Predicate: "shard_agent_domain", Args: []any{types.MangleAtom("/bubbleteaexpert"), types.MangleAtom("/bubbletea"), types.MangleAtom("/registry")}},
-		{Predicate: "technology_import_exact", Args: []any{"github.com/charmbracelet/bubbletea", types.MangleAtom("/bubbletea")}},
+		{Predicate: "technology_import_prefix", Args: []any{"github.com/charmbracelet/bubbletea", types.MangleAtom("/bubbletea")}},
 		{Predicate: "dependency_link", Args: []any{"cmd/app/view.go", "pkg:bubbletea", "github.com/charmbracelet/bubbletea"}},
 	}); err != nil {
 		t.Fatal(err)

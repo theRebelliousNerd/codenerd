@@ -60,22 +60,14 @@ func (o *Orchestrator) spawnTask(ctx context.Context, task *Task, intent, input 
 		if check, ok := o.campaignCheck(task); ok {
 			ctx = tools.WithCampaignCheck(ctx, check)
 		}
-		// The shard agents the task's files need (orchestrator_experts.go):
-		// the turn aims at the task's primary file, so its compile carries
-		// their knowledge, and an advising agent is consulted first.
-		targets := o.taskTargets(task)
-		if len(targets) > 0 {
+		// The shard agents the task's file needs (orchestrator_experts.go):
+		// the turn aims at the task's primary file, so the executor derives
+		// them, carries their knowledge and runs their consultations; the
+		// campaign records the same selection.
+		if targets := o.taskTargets(task); len(targets) > 0 {
 			req.Target = targets[0]
+			o.recordTaskExperts(task, intent, req.Target)
 		}
-		sel := o.selectTaskExperts(task, intent, targets)
-		for _, need := range sel.Needs {
-			if need.Execute {
-				o.emitEvent(EventSpecialistExecutes, task.PhaseID, task.ID, need.Agent, map[string]any{
-					"agent": need.Agent, "technologies": need.Technologies, "confidence": need.Confidence,
-				})
-			}
-		}
-		req.Task = o.withExpertAdvice(ctx, observed, task, sel, req.Task)
 	}
 	// PromptPhase selects the JIT instruction atom for this campaign's
 	// turns (recurse fix vs improve). Empty on every other campaign, and
