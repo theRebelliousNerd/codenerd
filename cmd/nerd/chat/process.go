@@ -334,6 +334,13 @@ func (m Model) processInput(input string) tea.Cmd {
 		if reply, stopped := m.classificationStop(intent, warnings); stopped {
 			return reply
 		}
+		// A recurse loop owns the workspace while it runs: a mutating turn
+		// here would write files the loop's cancellation cleanup restores to
+		// HEAD as if they were its own (audit
+		// recurse-compensation-write-ownership). Read-only turns go on.
+		if refusal, held := m.recurseHoldsWorkspace(); held && intent.Category == "/mutation" {
+			return assistantMsg{Surface: refusal}
+		}
 
 		// Work the work mode holds (route_decision(/hold)): state it and keep
 		// the conversation open until the user says go.

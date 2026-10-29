@@ -139,23 +139,25 @@ func (m Model) handleCommand(raw string) (tea.Model, tea.Cmd) {
 	case "/read":
 		return m.handleCmdRead(input, parts)
 
-	case "/mkdir":
-		return m.handleCmdMkdir(input, parts)
-
-	case "/write":
-		return m.handleCmdWrite(raw)
+	case "/mkdir", "/write", "/patch", "/edit", "/append":
+		if refusal, held := m.recurseHoldsWorkspace(); held {
+			return m.replyAndReset(refusal)
+		}
+		switch cmd {
+		case "/mkdir":
+			return m.handleCmdMkdir(input, parts)
+		case "/write":
+			return m.handleCmdWrite(raw)
+		case "/patch":
+			return m.handleCmdPatch(input, parts)
+		case "/edit":
+			return m.handleCmdEdit(input, parts)
+		default:
+			return m.handleCmdAppend(raw)
+		}
 
 	case "/search":
 		return m.handleCmdSearch(input, parts)
-
-	case "/patch":
-		return m.handleCmdPatch(input, parts)
-
-	case "/edit":
-		return m.handleCmdEdit(input, parts)
-
-	case "/append":
-		return m.handleCmdAppend(raw)
 
 	case "/pick":
 		return m.handleCmdPick(input, parts)
