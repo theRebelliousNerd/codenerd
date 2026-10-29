@@ -175,12 +175,33 @@ func parsedTarget(ctx context.Context, path, ref string) (*resolvedElement, erro
 // element no longer has, and hands back the element as it is now so the edit
 // can be redone without a read.
 func checkRevision(re *resolvedElement, rev string) error {
+	if isMissingRevision(rev) {
+		return nil
+	}
 	rev = strings.TrimSpace(rev)
-	if rev == "" || rev == re.elem.Revision {
+	if rev == re.elem.Revision {
 		return nil
 	}
 	return fmt.Errorf("precondition failed: %s is at rev %s, not %s -- it changed since it was read. It is now:\n%s",
 		RefOf(re.file.rel, re.elem, re.refs), re.elem.Revision, rev, re.model.NumberedLines(re.elem.StartLine, re.elem.EndLine))
+}
+
+// isMissingRevision reports whether a revision argument carries no precondition.
+// The model signals "no revision" as an empty value, a JSON null, or the
+// literal strings "None"/"null"/"nil"/"undefined" (case-insensitive, with
+// surrounding whitespace and "<nil>" from Go formatting included). None of
+// those names a revision, so none of them may be reported as a concurrent
+// change: the edit proceeds without a revision check.
+func isMissingRevision(rev string) bool {
+	trimmed := strings.TrimSpace(rev)
+	if trimmed == "" {
+		return true
+	}
+	switch strings.ToLower(trimmed) {
+	case "none", "null", "nil", "<nil>", "undefined", "n/a", "na", "-", "null-value":
+		return true
+	}
+	return false
 }
 
 // importResolver is the workspace's resolver for imports in rel, or nil when

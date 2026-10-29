@@ -137,6 +137,39 @@ func TestEditElement_RevisionPreconditionAndRefusalsLeaveTheFile(t *testing.T) {
 	}
 }
 
+func TestEditElement_MissingRevisionIsNotConcurrentChange(t *testing.T) {
+	for _, rev := range []any{nil, "", "None", "none", "NULL", "null", "nil", "<nil>", "undefined", "  None  "} {
+		reg, abs, rel := editFixture(t, "demo.go", twoMethods)
+		args := map[string]any{"path": rel, "ref": "T.M", "old": "return t.a", "new": "return t.b"}
+		if rev != nil {
+			args["revision"] = rev
+		}
+		out, _, err := execTool(reg, "edit_element", args)
+		if err != nil {
+			t.Fatalf("revision %v must not be reported as concurrent change: %v", rev, err)
+		}
+		if strings.Contains(out, "precondition failed") || strings.Contains(out, "changed since it was read") {
+			t.Fatalf("revision %v reported as concurrent change: %s", rev, out)
+		}
+		if !strings.Contains(fileText(t, abs), "return t.b") {
+			t.Fatalf("revision %v must apply without a revision check", rev)
+		}
+	}
+}
+
+func TestEditElement_MissingRevisionSentinelsCoverReplaceAndDelete(t *testing.T) {
+	reg, abs, rel := editFixture(t, "demo.go", twoMethods)
+	if _, _, err := execTool(reg, "replace_element", map[string]any{
+		"path": rel, "ref": "T.M", "revision": "None",
+		"source": "// M returns b.\nfunc (t *T) M() int {\n\treturn t.b\n}",
+	}); err != nil {
+		t.Fatalf("replace with revision None must not be concurrent change: %v", err)
+	}
+	if !strings.Contains(fileText(t, abs), "return t.b") {
+		t.Fatal("replace with revision None must apply")
+	}
+}
+
 func TestReplaceElement_ReplacesTheDocCommentToo(t *testing.T) {
 	reg, abs, rel := editFixture(t, "demo.go", twoMethods)
 	out, _, err := execTool(reg, "replace_element", map[string]any{
