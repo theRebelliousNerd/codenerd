@@ -2,6 +2,9 @@
 
 > **Main status update (2026-10-29 09:11 UTC):** the memoization lane was merged into main at [`ca94da6`](https://github.com/theRebelliousNerd/codenerd/commit/ca94da614edff9157acf31bb54f65e4f9695ae92). The ten source files central to the witnesses below are byte-identical to the inspected branch revision. The original branch-versus-main discussion records the earlier 08:42 state and should not be read as current status. This is source revalidation, not an executed reproduction.
 
+
+> **Freshness update (2026-10-29 09:38 UTC):** rechecked against [`f84ce0d`](https://github.com/theRebelliousNerd/codenerd/commit/f84ce0df57b21de3725b8fa02d13e88f74192714). Nine central witness files remain identical to the inspected lane; `build_verify.go` changed repair-prompt repetition, not these memo paths. Newly landed net-write filtering changes policy obligations but does not remove `WrittenPaths`. For witness one, assume `pkg/a.go` retains a real net edit while the same-byte tagged sibling is newly recorded. Source revalidation only; not an executed result.
+
 ## Decision and review scope
 
 The branch memoization key is not a sufficient identity for the test gate it reuses. It can equate states with different written-test obligations, different importer test inputs, or different discovery outcomes. Preserve the performance goal of avoiding redundant test processes, but do not treat this key as evidence that the current gate was measured. The defect is incomplete identity, not memoization itself.
