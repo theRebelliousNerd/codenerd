@@ -508,13 +508,6 @@ func (k *RealKernel) IsInitialized() bool {
 	return k.initialized
 }
 
-// GetStore returns the underlying FactStore for advanced operations.
-func (k *RealKernel) GetStore() factstore.FactStore {
-	k.mu.RLock()
-	defer k.mu.RUnlock()
-	return k.store
-}
-
 // clearFactsLocked empties the EDB while retaining schemas, policy, and
 // learned rules. It marks factsDirty so the next read lazily re-evaluates
 // to a fresh empty store; without that, reads after a clear would error
