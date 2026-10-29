@@ -5,13 +5,13 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"io"
 	"path/filepath"
 	"sort"
 
 	"codenerd/internal/kbfill"
+	"codenerd/internal/sqlpragmas"
 
 	"github.com/spf13/cobra"
 )
@@ -48,7 +48,9 @@ func auditShardKBs(ctx context.Context, workspace string) (map[string][]kbfill.G
 	}
 	out := make(map[string][]kbfill.Gap, len(paths))
 	for _, path := range paths {
-		db, err := sql.Open("sqlite3", "file:"+path+"?mode=ro")
+		// A read-only audit: the read-only pragma profile, like every other
+		// SQLite open (the open-site guard in internal/store).
+		db, err := sqlpragmas.OpenWithPragmas("sqlite3", "file:"+path+"?mode=ro", sqlpragmas.ProfileReadOnly)
 		if err != nil {
 			return nil, fmt.Errorf("open %s: %w", path, err)
 		}
