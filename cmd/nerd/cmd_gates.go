@@ -49,7 +49,11 @@ never passed. Each gate's findings carry file, line, check and message.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		root := workspaceRootOrCwd()
-		snap := gates.MeasureErrorFree(cmd.Context(), root, codeNERDGateOptions(gatesOnly, gatesTests))
+		opts := codeNERDGateOptions(gatesOnly, gatesTests)
+		if unknown := gates.UnknownGates(opts); len(unknown) > 0 {
+			return fmt.Errorf("--only names no gate: %s", strings.Join(unknown, ", "))
+		}
+		snap := gates.MeasureErrorFree(cmd.Context(), root, opts)
 		path, err := snap.Save(root)
 		if err != nil {
 			return err
@@ -65,8 +69,11 @@ var gatesDiffCmd = &cobra.Command{
 	Short: "Compare two gate snapshots; exit 1 when a gate got worse",
 	Long: `Compares two snapshots (paths, or the two most recent under .nerd/gates/
 when none are given). The verdict is the kernel's (policy/gates.mg): a gate is
-worse when a pass became a fail, a measured gate could no longer be measured, or a
-failing gate's findings grew. The command exits 1 when any gate got worse.`,
+worse when a pass became a fail, a measured gate could no longer be measured, a
+failing gate's findings grew, or named findings became a failure that names none.
+A gate measured in one snapshot only, or over another workspace or package
+selection (--tests), is not compared, and the pair is not keepable. The command
+exits 1 when the pair is not keepable.`,
 	Args: func(_ *cobra.Command, args []string) error {
 		if len(args) != 0 && len(args) != 2 {
 			return fmt.Errorf("diff takes two snapshots or none")
@@ -89,7 +96,7 @@ failing gate's findings grew. The command exits 1 when any gate got worse.`,
 		printComparison(cmd.OutOrStdout(), c, gatesFindings)
 		if !c.Keepable {
 			cmd.SilenceUsage = true
-			return fmt.Errorf("gates worse: %s", strings.Join(c.Regressed(), ", "))
+			return fmt.Errorf("not keepable: %s", strings.Join(c.NotKeepableBecause(), "; "))
 		}
 		return nil
 	},
@@ -140,9 +147,9 @@ func printSnapshot(w io.Writer, s gates.Snapshot) {
 }
 
 func printComparison(w io.Writer, c gates.Comparison, findings bool) {
-	verdict := "keepable: no gate got worse"
+	verdict := "keepable: every gate compared, none got worse"
 	if !c.Keepable {
-		verdict = "NOT keepable: " + strings.Join(c.Regressed(), ", ") + " got worse"
+		verdict = "NOT keepable: " + strings.Join(c.NotKeepableBecause(), "; ")
 	}
 	fmt.Fprintf(w, "%s -> %s: %s\n", c.Before, c.After, verdict)
 	for _, g := range c.Gates {
@@ -156,6 +163,9 @@ func printComparison(w io.Writer, c gates.Comparison, findings bool) {
 				fmt.Fprintf(w, "      - %s\n", k)
 			}
 		}
+	}
+	for _, u := range c.Unadmitted {
+		fmt.Fprintf(w, "  %-4s %-14s not compared: %s\n", u.Label, u.Gate, strings.ReplaceAll(u.Reason, "_", " "))
 	}
 }
 

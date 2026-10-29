@@ -265,7 +265,7 @@ var ratchetInputs = map[string]struct{}{
 	"recurse_ratchet_forbidden": {}, "recurse_improve": {}, "recurse_metric": {},
 	"recurse_ratchet_tested":  {},
 	"recurse_cycle_snapshots": {}, "gate_snapshot": {}, "gate_measured": {}, "gate_finding": {},
-	"gate_comparison": {},
+	"gate_domain": {}, "gate_comparison": {},
 }
 
 // regressedGates names the error-free gates policy/gates.mg says got worse
@@ -280,6 +280,26 @@ func (p *recursePolicy) regressedGates(before, after string) ([]string, error) {
 		// gate_regressed(Before, After, Gate): the gate is the last argument.
 		if len(f.Args) > 1 && types.ExtractString(f.Args[0]) == before && types.ExtractString(f.Args[1]) == after {
 			out = append(out, strings.TrimPrefix(types.ExtractString(f.Args[len(f.Args)-1]), "/"))
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// unadmittedGates names the error-free gates policy/gates.mg could not
+// compare between two snapshots, each with its reason.
+func (p *recursePolicy) unadmittedGates(before, after string) ([]string, error) {
+	rows, err := p.k.Query("gate_unadmitted")
+	if err != nil {
+		return nil, fmt.Errorf("recurse: query gate_unadmitted: %w", err)
+	}
+	var out []string
+	for _, f := range rows {
+		// gate_unadmitted(Before, After, Gate, Reason): the last two
+		// arguments are the gate and why.
+		n := len(f.Args)
+		if n > 1 && types.ExtractString(f.Args[0]) == before && types.ExtractString(f.Args[1]) == after {
+			out = append(out, strings.TrimPrefix(types.ExtractString(f.Args[n-2]), "/")+" ("+strings.TrimPrefix(types.ExtractString(f.Args[n-1]), "/")+")")
 		}
 	}
 	sort.Strings(out)

@@ -287,6 +287,12 @@ recurse_cycle_worse(Cycle) :-
     recurse_cycle_snapshots(Cycle, Before, After),
     gate_regressed(Before, After, _).
 
+# A pair it could not compare -- a gate measured on one side only, or over
+# another domain -- cannot say the cycle left no gate worse.
+recurse_cycle_worse(Cycle) :-
+    recurse_cycle_snapshots(Cycle, Before, After),
+    gate_comparison_unadmitted(Before, After).
+
 recurse_cycle_refused(Cycle) :-
     recurse_ratchet_forbidden(Cycle, Path).
 

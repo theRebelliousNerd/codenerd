@@ -59,7 +59,14 @@ type Measurement struct {
 	Output string `json:"output,omitempty"`
 	// Scope are the package patterns a scoped measurement covered; empty is
 	// the whole module.
-	Scope    []string      `json:"scope,omitempty"`
+	Scope []string `json:"scope,omitempty"`
+	// Packages are the package patterns the gate measured, scoped or not
+	// ("./..." for the whole module); empty for a gate that takes none
+	// (gofmt, the corpus gates). With the snapshot's root they are the
+	// gate's domain: two measurements are compared only over one domain
+	// (policy/gates.mg gate_domain), so G3 over ./good is not read as an
+	// improvement on G3 over ./... (audit gate-comparison-domain-admission).
+	Packages []string      `json:"packages,omitempty"`
 	Reason   string        `json:"reason,omitempty"`
 	Duration time.Duration `json:"duration_ns"`
 }
@@ -138,6 +145,31 @@ func ErrorFreeMeasurers(opts MeasureOptions) []Measurer {
 	return out
 }
 
+// UnknownGates returns the names in opts.Only that select no gate. A caller
+// refuses them before measuring: an unmatched name used to measure nothing,
+// and a snapshot with fewer gates than asked for looked like a complete one.
+func UnknownGates(opts MeasureOptions) []string {
+	all := ErrorFreeMeasurers(MeasureOptions{Extra: opts.Extra})
+	var out []string
+	for _, o := range opts.Only {
+		name := strings.ToLower(strings.TrimSpace(o))
+		if name == "" {
+			continue
+		}
+		found := false
+		for _, m := range all {
+			if m.Gate() == name || strings.ToLower(m.Label()) == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			out = append(out, strings.TrimSpace(o))
+		}
+	}
+	return out
+}
+
 // MeasureErrorFree measures the gates in order into one snapshot. The gates
 // run one after another: they share the build cache and the machine.
 func MeasureErrorFree(ctx context.Context, root string, opts MeasureOptions) Snapshot {
@@ -171,11 +203,12 @@ func (g commandGate) Gate() string  { return g.gate }
 func (g commandGate) Label() string { return g.label }
 
 func (g commandGate) Measure(ctx context.Context, root string) Measurement {
-	m := Measurement{}
+	m := Measurement{Packages: append([]string(nil), g.packages...)}
 	if g.scoped {
 		m.Scope = append([]string(nil), g.packages...)
 		if len(g.packages) == 0 {
 			m.Scope = []string{NoPackageScope}
+			m.Packages = []string{NoPackageScope}
 			m.Status, m.Reason = MeasurePass, "scoped to no package: nothing to measure"
 			return m
 		}

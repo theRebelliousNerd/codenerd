@@ -105,6 +105,7 @@ func restrict(m Measurement, patterns []string, inside bool) Measurement {
 	}
 	if inside {
 		m.Scope = append([]string(nil), patterns...)
+		m.Packages = append([]string(nil), patterns...)
 	}
 	return m
 }

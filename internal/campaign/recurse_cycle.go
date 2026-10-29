@@ -1039,6 +1039,13 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 		if len(worse) > 0 {
 			rec.Detail = strings.TrimSpace(rec.Detail + " error-free gates worse: " + strings.Join(worse, ", "))
 		}
+		unadmitted, err := r.policy.unadmittedGates(in.GatesBefore.ID, gatesAfter.ID)
+		if err != nil {
+			return err
+		}
+		if len(unadmitted) > 0 {
+			rec.Detail = strings.TrimSpace(rec.Detail + " error-free gates not compared: " + strings.Join(unadmitted, ", "))
+		}
 	}
 	switch verdict {
 	case ratchetKeep:

@@ -220,6 +220,10 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 		return orchestrator.KeptWrites(), err
 	}
 
+	measureGates, err := recurseGateMeasure(cwd, recurseGates, recurseGateTests)
+	if err != nil {
+		return err
+	}
 	fmt.Printf("\nRecurse: improving %s node by node (%s).\n", cwd, recurseBoundText(cfg))
 	result, err := campaign.RunRecurseCycles(ctx, campaign.RecurseCycleConfig{
 		Workspace:            cwd,
@@ -228,7 +232,7 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 		Passes:               cfg.MaxWaves,
 		Subsystems:           cfg.Subsystems,
 		Progress:             cmd.OutOrStdout(),
-		MeasureGates:         recurseGateMeasure(cwd, recurseGates, recurseGateTests),
+		MeasureGates:         measureGates,
 		FullGateMeasureEvery: recurseGateFull,
 	})
 	printRecurseResult(cmd.OutOrStdout(), result)
@@ -311,14 +315,17 @@ func writeRecursePlan(w io.Writer, cwd string, cfg campaign.RecurseConfig) error
 
 // recurseGateMeasure is the error-free gate measurement --gates asks for, or
 // nil when it was not asked for. "all" measures every gate.
-func recurseGateMeasure(root string, only, tests []string) func(context.Context, []string) gates.Snapshot {
+func recurseGateMeasure(root string, only, tests []string) (func(context.Context, []string) gates.Snapshot, error) {
 	if len(only) == 0 {
-		return nil
+		return nil, nil
 	}
 	if len(only) == 1 && strings.EqualFold(strings.TrimSpace(only[0]), "all") {
 		only = nil
 	}
 	opts := codeNERDGateOptions(only, tests)
+	if unknown := gates.UnknownGates(opts); len(unknown) > 0 {
+		return nil, fmt.Errorf("--gates names no gate: %s", strings.Join(unknown, ", "))
+	}
 	return func(ctx context.Context, packages []string) gates.Snapshot {
 		scoped := opts
 		scoped.ScopedPackages = packages
@@ -327,5 +334,5 @@ func recurseGateMeasure(root string, only, tests []string) func(context.Context,
 			fmt.Fprintf(os.Stderr, "recurse: the gate snapshot %s was measured but not saved: %v\n", snap.ID, err)
 		}
 		return snap
-	}
+	}, nil
 }
