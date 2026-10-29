@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"codenerd/internal/config"
+	"codenerd/internal/core"
 	"codenerd/internal/perception"
 	"codenerd/internal/types"
 	"codenerd/internal/typesafe"
@@ -85,13 +87,13 @@ func TestJudge_AsksEveryQuestionAndProjectsFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	qs := (*seen)["questions"].(map[string]any)
-	for _, name := range []string{ConversationAct, ChangesFiles, NamesTarget, Hypothetical, AboutCodeNERD, WantsToStop, RulesOutChanges, ApprovesHeldWork, AddsToHeldWork, "answered_0"} {
+	for _, name := range []string{ConversationAct, ChangesFiles, NamesTarget, Hypothetical, AboutCodeNERD, WantsToStop, RulesOutChanges, AsksToCommit, ApprovesHeldWork, AddsToHeldWork, "answered_0"} {
 		if _, ok := qs[name]; !ok {
 			t.Errorf("question %s was not asked", name)
 		}
 	}
-	if len(qs) != 10 {
-		t.Errorf("asked %d questions, want exactly the 10 the rules read: %v", len(qs), qs)
+	if len(qs) != 11 {
+		t.Errorf("asked %d questions, want exactly the 11 the rules read: %v", len(qs), qs)
 	}
 	act := qs[ConversationAct].(map[string]any)
 	if act["type"] != "choice" || len(act["criteria"].(map[string]any)) != len(ConversationActs) {
@@ -238,5 +240,70 @@ func TestJudge_FailureIsAnErrorNotEvidence(t *testing.T) {
 	var apiErr *typesafe.APIError
 	if res != nil || !errors.As(err, &apiErr) {
 		t.Fatalf("a failed call must be an error and no result: %v %v", res, err)
+	}
+}
+
+// The commit question is about the user's message alone: its wording names
+// `message`, and earlier turns ride the state as context, never as the thing
+// judged (an assistant line or a pasted log that says "commit it" is not the
+// user telling codeNERD to).
+func TestAsksToCommit_IsAboutTheMessageNotTheContext(t *testing.T) {
+	_, questions, _ := Request(Input{Message: "fix it", Recent: []Turn{{From: "assistant", Text: "I can commit it"}}})
+	q, ok := questions[AsksToCommit].(typesafe.Noul)
+	if !ok {
+		t.Fatalf("%s is not asked as a Noul: %T", AsksToCommit, questions[AsksToCommit])
+	}
+	if want := "`message`"; !strings.Contains(fmt.Sprint(q.Instructions), want) {
+		t.Errorf("the question does not name %s: %q", want, q.Instructions)
+	}
+	if !strings.Contains(fmt.Sprint(q.Criteria.False), "does not say to commit") || !strings.Contains(fmt.Sprint(q.Criteria.True), "itself says to commit") {
+		t.Errorf("criteria lost the message-only reading: %+v", q.Criteria)
+	}
+}
+
+// AuthorizationFrom reads the kernel's conclusion; it decides nothing and
+// treats a missing judgment as no evidence.
+func TestAuthorizationFrom_ReadsTheKernelsConclusionOnly(t *testing.T) {
+	k, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := AuthorizationFrom(k); !got.IsZero() {
+		t.Fatalf("a kernel with no judgments authorized %v", got.Kinds())
+	}
+	if got := AuthorizationFrom(nil); !got.IsZero() {
+		t.Fatal("a nil kernel authorized something")
+	}
+	judge := func(commit, readOnly, whatIf float64) perception.Authorization {
+		t.Helper()
+		for _, p := range Predicates {
+			_ = k.Retract(p)
+		}
+		res := &Result{Judgments: map[string]float64{AsksToCommit: commit, RulesOutChanges: readOnly, Hypothetical: whatIf}, Choices: map[string]map[string]float64{}, About: map[string]string{}}
+		if err := config.EnsureParams(k, (&config.TypeSafeConfig{}).Params()); err != nil {
+			t.Fatal(err)
+		}
+		if err := k.AssertBatch(res.Facts()); err != nil {
+			t.Fatal(err)
+		}
+		return AuthorizationFrom(k)
+	}
+	for _, tc := range []struct {
+		name                     string
+		commit, readOnly, whatIf float64
+		want                     bool
+	}{
+		{"yes", 0.98, 0.02, 0.02, true},
+		{"exactly the yes threshold", 0.70, 0.02, 0.02, true},
+		{"below it", 0.69, 0.02, 0.02, false},
+		{"unsettled", 0.5, 0.02, 0.02, false},
+		{"no", 0.03, 0.02, 0.02, false},
+		{"commit but read only", 0.98, 0.95, 0.02, false},
+		{"commit but a what-if", 0.98, 0.02, 0.95, false},
+		{"commit, read-only unsettled", 0.98, 0.5, 0.02, true},
+	} {
+		if got := judge(tc.commit, tc.readOnly, tc.whatIf).Has(perception.AuthorizeCommit); got != tc.want {
+			t.Errorf("%s: commit authorization = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }

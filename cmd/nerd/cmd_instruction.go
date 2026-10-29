@@ -102,6 +102,13 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 		zap.String("verb", intent.Verb),
 		zap.String("target", intent.Target))
 
+	// What the instruction itself allowed beyond the edits ("then commit it")
+	// rides the context every delegation below runs under.
+	if authorization := instructionAuthorization(ctx, cortex.Kernel, userInput); !authorization.IsZero() {
+		logger.Info("Instruction authorizes", zap.Any("kinds", authorization.Kinds()))
+		ctx = perception.WithAuthorization(ctx, authorization)
+	}
+
 	// /stats is deterministic and should not require running shards or policy.
 	if intent.Verb == "/stats" {
 		stats, err := computeStats(ctx, cortex.Workspace, intent.Target)

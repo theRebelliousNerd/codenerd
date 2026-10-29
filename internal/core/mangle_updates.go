@@ -383,6 +383,16 @@ var hostWitnessPredicates = map[string]struct{}{
 	"turn_self_reported_incomplete": {},
 	"turn_report_reading":           {},
 	"turn_finish_idle":              {},
+	// What the /unwired round measured (turn_unwired.mg) and Jev's reading
+	// of the model's reasons. A model that could write a use, an entry
+	// mark or an accepted reading could declare its own code wired; the
+	// conclusions are the same answer from a second source.
+	"turn_new_func": {}, "turn_new_func_entry": {}, "turn_new_func_generated": {},
+	"turn_new_func_unobserved": {}, "turn_func_use": {}, "turn_method_mentioned": {},
+	"turn_unused_reason_reading": {}, "turn_unused_reason_unread": {}, "turn_unwired_idle": {},
+	"turn_new_func_ref": {}, "turn_func_exempt": {}, "turn_func_reached": {}, "turn_func_unwired": {},
+	"turn_unused_reason_accepted": {}, "turn_func_settled": {}, "turn_func_unwired_open": {},
+	"turn_func_test_only": {}, "turn_unwired_open": {}, "turn_unwired_pushback": {},
 	// The pin gate's survivor count schedules the /survivors round.
 	"turn_pin_survivors": {},
 	// What the planner is spent on: the sites the host measured in the
@@ -401,6 +411,14 @@ var hostWitnessPredicates = map[string]struct{}{
 	// could write repair_attempt could keep its own episode alive.
 	"repair_attempt": {}, "repair_attempt_count": {}, "repair_exhausted": {}, "repair_not_converging": {},
 	"repair_gives_up": {}, "repair_move": {}, "repair_closed": {},
+	// What a caller does with a delegated task whose turn did not end /done
+	// (task_verdict.mg): a model that could write task_dispatch or its gaps
+	// could mark its own dispatch done, or keep itself being sent back.
+	"task_dispatch": {}, "task_dispatch_gap": {}, "task_dispatch_blocked": {},
+	"task_dispatch_seq": {}, "task_dispatch_last": {}, "task_dispatch_has_gap": {},
+	"task_dispatch_verified": {}, "task_dispatch_open": {}, "task_dispatch_blocker": {},
+	"task_dispatch_unjudged": {}, "task_dispatch_moved": {}, "task_dispatch_stalled": {},
+	"task_loop_verdict": {},
 	// What a failed checkpoint leads to (campaign_decisions.mg): a model
 	// that could write phase_checkpoint_failure could close or keep open
 	// its own phase.

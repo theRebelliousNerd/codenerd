@@ -3,6 +3,7 @@
 package chat
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -19,41 +20,21 @@ import (
 // CONTINUATION PROTOCOL - Multi-Step Task Execution
 // =============================================================================
 
-// checkContinuation checks if there are pending subtasks after shard execution.
-// Returns the next continueMsg if more work is needed, nil otherwise.
-// This is called from processInput after each shard completes.
-func (m *Model) checkContinuation(shardType, task string, ret observation.Return) *continueMsg {
+// checkContinuation decides what follows a delegated step: the next step the
+// kernel derives (an obligation, or a part of the request dc has not
+// delivered), or nil when the request is done with. With nil it also returns
+// the delivery verdict for the reply, and closes the chain.
+func (m *Model) checkContinuation(ctx context.Context, dc *deliveryChain, shardType, task string, ret observation.Return) (*continueMsg, string) {
 	// Inject result facts to enable continuation derivation
 	m.injectShardResultFacts(shardType, task, ret, nil)
-
-	if m.kernel == nil {
-		return nil
+	dc.record(ret)
+	if next := m.nextStep(ctx, dc); next != nil {
+		return next, ""
 	}
-
-	// Query for continuation signal
-	shouldContinue, _ := m.kernel.Query("should_auto_continue")
-	pending, _ := m.kernel.Query("has_pending_subtask")
-
-	if len(shouldContinue) > 0 && len(pending) > 0 {
-		// Extract first pending subtask
-		subtask := pending[0]
-		if len(subtask.Args) >= 3 {
-			nextID, _ := subtask.Args[0].(string)
-			nextDesc, _ := subtask.Args[1].(string)
-			nextShard := types.StripAtomPrefix(types.ExtractString(subtask.Args[2]))
-
-			// Check if this is a mutation operation
-			isMutation := isMutationOperation(nextShard)
-			return &continueMsg{
-				subtaskID:   nextID,
-				description: nextDesc,
-				shardType:   nextShard,
-				isMutation:  isMutation,
-			}
-		}
+	if dc != nil {
+		m.endDelivery()
 	}
-
-	return nil
+	return nil, dc.summaryNote()
 }
 
 // executeSubtask executes a single subtask and checks for continuation.
@@ -105,39 +86,18 @@ func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd 
 			}
 		}
 
-		// Check for more pending subtasks from kernel
-		if m.kernel != nil {
-			// Query for continuation signal
-			shouldContinue, _ := m.kernel.Query("should_auto_continue")
-			pending, _ := m.kernel.Query("has_pending_subtask")
-
-			if len(shouldContinue) > 0 && len(pending) > 0 {
-				// Extract first pending subtask
-				subtask := pending[0]
-				if len(subtask.Args) >= 3 {
-					nextID, _ := subtask.Args[0].(string)
-					nextDesc, _ := subtask.Args[1].(string)
-					nextShard := types.StripAtomPrefix(types.ExtractString(subtask.Args[2]))
-
-					// Check if this is a mutation operation
-					isMutation := isMutationOperation(nextShard)
-
-					// Update total steps if we discover more (send to Update thread)
-					newTotal := m.continuationTotal
-					if m.continuationStep >= m.continuationTotal {
-						newTotal = m.continuationStep + 1
-					}
-
-					return continueMsg{
-						subtaskID:            nextID,
-						description:          nextDesc,
-						shardType:            nextShard,
-						isMutation:           isMutation,
-						totalSteps:           newTotal,
-						completedShardResult: payload,
-					}
-				}
+		// The next step: an obligation the kernel derives, or a part of the
+		// request the steps have not delivered yet.
+		m.delivery.record(ret)
+		if next := m.nextStep(ctx, m.delivery); next != nil {
+			// Update total steps if we discover more (send to Update thread)
+			newTotal := m.continuationTotal
+			if m.continuationStep >= m.continuationTotal {
+				newTotal = m.continuationStep + 1
 			}
+			next.totalSteps = newTotal
+			next.completedShardResult = payload
+			return *next
 		}
 
 		// No further continuation was derived. That says nothing about whether
@@ -146,7 +106,7 @@ func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd 
 		// work.
 		return continuationDoneMsg{
 			stepCount:            m.continuationStep,
-			summary:              continuationSummary(m.continuationStep, ret),
+			summary:              continuationSummary(m.continuationStep, ret, m.delivery.summaryNote()),
 			completedShardResult: payload,
 			outcome:              continuationOutcomeFor(ret, nil),
 		}
@@ -330,7 +290,10 @@ func continuationOutcomeFor(ret observation.Return, err error) continuationOutco
 // file(s) ... Evidence: checks_passed. Requested behavior remains unverified
 // (no acceptance contract)." and the two lines under it read "All 1 steps
 // complete." and "Completed 1 steps successfully."
-func continuationSummary(steps int, ret observation.Return) string {
+//
+// delivery is the request-delivery verdict (request_delivery.go), empty when
+// none was reached; it follows the evidence.
+func continuationSummary(steps int, ret observation.Return, delivery string) string {
 	var headline string
 	switch ret.Outcome {
 	case "/done":
@@ -342,10 +305,14 @@ func continuationSummary(steps int, ret observation.Return) string {
 	default:
 		headline = fmt.Sprintf("Ran %d step(s); the work is not verified.", steps)
 	}
+	out := headline
 	if ev := continuationEvidence(ret); ev != "" {
-		return headline + " " + ev
+		out += " " + ev
 	}
-	return headline
+	if delivery != "" {
+		out += " " + delivery
+	}
+	return out
 }
 
 // continuationEvidence renders what was actually observed, in the order a

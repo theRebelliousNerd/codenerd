@@ -220,6 +220,13 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// The pin gate's survivor count, which owes the /survivors
 				// round.
 				"turn_pin_survivors",
+				// What the /unwired round measured and Jev's reading of the
+				// model's reasons (turn_unwired.mg). turn_verified negates
+				// has_red_gate, which they derive; homed elsewhere, that
+				// negation is blind and unwired code still verifies.
+				"turn_new_func", "turn_new_func_entry", "turn_new_func_generated",
+				"turn_new_func_unobserved", "turn_func_use", "turn_method_mentioned",
+				"turn_unused_reason_reading", "turn_unused_reason_unread", "turn_unwired_idle",
 				"turn_untested",
 				"turn_uncovered",
 			},
@@ -272,6 +279,14 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"restriction_tool_effect",
 				"pending_action_turn",
 				"pending_action_effect",
+				// The turn's authorization and each gated shell call
+				// (constitution.mg section 7E): shell_call_authorized negates
+				// turn_bars_effects and turn_owes_confirmation, derived here,
+				// so its inputs live here too. Homed elsewhere the negations
+				// are blind and a read-only turn could be authorized to commit.
+				"turn_authorization",
+				"shell_call",
+				"shell_call_in_write_set",
 				"consent_given",
 				"blocked",
 				"constitution",

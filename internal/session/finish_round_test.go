@@ -148,7 +148,7 @@ func TestFinishRound_AWriteRearmsTheGates(t *testing.T) {
 	schedule(t, e, result)
 	e.rearmGateRounds(result)
 	got := schedule(t, e, result)
-	want := []string{"/build", "/test", "/coverage", "/pinned", "/vet", "/removed_tests"}
+	want := []string{"/build", "/test", "/coverage", "/pinned", "/vet", "/removed_tests", "/unwired"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("after a /finish write the schedule ran %v, want %v", got, want)
 	}

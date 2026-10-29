@@ -1243,6 +1243,12 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	restriction := intent.Restriction.Merge(perception.RestrictionFromContext(ctx))
 	intent.Restriction = restriction
 	ctx = perception.WithRestriction(ctx, restriction)
+	// What the user's words allowed beyond the edits ("then commit it"),
+	// carried the same way and with the same inheritance. It grants nothing
+	// by itself (policy/constitution.mg, section 7E).
+	authorization := intent.Authorization.Merge(perception.AuthorizationFromContext(ctx))
+	intent.Authorization = authorization
+	ctx = perception.WithAuthorization(ctx, authorization)
 	result.Intent = intent
 
 	// What the system understood the user to mean is the first link in every
@@ -1312,6 +1318,15 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 		e.closeAcceptanceEvidence(ctx, result)
 		return result, restrictErr
 	}
+
+	// The request's authorization is told to the kernel beside the restriction
+	// and the shell gate learns the turn it decides for. An authorization that
+	// cannot be recorded leaves the gate at its default, which refuses; the turn
+	// still runs.
+	if authErr := e.assertTurnAuthorization(result.turnAtom(), authorization); authErr != nil {
+		logging.Get(logging.CategorySession).Warn("%v; shell mutations stay refused this turn", authErr)
+	}
+	ctx = e.withShellScope(ctx, result.turnAtom(), result)
 
 	// 2. ORIENT: Build compilation context from intent + world state
 	compilationCtx := e.buildCompilationContext(ctx, intent)
@@ -3049,6 +3064,8 @@ func missingEvidenceSentence(atom string) string {
 		return "a file this turn changed was rejected by its post-action validator and not repaired"
 	case "/effect_unmeasured":
 		return "a file this turn changed was never measured by a completed validation"
+	case "/code_unwired":
+		return "a function this turn added is called by no production code and no accepted reason says why"
 	case "/family_review_open":
 		return "a member of a declared code family changed and a peer was neither changed nor decided to need no change"
 	default:

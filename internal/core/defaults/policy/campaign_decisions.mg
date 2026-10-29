@@ -171,6 +171,14 @@ task_exhausted(TaskID) :-
     config_param(/campaign_max_task_attempts, Max),
     Count >= Max.
 
+# A task whose last attempt ended at an obstacle its own report named (the
+# verdict loop's /blocked, policy/task_verdict.mg) is out of attempts whatever
+# the count says: the obstacle is a permission, a credential, an input or a
+# choice only the person can make, and a fresh attempt meets the same one.
+task_exhausted(TaskID) :-
+    task_last_failed_attempt(TaskID, N),
+    task_attempt_signal(TaskID, N, /blocked).
+
 task_replan_due(TaskID) :-
     task_exhausted(TaskID),
     config_param(/campaign_replan_at_attempt_cap, 1),

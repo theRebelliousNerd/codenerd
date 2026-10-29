@@ -281,6 +281,12 @@ type Intent struct {
 	// with the intent so execution, delegation and action admission see it
 	// (restriction.go). Zero means none recognised.
 	Restriction Restriction
+
+	// Authorization is what the user's own words allowed beyond the edits
+	// ("then commit it"), read from the message and carried like Restriction
+	// (authorization.go). It grants nothing by itself; the kernel derives
+	// what it covers. Zero means none.
+	Authorization Authorization
 }
 
 // ConversationTurn represents a single turn in conversation history.

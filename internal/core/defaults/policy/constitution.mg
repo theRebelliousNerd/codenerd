@@ -840,3 +840,52 @@ consent_gated_tuple(Action, Target, Payload) :-
     pending_action(ActionID, Action, Target, Payload, _),
     confirmation_owed(ActionID),
     !consent_given(ActionID).
+
+
+# SECTION 7E: Task authorization. What the user's own request allowed the
+# turn's tasks to do beyond editing, enforced where a shell mutation is
+# admitted (internal/projectdoc/shell_authority.go, called by the session
+# executor's shell-effect gate and the tool-layer write guard).
+#
+# The shell-effect gate refuses every mutating command by default: command
+# text is evidence about effect and never authorizes itself. A request that
+# names a step ("fix X, then commit it") does authorize that step, and the
+# refusal made a coder finish its edits and then be unable to commit them
+# (2026-10-28). The words are read by Jev (policy/jev_evidence.mg:
+# jev_authorization), carried on the turn's context (perception.Authorization)
+# and asserted per turn; Go measures the call and this section decides.
+#
+# EDB, per turn (retracted with the turn's other facts):
+#   turn_authorization(Turn, Kind)    a kind the request allowed
+# EDB, per gated shell call (asserted by the gate, retracted with it):
+#   shell_call(CallID, Turn, Step)    the call is exactly one simple step of a
+#                                     kind Go recognises; no fact for any other
+#                                     command shape (compound, extra flags, a
+#                                     different subcommand), so those stay
+#                                     refused
+#   shell_call_in_write_set(CallID)   every path the step touches (the paths it
+#                                     stages, or the paths already staged for a
+#                                     commit) is a file this turn wrote
+#
+# Narrow by construction: a kind covers only the steps authorization_covers
+# lists. "commit" covers staging and committing, and no row covers a push, a
+# force, a reset, a branch change or an amend, so those stay refused whatever
+# the user said. A restriction on the turn wins (a read-only request is never
+# authorized to commit), and so does a standing "confirm first".
+
+Decl turn_authorization(Turn, Kind) bound [/name, /name].
+Decl authorization_covers(Kind, Step) bound [/name, /name].
+Decl shell_call(CallID, Turn, Step) bound [/string, /name, /name].
+Decl shell_call_in_write_set(CallID) bound [/string].
+Decl shell_call_authorized(CallID) bound [/string].
+
+authorization_covers(/commit, /git_add).
+authorization_covers(/commit, /git_commit).
+
+shell_call_authorized(CallID) :-
+    shell_call(CallID, Turn, Step),
+    shell_call_in_write_set(CallID),
+    turn_authorization(Turn, Kind),
+    authorization_covers(Kind, Step),
+    !turn_bars_effects(Turn),
+    !turn_owes_confirmation(Turn).

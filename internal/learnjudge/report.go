@@ -54,12 +54,19 @@ func ReportRequest(in ReportInput) (map[string]any, map[string]typesafe.Question
 				False: "The report says the work is done, even with caveats, suggested follow-ups, or a note that some extra check could not run.",
 			},
 		},
-		ReportNamesBlocker: typesafe.Noul{
-			Instructions: "Does `report` name an obstacle to finishing that codeNERD cannot clear by itself?",
-			Criteria: &typesafe.NoulCriteria{
-				True:  "A permission or policy denial, a missing credential or input, or a choice only the user can make.",
-				False: "No such obstacle is named: the work is done, or what is left is work codeNERD could still do, even if it believes otherwise.",
-			},
+		ReportNamesBlocker: blockerQuestion("report"),
+	}
+}
+
+// blockerQuestion asks whether the text at the state path field names an
+// obstacle codeNERD cannot clear by itself. The final-report reading and the
+// request-delivery reading ask it in the same words.
+func blockerQuestion(field string) typesafe.Question {
+	return typesafe.Noul{
+		Instructions: fmt.Sprintf("Does `%s` name an obstacle to finishing that codeNERD cannot clear by itself?", field),
+		Criteria: &typesafe.NoulCriteria{
+			True:  "A permission or policy denial, a missing credential or input, or a choice only the user can make.",
+			False: "No such obstacle is named: the work is done, or what is left is work codeNERD could still do, even if it believes otherwise.",
 		},
 	}
 }

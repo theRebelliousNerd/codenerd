@@ -318,9 +318,22 @@ func (j *JITExecutor) Execute(ctx context.Context, req TaskRequest) (string, err
 	return j.ExecuteWithContext(ctx, req, nil, types.PriorityNormal)
 }
 
-// ExecuteWithContext runs a task with explicit session context and priority.
+// ExecuteWithContext runs a task with explicit session context and priority
+// and returns its prose.
+//
+// A caller of the string API cannot see the turn's verdict, so this reads it
+// for them: a turn that did not end /done is sent back with what it left
+// missing until it is verified, names an obstacle or makes no progress
+// (RunUntilVerified, policy/task_verdict.mg), and an end short of verified is
+// an error (ErrNotVerified) naming the gap. `nerd spawn`, the instruction and
+// interactive doors, the chat's one-shot delegations and the checkpoint
+// reviewers took the prose of an /unverified turn as the task's result. A
+// caller that reads the verdict itself uses ExecuteObserved*, which returns
+// the turn as it ended.
 func (j *JITExecutor) ExecuteWithContext(ctx context.Context, req TaskRequest, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
-	observed, err := j.executeObserved(ctx, req, sessionCtx, priority)
+	observed, err := RunUntilVerified(ctx, j.kernel(), func(ctx context.Context, req TaskRequest) (observation.Return, error) {
+		return j.executeObserved(ctx, req, sessionCtx, priority)
+	}, req)
 	return observed.Output, err
 }
 
@@ -466,7 +479,9 @@ func (j *JITExecutor) SpawnConsultation(ctx context.Context, specialistName, tas
 		IntentVerb: "/consult/" + strings.ToLower(strings.TrimSpace(specialistName)),
 		Task:       task,
 	}
-	observed, err := j.executeWithSubagent(ctx, req, nil)
+	observed, err := RunUntilVerified(ctx, j.kernel(), func(ctx context.Context, req TaskRequest) (observation.Return, error) {
+		return j.executeWithSubagent(ctx, req, nil)
+	}, req)
 	return observed.Output, err
 }
 
@@ -474,6 +489,11 @@ func (j *JITExecutor) SpawnConsultation(ctx context.Context, specialistName, tas
 // (consultation.Spawner). Chat and `nerd campaign` each carried a copy of this
 // adapter, and the chat copy sent the bare specialist name as the intent verb
 // while the CLI copy sent "/consult/<name>"; both doors now route identically.
+//
+// The answer is Execute's, which for the JIT executor is a verified turn's
+// (see JITExecutor.ExecuteWithContext): a consultation whose turn did not end
+// /done is sent back with what it left missing, and an end short of verified
+// is an error naming the gap, never an answer.
 type TaskConsultationSpawner struct {
 	Executor TaskExecutor
 }

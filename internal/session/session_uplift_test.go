@@ -86,7 +86,7 @@ func TestJITExecutor_SpawnConsultationReturnsAnswer(t *testing.T) {
 		},
 	}
 	spawner := NewSpawner(
-		&MockKernel{},
+		realKernel(t),
 		&MockVirtualStore{},
 		mockLLM,
 		&MockJITCompiler{},
@@ -94,7 +94,7 @@ func TestJITExecutor_SpawnConsultationReturnsAnswer(t *testing.T) {
 		&MockTransducer{},
 		DefaultSpawnerConfig(),
 	)
-	jitExec := NewJITExecutor(createTestExecutor(t), spawner, &MockTransducer{})
+	jitExec := NewJITExecutor(createVerdictExecutor(t), spawner, &MockTransducer{})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

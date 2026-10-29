@@ -219,7 +219,7 @@ func TestContinuationSummary_NeverSaysSuccessfullyForUnverifiedStep(t *testing.T
 		Build:   passedVerification("build"),
 	}
 
-	got := continuationSummary(1, unverified)
+	got := continuationSummary(1, unverified, "")
 
 	if strings.Contains(strings.ToLower(got), "successfully") {
 		t.Errorf("an unverified step must never be summarized as successful, got %q", got)
@@ -246,7 +246,7 @@ func TestContinuationSummary_HollowAndDone(t *testing.T) {
 	t.Parallel()
 
 	hollow := observation.Return{Output: "Here is my plan.", Outcome: "/hollow"}
-	got := continuationSummary(2, hollow)
+	got := continuationSummary(2, hollow, "")
 	if strings.Contains(strings.ToLower(got), "successfully") {
 		t.Errorf("a hollow step must never be summarized as successful, got %q", got)
 	}
@@ -265,7 +265,7 @@ func TestContinuationSummary_HollowAndDone(t *testing.T) {
 		Tests:      passedVerification("tests"),
 		Acceptance: &observation.Acceptance{Status: "verified", Contract: "c1"},
 	}
-	gotDone := continuationSummary(1, done)
+	gotDone := continuationSummary(1, done, "")
 	if !strings.Contains(gotDone, "verified") {
 		t.Errorf("a verified step must say so, got %q", gotDone)
 	}

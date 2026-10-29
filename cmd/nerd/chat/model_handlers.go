@@ -743,7 +743,9 @@ func (m Model) handleDreamPlanExecution(input string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Set up pending subtasks for the continuation protocol
+	// Set up pending subtasks for the continuation protocol. A dream plan is
+	// no chat request: no delivery chain carries over into it.
+	m.endDelivery()
 	m.pendingSubtasks = subtasks
 	m.continuationStep = 1
 	m.continuationTotal = len(subtasks)

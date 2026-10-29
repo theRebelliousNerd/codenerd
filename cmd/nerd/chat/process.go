@@ -24,6 +24,7 @@ import (
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/observation"
 	"codenerd/internal/perception"
 	"codenerd/internal/sessionlog"
 	"codenerd/internal/transparency"
@@ -233,6 +234,12 @@ func (m Model) processInput(input string) tea.Cmd {
 		// drop it (perception/restriction.go; policy/constitution.mg, section 7D).
 		intent.Restriction = intent.Restriction.Merge(m.jevRestriction())
 		ctx = perception.WithRestriction(ctx, intent.Restriction)
+		// What the message allowed beyond the edits ("then commit it") rides the
+		// same context and the same held intent, so a task delegated from this
+		// turn, or work approved later with a bare "go", holds it
+		// (perception/authorization.go; constitution.mg, section 7E).
+		intent.Authorization = intent.Authorization.Merge(m.jevAuthorization())
+		ctx = perception.WithAuthorization(ctx, intent.Authorization)
 		for _, job := range m.stopRequestedBackground() {
 			warnings = append(warnings, fmt.Sprintf("Stopping background %s: %s", job.Shard, oneLine(job.Task)))
 		}
@@ -598,8 +605,22 @@ func (m Model) processInput(input string) tea.Cmd {
 
 				// Format response with verification confidence
 				response := formatVerifiedResponse(intent, shardType, task, result, verdict)
+				surface := m.appendSystemSummary(response, m.collectSystemSummary(ctx, resultBase))
+
+				// A verified attempt can still have done only part of the
+				// request: a missing part goes on as a continuation step.
+				dc := m.startDelivery(input, shardType)
+				cont, delivered := m.checkContinuation(ctx, dc, shardType, task, observation.Return{Output: result, Outcome: "/done"})
+				if cont != nil {
+					return continuationInitMsg{
+						completedSurface: surface,
+						firstResult:      srPayload,
+						next:             *cont,
+						delivery:         dc,
+					}
+				}
 				return assistantMsg{
-					Surface:     m.appendSystemSummary(response, m.collectSystemSummary(ctx, resultBase)),
+					Surface:     withDeliveryNote(surface, delivered),
 					ShardResult: srPayload,
 				}
 			}
@@ -694,15 +715,20 @@ func (m Model) processInput(input string) tea.Cmd {
 				response := m.formatInterpretedResult(ctx, input, shardType, task, result, validationWarning)
 				surface := m.appendSystemSummary(response, m.collectSystemSummary(ctx, resultBase))
 
-				// CONTINUATION PROTOCOL: Check for pending subtasks before returning
-				if cont := m.checkContinuation(shardType, task, ret); cont != nil {
+				// CONTINUATION PROTOCOL: the next step is an obligation the
+				// kernel derives, or a part of the request not yet delivered.
+				dc := m.startDelivery(input, shardType)
+				cont, delivered := m.checkContinuation(ctx, dc, shardType, task, ret)
+				if cont != nil {
 					return continuationInitMsg{
 						completedSurface: surface,
 						firstResult:      srPayload,
 						next:             *cont,
 						totalSteps:       0,
+						delivery:         dc,
 					}
 				}
+				surface = withDeliveryNote(surface, delivered)
 
 				return assistantMsg{
 					Surface:     surface,
@@ -714,15 +740,20 @@ func (m Model) processInput(input string) tea.Cmd {
 			response := formatDelegatedResponse(intent, shardType, task, result)
 			surface := m.appendSystemSummary(response, m.collectSystemSummary(ctx, resultBase))
 
-			// CONTINUATION PROTOCOL: Check for pending subtasks before returning
-			if cont := m.checkContinuation(shardType, task, ret); cont != nil {
+			// CONTINUATION PROTOCOL: the next step is an obligation the kernel
+			// derives, or a part of the request not yet delivered.
+			dc := m.startDelivery(input, shardType)
+			cont, delivered := m.checkContinuation(ctx, dc, shardType, task, ret)
+			if cont != nil {
 				return continuationInitMsg{
 					completedSurface: surface,
 					firstResult:      srPayload,
 					next:             *cont,
 					totalSteps:       0,
+					delivery:         dc,
 				}
 			}
+			surface = withDeliveryNote(surface, delivered)
 
 			return assistantMsg{
 				Surface:     surface,

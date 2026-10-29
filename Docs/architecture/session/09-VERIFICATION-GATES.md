@@ -194,6 +194,18 @@ The Dreamer's refusal to delete a file under a `nerd.md` `critical:` prefix (`cr
 
 ---
 
+## 6b. The `/unwired` round: new code no production path reaches (as built 2026-10-28)
+
+A turn could add a function nothing in production calls and still read verified: a coder added `RepairExistingPromptAtoms` to `internal/init/agents.go`, ran it once from a temporary test, deleted the test and reported done. The `/unwired` round (`round_order` 9, after `/removed_tests`, before `/test_run`; owed by every Go write) measures and pushes back.
+
+- Measure (`internal/session/unwired_measure.go`): the functions and methods the turn added to non-test Go files (the pin gate's `fileUnits`, token-compared against the preimage), as structure-index refs. Per function: `turn_new_func(Turn, Ref, Exposure)` (`/api` when exported from a package with no `internal` segment and not `main`), `turn_new_func_entry` (main in package main, `//go:linkname`, `//go:wasmexport`, cgo `//export`), `turn_new_func_generated` (`ast.IsGenerated`), `turn_func_use(Turn, Ref, From, /production|/test)` from the index's `Uses` with the declaration holding each use, and for a method `turn_method_mentioned` from `NameMentions` (`internal/world/structure_mentions.go`): its name outside declarations, so an interface it satisfies or a call through an interface value counts. Any index deficit asserts `turn_new_func_unobserved`. Each run replaces the previous measurement.
+- Decide (`policy/turn_unwired.mg`): `turn_func_reached` is a closure. A production use from code the turn did not add reaches the function; a use from new code reaches it only when that code is reached, exempt or settled; a test reaches nothing. Exempt: `/api`, generated, unobserved. `turn_func_unwired_open` is unreached, not exempt and not settled. Open code derives `has_red_gate` and `turn_missing_evidence(/code_unwired)`, so the turn is not verified.
+- Push back (`internal/session/unwired_round.go`): while `turn_unwired_pushback` holds, the model gets the open refs (marked "only tests call it" where `turn_func_test_only`) and three answers: wire it, delete it, or reply `unused <ref>: <reason>`. Jev reads each reason (`learnjudge.JudgeUnusedReason`); a caller that exists today, or a task that asks for the function uncalled, at or above `jev_yes_percent` settles it. No judge or a failed call records `turn_unused_reason_unread`, which settles it as stated and is logged: a failed call is never a "no". An attempt that writes nothing asserts `turn_unwired_idle` and ends the round. A write re-arms the gate rounds; `/unwired` is in `gateRounds`, so a `/finish` write re-arms it. The push-back's words are appended to the turn's answer. With no continuation channel the open code stands, and the verdict says so.
+- Rulings: functions and methods only (an unused type or constant is out of scope); a method is reached by name (conservative: a common name such as `String` always counts); a reflection-only or linkname caller is the model's reason to give; a function only a test calls is unwired (it belongs in the test file).
+- Tests: `TestUnwiredPolicy_TruthTable`, `TestUnwiredMeasure_NewFunctionsAndTheirUses`, `TestUnwiredRound_UnreachedCodeIsPushedBack` (production chain with real `go test`; the two reason cases use live Jev), `TestStructureIndexNameMentions`, and the schedule tests in `post_edit_rounds_test.go`.
+
+---
+
 ## 7. Configuration and result fields the gates use
 
 ### 7.1 `ExecutorConfig` — `internal/session/executor.go`

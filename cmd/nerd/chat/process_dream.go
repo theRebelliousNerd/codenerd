@@ -12,6 +12,7 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/observation"
 	"codenerd/internal/perception"
 	"codenerd/internal/types"
 
@@ -696,6 +697,10 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 		var stepResults = make(map[int]string) // Store results for dependency checking
 		verifiedSteps := 0                     // Steps whose verdict was /done, not merely steps that returned
 
+		// The plan's steps are one request: what they deliver together is
+		// judged against it once the plan has run (request_delivery.go).
+		var ran []string
+		var reports []observation.Return
 		results = append(results, fmt.Sprintf("## Multi-Step Task Execution\n\n**Original Request**: %s\n**Steps**: %d\n", intent.Response, len(steps)))
 
 		for i, step := range steps {
@@ -739,6 +744,8 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 
 				// Store result for dependencies
 				stepResults[i] = result
+				ran = append(ran, normalizeShardType(step.ShardType))
+				reports = append(reports, ret)
 				if continuationOutcomeFor(ret, nil) == continuationCompleted {
 					verifiedSteps++
 				}
@@ -753,7 +760,7 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 				// step that did not throw, including ones that verified
 				// nothing.
 				results = append(results, fmt.Sprintf("**Status**: %s\n```\n%s\n```\n",
-					continuationSummary(1, ret), formattedResult))
+					continuationSummary(1, ret, ""), formattedResult))
 			} else {
 				results = append(results, "**Status**: No shard handler\n")
 			}
@@ -764,6 +771,23 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 		// reads as a plan that worked.
 		results = append(results, fmt.Sprintf("\n---\n**Summary**: %d/%d steps ran, %d verified\n",
 			len(stepResults), len(steps), verifiedSteps))
+
+		// A part of the request the plan did not deliver goes on as a
+		// continuation step, to the plan's writing shard.
+		if dc := m.startDelivery(rawInput, gapShard(ran)); dc != nil && len(ran) > 0 {
+			for _, r := range reports {
+				dc.record(r)
+			}
+			if next := m.nextStep(ctx, dc); next != nil {
+				return continuationInitMsg{
+					completedSurface: strings.Join(results, ""),
+					next:             *next,
+					delivery:         dc,
+				}
+			}
+			m.endDelivery()
+			results = append(results, "\n"+dc.summaryNote()+"\n")
+		}
 
 		return responseMsg(strings.Join(results, ""))
 	}

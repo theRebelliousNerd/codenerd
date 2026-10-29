@@ -67,6 +67,9 @@ var queryCalls = map[string]bool{
 	"episodeRows": true,
 	// Whether a turn-keyed conclusion holds (session/finish_round.go).
 	"turnHolds": true,
+	// A delivery round's rows (chat/request_delivery.go).
+	"roundValues": true,
+	"fragmentsIn": true,
 }
 
 // finiteQueryWrappers are narrow production wrappers whose query predicate

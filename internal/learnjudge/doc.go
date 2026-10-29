@@ -37,4 +37,5 @@ const (
 	OpCoverage          = "jev_instruction_coverage"
 	OpVerbChoice        = "jev_verb_choice"
 	OpFinalReport       = "jev_final_report"
+	OpRequestDelivery   = "jev_request_delivery"
 )

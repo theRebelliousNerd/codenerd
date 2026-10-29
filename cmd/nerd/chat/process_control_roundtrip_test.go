@@ -11,6 +11,7 @@ import (
 
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
+	"codenerd/internal/observation"
 	"codenerd/internal/perception"
 	"codenerd/internal/session"
 	"codenerd/internal/types"
@@ -91,6 +92,20 @@ func (e *processControlTaskExecutor) ExecuteWithContext(ctx context.Context, _ s
 		}
 	}
 	return response, nil
+}
+
+var _ session.ObservedTaskExecutor = (*processControlTaskExecutor)(nil)
+
+// ExecuteObserved is the worker's turn as the production executor returns it:
+// the prose, and a /done verdict (a background job reads the verdict, and a
+// worker that returns none is not called finished).
+func (e *processControlTaskExecutor) ExecuteObserved(ctx context.Context, req session.TaskRequest) (observation.Return, error) {
+	return e.ExecuteObservedWithContext(ctx, req, nil, types.PriorityNormal)
+}
+
+func (e *processControlTaskExecutor) ExecuteObservedWithContext(ctx context.Context, req session.TaskRequest, sessionCtx *types.SessionContext, priority types.SpawnPriority) (observation.Return, error) {
+	out, err := e.ExecuteWithContext(ctx, req, sessionCtx, priority)
+	return observation.Return{Output: out, Outcome: "/done"}, err
 }
 
 func (e *processControlTaskExecutor) ExecuteAsync(context.Context, session.TaskRequest) (string, error) {

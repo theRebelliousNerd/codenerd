@@ -66,6 +66,7 @@ func observedReturn(agent, task string, res *ExecutionResult) observation.Return
 	out.Outcome = string(res.TurnOutcome)
 	out.Missing = append(out.Missing, res.MissingEvidence...)
 	out.Stage = res.ChangeStage
+	out.Report = reportReadingOf(res)
 	out.Snapshot = res.ChecksSnapshot
 	if res.Acceptance != nil && res.Acceptance.Status == "verified" && res.Acceptance.After != "" {
 		out.Snapshot = res.Acceptance.After
@@ -185,4 +186,20 @@ func projectReceipts(receipts []ToolEffectReceipt) []observation.EffectReceipt {
 		out = append(out, er)
 	}
 	return out
+}
+
+// reportReadingOf is Jev's last reading of the turn's final report
+// (turn_report_reading), carried so a caller that re-dispatches an unverified
+// task can tell a report that names an obstacle from one that only stopped.
+// The kernel cleared the turn's own row; the executor kept the fact.
+func reportReadingOf(res *ExecutionResult) *observation.ReportReading {
+	if res == nil || res.reportReading == nil {
+		return nil
+	}
+	unfinished, okU := types.ArgInt64(*res.reportReading, 1)
+	blocked, okB := types.ArgInt64(*res.reportReading, 2)
+	if !okU || !okB {
+		return nil
+	}
+	return &observation.ReportReading{Unfinished: unfinished, Blocked: blocked}
 }

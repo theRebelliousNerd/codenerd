@@ -512,6 +512,11 @@ func (e *Executor) verifyCompletedToolTurn(
 		"/removed_tests": func() (*types.LLMToolResponse, []string, error) {
 			return e.verifyAndRepairRemovedTests(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
 		},
+		// current is read when the round runs, like /finish: the push-back's
+		// words are appended to the answer the earlier rounds left.
+		"/unwired": func() (*types.LLMToolResponse, []string, error) {
+			return e.wireUnreachedCode(ctx, trp, systemPrompt, history, current, toolDefs, cfg, result)
+		},
 		"/test_run": func() (*types.LLMToolResponse, []string, error) {
 			return e.verifyAndRepairTestRun(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
 		},
@@ -2127,11 +2132,19 @@ func isVacuousTestBody(body string) bool {
 // ambiguous, or missing. Command text is only evidence about effect; it cannot
 // authorize itself. Read-only and explicit verification commands remain usable
 // while immutable task-baseline authorization is implemented.
-func (e *Executor) checkShellEffect(call ToolCall) error {
+func (e *Executor) checkShellEffect(ctx context.Context, call ToolCall) error {
 	kind, _, err := projectdoc.ValidateShellToolInvocation(call.Name, call.Args)
 	if err == nil {
 		return nil
 	}
+	// The one thing that can answer the refusal is the user's own request for
+	// the turn (projectdoc/shell_authority.go); the kernel decides.
+	step, authErr := e.authorizeShellMutation(ctx, call, err)
+	if authErr == nil {
+		logging.Audit().SafetyCheck("shell_effect_gate", true, fmt.Sprintf("%s %s authorized by the turn's request", call.Name, step))
+		return nil
+	}
+	err = authErr
 
 	reason := fmt.Sprintf("%s effect=%s: %v", call.Name, kind, err)
 	actionName := strings.TrimSpace(call.Name)
@@ -2560,7 +2573,7 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 	// The constitutional gate classifies run_command as generally available;
 	// effect scope is a separate executive decision. This gate closes the path
 	// that previously let shell cleanup bypass write-mutation accounting.
-	if err := e.checkShellEffect(call); err != nil {
+	if err := e.checkShellEffect(ctx, call); err != nil {
 		return "", err
 	}
 

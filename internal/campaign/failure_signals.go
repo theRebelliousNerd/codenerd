@@ -24,7 +24,12 @@ import (
 //	/verification_failed  post-edit verification failed (session)
 //	/turn_not_done        the turn ran but its verdict was not /done; the
 //	                      verdict (/hollow, /failed, /unverified ...) and each
-//	                      unmet evidence atom (/tests_not_green ...) follow
+//	                      unmet evidence atom (/tests_not_green ...) follow, then
+//	                      where the verdict loop stopped re-dispatching the task
+//	                      inside the attempt: /blocked (its report named an
+//	                      obstacle codeNERD cannot clear), /stalled (a dispatch
+//	                      wrote nothing and cleared no gap) or /unjudged (the
+//	                      verdict named nothing left to finish)
 //	/tests_red            a campaign test run found the suite red
 //	/build_failed         a campaign verify build exited non-zero
 //	/unclassified         none of the above: the error carried no type

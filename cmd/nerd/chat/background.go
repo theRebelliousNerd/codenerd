@@ -13,6 +13,7 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/observation"
 	"codenerd/internal/perception"
 	"codenerd/internal/session"
 	"codenerd/internal/sessionlog"
@@ -189,7 +190,7 @@ func (m Model) startBackground(job backgroundJob, input string) tea.Cmd {
 	return func() tea.Msg {
 		req := shardTypeToTaskRequest(job.Shard, job.Task)
 		req.Target, req.Constraint, req.Request = job.Target, job.Constraint, job.Request
-		ret, err := m.spawnTaskWithContext(ctx, req, m.buildSessionContext(ctx), types.PriorityNormal)
+		ret, err := m.runBackgroundUntilVerified(ctx, req)
 		result := ret.Output
 		var facts []core.Fact
 		if m.shardMgr != nil {
@@ -214,6 +215,24 @@ func (m Model) startBackground(job backgroundJob, input string) tea.Cmd {
 		}
 		return done
 	}
+}
+
+// runBackgroundUntilVerified runs the job's task and, while the turn's verdict
+// says the work is not verified, sends it out again with what is missing
+// (session.RunUntilVerified, policy/task_verdict.mg). A job used to be
+// reported "finished" whatever the verdict said. It ends when the turn is
+// verified, its report names an obstacle, a dispatch makes no progress, or the
+// job is stopped; an end short of verified is an error naming the gap, and the
+// job reports as failed.
+func (m Model) runBackgroundUntilVerified(ctx context.Context, req session.TaskRequest) (observation.Return, error) {
+	var k types.Kernel
+	if m.kernel != nil {
+		k = m.kernel
+	}
+	sessionCtx := m.buildSessionContext(ctx)
+	return session.RunUntilVerified(ctx, k, func(ctx context.Context, req session.TaskRequest) (observation.Return, error) {
+		return m.spawnTaskWithContext(ctx, req, sessionCtx, types.PriorityNormal)
+	}, req)
 }
 
 // finishBackground applies a finished job to the session that started it:
@@ -269,6 +288,14 @@ func backgroundReport(msg backgroundDoneMsg, stopped bool, elapsed time.Duration
 	switch {
 	case msg.Err != nil && (stopped || errors.Is(msg.Err, context.Canceled)):
 		return fmt.Sprintf("**Stopped background %s** after %s, as you asked: %s", job.Shard, elapsed, oneLine(job.Task))
+	case errors.Is(msg.Err, session.ErrNotVerified):
+		// The shard's last report is what the person needs: it says what is
+		// left, or what the obstacle is.
+		report := fmt.Sprintf("**Background %s did not finish verified** after %s: %s\n\nTask: %s", job.Shard, elapsed, msg.Err, oneLine(job.Task))
+		if last := strings.TrimSpace(msg.Result); last != "" {
+			report += "\n\nIts last report:\n\n" + last
+		}
+		return report
 	case msg.Err != nil:
 		return fmt.Sprintf("**Background %s failed** after %s: %s\n\nTask: %s", job.Shard, elapsed, msg.Err, oneLine(job.Task))
 	case stopped:

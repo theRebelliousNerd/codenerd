@@ -130,6 +130,12 @@ type Return struct {
 	// the turn says why from these rather than from the prose.
 	Missing []string `json:"missing,omitempty"`
 
+	// Report is Jev's reading of the turn's final report, when the turn had
+	// one read: how sure it is that the report admits unfinished work and
+	// that it names an obstacle codeNERD cannot clear. Nil means no reading
+	// (no judge, or the call failed), which says nothing about the report.
+	Report *ReportReading `json:"report,omitempty"`
+
 	// Stage is how far the change got: artifact_changed (files written),
 	// checks_passed (the mechanical gates were green on the final tree), or
 	// behavior_verified (an acceptance contract was verified). It is what
@@ -173,6 +179,14 @@ type Return struct {
 	// account behind Changed. A receipt whose validation rejected or never
 	// measured its change is projected as uncertainty.
 	Effects []EffectReceipt `json:"effects,omitempty"`
+}
+
+// ReportReading is a final report read by Jev, as whole percents: Unfinished
+// that it says part of the task is not done, Blocked that it names an obstacle
+// codeNERD cannot clear by itself.
+type ReportReading struct {
+	Unfinished int64 `json:"unfinished"`
+	Blocked    int64 `json:"blocked"`
 }
 
 // FileWrite is one path a turn wrote: Before is what it held before the

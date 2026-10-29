@@ -39,7 +39,7 @@ func TestJITExecutor_AnInlineTaskLeavesNoWorkingArchive(t *testing.T) {
 			return perception.Intent{Verb: "/review", Category: "/query"}, nil
 		},
 	}
-	executor := NewExecutor(&MockKernel{}, &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, transducer)
+	executor := NewExecutor(realKernel(t), &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, transducer)
 	cfg := DefaultExecutorConfig()
 	cfg.WorkspaceRoot = ws
 	cfg.EnableSafetyGate = false

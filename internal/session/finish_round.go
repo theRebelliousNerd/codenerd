@@ -48,8 +48,9 @@ func (e *Executor) currentReportJudge() *ReportJudge {
 }
 
 // gateRounds are the rounds a /finish write re-arms: the ones that measure the
-// workspace. The critic and the survivors round advise and are not repeated.
-var gateRounds = []string{"/build", "/test", "/coverage", "/pinned", "/vet", "/removed_tests", "/test_run"}
+// workspace, and /unwired, which asks whether the code written since is
+// reached. The critic and the survivors round advise and are not repeated.
+var gateRounds = []string{"/build", "/test", "/coverage", "/pinned", "/vet", "/removed_tests", "/unwired", "/test_run"}
 
 // readReport asks Jev about report and asserts the reading for the turn,
 // replacing the previous one. It reports whether a reading was asserted: no

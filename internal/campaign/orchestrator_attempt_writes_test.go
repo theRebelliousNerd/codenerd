@@ -101,7 +101,10 @@ func TestRunPhase_AFailedAttemptsWriteOutsideItsWriteSetIsUndone(t *testing.T) {
 	var callerAtRetry string
 	turns := &scriptedTurns{turn: func(n int, _ string) (observation.Return, error) {
 		const widget = "package widget\n"
-		if n == 2 {
+		// Turn 2 is the verdict loop's second dispatch inside the first
+		// attempt: it writes nothing and clears nothing, so the attempt fails
+		// and is undone. Turn 3 is the retry.
+		if n == 3 {
 			data, _ := os.ReadFile(caller)
 			callerAtRetry = string(data)
 		}
@@ -119,6 +122,9 @@ func TestRunPhase_AFailedAttemptsWriteOutsideItsWriteSetIsUndone(t *testing.T) {
 					{Path: caller, Before: known(callerBefore), After: known(callerAfter)},
 				},
 			}, nil
+		}
+		if n == 2 {
+			return observation.Return{Output: "Still no tests.", Outcome: "/unverified", Missing: []string{"/tests_not_written"}}, nil
 		}
 		return observation.Return{Output: "done", Outcome: "/done"}, nil
 	}}
@@ -155,8 +161,8 @@ func TestRunPhase_AFailedAttemptsWriteOutsideItsWriteSetIsUndone(t *testing.T) {
 		t.Logf("runPhase returned: %v", err)
 	}
 
-	if len(turns.calls()) != 2 {
-		t.Fatalf("the coder ran %d time(s), want 2", len(turns.calls()))
+	if len(turns.calls()) != 3 {
+		t.Fatalf("the coder ran %d time(s), want 3 (two dispatches in the failed attempt, then the retry)", len(turns.calls()))
 	}
 	if callerAtRetry != callerBefore {
 		t.Fatalf("at the retry %s held the failed attempt's edit:\n%s\nwant it as it was before the attempt", caller, callerAtRetry)

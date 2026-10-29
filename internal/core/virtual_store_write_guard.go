@@ -32,10 +32,24 @@ func (v *VirtualStore) toolWriteGuard() tools.WriteGuard {
 		if projectdoc.IsShellTool(toolName) {
 			kind, _, err := projectdoc.ValidateShellToolInvocation(toolName, args)
 			if err != nil {
-				reason := fmt.Sprintf("%s effect=%s: %v", toolName, kind, err)
-				logging.Get(logging.CategoryVirtualStore).Warn("tool-layer shell guard blocked %s effect=%s", toolName, kind)
-				logging.Audit().SafetyCheck("shell_effect_guard", false, reason)
-				return err
+				// The user's own request for the turn can answer the refusal:
+				// the same decision the session executor's gate makes, from the
+				// scope on this call's context (projectdoc/shell_authority.go).
+				v.mu.RLock()
+				kernel := v.kernel
+				v.mu.RUnlock()
+				var authority projectdoc.ShellAuthority
+				if kernel != nil {
+					authority = kernel
+				}
+				step, authErr := projectdoc.AuthorizeShellMutation(ctx, authority, toolName, args, err)
+				if authErr != nil {
+					reason := fmt.Sprintf("%s effect=%s: %v", toolName, kind, authErr)
+					logging.Get(logging.CategoryVirtualStore).Warn("tool-layer shell guard blocked %s effect=%s", toolName, kind)
+					logging.Audit().SafetyCheck("shell_effect_guard", false, reason)
+					return authErr
+				}
+				logging.Audit().SafetyCheck("shell_effect_guard", true, fmt.Sprintf("%s %s authorized by the turn's request", toolName, step))
 			}
 		}
 		if !projectdoc.IsWriteMutationTool(toolName) {

@@ -459,6 +459,7 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.continuationTotal = 0
 		m.pendingSubtasks = nil
 		m.isInterrupted = false
+		m.endDelivery()
 		// Clear continuation facts from kernel
 		if m.kernel != nil {
 			_ = m.kernel.Retract("interrupt_requested")
@@ -986,6 +987,7 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 // handleContinuationInitMsg processes the continuationInitMsg.
 func (m Model) handleContinuationInitMsg(msg continuationInitMsg) (tea.Model, tea.Cmd) {
 	// First step already completed; render its surface and initialize counters.
+	m.delivery = msg.delivery
 	if msg.firstResult != nil {
 		m.storeShardResult(msg.firstResult.ShardType, msg.firstResult.Task, msg.firstResult.Result, msg.firstResult.Facts)
 	}

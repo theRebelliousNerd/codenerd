@@ -245,3 +245,14 @@ func (m Model) jevRestriction() perception.Restriction {
 	}
 	return perception.RestrictionOf("Jev read a limit on this request", kinds...)
 }
+
+// jevAuthorization is what the user's message allowed beyond the edits, as the
+// kernel derives it from Jev's judgment of that message (jev_authorization,
+// policy/jev_evidence.mg); zero when it allowed nothing, Jev is off, or the
+// call failed.
+func (m Model) jevAuthorization() perception.Authorization {
+	if m.kernel == nil {
+		return perception.Authorization{}
+	}
+	return turnjudge.AuthorizationFrom(m.kernel)
+}

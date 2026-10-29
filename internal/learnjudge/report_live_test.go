@@ -14,7 +14,7 @@ func TestLiveFinalReport(t *testing.T) {
 	c, _ := liveClient(t, "final_report")
 	const atoms = "fix whatever system produced the oversized prompt atoms, and then fix the existing files in .nerd/agents too. add tests."
 	cases := []struct {
-		name, task, report string
+		name, task, report  string
 		unfinished, blocked bool
 	}{
 		{"not-done-mistaken", atoms, "Done: generator now enforces small single-concern atoms in code with atomicity tests added. No .nerd/agents files are checked into the repo, so existing-file remediation runs through the re-atomize path on the next init in a workspace that has them.", true, false},

@@ -22,6 +22,7 @@ const (
 	AboutCodeNERD    = "about_codenerd"
 	WantsToStop      = "wants_to_stop"
 	RulesOutChanges  = "rules_out_changes"
+	AsksToCommit     = "asks_to_commit"
 	ApprovesHeldWork = "approves_held_work"
 	AddsToHeldWork   = "adds_to_held_work"
 	answeredPrefix   = "answered_"
@@ -57,6 +58,13 @@ func fixedQuestions() map[string]typesafe.Question {
 			Criteria: &typesafe.NoulCriteria{
 				True:  "The user asks why the assistant failed, asks it to debug itself, or points it at its own logs.",
 				False: "The user asks about their own code or project, even code that has bugs.",
+			},
+		},
+		AsksToCommit: typesafe.Noul{
+			Instructions: "Does `message` tell the assistant to commit the work to git?",
+			Criteria: &typesafe.NoulCriteria{
+				True:  "The message itself says to commit the changes, such as 'then commit it', 'and commit', 'commit the fix' or 'make a commit when done'.",
+				False: "The message does not say to commit: it only asks for changes, a question, a review, or mentions pushing, branches or pull requests without saying to commit, or says not to commit.",
 			},
 		},
 		RulesOutChanges: typesafe.Noul{

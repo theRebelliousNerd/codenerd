@@ -6,7 +6,9 @@
 # self-diagnosis chain, stop background work, add a restriction; and, for
 # Jev's other uses, hand the model a file Jev judged relevant, flag a review
 # finding Jev cannot see in its code, list a problem apart as a failure
-# around codeNERD. None starts work that the other lanes would not start.
+# around codeNERD. None starts work that the other lanes would not start. The
+# one rule that lets something through (jev_authorization) names only a step
+# the user's own message asked for, and constitution.mg section 7E bounds it.
 # A turn with no judgments (Jev off, or its call failed) routes exactly as
 # before: a missing judgment is no evidence, never a "no".
 
@@ -193,6 +195,22 @@ injectable_context("*", Text) :-
 Decl jev_restriction(Kind) bound [/name].
 jev_restriction(/read_only) :- jev_yes("rules_out_changes").
 jev_restriction(/hypothetical) :- jev_yes("hypothetical").
+
+# What the user's own words allowed beyond the edits: a message Jev reads as
+# telling codeNERD to commit ("fix X, then commit it") authorizes the commit
+# step for the turn's tasks. This is the one rule here that widens what a turn
+# may do, and it widens it only into constitution.mg section 7E: the chat
+# carries the kind on the turn's context (perception.Authorization), the gate
+# there decides what the kind covers (staging the files the turn wrote and
+# committing them, never a push), and a restriction on the same turn wins.
+# The judgment is of the user's message alone; earlier turns, tool results and
+# file contents are not its input. A contradictory message (a commit, but
+# change nothing) authorizes nothing.
+Decl jev_authorization(Kind) bound [/name].
+jev_authorization(/commit) :-
+    jev_yes("asks_to_commit"),
+    !jev_yes("rules_out_changes"),
+    !jev_yes("hypothetical").
 
 # Retrieval relevance (turnjudge.RelevanceJudge, retrieval/relevance.go):
 # context_relevance(Issue, File, Percent, Kept) is Jev's probability that

@@ -314,7 +314,10 @@ type Model struct {
 	selected *selectedSession
 	// jev asks the turn's typed judgments (jev_turn.go); nil when the
 	// typesafe config section is absent.
-	jev                   turnjudge.Asker
+	jev turnjudge.Asker
+	// delivery is the request the running continuation is delivering
+	// (request_delivery.go); nil outside one, or with Jev off.
+	delivery              *deliveryChain
 	lastDreamHypothetical string // Track last dream state hypothetical for learning follow-up
 
 	// Session State
@@ -797,6 +800,8 @@ type (
 		firstResult      *ShardResultPayload
 		next             continueMsg
 		totalSteps       int
+		// delivery is the request the chain delivers (request_delivery.go).
+		delivery *deliveryChain
 	}
 	interruptMsg        struct{} // User pressed Ctrl+X to stop
 	confirmContinueMsg  struct{} // User pressed Enter to continue (Confirm/Breakpoint mode)

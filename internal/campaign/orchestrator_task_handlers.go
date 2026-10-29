@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -67,15 +68,24 @@ func (o *Orchestrator) spawnTask(ctx context.Context, task *Task, intent, input 
 	// turns (recurse fix vs improve). Empty on every other campaign, and
 	// withPromptPhase then leaves the context alone.
 	ctx = withPromptPhase(ctx, phase)
-	ret, err := observed.ExecuteObserved(ctx, req)
+	// A turn that does not end /done goes out again inside the attempt, with
+	// what it left missing, until it is verified, names an obstacle, or makes
+	// no progress (session.RunUntilVerified, policy/task_verdict.mg). Failing
+	// the attempt at the first /unverified turn threw its work away -- the
+	// attempt's writes are undone with the snapshot -- and the next attempt
+	// started over from the failure text.
+	ret, err := session.RunUntilVerified(ctx, o.kernel, func(ctx context.Context, req session.TaskRequest) (observation.Return, error) {
+		return observed.ExecuteObserved(ctx, req)
+	}, req)
 	o.recordAttemptWrites(task, ret.Writes)
+	var notVerified *session.NotVerifiedError
+	if errors.As(err, &notVerified) {
+		return ret.Output, turnNotDoneError(intent, ret, notVerified)
+	}
 	if err != nil {
 		// A turn that errored may still have been judged; its verdict is
 		// part of why the attempt failed.
 		return ret.Output, withSignals(err, returnSignals(ret)...)
-	}
-	if !ret.Done() {
-		return ret.Output, turnNotDoneError(intent, ret)
 	}
 	return ret.Output, nil
 }
@@ -106,17 +116,33 @@ var ErrTaskNotDone = errors.New("the task's turn did not end done")
 
 // turnNotDoneError names what the turn left unmet, from the kernel's own
 // turn_missing_evidence, so the failure -- and the retry that reads it -- says
-// why rather than only that.
+// why rather than only that. stop is where the verdict loop ended (nil for a
+// bare return): why the task was not sent again, which rides as a signal too
+// (/blocked, /stalled, /unjudged).
 // The verdict and the missing evidence ride on the error as typed signals, so
 // the next move is derived from them rather than read back out of this text.
-func turnNotDoneError(intent string, ret observation.Return) error {
-	if ret.Outcome == "" {
-		return fmt.Errorf("%w: the %s turn returned no verdict", ErrTaskNotDone, intent)
+func turnNotDoneError(intent string, ret observation.Return, stop *session.NotVerifiedError) error {
+	msg := fmt.Sprintf("the %s turn returned no verdict", intent)
+	if ret.Outcome != "" {
+		msg = fmt.Sprintf("the %s turn ended %s", intent, ret.Outcome)
+		if why := session.DescribeMissingEvidence(ret.Missing); why != "" {
+			msg += ": " + why
+		}
 	}
-	if why := session.DescribeMissingEvidence(ret.Missing); why != "" {
-		return withSignals(fmt.Errorf("%w: the %s turn ended %s: %s", ErrTaskNotDone, intent, ret.Outcome, why), returnSignals(ret)...)
+	signals := returnSignals(ret)
+	if stop != nil {
+		msg += "; " + stop.Reason()
+		signals = append(signals, stop.Verdict)
 	}
-	return withSignals(fmt.Errorf("%w: the %s turn ended %s", ErrTaskNotDone, intent, ret.Outcome), returnSignals(ret)...)
+	return withSignals(fmt.Errorf("%w: %s", ErrTaskNotDone, msg), signals...)
+}
+
+// stoppedAtObstacle reports an attempt whose turn ended at an obstacle its own
+// report named (the verdict loop's /blocked): a permission, a credential, an
+// input or a choice only the person can make. Generating the deliverable
+// directly would answer the task without the thing the turn was stopped on.
+func stoppedAtObstacle(err error) bool {
+	return slices.Contains(failureSignals(err), "/blocked")
 }
 
 // withPreviousAttempt carries why the task's last attempt failed into the next
@@ -253,7 +279,7 @@ func (o *Orchestrator) executeWithExplicitShard(ctx context.Context, task *Task)
 		// permanently fails the task — deadlocking the phase. Fall back to direct
 		// document generation so the deliverable is still produced and the phase
 		// can complete. Non-document tasks keep the hard failure.
-		if task.Type == TaskTypeDocument {
+		if task.Type == TaskTypeDocument && !stoppedAtObstacle(err) {
 			logging.Get(logging.CategoryCampaign).Warn("Shard %s failed for document task %s: %v; falling back to direct document generation", shardType, task.ID, err)
 			var targetPath string
 			if len(task.Artifacts) > 0 {
@@ -567,7 +593,7 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 		// directory (kernel refusal that hides the real failure); for a modify
 		// task it would clobber the existing file with generated content. Keep
 		// the fallback only for task types it was built for.
-		if isDirectoryTarget || task.Type == TaskTypeFileModify {
+		if isDirectoryTarget || task.Type == TaskTypeFileModify || stoppedAtObstacle(err) {
 			logging.Get(logging.CategoryCampaign).Warn("Coder shard failed for %s task %s on %s; refusing create-style fallback so the real failure stays visible", task.Type, task.ID, targetPath)
 			return nil, fmt.Errorf("coder shard failed for %s task %s on %s: %w", task.Type, task.ID, targetPath, err)
 		}

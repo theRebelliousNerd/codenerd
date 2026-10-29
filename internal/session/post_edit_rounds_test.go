@@ -18,7 +18,7 @@ import (
 // no pinning (a closure fixture with no verb): what the round driver leaves
 // in result.roundsRan.
 func goWriteRounds() map[string]bool {
-	return map[string]bool{"/build": true, "/test": true, "/critic": true, "/coverage": true, "/vet": true, "/removed_tests": true, "/finish": true}
+	return map[string]bool{"/build": true, "/test": true, "/critic": true, "/coverage": true, "/vet": true, "/removed_tests": true, "/unwired": true, "/finish": true}
 }
 
 // roundsExecutor is an executor on a real kernel loaded with the policy
@@ -55,7 +55,7 @@ func schedule(t *testing.T, e *Executor, result *ExecutionResult) []string {
 func TestPostEditRounds_AGoFixOwesEveryRoundInOrder(t *testing.T) {
 	e := roundsExecutor(t)
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}, WriteToolEffects: 1, WrittenPaths: []string{"internal/x/x.go"}}
-	want := []string{"/build", "/test", "/critic", "/coverage", "/pinned", "/vet", "/removed_tests", "/finish"}
+	want := []string{"/build", "/test", "/critic", "/coverage", "/pinned", "/vet", "/removed_tests", "/unwired", "/finish"}
 	if got := schedule(t, e, result); strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("rounds = %v, want %v", got, want)
 	}
@@ -138,7 +138,7 @@ func TestPostEditRounds_SurvivorsOfAPassingPinGateOweAnAdvisoryRound(t *testing.
 			t.Fatal(err)
 		}
 	}
-	want := []string{"/build", "/test", "/critic", "/coverage", "/pinned", "/survivors", "/vet", "/removed_tests", "/finish"}
+	want := []string{"/build", "/test", "/critic", "/coverage", "/pinned", "/survivors", "/vet", "/removed_tests", "/unwired", "/finish"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("rounds = %v, want %v", got, want)
 	}

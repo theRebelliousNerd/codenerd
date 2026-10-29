@@ -29,7 +29,7 @@ func TestJITExecutor_Execute_InlineExecution(t *testing.T) {
 	}
 
 	executor := NewExecutor(
-		&MockKernel{},
+		realKernel(t),
 		&MockVirtualStore{},
 		mockLLM,
 		&MockJITCompiler{},
@@ -38,7 +38,7 @@ func TestJITExecutor_Execute_InlineExecution(t *testing.T) {
 	)
 
 	spawner := NewSpawner(
-		&MockKernel{},
+		realKernel(t),
 		&MockVirtualStore{},
 		mockLLM,
 		&MockJITCompiler{},
@@ -82,7 +82,7 @@ func TestJITExecutor_ExecuteWithContext_PresetIntentSkipsPerception(t *testing.T
 	}
 
 	executor := NewExecutor(
-		&MockKernel{},
+		realKernel(t),
 		&MockVirtualStore{},
 		mockLLM,
 		&MockJITCompiler{},
@@ -90,7 +90,7 @@ func TestJITExecutor_ExecuteWithContext_PresetIntentSkipsPerception(t *testing.T
 		mockTransducer,
 	)
 	spawner := NewSpawner(
-		&MockKernel{},
+		realKernel(t),
 		&MockVirtualStore{},
 		mockLLM,
 		&MockJITCompiler{},
@@ -131,7 +131,7 @@ func TestJITExecutor_ExecuteWithContext_InlineRunIsIsolated(t *testing.T) {
 	mockTransducer := &MockTransducer{}
 
 	executor := NewExecutor(
-		&MockKernel{},
+		realKernel(t),
 		&MockVirtualStore{},
 		mockLLM,
 		&MockJITCompiler{},
@@ -139,7 +139,7 @@ func TestJITExecutor_ExecuteWithContext_InlineRunIsIsolated(t *testing.T) {
 		mockTransducer,
 	)
 	spawner := NewSpawner(
-		&MockKernel{},
+		realKernel(t),
 		&MockVirtualStore{},
 		mockLLM,
 		&MockJITCompiler{},
@@ -178,7 +178,7 @@ func TestJITExecutor_Execute_SubagentExecution(t *testing.T) {
 		},
 	}
 
-	executor := createTestExecutor(t)
+	executor := createVerdictExecutor(t)
 	// A real kernel: whether /research runs isolated is policy (verb_isolated).
 	executor.kernel = realKernel(t)
 
@@ -198,13 +198,15 @@ func TestJITExecutor_Execute_SubagentExecution(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	result, err := jitExec.Execute(ctx, TaskRequest{IntentVerb: "/research", Task: "Research this topic"})
+	// The raw observed run: the subagent's kernel here is a mock, which takes
+	// no verdict, and Execute would (rightly) not call that turn verified.
+	observed, err := jitExec.ExecuteObserved(ctx, TaskRequest{IntentVerb: "/research", Task: "Research this topic"})
 	if err != nil {
-		t.Fatalf("Execute failed: %v", err)
+		t.Fatalf("ExecuteObserved failed: %v", err)
 	}
 
-	if result != "Research complete" {
-		t.Errorf("Expected 'Research complete', got '%s'", result)
+	if observed.Output != "Research complete" {
+		t.Errorf("Expected 'Research complete', got '%s'", observed.Output)
 	}
 }
 
@@ -325,10 +327,10 @@ func TestJITExecutor_TypeCoercion(t *testing.T) {
 		},
 	}
 	spawner := NewSpawner(
-		&MockKernel{}, &MockVirtualStore{}, mockLLM, &MockJITCompiler{},
+		realKernel(t), &MockVirtualStore{}, mockLLM, &MockJITCompiler{},
 		&MockConfigFactory{}, &MockTransducer{}, DefaultSpawnerConfig(),
 	)
-	jitExec := NewJITExecutor(createTestExecutor(t), spawner, &MockTransducer{})
+	jitExec := NewJITExecutor(createVerdictExecutor(t), spawner, &MockTransducer{})
 
 	// 1. Malformed prefixes, multiple slashes, invalid Unicode in intent.
 	// With the strict TaskRequest validation, intents that don't start with
@@ -373,10 +375,10 @@ func TestJITExecutor_UserRequestExtremes(t *testing.T) {
 	spawnerConfig.MaxActiveSubagents = 50 // Keep limit small for tests
 
 	spawner := NewSpawner(
-		&MockKernel{}, &MockVirtualStore{}, mockLLM, &MockJITCompiler{},
+		realKernel(t), &MockVirtualStore{}, mockLLM, &MockJITCompiler{},
 		&MockConfigFactory{}, &MockTransducer{}, spawnerConfig,
 	)
-	jitExec := NewJITExecutor(createTestExecutor(t), spawner, &MockTransducer{})
+	jitExec := NewJITExecutor(createVerdictExecutor(t), spawner, &MockTransducer{})
 
 	// 1. Massive task payload (e.g., 5MB for speed, testing memory behavior)
 	// Use /review so hollow write-checks don't mask plumbing coverage.
@@ -594,10 +596,10 @@ func TestJITExecutor_Execute_ConstraintReachesPrompt(t *testing.T) {
 	}
 	mockTransducer := &MockTransducer{}
 	executor := NewExecutor(
-		&MockKernel{}, &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, mockTransducer,
+		realKernel(t), &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, mockTransducer,
 	)
 	spawner := NewSpawner(
-		&MockKernel{}, &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, mockTransducer, DefaultSpawnerConfig(),
+		realKernel(t), &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, mockTransducer, DefaultSpawnerConfig(),
 	)
 	jitExec := NewJITExecutor(executor, spawner, mockTransducer)
 	_, err := jitExec.Execute(context.Background(), TaskRequest{IntentVerb: "/review", Task: "look at x", Constraint: "must cite line numbers"})

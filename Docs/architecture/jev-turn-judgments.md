@@ -722,6 +722,32 @@ evolved atom into the agent's instructions (`RunEvolutionCycle`, step 4).
   going against "run a test before claiming it passes" (0.81). That candidate
   is held anyway, on `describes_one_task` 0.98.
 
+### Commit authorization: switch `turn_judgments`
+
+Whether the user's own message tells codeNERD to commit ("fix X, then commit
+it"). Until 2026-10-28 the shell-effect gate refused every mutating command,
+and nothing could grant the task scope, so a coder that finished its edits
+could not commit them.
+
+- Question: `asks_to_commit` in `internal/turnjudge/questions.go`, one of the
+  per-turn judgments, about `message` only: an assistant line or pasted tool
+  output that mentions committing is not the user asking.
+- Rule: `jev_authorization(/commit)` (`policy/jev_evidence.mg`) when it reads
+  yes and neither `rules_out_changes` nor `hypothetical` does. The chat and
+  `nerd run` carry it as `perception.Authorization` on the turn's context;
+  held work keeps what its request earned, and a bare "go" grants nothing new.
+- Gate: `constitution.mg` section 7E derives `shell_call_authorized` from Go's
+  measurement of the call (`internal/projectdoc/shell_git_step.go`: one simple
+  `git add -- <files>` or `git commit -m`, every path one the turn wrote, the
+  staged set within the write set). A restriction or a standing confirm-first
+  always wins. No row covers push, force, reset, a branch change or an amend.
+  Its facts are homed with `turn_restriction` (`internal/shards/registration.go`),
+  or the negations of `turn_bars_effects` and `turn_owes_confirmation` are blind.
+- Live (Jev 1.14, `commit_live_test.go`, 20 cases): the incident's message
+  0.99; "don't commit", "push only", "write a commit message", "undo the last
+  commit" at most 0.06; a pasted tool line saying "commit it now" 0.23; a bare
+  "yes, do that" answering a commit offer 0.49 (unsettled: grants nothing).
+
 ### Final reports: switch `final_reports`
 
 Whether a turn's own final report says part of the task was not done, and
@@ -757,6 +783,77 @@ the admission back to the model.
   right and 2 unsettled (0.29, 0.39), both on reports that should be pushed.
 - Off, failed, or no Jev: no reading; `/finish` does nothing and the closure
   audit asks the main model, as before.
+
+### Unused-function reasons: switch `final_reports`
+
+Whether the model's reason that a function it added has no production caller
+is a real one (the `/unwired` round, `Docs/architecture/session/09-VERIFICATION-GATES.md` 6b).
+
+- Question: `internal/learnjudge/unusedreason.go`, through the same judge as the
+  final report. Two Nouls over the task, the function (ref, signature, doc) and
+  the reason, each naming the function in its instructions:
+  `names_current_caller` ("Does `reason` name something that calls or loads the
+  function today?") and `task_asks_uncalled` ("Does `task` ask for the function
+  to be written without asking for the program to call it?").
+- Fact: `turn_unused_reason_reading(Turn, Ref, Caller, TaskAsks)`, whole
+  percents. Rule (`policy/turn_unwired.mg`): either at or above yes settles
+  the function; an unsettled reading does not.
+- Live (Jev 1.14, `unusedreason_live_test.go`, 14 cases, 3 held out):
+  `names_current_caller` 14 of 14; `task_asks_uncalled` 10 right, 4 unsettled,
+  none wrong. The decision (either at yes) is right on all 14, including the
+  excuse that motivated the round ("I ran it once from a temporary test",
+  0.02 / 0.06). Naming the function in the instructions moved "add Min" for a
+  function `Max` from a wrong 0.79 to an unsettled 0.53.
+- Off, failed, or no Jev: the stated reason is recorded unread and settles the
+  function as stated, logged; it is never read as a "no".
+
+### Request delivery: switch `instruction_coverage`
+
+Whether the steps a delegated or multi-step chat request ran delivered every
+part of it. Such a request used to end "Ran N step(s); the work is not
+verified ... (no acceptance contract)" with nothing to make it go on; a shard
+can say "done" and miss half the request, which `/finish` (one turn, the
+shard's own admission) does not see.
+
+- Question: `internal/learnjudge/delivery.go`. `RequestFragments` proposes the
+  request's parts (clauses split at sentence ends, list items, semicolons and
+  joining words; a one-word piece folds into the clause before it).
+  `CheckDelivery` asks the coverage pair per fragment (`asked_i`,
+  `delivered_i`, the wording of `coverage.go`) and `names_blocker` (the
+  final-report wording, over `result`) in one request over the request, every
+  step's report (one block per step, bounded at 60000 bytes) and
+  `files_changed` (left out when empty).
+- Calls: `cmd/nerd/chat/request_delivery.go`, when the continuation has no
+  obligation left: after a delegated step (`checkContinuation`, both the
+  verified `/mutation` path and the foreground one), after each continuation
+  step (`executeSubtask`), and after a `/multi_step` plan has run.
+- Facts: `delivery_reading(Request, Round, Fragment, Asked, Delivered)`,
+  `delivery_blocker_reading(Request, Round, Blocked)`,
+  `delivery_result_cut(Request, Round)`; `delivery_active(Request)` for the
+  newest request only; `delivery_step_offer(Request, Round, TaskID, Task,
+  Shard)`, which Go builds from `delivery_fragment_missing` naming the missing
+  parts in the person's words.
+- Rules (`policy/request_delivery.mg`): a part is missing when asked above no
+  and delivered at or below no (never when the reports were cut); the round
+  pushes back when a part is missing, no blocker is at or above yes, and it is
+  not stalled (the round before also had a gap and this round resolved none
+  of it). The push-back derives `has_pending_subtask` for the offer, so the
+  step runs through the ordinary continuation (and Breakpoint pauses).
+  `delivery_outcome` is `/delivered`, `/unsettled`, `/blocked`,
+  `/no_progress` or `/pushback`, worded under the reply or the step summary.
+- Rulings: delivered means Jev reads it delivered from the reports and the
+  write set, not that an acceptance contract verified it (the verdict line is
+  unchanged); a gap goes back as a new step to the delegated shard (a plan's
+  last writing shard); it stops on nothing missing, a named blocker, or no
+  progress. An unsettled part is reported, never pushed. An unsettled blocker
+  still pushes, as in `/finish`.
+- Live (Jev 1.14, `delivery_live_test.go`, 7 cases): 7 of 7 right, missing
+  sets and blocker both, 0.6s for all seven, including a shard that said
+  "Done" after half the request (0.08 delivered on the docs part) and a
+  denied commit (blocker 0.98). `TestDeliveryLive_ShardSaysDoneButMissedAPart`
+  runs two rounds over the real Jev in the chat package.
+- Off, failed, or no Jev: no chain, or no reading; no step is handed back,
+  and a failed call says under the reply that delivery was not judged.
 
 ## Latency and cost
 
