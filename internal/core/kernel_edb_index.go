@@ -75,7 +75,7 @@ func (x *edbIndex) insert(key string, f Fact) bool {
 	bucket[key] = f
 	x.forgetAtom(f.Predicate, key)
 	x.delta.noteInsert(f.Predicate, key)
-	x.addContent(f.Predicate, key)
+	x.addContent(f)
 	arities := x.arities[f.Predicate]
 	if arities == nil {
 		arities = make(map[int]struct{}, 1)
@@ -97,7 +97,7 @@ func (x *edbIndex) remove(pred, key string) {
 	x.delta.noteRemove(pred, key, f, atom, hadAtom)
 	delete(bucket, key)
 	x.forgetAtom(pred, key)
-	x.subtractContent(pred, key)
+	x.subtractContent(f)
 	x.size--
 	if len(bucket) == 0 {
 		delete(x.buckets, pred)
