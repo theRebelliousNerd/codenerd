@@ -36,7 +36,17 @@ type Task struct {
 	// Complexity, when set ("/high" or "/normal"), is asserted as
 	// task_complexity so strategic_advisor_required can derive.
 	Complexity string
+	// Speaker, when set, is the shard agent the task already runs as (its
+	// key, "goexpert"): asserted as expert_task_speaker, so a consultation
+	// never spawns another (policy/shard_experts.mg expert_spawn).
+	Speaker string
 }
+
+// Spawn modes, the value set of expert_spawn/3's Mode.
+const (
+	SpawnLead   = "lead"   // an executor expert lays out the work
+	SpawnAdvise = "advise" // an advisor says what must hold
+)
 
 // Need is one shard agent the kernel derived the task needs.
 type Need struct {
@@ -55,6 +65,9 @@ type Need struct {
 	// this task (specialist_should_execute / specialist_should_advise).
 	Execute bool
 	Advise  bool
+	// Spawn is the consultation the kernel derived for the agent before the
+	// task's turn (expert_spawn): SpawnLead, SpawnAdvise, or "" for none.
+	Spawn string
 }
 
 // Selection is the kernel's answer for one task.
@@ -124,6 +137,9 @@ func taskFacts(id, verb string, task Task) []types.Fact {
 	if complexity := strings.TrimSpace(task.Complexity); complexity != "" && validName(complexity) {
 		facts = append(facts, types.Fact{Predicate: "task_complexity", Args: []any{id, types.MangleAtom(complexity)}})
 	}
+	if speaker := AgentKey(task.Speaker); speaker != "" && validName("/"+speaker) {
+		facts = append(facts, types.Fact{Predicate: "expert_task_speaker", Args: []any{id, AgentAtom(speaker)}})
+	}
 	return facts
 }
 
@@ -187,6 +203,18 @@ func read(kernel types.Kernel, id string) (Selection, error) {
 		return sel, fmt.Errorf("query specialist_should_advise: %w", err)
 	}
 	markRouting(rows, id, needs, func(n *Need) { n.Advise = true })
+
+	if rows, err = kernel.Query("expert_spawn"); err != nil {
+		return sel, fmt.Errorf("query expert_spawn: %w", err)
+	}
+	for _, f := range rows {
+		if len(f.Args) < 3 || types.ExtractString(f.Args[0]) != id {
+			continue
+		}
+		if n, ok := needs[agentKey(f.Args[1])]; ok {
+			n.Spawn = strings.TrimPrefix(types.ExtractString(f.Args[2]), "/")
+		}
+	}
 
 	if rows, err = kernel.Query("strategic_advisor_required"); err != nil {
 		return sel, fmt.Errorf("query strategic_advisor_required: %w", err)

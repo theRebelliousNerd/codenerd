@@ -80,7 +80,10 @@ type agentRegistryAgent struct {
 	// Domains are the technology keys the agent is expert in ("go",
 	// "bubbletea"): init writes the catalog key that created the agent.
 	// Boot asserts them as shard_agent_domain (shard_expert_facts.go).
-	Domains []string `json:"domains,omitempty"`
+	// Absent (nil) means never decided: boot derives them once and records
+	// them, an empty list included ("decided: none"), through
+	// recordAgentDomains.
+	Domains []string `json:"domains,omitzero"`
 }
 
 // SyncAgentRegistryFromDisk ensures .nerd/agents.json is present and up-to-date with
@@ -265,6 +268,41 @@ func writeAgentRegistry(registryPath string, reg agentRegistryFile, existingByte
 		return false, fmt.Errorf("write agents registry: %w", err)
 	}
 	return true, nil
+}
+
+// recordAgentDomains writes boot-derived domains into .nerd/agents.json for
+// the agents (by lower-cased name) whose entry has none yet, through the
+// registry's own reader and writer. An entry that already has domains, even
+// an empty list, is never touched: init, the user or an earlier boot decided
+// it. Each recorded list is non-nil, so "derived, none found" is written as
+// an empty list and not derived again.
+func recordAgentDomains(workspace string, domains map[string][]string) (bool, error) {
+	if strings.TrimSpace(workspace) == "" || len(domains) == 0 {
+		return false, nil
+	}
+	registryPath := filepath.Join(workspace, ".nerd", "agents.json")
+	reg, existingBytes, err := loadAgentRegistry(registryPath)
+	if err != nil {
+		return false, fmt.Errorf("load agents registry: %w", err)
+	}
+	changed := false
+	for i := range reg.Agents {
+		agent := &reg.Agents[i]
+		if agent.Domains != nil {
+			continue
+		}
+		derived, ok := domains[strings.ToLower(strings.TrimSpace(agent.Name))]
+		if !ok {
+			continue
+		}
+		agent.Domains = append([]string{}, derived...)
+		sort.Strings(agent.Domains)
+		changed = true
+	}
+	if !changed {
+		return false, nil
+	}
+	return writeAgentRegistry(registryPath, reg, existingBytes, true)
 }
 
 // UserAgentDefinition is the runtime-relevant slice of a .nerd/agents.json

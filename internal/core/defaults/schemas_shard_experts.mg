@@ -81,3 +81,33 @@ Decl expert_evidence(Task, Agent, Technology, Confidence) bound [/string, /name,
 # expert_confidence(Task, Agent, Confidence) - the strongest evidence for the
 # expert on this task. specialist_match (schemas_tools.mg) is its projection.
 Decl expert_confidence(Task, Agent, Confidence) bound [/string, /name, /number].
+
+# --- Recording derived domains (boot) -----------------------------------------
+
+# shard_agent_recorded(Agent) - the agent's agents.json entry carries a
+# `domains` field (possibly empty): its domains were decided once and are read
+# back as /registry rows. Producer: internal/system/shard_expert_facts.go.
+Decl shard_agent_recorded(Agent) bound [/name].
+
+# shard_agent_domain_to_record(Agent, Technology) - a domain boot derived for
+# a roster agent whose entry has no `domains` yet (the init catalog's key from
+# the saved orientation, a KB tag). Boot writes these back to agents.json, so
+# the derivation runs once. Consumer: internal/system/shard_expert_facts.go.
+Decl shard_agent_domain_to_record(Agent, Technology) bound [/name, /name].
+
+# --- Spawning (per task) --------------------------------------------------------
+
+# expert_task_speaker(Task, Agent) - the task already runs as this shard agent
+# (verb /consult/<agent> or /<agent>). Producer: internal/experts.Select.
+Decl expert_task_speaker(Task, Agent) bound [/string, /name].
+
+# expert_task_spoken(Task) - the task runs as some shard agent.
+Decl expert_task_spoken(Task) bound [/string].
+
+# expert_spawn(Task, Agent, Mode) - the harness consults this shard agent
+# before the task's turn runs, and the answer enters the turn. Mode:
+#   /lead   - an executor expert routed to execute: it lays out the work
+#   /advise - an advisor routed to advise: it says what must hold
+# Consumer: internal/session (Executor.consultExperts) through the
+# JITExecutor's consultation spawner.
+Decl expert_spawn(Task, Agent, Mode) bound [/string, /name, /name].

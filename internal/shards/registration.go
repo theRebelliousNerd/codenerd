@@ -240,7 +240,8 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// would ever need an expert. task_complexity rides with the
 				// task for strategic_advisor_required.
 				"shard_agent", "shard_agent_domain", "technology_import_root",
-				"expert_task", "expert_task_target", "task_complexity",
+				"shard_agent_recorded", "expert_task", "expert_task_target",
+				"expert_task_speaker", "task_complexity",
 			},
 		},
 		{

@@ -68,11 +68,14 @@ expert_file(Task, Agent, File) :-
     expert_needed(Task, Agent, Tech),
     task_technology(Task, File, Tech, _).
 
-# A framework import names the expert's exact subject: past the executor
-# threshold in specialist_should_execute (> 80). A language match is the
-# expert's broad field: advise (40-80), never take the task.
+# A framework import names the expert's exact subject: strong enough to spawn
+# the expert (specialist_should_execute above 80 for an executor,
+# specialist_should_advise otherwise). A language match is the expert's broad
+# field: its knowledge is pushed into the turn (JIT first) and nothing is
+# spawned -- at 60 it advised, which on a Go repository consulted the Go
+# expert on every turn for what its pushed atoms already carry.
 expert_evidence_confidence(/import, 90).
-expert_evidence_confidence(/language, 60).
+expert_evidence_confidence(/language, 40).
 
 expert_evidence(Task, Agent, Tech, Confidence) :-
     expert_needed(Task, Agent, Tech),
@@ -85,3 +88,29 @@ expert_confidence(Task, Agent, Confidence) :-
 
 specialist_match(Agent, Task, Confidence) :-
     expert_confidence(Task, Agent, Confidence).
+
+# --- Spawn second ----------------------------------------------------------------
+
+# A task already running as a shard agent (a consultation, `nerd spawn <agent>`)
+# spawns no one: the consultation an expert answers must not consult again.
+# The speaker is whatever user-agent name the verb addresses; only a roster
+# agent counts, so a verb outside the persona taxonomy ("/explain") that
+# merely looks like an agent name does not silence the spawn.
+expert_task_spoken(Task) :-
+    expert_task_speaker(Task, Agent),
+    shard_agent(Agent).
+
+expert_spawn(Task, Agent, /lead) :-
+    specialist_should_execute(Agent, Task),
+    !expert_task_spoken(Task).
+
+expert_spawn(Task, Agent, /advise) :-
+    specialist_should_advise(Agent, Task),
+    !expert_task_spoken(Task).
+
+# --- Recording derived domains ------------------------------------------------
+
+shard_agent_domain_to_record(Agent, Tech) :-
+    shard_agent(Agent),
+    !shard_agent_recorded(Agent),
+    shard_agent_domain(Agent, Tech, _).

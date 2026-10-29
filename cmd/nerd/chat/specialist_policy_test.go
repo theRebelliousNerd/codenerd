@@ -29,7 +29,7 @@ func assertExpertRoster(t *testing.T, m Model) {
 
 // A Bubble Tea import hands the task to the Bubble Tea expert (an executor in
 // policy/shards.mg, matched above 80); a policy file only earns the Mangle
-// expert an advisory seat (60); a /high task requires strategic advice; a
+// expert its pushed knowledge and no role (40); a /high task requires strategic advice; a
 // /normal one does not.
 func TestSpecialistPolicy_KernelDerivesWhoExecutesAndWhoAdvises(t *testing.T) {
 	t.Parallel()
@@ -50,8 +50,8 @@ func TestSpecialistPolicy_KernelDerivesWhoExecutesAndWhoAdvises(t *testing.T) {
 	if len(tea.Files) != 1 || tea.Files[0] != "cmd/nerd/chat/view.go" || tea.Reason != "domain: bubbletea" {
 		t.Errorf("Bubble Tea expert files/reason = %v / %q", tea.Files, tea.Reason)
 	}
-	if mg.AgentName != "mangleexpert" || mg.ShouldExecute || mg.Score != 0.6 {
-		t.Errorf("Mangle expert = %+v, want it advising at 0.6", mg)
+	if mg.AgentName != "mangleexpert" || mg.ShouldExecute || mg.Score != 0.4 {
+		t.Errorf("Mangle expert = %+v, want it matched at 0.4 without executing", mg)
 	}
 	if !sel.StrategicAdvisorRequired {
 		t.Error("strategic_advisor_required was not derived for a /high task")

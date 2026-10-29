@@ -160,6 +160,12 @@ func (m Model) runAgentResearch(wizard *AgentWizardState) tea.Cmd {
 		} else if _, werr := coresys.WriteAgentDefinition(ctx, m.workspace, wizard.Name, wizard.Role, wizard.Topics, "", result); werr != nil {
 			logging.Session("agent wizard: prompts.yaml for %q was not written: %v", wizard.Name, werr)
 			knowledgeNote = fmt.Sprintf("prompts.yaml was not written (%v); the research summary is below", werr)
+		} else if m.cortex != nil {
+			// The new agent joins this session's shard roster: a task on
+			// its files can need it now, not after the next boot.
+			if aerr := m.cortex.ActivateAgent(ctx, wizard.Name); aerr != nil {
+				logging.Session("agent wizard: %q is defined but not active this session: %v", wizard.Name, aerr)
+			}
 		}
 
 		// 5. Persist the agent profile so it survives restart.

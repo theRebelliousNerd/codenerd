@@ -56,7 +56,7 @@ func derivedFor(t *testing.T, k *RealKernel, predicate, task string, agentArg in
 // A task aimed at a policy file needs the Mangle expert, whatever the verb
 // that reads or changes code; a greeting needs none; a Bubble Tea import in a
 // targeted package directory needs the Bubble Tea expert, strongly enough to
-// execute, while a language match only advises.
+// execute, while a language match only pushes knowledge.
 func TestShardExpertPolicyDerivesExpertNeeded(t *testing.T) {
 	k := expertPolicyKernel(t)
 	task := []types.Fact{
@@ -117,11 +117,11 @@ func TestShardExpertPolicyDerivesExpertNeeded(t *testing.T) {
 	if confidence["t-tui /bubbleteaexpert"] != 90 {
 		t.Errorf("an import match scores %d, want 90 (executes)", confidence["t-tui /bubbleteaexpert"])
 	}
-	if confidence["t-mg /mangleexpert"] != 60 {
-		t.Errorf("a language match scores %d, want 60 (advises)", confidence["t-mg /mangleexpert"])
+	if confidence["t-mg /mangleexpert"] != 40 {
+		t.Errorf("a language match scores %d, want 40 (knowledge only)", confidence["t-mg /mangleexpert"])
 	}
-	if got := derivedFor(t, k, "specialist_should_advise", "t-mg", 0); len(got) != 1 || got[0] != "/mangleexpert" {
-		t.Errorf("specialist_should_advise for the language match = %v", got)
+	if got := derivedFor(t, k, "specialist_should_advise", "t-mg", 0); len(got) != 0 {
+		t.Errorf("specialist_should_advise for a language-only match = %v, want none", got)
 	}
 }
 

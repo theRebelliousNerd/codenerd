@@ -45,7 +45,7 @@ func TestSelectReadsTheKernelsDecisionAndRetracts(t *testing.T) {
 		t.Fatalf("Select: %v", err)
 	}
 	if got := sel.Agents(); !slices.Equal(got, []string{"bubbleteaexpert", "mangleexpert"}) {
-		t.Fatalf("needed agents = %v, want bubbleteaexpert (90) then mangleexpert (60)", got)
+		t.Fatalf("needed agents = %v, want bubbleteaexpert (90) then mangleexpert (40)", got)
 	}
 	tea := sel.Needs[0]
 	if tea.Confidence != 90 || !tea.Execute || !slices.Equal(tea.Files, []string{"cmd/nerd/chat/view.go"}) ||
@@ -53,7 +53,11 @@ func TestSelectReadsTheKernelsDecisionAndRetracts(t *testing.T) {
 		t.Errorf("bubbletea need = %+v", tea)
 	}
 	mg := sel.Needs[1]
-	if mg.Confidence != 60 || mg.Execute || !mg.Advise || !slices.Equal(mg.Technologies, []string{"mangle"}) {
+	if tea.Spawn != SpawnLead {
+		t.Errorf("an executor routed to execute is consulted to lead; spawn = %q", tea.Spawn)
+	}
+	// A language match pushes knowledge and spawns no one.
+	if mg.Confidence != 40 || mg.Execute || mg.Advise || mg.Spawn != "" || !slices.Equal(mg.Technologies, []string{"mangle"}) {
 		t.Errorf("mangle need = %+v", mg)
 	}
 

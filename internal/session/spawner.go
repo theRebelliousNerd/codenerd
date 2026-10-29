@@ -70,6 +70,10 @@ type Spawner struct {
 	// reportJudge reads each subagent's final report for the /finish round
 	// (finish_round.go).
 	reportJudge *ReportJudge
+	// expertConsultant runs the shard-agent consultations the kernel derives
+	// for a subagent's turn (expert_spawn.go). A consultation is itself a
+	// subagent running as the agent, which expert_spawn never fires for.
+	expertConsultant ExpertConsultant
 
 	// codeElements parses the file a turn is looking at into the CodeDOM fact
 	// layer. It MUST be forwarded to every spawned subagent: `nerd fix`
@@ -254,6 +258,20 @@ func (s *Spawner) SetReportJudge(j *ReportJudge) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.reportJudge = j
+}
+
+// SetExpertConsultant installs the consultation spawner every subagent
+// spawned from here on hands its executor.
+func (s *Spawner) SetExpertConsultant(c ExpertConsultant) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.expertConsultant = c
+}
+
+func (s *Spawner) currentExpertConsultant() ExpertConsultant {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.expertConsultant
 }
 
 // currentReportJudge reads the report-judge slot under the read lock.
@@ -487,6 +505,9 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	}
 	if j := s.currentReportJudge(); j != nil {
 		agent.executor.SetReportJudge(j)
+	}
+	if c := s.currentExpertConsultant(); c != nil {
+		agent.executor.SetExpertConsultant(c)
 	}
 	// Forward the parent session's executor config — the workspace the shard
 	// works in, its wall-clock constraints, its gates. Guard on whether one
