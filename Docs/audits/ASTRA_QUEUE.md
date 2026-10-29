@@ -24,9 +24,9 @@ Status: open, in progress, fixed `<commit>`, closed (`<reason>`).
 
 | audit | branch | status |
 |---|---|---|
-| `expert-selection-temporary-fact-ownership` | `research-main-20261029-2049` | open |
-| `specialist-roster-workspace-identity` | `research-main-20261029-1018` | open |
-| `knowledge-consultation-literal-identity` | `research-main-20261029-1018` | open |
+| `expert-selection-temporary-fact-ownership` | `research-main-20261029-2049` | fixed `6dce40d90` (lane) |
+| `specialist-roster-workspace-identity` | `research-main-20261029-1018` | fixed `53d7b8f80` (lane) |
+| `knowledge-consultation-literal-identity` | `research-main-20261029-1018` | fixed `109761c4c` (lane) |
 | `jit-co-use-observation-budget` | `research-main-20261029-1018` | open |
 | `jit-learning-semantic-identity-admission` | `research-main-20261029-1018` | open |
 | `jit-relevance-carry-work-budget` | `research-main-20261029-1018` | open |
@@ -50,10 +50,10 @@ Status: open, in progress, fixed `<commit>`, closed (`<reason>`).
 
 | audit | branch | status |
 |---|---|---|
-| `campaign-terminal-publication` | `research-main-20261029-2049` | open |
-| `campaign-ui-run-ownership` | `research-main-20261029-1950` | open |
-| `campaign-context-seed-scheduler-ownership` | `research-main-20261029-1018` | open |
-| `recurse-compensation-write-ownership` | `research-main-20261029-1018` | open |
+| `campaign-terminal-publication` | `research-main-20261029-2049` | fixed `df61b6786` (lane) |
+| `campaign-ui-run-ownership` | `research-main-20261029-1950` | fixed `0abba9002` (lane) |
+| `campaign-context-seed-scheduler-ownership` | `research-main-20261029-1018` | fixed `f58648041` (lane) |
+| `recurse-compensation-write-ownership` | `research-main-20261029-1018` | fixed `3b6b6e1e0 + c7e090406` (lane) |
 | `residual-tool-generation-restriction-admission` | `research-main-20261029-1018` | open |
 | `verification-cancellation-after-deadline` | `research-main-20261029-0736` | open |
 | `verification-process-cleanup-parity` | `research-main-20261029-0736` | open |
@@ -66,7 +66,7 @@ Status: open, in progress, fixed `<commit>`, closed (`<reason>`).
 | `world-cache-rolling-format-admission` | `research-main-20261029-1018` | open |
 | `scanner-graph-source-retirement` | `research-main-20261029-1018` | open |
 | `symbol-focus-identity-continuity` | `research-main-20261029-1018` | open |
-| `run_lint describes its build tags` (root finding, R1-27 rerun: the model believed run_lint takes no tags; it applies the workspace build env) | -- | open |
+| `run_lint describes its build tags` (root finding, R1-27 rerun: the model believed run_lint takes no tags; it applies the workspace build env) | -- | fixed `c6659ef7d` |
 | `gate-comparison-domain-admission` | `research-main-20261029-2152` | open |
 | `gate-scoped-recurse-current-main-addendum` | `research-main-20261029-2221` | open |
 | `run-lint-effective-build-tag-receipt` | `research-main-20261029-2241` | open |
