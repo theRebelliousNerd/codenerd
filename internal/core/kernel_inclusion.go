@@ -266,8 +266,12 @@ type inclusionClosure struct {
 	batch    map[ast.PredicateSym]struct{}
 	rules    map[ast.PredicateSym][]ast.Clause
 	external map[ast.PredicateSym]struct{}
-	verdict  map[ast.PredicateSym]string
-	derived  map[ast.PredicateSym]struct{} // heads needed by a closed reference
+	// merge maps a lattice to its merge predicate. The Decl calls the
+	// comparator, no rule body names it, yet it decides which rows the
+	// lattice keeps: it is part of the lattice's closure.
+	merge   map[ast.PredicateSym]ast.PredicateSym
+	verdict map[ast.PredicateSym]string
+	derived map[ast.PredicateSym]struct{} // heads needed by a closed reference
 }
 
 func newInclusionClosure(info *analysis.ProgramInfo, batch map[ast.PredicateSym]struct{}) *inclusionClosure {
@@ -275,6 +279,7 @@ func newInclusionClosure(info *analysis.ProgramInfo, batch map[ast.PredicateSym]
 		batch:    batch,
 		rules:    make(map[ast.PredicateSym][]ast.Clause),
 		external: make(map[ast.PredicateSym]struct{}),
+		merge:    make(map[ast.PredicateSym]ast.PredicateSym),
 		verdict:  make(map[ast.PredicateSym]string),
 		derived:  make(map[ast.PredicateSym]struct{}),
 	}
@@ -284,6 +289,11 @@ func newInclusionClosure(info *analysis.ProgramInfo, batch map[ast.PredicateSym]
 	for sym, d := range info.Decls {
 		if d != nil && d.IsExternal() {
 			c.external[sym] = struct{}{}
+		}
+		if d != nil && len(d.FunDeps()) == 1 {
+			if _, m := d.MergePredicate(); m.Symbol != "" {
+				c.merge[sym] = m
+			}
 		}
 	}
 	return c
@@ -321,6 +331,17 @@ func (c *inclusionClosure) walk(pred ast.PredicateSym, reached map[ast.Predicate
 		return ""
 	case hasKey(c.external, pred):
 		return "an external() predicate"
+	}
+	// Without its comparator's rules a lattice keeps every row as
+	// incomparable, so a losing value would pass as a member (audit
+	// mangle-inclusion-projection-closure). What the comparator reads must
+	// be closed too, or the domain is open.
+	if m, ok := c.merge[pred]; ok {
+		if why := c.walk(m, reached); why != "" {
+			return fmt.Sprintf("merged by %s/%d, %s", m.Symbol, m.Arity, why)
+		}
+	}
+	switch {
 	case len(c.rules[pred]) == 0:
 		if !hasKey(c.batch, pred) {
 			return fmt.Sprintf("whose domain %s/%d is not in this batch", pred.Symbol, pred.Arity)
@@ -355,10 +376,15 @@ func premiseSyms(t ast.Term) []ast.PredicateSym {
 
 // derive evaluates the closed referenced relations over store, in the
 // program's stratum order. Program facts of those relations are part of the
-// immutable program and are included.
+// immutable program and are included, each with its time entry: the engine
+// reads InitialFactTimes[i] for every initial fact it admits, so the two
+// slices are filtered in lockstep.
 func (c *inclusionClosure) derive(info *analysis.ProgramInfo, strata []analysis.Nodeset, store factstore.FactStore, limit int) error {
 	if len(c.derived) == 0 {
 		return nil
+	}
+	if len(info.InitialFactTimes) != len(info.InitialFacts) {
+		return fmt.Errorf("inclusion: program has %d initial facts but %d time entries", len(info.InitialFacts), len(info.InitialFactTimes))
 	}
 	var rules []ast.Clause
 	for _, r := range info.Rules {
@@ -367,9 +393,11 @@ func (c *inclusionClosure) derive(info *analysis.ProgramInfo, strata []analysis.
 		}
 	}
 	var initial []ast.Atom
-	for _, f := range info.InitialFacts {
+	var initialTimes []*ast.Interval
+	for i, f := range info.InitialFacts {
 		if hasKey(c.derived, f.Predicate) || hasKey(c.batch, f.Predicate) {
 			initial = append(initial, f)
+			initialTimes = append(initialTimes, info.InitialFactTimes[i])
 		}
 	}
 	var sub []analysis.Nodeset
@@ -389,11 +417,12 @@ func (c *inclusionClosure) derive(info *analysis.ProgramInfo, strata []analysis.
 		}
 	}
 	prog := &analysis.ProgramInfo{
-		EdbPredicates: info.EdbPredicates,
-		IdbPredicates: info.IdbPredicates,
-		InitialFacts:  initial,
-		Rules:         rules,
-		Decls:         info.Decls,
+		EdbPredicates:    info.EdbPredicates,
+		IdbPredicates:    info.IdbPredicates,
+		InitialFacts:     initial,
+		InitialFactTimes: initialTimes,
+		Rules:            rules,
+		Decls:            info.Decls,
 	}
 	_, err := engine.EvalStratifiedProgramWithStats(prog, sub, predToStratum, store, engine.WithCreatedFactLimit(limit))
 	return err
