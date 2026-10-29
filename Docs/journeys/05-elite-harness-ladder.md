@@ -11,6 +11,17 @@ the protocol for a run, and the status of each rung with the run that moved it.
 
 ## Status
 
+- **2026-10-28 23:40 -- R0 passed again** on `113279e76`: three consecutive uncached runs (G1
+  `go build -tags sqlite_vec ./...`, G2 `go vet -tags sqlite_vec ./...`, G3
+  `go test -tags sqlite_vec -count=1 ./...`), each green, 106 of 106 packages, 441 s, 441 s and
+  533 s, run on a clean worktree of `main` so no in-flight edit could touch them. The one red
+  package before it, `internal/core`, failed only `TestMangleWatcher_*` because the host had no
+  inotify instance to give (desktop apps held 147 of the user's 128); those tests now skip naming
+  that. Since R1-20 the harness gained: the `/finish` round (a report that admits unfinished work
+  is pushed back), `/unwired` (new code no production path reaches is pushed back), request
+  delivery (a chat request is read against what each step delivered), verdict loops for
+  delegated callers, and the commit authorization a request's "then commit it" grants. The climb
+  resumes at R1, streak 0; runs from R1-21 are recorded below and in the dogfood ledger.
 - last updated: 2026-09-19 20:25
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0
