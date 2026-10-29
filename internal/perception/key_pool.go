@@ -24,6 +24,45 @@ type providerKeyPool struct {
 	mu     sync.Mutex
 	health []keyHealth
 	next   int
+	// home is each conversation's current key: where its last call went, so
+	// where its prompt cache is warm. The hash (affinityIndex) only picks a
+	// conversation's first key. Bounded: past maxHomes the oldest entry goes.
+	home      map[string]int
+	homeOrder []string
+}
+
+// maxHomes bounds the conversations a pool remembers. A forgotten one starts
+// again from its hash, which costs at most one cold cache.
+const maxHomes = 4096
+
+// homeFor is the key a conversation prefers: its recorded home, else its
+// hash. Callers hold p.mu.
+func (p *providerKeyPool) homeFor(affinity string) int {
+	if affinity == "" {
+		return -1
+	}
+	if i, ok := p.home[affinity]; ok && i < len(p.health) {
+		return i
+	}
+	return affinityIndex(affinity, len(p.health))
+}
+
+// setHome records where a conversation's call went. Callers hold p.mu.
+func (p *providerKeyPool) setHome(affinity string, i int) {
+	if affinity == "" || i < 0 {
+		return
+	}
+	if p.home == nil {
+		p.home = make(map[string]int)
+	}
+	if _, known := p.home[affinity]; !known {
+		p.homeOrder = append(p.homeOrder, affinity)
+		if len(p.homeOrder) > maxHomes {
+			delete(p.home, p.homeOrder[0])
+			p.homeOrder = p.homeOrder[1:]
+		}
+	}
+	p.home[affinity] = i
 }
 
 var keyPoolRegistry = struct {
@@ -69,13 +108,16 @@ func affinityIndex(affinity string, n int) int {
 }
 
 // selectKey picks a credential. A call that carries a conversation identity
-// (affinity) goes to that conversation's preferred key whenever the key is
-// usable -- healthy, not cooling down, not already tried for this call -- so
-// the conversation keeps its prompt cache; different conversations hash to
+// (affinity) goes to that conversation's home key whenever the key is usable
+// -- healthy, not cooling down, not already tried for this call -- so the
+// conversation keeps its prompt cache; different conversations hash to
 // different keys, which is what spreads the load. A call with no identity, or
-// whose preferred key is unusable, falls back to least-in-flight with rotating
-// ties. A pinned key wins over both. Health is shared across every model and
-// slot built from this provider's credential set.
+// whose home is unusable, falls back to least-in-flight with rotating ties,
+// and the key it lands on becomes its home: after a failover the
+// conversation stays where its cache is now warm rather than returning to an
+// account whose cache has likely expired (each key may be a separate account,
+// and caches never cross accounts). A pinned key wins over all of it. Health
+// is shared across every model and slot built from this provider's set.
 func (p *providerKeyPool) selectKey(ctx context.Context, excluded map[int]bool, pinned int, affinity string) (int, error) {
 	for {
 		if err := ctx.Err(); err != nil {
@@ -83,10 +125,11 @@ func (p *providerKeyPool) selectKey(ctx context.Context, excluded map[int]bool, 
 		}
 		p.mu.Lock()
 		if pinned < 0 {
-			if pref := affinityIndex(affinity, len(p.health)); pref >= 0 {
+			if pref := p.homeFor(affinity); pref >= 0 {
 				h := p.health[pref]
 				if !excluded[pref] && !h.disabled && !time.Now().Before(h.cooldown) {
 					p.health[pref].active++
+					p.setHome(affinity, pref)
 					p.mu.Unlock()
 					return pref, nil
 				}
@@ -119,6 +162,9 @@ func (p *providerKeyPool) selectKey(ctx context.Context, excluded map[int]bool, 
 		if chosen >= 0 {
 			p.health[chosen].active++
 			p.next = (chosen + 1) % len(p.health)
+			if pinned < 0 {
+				p.setHome(affinity, chosen)
+			}
 			p.mu.Unlock()
 			return chosen, nil
 		}
