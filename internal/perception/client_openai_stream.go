@@ -60,7 +60,12 @@ func (c *OpenAIClient) stream(ctx context.Context, systemPrompt, userPrompt stri
 
 	res, terminal := readResponsesStream(ctx, resp.Body, chatStreamProfile{provider: ProviderOpenAI, model: req.Model, limit: c.maxOutputTokens}, w)
 	if terminal != nil {
-		c.recordGroundingSources(responsesGroundingFromReply(terminal).Sources)
+		sources := responsesGroundingFromReply(terminal).Sources
+		c.recordGroundingSources(sources)
+		res.GroundingSources = append([]string(nil), sources...)
+		if len(sources) == 0 {
+			res.GroundingSources = nil
+		}
 	}
 	reportUsage(ctx, req.Model, ProviderOpenAI, usageOpChat, res.Usage)
 	logStreamEnd("openai", start, res)

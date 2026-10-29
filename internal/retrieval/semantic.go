@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,12 +20,17 @@ import (
 // TIER 4: SEMANTIC EXPANSION
 // =============================================================================
 //
-// Tier 4 was documented as "requires embedding service" and implemented as a
-// definition-name scan, which finds files that spell a symbol and nothing that
-// is merely about the same thing. This is the injection point for a real vector
-// pass. It is optional on purpose: a session with no embedding backend running
-// must still build a context, so an absent, failing or empty searcher falls
-// through to the definition scan rather than emptying the tier.
+// Tier 4 ranks workspace files by vector similarity to the issue. It is
+// optional on purpose: a session with no embedding backend running must still
+// build a context, so an absent, failing or empty searcher falls through to
+// the definition scan rather than emptying the tier.
+//
+// Embedding the corpus is not the turn's job. One searcher serves the process
+// (built at boot, internal/system), warms the whole corpus in the background,
+// and keeps every vector in a FileVectorStore keyed by content digest and
+// embedding space, so a new process starts warm and an edit re-embeds only the
+// files it changed. A turn embeds its query, embeds any changed file nobody
+// else is already embedding, and ranks.
 
 // SemanticMatch is one vector-similarity hit.
 type SemanticMatch struct {
@@ -37,13 +43,15 @@ type SemanticMatch struct {
 type SemanticResult struct {
 	Matches []SemanticMatch
 	// Eligible is how many files the corpus rule admits (source files, Go
-	// tests excluded); Covered is how many were embedded and ranked. Covered
-	// below Eligible is a bounded corpus (or an incomplete embedding) -- not
-	// a search of the whole repository.
+	// tests excluded) that have text to embed; Covered is how many were
+	// ranked. Covered below Eligible means part of the corpus had no vector
+	// yet: Pending of them are being embedded by the background warm-up, and
+	// Incomplete says what stopped the rest.
 	Eligible int
 	Covered  int
-	// Incomplete is the error that left part of the selected corpus
-	// unembedded ("" when none did).
+	Pending  int
+	// Incomplete is the error or mismatch that left part of the corpus
+	// unranked ("" when none did).
 	Incomplete string
 }
 
@@ -54,63 +62,60 @@ type SemanticSearcher interface {
 
 // Embedder is the slice of an embedding engine this package needs.
 // embedding.EmbeddingEngine satisfies it; the narrow form keeps the dependency
-// fakeable in tests that must not reach a live endpoint.
+// fakeable in tests that must not reach a live endpoint. Name is the embedding
+// space a vector belongs to (internal/store/vector_identity.go): vectors from
+// different spaces are never compared or shared.
 type Embedder interface {
 	Embed(ctx context.Context, text string) ([]float32, error)
 	EmbedBatch(ctx context.Context, texts []string) ([][]float32, error)
+	Name() string
 }
 
-// Semantic corpus bounds. A full-repository embedding pass on the caller's turn
-// is not affordable, so the corpus is a bounded sample of source heads and the
-// vectors are cached for the searcher's lifetime.
 const (
-	// semanticCorpusLimit caps how many files are embedded.
-	semanticCorpusLimit = 256
-
 	// semanticHeadBytes is how much of each file is embedded. Package docs,
 	// imports and the first declarations carry most of a file's topic.
 	semanticHeadBytes = 4 << 10
 
-	// semanticEmbedChunkSize bounds one EmbedBatch call. Chunks are cached as
-	// they complete: a caller budget expiring mid-corpus must keep the vectors
-	// already paid for instead of restarting from zero next turn.
+	// semanticEmbedChunkSize bounds one EmbedBatch call. Chunks are kept as
+	// they complete: a budget expiring mid-corpus keeps the vectors already
+	// paid for instead of restarting from zero.
 	semanticEmbedChunkSize = 32
 )
 
-// EmbeddingSemanticSearcher implements SemanticSearcher over an embedding engine
-// and the workspace source tree.
+// EmbeddingSemanticSearcher implements SemanticSearcher over an embedding
+// engine, the workspace source tree and an optional persistent vector store.
 type EmbeddingSemanticSearcher struct {
-	engine  Embedder
-	workDir string
-
-	corpusLimit int
-	headBytes   int
+	engine    Embedder
+	workDir   string
+	headBytes int
+	// store persists vectors across processes; nil keeps them in memory
+	// only. The searcher owns it and closes it in Close.
+	store *FileVectorStore
 
 	// mu guards vectors and inflight; it is never held across IO or an
 	// embedding call.
 	mu sync.Mutex
-	// vectors is keyed by path and holds the digest of the exact head bytes
-	// the vector represents: a hit needs the same digest, so an edited file
-	// is embedded again and never ranked by its old text. The searcher is
-	// bound to one engine, workspace and head size for its lifetime, which
-	// completes the key.
+	// vectors is keyed by path and holds the digest and space of the exact
+	// head bytes the vector represents: a hit needs both, so an edited file
+	// or a changed model is embedded again and never ranked by stale text.
 	vectors map[string]cachedVector
-	// inflight are the (path, digest) pairs some caller is embedding; a
-	// concurrent caller waits for that result instead of paying for it twice.
+	// inflight are the heads some caller is embedding. Warm waits for them;
+	// a turn does not (it counts them as not yet covered).
 	inflight map[vectorKey]chan struct{}
 }
 
 type cachedVector struct {
 	digest string
+	space  string
 	vec    []float32
 }
 
-type vectorKey struct{ path, digest string }
+type vectorKey struct{ path, digest, space string }
 
 // NewEmbeddingSemanticSearcher builds a Tier 4 searcher over the given engine.
-// Returns nil when no engine is supplied, so callers can pass the result
-// straight into TieredContextConfig.Semantic and get the heuristic fallback.
-func NewEmbeddingSemanticSearcher(engine Embedder, workDir string) *EmbeddingSemanticSearcher {
+// store may be nil (vectors live for the searcher's lifetime only). Returns
+// nil when no engine is supplied, so callers get the heuristic fallback.
+func NewEmbeddingSemanticSearcher(engine Embedder, workDir string, store *FileVectorStore) *EmbeddingSemanticSearcher {
 	if engine == nil {
 		return nil
 	}
@@ -118,30 +123,66 @@ func NewEmbeddingSemanticSearcher(engine Embedder, workDir string) *EmbeddingSem
 		workDir = "."
 	}
 	return &EmbeddingSemanticSearcher{
-		engine:      engine,
-		workDir:     workDir,
-		corpusLimit: semanticCorpusLimit,
-		headBytes:   semanticHeadBytes,
-		vectors:     make(map[string]cachedVector),
-		inflight:    make(map[vectorKey]chan struct{}),
+		engine:    engine,
+		workDir:   workDir,
+		headBytes: semanticHeadBytes,
+		store:     store,
+		vectors:   make(map[string]cachedVector),
+		inflight:  make(map[vectorKey]chan struct{}),
 	}
 }
 
-// Warm embeds the bounded corpus ahead of any query, off the turn's path. The
-// vectors land in the cache SimilarFiles ranks from, so a turn only ranks;
-// before this, every turn spent its retrieval budget embedding and the pass
-// expired with a fraction of the corpus covered. Safe to run beside queries:
-// a concurrent caller waits for a vector in flight instead of paying twice.
-func (s *EmbeddingSemanticSearcher) Warm(ctx context.Context) error {
-	if s == nil || s.engine == nil {
+// Close releases the persistent store, if any.
+func (s *EmbeddingSemanticSearcher) Close() error {
+	if s == nil {
 		return nil
 	}
-	paths, _, err := s.corpus(ctx)
-	if err != nil || len(paths) == 0 {
-		return err
+	return s.store.Close()
+}
+
+// Warm embeds every corpus file that has no vector at its current content,
+// off the turn's path: the persistent store answers what earlier processes
+// embedded, and only new or edited files reach the engine. After a complete
+// pass the store is trimmed to the files as they are now. Safe to run beside
+// queries and to re-run: it waits for heads another caller is embedding
+// instead of paying for them twice.
+func (s *EmbeddingSemanticSearcher) Warm(ctx context.Context) (WarmReport, error) {
+	var report WarmReport
+	if s == nil || s.engine == nil {
+		return report, nil
 	}
-	_, err = s.vectorsFor(ctx, paths)
-	return err
+	paths, err := s.corpus(ctx)
+	if err != nil {
+		return report, err
+	}
+	s.forget(paths)
+	cv, err := s.vectorsFor(ctx, paths, true)
+	report.Eligible = cv.heads
+	report.Covered = len(cv.vecs)
+	report.Embedded = cv.embedded
+	report.Stored = cv.stored
+	if err != nil {
+		return report, err
+	}
+	space := strings.TrimSpace(s.engine.Name())
+	if s.store != nil && space != "" {
+		removed, rerr := s.store.Retain(ctx, space, cv.digests)
+		report.Pruned = removed
+		if rerr != nil {
+			return report, rerr
+		}
+	}
+	return report, nil
+}
+
+// WarmReport is what one Warm pass did.
+type WarmReport struct {
+	// Eligible files in the corpus have text to embed; Covered of them hold
+	// a vector now.
+	Eligible, Covered int
+	// Embedded files reached the engine; Stored came from the persistent
+	// store; Pruned rows of files that no longer exist were removed.
+	Embedded, Stored, Pruned int
 }
 
 // SimilarFiles embeds the query and cosine-ranks the workspace corpus against
@@ -166,8 +207,8 @@ func (s *EmbeddingSemanticSearcher) SimilarFiles(ctx context.Context, query stri
 		return result, fmt.Errorf("embedding query: backend returned an empty vector")
 	}
 
-	paths, eligible, err := s.corpus(ctx)
-	result.Eligible = eligible
+	paths, err := s.corpus(ctx)
+	result.Eligible = len(paths)
 	if err != nil {
 		return result, err
 	}
@@ -176,20 +217,22 @@ func (s *EmbeddingSemanticSearcher) SimilarFiles(ctx context.Context, query stri
 		return result, nil
 	}
 
-	vectors, err := s.vectorsFor(ctx, paths)
+	cv, err := s.vectorsFor(ctx, paths, false)
+	var reasons []string
 	if err != nil {
-		if len(vectors) == 0 {
+		if len(cv.vecs) == 0 {
 			return result, err
 		}
 		// A budget can expire with most of the corpus embedded. Ranking the
 		// vectors we hold is strictly better than pretending Tier 4 found
-		// nothing; the remainder stays uncached for the next call.
-		result.Incomplete = err.Error()
-		logging.Context("TieredContextBuilder: semantic corpus partially embedded (%d/%d files), ranking what is available: %v", len(vectors), len(paths), err)
+		// nothing; the remainder is embedded by the next caller.
+		reasons = append(reasons, err.Error())
 	}
+	result.Eligible = cv.heads
+	result.Pending = cv.pending
 
-	matches := make([]SemanticMatch, 0, len(vectors))
-	for path, vec := range vectors {
+	matches := make([]SemanticMatch, 0, len(cv.vecs))
+	for path, vec := range cv.vecs {
 		// A vector of another dimension is another model's: it cannot be
 		// compared with this query, and the file counts as not covered.
 		if len(vec) != len(queryVec) {
@@ -202,8 +245,12 @@ func (s *EmbeddingSemanticSearcher) SimilarFiles(ctx context.Context, query stri
 		matches = append(matches, SemanticMatch{FilePath: path, Score: sim})
 	}
 	result.Covered = len(matches)
-	if result.Covered < len(vectors) && result.Incomplete == "" {
-		result.Incomplete = fmt.Sprintf("%d vectors did not match the query's dimension", len(vectors)-result.Covered)
+	if mismatched := len(cv.vecs) - result.Covered; mismatched > 0 {
+		reasons = append(reasons, fmt.Sprintf("%d vectors did not match the query's dimension", mismatched))
+	}
+	result.Incomplete = strings.Join(reasons, "; ")
+	if result.Covered < result.Eligible {
+		logging.Context("TieredContextBuilder: semantic tier ranked %d/%d files (%d still embedding in the background) %s", result.Covered, result.Eligible, result.Pending, result.Incomplete)
 	}
 
 	sort.Slice(matches, func(i, j int) bool {
@@ -219,8 +266,8 @@ func (s *EmbeddingSemanticSearcher) SimilarFiles(ctx context.Context, query stri
 	return result, nil
 }
 
-// forget drops the vectors of files no longer in the corpus, so the cache is
-// bounded by the corpus, not by every revision of every file ever embedded.
+// forget drops the in-memory vectors of files no longer in the corpus, so the
+// cache is bounded by the corpus, not by every file ever embedded.
 func (s *EmbeddingSemanticSearcher) forget(paths []string) {
 	keep := make(map[string]bool, len(paths))
 	for _, p := range paths {
@@ -235,14 +282,13 @@ func (s *EmbeddingSemanticSearcher) forget(paths []string) {
 	}
 }
 
-// corpus lists the source files eligible for embedding, deterministically
-// ordered so the bounded sample is stable between calls (spread across
-// directories, see boundedCorpus), and how many were eligible before the
-// corpus limit cut the list.
-func (s *EmbeddingSemanticSearcher) corpus(ctx context.Context) ([]string, int, error) {
+// corpus lists every source file eligible for embedding, sorted. There is no
+// cap: with vectors persisted and embedded off the turn, the whole corpus is
+// affordable, and a sample left files no query could ever reach.
+func (s *EmbeddingSemanticSearcher) corpus(ctx context.Context) ([]string, error) {
 	mem, err := membershipFor(s.workDir)
 	if err != nil {
-		return nil, 0, fmt.Errorf("%w: %w", errMembership, err)
+		return nil, fmt.Errorf("%w: %w", errMembership, err)
 	}
 	var paths []string
 	err = filepath.WalkDir(s.workDir, func(path string, d os.DirEntry, walkErr error) error {
@@ -266,23 +312,38 @@ func (s *EmbeddingSemanticSearcher) corpus(ctx context.Context) ([]string, int, 
 		return nil
 	})
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-
 	sort.Strings(paths)
-	eligible := len(paths)
-	paths = boundedCorpus(paths, s.corpusLimit)
-	return paths, eligible, ctx.Err()
+	return paths, ctx.Err()
 }
 
-// vectorsFor returns embeddings for the given paths at their current heads,
-// embedding only the ones not cached at that exact content, in chunks that
-// are cached as soon as they complete. A head another caller is already
-// embedding is waited for, not embedded twice. On error it returns every
-// vector it holds beside the error, so the caller can rank a partial corpus
-// rather than none.
-func (s *EmbeddingSemanticSearcher) vectorsFor(ctx context.Context, paths []string) (map[string][]float32, error) {
-	out := make(map[string][]float32, len(paths))
+// corpusVectors is what vectorsFor found for a set of paths.
+type corpusVectors struct {
+	// vecs holds a vector per path at its current content.
+	vecs map[string][]float32
+	// digests is every current head digest read, embedded or not: the set a
+	// complete pass keeps in the store.
+	digests map[string]bool
+	// heads counts the paths with text to embed (a blank or binary file has
+	// nothing to represent and is not part of the corpus).
+	heads int
+	// pending counts heads another caller was embedding that this one did
+	// not wait for.
+	pending int
+	// embedded heads reached the engine; stored ones came from the store.
+	embedded, stored int
+}
+
+// vectorsFor returns embeddings for the given paths at their current heads.
+// Memory answers first, then the persistent store; only the rest reach the
+// engine, in chunks kept (in memory and in the store) as each completes. A
+// head another caller is embedding is waited for when wait is set and
+// counted as pending otherwise. On error it returns every vector it holds
+// beside the error, so the caller can rank a partial corpus rather than none.
+func (s *EmbeddingSemanticSearcher) vectorsFor(ctx context.Context, paths []string, wait bool) (corpusVectors, error) {
+	cv := corpusVectors{vecs: make(map[string][]float32, len(paths)), digests: make(map[string]bool, len(paths))}
+	space := strings.TrimSpace(s.engine.Name())
 
 	// Read every head first, outside the lock: the digest is the cache key.
 	type head struct{ path, text, digest string }
@@ -293,20 +354,26 @@ func (s *EmbeddingSemanticSearcher) vectorsFor(ctx context.Context, paths []stri
 			continue
 		}
 		sum := sha256.Sum256([]byte(text))
-		heads = append(heads, head{path: p, text: text, digest: hex.EncodeToString(sum[:])})
+		h := head{path: p, text: text, digest: hex.EncodeToString(sum[:])}
+		heads = append(heads, h)
+		cv.digests[h.digest] = true
 	}
+	cv.heads = len(heads)
 
-	var owned []head
-	var waits []head
+	var owned, waits []head
 	s.mu.Lock()
 	for _, h := range heads {
-		if v, ok := s.vectors[h.path]; ok && v.digest == h.digest {
-			out[h.path] = v.vec
+		if v, ok := s.vectors[h.path]; ok && v.digest == h.digest && v.space == space {
+			cv.vecs[h.path] = v.vec
 			continue
 		}
-		key := vectorKey{h.path, h.digest}
+		key := vectorKey{h.path, h.digest, space}
 		if _, busy := s.inflight[key]; busy {
-			waits = append(waits, h)
+			if wait {
+				waits = append(waits, h)
+			} else {
+				cv.pending++
+			}
 			continue
 		}
 		s.inflight[key] = make(chan struct{})
@@ -320,19 +387,50 @@ func (s *EmbeddingSemanticSearcher) vectorsFor(ctx context.Context, paths []stri
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		for _, h := range hs {
-			key := vectorKey{h.path, h.digest}
+			key := vectorKey{h.path, h.digest, space}
 			if ch, ok := s.inflight[key]; ok {
 				close(ch)
 				delete(s.inflight, key)
 			}
 		}
 	}
+	keep := func(h head, vec []float32) {
+		s.vectors[h.path] = cachedVector{digest: h.digest, space: space, vec: vec}
+		cv.vecs[h.path] = vec
+	}
+
+	// The persistent store answers what any earlier process embedded.
+	if s.store != nil && space != "" && len(owned) > 0 {
+		digests := make([]string, 0, len(owned))
+		for _, h := range owned {
+			digests = append(digests, h.digest)
+		}
+		stored, err := s.store.Load(ctx, space, digests)
+		if err != nil {
+			logging.Get(logging.CategoryContext).Warn("semantic tier: file vector store unreadable, embedding instead: %v", err)
+		}
+		var hits, misses []head
+		s.mu.Lock()
+		for _, h := range owned {
+			if vec, ok := stored[h.digest]; ok && len(vec) > 0 {
+				keep(h, vec)
+				hits = append(hits, h)
+			} else {
+				misses = append(misses, h)
+			}
+		}
+		s.mu.Unlock()
+		cv.stored = len(hits)
+		release(hits)
+		owned = misses
+	}
 
 	var embedErr error
 	for start := 0; start < len(owned); start += semanticEmbedChunkSize {
 		end := min(start+semanticEmbedChunkSize, len(owned))
-		texts := make([]string, 0, end-start)
-		for _, h := range owned[start:end] {
+		chunk := owned[start:end]
+		texts := make([]string, 0, len(chunk))
+		for _, h := range chunk {
 			texts = append(texts, h.text)
 		}
 		vecs, err := s.engine.EmbedBatch(ctx, texts)
@@ -344,41 +442,45 @@ func (s *EmbeddingSemanticSearcher) vectorsFor(ctx context.Context, paths []stri
 			release(owned[start:])
 			break
 		}
+		fresh := make(map[string][]float32, len(chunk))
 		s.mu.Lock()
-		for i, h := range owned[start:end] {
+		for i, h := range chunk {
 			if len(vecs[i]) == 0 {
-				continue // an empty vector represents nothing; do not cache it
+				continue // an empty vector represents nothing; do not keep it
 			}
-			s.vectors[h.path] = cachedVector{digest: h.digest, vec: vecs[i]}
-			out[h.path] = vecs[i]
+			keep(h, vecs[i])
+			fresh[h.digest] = vecs[i]
 		}
 		s.mu.Unlock()
-		release(owned[start:end])
+		cv.embedded += len(fresh)
+		if s.store != nil && space != "" {
+			if err := s.store.Save(ctx, space, fresh); err != nil {
+				logging.Get(logging.CategoryContext).Warn("semantic tier: %d vectors not persisted, the next process embeds them again: %v", len(fresh), err)
+			}
+		}
+		release(chunk)
 	}
 
 	for _, h := range waits {
 		s.mu.Lock()
-		ch := s.inflight[vectorKey{h.path, h.digest}]
+		ch := s.inflight[vectorKey{h.path, h.digest, space}]
 		s.mu.Unlock()
 		if ch != nil {
 			select {
 			case <-ch:
 			case <-ctx.Done():
-				if embedErr == nil {
-					embedErr = ctx.Err()
-				}
-				return out, embedErr
+				return cv, errors.Join(embedErr, ctx.Err())
 			}
 		}
 		s.mu.Lock()
-		if v, ok := s.vectors[h.path]; ok && v.digest == h.digest {
-			out[h.path] = v.vec
+		if v, ok := s.vectors[h.path]; ok && v.digest == h.digest && v.space == space {
+			cv.vecs[h.path] = v.vec
 		} else if embedErr == nil {
 			embedErr = fmt.Errorf("embedding %s failed in a concurrent pass", h.path)
 		}
 		s.mu.Unlock()
 	}
-	return out, embedErr
+	return cv, embedErr
 }
 
 func readHead(path string, n int) (string, error) {

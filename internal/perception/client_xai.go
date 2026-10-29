@@ -255,8 +255,9 @@ func (c *XAIClient) CompleteWithToolResults(ctx context.Context, systemPrompt st
 // and must not be tracked again here, or every xAI streaming turn would count
 // twice.
 func (c *XAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan types.StreamResult) {
-	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
-		return c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, []string, error) {
+		text, err := c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		return text, nil, err
 	})
 }
 

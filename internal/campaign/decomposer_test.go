@@ -49,15 +49,18 @@ func (m *mockLLMClient) CompleteWithStructuredOutput(ctx context.Context, system
 
 // CompleteWithStreaming sends a request with streaming enabled
 func (m *mockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
-	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
-		switch {
-		case m.completeWithSystemFunc != nil:
-			return m.completeWithSystemFunc(ctx, systemPrompt, userPrompt)
-		case m.completeFunc != nil:
-			return m.completeFunc(ctx, userPrompt)
-		default:
-			return "", nil
-		}
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, []string, error) {
+		text, err := func() (string, error) {
+			switch {
+			case m.completeWithSystemFunc != nil:
+				return m.completeWithSystemFunc(ctx, systemPrompt, userPrompt)
+			case m.completeFunc != nil:
+				return m.completeFunc(ctx, userPrompt)
+			default:
+				return "", nil
+			}
+		}()
+		return text, nil, err
 	})
 }
 

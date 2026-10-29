@@ -107,17 +107,24 @@ func runRetrieve(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(cmd.Context(), retrieveTimeout+5*time.Second)
 	defer cancel()
 
+	searcher := resolveRetrieveSearcher(ctx, workspace)
+	defer func() {
+		if cerr := searcher.Close(); cerr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: closing the file vector store: %v\n", cerr)
+		}
+	}()
+
 	issueID := retrieval.NewIssueID()
 	report, err := retrieval.SeedIssueFacts(ctx, kernel, retrieval.SeedRequest{
 		IssueID:   issueID,
 		IssueText: issueText,
 		WorkDir:   workspace,
 		Retriever: retriever,
-		// resolveRetrieveEmbeddingEngine mirrors the cortex boot: nil when
-		// Ollama is unavailable, and the seed then keeps the heuristic Tier 4.
-		EmbeddingEngine: resolveRetrieveEmbeddingEngine(ctx, workspace),
-		Timeout:         retrieveTimeout,
-		MaxFiles:        retrieveMaxFiles,
+		// nil when no embedding engine is available; the seed then keeps
+		// the heuristic Tier 4.
+		SemanticSearcher: searcher,
+		Timeout:          retrieveTimeout,
+		MaxFiles:         retrieveMaxFiles,
 	})
 	if err != nil {
 		return err
@@ -214,6 +221,25 @@ func printRetrievalFacts(cmd *cobra.Command, kernel *core.RealKernel) {
 			fmt.Fprintf(out, "  %s\n", f.String())
 		}
 	}
+}
+
+// resolveRetrieveSearcher builds Tier 4's searcher the way the cortex boot
+// does (internal/system/factory_semantic.go): over the workspace's persistent
+// vector store, so a one-shot pass ranks what earlier sessions embedded and
+// embeds only what changed since. No warm-up runs here: the pass embeds the
+// files it is missing within its own budget and keeps them for the next run.
+// Nil when no embedding engine is available.
+func resolveRetrieveSearcher(ctx context.Context, workspace string) *retrieval.EmbeddingSemanticSearcher {
+	engine := resolveRetrieveEmbeddingEngine(ctx, workspace)
+	if engine == nil {
+		return nil
+	}
+	store, err := retrieval.OpenFileVectorStore(ctx, retrieval.FileVectorStorePath(workspace))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: file vectors will not persist: %v\n", err)
+		store = nil
+	}
+	return retrieval.NewEmbeddingSemanticSearcher(engine, workspace, store)
 }
 
 // resolveRetrieveEmbeddingEngine builds the optional vector backend for Tier 4

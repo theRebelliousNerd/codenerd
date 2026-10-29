@@ -172,7 +172,7 @@ Decl retrieval_brief_file(IssueID, File, Tier, Relevance) bound [/string, /strin
 # not finish is not read as "nothing else matches".
 # Tier: /keyword, /semantic. Status: /complete, /partial, /unavailable.
 # Reason: /none, /timeout, /canceled, /backend_error, /membership_error,
-# /overflow, /bounded_corpus, /embed_incomplete, /no_semantic_hits.
+# /overflow, /embedding_pending, /embed_incomplete, /no_semantic_hits.
 Decl retrieval_outcome(IssueID, Tier, Status, Reason) bound [/string, /name, /name, /name].
 
 # retrieval_backend(IssueID, Tier, Attempted, Used): the backend the tier was

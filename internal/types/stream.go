@@ -147,6 +147,12 @@ type StreamResult struct {
 	// *OutputTruncated; other non-complete ends are *StreamError, a context
 	// error, or the provider/transport error itself.
 	Err error
+	// GroundingSources are the URLs this stream's own answer was grounded
+	// on, as the provider reported them in the stream (search results,
+	// citations). Request-owned: a client-wide "last sources" getter cannot
+	// say which request produced its contents. Nil when the provider
+	// reported none.
+	GroundingSources []string
 }
 
 // Outcome classifies the result.
@@ -275,12 +281,14 @@ func FailedThoughtStream(err error) (<-chan string, <-chan string, <-chan Stream
 // one chunk followed by a complete terminal result. It is for engines that have
 // no incremental transport: their completion call has already validated the
 // provider's finish reason and reported usage, so the stream claims nothing
-// more than that call established. A failed call publishes no content.
-func StreamWhole(ctx context.Context, complete func(context.Context) (string, error)) (<-chan string, <-chan StreamResult) {
+// more than that call established. A failed call publishes no content. The
+// completion returns the URLs its answer was grounded on (nil for none), which
+// travel on the terminal result.
+func StreamWhole(ctx context.Context, complete func(context.Context) (string, []string, error)) (<-chan string, <-chan StreamResult) {
 	w, content, done := NewStream()
 	go func() {
 		defer w.Close()
-		text, err := complete(ctx)
+		text, sources, err := complete(ctx)
 		if err != nil {
 			w.Fail(err)
 			return
@@ -289,7 +297,9 @@ func StreamWhole(ctx context.Context, complete func(context.Context) (string, er
 			w.Fail(err)
 			return
 		}
-		w.Finish(StreamResult{})
+		// The completion's own grounding rides on its terminal result, as a
+		// real stream's does (StreamResult.GroundingSources).
+		w.Finish(StreamResult{GroundingSources: sources})
 	}()
 	return content, done
 }

@@ -165,8 +165,9 @@ func (c *CodexCLIClient) CompleteWithSchema(ctx context.Context, systemPrompt, u
 // on --output-last-message, read by CompleteWithSystem, which also fails the
 // call when the CLI did not finish.
 func (c *CodexCLIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan types.StreamResult) {
-	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
-		return c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, []string, error) {
+		text, err := c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		return text, nil, err
 	})
 }
 

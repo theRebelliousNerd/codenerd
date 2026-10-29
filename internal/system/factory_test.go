@@ -146,7 +146,10 @@ func (s *imageRouteStubLLM) CompleteWithSystem(context.Context, string, string) 
 	return s.name, nil
 }
 func (s *imageRouteStubLLM) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan types.StreamResult) {
-	return types.StreamWhole(context.Background(), func(context.Context) (string, error) { return s.name, nil })
+	return types.StreamWhole(context.Background(), func(context.Context) (string, []string, error) {
+		text, err := func() (string, error) { return s.name, nil }()
+		return text, nil, err
+	})
 }
 func (s *imageRouteStubLLM) CompleteWithTools(context.Context, string, string, []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	return &types.LLMToolResponse{Text: s.name}, nil

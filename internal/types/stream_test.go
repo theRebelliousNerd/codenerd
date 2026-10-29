@@ -82,13 +82,19 @@ func TestStreamOutcomeOf_ClassifiesEveryTerminal(t *testing.T) {
 }
 
 func TestStreamWhole_PublishesTextThenCompleteOrTheError(t *testing.T) {
-	content, done := StreamWhole(context.Background(), func(context.Context) (string, error) { return "whole", nil })
+	content, done := StreamWhole(context.Background(), func(context.Context) (string, []string, error) {
+		text, err := func() (string, error) { return "whole", nil }()
+		return text, nil, err
+	})
 	text, res := CollectStream(context.Background(), content, done, nil)
 	if text != "whole" || res.Err != nil {
 		t.Fatalf("got %q %v", text, res.Err)
 	}
 	boom := errors.New("boom")
-	content, done = StreamWhole(context.Background(), func(context.Context) (string, error) { return "partial", boom })
+	content, done = StreamWhole(context.Background(), func(context.Context) (string, []string, error) {
+		text, err := func() (string, error) { return "partial", boom }()
+		return text, nil, err
+	})
 	text, res = CollectStream(context.Background(), content, done, nil)
 	if text != "" || !errors.Is(res.Err, boom) {
 		t.Fatalf("failed whole call: text %q err %v, want no content and the error", text, res.Err)

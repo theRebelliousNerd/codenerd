@@ -140,7 +140,7 @@ func TestTieredBuilder_WithEmbeddings_ShouldOrderSemanticTierAsDocumented(t *tes
 	dir := semanticTierWorkspace(t)
 
 	cfg := DefaultTieredContextConfig(dir)
-	cfg.Semantic = NewEmbeddingSemanticSearcher(fakeTierEmbedder{}, dir)
+	cfg.Semantic = NewEmbeddingSemanticSearcher(fakeTierEmbedder{}, dir, nil)
 	if cfg.Semantic == nil {
 		t.Fatal("NewEmbeddingSemanticSearcher returned nil for a non-nil engine")
 	}
@@ -169,13 +169,13 @@ func TestTieredBuilder_WithNilEngine_ShouldMatchHeuristicFallbackByteIdentical(t
 	dir := semanticTierWorkspace(t)
 	ctx := context.Background()
 
-	if NewEmbeddingSemanticSearcher(nil, dir) != nil {
+	if NewEmbeddingSemanticSearcher(nil, dir, nil) != nil {
 		t.Fatal("NewEmbeddingSemanticSearcher(nil) must return nil for the fallback")
 	}
 
 	plainCfg := DefaultTieredContextConfig(dir)
 	nilCfg := DefaultTieredContextConfig(dir)
-	nilCfg.Semantic = NewEmbeddingSemanticSearcher(nil, dir)
+	nilCfg.Semantic = NewEmbeddingSemanticSearcher(nil, dir, nil)
 
 	a, errA := NewTieredContextBuilder(plainCfg).BuildContext(ctx, semanticProbeIssue)
 	b, errB := NewTieredContextBuilder(nilCfg).BuildContext(ctx, semanticProbeIssue)
@@ -193,11 +193,11 @@ func TestTieredBuilder_WithNilEngine_ShouldMatchHeuristicFallbackByteIdentical(t
 func seedProbe(t *testing.T, dir, issueID string, engine embedding.EmbeddingEngine) *SeedReport {
 	t.Helper()
 	report, err := SeedIssueFacts(context.Background(), newSeedKernel(t), SeedRequest{
-		IssueID:         issueID,
-		IssueText:       semanticProbeIssue,
-		WorkDir:         dir,
-		Timeout:         30 * time.Second,
-		EmbeddingEngine: engine,
+		IssueID:          issueID,
+		IssueText:        semanticProbeIssue,
+		WorkDir:          dir,
+		Timeout:          30 * time.Second,
+		SemanticSearcher: NewEmbeddingSemanticSearcher(engine, dir, nil),
 	})
 	if err != nil {
 		t.Fatalf("SeedIssueFacts: %v", err)

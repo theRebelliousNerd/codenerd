@@ -61,8 +61,29 @@ func TestKeyPool_AnUnusablePreferredCredentialFallsBack(t *testing.T) {
 	if got, _ := p.selectKey(ctx, map[int]bool{pref: true}, -1, "session-7"); got == pref {
 		t.Fatal("a preferred key already tried for this call was chosen again")
 	}
-	if got, _ := p.selectKey(ctx, nil, -1, "session-7"); got != pref {
-		t.Fatalf("after cooling the conversation used key %d, want its own %d", got, pref)
+	// After a failover the conversation stays on the key it moved to, where its
+	// cache is now warm: each key may be a separate account, and caches never
+	// cross accounts, so going back would cost a second cold cache.
+	moved, _ := p.selectKey(ctx, map[int]bool{pref: true}, -1, "session-7")
+	p.release(moved, http.StatusOK, 0)
+	for i := 0; i < 3; i++ {
+		got, _ := p.selectKey(ctx, nil, -1, "session-7")
+		if got != moved {
+			t.Fatalf("after failing over to key %d the conversation went to key %d", moved, got)
+		}
+		p.release(got, http.StatusOK, 0)
+	}
+}
+
+// The pool remembers a bounded number of conversations.
+func TestKeyPool_HomesAreBounded(t *testing.T) {
+	p := &providerKeyPool{health: make([]keyHealth, 3)}
+	for i := 0; i < maxHomes+50; i++ {
+		got, _ := p.selectKey(context.Background(), nil, -1, fmt.Sprintf("s-%d", i))
+		p.release(got, http.StatusOK, 0)
+	}
+	if len(p.home) != maxHomes || len(p.homeOrder) != maxHomes {
+		t.Fatalf("homes=%d order=%d, want %d", len(p.home), len(p.homeOrder), maxHomes)
 	}
 }
 

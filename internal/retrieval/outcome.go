@@ -51,7 +51,7 @@ const (
 	ReasonBackendError    = "backend_error"
 	ReasonMembership      = "membership_error"
 	ReasonOverflow        = "overflow"
-	ReasonBoundedCorpus   = "bounded_corpus"
+	ReasonEmbedPending    = "embedding_pending"
 	ReasonEmbedIncomplete = "embed_incomplete"
 	ReasonNoSemanticHits  = "no_semantic_hits"
 )
@@ -85,7 +85,7 @@ type TierOutcome struct {
 	Queries    int
 	CacheHits  int
 	Incomplete []string
-	// Detail is the error text, for the log and `nerd retrieve`.
+	// Detail says what left the tier short, for the log and `nerd retrieve`.
 	Detail string
 }
 

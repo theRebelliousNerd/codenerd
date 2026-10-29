@@ -299,6 +299,11 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 
 	var raw string
 	var err error
+	// streamSources are the streamed answer's own grounding, carried on its
+	// terminal result. A streamed answer never takes sources from the
+	// client-wide getter, which may hold an earlier request's.
+	var streamSources []string
+	streamed := false
 
 	if streamChan != nil {
 		// Use streaming completion. If the client (or its wrapper) supports
@@ -362,9 +367,12 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 			// well-formed prefix of a cut answer and act on its control
 			// packet. A terminal channel that closes without a result is an
 			// incomplete stream, never a success.
-			if res := types.AwaitStreamResult(ctx, done); res.Err != nil {
+			res := types.AwaitStreamResult(ctx, done)
+			if res.Err != nil {
 				err = fmt.Errorf("stream %s: %w", res.Outcome(), res.Err)
 			}
+			streamed = true
+			streamSources = res.GroundingSources
 		}
 		raw = fullBuilder.String()
 	} else {
@@ -423,8 +431,12 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 		output.MangleUpdates = payload.Control.MangleUpdates
 	}
 
-	// Extract grounding sources if client supports grounding (e.g., Gemini with Google Search)
-	if gp, ok := client.(types.GroundingProvider); ok {
+	// Grounding sources: a streamed answer's own, from its terminal result;
+	// a non-streamed answer's from the client, which its completion call
+	// has just set.
+	if streamed {
+		output.GroundingSources = streamSources
+	} else if gp, ok := client.(types.GroundingProvider); ok {
 		output.GroundingSources = gp.GetLastGroundingSources()
 	}
 

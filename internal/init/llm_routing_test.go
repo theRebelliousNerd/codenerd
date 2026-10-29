@@ -53,7 +53,10 @@ func (c *identifiedClient) CompleteWithStreaming(_ context.Context, system, user
 	if err != nil {
 		return types.FailedStream(err)
 	}
-	return types.StreamWhole(context.Background(), func(context.Context) (string, error) { return text, nil })
+	return types.StreamWhole(context.Background(), func(context.Context) (string, []string, error) {
+		text, err := func() (string, error) { return text, nil }()
+		return text, nil, err
+	})
 }
 
 func (c *identifiedClient) requests() []string {

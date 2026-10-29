@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/transparency"
 	"codenerd/internal/types"
@@ -81,16 +80,10 @@ type SeedRequest struct {
 	// cache; otherwise one is constructed for WorkDir.
 	Retriever *SparseRetriever
 
-	// EmbeddingEngine is the optional vector backend for Tier 4. It is the
-	// interface internal/embedding exposes — the same one internal/store and
-	// internal/prompt accept — so embedding.EmbeddingEngine satisfies it
-	// directly. Nil keeps the definition-scan heuristic fallback.
-	EmbeddingEngine embedding.EmbeddingEngine
-
-	// SemanticSearcher is reused when non-nil so its Tier-4 vector cache stays
-	// warm across turns, exactly as Retriever keeps the keyword cache warm.
-	// Constructing a fresh searcher per seed re-embedded the whole corpus on
-	// every turn and discarded it. It takes precedence over EmbeddingEngine.
+	// SemanticSearcher is Tier 4's vector backend: the process's one searcher
+	// (internal/system builds it at boot over a persistent vector store and
+	// warms it in the background), so a pass only ranks. Nil keeps the
+	// definition-scan heuristic fallback.
 	SemanticSearcher *EmbeddingSemanticSearcher
 
 	// Relevance, when set, judges Tier 2's keyword candidates (relevance.go);
@@ -236,16 +229,10 @@ func SeedIssueFacts(ctx context.Context, sink FactSink, req SeedRequest) (*SeedR
 	if req.MaxFiles > 0 {
 		cfg.MaxTotal = req.MaxFiles
 	}
-	// Tier 4 was dead code: nothing ever populated cfg.Semantic, so every pass
-	// silently used the definition-scan fallback even with a healthy embedding
-	// backend. Wire the optional engine through; a nil engine keeps today's
-	// heuristic path byte-identical.
 	// What Tier 4 actually used is the pass's outcome (TierOutcome), known
 	// only after it ran.
 	if req.SemanticSearcher != nil {
 		cfg.Semantic = req.SemanticSearcher
-	} else if searcher := NewEmbeddingSemanticSearcher(req.EmbeddingEngine, workDir); searcher != nil {
-		cfg.Semantic = searcher
 	}
 	cfg.Relevance = req.Relevance
 	cfg.RelevanceDrop = req.RelevanceDrop

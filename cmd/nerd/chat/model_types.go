@@ -336,7 +336,7 @@ type Model struct {
 	virtualStore        *core.VirtualStore
 	scanner             *world.Scanner
 	retriever           *retrieval.SparseRetriever           // Issue-seed sparse search: Cortex.Retriever, shared with the session executor; model_update.go copies it here
-	semanticSearcher    *retrieval.EmbeddingSemanticSearcher // Tier-4 vector cache, built lazily once embeddingEngine lands; a per-turn searcher re-embedded the corpus every turn
+	semanticSearcher    *retrieval.EmbeddingSemanticSearcher // cortex.SemanticSearcher: the process's persistent, background-warmed Tier-4 searcher
 	workspace           string
 	DisableSystemShards []string
 	// yoloFlag is session yolo (--yolo), never persisted;
@@ -650,10 +650,11 @@ type SystemComponents struct {
 	TransparencyMgr  *transparency.TransparencyManager
 	PreferencesMgr   *ux.PreferencesManager
 	Retriever        *retrieval.SparseRetriever
-	GlassBoxEventBus *transparency.GlassBoxEventBus  // Glass Box debug mode event bus
-	ToolEventBus     *transparency.ToolEventBus      // Always-visible tool execution event bus
-	ToolStore        *store.ToolStore                // Tool execution persistence store
-	PromptEvolver    *prompt_evolution.PromptEvolver // System Prompt Learning evolver
+	SemanticSearcher *retrieval.EmbeddingSemanticSearcher // the process's persistent Tier-4 searcher (cortex.SemanticSearcher); nil without embeddings
+	GlassBoxEventBus *transparency.GlassBoxEventBus       // Glass Box debug mode event bus
+	ToolEventBus     *transparency.ToolEventBus           // Always-visible tool execution event bus
+	ToolStore        *store.ToolStore                     // Tool execution persistence store
+	PromptEvolver    *prompt_evolution.PromptEvolver      // System Prompt Learning evolver
 	// Clean Loop Architecture (replaces hardcoded shard logic)
 	SessionExecutor *session.Executor // Clean execution loop (JIT-driven)
 	SessionSpawner  *session.Spawner  // JIT-driven subagent spawning

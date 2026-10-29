@@ -30,7 +30,10 @@ func (f *fakeMeteredLLMClient) CompleteWithTools(ctx context.Context, systemProm
 
 func (f *fakeMeteredLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
 	usage.RecordFromContext(ctx, usage.Report{Model: "m", Provider: "meta", Operation: "chat", Usage: types.UsageMetadata{InputTokens: 10, OutputTokens: 5}})
-	return types.StreamWhole(ctx, func(context.Context) (string, error) { return "ok", nil })
+	return types.StreamWhole(ctx, func(context.Context) (string, []string, error) {
+		text, err := func() (string, error) { return "ok", nil }()
+		return text, nil, err
+	})
 }
 
 func TestSessionLLMAdapterMetersBareContext(t *testing.T) {

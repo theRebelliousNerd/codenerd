@@ -666,7 +666,10 @@ func (m *mockLLMClient) CompleteWithStreaming(_ context.Context, _, _ string, _ 
 	if m.err != nil {
 		return types.FailedStream(m.err)
 	}
-	return types.StreamWhole(context.Background(), func(context.Context) (string, error) { return m.response, nil })
+	return types.StreamWhole(context.Background(), func(context.Context) (string, []string, error) {
+		text, err := func() (string, error) { return m.response, nil }()
+		return text, nil, err
+	})
 }
 
 func (m *mockLLMClient) CompleteWithTools(_ context.Context, _, _ string, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {

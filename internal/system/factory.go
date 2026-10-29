@@ -412,10 +412,14 @@ type Cortex struct {
 	EmbeddingEngine embedding.EmbeddingEngine
 	// Retriever is the process's sparse retriever: the session executor's
 	// task passes and the chat's issue seed share its keyword cache.
-	Retriever       *retrieval.SparseRetriever
-	Workspace       string
-	JITCompiler     *prompt.JITPromptCompiler
-	PromptAssembler *articulation.PromptAssembler
+	Retriever *retrieval.SparseRetriever
+	// SemanticSearcher is the process's Tier 4 searcher over a persistent
+	// vector store, warmed in the background (factory_semantic.go); nil
+	// without an embedding engine. Every retrieval pass shares it.
+	SemanticSearcher *retrieval.EmbeddingSemanticSearcher
+	Workspace        string
+	JITCompiler      *prompt.JITPromptCompiler
+	PromptAssembler  *articulation.PromptAssembler
 	// RolePrompts compiles the system prompt of every non-persona model call
 	// (critic, rule generator, analyzers) from its atoms. Non-nil whenever
 	// JITCompiler is.
@@ -449,6 +453,8 @@ type Cortex struct {
 	mcpDone               <-chan struct{}
 	ouroborosCancel       context.CancelFunc
 	ouroborosDone         <-chan struct{}
+	semanticWarmCancel    context.CancelFunc
+	semanticWarmDone      <-chan struct{}
 	researchBrowser       *research.BrowserRuntime
 	generatedExecutor     *orchestratorToolExecutor
 	onDemandStop          func()
@@ -932,6 +938,9 @@ type bootContext struct {
 	ouroborosCtx          context.Context
 	ouroborosCancel       context.CancelFunc
 	ouroborosDone         <-chan struct{}
+	semanticSearcher      *retrieval.EmbeddingSemanticSearcher
+	semanticWarmCancel    context.CancelFunc
+	semanticWarmDone      <-chan struct{}
 	generatedExecutor     *orchestratorToolExecutor
 	ouroborosQueue        chan core.ToolNeed
 	projectDB             *sql.DB
@@ -2673,7 +2682,8 @@ func initFinalExecutors(bctx *bootContext) error {
 	bctx.retriever = retrieval.NewSparseRetriever(retrieval.DefaultSparseRetrieverConfig(bctx.workspace))
 	taskRetrieverCfg := taskRetrieverConfig(bctx.appCfg, bctx.workspace)
 	taskRetrieverCfg.Retriever = bctx.retriever
-	taskRetrieverCfg.EmbeddingEngine = bctx.embeddingEngine
+	initSemanticSearcher(bctx)
+	taskRetrieverCfg.SemanticSearcher = bctx.semanticSearcher
 	if taskRetriever := retrieval.NewTaskRetriever(bctx.kernel, taskRetrieverCfg); taskRetriever != nil {
 		bctx.sessionExecutor.SetIssueRetriever(taskRetriever)
 		bctx.sessionSpawner.SetIssueRetriever(taskRetriever)
@@ -2991,6 +3001,9 @@ func cortexFromBootContext(bctx *bootContext) *Cortex {
 		mcpDone:               bctx.mcpDone,
 		ouroborosCancel:       bctx.ouroborosCancel,
 		ouroborosDone:         bctx.ouroborosDone,
+		SemanticSearcher:      bctx.semanticSearcher,
+		semanticWarmCancel:    bctx.semanticWarmCancel,
+		semanticWarmDone:      bctx.semanticWarmDone,
 		generatedExecutor:     bctx.generatedExecutor,
 		onDemandStop:          bctx.onDemandStop,
 		perceptionInitialized: bctx.perceptionInitialized,

@@ -147,7 +147,7 @@ func TestSemanticExpansion_WhenSearcherFails_ShouldFallBackToDefinitionScan(t *t
 }
 
 func TestNewEmbeddingSemanticSearcher_WhenNoEngine_ShouldReturnNil(t *testing.T) {
-	if s := NewEmbeddingSemanticSearcher(nil, "."); s != nil {
+	if s := NewEmbeddingSemanticSearcher(nil, ".", nil); s != nil {
 		t.Errorf("got %v, want a nil searcher so the builder falls back", s)
 	}
 }
@@ -165,6 +165,8 @@ func (f *fakeEmbedder) Embed(_ context.Context, text string) ([]float32, error) 
 	return f.vector(text), nil
 }
 
+func (f *fakeEmbedder) Name() string { return "fakeEmbedder" }
+
 func (f *fakeEmbedder) EmbedBatch(_ context.Context, texts []string) ([][]float32, error) {
 	f.batches++
 	out := make([][]float32, len(texts))
@@ -180,7 +182,7 @@ func TestEmbeddingSemanticSearcher_ShouldRankAndCacheVectors(t *testing.T) {
 	writeFile(t, dir, "other.go", []byte("package main\n// unrelated\n"))
 
 	engine := &fakeEmbedder{}
-	s := NewEmbeddingSemanticSearcher(engine, dir)
+	s := NewEmbeddingSemanticSearcher(engine, dir, nil)
 
 	result, err := s.SimilarFiles(context.Background(), "zebra zebra zebra problem", 5)
 	if err != nil {
@@ -222,6 +224,8 @@ func (f *partialEmbedder) Embed(_ context.Context, text string) ([]float32, erro
 	return f.vector(text), nil
 }
 
+func (f *partialEmbedder) Name() string { return "partialEmbedder" }
+
 func (f *partialEmbedder) EmbedBatch(_ context.Context, texts []string) ([][]float32, error) {
 	f.batches++
 	if f.failSecond && f.batches == 2 {
@@ -248,7 +252,7 @@ func TestEmbeddingSemanticSearcher_WhenBudgetExpiresMidCorpus_ShouldRankPartialA
 	}
 
 	engine := &partialEmbedder{failSecond: true}
-	s := NewEmbeddingSemanticSearcher(engine, dir)
+	s := NewEmbeddingSemanticSearcher(engine, dir, nil)
 
 	result, err := s.SimilarFiles(context.Background(), "zebra zebra zebra", 5)
 	if err != nil {
@@ -563,8 +567,8 @@ func TestEmbeddingSemanticSearcher_WarmMovesEmbeddingOffTheTurn(t *testing.T) {
 	writeFile(t, dir, "match.go", []byte("package main\n// zebra zebra zebra\n"))
 	writeFile(t, dir, "other.go", []byte("package main\n// unrelated\n"))
 	engine := &fakeEmbedder{}
-	s := NewEmbeddingSemanticSearcher(engine, dir)
-	if err := s.Warm(context.Background()); err != nil {
+	s := NewEmbeddingSemanticSearcher(engine, dir, nil)
+	if _, err := s.Warm(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	warmed := engine.batches

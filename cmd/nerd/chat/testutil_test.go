@@ -365,7 +365,10 @@ func (m *MockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt,
 	if !ok {
 		resp = m.defaultResp
 	}
-	return types.StreamWhole(ctx, func(context.Context) (string, error) { return resp, nil })
+	return types.StreamWhole(ctx, func(context.Context) (string, []string, error) {
+		text, err := func() (string, error) { return resp, nil }()
+		return text, nil, err
+	})
 }
 
 // SetResponse configures a specific response for a prompt.

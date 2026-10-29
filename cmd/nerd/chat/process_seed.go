@@ -9,7 +9,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 )
 
 // chatIssueID is the one EDB key the chat seeds under, for the reason it
@@ -85,10 +84,8 @@ func (m *Model) seedIssueFacts(ctx context.Context, intent perception.Intent, ra
 		IssueText: issueText,
 		WorkDir:   m.workspace,
 		Retriever: m.retriever,
-		// m.embeddingEngine is cortex.EmbeddingEngine: nil when Ollama was
-		// unavailable at boot (the factory leaves it nil deliberately), in
-		// which case the seed keeps the heuristic Tier 4 fallback.
-		EmbeddingEngine:  m.embeddingEngine,
+		// cortex.SemanticSearcher: nil when no embedding engine came up at
+		// boot, in which case the seed keeps the heuristic Tier 4 fallback.
 		SemanticSearcher: m.semanticSearcher,
 		// Jev, when configured, judges Tier 2's keyword candidates for
 		// relevance (turnjudge.RelevanceFor); off, the keyword ranking
@@ -125,18 +122,4 @@ func (m Model) runClarifierShard(ctx context.Context, goal string) (string, erro
 		return "", err
 	}
 	return result, nil
-}
-
-// warmSemanticCorpus embeds the Tier-4 corpus in the background after boot.
-// Bounded so a stalled embedding backend cannot hold a goroutine forever; a
-// failure only means the first turns embed what is still missing.
-func warmSemanticCorpus(s *retrieval.EmbeddingSemanticSearcher) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-	start := time.Now()
-	if err := s.Warm(ctx); err != nil {
-		logging.Get(logging.CategoryContext).Warn("semantic corpus warm-up incomplete after %s: %v", time.Since(start), err)
-		return
-	}
-	logging.Context("semantic corpus warmed in %s", time.Since(start))
 }

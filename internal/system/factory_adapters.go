@@ -668,10 +668,10 @@ func (a *sessionLLMAdapter) CompleteWithToolResults(ctx context.Context, systemP
 
 func (a *sessionLLMAdapter) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan types.StreamResult) {
 	ctx = a.meteredContext(ctx)
-	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, []string, error) {
 		start := time.Now()
 		res, err := a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 		a.auditLLMCall(start, 0, err)
-		return res, err
+		return res, nil, err
 	})
 }
