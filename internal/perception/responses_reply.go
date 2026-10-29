@@ -282,8 +282,36 @@ func responsesAssistantText(reply *responsesReply) string {
 	return responsesAnswerText(reply, true)
 }
 
+// responsesRefusal is the provider's explicit refusal in a reply: the text of
+// every "refusal" content block on an assistant message, joined. A refusal
+// arrives on a run whose status is "completed", so status alone never shows
+// it; ok is false when the reply carries none.
+func responsesRefusal(reply *responsesReply) (text string, ok bool) {
+	if reply == nil {
+		return "", false
+	}
+	var parts []string
+	for _, item := range reply.Output {
+		if item.Type != "message" || (item.Role != "" && item.Role != "assistant") {
+			continue
+		}
+		for _, c := range item.Content {
+			if c.Type == "refusal" {
+				ok = true
+				if t := strings.TrimSpace(c.Refusal); t != "" {
+					parts = append(parts, t)
+				}
+			}
+		}
+	}
+	return strings.Join(parts, "\n"), ok
+}
+
 // responsesTerminal reports a run that did not finish as an answer: a failed
-// or cancelled status, or an incomplete one. A length stop is the typed
+// or cancelled status, an incomplete one, or an explicit refusal. A refusal
+// is the typed StreamRefused outcome, the same one every other provider
+// reports, so no caller mistakes it for an empty answer and the fallback
+// client never reroutes it to another model. A length stop is the typed
 // truncation error carrying the partial text, so the broker restates the
 // request rather than accepting a cut answer. Any other incomplete reason
 // (content_filter) is a failure too: an incomplete run is never a success.
@@ -297,6 +325,13 @@ func responsesTerminal(reply *responsesReply, provider Provider, model, method s
 			detail = ": " + strings.TrimSpace(reply.Error.Message)
 		}
 		return fmt.Errorf("%s responses run %s%s", provider, reply.Status, detail)
+	}
+	if refusal, refused := responsesRefusal(reply); refused {
+		detail := "request declined by provider"
+		if refusal != "" {
+			detail += ": " + refusal
+		}
+		return &types.StreamError{Outcome: types.StreamRefused, Provider: string(provider), Model: model, Reason: "refusal", Detail: detail}
 	}
 	if reply.Status != "incomplete" {
 		return nil

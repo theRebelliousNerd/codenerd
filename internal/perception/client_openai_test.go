@@ -506,3 +506,56 @@ func TestOpenAI_ALocalWebSearchFunctionIsSentWhenHostedSearchIsOff(t *testing.T)
 		t.Fatalf("requests = %d, want only the hosted-off one", rec.count())
 	}
 }
+
+// An explicit refusal arrives on a "completed" run as a refusal content
+// block. Every path must report the typed StreamRefused outcome, never an
+// empty answer or an empty end_turn the loop mistakes for a final reply.
+func TestOpenAI_ARefusalIsTypedOnEveryPath(t *testing.T) {
+	refused := map[string]any{
+		"status": "completed",
+		"output": []map[string]any{{
+			"type": "message", "role": "assistant", "phase": "final_answer",
+			"content": []map[string]any{{"type": "refusal", "refusal": "I can't help with that."}},
+		}},
+		"usage": map[string]any{"input_tokens": 5, "output_tokens": 6},
+	}
+	isRefused := func(err error) bool {
+		var se *types.StreamError
+		return errors.As(err, &se) && se.Outcome == types.StreamRefused && strings.Contains(se.Detail, "can't help")
+	}
+	rec := newOpenAIRecorder(t, jsonReply(refused))
+	c := openAIClientWith(t, rec.srv.URL, nil)
+	if _, err := c.Complete(context.Background(), "x"); !isRefused(err) {
+		t.Errorf("CompleteWithSystem: err=%v, want StreamRefused", err)
+	}
+	if resp, err := c.CompleteWithTools(context.Background(), "s", "x", []ToolDefinition{{Name: "read_file", InputSchema: map[string]any{"type": "object"}}}); !isRefused(err) {
+		t.Errorf("CompleteWithTools: resp=%+v err=%v, want StreamRefused", resp, err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"response.refusal.delta\",\"delta\":\"I can't\"}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"refusal\",\"refusal\":\"I can't help with that.\"}]}],\"usage\":{\"input_tokens\":5,\"output_tokens\":6}}}\n\n")
+	}))
+	defer srv.Close()
+	content, done := openAIClientWith(t, srv.URL, nil).CompleteWithStreaming(context.Background(), "", "x", false)
+	if _, res := types.CollectStream(context.Background(), content, done, nil); res.Outcome() != types.StreamRefused {
+		t.Errorf("stream outcome = %s (%v), want refused", res.Outcome(), res.Err)
+	}
+}
+
+// Meta's Responses path shares the reply reader, so a refusal there is typed
+// too.
+func TestResponsesTerminal_ARefusalIsTypedForEveryProvider(t *testing.T) {
+	reply := &responsesReply{Status: "completed", Output: []responsesItem{{
+		Type: "message", Role: "assistant", Content: []responsesContent{{Type: "refusal", Refusal: "no"}},
+	}}}
+	err := responsesTerminal(reply, ProviderMeta, "muse-spark-1.3-contributor", "CompleteWithToolResults", 100)
+	var se *types.StreamError
+	if !errors.As(err, &se) || se.Outcome != types.StreamRefused || se.Provider != string(ProviderMeta) {
+		t.Fatalf("err=%v, want a Meta StreamRefused", err)
+	}
+	if err := responsesTerminal(&responsesReply{Status: "completed"}, ProviderMeta, "m", "x", 1); err != nil {
+		t.Fatalf("a plain completed reply was refused: %v", err)
+	}
+}

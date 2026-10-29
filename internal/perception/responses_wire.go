@@ -340,6 +340,9 @@ type responsesContent struct {
 	Type        string                `json:"type"`
 	Text        string                `json:"text,omitempty"`
 	Annotations []responsesAnnotation `json:"annotations,omitempty"`
+	// Refusal is the text of a "refusal" content block: the provider's
+	// explicit decline, carried on a run whose status is still "completed".
+	Refusal string `json:"refusal,omitempty"`
 }
 
 type responsesAnnotation struct {
