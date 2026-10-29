@@ -45,6 +45,7 @@ func TestAnthropicChat_RetriesOverloadedThenSucceeds(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	withRetryBackoff(t, 300*time.Millisecond, 30*time.Second)
 	c := anthropicTestClient(srv.URL)
 	start := time.Now()
 	resp, err := c.CompleteWithSystem(context.Background(), "sys", "hi")
@@ -58,8 +59,8 @@ func TestAnthropicChat_RetriesOverloadedThenSucceeds(t *testing.T) {
 	if got := hits.Load(); got != 2 {
 		t.Errorf("server hits = %d, want 2 (one overload retried)", got)
 	}
-	if elapsed < 900*time.Millisecond {
-		t.Errorf("elapsed = %v, want the 1s retry backoff to have been honored", elapsed)
+	if elapsed < 270*time.Millisecond {
+		t.Errorf("elapsed = %v, want the configured 300ms retry backoff to have been honored", elapsed)
 	}
 }
 
