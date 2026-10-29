@@ -888,13 +888,15 @@ func (e *Executor) workingAttempt(
 				"Repair attempt ended by the working policy (%s) after %d model call(s) without an edit", reason, llmCalls)
 			break
 		}
-		if decision.Regime == commitRegime {
+		if decision.Regime == commitRegime && loop.regime != commitRegime {
+			// Freshly closed: carry the failing output plus the regime text
+			// into the next call, once. A round that reads again under a
+			// regime already closed is answered by the tools' own refusal and
+			// the policy's nudge; it used to re-send this whole demand every
+			// round, so a model stuck reading was sent the same prompt again
+			// and again (a coverage repair: 8 copies in one request,
+			// 2026-10-29) and the request grew by a demand it already held.
 			loop.regime = commitRegime
-		}
-		if loop.regime == commitRegime {
-			// Freshly closed, or already closed where this round executed
-			// tools without writing: carry the failing output plus the regime
-			// text into the next call.
 			*history = append(*history, types.Message{Role: "user", Text: withRegimePrompt(prompt, commitRegime)})
 		}
 	}

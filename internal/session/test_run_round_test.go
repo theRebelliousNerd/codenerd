@@ -114,7 +114,11 @@ func TestVerifyCompletedToolTurn_ATestRunThatKeepsFailingIsTheVerdicts(t *testin
 	if _, _, err := e.verifyCompletedToolTurn(ctx, client, "system", wroteHistory(result.WrittenPaths[0]), &types.LLMToolResponse{Text: "Edited the script."}, e.buildToolDefinitions(cfg), cfg, result); err != nil {
 		t.Fatalf("verifyCompletedToolTurn: %v -- a round that does not converge is the verdict's, not an error", err)
 	}
-	if len(client.prompts) < 2 || !strings.Contains(client.prompts[len(client.prompts)-1], "exited 1") {
+	told := false
+	for _, p := range client.prompts[min(1, len(client.prompts)):] {
+		told = told || strings.Contains(p, "exited 1")
+	}
+	if !told {
 		t.Errorf("a later attempt was not told the run failed: %q", client.prompts)
 	}
 	turn := result.turnAtom()

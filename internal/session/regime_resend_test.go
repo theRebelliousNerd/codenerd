@@ -48,6 +48,55 @@ func TestRepairLoop_UnderTheCommitRegimeTheSentenceIsSentOncePerMessage(t *testi
 	if testing.Short() {
 		t.Skip("compiles a throwaway package")
 	}
+	client := driveReadOnlyBuildRepair(t)
+
+	const sentence = "Reading is closed for this task"
+	carried := 0
+	for i, texts := range client.texts {
+		for _, text := range texts {
+			n := strings.Count(text, sentence)
+			if n > 1 {
+				t.Errorf("request %d carried a message with the regime sentence %d times:\n%s", i+1, n, text)
+			}
+			if n == 1 {
+				carried++
+			}
+		}
+	}
+	if carried == 0 {
+		t.Errorf("no request under the commit regime carried the regime sentence (%d requests)", client.calls)
+	}
+}
+
+// A repair attempt whose model keeps reading under the closed regime is not
+// sent its demand again each round: the demand is in the request once, and
+// what answers a further read is the tools' refusal and the policy's nudge.
+// A coverage repair was sent the same demand 8 times in one request
+// (2026-10-29), each copy a no-progress resend.
+func TestRepairLoop_ANoProgressRoundDoesNotResendTheDemand(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles a throwaway package")
+	}
+	client := driveReadOnlyBuildRepair(t)
+	if client.calls < 3 {
+		t.Fatalf("the repair ran %d model call(s); the test needs rounds that read without writing", client.calls)
+	}
+	for i, texts := range client.texts {
+		seen := map[string]int{}
+		for _, text := range texts {
+			seen[text]++
+			if seen[text] == 2 {
+				t.Errorf("request %d carried the same user message twice:\n%s", i+1, truncateForFailure(text))
+			}
+		}
+	}
+}
+
+// driveReadOnlyBuildRepair drives the build repair loop with a model that
+// only reads, so every attempt runs under the commit regime, and returns the
+// provider with every request's user texts.
+func driveReadOnlyBuildRepair(t *testing.T) *readOnlyProvider {
+	t.Helper()
 	ws := t.TempDir()
 	for name, content := range map[string]string{
 		"go.mod":  "module regimeprobe\n\ngo 1.21\n",
@@ -75,21 +124,5 @@ func TestRepairLoop_UnderTheCommitRegimeTheSentenceIsSentOncePerMessage(t *testi
 	cfg := &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{readTool, "create_file"}}
 	result := &ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"main.go"}}
 	_, _, _ = e.verifyAndRepairBuild(ctx, client, "system", nil, nil, e.buildToolDefinitions(cfg), cfg, result)
-
-	const sentence = "Reading is closed for this task"
-	carried := 0
-	for i, texts := range client.texts {
-		for _, text := range texts {
-			n := strings.Count(text, sentence)
-			if n > 1 {
-				t.Errorf("request %d carried a message with the regime sentence %d times:\n%s", i+1, n, text)
-			}
-			if n == 1 {
-				carried++
-			}
-		}
-	}
-	if carried == 0 {
-		t.Errorf("no request under the commit regime carried the regime sentence (%d requests)", client.calls)
-	}
+	return client
 }
