@@ -474,8 +474,7 @@ const maxAgentWorkers = 3
 // createType3Agents creates or upgrades the knowledge base, prompts.yaml and
 // registry entry of every recommended agent. An existing knowledge base is
 // upgraded: new knowledge is appended, covered topics are not researched again.
-func (i *Initializer) createType3Agents(ctx context.Context, nerdDir string, agents []RecommendedAgent, result *InitResult) ([]CreatedAgent, map[string]int) {
-	// The seed is read by the parallel KB workers. Clear it when they have
+func (i *Initializer) createType3Agents(ctx context.Context, nerdDir string, agents []RecommendedAgent, result *InitResult) ([]CreatedAgent, map[string]int) { // The seed is read by the parallel KB workers. Clear it when they have
 	// all returned, not when the deriving phase returns.
 	defer clearEcosystemSeed(i.config.Workspace)
 	created := make([]CreatedAgent, 0, len(agents))
@@ -510,6 +509,10 @@ func (i *Initializer) createType3Agents(ctx context.Context, nerdDir string, age
 			fmt.Fprintf(i.output(), "     + %s ready (%d knowledge atoms)\n", res.Agent.Name, res.KBSize)
 		}
 	}
+	// Heal pre-existing agent DBs that this run did not create: empty KBs get
+	// baseline atoms and unembedded atoms get vectors, so all agents converge
+	// without requiring --force.
+	EnsureAllAgentKnowledge(ctx, i.config.Workspace, i.embedEngine)
 	return created, kbSizes
 }
 

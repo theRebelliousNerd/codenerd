@@ -77,7 +77,7 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 	// page, when the orient threshold says so) is stored whole. The vector
 	// row carries the source; a vector failure does not drop the atom.
 	for _, chunk := range ecosystemKnowledgeChunks(i.config.Workspace, agent.Name) {
-		added, err := appendKnowledgeAtom(agentDB, chunk.Concept, chunk.Content, 0.95, existingHashes)
+		added, err := appendKnowledgeAtom(ctx, agentDB, chunk.Concept, chunk.Content, 0.95, existingHashes)
 		if err != nil {
 			logging.Boot("Warning: failed to store ecosystem atom for %s: %v", agent.Name, err)
 			continue
@@ -87,14 +87,6 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 			continue
 		}
 		stats.NewAtoms++
-		if verr := agentDB.StoreVectorWithEmbedding(ctx, chunk.Content, map[string]any{
-			"path":    chunk.Path,
-			"tool":    chunk.Tool,
-			"kind":    chunk.Kind,
-			"concept": chunk.Concept,
-		}); verr != nil {
-			logging.Boot("Warning: ecosystem vector for %s %s: %v", agent.Name, chunk.Concept, verr)
-		}
 	}
 
 	// Research topics using modular tools
@@ -138,7 +130,7 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 					// Parse research result into knowledge atoms
 					atoms := i.parseResearchResult(topic, result)
 					for _, atom := range atoms {
-						added, err := appendKnowledgeAtom(agentDB, atom.Concept, atom.Content, atom.Confidence, existingHashes)
+						added, err := appendKnowledgeAtom(ctx, agentDB, atom.Concept, atom.Content, atom.Confidence, existingHashes)
 						if err != nil {
 							logging.Boot("Warning: failed to store research atom: %v", err)
 							continue
@@ -153,6 +145,20 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 		}
 	} else if i.config.SkipResearch {
 		fmt.Fprintf(i.output(), "     Skipping research for %s (--skip-research)\n", agent.Name)
+	}
+
+	// Baseline seed: an agent with no atoms after research still gets a
+	// searchable KB from its own definition. This is what keeps new agents
+	// and offline runs from landing at zero atoms.
+	if interim, _ := agentDB.GetAllKnowledgeAtoms(); len(interim) == 0 {
+		stats.NewAtoms += seedBaselineKnowledge(ctx, agentDB, agent, existingHashes)
+	}
+	// Vector backfill: atoms written before embedding was wired (or while the
+	// engine was missing) get vectors now so semantic search finds them.
+	if n, err := backfillKnowledgeVectors(ctx, agentDB); err != nil {
+		logging.Boot("Warning: vector backfill for %s: %v", agent.Name, err)
+	} else if n > 0 {
+		logging.Boot("Backfilled %d vectors for %s", n, agent.Name)
 	}
 
 	// Calculate total atoms
@@ -248,7 +254,7 @@ func computeAtomHash(concept, content string) string {
 
 // appendKnowledgeAtom adds a knowledge atom if it doesn't already exist.
 // Returns true if the atom was added, false if it was skipped (duplicate).
-func appendKnowledgeAtom(db *store.LocalStore, concept, content string, confidence float64, existingHashes map[string]bool) (bool, error) {
+func appendKnowledgeAtom(ctx context.Context, db *store.LocalStore, concept, content string, confidence float64, existingHashes map[string]bool) (bool, error) {
 	hash := computeAtomHash(concept, content)
 
 	// Check if this atom already exists
@@ -256,8 +262,10 @@ func appendKnowledgeAtom(db *store.LocalStore, concept, content string, confiden
 		return false, nil
 	}
 
-	// Store the new atom
-	if err := db.StoreKnowledgeAtom(concept, content, confidence); err != nil {
+	// Store the new atom with its embedding so semantic search can find it.
+	// StoreKnowledgeAtom alone leaves the vectors table empty, which is how
+	// agents ended up with knowledge_atoms rows but zero searchable vectors.
+	if err := db.StoreKnowledgeAtomWithEmbedding(ctx, concept, content, confidence); err != nil {
 		return false, err
 	}
 

@@ -44,6 +44,15 @@ func NewAtomLoader(embeddingEngine embedding.EmbeddingEngine) *AtomLoader {
 	}
 }
 
+// EmbeddingEngine exposes the engine atoms are embedded with so the agent
+// synchronizer can backfill knowledge vectors with the same engine.
+func (l *AtomLoader) EmbeddingEngine() embedding.EmbeddingEngine {
+	if l == nil {
+		return nil
+	}
+	return l.embeddingEngine
+}
+
 // LoadFromYAML loads prompt atoms from a YAML file and stores them in the database.
 // Returns the number of atoms loaded.
 func (l *AtomLoader) LoadFromYAML(ctx context.Context, yamlPath string, db *sql.DB) (int, error) {

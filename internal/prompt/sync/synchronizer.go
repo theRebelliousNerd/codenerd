@@ -143,6 +143,11 @@ func (s *AgentSynchronizer) syncAgent(ctx context.Context, agentID string, yamlP
 	// 4. Check if YAML has changed since last sync
 	if storedHash, err := getLastSyncHash(db, agentID); err == nil && storedHash == contentHash {
 		logging.Get(logging.CategoryStore).Debug("Agent %s: YAML unchanged (hash=%s), skipping re-embed", agentID, contentHash[:12])
+		// Still heal knowledge vectors: prompt atoms are current but
+		// knowledge_atoms written before embedding was wired stay unsearchable.
+		if err := backfillKnowledgeVectors(ctx, db, dbPath, s.atomLoader.EmbeddingEngine()); err != nil {
+			logging.Get(logging.CategoryStore).Warn("Agent %s: knowledge vector backfill failed: %v", agentID, err)
+		}
 		return true, nil
 	}
 
@@ -159,6 +164,14 @@ func (s *AgentSynchronizer) syncAgent(ctx context.Context, agentID string, yamlP
 	// 6. Replace prompt atom set transactionally to avoid stale partial state.
 	if err := s.atomLoader.ReplaceAtoms(ctx, db, atoms); err != nil {
 		return false, fmt.Errorf("replace atoms failed: %w", err)
+	}
+
+	// 6b. Knowledge backfill: atoms written before embedding was wired have
+	// rows in knowledge_atoms but no vectors, so semantic search finds
+	// nothing. Backfill them here so every boot heals existing agents
+	// (e.g. bubbleteaexpert's 73 atoms with 0 vectors) and not just new ones.
+	if err := backfillKnowledgeVectors(ctx, db, dbPath, s.atomLoader.EmbeddingEngine()); err != nil {
+		logging.Get(logging.CategoryStore).Warn("Agent %s: knowledge vector backfill failed: %v", agentID, err)
 	}
 
 	// 7. Store the content hash for next boot
