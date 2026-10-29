@@ -456,9 +456,24 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	// queued message (side_turn.go).
 	var tiCmd tea.Cmd
 	before := m.textarea.Length()
-	m.textarea, tiCmd = m.textarea.Update(msg)
+	m.textarea, tiCmd = m.textarea.Update(asTypedText(msg))
 	if note := droppedInputNotice(msg, before, m.textarea.Length(), m.textarea.CharLimit); note != "" {
 		m = m.pushAssistantMsg(note)
 	}
 	return m, tiCmd, false
+}
+
+// asTypedText marks typed text as text before the textarea sees it. Input that
+// arrives faster than one rune per message (a paste without bracketed paste,
+// tmux, fast typing) reaches Bubble Tea as one KeyRunes message per word, and
+// KeyMsg.String() of the word "left" is "left": the textarea's keymap matched
+// it as the Left key, so typing "and left uncommitted" moved the cursor back
+// and the words after it landed mid-message, and "up" jumped a line. A rune
+// message without Alt is never a key chord; as a paste its String() is
+// "[left]", which no binding matches, and the textarea inserts it as usual.
+func asTypedText(msg tea.KeyMsg) tea.KeyMsg {
+	if msg.Type == tea.KeyRunes && !msg.Alt {
+		msg.Paste = true
+	}
+	return msg
 }

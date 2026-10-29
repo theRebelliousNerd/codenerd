@@ -94,7 +94,9 @@ func TestCorrection_TheTurnStillRunsAndNothingAsksTheUser(t *testing.T) {
 	if source, ok := m.learningCorrection(); !ok || source != "jev" {
 		t.Fatalf("learning_correction = %q (%v), want jev", source, ok)
 	}
-	if _, err := os.Stat(".nerd"); err == nil {
-		t.Fatal("learning wrote .nerd/ into the package directory")
+	// The package directory holds tracked .nerd fixtures; the file learning
+	// writes is the taxonomy it persists to.
+	if _, err := os.Stat(".nerd/mangle/learned_taxonomy.mg"); err == nil {
+		t.Fatal("learning wrote .nerd/mangle/learned_taxonomy.mg into the package directory")
 	}
 }
