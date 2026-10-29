@@ -168,4 +168,10 @@ func TestRunPhase_AFailedAttemptsWriteOutsideItsWriteSetIsUndone(t *testing.T) {
 	if callerAtRetry != callerBefore {
 		t.Fatalf("at the retry %s held the failed attempt's edit:\n%s\nwant it as it was before the attempt", caller, callerAtRetry)
 	}
+	// Ladder C3 on the same path: the retry -- a new attempt, not the verdict
+	// loop's second dispatch -- is told why the first attempt failed.
+	retry := turns.calls()[2]
+	if !strings.Contains(retry, "THE PREVIOUS ATTEMPT AT THIS TASK FAILED") || !strings.Contains(retry, "/unverified") {
+		t.Fatalf("the retry's input does not carry the failed attempt's reason:\n%s", retry)
+	}
 }

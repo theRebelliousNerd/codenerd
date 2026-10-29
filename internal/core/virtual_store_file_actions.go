@@ -219,17 +219,16 @@ func (v *VirtualStore) handleWriteFile(ctx context.Context, req ActionRequest) (
 		return ActionResult{}, fmt.Errorf("write_file requires 'content' in payload")
 	}
 
-	// Extract code block from content (removes surrounding assistant commentary and markdown fences).
-	// asked is kept: the extractor slices a Go file from its package clause and
-	// drops a leading //go:build line, so the exclusion check has to see the
-	// bytes the caller asked for, not only what would land.
-	originalLen := len(content)
-	asked := content
-	content = extractCodeBlockForFile(content, path)
-	if len(content) != originalLen {
-		logging.VirtualStoreDebug("Extracted code block for %s: %d -> %d bytes", path, originalLen, len(content))
-	}
-
+	// The content is the file (ladder V1). The store writes the bytes it is
+	// given and changes nothing but an existing file's line ending, below.
+	// It used to pass every write through a model-reply extractor that
+	// trimmed the content, sliced a Go file from its first "package " (a
+	// //go:build line and a licence header gone) and unwrapped the first
+	// bare fence of any file -- a Go file whose package comment showed a
+	// fenced example was written as the example alone -- after which its own
+	// FileWriteValidator failed any content ending in a newline. A caller
+	// that holds a model's reply rather than a file takes the file out of it
+	// at its own boundary (the campaign's document fallback: unwrapReplyFence).
 	logging.VirtualStoreDebug("Writing file: %s (%d bytes)", path, len(content))
 
 	dir := filepath.Dir(path)
@@ -255,18 +254,13 @@ func (v *VirtualStore) handleWriteFile(ctx context.Context, req ActionRequest) (
 	// lands (dogfood run 5: a repair added //go:build ignore to make the
 	// build pass). before nil is a new file; a file that cannot be read
 	// for another reason skips the check rather than failing the write.
-	// Both the asked bytes and the bytes that would land are judged: a
-	// constraint the extractor would strip is still a constraint the
-	// caller asked to add.
 	if before, readErr := os.ReadFile(path); readErr == nil || os.IsNotExist(readErr) {
 		if readErr != nil {
 			before = nil
 		}
-		for _, candidate := range [][]byte{[]byte(asked), []byte(content)} {
-			if refuse := v.rejectBuildExclusion(path, before, candidate); refuse != nil {
-				logging.Get(logging.CategoryVirtualStore).Warn("Write refused: %v", refuse)
-				return ActionResult{Success: false, Error: refuse.Error()}, nil
-			}
+		if refuse := v.rejectBuildExclusion(path, before, []byte(content)); refuse != nil {
+			logging.Get(logging.CategoryVirtualStore).Warn("Write refused: %v", refuse)
+			return ActionResult{Success: false, Error: refuse.Error()}, nil
 		}
 	}
 

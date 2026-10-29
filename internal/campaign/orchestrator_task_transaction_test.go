@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/observation"
 	"codenerd/internal/session"
 )
 
@@ -732,17 +733,30 @@ func TestRollback_RemovesFilesTheAttemptCreated(t *testing.T) {
 	}
 }
 
-func TestRollback_KeepsFilesOutsideTheWriteSet(t *testing.T) {
+// Ladder C4: a failed attempt's rollback restores the declared write set and
+// undoes the attempt's own writes outside it -- the file it created and the
+// caller it edited to import that file -- and leaves a file another writer put
+// outside the set, which the attempt never wrote, as it is.
+func TestRollback_UndoesTheAttemptsOwnWritesOutsideTheWriteSetAndNoOneElses(t *testing.T) {
 	dir := t.TempDir()
 	pkg := filepath.Join(dir, "pkg")
-	if err := os.MkdirAll(pkg, 0o755); err != nil {
-		t.Fatal(err)
+	outsideDir := filepath.Join(dir, "other")
+	for _, d := range []string{pkg, outsideDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write := func(path, content string) {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	existing := filepath.Join(pkg, "existing.go")
-	original := []byte("package sample\n// original\n")
-	if err := os.WriteFile(existing, original, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	const original = "package sample\n// original\n"
+	write(existing, original)
+	caller := filepath.Join(outsideDir, "caller.go")
+	const callerBefore = "package other\n"
+	write(caller, callerBefore)
 
 	orch := newSnapshotTestOrchestrator()
 	orch.workspace = dir
@@ -754,35 +768,45 @@ func TestRollback_KeepsFilesOutsideTheWriteSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("captureTaskExecutionSnapshot() error = %v", err)
 	}
+	orch.beginAttempt(task)
 
 	inside := filepath.Join(pkg, "new.go")
-	if err := os.WriteFile(inside, []byte("package sample\n// created\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(existing, []byte("package sample\n// modified\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	outsideDir := filepath.Join(dir, "other")
-	if err := os.MkdirAll(outsideDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	outside := filepath.Join(outsideDir, "new.go")
-	outsideContent := []byte("package other\n// outside\n")
-	if err := os.WriteFile(outside, outsideContent, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	write(inside, "package sample\n// created\n")
+	write(existing, "package sample\n// modified\n")
+	own := filepath.Join(outsideDir, "own.go")
+	const ownContent = "package other\n// the attempt's\n"
+	write(own, ownContent)
+	const callerAfter = "package other\n\nimport _ \"example/pkg\"\n"
+	write(caller, callerAfter)
+	// The turn's observed return carries what it wrote outside the set.
+	orch.recordAttemptWrites(task, []observation.FileWrite{
+		{Path: own, Before: observation.FileState{Known: true}, After: observation.FileState{Known: true, Exists: true, Content: ownContent}},
+		{Path: caller, Before: observation.FileState{Known: true, Exists: true, Content: callerBefore}, After: observation.FileState{Known: true, Exists: true, Content: callerAfter}},
+	})
+	sibling := filepath.Join(outsideDir, "sibling.go")
+	const siblingContent = "package other\n// another writer's\n"
+	write(sibling, siblingContent)
 
-	if err := orch.rollbackTaskExecutionSnapshot(snapshot); err != nil {
-		t.Fatalf("rollbackTaskExecutionSnapshot() error = %v", err)
+	cause := errors.New("the turn ended /unverified")
+	if err := orch.undoFailedAttempt(task, snapshot, cause); !errors.Is(err, cause) || err.Error() != cause.Error() {
+		t.Fatalf("undoFailedAttempt() = %v, want the cause alone: everything was put back", err)
 	}
-	if got, readErr := os.ReadFile(existing); readErr != nil || string(got) != string(original) {
+	if got, readErr := os.ReadFile(existing); readErr != nil || string(got) != original {
 		t.Fatalf("existing content not restored: content=%q err=%v", got, readErr)
 	}
-	if _, statErr := os.Stat(inside); !os.IsNotExist(statErr) {
-		t.Fatalf("created file inside write set should be removed by rollback, stat err: %v", statErr)
+	for _, gone := range []string{inside, own} {
+		if _, statErr := os.Stat(gone); !os.IsNotExist(statErr) {
+			t.Fatalf("%s was created by the attempt and survived its rollback, stat err: %v", gone, statErr)
+		}
 	}
-	if got, readErr := os.ReadFile(outside); readErr != nil || string(got) != string(outsideContent) {
-		t.Fatalf("file outside write set must survive rollback: content=%q err=%v", got, readErr)
+	if got, readErr := os.ReadFile(caller); readErr != nil || string(got) != callerBefore {
+		t.Fatalf("the attempt's edit outside its write set survived: content=%q err=%v", got, readErr)
+	}
+	if got, readErr := os.ReadFile(sibling); readErr != nil || string(got) != siblingContent {
+		t.Fatalf("another writer's file outside the write set must survive: content=%q err=%v", got, readErr)
+	}
+	if writes := orch.attemptWrites(task); writes != nil {
+		t.Fatalf("the attempt's record outlived its undo: %v", writes)
 	}
 }
 

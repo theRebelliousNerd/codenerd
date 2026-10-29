@@ -33,10 +33,10 @@ func TestRejectBuildExclusion_RefusesIgnoreInANewFile(t *testing.T) {
 	}
 }
 
-// extractCodeBlockForFile slices a Go payload from its package clause, which
-// drops a leading //go:build line. The write is still a request to hide the
-// file, so it is refused and nothing is created. Judging only the landed
-// bytes would accept it.
+// A new Go file whose header asks for //go:build ignore is a request to hide
+// the file, so it is refused and nothing is created. The store writes the
+// bytes it is given (ladder V1), so the header it judges is the header that
+// would land.
 func TestHandleWriteFile_RefusesAskedHeaderConstraints(t *testing.T) {
 	vs, dir := buildExclusionTestVS(t)
 	res, err := vs.handleWriteFile(context.Background(), ActionRequest{
