@@ -157,6 +157,12 @@ type JITPromptCompiler struct {
 	// Embedded corpus (baked-in atoms)
 	embeddedCorpus *EmbeddedCorpus
 
+	// workspace is the project root whose .nerd/agents.json is the specialist
+	// roster a compile advertises ({{available_specialists}}). Bound once by
+	// the boot owner (WithWorkspace); a compiler with none advertises only
+	// the built-in shards. It is never guessed from the process directory.
+	workspace string
+
 	// Project-level corpus database (.nerd/prompts/corpus.db)
 	projectDB *sql.DB
 

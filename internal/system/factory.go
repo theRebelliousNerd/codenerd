@@ -1785,6 +1785,9 @@ func initIntelligenceLayer(bctx *bootContext) error {
 	compilerCfg.SpecialistTopicChars = bctx.jitCfg.SpecialistTopicChars
 	compilerCfg.SpecialistBlockChars = bctx.jitCfg.SpecialistBlockChars
 	compilerOpts := []prompt.CompilerOption{
+		// The roster the prompts advertise is this session's workspace's,
+		// whatever directory the process was started in.
+		prompt.WithWorkspace(bctx.workspace),
 		prompt.WithKernel(NewKernelAdapter(bctx.kernel)),
 		prompt.WithEmbeddedCorpus(embeddedCorpus),
 		prompt.WithConfig(compilerCfg),

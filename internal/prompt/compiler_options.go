@@ -15,6 +15,18 @@ func WithEmbeddedCorpus(corpus *EmbeddedCorpus) CompilerOption {
 	}
 }
 
+// WithWorkspace binds the project root whose specialist registry
+// (.nerd/agents.json) the compiler's prompts advertise. The boot owner that
+// resolved the workspace passes it; the compiler never falls back to the
+// process working directory, which an interactive session started from a
+// subdirectory does not share with its project root.
+func WithWorkspace(root string) CompilerOption {
+	return func(c *JITPromptCompiler) error {
+		c.workspace = root
+		return nil
+	}
+}
+
 // WithProjectDB sets the project-level atom database.
 func WithProjectDB(db *sql.DB) CompilerOption {
 	return func(c *JITPromptCompiler) error {

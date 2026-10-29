@@ -39,15 +39,6 @@ type agentRegistry struct {
 	} `json:"agents"`
 }
 
-func getWorkspace(workspace string) string {
-	if workspace == "" {
-		if cwd, err := os.Getwd(); err == nil {
-			return cwd
-		}
-	}
-	return workspace
-}
-
 func getCachedSpecialists(registryPath string, modTime time.Time) (string, bool) {
 	specialistCacheMu.RLock()
 	defer specialistCacheMu.RUnlock()
@@ -151,8 +142,11 @@ func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error
 		return nil
 	}
 
-	workspace = getWorkspace(workspace)
-	if workspace == "" {
+	// No workspace bound: no project registry to read. The roster is the
+	// built-in shards, said as such, never a registry found by guessing the
+	// process directory.
+	if strings.TrimSpace(workspace) == "" {
+		ctx.AvailableSpecialists = formatSpecialists(agentRegistry{})
 		return nil
 	}
 

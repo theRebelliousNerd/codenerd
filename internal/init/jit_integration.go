@@ -245,6 +245,7 @@ func (i *Initializer) createJITCompiler() (*prompt.JITPromptCompiler, error) {
 	compiler, err := prompt.NewJITPromptCompiler(
 		prompt.WithEmbeddedCorpus(prompt.NewEmbeddedCorpus(atoms)),
 		prompt.WithKernel(newInitJITKernelAdapter(i.kernel)),
+		prompt.WithWorkspace(i.config.Workspace),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create JIT compiler: %w", err)

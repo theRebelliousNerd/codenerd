@@ -203,8 +203,10 @@ type renderFragmentKey struct {
 }
 
 // NewRenderSession snapshots the assembler's configuration and template
-// functions, and resolves the specialist roster once, so every fragment and
-// every reassembly in the session sees one consistent context.
+// functions, so every fragment and every reassembly in the session sees one
+// consistent context. The specialist roster is the context's: the compiler
+// resolves it from its bound workspace before the session starts. The
+// assembler has no workspace of its own and does not guess one.
 func (a *FinalAssembler) NewRenderSession(cc *CompilationContext) *RenderSession {
 	a.mu.RLock()
 	session := &RenderSession{
@@ -219,11 +221,6 @@ func (a *FinalAssembler) NewRenderSession(cc *CompilationContext) *RenderSession
 	}
 	a.mu.RUnlock()
 	session.funcs = a.templateEngine.snapshot()
-	if cc != nil && strings.TrimSpace(cc.AvailableSpecialists) == "" {
-		if err := InjectAvailableSpecialists(cc, ""); err != nil {
-			logging.Get(logging.CategoryJIT).Debug("Failed to inject available specialists: %v", err)
-		}
-	}
 	return session
 }
 

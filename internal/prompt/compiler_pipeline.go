@@ -102,7 +102,7 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 		return nil, err
 	}
 	if strings.TrimSpace(cc.AvailableSpecialists) == "" {
-		if err := InjectAvailableSpecialists(cc, ""); err != nil {
+		if err := InjectAvailableSpecialists(cc, c.workspace); err != nil {
 			logging.Get(logging.CategoryJIT).Debug("Failed to resolve specialists before cache lookup: %v", err)
 		}
 	}

@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -418,7 +419,11 @@ func TestTemplateEngine_ProcessFastPath(t *testing.T) {
 	assert.Equal(t, content, result)
 }
 
-func TestFinalAssembler_Assemble_InjectsAvailableSpecialists(t *testing.T) {
+// The roster a compile advertises is its bound workspace's registry, read
+// without the process being in that workspace; the assembler renders what
+// the context carries and guesses no directory of its own (audit
+// specialist-roster-workspace-identity).
+func TestCompiler_InjectsTheBoundWorkspacesSpecialists(t *testing.T) {
 	tmpDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmpDir, ".nerd"), 0o755); err != nil {
 		t.Fatalf("mkdir failed: %v", err)
@@ -428,18 +433,39 @@ func TestFinalAssembler_Assemble_InjectsAvailableSpecialists(t *testing.T) {
 		t.Fatalf("write agents.json failed: %v", err)
 	}
 
-	t.Chdir(tmpDir)
+	atoms := []*PromptAtom{
+		{ID: "identity", Category: CategoryIdentity, Content: "IDENTITY", IsMandatory: true, Importance: 100, TokenCount: 4},
+		{ID: "knowledge", Category: CategoryKnowledge, Content: "{{available_specialists}}", IsMandatory: true, Importance: 90, TokenCount: 20},
+	}
+	compiler, err := NewJITPromptCompiler(
+		WithEmbeddedCorpus(NewEmbeddedCorpus(atoms)),
+		WithKernel(&mockKernel{facts: atomsToFacts(atoms)}),
+		WithWorkspace(tmpDir),
+	)
+	if err != nil {
+		t.Fatalf("NewJITPromptCompiler: %v", err)
+	}
+	t.Cleanup(func() { _ = compiler.Close() })
+	result, err := compiler.Compile(context.Background(), &CompilationContext{OperationalMode: "/active", TokenBudget: 8000})
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	if !strings.Contains(result.Prompt, "goexpert") {
+		t.Fatalf("the compiled roster omits the bound workspace's specialist: %q", result.Prompt)
+	}
 
+	// The assembler alone renders the context's roster and reads no registry.
 	assembler := NewFinalAssembler()
 	cc := NewCompilationContext()
+	cc.AvailableSpecialists = "- **carried**: from the context"
 	prompt, err := assembler.Assemble([]*OrderedAtom{
 		{Atom: &PromptAtom{ID: "knowledge", Category: CategoryKnowledge, Content: "{{available_specialists}}"}, Order: 0},
 	}, cc)
 	if err != nil {
 		t.Fatalf("Assemble failed: %v", err)
 	}
-	if !strings.Contains(prompt, "goexpert") {
-		t.Fatalf("expected assembled prompt to include discovered specialist, got %q", prompt)
+	if !strings.Contains(prompt, "carried") {
+		t.Fatalf("the assembler did not render the context's roster: %q", prompt)
 	}
 }
 
