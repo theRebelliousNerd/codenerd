@@ -11,6 +11,7 @@ import (
 // result itself is correct — policy has no /consult/* reasoning mapping
 // (delegation.mg) — it just has to be cached like every other verdict.
 func TestIntentRequiresReasoningModel_ConsultVerbReturnsFalseAndCaches(t *testing.T) {
+	t.Parallel()
 	e, _, _ := newRoutingExecutor(t)
 
 	if got := e.intentRequiresReasoningModel("/consult/reviewer"); got != false {
@@ -34,6 +35,7 @@ func TestIntentRequiresReasoningModel_ConsultVerbReturnsFalseAndCaches(t *testin
 // returning so the "is not an atom" debug line is emitted once per verb, not
 // per lookup.
 func TestIntentRequiresReasoningModel_InvalidVerbReturnsFalseAndCaches(t *testing.T) {
+	t.Parallel()
 	e, _, _ := newRoutingExecutor(t)
 
 	if got := e.intentRequiresReasoningModel("/bad verb"); got != false {
@@ -52,6 +54,7 @@ func TestIntentRequiresReasoningModel_InvalidVerbReturnsFalseAndCaches(t *testin
 // MUST-NOT-CHANGE: a valid reasoning verb from policy still answers true.
 // /campaign is a direct reasoning_intensive_verb fact in delegation.mg.
 func TestIntentRequiresReasoningModel_ReasoningVerbReturnsTrue(t *testing.T) {
+	t.Parallel()
 	e, _, _ := newRoutingExecutor(t)
 
 	if got := e.intentRequiresReasoningModel("/campaign"); got != true {

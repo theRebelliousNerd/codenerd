@@ -33,6 +33,7 @@ func chargeTestGate(t *testing.T, own, imp TestVerification) VerifyOutcome {
 }
 
 func TestImporterGate_AttributionAndUnfinished(t *testing.T) {
+	t.Parallel()
 	oldFail := TestVerification{
 		Ran: true, Outcome: VerifyFailed, Output: "FAIL TestOld",
 		BaselineRan: true, BaselineFailures: []TestKey{{Pkg: "p", Name: "TestOld"}},
@@ -79,6 +80,7 @@ func TestImporterGate_AttributionAndUnfinished(t *testing.T) {
 }
 
 func TestImporterGate_UnfinishedIsAssertedAndNotAFailure(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 	result := &ExecutionResult{
 		TestCheck: ownPass(),
@@ -104,6 +106,7 @@ func TestImporterGate_UnfinishedIsAssertedAndNotAFailure(t *testing.T) {
 }
 
 func TestImporterGate_ALaterPassDropsThePreviousFailure(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 	result := &ExecutionResult{
 		TestCheck:     ownPass(),
@@ -158,6 +161,7 @@ func TestFailedChecksSummary_NamesAnImporterFailure(t *testing.T) {
 // example/b.TestLoad is new, so the gate fails. With name-only rows both
 // sides were {TestLoad} and the gate passed.
 func TestTestGate_SameNameInAnotherPackageIsCharged(t *testing.T) {
+	t.Parallel()
 	own := TestVerification{
 		Ran: true, Outcome: VerifyFailed, Output: "FAIL TestLoad",
 		BaselineRan:      true,

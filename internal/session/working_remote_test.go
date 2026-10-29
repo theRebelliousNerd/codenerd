@@ -15,6 +15,7 @@ import (
 // editing the file staled the fetched page. It is now a non-file
 // observation whose revision the edit does not touch.
 func TestRecordWorkingResult_ARemoteResultDoesNotTakeTheFocusFilesRevision(t *testing.T) {
+	t.Parallel()
 	e := newWorkingLoopExecutor(t, &MockLLMClient{})
 	client := filepath.Join(e.config.WorkspaceRoot, "client.go")
 	if err := os.WriteFile(client, []byte("package client\n"), 0o600); err != nil {

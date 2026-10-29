@@ -77,6 +77,7 @@ func unverifiedResult(response string, testRunCalls int) *ExecutionResult {
 }
 
 func TestUnverifiedClaimFailsWithoutTool(t *testing.T) {
+	t.Parallel()
 	e := newUnverifiedExec(t)
 	result := unverifiedResult("--- PASS: TestFoo", 0)
 	err := e.checkHollowSuccess(result)
@@ -92,6 +93,7 @@ func TestUnverifiedClaimFailsWithoutTool(t *testing.T) {
 }
 
 func TestUnverifiedClaimPassesWithTool(t *testing.T) {
+	t.Parallel()
 	e := newUnverifiedExec(t)
 	result := unverifiedResult("--- PASS: TestFoo", 1)
 	if err := e.checkHollowSuccess(result); err != nil {
@@ -103,6 +105,7 @@ func TestUnverifiedClaimPassesWithTool(t *testing.T) {
 // is not a fabricated claim (live 2026-09-17, the F-VERIFY-1b run failed
 // here). A gate that did not run still leaves the claim unbacked.
 func TestUnverifiedClaimPassesWithGateTestRun(t *testing.T) {
+	t.Parallel()
 	e := newUnverifiedExec(t)
 	result := unverifiedResult("ok  \tcodenerd/internal/session\t5.657s", 0)
 	result.TestCheck = TestVerification{Ran: true, OK: true, Outcome: VerifyPassed}
@@ -118,6 +121,7 @@ func TestUnverifiedClaimPassesWithGateTestRun(t *testing.T) {
 }
 
 func TestUnverifiedClaimProseDoesNotFail(t *testing.T) {
+	t.Parallel()
 	e := newUnverifiedExec(t)
 	result := unverifiedResult("make sure the tests pass", 0)
 	if err := e.checkHollowSuccess(result); err != nil {
@@ -136,6 +140,7 @@ func TestUnverifiedClaimProseDoesNotFail(t *testing.T) {
 }
 
 func TestUnverifiedClaimRetracted(t *testing.T) {
+	t.Parallel()
 	e := newUnverifiedExec(t)
 	result := unverifiedResult("--- PASS: TestFoo", 0)
 	if err := e.checkHollowSuccess(result); err == nil {
@@ -155,6 +160,7 @@ func TestUnverifiedClaimRetracted(t *testing.T) {
 }
 
 func TestUnverifiedClaimVariousOutputs(t *testing.T) {
+	t.Parallel()
 	e := newUnverifiedExec(t)
 	markers := []string{
 		"--- FAIL: TestBar",

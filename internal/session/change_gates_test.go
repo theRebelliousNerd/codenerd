@@ -68,6 +68,7 @@ const (
 // vet reports it in use.go, which the turn did not touch. The gate kept only
 // findings in written files and called this a pass.
 func TestVerifyVet_ACauseInAWrittenFileReportedInAnother(t *testing.T) {
+	t.Parallel()
 	ws := vetWorkspace(t, map[string]string{"go.mod": "module vetprobe\n\ngo 1.25\n", "p/state.go": vetStateMutex, "p/use.go": vetUse})
 
 	v := verifyVet(context.Background(), ws, []string{"p/state.go"}, map[string]PreImage{"p/state.go": existed(vetStateBefore)})
@@ -84,6 +85,7 @@ func TestVerifyVet_ACauseInAWrittenFileReportedInAnother(t *testing.T) {
 // turn wrote -- where the turn's edit moved its line and vet prints the
 // baseline's copy under the overlay's temporary path -- or in one it did not.
 func TestVerifyVet_AFindingThatPredatesTheTurnIsNotCharged(t *testing.T) {
+	t.Parallel()
 	stateBefore := vetStateBefore + vetUnreachable
 	stateNow := "package p\n\n// State is the probe's state.\ntype State struct {\n\tN int\n\tM int\n}\n" + vetUnreachable
 	ws := vetWorkspace(t, map[string]string{"go.mod": "module vetprobe\n\ngo 1.25\n", "p/state.go": stateNow, "p/use.go": vetUse + strings.Replace(vetUnreachable, "Old", "Older", 1)})
@@ -113,6 +115,7 @@ func vetGateExec(t *testing.T, v BuildVerification) *Executor {
 // Without a baseline the gate cannot tell old from new, and attribution it
 // cannot make is not a pass: every finding in the packages is charged.
 func TestVerifyVet_WithoutABaselineEveryFindingIsCharged(t *testing.T) {
+	t.Parallel()
 	ws := vetWorkspace(t, map[string]string{"go.mod": "module vetprobe\n\ngo 1.25\n", "p/state.go": vetStateBefore, "p/use.go": vetUse + vetUnreachable})
 
 	v := verifyVet(context.Background(), ws, []string{"p/state.go"}, map[string]PreImage{"p/state.go": {Unknown: "permission denied"}})
@@ -186,6 +189,7 @@ func TestSettleForcingRepair(t *testing.T) {
 // not write it ends with the debt on the result for the verdict to name --
 // unverified, not failed.
 func TestCoverageRound_TheModelWritesTheTestOrTheDebtStays(t *testing.T) {
+	t.Parallel()
 	const code = `package main
 
 func Double(x int) int {
@@ -396,6 +400,7 @@ func summaryNamesTest(seed, name string) bool {
 // workspace failed mechanical checks" and nothing more; the failing test was in
 // the session log only.
 func TestFailedChecksSummary_NamesWhatFailed(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -434,6 +439,7 @@ func TestFailedChecksSummary_NamesWhatFailed(t *testing.T) {
 // that gives up that way is undone -- the finding stays for the verdict to
 // name and the suite is as green as the round found it.
 func TestVetRound_ARepairThatBreaksTheTestsIsUndone(t *testing.T) {
+	t.Parallel()
 	// Unreachable code: a vet finding outside the subset go test runs itself,
 	// so the tests still pass and the vet round is what sees it.
 	const code = "package main\n\nfunc Double(x int) int {\n\treturn x * 2\n}\n\n" +

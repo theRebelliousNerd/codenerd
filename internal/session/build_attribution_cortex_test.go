@@ -12,6 +12,7 @@ import (
 // facts, so an import edge homed away from turn_written would charge the
 // failure on a single kernel and not on the one that ships.
 func TestBuildGate_AttributionMatchesOnShardedKernel(t *testing.T) {
+	t.Parallel()
 	cortex := bootRetentionCortex(t)
 	single, err := core.NewRealKernel()
 	if err != nil {

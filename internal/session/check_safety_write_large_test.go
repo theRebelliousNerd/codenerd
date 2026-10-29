@@ -8,6 +8,7 @@ import (
 )
 
 func TestCheckSafety_WriteFileLargeContent(t *testing.T) {
+	t.Parallel()
 	k, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatal(err)

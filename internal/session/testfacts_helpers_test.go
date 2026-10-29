@@ -136,6 +136,7 @@ func failingModule() map[string]string {
 }
 
 func TestFailedTopLevels(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -170,6 +171,7 @@ func TestFailedTopLevels(t *testing.T) {
 }
 
 func TestParseTestJSON_BuildFailure(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -193,6 +195,7 @@ func TestParseTestJSON_BuildFailure(t *testing.T) {
 }
 
 func TestVerificationOutput_KeepsFailuresCompact(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}

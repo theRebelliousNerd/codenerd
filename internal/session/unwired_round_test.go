@@ -18,6 +18,7 @@ import (
 // new functions no production path reaches, which are settled, and whether
 // the turn is pushed back and its verdict withheld.
 func TestUnwiredPolicy_TruthTable(t *testing.T) {
+	t.Parallel()
 	const a, b, c = "internal/x.A", "internal/x.B", "internal/x.C"
 	type fact struct {
 		pred string
@@ -91,6 +92,7 @@ func TestUnwiredPolicy_TruthTable(t *testing.T) {
 // changed one is not; a use from existing production code reaches it, a test
 // does not, and a method is reached by its name.
 func TestUnwiredMeasure_NewFunctionsAndTheirUses(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	write := func(rel, content string) string {
 		p := filepath.Join(ws, filepath.FromSlash(rel))
@@ -174,6 +176,7 @@ func TestUnwiredReasons_Parse(t *testing.T) {
 // unwired; now it is pushed back until the model wires it, or gives a reason
 // Jev reads as real, and a reason that is not leaves the verdict withheld.
 func TestUnwiredRound_UnreachedCodeIsPushedBack(t *testing.T) {
+	t.Parallel()
 	const mainGo = "package main\n\nimport \"repairprobe/internal/atoms\"\n\nfunc main() { atoms.Generate() }\n"
 	const wiredMain = "package main\n\nimport \"repairprobe/internal/atoms\"\n\nfunc main() {\n\tatoms.RepairExisting()\n\tatoms.Generate()\n}\n"
 	const atomsBefore = "package atoms\n\n// Generate writes atoms.\nfunc Generate() int { return 1 }\n"

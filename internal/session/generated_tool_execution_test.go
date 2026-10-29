@@ -21,6 +21,7 @@ func (s *generatedSessionStore) ExecuteGeneratedToolCall(_ context.Context, requ
 }
 
 func TestGeneratedSessionRetainsExactAuthorizationAndPartialReceipt(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatal(err)
@@ -108,6 +109,7 @@ func TestGeneratedSessionRefusesUnknownProtocolBeforeAdmission(t *testing.T) {
 }
 
 func TestGeneratedSessionDuplicateAuthorizationLease(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatal(err)

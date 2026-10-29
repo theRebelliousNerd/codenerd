@@ -37,6 +37,7 @@ import (
 // That is stale evidence surviving a source change as current truth, which is
 // the thing the whole seam is against.
 func TestTurnVerified_DoesNotReuseAnEarlierTurnsTestState(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 
 	// Turn N. The model calls the run_tests tool. handleRunTests injects this
@@ -85,6 +86,7 @@ func TestTurnVerified_DoesNotReuseAnEarlierTurnsTestState(t *testing.T) {
 // turn's own red. Both are pinned here so the arm cannot drift back to
 // reading the global in either direction.
 func TestTurnVerified_ReadsThisTurnsGateNotTheSessionsRed(t *testing.T) {
+	t.Parallel()
 	t.Run("foreignRedDoesNotBlockAGreenGate", func(t *testing.T) {
 		e := newObligationExec(t)
 

@@ -24,6 +24,7 @@ const nextTurn types.MangleAtom = "/turn_next"
 // and is not written. A second turn on the same kernel does not carry the
 // first turn's test, and cleanup of the first turn leaves the second.
 func TestTurnTestFacts_FailingRunIsThisTurnOnly(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("compiles and tests throwaway packages")
 	}
@@ -136,6 +137,7 @@ func TestTurnTestFacts_FailingRunIsThisTurnOnly(t *testing.T) {
 // A gate that did not run, and a gate that ran but kept no Result, are not
 // measurements. A Result sitting on a skipped verification is not asserted.
 func TestTurnTestFacts_SkippedGateAssertsNothing(t *testing.T) {
+	t.Parallel()
 	res := &testfacts.Result{
 		Status: testfacts.StatusFail,
 		Packages: []*testfacts.Package{{
@@ -220,6 +222,7 @@ const (
 // changed in a package this run did not test, so the profile does not mention
 // its file. Old did not change.
 func TestTurnElementMeasured_ProfileSplitsMeasuredFromMissed(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("compiles and tests a throwaway package")
 	}
@@ -309,6 +312,7 @@ func TestTurnElementMeasured_ProfileSplitsMeasuredFromMissed(t *testing.T) {
 // Inside the loop the FAIL line names the handle, and recalling it returns
 // the line the summary does not carry.
 func TestFailingTestRecall_HandleNamesTheArchive(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("compiles and tests a throwaway package")
 	}
@@ -373,6 +377,7 @@ func TestFailingTestRecall_HandleNamesTheArchive(t *testing.T) {
 // does not carry either body. A second pass does not append the handle again.
 // Without a loop the summary stays the Result's own rendering.
 func TestFailingTestRecall_TwoBodiesStayDistinct(t *testing.T) {
+	t.Parallel()
 	res := &testfacts.Result{
 		Status: testfacts.StatusFail,
 		Packages: []*testfacts.Package{{
@@ -439,6 +444,7 @@ func TestFailingTestRecall_TwoBodiesStayDistinct(t *testing.T) {
 // line the model reads, and recalling it has to return the stack the
 // summary does not carry in full.
 func TestFailingTestRecall_MultilineMessageNamesTheHandle(t *testing.T) {
+	t.Parallel()
 	const stack = "goroutine 1 [running]:"
 	res := &testfacts.Result{
 		Status: testfacts.StatusFail,
@@ -492,6 +498,7 @@ func TestFailingTestRecall_MultilineMessageNamesTheHandle(t *testing.T) {
 // lands on the continuation and the real line stays bare. Rendering the
 // handle with the entry cannot confuse the two.
 func TestFailingTestRecall_ResemblingMessageKeepsOwnHandle(t *testing.T) {
+	t.Parallel()
 	mimicked := "FAIL p TestB b_test.go:8: b broke"
 	res := &testfacts.Result{
 		Status: testfacts.StatusFail,

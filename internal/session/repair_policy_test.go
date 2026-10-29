@@ -17,6 +17,7 @@ import (
 // the Summary, which carries the failure and not the run's elapsed time.
 // A different message digests differently.
 func TestRepairFailureDigest_SameSummaryIsTheSameFailure(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -55,6 +56,7 @@ func TestRepairFailureDigest_SameSummaryIsTheSameFailure(t *testing.T) {
 // -- still before the cap. With a cap of five, a model that writes the same
 // broken file every attempt used to spend all five.
 func TestRepairLoop_TheSameFailureRestartsOnceThenGivesUpBeforeTheCap(t *testing.T) {
+	t.Parallel()
 	h := newRepairHarness(t, func(e *Executor) { e.config.RepairMaxAttempts = 5 })
 	h.initial = func() *types.LLMToolResponse {
 		return &types.LLMToolResponse{Text: "writing", ToolCalls: []types.ToolCall{
@@ -88,6 +90,7 @@ func TestRepairLoop_TheSameFailureRestartsOnceThenGivesUpBeforeTheCap(t *testing
 // converges in that one attempt. A six-call ceiling used to cut it and
 // start another attempt.
 func TestRepairLoop_AnAttemptIsNotCutAtACallCount(t *testing.T) {
+	t.Parallel()
 	const probe = "repair_probe_check"
 	allowed := []string{"write_file", "read_file", "edit_file", probe}
 	h := newRepairHarness(t, func(e *Executor) {
@@ -99,13 +102,15 @@ func TestRepairLoop_AnAttemptIsNotCutAtACallCount(t *testing.T) {
 		e.EffectiveAgentRuntimeConfig = &jitconfig.EffectiveAgentRuntimeConfig{AllowedTools: allowed}
 	})
 	// An execute-effect tool: the commit regime closes reading, not this.
-	registerTestTool(t, &tools.Tool{
+	if err := h.reg.Register(&tools.Tool{
 		Effect: tools.EffectExecute, Name: probe, Category: tools.CategoryGeneral,
 		Schema: tools.ToolSchema{Properties: map[string]tools.Property{"n": {Type: "integer"}}},
 		Execute: func(_ context.Context, args map[string]any) (string, error) {
 			return fmt.Sprintf("check %v: inconclusive", args["n"]), nil
 		},
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	h.initial = func() *types.LLMToolResponse {
 		return &types.LLMToolResponse{Text: "writing", ToolCalls: []types.ToolCall{
 			h.writeCall("c1", "write_file", filepath.Join(h.ws, "main.go"), repairMainGo),

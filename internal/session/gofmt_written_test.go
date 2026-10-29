@@ -124,6 +124,7 @@ func TestFormatWrittenGoFiles_KeepsCRLF(t *testing.T) {
 }
 
 func TestVerifyCompletedToolTurn_LateRoundWriteEndsFormatted(t *testing.T) {
+	t.Parallel()
 	const code = "package main\n\nfunc Double(x int) int {\n\treturn x * 2\n}\n\nfunc main() {}\n"
 	const emptyTest = "package main\n\nimport \"testing\"\n\nfunc TestProbe(t *testing.T) {}\n"
 	// Doubled blank line between the two test functions: valid Go that

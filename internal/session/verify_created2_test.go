@@ -68,6 +68,7 @@ func assertWorldTestPairing(t *testing.T, e *Executor, testPath, sourcePath stri
 // A turn that created source and no test owes a test, and the message must name
 // the file so the operator knows which one.
 func TestVerify_CreateNoTestFails(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 	recordCreatedSource(e, "pkg/foo.go")
 
@@ -89,6 +90,7 @@ func TestVerify_CreateNoTestFails(t *testing.T) {
 // Source and its test written in the same turn satisfy the rule without waiting
 // for a world rescan: the turn's own record pairs them.
 func TestVerify_CreateWithTestPasses(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 	e.recordGoFileCreations(map[string]bool{"pkg/foo.go": false, "pkg/foo_test.go": false}, nil)
 
@@ -100,6 +102,7 @@ func TestVerify_CreateWithTestPasses(t *testing.T) {
 // A created source the world already pairs with a test -- the scanner's
 // test_file_for -- owes nothing more.
 func TestVerify_CreateCoveredByAWorldTestPasses(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 	recordCreatedSource(e, "pkg/foo.go")
 	assertWorldTestPairing(t, e, "pkg/foo_test.go", "pkg/foo.go")
@@ -112,6 +115,7 @@ func TestVerify_CreateCoveredByAWorldTestPasses(t *testing.T) {
 // Editing an existing file is not creating new code, so nothing is recorded and
 // nothing is owed.
 func TestVerify_EditNoObligation(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 	e.recordGoFileCreations(map[string]bool{"pkg/foo.go": true}, nil)
 
@@ -122,6 +126,7 @@ func TestVerify_EditNoObligation(t *testing.T) {
 
 // Only Go source raises an obligation.
 func TestVerify_NonGoNoObligation(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 	e.recordGoFileCreations(map[string]bool{"docs/notes.md": false}, nil)
 
@@ -136,6 +141,7 @@ func TestVerify_NonGoNoObligation(t *testing.T) {
 // The obligation must not leak into the next turn. A created source left behind
 // would fail every later turn forever, which is worse than the defect it guards.
 func TestVerify_StaleNotLeak(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 	recordCreatedSource(e, "pkg/foo.go")
 
@@ -161,6 +167,7 @@ func TestVerify_StaleNotLeak(t *testing.T) {
 // constant. A path beginning with a slash would otherwise be stored as a name
 // and join with nothing.
 func TestVerify_MangleStringType(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 	recordCreatedSource(e, "/pkg/foo.go")
 	e.assertTurnEvidence(testTurn, "/create", mutationResult())

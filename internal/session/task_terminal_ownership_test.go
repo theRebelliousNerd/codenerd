@@ -153,6 +153,7 @@ func TestSpawner_ShutdownJoinsWhatStopsAndNamesWhatDoesNot(t *testing.T) {
 }
 
 func TestSpawner_ShutdownNamesAWorkerThatIgnoresTheStop(t *testing.T) {
+	t.Parallel()
 	release := make(chan struct{})
 	defer close(release)
 	started := make(chan struct{}, 2)

@@ -15,6 +15,7 @@ import (
 // once after the pinning round and once after a coverage round). A round's
 // response replaces the answer only when it says something.
 func TestRepairLoop_AToolOnlyRepairKeepsTheTurnsAnswer(t *testing.T) {
+	t.Parallel()
 	h := newRepairHarness(t, nil)
 	h.initial = func() *types.LLMToolResponse {
 		return &types.LLMToolResponse{Text: "writing", ToolCalls: []types.ToolCall{

@@ -289,6 +289,7 @@ func TestCriticFinding_Fields(t *testing.T) {
 }
 
 func TestParseAndUpliftIntegration(t *testing.T) {
+	t.Parallel()
 	// End-to-end: parse then triage through the kernel — low findings are
 	// dropped for uplift.
 	resp := "FINDING a.go:1 high: h1\nFINDING b.go:2 low: l1\nFINDING c.go:3 medium: m1"
@@ -309,6 +310,7 @@ func TestParseAndUpliftIntegration(t *testing.T) {
 }
 
 func TestBuildCriticPrompt_RoundTripWithParser(t *testing.T) {
+	t.Parallel()
 	// The role prompt's documented output format must be parseable by the
 	// parser. If it says 'FINDING file.go:123 severity: claim text' and the
 	// parser expects something else, the reviewer gate is wired to nothing.
@@ -483,6 +485,7 @@ func TestFormatUpliftPrompt_AllowsRejectingAFinding(t *testing.T) {
 // A stalled reviewer must yield the turn, not block it. This drives the gate
 // with a client that never returns and asserts it gives up.
 func TestVerifyAndUpliftWithCritic_AbandonsAStalledReview(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	if err := os.WriteFile(filepath.Join(ws, "a.go"), []byte("package p\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
@@ -535,6 +538,7 @@ func (hangingLLM) CompleteWithTools(ctx context.Context, _, _ string, _ []types.
 // the one signal in the prompt produced by a tool rather than a model. The
 // evidence rides in the message; the instruction is the role prompt's.
 func TestBuildCriticPrompt_InstructsOnUncoveredEvidence(t *testing.T) {
+	t.Parallel()
 	files := map[string]string{"a.go": "package p\n"}
 
 	withEvidence := buildCriticPrompt(files, nil, "a.go:10-12", "")
@@ -560,6 +564,7 @@ func TestBuildCriticPrompt_InstructsOnUncoveredEvidence(t *testing.T) {
 // F-DOC-1 recorded four real instances in two turns, so the reviewer is told to
 // look for them explicitly.
 func TestBuildCriticPrompt_AsksAboutCommentClaims(t *testing.T) {
+	t.Parallel()
 	p := buildCriticContract(t)
 
 	for _, want := range []string{
@@ -623,6 +628,7 @@ func TestTurnRemovals_LargeFileReportsOnlyRealRemoval(t *testing.T) {
 }
 
 func TestBuildCriticPrompt_ShowsTurnRemovals(t *testing.T) {
+	t.Parallel()
 	files := map[string]string{"a.go": "package a\n"}
 	removals := map[string]string{"a.go": "    2| // gone\n"}
 	got := buildCriticPrompt(files, removals, "", "")
@@ -695,6 +701,7 @@ func (r *recordingToolResults) CompleteWithToolResults(
 // reviewer returns a high-severity finding, and the test asserts the model is
 // actually asked to act on it.
 func TestVerifyAndUpliftWithCritic_FiresUpliftOnHighSeverityFinding(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	if err := os.WriteFile(filepath.Join(ws, "a.go"),
 		[]byte("package p\n\nfunc Add(a, b int) int { return a - b }\n"), 0o644); err != nil {
@@ -742,6 +749,7 @@ func TestVerifyAndUpliftWithCritic_FiresUpliftOnHighSeverityFinding(t *testing.T
 // a reviewer told to look hard is mostly style, and a model round per write turn
 // for that is how a signal becomes a tax.
 func TestVerifyAndUpliftWithCritic_LowSeverityDoesNotFireUplift(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	if err := os.WriteFile(filepath.Join(ws, "a.go"), []byte("package p\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
@@ -770,6 +778,7 @@ func TestVerifyAndUpliftWithCritic_LowSeverityDoesNotFireUplift(t *testing.T) {
 // NO FINDINGS must cost nothing beyond the review itself. This is the property
 // most at risk in the whole design: a reviewer that must produce something will.
 func TestVerifyAndUpliftWithCritic_NoFindingsCostsNothingExtra(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	if err := os.WriteFile(filepath.Join(ws, "a.go"), []byte("package p\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)

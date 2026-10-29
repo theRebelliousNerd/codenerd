@@ -60,6 +60,7 @@ func (k *countingKernel) Query(q string) ([]types.Fact, error) {
 // One derivation feeds both the prompt and the allowlist: a second query
 // could answer differently and drift the two apart.
 func TestSpawnerDerivesTurnCatalogOnce(t *testing.T) {
+	t.Parallel()
 	real, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)

@@ -36,6 +36,7 @@ func TestIsWriteOrientedIntent(t *testing.T) {
 }
 
 func TestWriteOrientedIntentFallbackMatchesPolicy(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)

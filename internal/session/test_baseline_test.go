@@ -71,6 +71,7 @@ func writeWorkspaceFile(t *testing.T, ws, name, content string) {
 // adds an unrelated func while TestAlwaysFails fails identically before and
 // after. The gate must pass and name the pre-existing failure.
 func TestAttributeTestFailures_AllPreExistingPasses(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -116,6 +117,7 @@ func TestAttributeTestFailures_AllPreExistingPasses(t *testing.T) {
 // TestAttributeTestFailures_AllPreExistingPasses, but attributeTestFailures runs
 // with an already-expired deadline context.
 func TestAttributeTestFailures_ExpiredDeadlineStillAttributes(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -180,6 +182,7 @@ func TestAttributeTestFailures_CanceledSkips(t *testing.T) {
 // must stay failed, name the pre-existing failure, and prefix the output
 // with the "Pre-existing failures" line while keeping TestOK's failure.
 func TestAttributeTestFailures_MixedNewAndPreExisting(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -233,6 +236,7 @@ func testGateExec(t *testing.T, v TestVerification) *Executor {
 // A new subtest is charged even when its parent already failed. The name
 // compared is the sanitized one testfacts reports ("old case" -> old_case).
 func TestAttributeTestFailures_NewSubtestIsNotPreExisting(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -306,6 +310,7 @@ func TestPartitionPreExisting_SubtestSpelling(t *testing.T) {
 // baseline overlay deletes it, the test passes at baseline, so the gate
 // must stay failed with no pre-existing failures.
 func TestAttributeTestFailures_TurnCreatedFileIsNew(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}

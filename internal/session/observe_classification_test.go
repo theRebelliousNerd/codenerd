@@ -13,6 +13,7 @@ import (
 // compatibility /explain a failed classification leaves: observation ends with
 // the kernel's disposition, typed, so a caller can tell a blocker from a retry.
 func TestExecutor_Observe_FailedClassificationEndsTheTurn(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		err    error
@@ -46,6 +47,7 @@ func TestExecutor_Observe_FailedClassificationEndsTheTurn(t *testing.T) {
 // A turn no model classified (a preset) and an admitted reading are observed
 // without a classification stop.
 func TestExecutor_Observe_AdmittedAndUnclassifiedPass(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatal(err)

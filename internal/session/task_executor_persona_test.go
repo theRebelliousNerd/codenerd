@@ -18,6 +18,7 @@ func personaExecutor(t *testing.T) *JITExecutor {
 }
 
 func TestIntentFor_ThePersonaTableIsTheKernels(t *testing.T) {
+	t.Parallel()
 	j := personaExecutor(t)
 	for _, tc := range []struct{ in, want string }{
 		{"coder", "/fix"},
@@ -55,6 +56,7 @@ func TestIntentFor_ThePersonaTableIsTheKernels(t *testing.T) {
 // Image generation fails closed, bare or slashed: mapped to /create it would
 // run on the worker client.
 func TestIntentFor_ImageGenerationFailsClosed(t *testing.T) {
+	t.Parallel()
 	j := personaExecutor(t)
 	for _, verb := range []string{"image_generator", "imagen", "nano_banana", "image", "/image"} {
 		if got, err := j.intentFor(verb); err == nil || got != "" {
@@ -78,6 +80,7 @@ func TestIntentFor_NoPersonaTableIsAnError(t *testing.T) {
 
 // Whether a verb runs as an isolated subagent is the kernel's verb_isolated.
 func TestRunsIsolated_IsTheKernels(t *testing.T) {
+	t.Parallel()
 	j := personaExecutor(t)
 	for verb, want := range map[string]bool{"/research": true, "/refactor": true, "/fix": false, "/review": false} {
 		got, err := j.runsIsolated(verb)

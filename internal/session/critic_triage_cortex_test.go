@@ -12,6 +12,7 @@ import (
 // turn_gate, and severity_rank is corpus ground facts, so the triage must
 // derive identically on the sharded kernel and a single one.
 func TestCriticTriage_MatchesOnShardedKernel(t *testing.T) {
+	t.Parallel()
 	cortex := bootRetentionCortex(t)
 	single, err := core.NewRealKernel()
 	if err != nil {

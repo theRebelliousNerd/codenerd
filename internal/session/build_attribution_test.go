@@ -19,6 +19,7 @@ import (
 // session gate tests do.
 
 func TestBuildAttribution_OwnCompileErrorIsRedThenRepaired(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("compiles a throwaway package")
 	}
@@ -72,6 +73,7 @@ func TestBuildAttribution_OwnCompileErrorIsRedThenRepaired(t *testing.T) {
 }
 
 func TestBuildAttribution_ForeignPackageIsNotCharged(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("compiles a throwaway package")
 	}
@@ -144,6 +146,7 @@ func TestBuildAttribution_ForeignPackageIsNotCharged(t *testing.T) {
 }
 
 func TestBuildAttribution_TransitiveImporterIsRed(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("compiles a throwaway package")
 	}

@@ -17,7 +17,7 @@ import (
 // investigation-affordances.md). A granted name is callable on a channel only
 // when a backend owns it and the channel can carry its argument contract:
 //
-//   - a modular tool (tools.Global()) has a typed schema and is offered on
+//   - a modular tool (e.modularTools()) has a typed schema and is offered on
 //     both channels, rendered from the same definition on each;
 //   - a generated (Ouroboros) tool has no typed argument schema -- its binary
 //     receives the call's arguments as one JSON object -- so it is offered
@@ -36,7 +36,7 @@ func (e *Executor) buildToolDefinitions(cfg *config.EffectiveAgentRuntimeConfig)
 		logging.SessionDebug("buildToolDefinitions: no tools configured (cfg=%v)", cfg != nil)
 		return nil
 	}
-	registry := tools.Global()
+	registry := e.modularTools()
 	var defs []types.ToolDefinition
 	for _, toolName := range cfg.AllowedTools {
 		tool := registry.Get(toolName)
@@ -67,7 +67,7 @@ func (e *Executor) generatedToolDefinitions(cfg *config.EffectiveAgentRuntimeCon
 	if reg == nil {
 		return nil
 	}
-	modular := tools.Global()
+	modular := e.modularTools()
 	var defs []types.ToolDefinition
 	for _, name := range cfg.AllowedTools {
 		if modular.Has(name) {
@@ -89,7 +89,7 @@ func (e *Executor) generatedToolDefinitions(cfg *config.EffectiveAgentRuntimeCon
 // toolUnavailability says why a granted name is not callable on this
 // channel, or "" when it is.
 func (e *Executor) toolUnavailability(name string, textChannel bool) string {
-	if tools.Global().Has(name) {
+	if e.modularTools().Has(name) {
 		return ""
 	}
 	e.mu.RLock()

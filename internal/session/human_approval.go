@@ -171,8 +171,8 @@ func approvalAgent(cfg *config.EffectiveAgentRuntimeConfig) string {
 // toolRegistrationDigest identifies the modular registration a call resolves
 // to: re-registering the tool with another schema or description is a
 // different tool, and an approval of the old one does not carry over.
-func toolRegistrationDigest(name string) (string, error) {
-	tool := tools.Global().Get(name)
+func (e *Executor) toolRegistrationDigest(name string) (string, error) {
+	tool := e.modularTools().Get(name)
 	if tool == nil {
 		return "", fmt.Errorf("tool %s has no modular registration", name)
 	}
@@ -195,11 +195,11 @@ func (e *Executor) approvalSubject(call ToolCall, cfg *config.EffectiveAgentRunt
 	if err != nil {
 		return approval.Subject{}, nil, err
 	}
-	version, err := toolRegistrationDigest(call.Name)
+	version, err := e.toolRegistrationDigest(call.Name)
 	if err != nil {
 		return approval.Subject{}, nil, err
 	}
-	effect, err := tools.LookupEffect(call.Name)
+	effect, err := e.modularTools().LookupEffect(call.Name)
 	if err != nil {
 		return approval.Subject{}, nil, err
 	}

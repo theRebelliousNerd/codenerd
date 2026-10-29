@@ -113,6 +113,7 @@ func TestSemanticCompressor_Compress_TypeCoercion(t *testing.T) {
 }
 
 func TestSemanticCompressor_Compress_UserRequestExtremes(t *testing.T) {
+	t.Parallel()
 	const limit = 60000
 	var calls, finals int
 	var mu sync.Mutex

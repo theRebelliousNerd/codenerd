@@ -27,6 +27,7 @@ const (
 // N25: the turn's own package is green and the package that imports it is
 // not. Until this the gate saw only the first and the turn ended /done.
 func TestGateTests_RunsThePackagesThatImportWhatTheTurnWrote(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -65,6 +66,7 @@ func TestGateTests_RunsThePackagesThatImportWhatTheTurnWrote(t *testing.T) {
 // A turn that changes nothing the importer can see leaves it green, and the
 // gate passes.
 func TestGateTests_AnImporterThatStillHoldsIsNoFailure(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -91,6 +93,7 @@ func TestGateTests_AnImporterThatStillHoldsIsNoFailure(t *testing.T) {
 // An importer that was already failing before the turn is not the turn's:
 // the same baseline attribution the turn's own packages get.
 func TestGateTests_AnImporterFailingBeforeTheTurnIsNotCharged(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -128,6 +131,7 @@ func TestGateTests_AnImporterFailingBeforeTheTurnIsNotCharged(t *testing.T) {
 // verifyTests returns that cancel as itself. Indeterminate is the same
 // /unfinished atom (importer_gate_test.go); a hang is not this test.
 func TestGateTests_AnUnfinishedImporterRunDoesNotPass(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}

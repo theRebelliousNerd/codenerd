@@ -53,6 +53,7 @@ func schedule(t *testing.T, e *Executor, result *ExecutionResult) []string {
 }
 
 func TestPostEditRounds_AGoFixOwesEveryRoundInOrder(t *testing.T) {
+	t.Parallel()
 	e := roundsExecutor(t)
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}, WriteToolEffects: 1, WrittenPaths: []string{"internal/x/x.go"}}
 	want := []string{"/build", "/test", "/critic", "/coverage", "/pinned", "/vet", "/removed_tests", "/unwired", "/finish"}
@@ -65,6 +66,7 @@ func TestPostEditRounds_AGoFixOwesEveryRoundInOrder(t *testing.T) {
 // no-path arm). touchedGoFiles(nil) was false, so no round ran and the
 // verdict could only be /unverified.
 func TestPostEditRounds_AWriteWithNoRecordedPathOwesTheBuild(t *testing.T) {
+	t.Parallel()
 	e := roundsExecutor(t)
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}, WriteToolEffects: 1}
 	got := schedule(t, e, result)
@@ -75,6 +77,7 @@ func TestPostEditRounds_AWriteWithNoRecordedPathOwesTheBuild(t *testing.T) {
 
 // A document write owes no Go round and no test run.
 func TestPostEditRounds_ADocumentWriteOwesNoGoRound(t *testing.T) {
+	t.Parallel()
 	e := roundsExecutor(t)
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/create"}, WriteToolEffects: 1, WrittenPaths: []string{"Docs/x.md"}}
 	for _, round := range schedule(t, e, result) {
@@ -87,6 +90,7 @@ func TestPostEditRounds_ADocumentWriteOwesNoGoRound(t *testing.T) {
 // The schedule is policy: a round the policy owes and the executor has no
 // driver for is an error, not skipped -- a new round is a rule and a driver.
 func TestPostEditRounds_ARoundWithNoDriverIsAnError(t *testing.T) {
+	t.Parallel()
 	e := roundsExecutor(t)
 	rk, ok := e.kernel.(interface{ AppendPolicy(string) })
 	if !ok {
@@ -117,6 +121,7 @@ func TestPostEditRounds_NoKernel(t *testing.T) {
 // after /pinned and before /vet. Until 2026-09-26 those survivors reached the
 // model only when pinning FAILED.
 func TestPostEditRounds_SurvivorsOfAPassingPinGateOweAnAdvisoryRound(t *testing.T) {
+	t.Parallel()
 	e := roundsExecutor(t)
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}, WriteToolEffects: 1, WrittenPaths: []string{"internal/x/x.go"}}
 	var got []string

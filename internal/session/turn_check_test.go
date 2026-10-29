@@ -217,6 +217,7 @@ func TestTurn_ACampaignCheckOffersRunCheck(t *testing.T) {
 }
 
 func TestSpawn_OffersRunCheckOnlyToAnEditingPersonaWithACheck(t *testing.T) {
+	t.Parallel()
 	k, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -351,6 +352,7 @@ func TestCheckGate_IsTheLastRunAfterTheLastWrite(t *testing.T) {
 }
 
 func TestTurnOutcome_ADeclaredCheckIsEvidence(t *testing.T) {
+	t.Parallel()
 	namesCheck := func(result *ExecutionResult) bool {
 		return slices.Contains(result.MissingEvidence, "/check_not_green")
 	}

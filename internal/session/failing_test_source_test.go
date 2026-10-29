@@ -18,6 +18,7 @@ const failingProbeTest = "package probe\n\nimport \"testing\"\n\n" +
 // the package the runner named, so a round with the read tools closed does
 // not have to open it.
 func TestFailingTestSection_RendersTheFailingTestFromThePackageTheRunnerNamed(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -78,6 +79,7 @@ func TestFailingTestSection_FindsTheTestBesideTheTurnsOwnWrite(t *testing.T) {
 // round has closed the read tools, and R1-12 spent three attempts trying to
 // obey that sentence with recall_context.
 func TestTestRepairPrompt_StopsAskingForAReadItCannotDo(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -103,6 +105,7 @@ func TestTestRepairPrompt_StopsAskingForAReadItCannotDo(t *testing.T) {
 
 // End to end: a turn whose edit breaks a test is handed the test.
 func TestVerifyAndRepairTests_ThePromptCarriesTheFailingTest(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}

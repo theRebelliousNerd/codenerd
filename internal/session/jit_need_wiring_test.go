@@ -17,6 +17,7 @@ import (
 // /authoring_code, a Markdown document none of them; a compile whose language
 // nothing could tell is asked as /undetected and carries /authoring_code only.
 func TestCompilationContextCarriesTheKernelsDerivedNeeds(t *testing.T) {
+	t.Parallel()
 	k, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -53,6 +54,7 @@ func TestCompilationContextCarriesTheKernelsDerivedNeeds(t *testing.T) {
 // A planned step re-derives the need for its own file: a turn aimed at a
 // document whose plan edits a Go file compiles that step with the Go need.
 func TestStepCompileDerivesTheStepFilesNeeds(t *testing.T) {
+	t.Parallel()
 	k, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -81,6 +83,7 @@ func TestStepCompileDerivesTheStepFilesNeeds(t *testing.T) {
 // (/envelope_tool_requests); a native client is not, and no executor compile is
 // taught knowledge_requests, which only the chat turn's articulation consults.
 func TestCompilationContextCarriesTheConsumersNeeds(t *testing.T) {
+	t.Parallel()
 	k, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)

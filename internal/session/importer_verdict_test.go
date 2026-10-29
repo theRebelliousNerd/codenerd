@@ -16,6 +16,7 @@ import (
 // its own path: without one, "no budget" would mean "no time at all" and every
 // verification would come back indeterminate before the command started.
 func TestRunVerificationCommand_ZeroBudgetIsUnbounded(t *testing.T) {
+	t.Parallel()
 	ran := false
 	runner := func(ctx context.Context, _ string, _ []string, _ string, _ []string) ([]byte, error) {
 		// Long enough that any accidental sub-second budget would cut it,

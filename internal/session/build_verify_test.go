@@ -28,6 +28,7 @@ func TestVerifyBuild_EmptyWorkspaceDoesNotRun(t *testing.T) {
 // The real gate: a package that does not compile must come back Ran && !OK,
 // with the compiler's own message available to hand to the repair round.
 func TestVerifyBuild_DetectsBrokenPackage(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("compiles a throwaway package")
 	}

@@ -139,6 +139,7 @@ func goldenVerbPersona() map[string]string {
 // factory parity check. The expected sets are the factory envelopes; the
 // kernel is the only source left.
 func TestTurnCatalog_KernelEnvelope(t *testing.T) {
+	t.Parallel()
 	k, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)

@@ -64,7 +64,7 @@ type SessionPersister interface {
 // InteractiveExecutiveGate is the mandatory capability for effectful tools a VirtualStore can expose
 // to bring the Dreamer destructive-action gate and the post-action validator
 // registry onto the interactive tool-execution path. The clean executor runs
-// modular tools directly via tools.Global(), bypassing RouteAction, so without
+// modular tools directly from its registry (modularTools), bypassing RouteAction, so without
 // this seam those executive layers never fire on a live coding turn.
 //
 // The executor type-asserts e.virtualStore against this interface. When the
@@ -161,8 +161,13 @@ type Executor struct {
 
 	// Tool registries (dual-registry Piggyback++ architecture)
 	// ouroborosRegistry holds Ouroboros-generated compiled binary tools
-	// Modular tools from tools.Global() are accessed directly
 	ouroborosRegistry *core.ToolRegistry
+	// modular is the registry of Go-handler tools this executor offers and
+	// dispatches; nil means tools.Global() (modularTools). It
+	// used to be read as tools.Global() at every site, so the only way to
+	// run an executor over another tool set was to swap the process-wide
+	// registry, and every test that did so had to run alone.
+	modular atomic.Pointer[tools.Registry]
 
 	// Context management
 	conversationHistory []perception.ConversationTurn
@@ -463,6 +468,26 @@ func NewExecutor(
 	}
 }
 
+// SetModularTools makes reg the registry of Go-handler tools this executor
+// offers and dispatches, in place of tools.Global(). A nil reg is refused:
+// an executor with no modular registry has no defined tool set.
+func (e *Executor) SetModularTools(reg *tools.Registry) {
+	if reg == nil {
+		panic("session: SetModularTools(nil)")
+	}
+	e.modular.Store(reg)
+}
+
+// modularTools is the registry SetModularTools installed. An executor that
+// was given none -- the zero value included -- uses tools.Global(), the
+// registry production boot fills.
+func (e *Executor) modularTools() *tools.Registry {
+	if reg := e.modular.Load(); reg != nil {
+		return reg
+	}
+	return tools.Global()
+}
+
 // SetPlannerClient installs the high-reasoning client used for turns the
 // kernel derives as reasoning-intensive. Passing nil (or the same client as
 // llmClient) leaves every turn on the default client.
@@ -603,6 +628,7 @@ func (e *Executor) CloneForTask() *Executor {
 	clone := NewExecutor(e.kernel, e.virtualStore, e.llmClient, e.jitCompiler, e.configFactory, e.transducer)
 	clone.config = e.config
 	clone.ouroborosRegistry = e.ouroborosRegistry
+	clone.modular.Store(e.modular.Load())
 	clone.sessionID = e.sessionID
 	clone.usageTracker = e.usageTracker
 	clone.toolMeter = e.toolMeter

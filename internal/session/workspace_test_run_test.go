@@ -59,6 +59,7 @@ func workspaceWithGate(t *testing.T, gateLine string) string {
 // workspace's gate, over the directory written -- not by a run the model
 // picks -- and the gate's verdict is the /test_run gate's.
 func TestWorkspaceTestRun_TheWorkspacesGateDecidesANonGoWrite(t *testing.T) {
+	t.Parallel()
 	bin := checkGate(t)
 	ws := workspaceWithGate(t, "  - id: check\n    kind: test\n    run: >-\n      '"+filepath.ToSlash(bin)+"' {node}\n    scope: node\n")
 	e := newObligationExec(t)
@@ -86,6 +87,7 @@ func TestWorkspaceTestRun_TheWorkspacesGateDecidesANonGoWrite(t *testing.T) {
 // leaves the run to the model as before. (A declared gate whose program is
 // missing is not left: it is owed and recorded unavailable.)
 func TestWorkspaceTestRun_LeavesWhatItCannotDecide(t *testing.T) {
+	t.Parallel()
 	bin := checkGate(t)
 	for name, tc := range map[string]struct {
 		gate    string

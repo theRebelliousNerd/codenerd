@@ -771,6 +771,7 @@ func TestExecutor_Process_ToolTimeout(t *testing.T) {
 }
 
 func TestExecutor_Process_MassiveInputString(t *testing.T) {
+	t.Parallel()
 	// 50MB string
 	massiveInput := strings.Repeat("A", 50*1024*1024)
 
@@ -798,6 +799,7 @@ func TestExecutor_Process_MassiveInputString(t *testing.T) {
 }
 
 func TestExecutor_StateConflicts_ToolRemoved(t *testing.T) {
+	t.Parallel()
 	mockLLM := &MockLLMClient{
 		CompleteWithToolsFunc: func(ctx context.Context, sys, user string, toolsDef []types.ToolDefinition) (*types.LLMToolResponse, error) {
 			// the tool is allowed by config, so LLM calls it

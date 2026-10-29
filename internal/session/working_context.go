@@ -95,11 +95,11 @@ const repairRegime = "repair"
 // recovers evidence the loop already gathered rather than exploring for more.
 // External tools are exploration too: observed 2026-09-11, a model under the
 // regime reached for mcp_context and mcp_map instead of writing.
-func closedForReading(name string) bool {
+func (e *Executor) closedForReading(name string) bool {
 	if name == "recall_context" {
 		return false
 	}
-	effect, err := tools.LookupEffect(name)
+	effect, err := e.modularTools().LookupEffect(name)
 	return err == nil && (effect == tools.EffectRead || effect == tools.EffectExternal)
 }
 
@@ -141,10 +141,10 @@ const structuralFirstText = "Raw search (grep, glob, list_files, search_code) is
 const searchOpenedText = "Raw search (grep, glob, list_files, search_code) is now offered as well. Prefer the structural queries where they answer; search text where they cannot."
 
 // commitRegimeDefinitions is the catalog offered under the commit regime.
-func commitRegimeDefinitions(definitions []types.ToolDefinition) []types.ToolDefinition {
+func (e *Executor) commitRegimeDefinitions(definitions []types.ToolDefinition) []types.ToolDefinition {
 	kept := make([]types.ToolDefinition, 0, len(definitions))
 	for _, def := range definitions {
-		if !closedForReading(def.Name) {
+		if !e.closedForReading(def.Name) {
 			kept = append(kept, def)
 		}
 	}
@@ -424,7 +424,7 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 	// admission.md, Finding one). It is filed as a non-file observation: its
 	// revision is stable, so it is historical evidence of what was fetched,
 	// and a later fetch of the same arguments supersedes it.
-	if observed == "" && (entity != "" || !remoteObservation(call.Name)) {
+	if observed == "" && (entity != "" || !e.remoteObservation(call.Name)) {
 		observed = loop.focus
 	}
 	revision := loop.set.Revision(observed)
@@ -443,7 +443,7 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 	loop.handles[id] = handle
 	loop.remember(call.ID, id)
 	if toolErr == nil {
-		if effect, err := tools.LookupEffect(call.Name); err == nil && effect == tools.EffectWrite {
+		if effect, err := e.modularTools().LookupEffect(call.Name); err == nil && effect == tools.EffectWrite {
 			if loop.written == nil {
 				loop.written = make(map[string]bool)
 			}
@@ -980,7 +980,7 @@ func (e *Executor) completeWithWorkingContext(ctx context.Context, provider type
 	}
 	if loop != nil {
 		if loop.regime == commitRegime {
-			definitions = commitRegimeDefinitions(definitions)
+			definitions = e.commitRegimeDefinitions(definitions)
 		}
 		if !loop.searchOpen {
 			definitions = structuralFirstDefinitions(definitions)
@@ -995,7 +995,7 @@ func (e *Executor) completeWithWorkingContext(ctx context.Context, provider type
 
 // remoteObservation reports a tool whose result is acquired from outside the
 // workspace (tools.EffectExternal): it has no workspace revision to inherit.
-func remoteObservation(name string) bool {
-	effect, err := tools.LookupEffect(name)
+func (e *Executor) remoteObservation(name string) bool {
+	effect, err := e.modularTools().LookupEffect(name)
 	return err == nil && effect == tools.EffectExternal
 }

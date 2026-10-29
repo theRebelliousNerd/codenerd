@@ -226,6 +226,7 @@ func TestShellAuthorization_AReadOnlyRestrictionAlwaysWins(t *testing.T) {
 // turn), tells the kernel, and puts the scope on the context. A model-built
 // intent field is not what carries it: only the merge of the two sources is.
 func TestShellAuthorization_ProcessWithIntentCarriesTheRequestsAuthorization(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("runs a throwaway module turn")
 	}
@@ -250,7 +251,7 @@ func TestShellAuthorization_ProcessWithIntentCarriesTheRequestsAuthorization(t *
 				}}
 				e.EffectiveAgentRuntimeConfig = &jitconfig.EffectiveAgentRuntimeConfig{AllowedTools: allowed}
 			})
-			if err := shell.RegisterAll(tools.Global()); err != nil {
+			if err := shell.RegisterAll(h.reg); err != nil {
 				t.Fatal(err)
 			}
 			initGitRepo(t, h.ws)

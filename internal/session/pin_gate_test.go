@@ -46,6 +46,7 @@ func pinTurn(t *testing.T) (string, *ExecutionResult) {
 }
 
 func TestVerifyPinning_ACallSiteOnlyAHelperTestReachesIsUnpinned(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -75,6 +76,7 @@ func TestVerifyPinning_ACallSiteOnlyAHelperTestReachesIsUnpinned(t *testing.T) {
 // read a pin check older than the code. Where the round did not run, the
 // closure leaves the check alone.
 func TestCloseChangeEvidence_APinTheTurnLostLaterIsNamed(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -117,6 +119,7 @@ func TestCloseChangeEvidence_APinTheTurnLostLaterIsNamed(t *testing.T) {
 // A turn that changed a function and wrote no test pins nothing: every change
 // is named, without running anything.
 func TestVerifyPinning_AChangeWithNoTestOfTheTurnsIsUnpinned(t *testing.T) {
+	t.Parallel()
 	ws, result := pinTurn(t)
 	result.WrittenPaths = []string{"calc.go", "helper.go"}
 
@@ -211,6 +214,7 @@ func TestFileUnits_KeepsTheImportsThePutBackCodeNeeds(t *testing.T) {
 // The verdict: a behaviour change owes /pinned (its round is on the kernel's
 // schedule), and without it green it is not done.
 func TestTurnWhoseChangeIsPinnedByNoTestIsNotDone(t *testing.T) {
+	t.Parallel()
 	owes := func(verb string) bool {
 		e := newObligationExec(t)
 		result := writeTurnResult()
@@ -259,6 +263,7 @@ func TestTurnWhoseChangeIsPinnedByNoTestIsNotDone(t *testing.T) {
 // The round: a turn whose tests do not pin its change is sent back to write
 // one that does, and the turn that writes it closes /done.
 func TestVerifyCompletedToolTurn_AnUnpinnedChangeIsSentBackForATestThatPinsIt(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}

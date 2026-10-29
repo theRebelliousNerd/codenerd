@@ -53,6 +53,7 @@ func registerProductionTools(t *testing.T) {
 // stay; subagent_expand rides only a turn whose input carries a
 // subagent-return handle.
 func TestTurnWithheldToolsFollowTheTurn(t *testing.T) {
+	t.Parallel()
 	k, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)

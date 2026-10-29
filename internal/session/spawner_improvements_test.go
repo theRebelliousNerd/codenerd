@@ -20,6 +20,7 @@ import (
 // generateConfig (which can do IO/LLM calls). Multiple spawns should proceed
 // concurrently without blocking each other during config generation.
 func TestSpawner_Spawn_ConcurrencyFix(t *testing.T) {
+	t.Parallel()
 	cfg := DefaultSpawnerConfig()
 	cfg.MaxActiveSubagents = 5
 
@@ -206,6 +207,7 @@ func TestSpawner_GenerateConfig_FallbackSuccess(t *testing.T) {
 // TestSpawner_Spawn_Concurrent_MaxLimitRace verifies that the double-check
 // for the max limit after config generation prevents over-provisioning.
 func TestSpawner_Spawn_Concurrent_MaxLimitRace(t *testing.T) {
+	t.Parallel()
 	cfg := DefaultSpawnerConfig()
 	cfg.MaxActiveSubagents = 1
 

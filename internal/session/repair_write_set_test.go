@@ -81,6 +81,7 @@ func TestBuildFailuresOutsideWriteSet_Table(t *testing.T) {
 // names it as not this turn's to fix without starting a repair episode
 // (Repair stays nil: no attempt burned).
 func TestVerifyAndRepairTests_SkipsForeignCompileFailure(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	for rel, content := range map[string]string{
 		"go.mod":      "module skipmod\n\ngo 1.24\n",

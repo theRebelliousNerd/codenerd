@@ -16,6 +16,7 @@ import (
 // A clone's scope dies with its task, so its archive goes when the task
 // returns; the session's own archive stays while its process runs.
 func TestJITExecutor_AnInlineTaskLeavesNoWorkingArchive(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	// The multi-round client: the tool loop, and so a working set, runs only
 	// for a client that can take tool results back.
@@ -68,6 +69,7 @@ func TestJITExecutor_AnInlineTaskLeavesNoWorkingArchive(t *testing.T) {
 // The session's executor keeps its scope across turns (a handle from an
 // earlier turn is still redeemable); only the executor that is done retires.
 func TestRetireWorkingScopes_TheSessionKeepsItsArchiveAClonesGoes(t *testing.T) {
+	t.Parallel()
 	root := newWorkingLoopExecutor(t, &MockLLMClient{})
 	ws := root.config.WorkspaceRoot
 	_, closeRoot, err := root.beginWorkingLoop(context.Background(), nil, "fix a", &prompt.CompilationContext{ShardID: "root"})

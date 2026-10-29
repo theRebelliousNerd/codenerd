@@ -77,6 +77,7 @@ func TestSubAgent_DoubleRunExecutesOnce(t *testing.T) {
 // return as the reply. Returning the async task ID matches the signature but
 // corrupts every consultation, so the blocking answer is pinned here.
 func TestJITExecutor_SpawnConsultationReturnsAnswer(t *testing.T) {
+	t.Parallel()
 	mockLLM := &MockLLMClient{
 		CompleteWithToolsFunc: func(ctx context.Context, sys, user string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 			return &types.LLMToolResponse{Text: "specialist says yes"}, nil

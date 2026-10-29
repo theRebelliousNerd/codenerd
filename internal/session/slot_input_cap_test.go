@@ -58,6 +58,7 @@ func TestInputBudgetFor(t *testing.T) {
 // largest result archived, the holographic render budget shrinks with it, and
 // a request that cannot be fit at all is refused naming the slot cap.
 func TestWorkingLoop_IsSizedToTheServingSlotsCap(t *testing.T) {
+	t.Parallel()
 	const sessionBudget, slotCap = 200000, 20000
 	body := strings.Repeat("b", 4*30000) // about 30000 tokens: under the session budget, over the cap
 

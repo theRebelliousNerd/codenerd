@@ -53,6 +53,7 @@ func writeAndCommit(t *testing.T, dir, name, body string) string {
 }
 
 func TestGitRestoresExactly(t *testing.T) {
+	t.Parallel()
 	dir := gitInit(t)
 	writeAndCommit(t, dir, "docs/stub.md", "# Redirect\n\nSee elsewhere.\n")
 	ctx := context.Background()

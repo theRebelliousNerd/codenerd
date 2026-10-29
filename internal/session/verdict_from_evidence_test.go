@@ -191,6 +191,7 @@ func TestObservedReturn_AbsentVerdictStaysAbsent(t *testing.T) {
 // This drives the production path — recordBuildState via assertTurnEvidence —
 // against the real loaded corpus.
 func TestBuildFailure_ExcludesTurnExecuted(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 
 	result := mutationResult()
@@ -209,6 +210,7 @@ func TestBuildFailure_ExcludesTurnExecuted(t *testing.T) {
 // right reason rather than turn_executed never deriving at all, and that the
 // passing verdict reaches the kernel too.
 func TestPassingBuildDerivesTurnExecuted(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 
 	result := mutationResult()
@@ -238,6 +240,7 @@ func TestPassingBuildDerivesTurnExecuted(t *testing.T) {
 // verdict: a gate that never ran must not assert /passing (a guess) or
 // /failing (which would fail every turn on a machine with no Go toolchain).
 func TestSkippedGateAssertsNoState(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 
 	result := mutationResult()
@@ -258,6 +261,7 @@ func TestSkippedGateAssertsNoState(t *testing.T) {
 // session, so one failed compile would make the session unable to finish
 // anything.
 func TestPerTurnBuildStateIsRetracted(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 
 	result := mutationResult()

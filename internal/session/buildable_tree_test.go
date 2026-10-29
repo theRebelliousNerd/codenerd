@@ -28,6 +28,7 @@ func newBuildableTreeWorkspace(t *testing.T) (*Executor, string) {
 // its attempt kept: observed 2026-09-21, a repair loop's third attempt left a
 // call to a function it had deleted, and the repository did not build.
 func TestLeaveBuildableTree_RestoresAnUncompilableAttemptAndKeepsIt(t *testing.T) {
+	t.Parallel()
 	e, ws := newBuildableTreeWorkspace(t)
 	original, _ := os.ReadFile(filepath.Join(ws, "a.go"))
 	result := &ExecutionResult{

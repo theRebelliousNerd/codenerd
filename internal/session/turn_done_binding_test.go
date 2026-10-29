@@ -57,6 +57,7 @@ func readOnlyTurnResult() *ExecutionResult {
 // write turn whose build and tests were both measured green is done, with no
 // acceptance contract anywhere near it.
 func TestTurnDone_DerivesFromEvidenceWithoutAcceptance(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 	result := writeTurnResult()
 
@@ -92,6 +93,7 @@ func TestTurnDone_DerivesFromEvidenceWithoutAcceptance(t *testing.T) {
 // was recorded /unverified forever (executor_tools.go:1948-1952 says so in the
 // code that asserts evidence for them).
 func TestTurnDone_ReadOnlyTurnIsDoneWithoutGates(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 	result := readOnlyTurnResult()
 
@@ -113,6 +115,7 @@ func TestTurnDone_ReadOnlyTurnIsDoneWithoutGates(t *testing.T) {
 // TestTurnDone_BuildFailingExcludes: a red build is not a turn that merely
 // lacks evidence, it is a failed turn, and the outcome must say so.
 func TestTurnDone_BuildFailingExcludes(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 	result := writeTurnResult()
 	result.BuildCheck = BuildVerification{Ran: true, OK: false, Outcome: VerifyFailed}
@@ -139,6 +142,7 @@ func TestTurnDone_BuildFailingExcludes(t *testing.T) {
 // but never ran its tests is not done, is not failed, and must say which
 // evidence is missing rather than emitting a constant.
 func TestTurnOutcome_UnverifiedNamesMissingEvidence(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 	result := writeTurnResult()
 	result.TestCheck = TestVerification{Outcome: VerifySkipped}
@@ -185,6 +189,7 @@ func TestTurnOutcome_UnverifiedNamesMissingEvidence(t *testing.T) {
 
 // A write turn with no gate at all owes both, and both are named.
 func TestTurnOutcome_UnverifiedNamesBothGatesWhenNeitherRan(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 	result := writeTurnResult()
 	result.BuildCheck = BuildVerification{Outcome: VerifySkipped}
@@ -206,6 +211,7 @@ func TestTurnOutcome_UnverifiedNamesBothGatesWhenNeitherRan(t *testing.T) {
 // An acceptance witness verifies the turn even with no build and no test run,
 // because it is a stronger claim than either — it is about requested behavior.
 func TestTurnDone_AcceptancePathStillSufficient(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 	result := writeTurnResult()
 	result.BuildCheck = BuildVerification{Outcome: VerifySkipped}
@@ -236,6 +242,7 @@ func TestTurnDone_AcceptancePathStillSufficient(t *testing.T) {
 // re-query the kernel behind the same acceptance guard; it now returns what
 // captureTurnOutcome recorded.
 func TestLearningTrainsOnlyOnDerivedDone(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name         string
 		mutate       func(*ExecutionResult)

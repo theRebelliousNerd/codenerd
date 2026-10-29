@@ -36,6 +36,7 @@ func (g *Greeter) Greet() string { return "hi" }
 )
 
 func TestTurnChangedElement_RecordsChangedAndAddedFunctions(t *testing.T) {
+	t.Parallel()
 	ws := writeBaselineModule(t, map[string]string{
 		"go.mod":  elemGoMod,
 		"calc.go": elemAfter,
@@ -164,6 +165,7 @@ func TestTurnChangedElement_ModelCannotAssert(t *testing.T) {
 // demand a test of a test, a testdata fixture is not built, and init has no
 // ref that names which one changed.
 func TestTurnChangedElement_SkipsTestsFixturesAndInit(t *testing.T) {
+	t.Parallel()
 	testBefore := "package elemprobe\n\nimport \"testing\"\n\nfunc TestGreet(t *testing.T) {}\n"
 	testAfter := "package elemprobe\n\nimport \"testing\"\n\nfunc TestGreet(t *testing.T) { if Greet(\"x\") == \"\" { t.Fatal(\"empty\") } }\n"
 	fixtureBefore := "package elemprobe\n\nfunc Fixture() int { return 1 }\n"
@@ -200,6 +202,7 @@ func TestTurnChangedElement_SkipsTestsFixturesAndInit(t *testing.T) {
 // build.Default.MatchFile excludes). //go:build ignore never compiles on
 // any platform, so the test holds on every GOOS.
 func TestTurnChangedElement_SkipsBuildExcludedFiles(t *testing.T) {
+	t.Parallel()
 	ignoredBefore := "//go:build ignore\n\npackage elemprobe\n\nfunc Greet() string { return \"hi\" }\n"
 	ignoredAfter := "//go:build ignore\n\npackage elemprobe\n\nfunc Greet() string { return \"hello\" }\n"
 	ws := writeBaselineModule(t, map[string]string{

@@ -29,6 +29,7 @@ func cfg() *config.EffectiveAgentRuntimeConfig {
 }
 
 func TestVerifyModularityGuard_NewFileBlocked(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	k, _ := core.NewRealKernel()
 	e := NewExecutor(k, nil, nil, nil, nil, nil)
@@ -52,6 +53,7 @@ func TestVerifyModularityGuard_NewFileBlocked(t *testing.T) {
 }
 
 func TestVerifyModularityGuard_PreExistingAllowed(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	k, _ := core.NewRealKernel()
 	e := NewExecutor(k, nil, nil, nil, nil, nil)
@@ -69,6 +71,7 @@ func TestVerifyModularityGuard_PreExistingAllowed(t *testing.T) {
 }
 
 func TestVerifyModularityGuard_SecondViolationBlocked(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	k, _ := core.NewRealKernel()
 	e := NewExecutor(k, nil, nil, nil, nil, nil)
@@ -97,6 +100,7 @@ func TestVerifyModularityGuard_SecondViolationBlocked(t *testing.T) {
 }
 
 func TestVerifyModularityGuard_CleanAllowed(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	k, _ := core.NewRealKernel()
 	e := NewExecutor(k, nil, nil, nil, nil, nil)
@@ -111,6 +115,7 @@ func TestVerifyModularityGuard_CleanAllowed(t *testing.T) {
 }
 
 func TestVerifyModularityGuard_NonGoAllowed(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	k, _ := core.NewRealKernel()
 	e := NewExecutor(k, nil, nil, nil, nil, nil)
@@ -125,6 +130,7 @@ func TestVerifyModularityGuard_NonGoAllowed(t *testing.T) {
 }
 
 func TestVerifyModularityGuard_UnparseableAllowed(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	k, _ := core.NewRealKernel()
 	e := NewExecutor(k, nil, nil, nil, nil, nil)

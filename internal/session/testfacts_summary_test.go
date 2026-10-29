@@ -9,6 +9,7 @@ import (
 // arrived as text. Pinned against a real `go test -json` Summary.
 
 func TestSummaryShowsBuildFailure(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -30,6 +31,7 @@ func TestSummaryShowsBuildFailure(t *testing.T) {
 }
 
 func TestVerificationOutput_RepeatFloodIsOneLine(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}

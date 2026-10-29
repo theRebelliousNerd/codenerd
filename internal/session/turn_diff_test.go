@@ -105,6 +105,7 @@ func TestRenderFileDiff_DeleteNote(t *testing.T) {
 // The repair prompt's diff is bounded: one generated file rewritten whole used
 // to put the entire file in the round's prompt (GAP-DIFF-04).
 func TestTurnDiffSection_Budget(t *testing.T) {
+	t.Parallel()
 	var before, after strings.Builder
 	for i := range 4000 {
 		fmt.Fprintf(&before, "line %d before\n", i)
@@ -160,6 +161,7 @@ func tail(s string, n int) string { return s[max(len(s)-n, 0):] }
 
 // End to end: the round that repairs broken tests carries the diff.
 func TestVerifyAndRepairTests_ThePromptCarriesTheTurnsOwnDiff(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}

@@ -112,6 +112,7 @@ func TestVerifyAndRepairTestRun_AnUnrelatedPassingRunDoesNotReplaceTheWorkspaces
 // An identical, adequately scoped process the turn already ran is reused: the
 // declared check is not run a second time, and the receipt satisfies it.
 func TestWorkspaceTestRun_AnIdenticalRunIsReusedNotRepeated(t *testing.T) {
+	t.Parallel()
 	bin := checkGate(t)
 	e, result, ws := planTurn(t, nodeGate("check", bin))
 	// value.txt is "bad": running the check would fail. The receipt says the
@@ -133,6 +134,7 @@ func TestWorkspaceTestRun_AnIdenticalRunIsReusedNotRepeated(t *testing.T) {
 // kept, the missing obligation is named, and no later unrelated process
 // clears it.
 func TestWorkspaceTestRun_AnUnavailableDeclaredCheckIsStillOwed(t *testing.T) {
+	t.Parallel()
 	bin := checkGate(t)
 	if err := os.WriteFile(filepath.Join(t.TempDir(), "x"), nil, 0o644); err != nil {
 		t.Fatal(err)
@@ -165,6 +167,7 @@ func TestWorkspaceTestRun_AnUnavailableDeclaredCheckIsStillOwed(t *testing.T) {
 // outcomes reach the kernel; neither the unavailable check nor a later
 // passing process erases the failure.
 func TestWorkspaceTestRun_AFailureSurvivesALaterCheckThatCannotStart(t *testing.T) {
+	t.Parallel()
 	bin := checkGate(t)
 	e, result, _ := planTurn(t, nodeGate("a-check", bin)+"  - id: b-gone\n    kind: test\n    run: ./scripts/gone.sh {node}\n    scope: node\n")
 	if ran, _ := e.workspaceTestRun(context.Background(), result); !ran {
@@ -183,6 +186,7 @@ func TestWorkspaceTestRun_AFailureSurvivesALaterCheckThatCannotStart(t *testing.
 // passing model-selected process, and the recheck is stopped before a verdict.
 // The newer receipt must not turn the gate green.
 func TestWorkspaceTestRun_AStoppedRecheckDoesNotLeaveTheToolReceiptCurrent(t *testing.T) {
+	t.Parallel()
 	bin := checkGate(t)
 	e, result, _ := planTurn(t, nodeGate("check", bin))
 	e.workspaceTestRun(context.Background(), result)
@@ -207,6 +211,7 @@ func TestWorkspaceTestRun_AStoppedRecheckDoesNotLeaveTheToolReceiptCurrent(t *te
 // executed tests passes -- the project's tests may live outside the directory
 // written -- and a project that declared its own ok exits keeps its meaning.
 func TestTestPlan_NoTestsCollectedIsNotCoverage(t *testing.T) {
+	t.Parallel()
 	bin := exitWith(t)
 	pytest := gates.Gate{ID: "python:pytest", Kind: gates.Test, Argv: []string{bin, "5"}, Scope: gates.ScopeAll,
 		Language: "python", OKExitCodes: []int{0, 5}, NoTestsExitCodes: []int{5}}
@@ -247,6 +252,7 @@ func TestTestPlan_NoTestsCollectedIsNotCoverage(t *testing.T) {
 // Multi-language: a pass for one written language does not cover another that
 // has no declared check; a language-free check is declared shared coverage.
 func TestTestPlan_AnUncoveredLanguageStaysVisible(t *testing.T) {
+	t.Parallel()
 	bin := exitWith(t)
 	py := gates.Gate{ID: "python:pytest", Kind: gates.Test, Argv: []string{bin, "0"}, Scope: gates.ScopeAll, Language: "python"}
 	shared := gates.Gate{ID: "all", Kind: gates.Test, Argv: []string{bin, "0"}, Scope: gates.ScopeAll}
@@ -291,6 +297,7 @@ func planIDs(p testPlan) []string {
 // A repair write puts every earlier outcome behind it: a check that passed
 // before the last write no longer speaks for the file.
 func TestWorkspaceTestRun_AWriteAfterThePlanRanInvalidatesIt(t *testing.T) {
+	t.Parallel()
 	bin := checkGate(t)
 	e, result, ws := planTurn(t, nodeGate("check", bin))
 	if err := os.WriteFile(filepath.Join(ws, "svc", "value.txt"), []byte("ok\n"), 0o644); err != nil {
@@ -330,6 +337,7 @@ func TestDoneSentence_NamesTheGatesActuallyOwed(t *testing.T) {
 // The same, through the corpus: the turn's owed gates come from the kernel, so
 // a document is not told it was built and tested.
 func TestTurnOutcome_TheClosingSentenceSpeaksOnlyOfWhatWasOwed(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 	doc := mutationResult()
 	doc.WrittenPaths = []string{"Docs/guide.md"}

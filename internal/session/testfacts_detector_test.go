@@ -9,6 +9,7 @@ import (
 // Summary has no "--- FAIL:" line; the detector still has to see it. Classic
 // runner text stays matched too (models paste that as well).
 func TestResponsePresentsGateSummary(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -32,6 +33,7 @@ func TestResponsePresentsGateSummary(t *testing.T) {
 }
 
 func TestResponsePresentsBuildFailureSummary(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}

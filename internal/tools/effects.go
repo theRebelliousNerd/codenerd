@@ -61,13 +61,18 @@ func (t *Tool) DeclaredEffect() (Effect, error) {
 	}
 }
 
-// LookupEffect fails closed for a name absent from both reviewed manifests
-// and the registered dynamic catalog.
+// LookupEffect is Global().LookupEffect.
 func LookupEffect(name string) (Effect, error) {
+	return Global().LookupEffect(name)
+}
+
+// LookupEffect fails closed for a name absent from both reviewed manifests
+// and this registry's dynamic catalog.
+func (r *Registry) LookupEffect(name string) (Effect, error) {
 	if effect := BuiltinEffect(name); effect != "" {
 		return effect, nil
 	}
-	if t := Global().Get(name); t != nil {
+	if t := r.Get(name); t != nil {
 		return t.DeclaredEffect()
 	}
 	return "", fmt.Errorf("tool %q has no effect declaration", name)

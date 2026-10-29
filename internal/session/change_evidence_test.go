@@ -29,6 +29,7 @@ func TestCloseChangeEvidence_ResponseNamesWrittenFiles(t *testing.T) {
 }
 
 func TestCloseChangeEvidence_TagGatedPackageIsNotAFailure(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("needs go toolchain")
 	}
@@ -105,6 +106,7 @@ func closeProbe(t *testing.T, withKernel bool, calc string) (*Executor, *Executi
 // failure. The process exit stays failed, the text still names them, and
 // an empty answer does not turn that suite into an unrecovered tool error.
 func TestCloseChangeEvidence_PreExistingFailuresDoNotFailTheTurn(t *testing.T) {
+	t.Parallel()
 	calc := probeCalc + "\nfunc Unrelated() int { return 42 }\n"
 	e, result, err := closeProbe(t, true, calc)
 	if err != nil {
@@ -135,6 +137,7 @@ func TestCloseChangeEvidence_PreExistingFailuresDoNotFailTheTurn(t *testing.T) {
 
 // One failure the baseline did not have fails the turn, and the error names it.
 func TestCloseChangeEvidence_ANewFailureFailsTheTurn(t *testing.T) {
+	t.Parallel()
 	calc := "package verifyprobe\n\nfunc Add(a, b int) int { return a + b + 1 }\n"
 	e, result, err := closeProbe(t, true, calc)
 	if !errors.Is(err, ErrVerificationFailed) || !strings.Contains(err.Error(), "TestOK") {
@@ -155,6 +158,7 @@ func TestCloseChangeEvidence_ANewFailureFailsTheTurn(t *testing.T) {
 // With no kernel there is nothing to ask. The raw suite exit fails the turn
 // and no verdict is recorded.
 func TestCloseChangeEvidence_NoKernelKeepsTheRawTestExit(t *testing.T) {
+	t.Parallel()
 	calc := probeCalc + "\nfunc Unrelated() int { return 42 }\n"
 	e, result, err := closeProbe(t, false, calc)
 	if e.kernel != nil {
@@ -184,6 +188,7 @@ func TestCloseChangeEvidence_NoKernelKeepsTheRawTestExit(t *testing.T) {
 // red on a test the turn did not cause. turnTests drops that name, so the
 // pin run is the test the turn wrote, and a stale pin check is replaced.
 func TestCloseChangeEvidence_PinningRerunsWhenPreExistingFailuresPassTheGate(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -266,6 +271,7 @@ func pinRoundFixture(t *testing.T, breakPolite bool) (*Executor, *ExecutionResul
 // was failed. A turn whose only failures already failed still passes the
 // derived gate, and the round measures. A new failure does not.
 func TestVerifyAndRepairPinning_PreExistingFailuresMeasureAndANewFailureDoesNot(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
