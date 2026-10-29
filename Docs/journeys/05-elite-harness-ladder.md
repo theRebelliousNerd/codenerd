@@ -32,6 +32,9 @@ the protocol for a run, and the status of each rung with the run that moved it.
   One prompt, one file and its test, no hand edit, fail-before checked, G1-G3 green. **R1 streak 1.**
 - **R1-25 landed, two files** (2026-10-29): a `null` optional path no longer names a directory. Correct
   and green, but it spans `workspace_guard.go` and `shell/verification.go`, so it does not count. **R1 streak 0.**
+- **R1-26 landed, three files** (2026-10-29): stored vectors written before their embedding space was
+  recorded are re-embedded once per space and rank again. Its first version healed on every recall;
+  codeNERD fixed that on review in a second turn. Three production files, so it does not count. **R1 streak 0.**
 - last updated: 2026-09-19 20:25
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0

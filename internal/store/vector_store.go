@@ -500,6 +500,10 @@ func (s *LocalStore) VectorRecallSemantic(ctx context.Context, query string, lim
 		return nil, err
 	}
 
+	// One-time attribution: rows written before the space was recorded are
+	// re-embedded with this engine so this and later recalls rank them.
+	s.maybeHealUnattributed(ctx, engine, sq.space)
+
 	if vecEnabled {
 		logging.StoreDebug("Using sqlite-vec ANN search")
 		return s.vectorRecallVec(query, sq, limit, nil, "", nil)
@@ -560,6 +564,10 @@ func (s *LocalStore) VectorRecallSemanticByPaths(ctx context.Context, query stri
 	if err != nil {
 		return nil, err
 	}
+
+	// One-time attribution: rows written before the space was recorded are
+	// re-embedded with this engine so this and later recalls rank them.
+	s.maybeHealUnattributed(ctx, engine, sq.space)
 
 	if vecEnabled {
 		logging.StoreDebug("Using sqlite-vec ANN search with path filter")
@@ -623,6 +631,10 @@ func (s *LocalStore) VectorRecallSemanticFiltered(ctx context.Context, query str
 	if err != nil {
 		return nil, err
 	}
+
+	// One-time attribution: rows written before the space was recorded are
+	// re-embedded with this engine so this and later recalls rank them.
+	s.maybeHealUnattributed(ctx, engine, sq.space)
 
 	if vecEnabled {
 		logging.StoreDebug("Using sqlite-vec ANN search with metadata filter")
@@ -1337,6 +1349,10 @@ func (s *LocalStore) VectorRecallSemanticWithTask(ctx context.Context, query str
 		return nil, err
 	}
 
+	// One-time attribution: rows written before the space was recorded are
+	// re-embedded with this engine so this and later recalls rank them.
+	s.maybeHealUnattributed(ctx, engine, sq.space)
+
 	if vecEnabled {
 		logging.StoreDebug("Using sqlite-vec ANN search")
 		return s.vectorRecallVec(query, sq, limit, nil, "", nil)
@@ -1401,6 +1417,10 @@ func (s *LocalStore) VectorRecallForPromptAtoms(ctx context.Context, query strin
 	if err != nil {
 		return nil, err
 	}
+
+	// One-time attribution: rows written before the space was recorded are
+	// re-embedded with this engine so this and later recalls rank them.
+	s.maybeHealUnattributed(ctx, engine, sq.space)
 
 	if vecEnabled {
 		logging.StoreDebug("Using sqlite-vec ANN search with prompt_atom filter")

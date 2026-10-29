@@ -6097,3 +6097,21 @@ and drops sentinel `packages` entries, which the brief did not ask for. Its test
 helpers by name, so the fail-before check fails at compile time rather than on behavior. G1-G3
 (105/105) green; no hand edit. The sentinel list now exists twice (here and `isMissingRevision` in
 codedom, R1-21). **Streak 0.**
+
+## R1-26, store: vectors written before the embedding space was recorded never ranked -- landed, three files (2026-10-29, 04:57-06:00)
+
+Brief (symptom only): every semantic recall warned that 32 of 2032 vectors were unattributed and
+stayed keyword-reranked, forever. Entry point: one chat request in the TUI (`--yolo`), on a fresh
+build of `400c2f329`, then one review turn in the same session.
+
+**Landed, does not count**: correct after review but three production files. The first turn added
+`healUnattributedVectors` (re-embed rows with no recorded space, stamp them, update `vec_index`;
+foreign-stamped and blank rows untouched, a refusal leaves a row unattributed) and called it from all
+five semantic recall entry points -- on every recall, so each recall re-listed unattributed rows and a
+refused row was re-embedded forever. The root's review was sent back as a second turn: the heal now
+runs once per space per store (`healedSpaces` under `healMu` in `local_core.go`), pinned by a
+once-per-space test among six new ones. It replaced `TestLegacyUnstampedVectors_StayStoredButNeverRank`
+with a test of the new behaviour. G1-G3 (106/106) green; no hand edit. Leftover: the healed count is
+still discarded. Process note: the root merged two hunter batches into main during the first turn,
+and its `go test ./...` saw the tree mid-change; merges now wait for a ladder turn to end.
+**Streak 0.**

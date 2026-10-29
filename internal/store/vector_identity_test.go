@@ -212,8 +212,11 @@ func TestRecallPaths_RankTheSameEligibleRows(t *testing.T) {
 }
 
 // Legacy rows -- an embedding and no recorded space -- stay stored and
-// keyword-recallable, never rank semantically, and are counted as unattributed
-// so the reason is on record. Stamping them with today's engine would be a guess.
+// keyword-recallable. Behavior update: the first semantic recall now
+// re-embeds them once (healUnattributedVectors) instead of leaving them
+// permanently unranged, so this test now pins the healed behavior: they rank
+// after heal and are counted as eligible, not permanently unattributed.
+// Stamping them without re-embedding would still be a guess.
 func TestLegacyUnstampedVectors_StayStoredButNeverRank(t *testing.T) {
 	s := newSpaceStore(t)
 	if _, err := s.db.Exec(`INSERT INTO vectors (content, embedding, metadata) VALUES ('alpha', '[1,0,0,0]', '{"path":"alpha","kind":"unit"}')`); err != nil {
@@ -223,8 +226,8 @@ func TestLegacyUnstampedVectors_StayStoredButNeverRank(t *testing.T) {
 
 	onEveryRecallPath(t, s, func(t *testing.T, path string) {
 		for kind, got := range recallAll(t, s, "alpha") {
-			if len(got) != 0 {
-				t.Errorf("%s/%s: an unattributed legacy vector ranked: %v", path, kind, contentsOf(got))
+			if !containsText(got, "alpha") {
+				t.Errorf("%s/%s: healed legacy vector did not rank: %v", path, kind, contentsOf(got))
 			}
 		}
 	})
@@ -237,15 +240,89 @@ func TestLegacyUnstampedVectors_StayStoredButNeverRank(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cov.Unattributed != 1 || cov.Eligible != 0 || cov.Total != 1 {
-		t.Fatalf("coverage = %+v, want 1 unattributed, 0 eligible of 1", cov)
+	if cov.Unattributed != 0 || cov.Eligible != 1 || cov.Total != 1 {
+		t.Fatalf("coverage = %+v, want 0 unattributed, 1 eligible of 1 after one-time heal", cov)
 	}
 	stats, err := s.GetVectorStats()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stats["unattributed_vectors"] != int64(1) || stats["eligible_vectors"] != int64(0) {
-		t.Fatalf("GetVectorStats hides the exclusion: %v", stats)
+	if stats["unattributed_vectors"] != int64(0) || stats["eligible_vectors"] != int64(1) {
+		t.Fatalf("GetVectorStats hides the heal: %v", stats)
+	}
+}
+
+// Legacy rows -- an embedding and no recorded space -- are re-embedded once
+// with the attached engine, so a later recall ranks all of them and the
+// exclusion warning stops. The heal writes a fresh vector it just computed,
+// never a guess about the old one: the fixture below stores alpha with beta's
+// vector, and only a re-embed (not a stamp) ranks it at similarity 1.
+func TestLegacyUnstampedVectors_AreHealedOnceAndRank(t *testing.T) {
+	s := newSpaceStore(t)
+	// alpha stored with the wrong vector (beta's): a pure stamp would keep
+	// ranking it at similarity 0, a re-embed fixes it to similarity 1.
+	if _, err := s.db.Exec(`INSERT INTO vectors (content, embedding, metadata) VALUES ('alpha', '[0,1,0,0]', '{"path":"alpha","kind":"unit"}')`); err != nil {
+		t.Fatal(err)
+	}
+	engine := &spaceEngine{name: "test:model-a", dim: 4}
+	attach(t, s, engine)
+
+	cov, err := s.VectorCoverage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cov.Unattributed != 1 || cov.Eligible != 0 {
+		t.Fatalf("before heal coverage = %+v, want 1 unattributed, 0 eligible", cov)
+	}
+
+	onEveryRecallPath(t, s, func(t *testing.T, path string) {
+		for kind, got := range recallAll(t, s, "alpha") {
+			if !containsText(got, "alpha") {
+				t.Errorf("%s/%s: healed legacy vector did not rank: %v", path, kind, contentsOf(got))
+			}
+			for _, e := range got {
+				if e.Content == "alpha" {
+					sim, _ := e.Metadata["similarity"].(float64)
+					if sim < 0.99 {
+						t.Errorf("%s/%s: alpha similarity = %v, want ~1 (re-embedded, not merely stamped)", path, kind, sim)
+					}
+				}
+			}
+		}
+	})
+
+	lex, err := s.VectorRecall("alpha", 5)
+	if err != nil || !containsText(lex, "alpha") {
+		t.Fatalf("keyword recall lost the legacy row: %v (err %v)", contentsOf(lex), err)
+	}
+	cov, err = s.VectorCoverage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cov.Unattributed != 0 || cov.Eligible != 1 || cov.Total != 1 || cov.Unqualified() != 0 {
+		t.Fatalf("after heal coverage = %+v, want 0 unattributed, 1 eligible of 1, nothing excluded", cov)
+	}
+	stats, err := s.GetVectorStats()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats["unattributed_vectors"] != int64(0) || stats["eligible_vectors"] != int64(1) {
+		t.Fatalf("GetVectorStats after heal = %v, want 0 unattributed and 1 eligible", stats)
+	}
+	var stamp string
+	if err := s.db.QueryRow(`SELECT embedding_model FROM vectors WHERE content = 'alpha'`).Scan(&stamp); err != nil || stamp != engine.name {
+		t.Fatalf("legacy row stamped %q (err %v), want %q", stamp, err, engine.name)
+	}
+
+	// Once: a second recall ranks from the stored stamp without re-embedding.
+	engine.mu.Lock()
+	engine.embeds = nil
+	engine.mu.Unlock()
+	if _, err := s.VectorRecallSemantic(context.Background(), "alpha", 5); err != nil {
+		t.Fatal(err)
+	}
+	if got := engine.embeddedTexts(); len(got) != 1 || got[0] != "alpha" {
+		t.Fatalf("second recall embedded %v, want just the query: heal must run once", got)
 	}
 }
 
@@ -612,6 +689,411 @@ func TestPredicateCorpusReindexesAfterASpaceChange(t *testing.T) {
 		got, err := s.VectorRecallSemanticFiltered(context.Background(), "alpha", 5, "kind", "predicate")
 		if err != nil || len(got) == 0 || got[0].Content != "alpha" {
 			t.Fatalf("%s: re-indexed corpus recall = %v (err %v), want alpha first", path, contentsOf(got), err)
+		}
+	})
+}
+
+// Each semantic entry point heals pre-space rows itself: removing the heal
+// from any one of them must break recall through that entry point alone. The
+// four tests below each use a fresh store with a single legacy row and drive
+// exactly one entry point, so a heal that lived only in a sibling entry point
+// cannot mask the removal.
+func TestLegacyHeal_ViaByPaths_Ranks(t *testing.T) {
+	s := newSpaceStore(t)
+	if _, err := s.db.Exec(`INSERT INTO vectors (content, embedding, metadata) VALUES ('alpha', '[0,1,0,0]', '{"path":"alpha","kind":"unit"}')`); err != nil {
+		t.Fatal(err)
+	}
+	engine := &spaceEngine{name: "test:model-a", dim: 4}
+	attach(t, s, engine)
+	got, err := s.VectorRecallSemanticByPaths(context.Background(), "alpha", 10, []string{"alpha"})
+	if err != nil {
+		t.Fatalf("VectorRecallSemanticByPaths: %v", err)
+	}
+	if !containsText(got, "alpha") {
+		t.Fatalf("ByPaths did not rank healed legacy row: %v", contentsOf(got))
+	}
+	for _, e := range got {
+		if e.Content == "alpha" {
+			if sim, _ := e.Metadata["similarity"].(float64); sim < 0.99 {
+				t.Fatalf("ByPaths alpha similarity = %v, want ~1 (re-embedded)", sim)
+			}
+		}
+	}
+	cov, err := s.VectorCoverage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cov.Unattributed != 0 || cov.Eligible != 1 || cov.Unqualified() != 0 {
+		t.Fatalf("after ByPaths heal coverage = %+v, want healed", cov)
+	}
+}
+
+func TestLegacyHeal_ViaFiltered_Ranks(t *testing.T) {
+	s := newSpaceStore(t)
+	if _, err := s.db.Exec(`INSERT INTO vectors (content, embedding, metadata) VALUES ('alpha', '[0,1,0,0]', '{"path":"alpha","kind":"unit"}')`); err != nil {
+		t.Fatal(err)
+	}
+	engine := &spaceEngine{name: "test:model-a", dim: 4}
+	attach(t, s, engine)
+	got, err := s.VectorRecallSemanticFiltered(context.Background(), "alpha", 10, "kind", "unit")
+	if err != nil {
+		t.Fatalf("VectorRecallSemanticFiltered: %v", err)
+	}
+	if !containsText(got, "alpha") {
+		t.Fatalf("Filtered did not rank healed legacy row: %v", contentsOf(got))
+	}
+	for _, e := range got {
+		if e.Content == "alpha" {
+			if sim, _ := e.Metadata["similarity"].(float64); sim < 0.99 {
+				t.Fatalf("Filtered alpha similarity = %v, want ~1 (re-embedded)", sim)
+			}
+		}
+	}
+	cov, err := s.VectorCoverage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cov.Unattributed != 0 || cov.Eligible != 1 || cov.Unqualified() != 0 {
+		t.Fatalf("after Filtered heal coverage = %+v, want healed", cov)
+	}
+}
+
+func TestLegacyHeal_ViaWithTask_Ranks(t *testing.T) {
+	s := newSpaceStore(t)
+	if _, err := s.db.Exec(`INSERT INTO vectors (content, embedding, metadata) VALUES ('alpha', '[0,1,0,0]', '{"path":"alpha","kind":"unit"}')`); err != nil {
+		t.Fatal(err)
+	}
+	engine := &spaceEngine{name: "test:model-a", dim: 4}
+	attach(t, s, engine)
+	got, err := s.VectorRecallSemanticWithTask(context.Background(), "alpha", 10, "")
+	if err != nil {
+		t.Fatalf("VectorRecallSemanticWithTask: %v", err)
+	}
+	if !containsText(got, "alpha") {
+		t.Fatalf("WithTask did not rank healed legacy row: %v", contentsOf(got))
+	}
+	for _, e := range got {
+		if e.Content == "alpha" {
+			if sim, _ := e.Metadata["similarity"].(float64); sim < 0.99 {
+				t.Fatalf("WithTask alpha similarity = %v, want ~1 (re-embedded)", sim)
+			}
+		}
+	}
+	cov, err := s.VectorCoverage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cov.Unattributed != 0 || cov.Eligible != 1 || cov.Unqualified() != 0 {
+		t.Fatalf("after WithTask heal coverage = %+v, want healed", cov)
+	}
+}
+
+func TestLegacyHeal_ViaPromptAtoms_Ranks(t *testing.T) {
+	s := newSpaceStore(t)
+	if _, err := s.db.Exec(`INSERT INTO vectors (content, embedding, metadata) VALUES ('alpha', '[0,1,0,0]', '{"content_type":"prompt_atom","path":"alpha"}')`); err != nil {
+		t.Fatal(err)
+	}
+	engine := &spaceEngine{name: "test:model-a", dim: 4}
+	attach(t, s, engine)
+	got, err := s.VectorRecallForPromptAtoms(context.Background(), "alpha", 5)
+	if err != nil {
+		t.Fatalf("VectorRecallForPromptAtoms: %v", err)
+	}
+	if !containsText(got, "alpha") {
+		t.Fatalf("PromptAtoms did not rank healed legacy row: %v", contentsOf(got))
+	}
+	for _, e := range got {
+		if e.Content == "alpha" {
+			if sim, _ := e.Metadata["similarity"].(float64); sim < 0.99 {
+				t.Fatalf("PromptAtoms alpha similarity = %v, want ~1 (re-embedded)", sim)
+			}
+		}
+	}
+	cov, err := s.VectorCoverage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cov.Unattributed != 0 || cov.Eligible != 1 || cov.Unqualified() != 0 {
+		t.Fatalf("after PromptAtoms heal coverage = %+v, want healed", cov)
+	}
+}
+
+// Heal runs at most once per space per store: a row its provider refuses is
+// not retried on every recall, and a later recall pays no provider calls for
+// heal. Before the once-per-space guard the second recall re-embedded the
+// refused row, so the beta count grew and the second recall embedded more
+// than the query.
+func TestHealUnattributed_RunsOncePerSpaceAndDoesNotRetryRefusedRows(t *testing.T) {
+	s := newSpaceStore(t)
+	if _, err := s.db.Exec(`INSERT INTO vectors (content, embedding, metadata) VALUES ('alpha', '[0,1,0,0]', '{"path":"alpha","kind":"unit"}'), ('beta', '[0,1,0,0]', '{"path":"beta","kind":"unit"}')`); err != nil {
+		t.Fatal(err)
+	}
+	engine := &spaceEngine{name: "test:model-a", dim: 4, failOn: map[string]bool{"beta": true}}
+	attach(t, s, engine)
+
+	countText := func(texts []string, want string) int {
+		n := 0
+		for _, got := range texts {
+			if got == want {
+				n++
+			}
+		}
+		return n
+	}
+
+	ctx := context.Background()
+	if _, err := s.VectorRecallSemantic(ctx, "alpha", 5); err != nil {
+		t.Fatalf("first recall: %v", err)
+	}
+	// Alpha healed into this space; beta kept its missing stamp.
+	cov, err := s.VectorCoverage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cov.Eligible != 1 || cov.Unattributed != 1 {
+		t.Fatalf("after first heal coverage = %+v, want 1 eligible (alpha) and 1 unattributed (beta)", cov)
+	}
+	betaAfterFirst := countText(engine.embeddedTexts(), "beta")
+
+	// Second recall in the same space must not touch the provider for heal:
+	// only the query embedding is new. Before the guard it re-attempted beta.
+	before := len(engine.embeddedTexts())
+	if _, err := s.VectorRecallSemantic(ctx, "alpha", 5); err != nil {
+		t.Fatalf("second recall: %v", err)
+	}
+	after := engine.embeddedTexts()
+	if len(after)-before != 1 || after[len(after)-1] != "alpha" {
+		t.Fatalf("second recall embedded %v, want just the query: heal must run once", after[before:])
+	}
+	if got := countText(after, "beta"); got != betaAfterFirst {
+		t.Fatalf("refused row re-embedded on second recall: beta count %d, want %d (no retry)", got, betaAfterFirst)
+	}
+}
+
+// healBatchFailEngine fails every batch call but serves single embeds through
+// its inner engine, exercising the heal fallback that re-embeds row by row
+// when EmbedBatch is unavailable.
+type healBatchFailEngine struct {
+	inner       *spaceEngine
+	batchCalls  int
+	singleCalls int
+}
+
+func (e *healBatchFailEngine) Embed(ctx context.Context, text string) ([]float32, error) {
+	e.singleCalls++
+	return e.inner.Embed(ctx, text)
+}
+
+func (e *healBatchFailEngine) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	e.batchCalls++
+	return nil, fmt.Errorf("batch unavailable")
+}
+
+func (e *healBatchFailEngine) Dimensions() int { return e.inner.Dimensions() }
+func (e *healBatchFailEngine) Name() string    { return e.inner.Name() }
+
+func TestHealUnattributedVectors_Guards_ReturnZeroWithoutProviderCalls(t *testing.T) {
+	engine := &spaceEngine{name: "test:model-a", dim: 4}
+	tests := []struct {
+		name  string
+		store func() *LocalStore
+		eng   *spaceEngine
+		space string
+	}{
+		{name: "nil store", store: func() *LocalStore { return nil }, eng: engine, space: engine.name},
+		{name: "nil engine", store: func() *LocalStore { return &LocalStore{} }, eng: nil, space: "test:model-a"},
+		{name: "empty space", store: func() *LocalStore { return &LocalStore{} }, eng: engine, space: ""},
+		{name: "nil db", store: func() *LocalStore { return &LocalStore{} }, eng: engine, space: engine.name},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := tt.store()
+			var got int
+			var err error
+			if tt.eng == nil {
+				got, err = s.healUnattributedVectors(context.Background(), nil, tt.space)
+			} else {
+				before := len(tt.eng.embeddedTexts())
+				got, err = s.healUnattributedVectors(context.Background(), tt.eng, tt.space)
+				if after := len(tt.eng.embeddedTexts()); after != before {
+					t.Errorf("guard embedded %v, want no provider calls", tt.eng.embeddedTexts()[before:])
+				}
+			}
+			if err != nil {
+				t.Fatalf("healUnattributedVectors() error = %v, want nil", err)
+			}
+			if got != 0 {
+				t.Errorf("healUnattributedVectors() = %d, want 0", got)
+			}
+		})
+	}
+}
+
+func TestHealUnattributedVectors_SkipsIneligibleRows(t *testing.T) {
+	tests := []struct {
+		name       string
+		setupSQL   string
+		wantHealed int
+	}{
+		{name: "blank content is skipped", setupSQL: `INSERT INTO vectors (content, embedding, metadata) VALUES ('   ', '[0,1,0,0]', '{}')`, wantHealed: 0},
+		{name: "foreign stamp is untouched", setupSQL: `INSERT INTO vectors (content, embedding, embedding_model, metadata) VALUES ('alpha', '[0,1,0,0]', 'other:space', '{}')`, wantHealed: 0},
+		{name: "null embedding is untouched", setupSQL: `INSERT INTO vectors (content, metadata) VALUES ('delta', '{}')`, wantHealed: 0},
+		{name: "already stamped in this space is skipped", setupSQL: `INSERT INTO vectors (content, embedding, embedding_model, metadata) VALUES ('alpha', '[1,0,0,0]', 'test:model-a', '{}')`, wantHealed: 0},
+		{name: "unstamped eligible heals", setupSQL: `INSERT INTO vectors (content, embedding, metadata) VALUES ('alpha', '[0,1,0,0]', '{}')`, wantHealed: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newSpaceStore(t)
+			if _, err := s.db.Exec(tt.setupSQL); err != nil {
+				t.Fatal(err)
+			}
+			engine := &spaceEngine{name: "test:model-a", dim: 4}
+			attach(t, s, engine)
+			got, err := s.healUnattributedVectors(context.Background(), engine, engine.name)
+			if err != nil {
+				t.Fatalf("healUnattributedVectors() error = %v", err)
+			}
+			if got != tt.wantHealed {
+				t.Errorf("healUnattributedVectors() = %d, want %d", got, tt.wantHealed)
+			}
+			// The batch engine must not have been asked to embed skipped rows.
+			if tt.wantHealed == 0 && len(engine.embeddedTexts()) != 0 {
+				t.Errorf("skipped rows embedded %v, want no provider calls", engine.embeddedTexts())
+			}
+		})
+	}
+}
+
+func TestHealUnattributedVectors_BatchError_FallsBackToSingleEmbed(t *testing.T) {
+	s := newSpaceStore(t)
+	if _, err := s.db.Exec(`INSERT INTO vectors (content, embedding, metadata) VALUES ('alpha', '[0,1,0,0]', '{}')`); err != nil {
+		t.Fatal(err)
+	}
+	inner := &spaceEngine{name: "test:model-a", dim: 4}
+	engine := &healBatchFailEngine{inner: inner}
+	attach(t, s, inner)
+	got, err := s.healUnattributedVectors(context.Background(), engine, inner.name)
+	if err != nil {
+		t.Fatalf("healUnattributedVectors() error = %v", err)
+	}
+	if got != 1 {
+		t.Fatalf("healUnattributedVectors() = %d, want 1 via fallback", got)
+	}
+	if engine.batchCalls == 0 {
+		t.Error("fallback path did not attempt EmbedBatch")
+	}
+	if engine.singleCalls == 0 {
+		t.Error("fallback path did not fall back to single Embed calls")
+	}
+	var stamp string
+	if err := s.db.QueryRow(`SELECT embedding_model FROM vectors WHERE content = 'alpha'`).Scan(&stamp); err != nil || stamp != inner.name {
+		t.Fatalf("legacy row stamped %q (err %v), want %q", stamp, err, inner.name)
+	}
+}
+
+func TestHealUnattributedVectors_ReplacedContent_KeepsOldStamp(t *testing.T) {
+	s := newSpaceStore(t)
+	if _, err := s.db.Exec(`INSERT INTO vectors (content, embedding, metadata) VALUES ('alpha', '[0,1,0,0]', '{}')`); err != nil {
+		t.Fatal(err)
+	}
+	engine := &spaceEngine{name: "test:model-a", dim: 4}
+	attach(t, s, engine)
+	var once sync.Once
+	engine.onEmbed = func(text string) {
+		if text != "alpha" {
+			return
+		}
+		once.Do(func() {
+			if _, err := s.db.Exec(`UPDATE vectors SET content = 'alpha rewritten' WHERE content = 'alpha'`); err != nil {
+				t.Errorf("concurrent edit: %v", err)
+			}
+		})
+	}
+	got, err := s.healUnattributedVectors(context.Background(), engine, engine.name)
+	if err != nil {
+		t.Fatalf("healUnattributedVectors() error = %v", err)
+	}
+	if got != 0 {
+		t.Errorf("healUnattributedVectors() = %d, want 0 for replaced content", got)
+	}
+	var stamp sql.NullString
+	if err := s.db.QueryRow(`SELECT embedding_model FROM vectors WHERE content = 'alpha rewritten'`).Scan(&stamp); err != nil {
+		t.Fatal(err)
+	}
+	if stamp.Valid && stamp.String != "" {
+		t.Fatalf("rewritten row stamped %q, want missing stamp: a vector for old text must not stamp new text", stamp.String)
+	}
+}
+
+func TestHealUnattributedVectors_CancelledContext_ReturnsContextError(t *testing.T) {
+	s := newSpaceStore(t)
+	if _, err := s.db.Exec(`INSERT INTO vectors (content, embedding, metadata) VALUES ('alpha', '[0,1,0,0]', '{}')`); err != nil {
+		t.Fatal(err)
+	}
+	engine := &spaceEngine{name: "test:model-a", dim: 4}
+	attach(t, s, engine)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got, err := s.healUnattributedVectors(ctx, engine, engine.name)
+	if err != context.Canceled {
+		t.Fatalf("healUnattributedVectors() error = %v, want context.Canceled", err)
+	}
+	if got != 0 {
+		t.Errorf("healUnattributedVectors() = %d, want 0 on cancellation", got)
+	}
+	var stamp sql.NullString
+	if err := s.db.QueryRow(`SELECT embedding_model FROM vectors WHERE content = 'alpha'`).Scan(&stamp); err != nil {
+		t.Fatal(err)
+	}
+	if stamp.Valid && stamp.String != "" {
+		t.Fatalf("cancelled heal stamped %q, want missing stamp", stamp.String)
+	}
+}
+
+func TestMaybeHealUnattributed_HealsOncePerSpace(t *testing.T) {
+	t.Run("nil safe", func(t *testing.T) {
+		var nilStore *LocalStore
+		nilStore.maybeHealUnattributed(context.Background(), &spaceEngine{name: "test:model-a", dim: 4}, "test:model-a")
+		s := newSpaceStore(t)
+		s.maybeHealUnattributed(context.Background(), nil, "test:model-a")
+		s.maybeHealUnattributed(context.Background(), &spaceEngine{name: "test:model-a", dim: 4}, "")
+	})
+	t.Run("second call in same space pays nothing", func(t *testing.T) {
+		s := newSpaceStore(t)
+		if _, err := s.db.Exec(`INSERT INTO vectors (content, embedding, metadata) VALUES ('alpha', '[0,1,0,0]', '{}')`); err != nil {
+			t.Fatal(err)
+		}
+		engine := &spaceEngine{name: "test:model-a", dim: 4}
+		attach(t, s, engine)
+		s.maybeHealUnattributed(context.Background(), engine, engine.name)
+		engine.mu.Lock()
+		engine.embeds = nil
+		engine.mu.Unlock()
+		s.maybeHealUnattributed(context.Background(), engine, engine.name)
+		if got := engine.embeddedTexts(); len(got) != 0 {
+			t.Fatalf("second maybeHeal embedded %v, want nothing: heal must run once per space", got)
+		}
+	})
+	t.Run("another space still heals refused rows", func(t *testing.T) {
+		s := newSpaceStore(t)
+		if _, err := s.db.Exec(`INSERT INTO vectors (content, embedding, metadata) VALUES ('alpha', '[0,1,0,0]', '{}'), ('beta', '[0,1,0,0]', '{}')`); err != nil {
+			t.Fatal(err)
+		}
+		a := &spaceEngine{name: "test:model-a", dim: 4, failOn: map[string]bool{"beta": true}}
+		attach(t, s, a)
+		s.maybeHealUnattributed(context.Background(), a, a.name)
+		var betaStamp sql.NullString
+		if err := s.db.QueryRow(`SELECT embedding_model FROM vectors WHERE content = 'beta'`).Scan(&betaStamp); err != nil {
+			t.Fatal(err)
+		}
+		if betaStamp.Valid && betaStamp.String != "" {
+			t.Fatalf("refused row stamped %q, want missing stamp", betaStamp.String)
+		}
+		b := &spaceEngine{name: "test:model-b", dim: 4, shift: 1}
+		attach(t, s, b)
+		s.maybeHealUnattributed(context.Background(), b, b.name)
+		if err := s.db.QueryRow(`SELECT embedding_model FROM vectors WHERE content = 'beta'`).Scan(&betaStamp); err != nil || betaStamp.String != b.name {
+			t.Fatalf("second-space heal stamped beta %q (err %v), want %q", betaStamp.String, err, b.name)
 		}
 	})
 }

@@ -73,6 +73,12 @@ type LocalStore struct {
 	backfillDone   chan struct{} // Closed when the pending vec backfill finishes; nil when idle.
 	noticeMu       sync.Mutex
 	noticedSpace   string // Embedding space whose excluded-vector notice was already logged.
+	// healMu guards healedSpaces: the set of embedding spaces whose one-time
+	// unattributed-vector heal already ran on this store. Heal runs at most
+	// once per space per store, so later recalls pay no DB scan and no
+	// provider calls for rows that could not be attributed.
+	healMu       sync.Mutex
+	healedSpaces map[string]struct{}
 }
 
 // NewLocalStore initializes the SQLite database at the given path.
