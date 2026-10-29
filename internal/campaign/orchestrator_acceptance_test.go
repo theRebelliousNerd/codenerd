@@ -305,6 +305,9 @@ func TestAcceptance_ACommandThatCannotRunIsAFailedRound(t *testing.T) {
 }
 
 // The witness and its rounds survive a save and a load: a resumed campaign
+// TODO: TEST_GAP: [State Conflicts] Verify settleAcceptance rolls back its in-memory campaign.Acceptance.Rounds state (or handles the divergence gracefully) if kernel.LoadFacts fails due to backend errors.
+// TODO: TEST_GAP: [User request Extremes] Verify appendAcceptanceRemediation truncates or handles massive (e.g., >10MB) command output files so they don't break the LLM context limits or cause OOM.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify settleAcceptance safely handles an empty or nil Acceptance.Command without creating an empty command string that panics the executor or OS.
 // neither forgets the command nor restarts its count.
 func TestAcceptance_PersistsWithTheCampaign(t *testing.T) {
 	c := &Campaign{ID: "/campaign_x", Acceptance: &Acceptance{
