@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"codenerd/internal/config"
-	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
@@ -274,8 +273,10 @@ type TaskRetrieverConfig struct {
 	// Retriever is shared with every other pass in the process so the keyword
 	// cache stays warm; one is built for WorkDir when nil.
 	Retriever *SparseRetriever
-	// EmbeddingEngine is the optional Tier 4 backend.
-	EmbeddingEngine embedding.EmbeddingEngine
+	// SemanticSearcher is the process's Tier 4 searcher, shared with the
+	// chat's issue seed so one warm vector cache serves every pass. Nil keeps
+	// the definition-scan fallback.
+	SemanticSearcher *EmbeddingSemanticSearcher
 	// Params are the thresholds the brief rules read: retrieval's
 	// (config.RetrievalConfig.Params) and, with a relevance judge, Jev's
 	// (config.TypeSafeConfig.Params), which let a file Jev judged relevant
@@ -295,9 +296,8 @@ type TaskRetrieverConfig struct {
 // TaskRetriever runs the kernel-gated retrieval pass for one task and hands
 // back what the kernel decided the model should see.
 type TaskRetriever struct {
-	kernel   IssueKernel
-	cfg      TaskRetrieverConfig
-	semantic *EmbeddingSemanticSearcher
+	kernel IssueKernel
+	cfg    TaskRetrieverConfig
 }
 
 // NewTaskRetriever builds a TaskRetriever over kernel. Nil when there is no
@@ -313,9 +313,6 @@ func NewTaskRetriever(kernel IssueKernel, cfg TaskRetrieverConfig) *TaskRetrieve
 		cfg.Retriever = NewSparseRetriever(DefaultSparseRetrieverConfig(cfg.WorkDir))
 	}
 	t := &TaskRetriever{kernel: kernel, cfg: cfg}
-	if cfg.EmbeddingEngine != nil {
-		t.semantic = NewEmbeddingSemanticSearcher(cfg.EmbeddingEngine, cfg.WorkDir)
-	}
 	return t
 }
 
@@ -349,8 +346,7 @@ func (t *TaskRetriever) Retrieve(ctx context.Context, intentID, taskText string)
 		IssueText:           taskText,
 		WorkDir:             t.cfg.WorkDir,
 		Retriever:           t.cfg.Retriever,
-		EmbeddingEngine:     t.cfg.EmbeddingEngine,
-		SemanticSearcher:    t.semantic,
+		SemanticSearcher:    t.cfg.SemanticSearcher,
 		Relevance:           t.cfg.Relevance,
 		RelevanceDrop:       t.cfg.RelevanceDrop,
 		RelevancePoolFactor: t.cfg.RelevancePoolFactor,

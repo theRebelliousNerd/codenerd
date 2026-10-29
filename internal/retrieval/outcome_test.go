@@ -15,12 +15,13 @@ import (
 
 // The pass asserts each tier's provenance, keyed by its issue, and the
 // kernel's policy -- not Go -- decides which shortfall becomes a caveat: a
-// partial keyword search does, a by-design bounded semantic corpus does not.
+// partial keyword search does, a semantic corpus still embedding in the
+// background does not.
 func TestOutcomeFacts_PolicyDecidesTheCaveats(t *testing.T) {
 	k := newDecisionKernel(t)
 	facts := OutcomeFacts("/issue_prov", []TierOutcome{
 		{Tier: TierKeyword, Status: StatusPartial, Reason: ReasonTimeout, Attempted: BackendNative, Used: BackendNative},
-		{Tier: TierSemantic, Status: StatusPartial, Reason: ReasonBoundedCorpus, Attempted: BackendEmbeddings, Used: BackendEmbeddings, Eligible: 900, Covered: 256},
+		{Tier: TierSemantic, Status: StatusPartial, Reason: ReasonEmbedPending, Attempted: BackendEmbeddings, Used: BackendEmbeddings, Eligible: 900, Covered: 256},
 	})
 	if err := k.LoadFacts(facts); err != nil {
 		t.Fatalf("LoadFacts: %v", err)
@@ -106,6 +107,14 @@ func TestTaskRetriever_PartialSearchReachesTheBrief(t *testing.T) {
 type countingEmbedder struct {
 	texts atomic.Int64
 	dims  int
+	space string
+}
+
+func (e *countingEmbedder) Name() string {
+	if e.space == "" {
+		return "counting"
+	}
+	return e.space
 }
 
 func (e *countingEmbedder) vec(text string) []float32 {
@@ -136,7 +145,7 @@ func TestSemanticVectors_ReuseOnlyTheSameContent(t *testing.T) {
 	writeFile(t, dir, "a.go", []byte("package a // zebra zebra\n"))
 	writeFile(t, dir, "b.go", []byte("package b // plain\n"))
 	engine := &countingEmbedder{}
-	s := NewEmbeddingSemanticSearcher(engine, dir)
+	s := NewEmbeddingSemanticSearcher(engine, dir, nil)
 
 	first, err := s.SimilarFiles(context.Background(), "zebra", 5)
 	if err != nil || len(first.Matches) == 0 || !strings.HasSuffix(first.Matches[0].FilePath, "a.go") {
@@ -166,7 +175,7 @@ func TestSemanticVectors_ForgetFilesOutsideTheCorpus(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "a.go", []byte("package a\n"))
 	path := writeFile(t, dir, "b.go", []byte("package b\n"))
-	s := NewEmbeddingSemanticSearcher(&countingEmbedder{}, dir)
+	s := NewEmbeddingSemanticSearcher(&countingEmbedder{}, dir, nil)
 	if _, err := s.SimilarFiles(context.Background(), "q", 5); err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +200,7 @@ func TestSemanticVectors_ConcurrentMissesEmbedOnce(t *testing.T) {
 		writeFile(t, dir, fmt.Sprintf("f%02d.go", i), []byte(fmt.Sprintf("package f // file %d\n", i)))
 	}
 	engine := &countingEmbedder{}
-	s := NewEmbeddingSemanticSearcher(engine, dir)
+	s := NewEmbeddingSemanticSearcher(engine, dir, nil)
 	var wg sync.WaitGroup
 	for range 4 {
 		wg.Go(func() {
@@ -211,31 +220,12 @@ func TestSemanticVectors_ConcurrentMissesEmbedOnce(t *testing.T) {
 func TestSemanticVectors_DimensionMismatchIsNotCoverage(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "a.go", []byte("package a\n"))
-	s := NewEmbeddingSemanticSearcher(&countingEmbedder{dims: 3}, dir)
+	s := NewEmbeddingSemanticSearcher(&countingEmbedder{dims: 3}, dir, nil)
 	result, err := s.SimilarFiles(context.Background(), "q", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Covered != 0 || len(result.Matches) != 0 || result.Incomplete == "" {
 		t.Fatalf("mismatched vectors were ranked: %+v", result)
-	}
-}
-
-// Fixture 8: a corpus past the limit says how much it left out, and the
-// outcome is partial (bounded_corpus) -- a fact policy reads, not a caveat
-// it renders.
-func TestSemanticTier_BoundedCorpusIsReported(t *testing.T) {
-	dir := t.TempDir()
-	for i := range 6 {
-		writeFile(t, dir, fmt.Sprintf("f%d.go", i), []byte("package f // zebra\n"))
-	}
-	s := NewEmbeddingSemanticSearcher(&countingEmbedder{}, dir)
-	s.corpusLimit = 4
-	cfg := DefaultTieredContextConfig(dir)
-	cfg.Semantic = s
-	b := NewTieredContextBuilder(cfg)
-	_, outcome := b.semanticExpansion(context.Background(), "zebra", &IssueKeywords{}, map[string]bool{})
-	if outcome.Status != StatusPartial || outcome.Reason != ReasonBoundedCorpus || outcome.Eligible != 6 || outcome.Covered != 4 {
-		t.Fatalf("outcome = %s, want partial (bounded_corpus), 4 of 6", outcome)
 	}
 }

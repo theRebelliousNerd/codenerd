@@ -3,7 +3,6 @@ package chat
 import (
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/approval"
-	"codenerd/internal/retrieval"
 	"fmt"
 	"strings"
 	"time"
@@ -767,14 +766,11 @@ func (m Model) handleBootCompleteMsg(msg bootCompleteMsg) (tea.Model, tea.Cmd) {
 		m.retriever = c.Retriever
 		m.localDB = c.LocalDB
 		m.embeddingEngine = c.EmbeddingEngine
-		// One Tier-4 searcher for the session, built here on the model that
-		// persists: built inside a turn it lived on that turn's copy of the
-		// Model, so every turn re-embedded the corpus inside its retrieval
-		// budget. Its corpus is embedded in the background now, so turns rank.
-		if c.EmbeddingEngine != nil {
-			m.semanticSearcher = retrieval.NewEmbeddingSemanticSearcher(c.EmbeddingEngine, m.workspace)
-			go warmSemanticCorpus(m.semanticSearcher)
-		}
+		// The process's Tier-4 searcher: the boot built it over the
+		// workspace's persistent vector store and warms it in the background,
+		// and the session executor's task passes share it, so the chat's
+		// issue seed only ranks.
+		m.semanticSearcher = c.SemanticSearcher
 		m.learningStore = c.LearningStore
 		m.compressor = c.Compressor
 		m.feedbackStore = c.FeedbackStore

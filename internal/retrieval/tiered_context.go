@@ -592,7 +592,8 @@ func (b *TieredContextBuilder) semanticExpansion(ctx context.Context, issueText 
 				case result.Incomplete != "":
 					out.Status, out.Reason, out.Detail = StatusPartial, ReasonEmbedIncomplete, result.Incomplete
 				case result.Covered < result.Eligible:
-					out.Status, out.Reason = StatusPartial, ReasonBoundedCorpus
+					out.Status, out.Reason = StatusPartial, ReasonEmbedPending
+					out.Detail = fmt.Sprintf("%d of %d files still being embedded in the background", result.Pending, result.Eligible)
 				}
 				return files, out
 			}

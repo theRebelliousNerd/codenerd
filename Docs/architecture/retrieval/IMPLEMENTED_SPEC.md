@@ -15,7 +15,7 @@
 3. **Ranked candidate files** with relevance scores and context tiers 1–4
 4. Optionally a **tiered context pack** (mentioned → keyword → import neighbors → symbol-definition heuristics)
 
-It is **not** a vector RAG stack. Semantic expansion (Tier 4) is explicitly a placeholder that falls back to symbol-definition heuristics without embeddings.
+Semantic expansion (Tier 4) ranks files by embedding similarity when an embedding engine is up, over vectors persisted in `.nerd/file_embeddings.db` (section 11b); without an engine it falls back to symbol-definition heuristics.
 
 ### Design intent (from package comments)
 
@@ -62,7 +62,7 @@ North-star fit: retrieval is **transduction support** (NL issue → structured a
 | File ranking + tiers 1–4 | **Implemented** | `RankFiles`, `determineTier` |
 | `FindRelevantFiles` convenience | **Implemented** | extract → search → rank |
 | `TieredContextBuilder` T1–T3 | **Implemented** | mentioned, keyword, Python imports |
-| Tier 4 semantic expansion | **Partial / placeholder** | symbol defs via keyword scan; no vectors |
+| Tier 4 semantic expansion | **Implemented** | embedding similarity over the whole corpus (persisted vectors, background warm-up); symbol-definition scan without an engine |
 | SIMD `ScanBuffer` | **Implemented (build-tag)** | `scanner_amd64.go` (`amd64 && simd`) |
 | Generic `ScanBuffer` | **Implemented (default)** | `scanner_generic.go` |
 | `parseRipgrepOutput` | **Implemented (orphan helper)** | tests only; not on search path |
@@ -346,7 +346,7 @@ Full matrix: [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md). Headline gaps:
 
 1. **`Model.Retriever` dormant** — boot-only wiring.
 2. **No full search → Mangle EDB pipeline** (`keyword_hit`, `candidate_file`, multi-tier `tiered_context_file`).
-3. **Tier 4 not semantic** — no embedding bridge.
+3. **Tier 4 embeds file heads only** — the first 4 KiB of each file is its vector; topics introduced later in a long file are not represented.
 4. **Language bias** — extract + T3 favor Python idioms; Go multi-package repos under-served for imports.
 5. **Comment/docs drift** — “ripgrep” vs native scan.
 6. **T2 empty-string `FindRelevantFiles`** call waste.
@@ -385,11 +385,17 @@ See [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md).
 
 ---
 
-## 11b. Semantic corpus selection
+## 11b. Semantic corpus and persisted vectors
 
-`semantic_corpus.go:boundedCorpus` bounds the Tier 4 corpus (`semanticCorpusLimit`, 256 heads) round-robin across directories: the first file of each sorted directory, then the second, and so on, returned sorted. The earlier rule (first 256 paths in lexicographic order) shut out every file past the cutoff regardless of task. The sample is deterministic, so the content-keyed vector cache stays warm; `Eligible` vs `Covered` still reports the bound. Test: `semantic_corpus_test.go`. Task-conditioned selection and an explicit test corpus remain unbuilt (they need the paired task study).
-
----
+- **Corpus:** every member source file (`isSemanticSourceFile`: source extensions, Go tests excluded) whose first 4 KiB is not blank or binary. There is no cap; the earlier 256-file sample (`boundedCorpus`) is deleted, so no file is out of a query's reach.
+- **One searcher per process:** `internal/system/factory_semantic.go:initSemanticSearcher` builds it at boot when an embedding engine is up, exposes it as `Cortex.SemanticSearcher`, and hands it to the session executor's task passes (`TaskRetrieverConfig.SemanticSearcher`) and the chat's issue seed (`SeedRequest.SemanticSearcher`). `nerd retrieve` builds one the same way (`resolveRetrieveSearcher`).
+- **Persisted vectors:** `semantic_store.go:FileVectorStore`, table `file_vectors(digest, space, dims, vec, updated_at)`, primary key `(digest, space)`. `digest` is the SHA-256 of the embedded head bytes; `space` is the engine's `Name()` (it carries the model). Equal heads share a row; an edit changes the digest; a model change opens a new space and never compares across spaces.
+- **Lookup order** (`vectorsFor`): memory, then the store, then the engine for what is left, in chunks of 32 that are kept in memory and written to the store as each completes.
+- **Warm-up:** `Warm` runs once in the background at boot, until done or until `Cortex.Close` cancels it. It embeds only files with no stored vector at their current content, and after a complete pass `Retain` deletes the rows of content that no longer exists. Progress survives a cut: the next process resumes it.
+- **Turns never wait on the warm-up:** heads another caller is embedding are counted as `Pending`, not waited for. A turn embeds its query and any changed file nobody else is embedding, then ranks.
+- **Outcome:** `Covered < Eligible` with no error is `embedding_pending` (detail "N of M files still being embedded in the background"), which `policy/retrieval.mg` keeps out of the brief's caveats. An embedding error or a dimension mismatch is `embed_incomplete` and is a caveat.
+- **Measured** on this repository (1,667 eligible files, local Ollama): filling an empty store took 52 s, once. A warm pass then took 0.65 s end to end, against the 5 s `DefaultSeedTimeout` it used to exhaust while covering 96 to 192 files.
+- **Tests:** `semantic_store_test.go` covers persistence across searchers, partitioning by space, the whole corpus with no cap, a turn not waiting on the warm-up, and a damaged row read as a miss. `outcome_test.go` covers policy deciding the caveats.
 
 ## 12. Change discipline
 

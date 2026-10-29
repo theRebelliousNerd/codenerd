@@ -227,6 +227,10 @@ func (c *Cortex) Close() error {
 		c.JITCompiler = nil
 	}
 
+	// The warm-up embeds through the engine: stop it before the engine closes.
+	if err := c.closeSemanticSearcher(); err != nil {
+		errs = append(errs, err)
+	}
 	if closer, ok := c.EmbeddingEngine.(interface{ Close() error }); ok {
 		if err := runCloseStep("EmbeddingEngine.Close", closeStepTimeout, closer.Close); err != nil {
 			errs = append(errs, err)

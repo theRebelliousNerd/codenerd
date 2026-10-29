@@ -314,6 +314,7 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 			TransparencyMgr:  transparencyMgr,
 			PreferencesMgr:   prefsMgr,
 			Retriever:        retriever,
+			SemanticSearcher: cortex.SemanticSearcher,
 			GlassBoxEventBus: glassBoxEventBus,
 			ToolEventBus:     toolEventBus,
 			ToolStore:        cortex.ToolStore,
