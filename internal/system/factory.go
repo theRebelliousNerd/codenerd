@@ -453,6 +453,8 @@ type Cortex struct {
 	generatedExecutor     *orchestratorToolExecutor
 	onDemandStop          func()
 	perceptionInitialized bool
+	// agents activates an agent defined mid-session (ActivateAgent).
+	agents agentActivator
 
 	// meterSink and couseLog are what THIS boot installed into the two
 	// process-wide measurement singletons. Close detaches only these, by
@@ -1962,7 +1964,16 @@ func initAutopoiesisAndBrowser(bctx *bootContext) error {
 	// An agent autopoiesis authors is written by the one agent-definition
 	// writer: init's atoms, its system prompt admitted as methodology.
 	bctx.poiesis.SetAgentDefinitionWriter(func(ctx context.Context, workspace, name, role, topics, systemPrompt string) (string, error) {
-		return WriteAgentDefinition(ctx, workspace, name, role, topics, systemPrompt, "")
+		path, err := WriteAgentDefinition(ctx, workspace, name, role, topics, systemPrompt, "")
+		if err != nil {
+			return path, err
+		}
+		// The agent joins the running session's roster, so a task on its
+		// files can need it before the next boot.
+		if err := bctx.activator().Activate(ctx, name); err != nil {
+			logging.Get(logging.CategoryAutopoiesis).Warn("agent %q written but not active this session: %v", name, err)
+		}
+		return path, nil
 	})
 	// Orchestrator now takes types.Kernel directly, so the AutopoiesisBridge adapter is no longer needed here - step 2 of the KernelInterface deprecation plan documented on types.KernelInterface.
 	bctx.poiesis.SetKernel(bctx.kernel)
@@ -2699,7 +2710,13 @@ func initFinalExecutors(bctx *bootContext) error {
 		bctx.sessionExecutor.SetPlannerClient(plannerSessionLLM)
 		bctx.sessionSpawner.SetPlannerClient(plannerSessionLLM)
 	}
-	bctx.taskExecutor = session.NewJITExecutor(bctx.sessionExecutor, bctx.sessionSpawner, bctx.transducer)
+	jitExecutor := session.NewJITExecutor(bctx.sessionExecutor, bctx.sessionSpawner, bctx.transducer)
+	bctx.taskExecutor = jitExecutor
+	// Spawn second: the shard-agent consultations the kernel derives for a
+	// turn (expert_spawn) run through this executor's consultation spawner,
+	// on the session executor, its task clones and every subagent.
+	bctx.sessionExecutor.SetExpertConsultant(jitExecutor)
+	bctx.sessionSpawner.SetExpertConsultant(jitExecutor)
 	bctx.virtualStore.SetTaskExecutor(&taskDelegatorAdapter{executor: bctx.taskExecutor})
 	// Domain personas (coder/tester/reviewer/researcher) and user-defined agents
 	// have no ShardManager factory — the JIT migration deleted those shards. Give
@@ -2934,6 +2951,7 @@ func cortexFromBootContext(bctx *bootContext) *Cortex {
 	}
 
 	return &Cortex{
+		agents:                bctx.activator(),
 		Kernel:                bctx.kernel,
 		RealKernel:            realKernel,
 		LLMClient:             bctx.llmClient,

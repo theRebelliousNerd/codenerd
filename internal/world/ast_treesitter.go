@@ -708,6 +708,15 @@ func (p *TreeSitterParser) extractJSSymbols(node *sitter.Node, path, content str
 					Args:      []any{path, fmt.Sprintf("mod:%s", source), source},
 				})
 			}
+		case "call_expression":
+			// CommonJS: require("pkg") imports as surely as an import
+			// statement, and a file using it recorded no import at all.
+			if source, ok := requireSpecifier(n, getText); ok {
+				facts = append(facts, Fact{
+					Predicate: "dependency_link",
+					Args:      []any{path, fmt.Sprintf("mod:%s", source), source},
+				})
+			}
 		}
 		for i := 0; i < int(n.ChildCount()); i++ {
 			walk(n.Child(i))
@@ -819,6 +828,15 @@ func (p *TreeSitterParser) extractTSSymbols(node *sitter.Node, path, content str
 					Args:      []any{path, fmt.Sprintf("mod:%s", source), source},
 				})
 			}
+		case "call_expression":
+			// CommonJS: require("pkg") imports as surely as an import
+			// statement, and a file using it recorded no import at all.
+			if source, ok := requireSpecifier(n, getText); ok {
+				facts = append(facts, Fact{
+					Predicate: "dependency_link",
+					Args:      []any{path, fmt.Sprintf("mod:%s", source), source},
+				})
+			}
 		}
 		for i := 0; i < int(n.ChildCount()); i++ {
 			walk(n.Child(i))
@@ -826,4 +844,23 @@ func (p *TreeSitterParser) extractTSSymbols(node *sitter.Node, path, content str
 	}
 	walk(node)
 	return facts
+}
+
+// requireSpecifier is the module a CommonJS require("pkg") call names: a call
+// of the bare identifier require with one string literal argument.
+func requireSpecifier(n *sitter.Node, getText func(*sitter.Node) string) (string, bool) {
+	fn := n.ChildByFieldName("function")
+	if fn == nil || fn.Type() != "identifier" || getText(fn) != "require" {
+		return "", false
+	}
+	args := n.ChildByFieldName("arguments")
+	if args == nil || args.NamedChildCount() != 1 {
+		return "", false
+	}
+	arg := args.NamedChild(0)
+	if arg == nil || arg.Type() != "string" {
+		return "", false
+	}
+	source := strings.Trim(getText(arg), "\"'`")
+	return source, source != ""
 }

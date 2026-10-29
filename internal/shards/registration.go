@@ -239,8 +239,9 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// here; a catch-all home would split the join and no task
 				// would ever need an expert. task_complexity rides with the
 				// task for strategic_advisor_required.
-				"shard_agent", "shard_agent_domain", "technology_import_root",
-				"expert_task", "expert_task_target", "task_complexity",
+				"shard_agent", "shard_agent_domain", "technology_import_exact", "technology_import_prefix",
+				"shard_agent_recorded", "expert_task", "expert_task_target",
+				"expert_task_speaker", "task_complexity",
 			},
 		},
 		{

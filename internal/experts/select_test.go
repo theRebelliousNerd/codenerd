@@ -1,6 +1,7 @@
 package experts
 
 import (
+	"fmt"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -20,7 +21,7 @@ func rosterKernel(t *testing.T) *core.RealKernel {
 		{Predicate: "shard_agent", Args: []any{AgentAtom("BubbleTeaExpert")}},
 		{Predicate: "shard_agent_domain", Args: []any{AgentAtom("MangleExpert"), types.MangleAtom("/mangle"), types.MangleAtom("/registry")}},
 		{Predicate: "shard_agent_domain", Args: []any{AgentAtom("BubbleTeaExpert"), types.MangleAtom("/bubbletea"), types.MangleAtom("/registry")}},
-		{Predicate: "technology_import_root", Args: []any{"github.com/charmbracelet/bubbletea", types.MangleAtom("/bubbletea")}},
+		{Predicate: "technology_import_prefix", Args: []any{"github.com/charmbracelet/bubbletea", types.MangleAtom("/bubbletea")}},
 		{Predicate: "dependency_link", Args: []any{"cmd/nerd/chat/view.go", "pkg:github.com/charmbracelet/bubbletea", "github.com/charmbracelet/bubbletea"}},
 	}); err != nil {
 		t.Fatalf("assert roster: %v", err)
@@ -45,7 +46,7 @@ func TestSelectReadsTheKernelsDecisionAndRetracts(t *testing.T) {
 		t.Fatalf("Select: %v", err)
 	}
 	if got := sel.Agents(); !slices.Equal(got, []string{"bubbleteaexpert", "mangleexpert"}) {
-		t.Fatalf("needed agents = %v, want bubbleteaexpert (90) then mangleexpert (60)", got)
+		t.Fatalf("needed agents = %v, want bubbleteaexpert (90) then mangleexpert (40)", got)
 	}
 	tea := sel.Needs[0]
 	if tea.Confidence != 90 || !tea.Execute || !slices.Equal(tea.Files, []string{"cmd/nerd/chat/view.go"}) ||
@@ -53,7 +54,11 @@ func TestSelectReadsTheKernelsDecisionAndRetracts(t *testing.T) {
 		t.Errorf("bubbletea need = %+v", tea)
 	}
 	mg := sel.Needs[1]
-	if mg.Confidence != 60 || mg.Execute || !mg.Advise || !slices.Equal(mg.Technologies, []string{"mangle"}) {
+	if tea.Spawn != SpawnLead {
+		t.Errorf("an executor routed to execute is consulted to lead; spawn = %q", tea.Spawn)
+	}
+	// A language match pushes knowledge and spawns no one.
+	if mg.Confidence != 40 || mg.Execute || mg.Advise || mg.Spawn != "" || !slices.Equal(mg.Technologies, []string{"mangle"}) {
 		t.Errorf("mangle need = %+v", mg)
 	}
 
@@ -83,16 +88,40 @@ func TestSelectNeedsAVerbThatReadsCodeAndATarget(t *testing.T) {
 	}
 }
 
-// A /high task derives strategic_advisor_required while a strategic advisor
-// is classified (policy/shards.mg carries /securityauditor).
-func TestSelectCarriesStrategicAdvice(t *testing.T) {
+// The kernel derives a task's complexity from what it measures, not from its
+// wording: a complex verb, more than three files, or a file the world model
+// says defines more than sixty symbols makes it /high, and a /high task
+// requires strategic advice while a strategic advisor is classified.
+func TestSelectDerivesComplexityFromTheTasksShape(t *testing.T) {
 	k := rosterKernel(t)
-	sel, err := Select(k, Task{Verb: "/refactor", Targets: []string{"a.mg"}, Complexity: "/high"})
-	if err != nil {
-		t.Fatalf("Select: %v", err)
+	var symbols []types.Fact
+	for n := range 61 {
+		symbols = append(symbols, types.Fact{Predicate: "symbol_graph", Args: []any{
+			fmt.Sprintf("sym_%d", n), types.MangleAtom("/function"), types.MangleAtom("/public"), "internal/big/surface.go", "func f()"}})
 	}
-	if !sel.StrategicAdvisorRequired {
-		t.Errorf("a /high task did not require a strategic advisor: %+v", sel)
+	if err := k.AssertBatch(symbols); err != nil {
+		t.Fatalf("assert symbols: %v", err)
+	}
+	for _, tc := range []struct {
+		name    string
+		task    Task
+		want    string
+		advisor bool
+	}{
+		{"a complex verb", Task{Verb: "/refactor", Targets: []string{"a.mg"}}, "high", true},
+		{"one small file", Task{Verb: "/fix", Targets: []string{"a.mg"}}, "normal", false},
+		{"four files", Task{Verb: "/fix", Targets: []string{"a.go", "b.go", "c.go", "d.go"}}, "high", true},
+		{"a large file", Task{Verb: "/fix", Targets: []string{"internal/big/surface.go"}}, "high", true},
+		// The wording no longer decides: "security" in a path is not a verb.
+		{"a word in the target", Task{Verb: "/fix", Targets: []string{"security_architecture.go"}}, "normal", false},
+	} {
+		sel, err := Select(k, tc.task)
+		if err != nil {
+			t.Fatalf("%s: Select: %v", tc.name, err)
+		}
+		if sel.Complexity != tc.want || sel.StrategicAdvisorRequired != tc.advisor {
+			t.Errorf("%s: complexity %q, advisor %v; want %q, %v", tc.name, sel.Complexity, sel.StrategicAdvisorRequired, tc.want, tc.advisor)
+		}
 	}
 	if rows, _ := k.Query("task_complexity"); len(rows) != 0 {
 		t.Errorf("task_complexity left behind: %v", rows)

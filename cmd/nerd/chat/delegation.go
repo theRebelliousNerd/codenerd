@@ -40,11 +40,17 @@ import (
 // shardTypeToTaskRequest normalizes these into a valid TaskRequest so the
 // executor's strict IntentVerb validation doesn't trip on persona names.
 func (m *Model) spawnTask(ctx context.Context, shardType string, task string) (string, error) {
+	return m.spawnTaskRequest(ctx, shardTypeToTaskRequest(shardType, task))
+}
+
+// spawnTaskRequest runs a request whose fields the caller already resolved
+// (a verb, a target) through the task executor.
+func (m *Model) spawnTaskRequest(ctx context.Context, req session.TaskRequest) (string, error) {
 	if m.taskExecutor == nil {
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
-	ctx = m.withShardModelContext(ctx, shardType)
-	return m.taskExecutor.Execute(ctx, shardTypeToTaskRequest(shardType, task))
+	ctx = m.withShardModelContext(ctx, req.IntentVerb)
+	return m.taskExecutor.Execute(ctx, req)
 }
 
 // spawnTaskWithContext spawns a task with additional session context and
@@ -851,8 +857,7 @@ func (m Model) spawnShardWithSpecialists(verb, shardType, task, target string) t
 		// 2. Ask the kernel which shard agents this task needs
 		//    (expert_needed, policy/shard_experts.mg) and how each is routed
 		//    (specialist_should_execute / _advise, policy/shards.mg).
-		complexity := shards.TaskComplexity(task, len(files))
-		sel := m.selectShardExperts(verb, files, complexity)
+		sel := m.selectShardExperts(verb, files)
 		specialists := specialistsFromSelection(sel)
 
 		// 3. No shard agent needed? Plain spawn.
@@ -860,10 +865,11 @@ func (m Model) spawnShardWithSpecialists(verb, shardType, task, target string) t
 			return m.spawnSimpleShard(ctx, shardType, task, startTime)
 		}
 
-		// 4. An executor the kernel handed the task runs it directly.
+		// 4. An executor the kernel routed to execute leads the task; the
+		//    task's own verb executes it (executeExpertLedMode).
 		for _, spec := range specialists {
 			if spec.ShouldExecute {
-				return m.executeSpecialistDirectMode(ctx, verb, spec, task, target, sel.StrategicAdvisorRequired, startTime)
+				return m.executeExpertLedMode(ctx, verb, shardType, spec, task, target, sel, startTime)
 			}
 		}
 

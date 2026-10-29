@@ -273,6 +273,12 @@ type Executor struct {
 	// and the closure audit (finish_round.go). Nil: no /finish push-back, and
 	// the closure audit asks the main model.
 	reportJudge *ReportJudge
+	// expertConsultant runs the shard-agent consultations the kernel derives
+	// for a turn (expert_spawn, policy/shard_experts.mg): the JITExecutor's
+	// SpawnConsultation, the machinery chat consultations use. Nil: the turn
+	// runs on the pushed knowledge alone and says which consultations it
+	// could not run (expert_spawn.go).
+	expertConsultant ExpertConsultant
 }
 
 // Generated duplicates retain one exact pending authorization until the last
@@ -667,6 +673,9 @@ func (e *Executor) CloneForTask() *Executor {
 	// A delegated task's report is read the same way, so its unfinished
 	// work is pushed back too (finish_round.go).
 	clone.reportJudge = e.reportJudge
+	// A delegated task is where a fix runs: the shard agents the kernel
+	// routes to it are consulted from the clone.
+	clone.expertConsultant = e.expertConsultant
 	// Deliberately NOT copied: conversationHistory, sessionContext,
 	// sessionPersister (task runs must not be recorded as session turns),
 	// EffectiveAgentRuntimeConfig (set per task by the caller).
@@ -1359,7 +1368,10 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	ctx = e.withShellScope(ctx, result.turnAtom(), result)
 
 	// 2. ORIENT: Build compilation context from intent + world state
-	compilationCtx := e.buildCompilationContext(ctx, intent)
+	// Which shard agents this turn needs, asked once: the compile carries
+	// their knowledge, and the consultations the kernel derives run below.
+	expertSel := e.selectExperts(intent.Verb, intent.Target)
+	compilationCtx := e.buildCompilationContextWith(ctx, intent, expertSel.Agents())
 	// The persona is known from here: its shard profile rides on the context
 	// every model call of the turn is made under.
 	ctx = e.withShardProfile(ctx, compilationCtx.ShardType)
@@ -1434,6 +1446,8 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// the atom selector has no way to score a document it has never seen, and
 	// budget-driven eviction could silently drop the project's own rules.
 	systemPrompt := e.withCompiledFileContext(ctx, e.withProjectInstructions(compileResult.Prompt), intent.Target)
+	// 4c. Spawn second: the consultations the kernel derived (expert_spawn).
+	systemPrompt = e.withExpertConsultations(ctx, systemPrompt, intent, input, expertSel)
 
 	// 5+6. LLM ↔ tools loop. The model may request tools, we execute them, then
 	// feed the results back as a new turn — repeated until the model returns a
@@ -1488,8 +1502,15 @@ func (e *Executor) observe(ctx context.Context, input string) (perception.Intent
 	return intent, nil
 }
 
-// buildCompilationContext creates a CompilationContext from the current state.
+// buildCompilationContext creates a CompilationContext from the current state,
+// asking the kernel which shard agents the intent's target needs.
 func (e *Executor) buildCompilationContext(ctx context.Context, intent perception.Intent) *prompt.CompilationContext {
+	return e.buildCompilationContextWith(ctx, intent, e.neededExperts(intent.Verb, intent.Target))
+}
+
+// buildCompilationContextWith creates a CompilationContext carrying the shard
+// agents the kernel already derived for this intent (experts).
+func (e *Executor) buildCompilationContextWith(ctx context.Context, intent perception.Intent, experts []string) *prompt.CompilationContext {
 	// The client that will be sent this prompt, resolved once for the compile:
 	// its input cap (a slot's max_input_tokens) bounds the prompt's budget as
 	// it bounds every request of the turn, and its identity pins the atoms.
@@ -1550,7 +1571,7 @@ func (e *Executor) buildCompilationContext(ctx context.Context, intent perceptio
 		cc.Language = lang
 	}
 	cc.DerivedNeeds = e.compileNeeds(cc.Language, intent.Verb)
-	cc.Experts = e.neededExperts(intent.Verb, intent.Target)
+	cc.Experts = experts
 
 	// Drive vector atom selection.
 	//

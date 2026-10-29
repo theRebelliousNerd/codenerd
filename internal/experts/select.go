@@ -10,7 +10,7 @@
 // strategic_advisor_required). The task's facts are retracted before Select
 // returns, so a selection leaves nothing behind in the shared kernel.
 //
-// The roster side (shard_agent, shard_agent_domain, technology_import_root)
+// The roster side (shard_agent, shard_agent_domain, technology_import_prefix)
 // is asserted once at boot by internal/system.
 package experts
 
@@ -33,10 +33,17 @@ type Task struct {
 	Targets []string
 	// Workspace is the root that canonical paths are relative to.
 	Workspace string
-	// Complexity, when set ("/high" or "/normal"), is asserted as
-	// task_complexity so strategic_advisor_required can derive.
-	Complexity string
+	// Speaker, when set, is the shard agent the task already runs as (its
+	// key, "goexpert"): asserted as expert_task_speaker, so a consultation
+	// never spawns another (policy/shard_experts.mg expert_spawn).
+	Speaker string
 }
+
+// Spawn modes, the value set of expert_spawn/3's Mode.
+const (
+	SpawnLead   = "lead"   // an executor expert lays out the work
+	SpawnAdvise = "advise" // an advisor says what must hold
+)
 
 // Need is one shard agent the kernel derived the task needs.
 type Need struct {
@@ -55,6 +62,9 @@ type Need struct {
 	// this task (specialist_should_execute / specialist_should_advise).
 	Execute bool
 	Advise  bool
+	// Spawn is the consultation the kernel derived for the agent before the
+	// task's turn (expert_spawn): SpawnLead, SpawnAdvise, or "" for none.
+	Spawn string
 }
 
 // Selection is the kernel's answer for one task.
@@ -65,6 +75,10 @@ type Selection struct {
 	Needs []Need
 	// StrategicAdvisorRequired reports strategic_advisor_required(Task).
 	StrategicAdvisorRequired bool
+	// Complexity is task_complexity(Task, Level) as the kernel derived it
+	// from the task's verb, file count and file sizes ("high", "normal"), or
+	// "" when the task asked nothing.
+	Complexity string
 }
 
 // Agents returns the needed agents' identities, in Needs order.
@@ -121,8 +135,8 @@ func taskFacts(id, verb string, task Task) []types.Fact {
 			facts = append(facts, types.Fact{Predicate: "file_extension", Args: []any{canonical, ext}})
 		}
 	}
-	if complexity := strings.TrimSpace(task.Complexity); complexity != "" && validName(complexity) {
-		facts = append(facts, types.Fact{Predicate: "task_complexity", Args: []any{id, types.MangleAtom(complexity)}})
+	if speaker := AgentKey(task.Speaker); speaker != "" && validName("/"+speaker) {
+		facts = append(facts, types.Fact{Predicate: "expert_task_speaker", Args: []any{id, AgentAtom(speaker)}})
 	}
 	return facts
 }
@@ -151,6 +165,26 @@ func read(kernel types.Kernel, id string) (Selection, error) {
 		n := need(agentKey(f.Args[1]))
 		n.Technologies = appendUnique(n.Technologies, strings.TrimPrefix(types.ExtractString(f.Args[2]), "/"))
 	}
+	// The task's complexity and the advice it calls for hold whether or not
+	// any shard agent is needed.
+	if rows, err = kernel.Query("task_complexity"); err != nil {
+		return sel, fmt.Errorf("query task_complexity: %w", err)
+	}
+	for _, f := range rows {
+		if len(f.Args) >= 2 && types.ExtractString(f.Args[0]) == id {
+			sel.Complexity = strings.TrimPrefix(types.ExtractString(f.Args[1]), "/")
+		}
+	}
+
+	if rows, err = kernel.Query("strategic_advisor_required"); err != nil {
+		return sel, fmt.Errorf("query strategic_advisor_required: %w", err)
+	}
+	for _, f := range rows {
+		if len(f.Args) >= 1 && types.ExtractString(f.Args[0]) == id {
+			sel.StrategicAdvisorRequired = true
+		}
+	}
+
 	if len(needs) == 0 {
 		return sel, nil
 	}
@@ -188,12 +222,15 @@ func read(kernel types.Kernel, id string) (Selection, error) {
 	}
 	markRouting(rows, id, needs, func(n *Need) { n.Advise = true })
 
-	if rows, err = kernel.Query("strategic_advisor_required"); err != nil {
-		return sel, fmt.Errorf("query strategic_advisor_required: %w", err)
+	if rows, err = kernel.Query("expert_spawn"); err != nil {
+		return sel, fmt.Errorf("query expert_spawn: %w", err)
 	}
 	for _, f := range rows {
-		if len(f.Args) >= 1 && types.ExtractString(f.Args[0]) == id {
-			sel.StrategicAdvisorRequired = true
+		if len(f.Args) < 3 || types.ExtractString(f.Args[0]) != id {
+			continue
+		}
+		if n, ok := needs[agentKey(f.Args[1])]; ok {
+			n.Spawn = strings.TrimPrefix(types.ExtractString(f.Args[2]), "/")
 		}
 	}
 

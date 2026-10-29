@@ -234,10 +234,13 @@ specialist_should_execute(Specialist, Task) :-
     Confidence > 80.
 
 # Determine if specialist should advise instead
+# Strong evidence on a specialist that does not execute (an advisor, or a
+# shard agent with no executor classification) advises; a band capped at 80
+# left a 90-confidence advisor with no role at all.
 specialist_should_advise(Specialist, Task) :-
     specialist_match(Specialist, Task, Confidence),
     Confidence > 40,
-    Confidence <= 80.
+    !specialist_should_execute(Specialist, Task).
 
 # Always consult strategic advisors for complex tasks
 # Note: specialist_classification is a small static set (8 entries), cross-product is bounded

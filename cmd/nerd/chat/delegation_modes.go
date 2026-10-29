@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"codenerd/internal/core"
+	"codenerd/internal/experts"
 	"codenerd/internal/logging"
+	"codenerd/internal/session"
 	"codenerd/internal/shards"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -220,120 +222,102 @@ func (m Model) executeAdvisoryWithCritiqueMode(ctx context.Context, verb, shardT
 	}
 }
 
-// executeSpecialistDirectMode handles high-confidence executor specialists directly.
-// When a specialist has ShouldExecute=true and is an Executor, they handle the task
-// without going through the generic shard. This implements specialist_should_execute.
-func (m Model) executeSpecialistDirectMode(ctx context.Context, verb string, specialist shards.SpecialistMatch, task, target string, strategicAdvisorRequired bool, startTime time.Time) tea.Msg {
+// executeExpertLedMode runs a task the kernel routed to an executor shard
+// agent (specialist_should_execute): the expert leads, the task's verb
+// executes. The task is spawned under its own verb with its target, so the
+// turn keeps that verb's persona, tool catalog, safety atoms and gates, and
+// the executor's own expert_spawn decision (policy/shard_experts.mg) consults
+// the expert to lay out the work before the turn runs -- the same decision
+// and the same consultation machinery every executor turn uses. Spawning the
+// agent's own verb instead ran the task on the read-only /general catalog: a
+// specialist told to "implement the solution" had no tool that writes.
+//
+// When the kernel derives strategic_advisor_required, the strategic advisors
+// are consulted first and their advice rides in the task.
+func (m Model) executeExpertLedMode(ctx context.Context, verb, shardType string, specialist shards.SpecialistMatch, task, target string, sel experts.Selection, startTime time.Time) tea.Msg {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("## %s via Specialist Executor\n\n", titleWords(strings.TrimPrefix(verb, "/"))))
+	sb.WriteString(fmt.Sprintf("## %s led by a Shard Agent\n\n", titleWords(strings.TrimPrefix(verb, "/"))))
 	sb.WriteString(fmt.Sprintf("**Target**: %s\n", target))
-	sb.WriteString(fmt.Sprintf("**Specialist**: %s (confidence: %.0f%%)\n", specialist.AgentName, specialist.Score*100))
-	sb.WriteString("**Mode**: Direct Execution\n\n")
-
-	if specialist.Classification != nil {
-		sb.WriteString(fmt.Sprintf("**Classification**: %s / %s\n\n",
-			specialist.Classification.ExecutionMode,
-			specialist.Classification.KnowledgeTier))
+	sb.WriteString(fmt.Sprintf("**Lead**: %s (confidence: %.0f%%; %s)\n", specialist.AgentName, specialist.Score*100, specialist.Reason))
+	if sel.Complexity != "" {
+		sb.WriteString(fmt.Sprintf("**Complexity**: %s\n", sel.Complexity))
 	}
+	sb.WriteString(fmt.Sprintf("**Mode**: the expert leads by consultation; %s executes with its own tools and gates\n\n", verb))
 
-	m.ReportStatus(fmt.Sprintf("Specialist %s executing %s directly...", specialist.AgentName, verb))
+	m.ReportStatus(fmt.Sprintf("%s led by %s...", verb, specialist.AgentName))
 
-	// Build specialist-specific task with full context
-	specialistTask := fmt.Sprintf(`%s
-
-Target files: %s
-Your expertise: %s
-
-You are executing this task DIRECTLY as the domain specialist. Apply your full expertise.
-Do NOT just advise - implement the solution.`,
-		task,
-		strings.Join(specialist.Files, ", "),
-		specialist.Reason)
-
-	// Strategic advisory: strategic_advisor_required (policy/shards.mg), read
-	// with the selection over the task_complexity it was asserted with.
-	if strategicAdvisorRequired {
-		advisors := shards.GetStrategicAdvisorsFor(specialist.AgentName)
-		if len(advisors) > 0 {
-			m.ReportStatus("Consulting strategic advisors for complex task...")
-			sb.WriteString("### Phase 1: Strategic Consultation\n\n")
-			sb.WriteString(fmt.Sprintf("Before executing, executor **%s** consulted strategic advisors for guidance on this complex task:\n\n", specialist.AgentName))
-
-			advisorMatches := make([]shards.SpecialistMatch, 0, len(advisors))
-			for _, adv := range advisors {
-				class, _ := shards.GetSpecialistClassification(adv)
-				displayName := adv
-				if strings.ToLower(adv) == "securityauditor" {
-					displayName = "SecurityAuditor"
-				} else if strings.ToLower(adv) == "testarchitect" {
-					displayName = "TestArchitect"
-				}
-				advisorMatches = append(advisorMatches, shards.SpecialistMatch{
-					AgentName:      displayName,
-					Files:          specialist.Files,
-					Score:          1.0,
-					Reason:         fmt.Sprintf("Strategic advisor classification for %s", specialist.AgentName),
-					Classification: &class,
-					ShouldExecute:  false,
-				})
-			}
-
-			adviceResults := m.gatherSpecialistAdvice(ctx, verb, specialist.Files, advisorMatches)
-			var combinedAdvice strings.Builder
-			for _, adv := range adviceResults {
-				if adv.Err != nil {
-					sb.WriteString(fmt.Sprintf("**%s**: ⚠️ Failed to provide strategic advice\n\n", adv.Name))
-				} else {
-					sb.WriteString(fmt.Sprintf("**%s** strategic advice:\n%s\n\n", adv.Name, adv.Result))
-					combinedAdvice.WriteString(fmt.Sprintf("[%s strategic advice]: %s\n", adv.Name, adv.Result))
-				}
-			}
-
-			// Inject strategic advice into the task
-			if combinedAdvice.Len() > 0 {
-				specialistTask = fmt.Sprintf("%s\n\n[STRATEGIC ADVICE - Apply these high-level architectural recommendations from your advisors]:\n%s",
-					specialistTask, combinedAdvice.String())
-			}
-
-			sb.WriteString("---\n\n### Phase 2: Execution\n\n")
+	execTask := task
+	if sel.StrategicAdvisorRequired {
+		if advice := m.strategicAdvice(ctx, verb, specialist, &sb); advice != "" {
+			execTask = fmt.Sprintf("%s\n\n[STRATEGIC ADVICE - Apply these high-level architectural recommendations from your advisors]:\n%s", task, advice)
 		}
 	}
 
 	execStart := time.Now()
-	result, err := m.spawnTask(ctx, specialist.AgentName, specialistTask)
+	result, err := m.spawnTaskRequest(ctx, session.TaskRequest{IntentVerb: verb, Task: execTask, Target: target})
 	execDuration := time.Since(execStart)
-	shardID := fmt.Sprintf("%s-%d", specialist.AgentName, time.Now().UnixNano())
-	facts := m.shardMgr.ResultToFacts(shardID, specialist.AgentName, task, result, err)
+	shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
+	facts := m.shardMgr.ResultToFacts(shardID, shardType, task, result, err)
 
 	if err != nil {
 		sb.WriteString(fmt.Sprintf("### Execution Failed\n\n❌ Error: %v\n\n", err))
 	} else {
 		sb.WriteString(fmt.Sprintf("### Result\n\n%s\n\n", result))
 	}
-
-	// Inject facts
 	if m.kernel != nil && len(facts) > 0 {
 		if err := m.kernel.LoadFacts(facts); err != nil {
-			logging.Routing("[delegation] failed to load specialist facts: %v", err)
+			logging.Routing("[delegation] failed to load expert-led facts: %v", err)
 		}
 	}
-
-	// Record execution for prompt evolution learning
-	m.recordShardExecution(specialist.AgentName, specialistTask, result, err, execDuration)
+	m.recordShardExecution(shardType, execTask, result, err, execDuration)
 
 	sb.WriteString(fmt.Sprintf("---\n\n**Duration**: %s\n", time.Since(startTime).Round(time.Second)))
-	sb.WriteString(fmt.Sprintf("**Executor**: %s\n", specialist.AgentName))
+	sb.WriteString(fmt.Sprintf("**Led by**: %s; **executed by**: %s (%s)\n", specialist.AgentName, shardType, verb))
 
-	m.ReportStatus(fmt.Sprintf("%s complete (specialist direct)", specialist.AgentName))
+	m.ReportStatus(fmt.Sprintf("%s complete (led by %s)", verb, specialist.AgentName))
 	return assistantMsg{
 		Surface: sb.String(),
 		ShardResult: &ShardResultPayload{
-			ShardType: specialist.AgentName,
+			ShardType: shardType,
 			Task:      task,
 			Result:    result,
 			Facts:     facts,
 		},
 	}
+}
+
+// strategicAdvice consults the strategic advisors for an expert-led task the
+// kernel derived strategic_advisor_required for, writes what each said into
+// the surface, and returns the combined advice for the task.
+func (m Model) strategicAdvice(ctx context.Context, verb string, lead shards.SpecialistMatch, sb *strings.Builder) string {
+	advisors := shards.GetStrategicAdvisorsFor(lead.AgentName)
+	if len(advisors) == 0 {
+		return ""
+	}
+	m.ReportStatus("Consulting strategic advisors for complex task...")
+	sb.WriteString("### Phase 1: Strategic Consultation\n\n")
+	advisorMatches := make([]shards.SpecialistMatch, 0, len(advisors))
+	for _, adv := range advisors {
+		class, _ := shards.GetSpecialistClassification(adv)
+		advisorMatches = append(advisorMatches, shards.SpecialistMatch{
+			AgentName:      adv,
+			Files:          lead.Files,
+			Score:          1.0,
+			Reason:         fmt.Sprintf("Strategic advisor classification for %s", lead.AgentName),
+			Classification: &class,
+		})
+	}
+	var combined strings.Builder
+	for _, adv := range m.gatherSpecialistAdvice(ctx, verb, lead.Files, advisorMatches) {
+		if adv.Err != nil {
+			sb.WriteString(fmt.Sprintf("**%s**: ⚠️ Failed to provide strategic advice: %v\n\n", adv.Name, adv.Err))
+			continue
+		}
+		sb.WriteString(fmt.Sprintf("**%s** strategic advice:\n%s\n\n", adv.Name, adv.Result))
+		combined.WriteString(fmt.Sprintf("[%s strategic advice]: %s\n", adv.Name, adv.Result))
+	}
+	sb.WriteString("---\n\n### Phase 2: Execution\n\n")
+	return combined.String()
 }
 
 // adviceResult holds the result from a specialist advice/critique query

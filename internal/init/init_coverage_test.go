@@ -953,7 +953,8 @@ dependencies:
 		names[dep.Name] = true
 	}
 	assert.True(t, names["nuxt"])
-	assert.True(t, names["tailwindcss"])
+	// The vocabulary's key, as package-lock.json reports it.
+	assert.True(t, names["tailwind"])
 }
 
 func TestParseCargoLock_WhenEmpty_ShouldReturnEmpty(t *testing.T) {
