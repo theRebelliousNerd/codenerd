@@ -85,8 +85,11 @@ var ShardAgentKB = Spec{
 		"vectors":         {},
 		"sync_metadata":   {},
 		"knowledge_acquisitions": {Columns: map[string]Column{
-			"detail": {When: "status IN ('failed', 'unavailable')"},
+			"detail":   {When: "status IN ('failed', 'unavailable')"},
+			"concepts": {When: "status = 'acquired'"},
 		}},
+		"knowledge_usage":  {MayBeEmpty: "no compile has carried this agent's knowledge yet (prompt.recordKnowledgeConsumption)"},
+		"knowledge_misses": {MayBeEmpty: "no consultation of this agent has found nothing yet (prompt.recordKnowledgeConsumption)"},
 	},
 	OtherTables: sharedStoreSchema,
 }

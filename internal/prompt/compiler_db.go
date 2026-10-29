@@ -370,15 +370,15 @@ func (c *JITPromptCompiler) collectKnowledgeAtomsFrom(ctx context.Context, cc *C
 
 	seen := make(map[string]struct{}, len(projectAtoms)+len(expertAtoms))
 	result := make([]*PromptAtom, 0, len(projectAtoms)+len(expertAtoms))
-	result = appendKnowledgePromptAtoms(result, seen, projectAtoms, cc.ShardID, "project")
-	result = appendKnowledgePromptAtoms(result, seen, expertAtoms, cc.ShardID, "expert:"+shardDBKey(cc.ShardID))
+	result = appendKnowledgePromptAtoms(result, seen, projectAtoms, cc.ShardID, "project", "")
+	result = appendKnowledgePromptAtoms(result, seen, expertAtoms, cc.ShardID, "expert:"+shardDBKey(cc.ShardID), shardDBKey(cc.ShardID))
 	pushedCount := 0
 	for _, expert := range src.experts {
 		// A pushed expert's rows carry no shard tag: they serve this
 		// compile's own speaker, whose /shard regime would block a row
 		// tagged with another agent's name.
 		before := len(result)
-		result = appendKnowledgePromptAtoms(result, seen, pushed[expert.key], "", expertSourceName(expert.key))
+		result = appendKnowledgePromptAtoms(result, seen, pushed[expert.key], "", expertSourceName(expert.key), expert.key)
 		pushedCount += len(result) - before
 	}
 	if len(result) == 0 {
@@ -478,9 +478,12 @@ const knowledgeRowsPerSource = 5
 
 // appendKnowledgePromptAtoms converts one source's hits and dedupes them by
 // ephemeral atom ID against everything already appended.
-func appendKnowledgePromptAtoms(dst []*PromptAtom, seen map[string]struct{}, atoms []store.KnowledgeAtom, shardID, source string) []*PromptAtom {
+func appendKnowledgePromptAtoms(dst []*PromptAtom, seen map[string]struct{}, atoms []store.KnowledgeAtom, shardID, source, expertKey string) []*PromptAtom {
 	for _, atom := range atoms {
 		pa := knowledgeAtomToPromptAtom(atom, shardID, source)
+		if expertKey != "" {
+			pa.KnowledgeExpert, pa.KnowledgeConcept = expertKey, atom.Concept
+		}
 		if _, dup := seen[pa.ID]; dup {
 			continue
 		}

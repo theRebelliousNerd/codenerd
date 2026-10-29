@@ -26,6 +26,7 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 	result, err := c.compile(ctx, cc)
 	if err == nil && result != nil {
 		CoUse().ObserveAtoms(usage.TurnIDFromContext(ctx), result.IncludedAtoms)
+		c.recordKnowledgeConsumption(ctx, cc, result)
 	}
 	return result, err
 }
@@ -341,6 +342,7 @@ func (c *JITPromptCompiler) compileMiss(ctx context.Context, in missInput) (any,
 	stats.Duration = time.Since(compileStart) + in.preflight
 
 	result := c.buildResultWithStats(candidates, scored, fitted, prompt, budget, stats)
+	result.ExpertsConsulted = in.src.consultedExperts()
 	if result.Manifest != nil {
 		result.Manifest.ContextHash = in.cacheKey
 	}

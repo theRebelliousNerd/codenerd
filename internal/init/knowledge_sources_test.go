@@ -2,6 +2,8 @@ package init
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -74,5 +76,25 @@ func TestInitialize_AcquiresKnowledgeWithTypedOutcomes(t *testing.T) {
 		if !sources[want] {
 			t.Fatalf("no KB records an outcome from %s; recorded %v", want, sources)
 		}
+	}
+
+	// The registry keeps each agent's topics: the subjects the background
+	// refresh keeps current.
+	data, err := os.ReadFile(filepath.Join(root, ".nerd", "agents.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reg AgentRegistry
+	if err := json.Unmarshal(data, &reg); err != nil {
+		t.Fatal(err)
+	}
+	withTopics := 0
+	for _, agent := range reg.Agents {
+		if len(agent.Topics) > 0 {
+			withTopics++
+		}
+	}
+	if withTopics == 0 {
+		t.Fatalf("no agent in agents.json carries its topics: %s", data)
 	}
 }

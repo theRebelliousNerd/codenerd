@@ -462,6 +462,13 @@ type Cortex struct {
 	// agents activates an agent defined mid-session (ActivateAgent).
 	agents agentActivator
 
+	// knowledgeRefresher keeps shard-agent knowledge current in the
+	// background (knowledge_refresh.go); Close cancels and joins it before
+	// the research runtime it fetches through.
+	knowledgeRefresher     *knowledgeRefresher
+	knowledgeRefreshCancel context.CancelFunc
+	knowledgeRefreshDone   <-chan struct{}
+
 	// meterSink and couseLog are what THIS boot installed into the two
 	// process-wide measurement singletons. Close detaches only these, by
 	// identity: several Cortex instances can be live at once (cortexCache is
@@ -967,6 +974,11 @@ type bootContext struct {
 	// spawner, and the Cortex accessor.
 	sessionID  string
 	sessionLog *sessionlog.Handle
+
+	// The background knowledge refresh (initKnowledgeRefresh).
+	knowledgeRefresher     *knowledgeRefresher
+	knowledgeRefreshCancel context.CancelFunc
+	knowledgeRefreshDone   <-chan struct{}
 	// onDemandStop halts the runtime activate_shard watcher. It is set
 	// where system shards boot and transferred to the Cortex aggregate.
 	onDemandStop func()
@@ -2890,9 +2902,12 @@ func defaultBootSteps() []bootStep {
 		{name: "intelligence layer", run: initIntelligenceLayer},
 		{name: "shard management", run: initShardManagement},
 		{name: "final executors", run: initFinalExecutors},
-		// Last: the learning loop binds the session executor to the evolver
+		// The learning loop binds the session executor to the evolver
 		// and the evolver to the JIT compiler, so both must already exist.
 		{name: "learning loop", run: initLearningLoop},
+		// Last: the knowledge refresh reads the roster facts the shard
+		// management step asserted and fetches through the research tools.
+		{name: "knowledge refresh", run: initKnowledgeRefresh},
 	}
 }
 
@@ -3011,6 +3026,10 @@ func cortexFromBootContext(bctx *bootContext) *Cortex {
 		sessionLog:            bctx.sessionLog,
 		meterSink:             bctx.meterSink,
 		couseLog:              bctx.couseLog,
+
+		knowledgeRefresher:     bctx.knowledgeRefresher,
+		knowledgeRefreshCancel: bctx.knowledgeRefreshCancel,
+		knowledgeRefreshDone:   bctx.knowledgeRefreshDone,
 	}
 }
 

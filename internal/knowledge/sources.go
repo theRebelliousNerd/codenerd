@@ -67,7 +67,7 @@ func (w WebSource) Acquire(ctx context.Context, s Subject) ([]Atom, error) {
 	var atoms []Atom
 	for i, sec := range sections(result.Text, 50) {
 		atoms = append(atoms, Atom{
-			Concept:    fmt.Sprintf("web/%s/section_%d", slug(s.Topic), i),
+			Concept:    fmt.Sprintf("web/%s/section_%d", slug(s.Key()), i),
 			Content:    sec + footer,
 			Confidence: 0.8,
 			Source:     w.Name(),
@@ -77,6 +77,9 @@ func (w WebSource) Acquire(ctx context.Context, s Subject) ([]Atom, error) {
 }
 
 func webQuestion(s Subject) string {
+	if s.Gap {
+		return fmt.Sprintf("An engineer asked: %q. Answer from current sources: the correct approach, the API usage it needs, and the common mistakes.", s.Topic)
+	}
 	q := fmt.Sprintf("What should an engineer working with %s know: current idioms, correct API usage, common mistakes and their fixes", s.Topic)
 	if s.Module != "" {
 		q += fmt.Sprintf(" (the Go module %s)", s.Module)
@@ -113,6 +116,9 @@ type Context7Source struct {
 }
 
 func (Context7Source) Name() string { return "context7" }
+
+// Available reports whether a fetch is wired.
+func (c Context7Source) Available() bool { return c.Fetch != nil }
 
 func (c Context7Source) Acquire(ctx context.Context, s Subject) ([]Atom, error) {
 	if c.Fetch == nil {
@@ -161,6 +167,18 @@ type GoDocSource struct {
 }
 
 func (GoDocSource) Name() string { return "godoc" }
+
+// Available reports whether go doc can run: a workspace and a go toolchain.
+func (g GoDocSource) Available() bool {
+	if g.Workspace == "" {
+		return false
+	}
+	if g.Run != nil {
+		return true
+	}
+	_, err := exec.LookPath("go")
+	return err == nil
+}
 
 func (g GoDocSource) Acquire(ctx context.Context, s Subject) ([]Atom, error) {
 	if s.Module == "" || g.Workspace == "" {
@@ -231,6 +249,9 @@ type RepoSource struct {
 }
 
 func (RepoSource) Name() string { return "repo/world" }
+
+// Available reports whether a world model is wired.
+func (r RepoSource) Available() bool { return r.Importers != nil }
 
 func (r RepoSource) Acquire(ctx context.Context, s Subject) ([]Atom, error) {
 	if s.Module == "" {

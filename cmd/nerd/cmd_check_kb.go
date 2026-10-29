@@ -116,23 +116,9 @@ func atomsBySource(ctx context.Context, db *sql.DB) (map[string]int, error) {
 			out["placeholder"]++
 			continue
 		}
-		out[sourceFamily(source)]++
+		out[knowledge.SourceFamily(source)]++
 	}
 	return out, rows.Err()
-}
-
-// sourceFamily groups a row's provenance: web search keeps its provider, a
-// versioned or per-module source collapses to its kind.
-func sourceFamily(source string) string {
-	if source == "" {
-		return "(none)"
-	}
-	kind, rest, found := strings.Cut(source, "/")
-	if kind == "web" && found {
-		provider, _, _ := strings.Cut(rest, "/")
-		return "web/" + provider
-	}
-	return kind
 }
 
 // printKBReports writes each KB's gaps, knowledge by source and the outcomes

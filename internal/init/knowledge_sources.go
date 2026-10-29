@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"codenerd/internal/knowledge"
+	"codenerd/internal/perception"
 	"codenerd/internal/types"
 )
 
@@ -97,21 +98,31 @@ func pinnedGoPackages(key string, gomods []string) []string {
 	return out
 }
 
+// KnowledgeSearchers are the configured clients that may offer grounded web
+// search, each named by its provider: the web source's chain (one successful
+// search per subject across them). A nil client is skipped.
+func KnowledgeSearchers(clients ...perception.LLMClient) []knowledge.NamedSearcher {
+	var out []knowledge.NamedSearcher
+	for _, client := range clients {
+		if client == nil {
+			continue
+		}
+		searcher, ok := client.(types.GroundedWebSearcher)
+		if !ok {
+			continue
+		}
+		provider, _ := clientIdentity(client)
+		out = append(out, knowledge.NamedSearcher{Provider: provider, Searcher: searcher})
+	}
+	return out
+}
+
 // knowledgeAcquirer is the acquirer init's knowledge build runs: grounded web
 // search on the configured clients (main and planner, by provider), Context7
 // (through the run's shared topic cache), the pinned Go documentation, and
 // the repository's own use from init's scan.
 func (i *Initializer) knowledgeAcquirer() knowledge.Acquirer {
-	var searchers []knowledge.NamedSearcher
-	for _, slot := range []llmSlot{slotMain, slotPlanner} {
-		route := i.route(slot)
-		if route.client == nil {
-			continue
-		}
-		if searcher, ok := route.client.(types.GroundedWebSearcher); ok {
-			searchers = append(searchers, knowledge.NamedSearcher{Provider: route.provider, Searcher: searcher})
-		}
-	}
+	searchers := KnowledgeSearchers(i.route(slotMain).client, i.route(slotPlanner).client)
 	var context7 func(ctx context.Context, topic string) (string, error)
 	if fetch, err := i.topicFetcher(); err == nil {
 		context7 = func(ctx context.Context, topic string) (string, error) {

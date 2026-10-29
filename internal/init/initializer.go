@@ -287,6 +287,11 @@ type CreatedAgent struct {
 	// them as shard_agent_domain (internal/system/shard_expert_facts.go), so
 	// the kernel can derive which tasks need the agent.
 	Domains []string `json:"domains,omitzero"`
+
+	// Topics are the agent's research topics. The background knowledge
+	// refresh (internal/system/knowledge_refresh.go) reads them as the
+	// subjects the agent should know, beside its domains' pinned packages.
+	Topics []string `json:"topics,omitzero"`
 }
 
 // Initializer handles the cold-start initialization process.

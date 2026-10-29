@@ -37,6 +37,9 @@ type Subject struct {
 	// ("github.com/spf13/cobra"), what the pinned-documentation and
 	// repository sources read. Empty when the technology pins none.
 	Module string
+	// Gap marks a question a consultation found no knowledge for (Topic is
+	// the task's own words): web search is asked the question itself.
+	Gap bool
 }
 
 // Key is the subject's identity in the acquisitions table.
@@ -77,6 +80,9 @@ type Outcome struct {
 	Status  string
 	Atoms   int
 	Detail  string
+	// Concepts are the knowledge rows an acquisition wrote, so the next
+	// acquisition of the same subject by the same source replaces them.
+	Concepts []string
 }
 
 func (o Outcome) String() string {
@@ -100,11 +106,30 @@ type Source interface {
 	Acquire(ctx context.Context, subject Subject) ([]Atom, error)
 }
 
+// availability is a source that can say, before any call, whether it can
+// run here at all.
+type availability interface {
+	Available() bool
+}
+
 // Acquirer runs every source on a subject.
 type Acquirer struct {
 	Sources []Source
 	// Now stamps the outcomes; time.Now when nil.
 	Now func() time.Time
+}
+
+// Available names the sources that can run here: those that do not say they
+// cannot.
+func (a Acquirer) Available() []string {
+	var out []string
+	for _, src := range a.Sources {
+		if av, ok := src.(availability); ok && !av.Available() {
+			continue
+		}
+		out = append(out, src.Name())
+	}
+	return out
 }
 
 // Acquire runs each source on the subject and returns the atoms in source
@@ -136,6 +161,9 @@ func (a Acquirer) acquire(ctx context.Context, subject Subject, done map[string]
 			out.Status = StatusEmpty
 		default:
 			out.Status, out.Atoms = StatusAcquired, len(got)
+			for _, atom := range got {
+				out.Concepts = append(out.Concepts, atom.Concept)
+			}
 			atoms = append(atoms, got...)
 		}
 		outcomes = append(outcomes, out)
@@ -152,6 +180,7 @@ const acquisitionsSchema = `CREATE TABLE IF NOT EXISTS knowledge_acquisitions (
 	atoms INTEGER NOT NULL,
 	detail TEXT NOT NULL,
 	attempted_at TEXT NOT NULL,
+	concepts TEXT NOT NULL,
 	PRIMARY KEY (source, subject)
 )`
 
@@ -159,32 +188,50 @@ const acquisitionsSchema = `CREATE TABLE IF NOT EXISTS knowledge_acquisitions (
 // atoms (deduplicated by concept and content, with their source and
 // embeddings when the store has an engine) and every outcome. A source that
 // already acquired a subject is not asked again (its recorded outcome
-// stands): what is stale is decided by the refresh policy, which clears the
-// outcome; a source that failed, answered nothing or could not run is asked
-// again, since it may serve now. It returns how many atoms were added and
-// the outcomes of the attempts made, in subject then source order.
+// stands until the refresh policy calls it stale, Refresh); a source that
+// failed, answered nothing or could not run is asked again, since it may
+// serve now. It returns how many atoms were added and the outcomes of the
+// attempts made, in subject then source order.
 func Fill(ctx context.Context, db *store.LocalStore, acq Acquirer, subjects []Subject) (int, []Outcome, error) {
+	return fill(ctx, db, acq, subjects, false)
+}
+
+// Refresh acquires each subject again from every source, whatever it holds:
+// the subjects the refresh policy derived (stale, version changed, a gap, a
+// newly available source). A source that acquires a subject again replaces
+// the knowledge rows its previous acquisition wrote; one that fails leaves
+// them in place.
+func Refresh(ctx context.Context, db *store.LocalStore, acq Acquirer, subjects []Subject) (int, []Outcome, error) {
+	return fill(ctx, db, acq, subjects, true)
+}
+
+func fill(ctx context.Context, db *store.LocalStore, acq Acquirer, subjects []Subject, again bool) (int, []Outcome, error) {
 	if db == nil {
 		return 0, nil, fmt.Errorf("no knowledge base")
 	}
-	if _, err := db.GetDB().ExecContext(ctx, acquisitionsSchema); err != nil {
-		return 0, nil, fmt.Errorf("acquisitions table: %w", err)
+	if err := ensureAcquisitionsTable(ctx, db.GetDB()); err != nil {
+		return 0, nil, err
 	}
 	existing, err := db.GetAllKnowledgeAtoms()
 	if err != nil {
 		return 0, nil, fmt.Errorf("read knowledge: %w", err)
 	}
 	seen := make(map[string]bool, len(existing))
+	hashesByConcept := make(map[string][]string, len(existing))
 	for _, atom := range existing {
-		seen[store.ComputeContentHash(atom.Concept, atom.Content)] = true
+		hash := store.ComputeContentHash(atom.Concept, atom.Content)
+		seen[hash] = true
+		hashesByConcept[atom.Concept] = append(hashesByConcept[atom.Concept], hash)
 	}
 	prior, err := Outcomes(ctx, db.GetDB())
 	if err != nil {
 		return 0, nil, fmt.Errorf("read outcomes: %w", err)
 	}
 	acquired := map[string]map[string]bool{}
+	previous := map[[2]string][]string{}
 	for _, o := range prior {
-		if o.Status == StatusAcquired {
+		previous[[2]string{o.Source, o.Subject}] = o.Concepts
+		if o.Status == StatusAcquired && !again {
 			if acquired[o.Subject] == nil {
 				acquired[o.Subject] = map[string]bool{}
 			}
@@ -199,6 +246,30 @@ func Fill(ctx context.Context, db *store.LocalStore, acq Acquirer, subjects []Su
 	var all []Outcome
 	for _, subject := range subjects {
 		atoms, outcomes := acq.acquire(ctx, subject, acquired[subject.Key()])
+		// A source that acquired the subject again replaces what its last
+		// acquisition wrote, the rows it writes again included (their
+		// content may have changed under the same concept).
+		var replaced []string
+		for _, out := range outcomes {
+			if out.Status != StatusAcquired {
+				continue
+			}
+			for _, concept := range previous[[2]string{out.Source, out.Subject}] {
+				if concept == "" {
+					continue
+				}
+				replaced = append(replaced, concept)
+				for _, hash := range hashesByConcept[concept] {
+					delete(seen, hash)
+				}
+				delete(hashesByConcept, concept)
+			}
+		}
+		if len(replaced) > 0 {
+			if _, err := db.DeleteKnowledgeAtomsByConcept(replaced...); err != nil {
+				return added, all, fmt.Errorf("drop replaced knowledge: %w", err)
+			}
+		}
 		for _, atom := range atoms {
 			hash := store.ComputeContentHash(atom.Concept, atom.Content)
 			if seen[hash] {
@@ -208,14 +279,21 @@ func Fill(ctx context.Context, db *store.LocalStore, acq Acquirer, subjects []Su
 				return added, all, fmt.Errorf("store %s: %w", atom.Concept, err)
 			}
 			seen[hash] = true
+			hashesByConcept[atom.Concept] = append(hashesByConcept[atom.Concept], hash)
 			added++
 		}
 		at := now().UTC().Format(time.RFC3339)
 		for _, out := range outcomes {
+			concepts := out.Concepts
+			if out.Status != StatusAcquired {
+				// A failed or empty attempt replaces nothing: the rows the
+				// last acquisition wrote are still what the KB holds.
+				concepts = previous[[2]string{out.Source, out.Subject}]
+			}
 			if _, err := db.GetDB().ExecContext(ctx,
-				`INSERT INTO knowledge_acquisitions (source, subject, status, atoms, detail, attempted_at) VALUES (?, ?, ?, ?, ?, ?)
-				 ON CONFLICT(source, subject) DO UPDATE SET status = excluded.status, atoms = excluded.atoms, detail = excluded.detail, attempted_at = excluded.attempted_at`,
-				out.Source, out.Subject, out.Status, out.Atoms, out.Detail, at); err != nil {
+				`INSERT INTO knowledge_acquisitions (source, subject, status, atoms, detail, attempted_at, concepts) VALUES (?, ?, ?, ?, ?, ?, ?)
+				 ON CONFLICT(source, subject) DO UPDATE SET status = excluded.status, atoms = excluded.atoms, detail = excluded.detail, attempted_at = excluded.attempted_at, concepts = excluded.concepts`,
+				out.Source, out.Subject, out.Status, out.Atoms, out.Detail, at, strings.Join(concepts, "\n")); err != nil {
 				return added, all, fmt.Errorf("record outcome: %w", err)
 			}
 		}
@@ -224,9 +302,67 @@ func Fill(ctx context.Context, db *store.LocalStore, acq Acquirer, subjects []Su
 	return added, all, nil
 }
 
+// acquisitionsColumns are the columns added to knowledge_acquisitions after
+// its first release, with the definition each is added with.
+var acquisitionsColumns = []struct{ name, def string }{
+	{"concepts", "TEXT NOT NULL DEFAULT ''"},
+}
+
+// ensureAcquisitionsTable creates the outcomes table, or adds to one an
+// earlier build created the columns it lacks.
+func ensureAcquisitionsTable(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, acquisitionsSchema); err != nil {
+		return fmt.Errorf("acquisitions table: %w", err)
+	}
+	cols, err := tableColumnSet(ctx, db, "knowledge_acquisitions")
+	if err != nil {
+		return err
+	}
+	for _, col := range acquisitionsColumns {
+		if cols[col.name] {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, `ALTER TABLE knowledge_acquisitions ADD COLUMN `+col.name+` `+col.def); err != nil {
+			return fmt.Errorf("add acquisitions column %s: %w", col.name, err)
+		}
+	}
+	return nil
+}
+
+// tableColumnSet names a table's columns; an absent table has none.
+func tableColumnSet(ctx context.Context, db *sql.DB, table string) (map[string]bool, error) {
+	rows, err := db.QueryContext(ctx, `SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return nil, fmt.Errorf("columns of %s: %w", table, err)
+	}
+	out := map[string]bool{}
+	err = scanRows(rows, func(r *sql.Rows) error {
+		var name string
+		if err := r.Scan(&name); err != nil {
+			return err
+		}
+		out[name] = true
+		return nil
+	})
+	return out, err
+}
+
 // Outcomes reads a KB's recorded acquisition outcomes, by source then subject.
 func Outcomes(ctx context.Context, db *sql.DB) ([]Outcome, error) {
-	rows, err := db.QueryContext(ctx, `SELECT source, subject, status, atoms, detail FROM knowledge_acquisitions ORDER BY source, subject`)
+	cols, err := tableColumnSet(ctx, db, "knowledge_acquisitions")
+	if err != nil {
+		return nil, err
+	}
+	if len(cols) == 0 {
+		return nil, nil
+	}
+	// A table an earlier build created may lack the later columns; reading
+	// it (check-kb opens KBs read-only) reports them empty.
+	concepts := "''"
+	if cols["concepts"] {
+		concepts = "concepts"
+	}
+	rows, err := db.QueryContext(ctx, `SELECT source, subject, status, atoms, detail, `+concepts+` FROM knowledge_acquisitions ORDER BY source, subject`)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "no such table") {
 			return nil, nil
@@ -237,8 +373,12 @@ func Outcomes(ctx context.Context, db *sql.DB) ([]Outcome, error) {
 	var out []Outcome
 	for rows.Next() {
 		var o Outcome
-		if err := rows.Scan(&o.Source, &o.Subject, &o.Status, &o.Atoms, &o.Detail); err != nil {
+		var concepts string
+		if err := rows.Scan(&o.Source, &o.Subject, &o.Status, &o.Atoms, &o.Detail, &concepts); err != nil {
 			return nil, err
+		}
+		if concepts != "" {
+			o.Concepts = strings.Split(concepts, "\n")
 		}
 		out = append(out, o)
 	}

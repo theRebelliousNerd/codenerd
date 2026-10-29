@@ -84,6 +84,10 @@ type agentRegistryAgent struct {
 	// them, an empty list included ("decided: none"), through
 	// recordAgentDomains.
 	Domains []string `json:"domains,omitzero"`
+	// Topics are the agent's research topics (init writes them): the
+	// subjects the background knowledge refresh keeps current, beside its
+	// domains' pinned packages (knowledge_refresh.go).
+	Topics []string `json:"topics,omitzero"`
 }
 
 // SyncAgentRegistryFromDisk ensures .nerd/agents.json is present and up-to-date with

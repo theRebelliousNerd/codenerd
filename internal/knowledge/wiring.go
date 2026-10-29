@@ -27,6 +27,16 @@ type WebChain struct {
 
 func (WebChain) Name() string { return "web" }
 
+// Available reports whether any configured provider offers grounded search.
+func (w WebChain) Available() bool {
+	for _, p := range w.Providers {
+		if p.Searcher != nil && p.Searcher.SupportsGroundedWebSearch() {
+			return true
+		}
+	}
+	return false
+}
+
 func (w WebChain) Acquire(ctx context.Context, s Subject) ([]Atom, error) {
 	var notes []string
 	unavailable := 0
@@ -80,11 +90,15 @@ func NewAcquirer(cfg Config) Acquirer {
 		web.Providers = append(web.Providers, WebSource{Provider: s.Provider, Searcher: s.Searcher})
 	}
 	imports := KernelImports(cfg.Kernel)
+	repo := RepoSource{}
+	if cfg.Kernel != nil {
+		repo.Importers = imports.Importers
+	}
 	return Acquirer{Sources: []Source{
 		web,
 		Context7Source{Fetch: cfg.Context7},
 		GoDocSource{Workspace: cfg.Workspace, Packages: imports.Packages, Run: cfg.Run},
-		RepoSource{Importers: imports.Importers},
+		repo,
 	}}
 }
 
