@@ -108,9 +108,14 @@ func responsesToolResponseFromReply(reply *responsesReply) *LLMToolResponse {
 			block.ID = item.ID
 			out.Blocks = append(out.Blocks, block)
 		case "message":
+			// Each text part keeps its item and phase, so replay rebuilds
+			// the same message item (responsesInputFromHistory).
 			for _, c := range item.Content {
 				if c.Text != "" {
-					out.Blocks = append(out.Blocks, types.TextBlock(c.Text))
+					block := types.TextBlock(c.Text)
+					block.ID = item.ID
+					block.Phase = item.Phase
+					out.Blocks = append(out.Blocks, block)
 				}
 			}
 		}

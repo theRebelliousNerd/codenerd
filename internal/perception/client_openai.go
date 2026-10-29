@@ -336,7 +336,7 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 	start := time.Now()
 	c.clearGroundingSources()
 
-	req := c.newRequest(ctx, responsesInputFromHistory(systemPrompt, userTurn(userPrompt)))
+	req := c.newRequest(ctx, responsesInputFromHistory(systemPrompt, userTurn(userPrompt), responsesInputOptions{Phase: true}))
 	if isPiggybackPrompt(ctx, systemPrompt, userPrompt) {
 		withStructuredOutput(&req)
 	}
@@ -380,7 +380,7 @@ func (c *OpenAIClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 	defer cancel()
 	c.clearGroundingSources()
 
-	req := c.newRequest(ctx, responsesInputFromHistory(systemPrompt, history))
+	req := c.newRequest(ctx, responsesInputFromHistory(systemPrompt, history, responsesInputOptions{Phase: true}))
 	req.Tools = responsesToolsFromDefinitions(tools)
 	if len(req.Tools) > 0 {
 		req.ToolChoice = "auto"

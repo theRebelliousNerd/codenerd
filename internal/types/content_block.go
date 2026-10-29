@@ -69,9 +69,17 @@ type ContentBlock struct {
 
 	// ID identifies a BlockToolUse (Anthropic `id`, OpenAI `tool_call.id`).
 	// On a BlockThinking it is the provider's reasoning-item id where one
-	// exists (OpenAI Responses `rs_...`); providers without item ids leave it
-	// empty.
+	// exists (OpenAI Responses `rs_...`). On a BlockText it is the Responses
+	// message item the text belonged to (`msg_...`), so consecutive text
+	// blocks of one item replay as that one item; providers without item ids
+	// leave it empty.
 	ID string `json:"id,omitzero"`
+
+	// Phase is, on a BlockText from a Responses message item, the item's
+	// phase as the provider sent it ("commentary", "final_answer"). Empty
+	// means the item carried none, and replay then sends none: a phase is
+	// never invented for text that did not have one.
+	Phase string `json:"phase,omitzero"`
 
 	// Name is the tool name on a BlockToolUse. Gemini pairs a function
 	// response by name rather than by id, so it is also what a BlockToolResult

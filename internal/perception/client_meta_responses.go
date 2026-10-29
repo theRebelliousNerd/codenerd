@@ -153,7 +153,7 @@ func (c *OpenAICompatClient) completeWithToolResultsViaResponses(
 	}
 
 	c.clearGroundingSources()
-	input := responsesInputFromHistory(systemPrompt, history)
+	input := responsesInputFromHistory(systemPrompt, history, responsesInputOptions{})
 
 	req := c.newResponsesRequest(ctx, input)
 	req.Tools = responsesToolsFromDefinitions(tools)
@@ -360,7 +360,7 @@ func (c *OpenAICompatClient) responsesTerminalError(reply *responsesReply, metho
 // empty-completion retry, and it wins over a configured override the same
 // way the Chat path overwrites reasoning_effort for that retry.
 func (c *OpenAICompatClient) postResponsesCompletion(ctx context.Context, systemPrompt, userPrompt string, forceEffort string) (string, *responsesReply, error) {
-	req := c.newResponsesRequest(ctx, responsesInputFromHistory(systemPrompt, []types.Message{{Role: "user", Text: userPrompt}}))
+	req := c.newResponsesRequest(ctx, responsesInputFromHistory(systemPrompt, []types.Message{{Role: "user", Text: userPrompt}}, responsesInputOptions{}))
 	if forceEffort != "" {
 		if forceEffort == "none" {
 			req.Reasoning = nil

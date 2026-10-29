@@ -36,7 +36,7 @@ func (c *OpenAIClient) stream(ctx context.Context, systemPrompt, userPrompt stri
 	start := time.Now()
 	c.clearGroundingSources()
 
-	req := c.newRequest(ctx, responsesInputFromHistory(systemPrompt, userTurn(userPrompt)))
+	req := c.newRequest(ctx, responsesInputFromHistory(systemPrompt, userTurn(userPrompt), responsesInputOptions{Phase: true}))
 	req.Stream = true
 	if summary := strings.TrimSpace(c.options.ReasoningSummary); enableThinking && summary != "" && req.Reasoning != nil {
 		req.Reasoning.Summary = summary

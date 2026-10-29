@@ -94,7 +94,16 @@ func responsesToolsFromDefinitions(tools []ToolDefinition) []responsesTool {
 //
 // Tool results become separate function_call_output items rather than user
 // messages, and each is paired to its call by call_id.
-func responsesInputFromHistory(systemPrompt string, history []types.Message) []any {
+// responsesInputOptions are the protocol differences between Responses
+// vendors that history replay must respect.
+type responsesInputOptions struct {
+	// Phase sends an assistant message item's recorded phase back. OpenAI
+	// documents phase on input message items; Meta's acceptance of it is
+	// unverified, so its client replays without it.
+	Phase bool
+}
+
+func responsesInputFromHistory(systemPrompt string, history []types.Message, opts responsesInputOptions) []any {
 	input := make([]any, 0, len(history)+4)
 
 	if strings.TrimSpace(systemPrompt) != "" {
@@ -103,6 +112,9 @@ func responsesInputFromHistory(systemPrompt string, history []types.Message) []a
 		input = append(input, responsesInputText("developer", systemPrompt))
 	}
 
+	// lastItemID is the message item the last input entry rebuilt; any other
+	// entry in between ends the item.
+	lastItemID := ""
 	seenCallIDs := make(map[string]struct{})
 	seenReasoningIDs := make(map[string]struct{})
 	seenOutputIDs := make(map[string]struct{})
@@ -113,8 +125,12 @@ func responsesInputFromHistory(systemPrompt string, history []types.Message) []a
 			textRole = "assistant"
 		}
 		blocks := msg.Content()
+		lastItemID = ""
 
 		for _, b := range blocks {
+			if b.Kind != types.BlockText {
+				lastItemID = ""
+			}
 			switch b.Kind {
 			case types.BlockThinking:
 				// An unsigned thinking block has no encrypted_content and
@@ -136,7 +152,23 @@ func responsesInputFromHistory(systemPrompt string, history []types.Message) []a
 				if strings.TrimSpace(b.Text) == "" {
 					continue
 				}
-				input = append(input, responsesInputText(textRole, b.Text))
+				// Consecutive text parts of one assistant message item go
+				// back as that one item, with its phase when the protocol
+				// takes it: content boundaries and phase are protocol state,
+				// not display.
+				if textRole == "assistant" && b.ID != "" && len(input) > 0 && lastItemID == b.ID {
+					appendOutputText(input[len(input)-1], b.Text)
+					continue
+				}
+				item := responsesInputText(textRole, b.Text)
+				if textRole == "assistant" && opts.Phase && b.Phase != "" {
+					item["phase"] = b.Phase
+				}
+				input = append(input, item)
+				if textRole == "assistant" {
+					lastItemID = b.ID
+					continue
+				}
 
 			case types.BlockToolUse:
 				if _, ok := seenCallIDs[b.ID]; ok {
@@ -199,4 +231,14 @@ func promptCacheKey(model string, tools []responsesTool) string {
 	}
 	sum := sha256.Sum256(catalog)
 	return "codenerd:" + model + ":" + hex.EncodeToString(sum[:8])
+}
+
+// appendOutputText adds a text part to a rebuilt assistant message item.
+func appendOutputText(entry any, text string) {
+	item, ok := entry.(map[string]any)
+	if !ok {
+		return
+	}
+	content, _ := item["content"].([]map[string]any)
+	item["content"] = append(content, map[string]any{"type": "output_text", "text": text})
 }

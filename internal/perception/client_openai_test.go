@@ -559,3 +559,53 @@ func TestResponsesTerminal_ARefusalIsTypedForEveryProvider(t *testing.T) {
 		t.Fatalf("a plain completed reply was refused: %v", err)
 	}
 }
+
+// A Responses reply's assistant message items keep their phase and content
+// boundaries through the tool response and back onto the wire. OpenAI gets
+// the phase; Meta, whose acceptance of it is unverified, gets the same items
+// without it; text that had no phase never gains one.
+func TestResponses_AssistantPhaseAndItemBoundariesReplay(t *testing.T) {
+	reply := &responsesReply{Status: "completed", Output: []responsesItem{
+		{ID: "rs_1", Type: "reasoning", EncryptedContent: "CIPHER"},
+		{ID: "msg_c", Type: "message", Role: "assistant", Phase: "commentary", Content: []responsesContent{
+			{Type: "output_text", Text: "Reading the file."}, {Type: "output_text", Text: " Then editing."},
+		}},
+		{ID: "msg_plain", Type: "message", Role: "assistant", Content: []responsesContent{{Type: "output_text", Text: "Untagged."}}},
+		{Type: "function_call", CallID: "call_1", Name: "read_file", Arguments: `{"path":"a.go"}`},
+	}}
+	resp := responsesToolResponseFromReply(reply)
+	if resp.Text != "Untagged." {
+		t.Fatalf("answer text = %q: commentary must stay out of the answer", resp.Text)
+	}
+	history := []types.Message{
+		types.NewUserMessage(types.TextBlock("go")),
+		types.NewAssistantMessage(resp.Blocks...),
+		types.NewUserMessage(types.ToolResultBlock("call_1", "package a", false)),
+	}
+	shape := func(input []any) []string {
+		var out []string
+		for _, raw := range input {
+			m := raw.(map[string]any)
+			kind, _ := m["type"].(string)
+			if kind == "" {
+				kind = m["role"].(string)
+				if c, ok := m["content"].([]map[string]any); ok {
+					kind += fmt.Sprintf("[%d]", len(c))
+				}
+				if ph, ok := m["phase"]; ok {
+					kind += ":" + ph.(string)
+				}
+			}
+			out = append(out, kind)
+		}
+		return out
+	}
+	openai := strings.Join(shape(responsesInputFromHistory("", history, responsesInputOptions{Phase: true})), " ")
+	if want := "user[1] reasoning assistant[2]:commentary assistant[1] function_call function_call_output"; openai != want {
+		t.Fatalf("OpenAI replay = %s\nwant           %s", openai, want)
+	}
+	meta := strings.Join(shape(responsesInputFromHistory("", history, responsesInputOptions{})), " ")
+	if want := "user[1] reasoning assistant[2] assistant[1] function_call function_call_output"; meta != want {
+		t.Fatalf("Meta replay = %s\nwant         %s", meta, want)
+	}
+}
