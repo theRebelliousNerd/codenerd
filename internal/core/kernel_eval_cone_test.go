@@ -65,12 +65,31 @@ func coneSnapshot(t *testing.T, k *RealKernel) string {
 
 func newConeKernel(t *testing.T) *RealKernel {
 	t.Helper()
-	k := setupMockKernel(t)
-	k.AppendPolicy(conePolicy)
+	return newPolicyKernel(t, setupMockKernel(t), conePolicy)
+}
+
+// newPolicyKernel appends policy to k and evaluates it.
+func newPolicyKernel(t *testing.T, k *RealKernel, policy string) *RealKernel {
+	t.Helper()
+	k.AppendPolicy(policy)
 	if err := k.Evaluate(); err != nil {
 		t.Fatalf("Evaluate: %v", err)
 	}
 	return k
+}
+
+// differentialKernels names the two programs a differential walk runs on.
+// The walk writes and compares only its own predicates, which read nothing of
+// the production corpus, so most seeds run on the policy alone; one runs
+// with the whole corpus loaded, where the cone is cut from the real
+// program's dependency index and layers. Every full evaluation of the corpus
+// is a real fixpoint (18 ms), which was the whole cost of these tests.
+func differentialKernels(t *testing.T, policy string, withCorpus bool) (lazy, full *RealKernel) {
+	t.Helper()
+	if withCorpus {
+		return newPolicyKernel(t, setupMockKernel(t), policy), newPolicyKernel(t, setupMockKernel(t), policy)
+	}
+	return newPolicyKernel(t, newRealKernelBase(), policy), newPolicyKernel(t, newRealKernelBase(), policy)
 }
 
 // TestConeEvaluationMatchesFullEvaluation is the differential check: one
@@ -79,14 +98,19 @@ func newConeKernel(t *testing.T) *RealKernel {
 // one of several hundred random asserts and retracts the two must agree on
 // every predicate.
 func TestConeEvaluationMatchesFullEvaluation(t *testing.T) {
-	for _, seed := range []int64{1, 7, 20260921} {
-		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
+	for _, run := range []struct {
+		seed   int64
+		corpus bool
+	}{{1, false}, {7, false}, {20260921, false}, {20260921, true}} {
+		seed := run.seed
+		t.Run(fmt.Sprintf("seed-%d-corpus-%v", seed, run.corpus), func(t *testing.T) {
 			rng := rand.New(rand.NewSource(seed))
-			lazy, full := newConeKernel(t), newConeKernel(t)
+			lazy, full := differentialKernels(t, conePolicy, run.corpus)
 			ids := []string{"/a", "/b", "/c", "/d"}
 			pick := func() string { return ids[rng.Intn(len(ids))] }
 			unary := []string{"cn_raised", "cn_discharged", "cn_mixed", "cn_seed", "cn_inert", "cn_island_in"}
 
+			cones := 0
 			for step := 0; step < 300; step++ {
 				var fact Fact
 				if rng.Intn(4) == 0 {
@@ -127,6 +151,12 @@ func TestConeEvaluationMatchesFullEvaluation(t *testing.T) {
 					t.Fatalf("step %d, after %s %s: cone evaluation diverged from the full fixpoint\n--- cone\n%s\n--- full\n%s",
 						step, op, fact.String(), got, want)
 				}
+				if lazy.LastEvaluation().Mode == "cone" {
+					cones++
+				}
+			}
+			if cones == 0 {
+				t.Fatal("no lazy evaluation took the cone path: the differential passed vacuously")
 			}
 		})
 	}
@@ -246,18 +276,14 @@ func latticeSnapshot(t *testing.T, k *RealKernel) string {
 }
 
 func TestConeEvaluationMatchesFullEvaluation_LatticeAndDeferred(t *testing.T) {
-	newKernel := func(t *testing.T) *RealKernel {
-		k := setupMockKernel(t)
-		k.AppendPolicy(latticePolicy)
-		if err := k.Evaluate(); err != nil {
-			t.Fatalf("Evaluate: %v", err)
-		}
-		return k
-	}
-	for _, seed := range []int64{3, 20261028} {
-		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
+	for _, run := range []struct {
+		seed   int64
+		corpus bool
+	}{{3, false}, {20261028, false}, {20261028, true}} {
+		seed := run.seed
+		t.Run(fmt.Sprintf("seed-%d-corpus-%v", seed, run.corpus), func(t *testing.T) {
 			rng := rand.New(rand.NewSource(seed))
-			lazy, full := newKernel(t), newKernel(t)
+			lazy, full := differentialKernels(t, latticePolicy, run.corpus)
 			keys := []string{"/k1", "/k2"}
 			options := []string{"/a", "/b", "/c"}
 			pick := func(xs []string) string { return xs[rng.Intn(len(xs))] }
