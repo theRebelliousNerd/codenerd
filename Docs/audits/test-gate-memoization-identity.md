@@ -1,5 +1,7 @@
 # Test gate memoization input identity audit
 
+> **Main status update (2026-10-29 09:11 UTC):** the memoization lane was merged into main at [`ca94da6`](https://github.com/theRebelliousNerd/codenerd/commit/ca94da614edff9157acf31bb54f65e4f9695ae92). The ten source files central to the witnesses below are byte-identical to the inspected branch revision. The original branch-versus-main discussion records the earlier 08:42 state and should not be read as current status. This is source revalidation, not an executed reproduction.
+
 ## Decision and review scope
 
 The branch memoization key is not a sufficient identity for the test gate it reuses. It can equate states with different written-test obligations, different importer test inputs, or different discovery outcomes. Preserve the performance goal of avoiding redundant test processes, but do not treat this key as evidence that the current gate was measured. The defect is incomplete identity, not memoization itself.
