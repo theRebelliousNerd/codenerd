@@ -833,6 +833,17 @@ type (
 		components *SystemComponents
 		err        error
 	}
+	// bootDeferredMsg carries the slow boot wiring off the Update loop.
+	// handleBootCompleteMsg stays under the 100ms target by returning fast with
+	// a tea.Cmd that loads the compressor snapshot and starts the background
+	// observer; this message applies those results back on the Update thread.
+	bootDeferredMsg struct {
+		sessionID   string
+		stateJSON   string
+		turnNumber  int
+		hasState    bool
+		observerErr error
+	}
 
 	// statusMsg represents a status update from a background process
 	statusMsg string

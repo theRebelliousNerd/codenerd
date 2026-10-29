@@ -1,0 +1,50 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "assistant": "codeNERD, a coding agent",
+  "facts": "No Go code in the repository outside tests calls or references `function`. `reason` is the agent's explanation of why that is intended.",
+  "function": {
+   "ref": "fn:httpx.RetryPolicy.Backoff"
+  },
+  "reason": "Backoff will be used when we add retries to the streaming client later.",
+  "task": "add retry support to the HTTP client"
+ },
+ "questions": {
+  "names_current_caller": {
+   "type": "noul",
+   "instructions": "Does `reason` name something that calls or loads the function fn:httpx.RetryPolicy.Backoff today?",
+   "criteria": {
+    "true": "The reason names a caller that exists now outside this repository's Go code, such as another module that imports it, a plugin loader, a lookup by name through reflection, or a code generator.",
+    "false": "The reason names no caller that exists now: the function is for later work, kept in case it is needed, was run once by hand or from a test, or waits for someone else to call it."
+   }
+  },
+  "task_asks_uncalled": {
+   "type": "noul",
+   "instructions": "Does `task` ask for the function fn:httpx.RetryPolicy.Backoff to be written without asking for the program to call it?",
+   "criteria": {
+    "true": "The request asks only for the function or a library helper, or says not to wire it in yet.",
+    "false": "The request asks the program to do something, or to fix something, which happens only if the function runs."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "names_current_caller": {
+   "type": "noul",
+   "noul": 0.02
+  },
+  "task_asks_uncalled": {
+   "type": "noul",
+   "noul": 0.16
+  }
+ },
+ "usage": {
+  "input_tokens": 594,
+  "output_tokens": 43
+ }
+}
+}

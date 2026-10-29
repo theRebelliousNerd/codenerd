@@ -1,0 +1,50 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "assistant": "codeNERD, a coding agent",
+  "facts": "No Go code in the repository outside tests calls or references `function`. `reason` is the agent's explanation of why that is intended.",
+  "function": {
+   "ref": "fn:stats.Max"
+  },
+  "reason": "Max mirrors Min for completeness; nothing needs it yet.",
+  "task": "add Min to the stats package"
+ },
+ "questions": {
+  "names_current_caller": {
+   "type": "noul",
+   "instructions": "Does `reason` name something that calls or loads the function fn:stats.Max today?",
+   "criteria": {
+    "true": "The reason names a caller that exists now outside this repository's Go code, such as another module that imports it, a plugin loader, a lookup by name through reflection, or a code generator.",
+    "false": "The reason names no caller that exists now: the function is for later work, kept in case it is needed, was run once by hand or from a test, or waits for someone else to call it."
+   }
+  },
+  "task_asks_uncalled": {
+   "type": "noul",
+   "instructions": "Does `task` ask for the function fn:stats.Max to be written without asking for the program to call it?",
+   "criteria": {
+    "true": "The request asks only for the function or a library helper, or says not to wire it in yet.",
+    "false": "The request asks the program to do something, or to fix something, which happens only if the function runs."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "names_current_caller": {
+   "type": "noul",
+   "noul": 0.01
+  },
+  "task_asks_uncalled": {
+   "type": "noul",
+   "noul": 0.53
+  }
+ },
+ "usage": {
+  "input_tokens": 567,
+  "output_tokens": 43
+ }
+}
+}

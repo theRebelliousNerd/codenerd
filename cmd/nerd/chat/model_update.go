@@ -10,6 +10,7 @@ import (
 
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
+	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/shards"
@@ -635,6 +636,8 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 
 	case bootCompleteMsg:
 		return m.handleBootCompleteMsg(msg)
+	case bootDeferredMsg:
+		return m.handleBootDeferredMsg(msg)
 	case onboardingCheckMsg:
 		// Handle first-run detection result
 		if msg.IsFirstRun {
@@ -834,8 +837,10 @@ func (m Model) handleBootCompleteMsg(msg bootCompleteMsg) (tea.Model, tea.Cmd) {
 			m.shardMgr.SetSessionID(m.sessionID)
 		}
 
-		// Rehydrate semantic compression state for this session (if persisted).
-		m.hydrateCompressorForSession(m.sessionID)
+		// The compressor snapshot load (SQLite read) runs off the Update loop
+		// in runBootDeferred and lands as bootDeferredMsg; only the cheap
+		// reset stays here so the boot handler stays under the 100ms target.
+		m.prepareBootHydration(m.sessionID)
 
 		// Mirror persisted yolo autonomy into the kernel: the fact is session
 		// state and does not survive restarts, but the config does.
@@ -856,7 +861,9 @@ func (m Model) handleBootCompleteMsg(msg bootCompleteMsg) (tea.Model, tea.Cmd) {
 		m = m.addMessages(msg.components.InitialMessages...)
 	}
 
-	// Wire Background Observer Manager callback and start it
+	// Wire Background Observer Manager callback now (cheap, channel + callback);
+	// the blocking Start runs off the Update loop in runBootDeferred and its
+	// result lands as bootDeferredMsg, keeping this handler under 100ms.
 	if m.observerMgr != nil {
 		m.observerAssessmentChan = make(chan shards.ObserverAssessment, 100)
 		assessCh := m.observerAssessmentChan
@@ -866,18 +873,114 @@ func (m Model) handleBootCompleteMsg(msg bootCompleteMsg) (tea.Model, tea.Cmd) {
 			default:
 			}
 		})
-		if err := m.observerMgr.Start(); err != nil {
-			logging.Get(logging.CategoryShards).Error("Failed to start background observer manager: %v", err)
-		} else {
-			logging.Get(logging.CategoryShards).Info("Background observer manager started successfully")
-		}
 	}
+	bootSessionID := m.sessionID
 
 	// Now trigger the workspace scan (deferred). This keeps chat input hidden until ready.
 	// Also start listening for tool events, background observer assessments,
 	// and Glass Box events (the latter is no-op if the bus is disabled).
-	return m, tea.Batch(m.runScan(false), m.listenToolEvents(), m.listenObserverAssessments(), m.listenGlassBoxEvents(), m.listenApprovals())
+	// runBootDeferred carries the slow wiring (compressor snapshot load,
+	// observer start) off the Update loop; its result returns as bootDeferredMsg.
+	return m, tea.Batch(m.runBootDeferred(bootSessionID), m.runScan(false), m.listenToolEvents(), m.listenObserverAssessments(), m.listenGlassBoxEvents(), m.listenApprovals())
 
+}
+
+// prepareBootHydration does the cheap, synchronous part of compressor
+// rehydration: reset any prior session state and bind the new session ID.
+// The SQLite read stays in runBootDeferred off the Update loop.
+func (m *Model) prepareBootHydration(sessionID string) {
+	if m.compressor == nil {
+		return
+	}
+	m.compressor.Reset()
+	m.compressor.SetSessionID(sessionID)
+}
+
+// runBootDeferred carries the slow boot wiring off the Update loop. It loads
+// the persisted compressor snapshot (SQLite read) and starts the background
+// observer manager; the result returns as bootDeferredMsg for the Update
+// thread to apply. Nothing here touches the viewport or input, so the TUI
+// stays responsive while it runs.
+func (m Model) runBootDeferred(sessionID string) tea.Cmd {
+	localDB := m.localDB
+	observerMgr := m.observerMgr
+	return func() tea.Msg {
+		out := bootDeferredMsg{sessionID: sessionID}
+		if localDB != nil && m.compressor != nil {
+			stateJSON, turnNumber, _, err := localDB.LoadLatestCompressedState(sessionID)
+			if err == nil && len(stateJSON) > 0 {
+				out.stateJSON = stateJSON
+				out.turnNumber = turnNumber
+				out.hasState = true
+			}
+		}
+		if observerMgr != nil {
+			out.observerErr = observerMgr.Start()
+		}
+		return out
+	}
+}
+
+// handleBootDeferredMsg applies the slow boot wiring back on the Update
+// thread. It preserves every behavior the synchronous boot once did: the
+// compressor snapshot is validated and loaded with the same guards, the
+// turn counter advances when the snapshot is ahead, and the observer start
+// result is logged the same way.
+func (m Model) handleBootDeferredMsg(msg bootDeferredMsg) (tea.Model, tea.Cmd) {
+	// A session switch that landed before the deferred work returned leaves
+	// the snapshot for another session: refuse it the way hydration does.
+	if msg.sessionID != "" && msg.sessionID != m.sessionID {
+		if msg.observerErr != nil {
+			logging.Get(logging.CategoryShards).Error("Failed to start background observer manager: %v", msg.observerErr)
+		} else if m.observerMgr != nil {
+			logging.Get(logging.CategoryShards).Info("Background observer manager started successfully")
+		}
+		return m, nil
+	}
+	if msg.hasState {
+		m.applyBootHydratedState(msg.stateJSON, msg.turnNumber, msg.sessionID)
+	} else if m.compressor != nil {
+		m.compressor.RefreshBudget()
+	}
+	if msg.observerErr != nil {
+		logging.Get(logging.CategoryShards).Error("Failed to start background observer manager: %v", msg.observerErr)
+	} else if m.observerMgr != nil {
+		logging.Get(logging.CategoryShards).Info("Background observer manager started successfully")
+	}
+	return m, nil
+}
+
+// applyBootHydratedState loads a previously fetched compressor snapshot. It
+// mirrors hydrateCompressorForSession minus the SQLite read, with identical
+// guards: empty or unparseable state is ignored, a snapshot belonging to
+// another session is refused, and the budget refresh keeps the status bar
+// accurate.
+func (m *Model) applyBootHydratedState(stateJSON string, turnNumber int, sessionID string) {
+	if m.compressor == nil {
+		return
+	}
+	if len(stateJSON) == 0 {
+		m.compressor.RefreshBudget()
+		return
+	}
+	state, err := ctxcompress.UnmarshalCompressedState([]byte(stateJSON))
+	if err != nil {
+		logging.Session("hydrateCompressorForSession: failed to parse compressed state: %v", err)
+		return
+	}
+	if state.SessionID != "" && state.SessionID != sessionID {
+		logging.Get(logging.CategorySession).Warn("hydrateCompressorForSession: the state stored for %s belongs to %s; not loaded", sessionID, state.SessionID)
+		return
+	}
+	state.SessionID = sessionID
+	if err := m.compressor.LoadState(state); err != nil {
+		logging.Session("hydrateCompressorForSession: failed to load compressed state: %v", err)
+		return
+	}
+	if turnNumber > m.turnCount {
+		m.turnCount = turnNumber
+	}
+	m.compressor.RefreshBudget()
 }
 
 // handleKnowledgeGatheredMsg processes the knowledgeGatheredMsg.

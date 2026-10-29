@@ -1,0 +1,24 @@
+request-delivery probe: 7 cases, 0 wrong readings, thresholds yes>=70 no<=30
+flag-no-docs: blocked=0.01 missing=["document it in the README"] unsettled=[]
+    asked=0.99 delivered=0.97  "add a --json flag to nerd status"
+    asked=0.99 delivered=0.05  "document it in the README"
+flag-and-docs-two-steps: blocked=0.01 missing=[] unsettled=[]
+    asked=0.99 delivered=0.99  "add a --json flag to nerd status"
+    asked=0.98 delivered=0.99  "document it in the README"
+review-no-fix: blocked=0.02 missing=["fix any you find"] unsettled=[]
+    asked=0.98 delivered=0.97  "review internal/cache for data races"
+    asked=0.98 delivered=0.06  "fix any you find"
+fix-denied: blocked=0.98 missing=["commit the fix"] unsettled=[]
+    asked=0.99 delivered=0.96  "fix the flaky TestWatcher test"
+    asked=0.98 delivered=0.21  "commit the fix"
+explain-full: blocked=0.02 missing=[] unsettled=[]
+    asked=0.99 delivered=0.99  "explain why the kernel rebuilds the program on every retraction"
+    asked=0.99 delivered=0.99  "Then list the files involved"
+context-and-rule: blocked=0.02 missing=[] unsettled=[]
+    asked=0.09 delivered=0.96  "The chat drops the last line of long replies"
+    asked=0.15 delivered=0.45  "Do not touch the renderer"
+    asked=0.96 delivered=0.98  "Find where the reply is cut"
+    asked=0.98 delivered=0.98  "fix it with a test"
+said-done-half: blocked=0.01 missing=["update the docs that mention it"] unsettled=[]
+    asked=0.98 delivered=0.93  "rename Config.Timeout to Config.CallTimeout everywhere"
+    asked=0.98 delivered=0.08  "update the docs that mention it"

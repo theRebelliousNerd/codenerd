@@ -1,0 +1,9 @@
+unused-reason probe: 14 cases, thresholds yes>=0.70 no<=0.30
+names_current_caller       right  14  wrong  0  unsettled  0
+task_asks_uncalled         right  10  wrong  0  unsettled  4
+all right 24 of 28
+misses (x wrong, ~ unsettled):
+  ~ completeness             task_asks_uncalled         p=0.53 want=false  "add Min to the stats package"
+  ~ linkname                 task_asks_uncalled         p=0.31 want=false  "speed up the clock reads in the scheduler"
+  ~ held-sibling             task_asks_uncalled         p=0.45 want=false  "add a Push method to the Stack type"
+  ~ held-wasm-export         task_asks_uncalled         p=0.49 want=true  "expose the tokenizer to the browser build"
