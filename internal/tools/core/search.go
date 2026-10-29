@@ -3,6 +3,7 @@ package core
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -131,6 +132,12 @@ func executeGlob(ctx context.Context, args map[string]any) (string, error) {
 	}
 
 	var matches []string
+	// Matches the member set excludes (gitignored, world.ignore_patterns).
+	// They are not results, but a bare "No files found" told the coder that
+	// .nerd/agents/*/prompts.yaml did not exist when 21 such files did, and
+	// it reported that work as needless.
+	var excluded []string
+	searchRootExcluded := ""
 
 	// Handle ** patterns (recursive)
 	if strings.Contains(pattern, "**") {
@@ -174,6 +181,9 @@ func executeGlob(ctx context.Context, args map[string]any) (string, error) {
 
 			member, admErr := mem.Admit(path, info.IsDir())
 			if admErr != nil {
+				if path == searchPath && errors.Is(admErr, filepath.SkipDir) {
+					searchRootExcluded, _ = filepath.Rel(basePath, path)
+				}
 				return admErr
 			}
 			if !member || info.IsDir() {
@@ -230,6 +240,11 @@ func executeGlob(ctx context.Context, args map[string]any) (string, error) {
 				continue
 			}
 			ok, admErr := mem.Admit(m, info.IsDir())
+			if !ok && (admErr == nil || errors.Is(admErr, filepath.SkipDir)) {
+				rel, _ := filepath.Rel(basePath, m)
+				excluded = append(excluded, rel)
+				continue
+			}
 			if admErr != nil || !ok {
 				continue
 			}
@@ -240,18 +255,43 @@ func executeGlob(ctx context.Context, args map[string]any) (string, error) {
 
 	logging.Tools("glob completed: %s (%d matches)", pattern, len(matches))
 
+	note := excludedNote(excluded, searchRootExcluded)
 	if len(matches) == 0 {
+		if note != "" {
+			return "No workspace files match pattern: " + pattern + ". " + note, nil
+		}
 		return "No files found matching pattern: " + pattern, nil
 	}
 
 	// Same silent cap as grep had: the walk stops at maxResults with SkipAll,
 	// so a full page is indistinguishable from an exact count.
 	out := strings.Join(matches, "\n")
+	if note != "" {
+		out += "\n" + note
+	}
 	if len(matches) >= maxResults {
 		out += "\n" + types.CapReachedNotice(len(matches), "files",
 			"Raise max_results or narrow the pattern.")
 	}
 	return out, nil
+}
+
+// excludedNote says that matches exist outside the workspace's files, so an
+// empty result is not read as "no such file". The paths are named (the first
+// few) but never read: membership is what keeps .nerd/config.json and other
+// ignored files out of a model's context.
+func excludedNote(excluded []string, searchRoot string) string {
+	if searchRoot != "" {
+		return fmt.Sprintf("%s exists but is not one of the workspace's files (gitignored or in world.ignore_patterns), so it was not searched; workspace tools do not read it.", searchRoot)
+	}
+	if len(excluded) == 0 {
+		return ""
+	}
+	shown := excluded
+	if len(shown) > 3 {
+		shown = shown[:3]
+	}
+	return fmt.Sprintf("%d matching path(s) exist but are not workspace files (gitignored or in world.ignore_patterns), e.g. %s; workspace tools do not read them.", len(excluded), strings.Join(shown, ", "))
 }
 
 // GrepTool returns a tool for searching file contents.

@@ -104,6 +104,18 @@ func TestGrepGlobListFilesHonorGitignore(t *testing.T) {
 		t.Fatalf("glob returned ignored files: %s", globOut)
 	}
 
+	// An ignored match is not a result, but the empty answer says it exists:
+	// "No files found" read as "the file does not exist".
+	for _, pattern := range []string{"secret/*.go", "secret/**/*.go"} {
+		out, err := executeGlob(ctx, map[string]any{"pattern": pattern})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out, "No workspace files match") || !strings.Contains(out, "secret") || strings.Contains(out, ignoredToken) {
+			t.Fatalf("glob %s does not say its matches are ignored: %s", pattern, out)
+		}
+	}
+
 	listOut, err := executeListFiles(ctx, map[string]any{
 		"path":           ".",
 		"recursive":      true,
