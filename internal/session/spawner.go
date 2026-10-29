@@ -67,6 +67,9 @@ type Spawner struct {
 	// issueRetriever is the per-turn retrieval pass handed to every spawned
 	// subagent's executor. Nil means subagents start without a brief.
 	issueRetriever IssueRetriever
+	// reportJudge reads each subagent's final report for the /finish round
+	// (finish_round.go).
+	reportJudge *ReportJudge
 
 	// codeElements parses the file a turn is looking at into the CodeDOM fact
 	// layer. It MUST be forwarded to every spawned subagent: `nerd fix`
@@ -243,6 +246,21 @@ func (s *Spawner) currentIssueRetriever() IssueRetriever {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.issueRetriever
+}
+
+// SetReportJudge attaches the final-report reader every subagent spawned from
+// here on inherits. Mirrors SetIssueRetriever.
+func (s *Spawner) SetReportJudge(j *ReportJudge) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reportJudge = j
+}
+
+// currentReportJudge reads the report-judge slot under the read lock.
+func (s *Spawner) currentReportJudge() *ReportJudge {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.reportJudge
 }
 
 // SetCodeElementSource attaches the CodeDOM parser every subagent spawned from
@@ -466,6 +484,9 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	}
 	if r := s.currentIssueRetriever(); r != nil {
 		agent.executor.SetIssueRetriever(r)
+	}
+	if j := s.currentReportJudge(); j != nil {
+		agent.executor.SetReportJudge(j)
 	}
 	// Forward the parent session's executor config — the workspace the shard
 	// works in, its wall-clock constraints, its gates. Guard on whether one

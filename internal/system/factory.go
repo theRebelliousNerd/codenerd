@@ -2659,6 +2659,12 @@ func initFinalExecutors(bctx *bootContext) error {
 		bctx.sessionExecutor.SetIssueRetriever(taskRetriever)
 		bctx.sessionSpawner.SetIssueRetriever(taskRetriever)
 	}
+	// Final reports are read by Jev, and unfinished work is pushed back to
+	// the model (session/finish_round.go, typesafe.final_reports).
+	if judge := reportJudgeFor(bctx.appCfg); judge != nil {
+		bctx.sessionExecutor.SetReportJudge(judge)
+		bctx.sessionSpawner.SetReportJudge(judge)
+	}
 	bctx.sessionSpawner.SetExecutorConfig(&execCfg)
 	bctx.sessionSpawner.SetSessionID(bctx.sessionID)
 	bctx.sessionSpawner.SetApprovalBroker(bctx.approvals)

@@ -354,8 +354,13 @@ is never a "no": each use below names its fallback, and the fallback is logged.
 ### Correction judgment: switch `correction_judgments`
 
 Whether the user's latest message corrects codeNERD's last turn. It decides
-whether the learning loop (`triggerLearningLoop`, the taxonomy critic) runs in
-place of the turn. Until 2026-10-28 `handleSubmit` matched keywords before
+whether the turn is learned from (`learnFromCorrection`,
+`cmd/nerd/chat/learning_auto.go`): beside the turn, which runs as asked. Jev
+picks the verb the misread request asked for (`learnjudge.ChooseVerb`, a Choice
+over the verb corpus with a "does any verb fit" Noul), and the mapping is
+learned only when both read at or above yes; nothing asks the user. Until
+2026-10-28 the learning loop (an LLM critic, then "Should I learn it?") ran in
+place of the turn and ended "You can retry the request when ready". Until 2026-10-28 `handleSubmit` matched keywords before
 perception, so a short "wrong" or "mistake" hijacked the turn whatever it meant.
 
 - Question: `internal/learnjudge/correction.go`. One Noul, `corrects_last_turn`:
@@ -375,7 +380,7 @@ perception, so a short "wrong" or "mistake" hijacked the turn whatever it meant.
 
   | Jev judgment | Rebuke phrase | `learning_correction` |
   |---|---|---|
-  | at or above yes | any | `/jev`: the learning loop runs |
+  | at or above yes | any | `/jev`: learned from, beside the turn |
   | below yes (no or unsettled) | any | none: the turn routes as usual |
   | none (off, switched off, failed, timed out) | yes | `/rebuke_phrase` |
   | none | no | none |
@@ -716,6 +721,42 @@ evolved atom into the agent's instructions (`RunEvolutionCycle`, step 4).
   24 right. One wrong: "Max must return 0 ...; TestMaxEmpty covers it" read as
   going against "run a test before claiming it passes" (0.81). That candidate
   is held anyway, on `describes_one_task` 0.98.
+
+### Final reports: switch `final_reports`
+
+Whether a turn's own final report says part of the task was not done, and
+whether it names an obstacle codeNERD cannot clear by itself. A turn that
+admitted unfinished work used to close "not verified" and stop; nothing sent
+the admission back to the model.
+
+- Question: `internal/learnjudge/report.go`. Two Nouls in one request over the
+  task and the report (each bounded at 24000 bytes, head and tail):
+  `admits_unfinished` ("Does `report` say that part of the work `task` asks for
+  was not done?") and `names_blocker` ("Does `report` name an obstacle to
+  finishing that codeNERD cannot clear by itself?": a permission or policy
+  denial, a missing credential or input, a choice only the user can make).
+- Calls: the `/finish` post-edit round (`internal/session/finish_round.go`),
+  last in the schedule, on every turn that wrote; and the closure audit
+  (`admission_audit.go`), where it replaces a main-model call (24.6s in the
+  dogfood run) when the switch is on.
+- Fact: `turn_report_reading(Turn, Unfinished, Blocked)`, whole percents,
+  replaced by each reading; `turn_finish_idle(Turn)` when a push-back wrote
+  nothing.
+- Rules (`policy/turn_finish.mg`): `turn_report_unfinished` and
+  `turn_report_blocked` at or above yes; `turn_finish_pushback` when unfinished,
+  not blocked and not idle. An unsettled blocker is not a blocker: the next
+  attempt can name it plainly. `turn_report_unfinished` sets
+  `turn_self_reported_incomplete`, which withholds `/done`.
+- What the user sees: an unfinished turn goes on. The model is handed its own
+  admission and continues with its tools until the report no longer admits
+  unfinished work, names a blocker (then the turn closes unverified, naming
+  it), or an attempt writes nothing. A push-back that writes re-arms the gate
+  rounds, so what it finished is built and tested.
+- Live (Jev 1.14, `report_live_test.go`): `admits_unfinished` 8 of 8 right,
+  including the three reports that motivated the round; `names_blocker` 6 of 8
+  right and 2 unsettled (0.29, 0.39), both on reports that should be pushed.
+- Off, failed, or no Jev: no reading; `/finish` does nothing and the closure
+  audit asks the main model, as before.
 
 ## Latency and cost
 

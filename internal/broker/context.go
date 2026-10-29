@@ -55,7 +55,10 @@ type phaseKey struct{}
 type Phase string
 
 const (
-	PhaseRepair      Phase = "repair"
+	PhaseRepair Phase = "repair"
+	// PhaseFinish is the /finish round: the model continuing a task its own
+	// report said was not done.
+	PhaseFinish      Phase = "finish"
 	PhaseUplift      Phase = "uplift"
 	PhaseStepPlan    Phase = "step_plan"
 	PhaseForcedFinal Phase = "forced_final"

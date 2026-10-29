@@ -156,8 +156,10 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// and the gate would never fire.
 				"turn_declared_check", "turn_check_run",
 				// The turn's own report admitting unfinished work
-				// (session/admission_audit.go), negated by turn_verified.
-				"turn_self_reported_incomplete",
+				// (session/admission_audit.go), negated by turn_verified,
+				// and Jev's reading of it with the push-back's idle mark
+				// (turn_finish.mg), which the /finish round joins.
+				"turn_self_reported_incomplete", "turn_report_reading", "turn_finish_idle",
 				// Each write's effect receipt and validation reading
 				// (tool_effects.mg). turn_verified negates
 				// turn_has_rejected_effect / turn_has_unmeasured_effect,

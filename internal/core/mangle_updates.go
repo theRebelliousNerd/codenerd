@@ -381,6 +381,8 @@ var hostWitnessPredicates = map[string]struct{}{
 	// retract or never assert it would decide its own verdict; asserting it
 	// only withholds, but it is the host's reading, not the model's.
 	"turn_self_reported_incomplete": {},
+	"turn_report_reading":           {},
+	"turn_finish_idle":              {},
 	// The pin gate's survivor count schedules the /survivors round.
 	"turn_pin_survivors": {},
 	// What the planner is spent on: the sites the host measured in the

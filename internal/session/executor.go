@@ -264,6 +264,10 @@ type Executor struct {
 	// Nil, or a broker with no host attached, leaves every approvable denial
 	// a refusal.
 	approvals *approval.Broker
+	// reportJudge reads a turn's final report with Jev for the /finish round
+	// and the closure audit (finish_round.go). Nil: no /finish push-back, and
+	// the closure audit asks the main model.
+	reportJudge *ReportJudge
 }
 
 // Generated duplicates retain one exact pending authorization until the last
@@ -634,6 +638,9 @@ func (e *Executor) CloneForTask() *Executor {
 	// the same broker; a clone without it would refuse what the session
 	// would ask about.
 	clone.approvals = e.approvals
+	// A delegated task's report is read the same way, so its unfinished
+	// work is pushed back too (finish_round.go).
+	clone.reportJudge = e.reportJudge
 	// Deliberately NOT copied: conversationHistory, sessionContext,
 	// sessionPersister (task runs must not be recorded as session turns),
 	// EffectiveAgentRuntimeConfig (set per task by the caller).
@@ -917,6 +924,9 @@ type ExecutionResult struct {
 	// (verifyCompletedToolTurn).
 	writeToolsAsserted bool
 	roundsRan          map[string]bool
+	// reportReading is the turn_report_reading asserted last for this turn,
+	// replaced by each new reading (finish_round.go).
+	reportReading *types.Fact
 
 	// WrittenPaths records the target of every successful write mutation, so
 	// post-edit build verification can tell a turn that touched Go source from

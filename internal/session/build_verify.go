@@ -742,6 +742,24 @@ func (e *Executor) repairRound(
 	// _test.go files beside the turn's Go files: their prompt sends them there.
 	ctx = withRepairWriteGuard(ctx, e.workspaceForVerification(), result, writesTests)
 	ctx = broker.WithPhase(ctx, broker.PhaseRepair)
+	return e.workingAttempt(ctx, trp, systemPrompt, history, toolDefs, cfg, result, prompt, commit)
+}
+
+// workingAttempt sends prompt and runs the model's tool calls until it writes
+// or answers, under the working policy. It is one attempt of a repair round
+// (repairRound adds the repair write guard) and of the /finish round, which
+// continues the task itself under the turn's own write rules.
+func (e *Executor) workingAttempt(
+	ctx context.Context,
+	trp types.ToolResultsProvider,
+	systemPrompt string,
+	history *[]types.Message,
+	toolDefs []types.ToolDefinition,
+	cfg *jitconfig.EffectiveAgentRuntimeConfig,
+	result *ExecutionResult,
+	prompt string,
+	commit bool,
+) (*types.LLMToolResponse, int, [][]types.ToolCall, []string, []types.ToolResult, bool, error) {
 	loop := activeWorkingLoop(ctx)
 	if loop == nil {
 		return nil, 0, nil, nil, nil, false, errors.New(

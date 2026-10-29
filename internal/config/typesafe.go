@@ -59,6 +59,10 @@ type TypeSafeConfig struct {
 	ToolChecks          *bool `json:"tool_checks,omitempty"`
 	AutopoiesisChecks   *bool `json:"autopoiesis_checks,omitempty"`
 	AtomChecks          *bool `json:"atom_checks,omitempty"`
+	// FinalReports: Jev reads a turn's final report for unfinished work and
+	// a blocker; the /finish round pushes unfinished work back to the model
+	// (session/finish_round.go). Off, the closure asks the main model.
+	FinalReports *bool `json:"final_reports,omitempty"`
 	// AtomRelevance: Jev judges, per turn, whether each pooled flesh prompt
 	// atom applies to the request (internal/atomjudge, jit_compiler.mg).
 	AtomRelevance *bool `json:"atom_relevance,omitempty"`
@@ -91,6 +95,8 @@ type TypeSafeUses struct {
 	AtomRelevance bool
 	// InstructionCoverage is the compound-instruction coverage judgment.
 	InstructionCoverage bool
+	// FinalReports is the final-report reading and the /finish round.
+	FinalReports bool
 	// TurnJudgmentTimeout bounds one turn's judgments (turn_judgment_timeout).
 	TurnJudgmentTimeout time.Duration
 	// RecentTurns bounds the prior turns a turn judgment sees.
@@ -119,6 +125,7 @@ func DefaultTypeSafeUses() TypeSafeUses {
 		CorrectionJudgments: true, TaskVerdicts: true, ProblemTypes: true, ToolChecks: true, AutopoiesisChecks: true, AtomChecks: true,
 		AtomRelevance:       true,
 		InstructionCoverage: true,
+		FinalReports:        true,
 		TurnJudgmentTimeout: defaultTurnJudgmentTimeout,
 		RecentTurns:         12, BatchSize: 20, RelevancePoolFactor: 6, RelevanceHeadBytes: 3000, FindingContextLines: 12,
 		AtomRelevancePool: 40, AtomRelevanceTimeout: defaultAtomRelevanceTimeout,
@@ -150,6 +157,7 @@ func (c *TypeSafeConfig) Uses() TypeSafeUses {
 	u.AtomChecks = on(c.AtomChecks, u.AtomChecks)
 	u.AtomRelevance = on(c.AtomRelevance, u.AtomRelevance)
 	u.InstructionCoverage = on(c.InstructionCoverage, u.InstructionCoverage)
+	u.FinalReports = on(c.FinalReports, u.FinalReports)
 	set := func(v int, dst *int) {
 		if v > 0 {
 			*dst = v

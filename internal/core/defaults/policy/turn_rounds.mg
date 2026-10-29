@@ -30,8 +30,9 @@ Decl turn_pin_survivors(Turn, Count) bound [/name, /number].
 # around them); the critic once the change compiles and passes, and before
 # the rounds that answer for its edits; coverage before pinning, which counts
 # the tests coverage asks for, and before vet, which vets them; removed tests
-# after the test gate; the test run last, because a write after it would
-# reset the run it asks for.
+# after the test gate; the test run after them, because a write after it
+# would reset the run it asks for; and /finish last: it reads the turn's final
+# report, and a push-back that writes re-arms the gates (turn_finish.mg).
 round_order(/build, 1).
 round_order(/test, 2).
 round_order(/critic, 3).
@@ -41,6 +42,7 @@ round_order(/survivors, 6).
 round_order(/vet, 7).
 round_order(/removed_tests, 8).
 round_order(/test_run, 9).
+round_order(/finish, 10).
 
 turn_round_owed(Turn, /build) :- turn_owes_gate(Turn, /build).
 turn_round_owed(Turn, /test) :- turn_owes_gate(Turn, /test).
@@ -64,6 +66,9 @@ turn_round_owed(Turn, /survivors) :- turn_pin_survivors(Turn, Count), Count > 0.
 turn_round_owed(Turn, /vet) :- turn_write_class(Turn, /go).
 turn_round_owed(Turn, /removed_tests) :- turn_wrote(Turn).
 turn_round_owed(Turn, /test_run) :- turn_owes_gate(Turn, /test_run).
+# Every turn that wrote answers for its own report: one that says part of the
+# task is not done is pushed back to the model (turn_finish.mg).
+turn_round_owed(Turn, /finish) :- turn_wrote(Turn).
 
 turn_round_pending(Turn, Round, Order) :-
     turn_round_owed(Turn, Round),

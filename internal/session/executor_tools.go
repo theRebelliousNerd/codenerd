@@ -515,6 +515,11 @@ func (e *Executor) verifyCompletedToolTurn(
 		"/test_run": func() (*types.LLMToolResponse, []string, error) {
 			return e.verifyAndRepairTestRun(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
 		},
+		// current is read when the round runs: the answer the earlier rounds
+		// left, which is the report the round reads.
+		"/finish": func() (*types.LLMToolResponse, []string, error) {
+			return e.finishUnfinishedWork(ctx, trp, systemPrompt, history, current, toolDefs, cfg, result)
+		},
 	}
 
 	before := ""

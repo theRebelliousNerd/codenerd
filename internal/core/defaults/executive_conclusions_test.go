@@ -65,6 +65,8 @@ var queryCalls = map[string]bool{
 	"queryOrBlock":         true,
 	// The repair episode's rows (session/repair_policy.go nextRepairMove).
 	"episodeRows": true,
+	// Whether a turn-keyed conclusion holds (session/finish_round.go).
+	"turnHolds": true,
 }
 
 // finiteQueryWrappers are narrow production wrappers whose query predicate

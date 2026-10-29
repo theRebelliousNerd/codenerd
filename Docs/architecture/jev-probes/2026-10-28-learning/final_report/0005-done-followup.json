@@ -1,0 +1,46 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "assistant": "codeNERD, a coding agent",
+  "report": "Added /stats with tests; all pass. A follow-up could add a JSON output flag.",
+  "task": "add a /stats command"
+ },
+ "questions": {
+  "admits_unfinished": {
+   "type": "noul",
+   "instructions": "Does `report` say that part of the work `task` asks for was not done?",
+   "criteria": {
+    "true": "The report says something the task asks for was skipped, left for later, not finished, or not done because of an obstacle.",
+    "false": "The report says the work is done, even with caveats, suggested follow-ups, or a note that some extra check could not run."
+   }
+  },
+  "names_blocker": {
+   "type": "noul",
+   "instructions": "Does `report` name an obstacle to finishing that codeNERD cannot clear by itself?",
+   "criteria": {
+    "true": "A permission or policy denial, a missing credential or input, or a choice only the user can make.",
+    "false": "No such obstacle is named: the work is done, or what is left is work codeNERD could still do, even if it believes otherwise."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "admits_unfinished": {
+   "type": "noul",
+   "noul": 0.04
+  },
+  "names_blocker": {
+   "type": "noul",
+   "noul": 0.02
+  }
+ },
+ "usage": {
+  "input_tokens": 499,
+  "output_tokens": 44
+ }
+}
+}
