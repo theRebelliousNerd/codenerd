@@ -38,6 +38,10 @@ type Registry struct {
 	// SetFactSink.
 	factSink FactSink
 
+	// executive is who installed writeGuard and factSink through
+	// BindExecutive, so only it can release them (ReleaseExecutive).
+	executive any
+
 	// metrics accumulates per-tool success/failure/duration counters.
 	metrics map[string]*ToolMetrics
 }
@@ -733,6 +737,31 @@ func (r *Registry) SetFactSink(s FactSink) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.factSink = s
+}
+
+// BindExecutive installs owner's write guard and fact sink on the registry,
+// replacing any earlier owner's. It is how a VirtualStore governs the
+// process-wide registry (Global), where several can be live in one process.
+func (r *Registry) BindExecutive(owner any, g WriteGuard, s FactSink) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.executive, r.writeGuard, r.factSink = owner, g, s
+}
+
+// ReleaseExecutive removes the guard and sink owner bound, and reports
+// whether it did. A registry another owner has bound since is left as it is:
+// releasing by identity, a closing executive cannot strip one still live.
+// Before this a closed VirtualStore's guard stayed on Global, bound to its
+// dead kernel, and refused every later shell call that kernel had not
+// authorized.
+func (r *Registry) ReleaseExecutive(owner any) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if owner == nil || r.executive != owner {
+		return false
+	}
+	r.executive, r.writeGuard, r.factSink = nil, nil, nil
+	return true
 }
 
 func (r *Registry) recordMetrics(name string, success bool, durationMs int64) {

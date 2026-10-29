@@ -297,6 +297,13 @@ func (c *Cortex) Close() error {
 		c.cortexKey = ""
 	}
 
+	// The process-wide tool registry is governed by this cortex's store until
+	// it closes, and by identity, as the meter logs above: another live
+	// cortex's binding is left alone.
+	if c.VirtualStore != nil {
+		c.VirtualStore.ReleaseGlobalTools()
+	}
+
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}

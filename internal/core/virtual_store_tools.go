@@ -59,11 +59,13 @@ func (v *VirtualStore) HydrateModularTools(searchers ...types.GroundedWebSearche
 
 	// Install the nerd.md write guard on BOTH registries before any tool is
 	// registered, so no window exists where a tool is callable but unguarded.
-	v.installToolWriteGuard(registry, globalRegistry)
-	// Same both-registries treatment: a tool run through tools.Global() by the
-	// session executor must land in the kernel just like one run through the
-	// VirtualStore registry.
-	v.installToolFactSink(registry, globalRegistry)
+	// Same both-registries treatment for the fact sink: a tool run through
+	// tools.Global() by the session executor must land in the kernel just
+	// like one run through the VirtualStore registry. The global registry is
+	// bound by identity, so ReleaseGlobalTools unbinds this store and no other.
+	v.installToolWriteGuard(registry)
+	v.installToolFactSink(registry)
+	globalRegistry.BindExecutive(v, v.toolWriteGuard(), v.toolFactSink())
 
 	// One sequence for both registries: catalog.Families. An error on this
 	// VirtualStore registry is returned. An error on the global registry is
@@ -244,4 +246,13 @@ func (v *VirtualStore) GetLearningStore() *store.LearningStore {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	return v.learningStore
+}
+
+// ReleaseGlobalTools unbinds this store's write guard and fact sink from
+// tools.Global(), if they are still the ones bound there, and reports
+// whether it did. Its owner calls it when the store's kernel stops serving
+// (Cortex.Close): a guard left bound to a kernel no one feeds refuses every
+// shell call that kernel never authorized.
+func (v *VirtualStore) ReleaseGlobalTools() bool {
+	return tools.Global().ReleaseExecutive(v)
 }
