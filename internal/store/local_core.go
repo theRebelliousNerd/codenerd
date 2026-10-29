@@ -792,7 +792,7 @@ func (s *LocalStore) ensurePredicateVectorUniqueIndex() error {
 //     file no fact identified. One live store held 9,378 such rows, most of
 //     them pointing at a crash dump that had been scanned as source.
 //
-// The next scan re-projects both shapes correctly (VirtualStore.PersistLinkFacts),
+// The next scan re-projects both shapes correctly (VirtualStore.ReplaceLinkFacts),
 // so nothing is lost by dropping them. Ingest edges (/has_file) are left
 // alone: no automatic path re-creates them.
 func (s *LocalStore) retireMislabelledDependencyEdges() error {

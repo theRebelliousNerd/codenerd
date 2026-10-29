@@ -803,8 +803,9 @@ func (w *WorldModelIngestorShard) persistToKnowledge(facts []types.Fact) {
 	if err := w.VirtualStore.PersistFactsToKnowledge(facts, "fact", 6); err != nil {
 		fmt.Printf("[WorldModel] Knowledge persistence warning: %v\n", err)
 	}
-	// Also project dependency links into knowledge_graph for fast lookup
-	if err := w.VirtualStore.PersistLinkFacts(facts, "world_model"); err != nil {
+	// Also project dependency links into knowledge_graph for fast lookup. The
+	// shard derives additions only; it holds no superseded facts to retire.
+	if err := w.VirtualStore.ReplaceLinkFacts(nil, facts, "world_model"); err != nil {
 		fmt.Printf("[WorldModel] Knowledge graph warning: %v\n", err)
 	}
 }

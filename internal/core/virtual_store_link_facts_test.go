@@ -8,11 +8,11 @@ import (
 	"codenerd/internal/store"
 )
 
-// TestPersistLinkFacts_ShouldProjectEdgesThePolicyCanJoin — the knowledge
+// TestReplaceLinkFacts_ShouldProjectEdgesThePolicyCanJoin — the knowledge
 // graph edge for an import has to hydrate as knowledge_link(_, /depends_on, _)
 // or policy/knowledge.mg's activation spreading never fires. The per-caller
 // copies this replaced labelled it "depends_on:<import>", which is not a name.
-func TestPersistLinkFacts_ShouldProjectEdgesThePolicyCanJoin(t *testing.T) {
+func TestReplaceLinkFacts_ShouldProjectEdgesThePolicyCanJoin(t *testing.T) {
 	db, err := store.NewLocalStore(filepath.Join(t.TempDir(), "knowledge.db"))
 	if err != nil {
 		t.Fatalf("NewLocalStore: %v", err)
@@ -28,8 +28,8 @@ func TestPersistLinkFacts_ShouldProjectEdgesThePolicyCanJoin(t *testing.T) {
 		{Predicate: "symbol_graph", Args: []any{"internal/a/a.go:Run", MangleAtom("/function"), MangleAtom("/public"), "internal/a/a.go", "func Run()"}},
 		{Predicate: "file_topology", Args: []any{"internal/a/a.go", "hash", MangleAtom("/go"), int64(1), MangleAtom("/false")}},
 	}
-	if err := vs.PersistLinkFacts(facts, "scan-path"); err != nil {
-		t.Fatalf("PersistLinkFacts: %v", err)
+	if err := vs.ReplaceLinkFacts(nil, facts, "scan-path"); err != nil {
+		t.Fatalf("ReplaceLinkFacts: %v", err)
 	}
 
 	type edge struct{ a, rel, b string }
@@ -68,8 +68,8 @@ func TestPersistLinkFacts_ShouldProjectEdgesThePolicyCanJoin(t *testing.T) {
 	// A nil store is a no-op, not an error: the chat model persists links
 	// opportunistically and must not fail a scan over a missing knowledge DB.
 	bare := NewVirtualStore(nil)
-	if err := bare.PersistLinkFacts(facts, "scan"); err != nil {
-		t.Fatalf("PersistLinkFacts without a store: %v", err)
+	if err := bare.ReplaceLinkFacts(nil, facts, "scan"); err != nil {
+		t.Fatalf("ReplaceLinkFacts without a store: %v", err)
 	}
 	_ = context.Background()
 }

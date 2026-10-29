@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/store"
 	"codenerd/internal/types"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
@@ -140,20 +141,63 @@ func (v *VirtualStore) PersistLink(entityA, relation, entityB string, weight flo
 	return nil
 }
 
-// PersistLinkFacts projects the graph-shaped world facts in facts into the
-// knowledge graph: dependency_link(From, To, Import) becomes a depends_on edge
-// and symbol_graph(Symbol, _, _, File, _) a defined_in edge, with source (which
+// ReplaceLinkFacts projects the graph-shaped world facts into the knowledge
+// graph: dependency_link(From, To, Import) becomes a depends_on edge and
+// symbol_graph(Symbol, _, _, File, _) a defined_in edge, with source (which
 // scanner produced it) in the edge metadata. Facts of any other predicate are
 // ignored, so a whole scan result can be handed over.
 //
+// current are the facts a refresh holds now; retired are the facts it
+// superseded (a scan result's RetractFacts). The edges retired supported and
+// current no longer does are deleted, in the same transaction that publishes
+// current's edges: a removed import used to stay in the graph, and in every
+// session's dependency context, as if it were current, because the
+// projection only ever upserted (audit scanner-graph-source-retirement). Only
+// rows the projection wrote are retired (store.ReplaceWorldLinks); memory and
+// ingest edges are untouched. A producer that holds no superseded facts
+// passes nil.
+//
 // This is the one projection for every producer: full, incremental, deep,
 // partial and directory scans, and the world-model shard. The six copies it
-// replaces each labelled the dependency edge "depends_on:<import path>", a
+// replaced each labelled the dependency edge "depends_on:<import path>", a
 // token that is not a Mangle name, so HydrateKnowledgeGraph landed it as a
 // string constant and the /depends_on activation rule in policy/knowledge.mg
-// matched none of them. The import path now rides in the metadata, readable
-// but no longer part of the edge's identity.
-func (v *VirtualStore) PersistLinkFacts(facts []Fact, source string) error {
+// matched none of them. The import path rides in the metadata, readable but
+// not part of the edge's identity.
+func (v *VirtualStore) ReplaceLinkFacts(retired, current []Fact, source string) error {
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+	if db == nil {
+		return nil
+	}
+	publish, errs := projectLinkFacts(current, source)
+	old, oldErrs := projectLinkFacts(retired, source)
+	errs = append(errs, oldErrs...)
+
+	type triple struct{ a, rel, b string }
+	held := make(map[triple]struct{}, len(publish))
+	for _, l := range publish {
+		held[triple{l.EntityA, l.Relation, l.EntityB}] = struct{}{}
+	}
+	var retire []store.KnowledgeLink
+	for _, l := range old {
+		if _, still := held[triple{l.EntityA, l.Relation, l.EntityB}]; !still {
+			retire = append(retire, l)
+		}
+	}
+	if err := db.ReplaceWorldLinks(retire, publish); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Failed to replace world links: %v", err)
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+// projectLinkFacts maps dependency_link and symbol_graph facts to their
+// knowledge-graph edges. A fact with an empty endpoint is reported, not
+// projected.
+func projectLinkFacts(facts []Fact, source string) ([]store.KnowledgeLink, []error) {
+	var out []store.KnowledgeLink
 	var errs []error
 	for _, f := range facts {
 		switch f.Predicate {
@@ -163,27 +207,31 @@ func (v *VirtualStore) PersistLinkFacts(facts []Fact, source string) error {
 			}
 			from := types.ExtractString(f.Args[0])
 			to := types.ExtractString(f.Args[1])
+			if from == "" || to == "" {
+				errs = append(errs, fmt.Errorf("depends_on %q -> %q: empty endpoint", from, to))
+				continue
+			}
 			meta := map[string]any{"source": source}
 			if len(f.Args) >= 3 {
 				if imp := types.ExtractString(f.Args[2]); imp != "" {
 					meta["import"] = imp
 				}
 			}
-			if err := v.PersistLink(from, "depends_on", to, 1.0, meta); err != nil {
-				errs = append(errs, fmt.Errorf("depends_on %s -> %s: %w", from, to, err))
-			}
+			out = append(out, store.KnowledgeLink{EntityA: from, Relation: "depends_on", EntityB: to, Weight: 1.0, Metadata: meta})
 		case "symbol_graph":
 			if len(f.Args) < 4 {
 				continue
 			}
 			symbol := types.ExtractString(f.Args[0])
 			file := types.ExtractString(f.Args[3])
-			if err := v.PersistLink(symbol, "defined_in", file, 1.0, map[string]any{"source": source}); err != nil {
-				errs = append(errs, fmt.Errorf("defined_in %s -> %s: %w", symbol, file, err))
+			if symbol == "" || file == "" {
+				errs = append(errs, fmt.Errorf("defined_in %q -> %q: empty endpoint", symbol, file))
+				continue
 			}
+			out = append(out, store.KnowledgeLink{EntityA: symbol, Relation: "defined_in", EntityB: file, Weight: 1.0, Metadata: map[string]any{"source": source}})
 		}
 	}
-	return errors.Join(errs...)
+	return out, errs
 }
 
 // QueryKnowledgeGraph queries the knowledge graph for entity relationships.

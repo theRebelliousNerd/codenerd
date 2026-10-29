@@ -193,7 +193,7 @@ func (m Model) runScan(deep bool) tea.Cmd {
 			if err := m.virtualStore.PersistFactsToKnowledge(res.NewFacts, "fact", 5); err != nil {
 				logging.Routing("[helpers] failed to persist facts to knowledge: %v", err)
 			}
-			if err := m.virtualStore.PersistLinkFacts(res.NewFacts, "scan"); err != nil {
+			if err := m.virtualStore.ReplaceLinkFacts(res.RetractFacts, res.NewFacts, "scan"); err != nil {
 				logging.Routing("[helpers] failed to persist knowledge graph links: %v", err)
 			}
 		}
@@ -384,7 +384,7 @@ func (m *Model) ensureDeepWorldFacts() error {
 		if err := m.virtualStore.PersistFactsToKnowledge(res.NewFacts, "fact", 6); err != nil {
 			logging.Routing("[helpers] failed to persist deep facts to knowledge: %v", err)
 		}
-		if err := m.virtualStore.PersistLinkFacts(res.NewFacts, "scan-deep"); err != nil {
+		if err := m.virtualStore.ReplaceLinkFacts(res.RetractFacts, res.NewFacts, "scan-deep"); err != nil {
 			logging.Routing("[helpers] failed to persist deep knowledge graph links: %v", err)
 		}
 	}
@@ -547,7 +547,7 @@ func (m Model) scanFilesIntoWorld(fsPaths []string, source string) int {
 		if err := m.virtualStore.PersistFactsToKnowledge(facts, "fact", 5); err != nil {
 			logging.Routing("[helpers] %s: failed to persist facts to knowledge: %v", source, err)
 		}
-		if err := m.virtualStore.PersistLinkFacts(facts, source); err != nil {
+		if err := m.virtualStore.ReplaceLinkFacts(retract, facts, source); err != nil {
 			logging.Routing("[helpers] %s: failed to persist knowledge graph links: %v", source, err)
 		}
 	}

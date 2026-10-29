@@ -127,7 +127,7 @@ func (m Model) loadWorkspaceFacts(ctx context.Context, intent perception.Intent,
 		if err := m.virtualStore.PersistFactsToKnowledge(res.NewFacts, "fact", 5); err != nil && warnings != nil {
 			*warnings = append(*warnings, fmt.Sprintf("Knowledge persistence warning: %v", err))
 		}
-		if err := m.virtualStore.PersistLinkFacts(res.NewFacts, "scan"); err != nil && warnings != nil {
+		if err := m.virtualStore.ReplaceLinkFacts(res.RetractFacts, res.NewFacts, "scan"); err != nil && warnings != nil {
 			*warnings = append(*warnings, fmt.Sprintf("Knowledge graph warning: %v", err))
 		}
 	}
