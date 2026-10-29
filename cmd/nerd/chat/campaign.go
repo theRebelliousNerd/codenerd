@@ -118,6 +118,15 @@ func (m Model) runCampaignOrchestrator() tea.Cmd {
 	}
 	ctx = broker.WithPurpose(ctx, broker.PurposeCampaign)
 
+	// The run's terminal receipt: one slot, written once by the goroutine
+	// that owns the run, after Run returns and the orchestrator is closed.
+	// It never blocks the worker (capacity 1, one send) and does not share
+	// the progress channel's best-effort policy: a run whose last progress
+	// snapshot was still active is retired by this receipt, not by a
+	// heartbeat that may never sample the completed status.
+	settled := make(chan campaignSettledMsg, 1)
+	active := m.activeCampaign
+
 	// Start orchestrator execution in background
 	if m.goroutineWg != nil {
 		m.goroutineWg.Add(1)
@@ -127,20 +136,24 @@ func (m Model) runCampaignOrchestrator() tea.Cmd {
 			defer m.goroutineWg.Done()
 		}
 		defer cancel()
-		// The orchestrator owns the northstar observer it was built with;
-		// once Run returns nothing else drives it, and the chat only drops
-		// its reference.
-		defer func() { _ = orch.Close() }()
-		if err := orch.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		err := orch.Run(ctx)
+		if err != nil && !errors.Is(err, context.Canceled) {
 			// The event channel and campaign status are the user-facing report.
 			// This log is the one that survives when the orchestrator fails
 			// before it can publish either.
 			logging.Kernel("[campaign] orchestrator run ended with error: %v", err)
 		}
+		status := campaign.CampaignStatus(orch.GetProgress().CampaignStatus)
+		// The orchestrator owns the northstar observer it was built with;
+		// once Run returns nothing else drives it, and the chat only drops
+		// its reference.
+		_ = orch.Close()
+		settled <- campaignSettledMsg{orch: orch, campaign: active, status: status, err: err}
 	}()
 
-	// Return a command that listens on the progress channel (real-time, not polling)
-	return m.listenCampaignProgress()
+	// Progress streams in real time; the receipt arrives once, when the run
+	// has settled.
+	return tea.Batch(m.listenCampaignProgress(), func() tea.Msg { return <-settled })
 }
 
 // listenCampaignProgress returns a tea.Cmd that waits for real-time progress updates via channel.

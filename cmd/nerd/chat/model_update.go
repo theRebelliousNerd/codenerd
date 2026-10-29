@@ -377,6 +377,9 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 		next, cmd, _ := m.handleRecurseMsg(msg)
 		return next, cmd
 
+	case campaignSettledMsg:
+		m = m.handleCampaignSettled(msg)
+
 	case campaignCompletedMsg:
 		m.isLoading = false
 		m.activeCampaign = nil

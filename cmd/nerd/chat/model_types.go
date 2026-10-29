@@ -784,6 +784,18 @@ type (
 	campaignEventMsg     campaign.OrchestratorEvent // Real-time event from orchestrator
 	campaignCompletedMsg *campaign.Campaign
 	campaignErrorMsg     struct{ err error }
+	// campaignSettledMsg is a run's terminal receipt: Run returned and the
+	// orchestrator was closed. It carries the run's owner (its orchestrator)
+	// and the outcome Run settled on, independently of the best-effort
+	// progress and event channels, so a run whose last progress snapshot was
+	// still active is retired all the same (audit
+	// campaign-terminal-publication).
+	campaignSettledMsg struct {
+		orch     *campaign.Orchestrator
+		campaign *campaign.Campaign
+		status   campaign.CampaignStatus
+		err      error
+	}
 
 	// Continuation messages (multi-step task execution)
 	continueMsg struct {

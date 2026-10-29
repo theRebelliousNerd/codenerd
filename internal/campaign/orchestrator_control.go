@@ -52,7 +52,11 @@ func (o *Orchestrator) Stop() {
 	if o.cancelFunc != nil {
 		o.cancelFunc()
 	}
-	if o.campaign != nil {
+	// A settled run keeps its outcome. Stop used to set every loaded
+	// campaign to paused, so releasing a completed run's handle -- the chat
+	// quitting after a run whose completion it had not yet shown -- rewrote
+	// /completed to /paused on disk (audit campaign-terminal-publication).
+	if o.campaign != nil && o.campaign.Status != StatusCompleted && o.campaign.Status != StatusFailed {
 		logging.Campaign("Stopping campaign: %s", o.campaign.ID)
 		o.updateCampaignStatus(StatusPaused)
 		if err := o.saveCampaign(); err != nil {
