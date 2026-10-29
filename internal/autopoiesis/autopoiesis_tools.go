@@ -18,6 +18,9 @@ import (
 // DetectToolNeed analyzes input to determine if a new tool is needed.
 // If a need is detected, it asserts missing_tool_for to the kernel.
 func (o *Orchestrator) DetectToolNeed(ctx context.Context, input string) (*ToolNeed, error) {
+	if err := o.admitGeneration(ctx); err != nil {
+		return nil, err
+	}
 	need, err := o.toolGen.DetectToolNeed(ctx, input, "")
 	if err != nil {
 		return nil, err
@@ -49,6 +52,11 @@ func (o *Orchestrator) DetectToolNeed(ctx context.Context, input string) (*ToolN
 func (o *Orchestrator) GenerateTool(ctx context.Context, need *ToolNeed) (*GeneratedTool, error) {
 	if need == nil {
 		return nil, fmt.Errorf("tool need is nil")
+	}
+	// Admitted again right before the effects: the need may come from
+	// another path than this request's detection.
+	if err := o.admitGeneration(ctx); err != nil {
+		return nil, err
 	}
 
 	result := o.ExecuteOuroborosLoop(ctx, need)

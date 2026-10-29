@@ -8,7 +8,8 @@ import (
 )
 
 func TestSafetyChecker(t *testing.T) {
-	defer goleak.VerifyNone(t, goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"))
+	defer goleak.VerifyNone(t, goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
+		goleak.IgnoreTopFunction("codenerd/internal/perception.(*ConsolidationWorker).Start.func1"))
 	cfg := OuroborosConfig{
 		AllowFileSystem: false,
 		AllowNetworking: false,

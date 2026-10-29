@@ -2,9 +2,11 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
+	"codenerd/internal/autopoiesis"
 	memorycontext "codenerd/internal/context"
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
@@ -153,6 +155,10 @@ func (m Model) executeInfoGatheringActions(ctx context.Context, input string, in
 				} else {
 					*warnings = append(*warnings, "Tool need confidence too low for auto-generation")
 				}
+			} else if errors.Is(detectErr, autopoiesis.ErrGenerationRestricted) {
+				// The request restricts changes; generating a tool writes and
+				// compiles source, so it is not done for this request.
+				*warnings = append(*warnings, detectErr.Error())
 			} else {
 				*warnings = append(*warnings, "Autopoiesis: Analyzing for missing tool capabilities...")
 			}

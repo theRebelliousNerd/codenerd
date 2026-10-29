@@ -56,7 +56,11 @@ func (fixedRolePrompts) CompileRolePrompt(_ context.Context, req types.RolePromp
 }
 
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m, goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"))
+	goleak.VerifyTestMain(m,
+		goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
+		// perception (the request restriction tool generation is admitted
+		// against) starts its shared taxonomy's consolidation worker at init.
+		goleak.IgnoreTopFunction("codenerd/internal/perception.(*ConsolidationWorker).Start.func1"))
 }
 
 // =============================================================================
