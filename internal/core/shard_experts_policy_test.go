@@ -62,7 +62,9 @@ func TestShardExpertPolicyDerivesExpertNeeded(t *testing.T) {
 	task := []types.Fact{
 		{Predicate: "expert_task", Args: []any{"t-mg", types.MangleAtom("/fix")}},
 		{Predicate: "expert_task_target", Args: []any{"t-mg", "internal/core/defaults/policy/shards.mg"}},
-		{Predicate: "file_extension", Args: []any{"internal/core/defaults/policy/shards.mg", ".mg"}},
+		{Predicate: "expert_task_extension", Args: []any{"t-mg", "internal/core/defaults/policy/shards.mg", ".mg"}},
+		{Predicate: "expert_task_extension", Args: []any{"t-explain", "internal/core/defaults/policy/shards.mg", ".mg"}},
+		{Predicate: "expert_task_extension", Args: []any{"t-greet", "internal/core/defaults/policy/shards.mg", ".mg"}},
 		{Predicate: "expert_task", Args: []any{"t-explain", types.MangleAtom("/explain")}},
 		{Predicate: "expert_task_target", Args: []any{"t-explain", "internal/core/defaults/policy/shards.mg"}},
 		{Predicate: "expert_task", Args: []any{"t-greet", types.MangleAtom("/greet")}},
@@ -71,7 +73,7 @@ func TestShardExpertPolicyDerivesExpertNeeded(t *testing.T) {
 		{Predicate: "expert_task_target", Args: []any{"t-tui", "cmd/nerd/chat"}},
 		{Predicate: "expert_task", Args: []any{"t-md", types.MangleAtom("/fix")}},
 		{Predicate: "expert_task_target", Args: []any{"t-md", "README.md"}},
-		{Predicate: "file_extension", Args: []any{"README.md", ".md"}},
+		{Predicate: "expert_task_extension", Args: []any{"t-md", "README.md", ".md"}},
 	}
 	if err := k.AssertBatch(task); err != nil {
 		t.Fatalf("assert tasks: %v", err)
@@ -133,7 +135,7 @@ func TestShardExpertPolicyNeedsARosterAgent(t *testing.T) {
 		{Predicate: "shard_agent_domain", Args: []any{types.MangleAtom("/goneexpert"), types.MangleAtom("/mangle"), types.MangleAtom("/knowledge_base")}},
 		{Predicate: "expert_task", Args: []any{"t", types.MangleAtom("/fix")}},
 		{Predicate: "expert_task_target", Args: []any{"t", "a.mg"}},
-		{Predicate: "file_extension", Args: []any{"a.mg", ".mg"}},
+		{Predicate: "expert_task_extension", Args: []any{"t", "a.mg", ".mg"}},
 	}
 	if err := k.AssertBatch(facts); err != nil {
 		t.Fatalf("assert: %v", err)

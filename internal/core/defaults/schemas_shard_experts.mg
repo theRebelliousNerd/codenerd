@@ -16,7 +16,7 @@ Decl shard_agent(Agent) bound [/name].
 
 # shard_agent_domain(Agent, Technology, Source) - a technology the agent is
 # expert in. Technology is a lower-case technology key as a name constant
-# (/go, /mangle, /bubbletea): the same keys detected_language derives and the
+# (/go, /mangle, /bubbletea): the same keys extension_language names and the
 # init catalog creates agents for. Source says where the claim came from:
 #   /registry       - the agent's `domains` in .nerd/agents.json (init writes
 #                     the catalog key that created the agent)
@@ -47,6 +47,14 @@ Decl expert_task(Task, Verb) bound [/string, /name].
 # identity file_topology, file_dir and dependency_link carry.
 # Producer: internal/experts.Open.
 Decl expert_task_target(Task, Path) bound [/string, /string].
+
+# expert_task_extension(Task, File, Ext) - the lower-case extension (with its
+# dot) of a task target that has one, measured by Go. Keyed by the task like
+# every other selection input, so a selection's cleanup removes only what it
+# asserted: an untagged file_extension(File, Ext) was one tuple shared by every
+# selection on that file, and the first to finish retracted it from the others.
+# Producer: internal/experts.Select.
+Decl expert_task_extension(Task, File, Ext) bound [/string, /string, /string].
 
 # --- Derived (IDB, policy/shard_experts.mg) ----------------------------------
 

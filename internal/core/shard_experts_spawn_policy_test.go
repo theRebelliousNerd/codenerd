@@ -35,7 +35,7 @@ func TestShardExpertPolicyDerivesExpertSpawn(t *testing.T) {
 		{Predicate: "expert_task_target", Args: []any{"t-tui", "cmd/nerd/chat/view.go"}},
 		{Predicate: "expert_task", Args: []any{"t-mg", types.MangleAtom("/fix")}},
 		{Predicate: "expert_task_target", Args: []any{"t-mg", "a.mg"}},
-		{Predicate: "file_extension", Args: []any{"a.mg", ".mg"}},
+		{Predicate: "expert_task_extension", Args: []any{"t-mg", "a.mg", ".mg"}},
 		{Predicate: "expert_task", Args: []any{"t-consult", types.MangleAtom("/consult/bubbleteaexpert")}},
 		{Predicate: "expert_task_target", Args: []any{"t-consult", "cmd/nerd/chat/view.go"}},
 		{Predicate: "expert_task_speaker", Args: []any{"t-consult", types.MangleAtom("/bubbleteaexpert")}},

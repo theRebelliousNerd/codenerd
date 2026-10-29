@@ -11,105 +11,53 @@
 # 3.1 Language Detection
 # -----------------------------------------------------------------------------
 # This table is the only answer to "what language is this file". The session
-# executor measures file_extension(Target, Ext) for the file a turn or a planned
-# step is aimed at and asks detected_language(Target, Lang); the answer becomes
+# executor measures the extension of the file a turn or a planned step is aimed
+# at and asks extension_language(Ext, Lang) with it bound; the answer becomes
 # the compile's language, which is what selects (and excludes) the atom corpus's
 # language-tagged knowledge. A file whose extension has no row keeps the
 # project's language. Prose formats have rows so a turn on a document is not
 # handed the project's code corpus.
 
-detected_language(File, /go) :-
-    file_extension(File, ".go").
-
-detected_language(File, /python) :-
-    file_extension(File, ".py").
-
-detected_language(File, /typescript) :-
-    file_extension(File, ".ts").
-
-detected_language(File, /typescript) :-
-    file_extension(File, ".tsx").
-
-detected_language(File, /javascript) :-
-    file_extension(File, ".js").
-
-detected_language(File, /javascript) :-
-    file_extension(File, ".jsx").
-
-detected_language(File, /javascript) :-
-    file_extension(File, ".mjs").
-
-detected_language(File, /javascript) :-
-    file_extension(File, ".cjs").
-
-detected_language(File, /rust) :-
-    file_extension(File, ".rs").
-
-detected_language(File, /java) :-
-    file_extension(File, ".java").
-
-detected_language(File, /csharp) :-
-    file_extension(File, ".cs").
-
-detected_language(File, /ruby) :-
-    file_extension(File, ".rb").
-
-detected_language(File, /php) :-
-    file_extension(File, ".php").
-
-detected_language(File, /cpp) :-
-    file_extension(File, ".cpp").
-
-detected_language(File, /cpp) :-
-    file_extension(File, ".cc").
-
-detected_language(File, /c) :-
-    file_extension(File, ".c").
-
-detected_language(File, /kotlin) :-
-    file_extension(File, ".kt").
-
-detected_language(File, /swift) :-
-    file_extension(File, ".swift").
-
-detected_language(File, /mangle) :-
-    file_extension(File, ".mg").
-
-detected_language(File, /mangle) :-
-    file_extension(File, ".gl").
-
-detected_language(File, /sql) :-
-    file_extension(File, ".sql").
-
-detected_language(File, /yaml) :-
-    file_extension(File, ".yaml").
-
-detected_language(File, /yaml) :-
-    file_extension(File, ".yml").
-
-detected_language(File, /json) :-
-    file_extension(File, ".json").
-
-detected_language(File, /markdown) :-
-    file_extension(File, ".md").
-
-detected_language(File, /markdown) :-
-    file_extension(File, ".markdown").
-
-detected_language(File, /restructuredtext) :-
-    file_extension(File, ".rst").
-
-detected_language(File, /asciidoc) :-
-    file_extension(File, ".adoc").
-
-detected_language(File, /text) :-
-    file_extension(File, ".txt").
-
-detected_language(File, /shell) :-
-    file_extension(File, ".sh").
-
-detected_language(File, /powershell) :-
-    file_extension(File, ".ps1").
+# The extension table: which language a file extension names. A row is the
+# whole decision. Readers join it with the extension they hold -- the session
+# executor's languageOfFile asks it with the extension bound, the shard-expert
+# selection joins its task-owned expert_task_extension, the coder rules below
+# join file_extension -- so no reader asserts a shared temporary tuple to ask.
+# A detected_language(File, Lang) relation stood in front of it, read in Go
+# only by a probe that asserted file_extension, queried and retracted: one
+# untagged tuple every reader of a path shared, so a concurrent reader's
+# cleanup could remove it mid-question.
+extension_language(".go", /go).
+extension_language(".py", /python).
+extension_language(".ts", /typescript).
+extension_language(".tsx", /typescript).
+extension_language(".js", /javascript).
+extension_language(".jsx", /javascript).
+extension_language(".mjs", /javascript).
+extension_language(".cjs", /javascript).
+extension_language(".rs", /rust).
+extension_language(".java", /java).
+extension_language(".cs", /csharp).
+extension_language(".rb", /ruby).
+extension_language(".php", /php).
+extension_language(".cpp", /cpp).
+extension_language(".cc", /cpp).
+extension_language(".c", /c).
+extension_language(".kt", /kotlin).
+extension_language(".swift", /swift).
+extension_language(".mg", /mangle).
+extension_language(".gl", /mangle).
+extension_language(".sql", /sql).
+extension_language(".yaml", /yaml).
+extension_language(".yml", /yaml).
+extension_language(".json", /json).
+extension_language(".md", /markdown).
+extension_language(".markdown", /markdown).
+extension_language(".rst", /restructuredtext).
+extension_language(".adoc", /asciidoc).
+extension_language(".txt", /text).
+extension_language(".sh", /shell).
+extension_language(".ps1", /powershell).
 
 # -----------------------------------------------------------------------------
 # 3.2 Language-Specific Conventions
@@ -151,18 +99,23 @@ language_convention(/java, /interfaces, "program to interfaces").
 # Conventions to apply for current task
 apply_convention(Convention, Rule) :-
     coder_task(_, _, Target, _),
-    detected_language(Target, Lang),
+    file_extension(Target, Ext),
+    extension_language(Ext, Lang),
     language_convention(Lang, Convention, Rule).
 
 # Language requires specific patterns
 requires_error_handling(Target) :-
-    detected_language(Target, /go).
+    file_extension(Target, Ext),
+    extension_language(Ext, /go).
 
 requires_error_handling(Target) :-
-    detected_language(Target, /rust).
+    file_extension(Target, Ext),
+    extension_language(Ext, /rust).
 
 requires_type_annotations(Target) :-
-    detected_language(Target, /typescript).
+    file_extension(Target, Ext),
+    extension_language(Ext, /typescript).
 
 requires_type_annotations(Target) :-
-    detected_language(Target, /python).
+    file_extension(Target, Ext),
+    extension_language(Ext, /python).

@@ -4,7 +4,7 @@
 # reaches a turn when this file says the turn needs it, not when the model
 # thinks to ask. Go measures the roster and each agent's technologies at boot
 # (shard_agent, shard_agent_domain, technology_import_exact/_prefix) and, for each task,
-# its verb and targets (expert_task, expert_task_target, file_extension);
+# its verb and targets (expert_task, expert_task_target, expert_task_extension);
 # everything below is the decision. Consumers (internal/experts):
 #   - the session executor's compile: every expert_needed agent's KB is pushed
 #     into the prompt (JIT first), whatever entry point runs the turn;
@@ -28,10 +28,11 @@ expert_task_file(Task, File) :-
 
 # --- The technologies those files use ----------------------------------------
 
-# The target's language from its measured extension (policy/coder_language.mg).
+# The target's language from its measured extension, through the extension
+# table (policy/coder_language.mg).
 task_technology(Task, File, Lang, /language) :-
-    expert_task_file(Task, File),
-    detected_language(File, Lang).
+    expert_task_extension(Task, File, Ext),
+    extension_language(Ext, Lang).
 
 # A scanned file's language from the world model.
 task_technology(Task, File, Lang, /language) :-

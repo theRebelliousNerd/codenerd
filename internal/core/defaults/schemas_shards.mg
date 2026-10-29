@@ -421,8 +421,9 @@ Decl path_contains(Path, Pattern) bound [/string, /string].
 # NOTE: Also declared in tester.mg for module separation
 Decl is_test_file(FilePath) bound [/string].
 
-# detected_language(FilePath, Language) - detected programming language of file
-Decl detected_language(FilePath, Language) bound [/string, /name].
+# extension_language(Extension, Language) - the language a lower-case file
+# extension (with its dot) names (policy/coder_language.mg).
+Decl extension_language(Extension, Language) bound [/string, /name].
 
 # testable_language(Language) - language supports automated testing
 Decl testable_language(Language) bound [/name].

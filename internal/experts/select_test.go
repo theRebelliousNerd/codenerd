@@ -65,7 +65,7 @@ func TestSelectReadsTheKernelsDecisionAndRetracts(t *testing.T) {
 		t.Errorf("mangle need = %+v", mg)
 	}
 
-	for _, predicate := range []string{"expert_task", "expert_task_target", "file_extension", "expert_needed", "specialist_match"} {
+	for _, predicate := range []string{"expert_task", "expert_task_target", "expert_task_extension", "file_extension", "expert_needed", "specialist_match"} {
 		rows, err := k.Query(predicate)
 		if err != nil {
 			t.Fatalf("query %s: %v", predicate, err)

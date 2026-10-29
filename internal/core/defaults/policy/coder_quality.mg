@@ -12,14 +12,16 @@
 # Go file needs error handling check
 go_needs_error_check(File) :-
     pending_edit(File, _),
-    detected_language(File, /go),
+    file_extension(File, Ext),
+    extension_language(Ext, /go),
     edit_contains_operation(File, /return),
     !edit_handles_errors(File).
 
 # Go file needs context parameter
 go_needs_context(File) :-
     pending_edit(File, _),
-    detected_language(File, /go),
+    file_extension(File, Ext),
+    extension_language(Ext, /go),
     edit_is_public_function(File),
     edit_does_io(File),
     !edit_has_context(File).
@@ -27,7 +29,8 @@ go_needs_context(File) :-
 # Go file leaks goroutine
 go_goroutine_leak_risk(File) :-
     pending_edit(File, _),
-    detected_language(File, /go),
+    file_extension(File, Ext),
+    extension_language(Ext, /go),
     edit_spawns_goroutine(File),
     !edit_has_waitgroup(File),
     !edit_has_context_cancel(File).
@@ -35,7 +38,8 @@ go_goroutine_leak_risk(File) :-
 # Go interface quality
 go_interface_too_large(File) :-
     pending_edit(File, _),
-    detected_language(File, /go),
+    file_extension(File, Ext),
+    extension_language(Ext, /go),
     edit_defines_interface(File, _, MethodCount),
     MethodCount > 5.
 

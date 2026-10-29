@@ -864,7 +864,8 @@ coder_safe_to_write(File) :-
 # Edit should include tests if creating new code
 edit_needs_tests(File) :-
     coder_task(_, /create, File, _),
-    detected_language(File, Lang),
+    file_extension(File, Ext),
+    extension_language(Ext, Lang),
     testable_language(Lang),
     !is_test_file(File).
 

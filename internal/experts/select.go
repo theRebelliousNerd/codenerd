@@ -123,7 +123,9 @@ func Select(kernel types.Kernel, task Task) (Selection, error) {
 }
 
 // taskFacts is the measured task: its verb, each canonical target, and the
-// extension of each target that has one (detected_language reads it).
+// extension of each target that has one. Every fact carries the task's id, so
+// the selection owns all it asserts and its cleanup removes nothing another
+// selection, or anything else, asserted.
 func taskFacts(id, verb string, task Task) []types.Fact {
 	facts := []types.Fact{{Predicate: "expert_task", Args: []any{id, types.MangleAtom(verb)}}}
 	seen := map[string]bool{}
@@ -135,7 +137,7 @@ func taskFacts(id, verb string, task Task) []types.Fact {
 		seen[canonical] = true
 		facts = append(facts, types.Fact{Predicate: "expert_task_target", Args: []any{id, canonical}})
 		if ext := strings.ToLower(filepath.Ext(canonical)); ext != "" {
-			facts = append(facts, types.Fact{Predicate: "file_extension", Args: []any{canonical, ext}})
+			facts = append(facts, types.Fact{Predicate: "expert_task_extension", Args: []any{id, canonical, ext}})
 		}
 	}
 	if speaker := AgentKey(task.Speaker); speaker != "" && validName("/"+speaker) {

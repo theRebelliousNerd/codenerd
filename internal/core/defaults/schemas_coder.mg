@@ -33,8 +33,6 @@ Decl coder_strategy(Strategy) bound [/name].
 # We will rename it to coder_task_complexity(Complexity)
 # Complexity: /simple, /complex, /critical (closed vocabulary, see coder_classification.mg)
 Decl coder_task_complexity(Complexity) bound [/name].
-# detected_language(File, Language) is ALREADY DECLARED in schemas_shards.mg
-# Decl detected_language(File, Language).
 # Convention: /naming, /typing, /interfaces, /errors, ... (closed vocabulary)
 # Rule: free-form guidance text
 Decl language_convention(Language, Convention, Rule) bound [/name, /name, /string].

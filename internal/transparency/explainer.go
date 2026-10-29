@@ -186,7 +186,6 @@ var ruleGlossary = map[string]string{
 	"needs_self_healing":         "self-healing trigger",
 
 	// Perception / clarification
-	"detected_language":      "language detection",
 	"detected_interrogative": "question detection",
 	"detected_modal":         "modal verb detection",
 	"clarification_needed":   "focus confidence check",

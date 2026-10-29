@@ -672,38 +672,30 @@ func workStepReport(steps, beyond []workStep) string {
 	return b.String()
 }
 
-// languageOfFile asks the kernel what language a file is (policy/coder_language.mg,
-// detected_language/2), or "" when the policy has no row for its extension (the
-// compile then keeps the project's language). Go measures the extension; the
-// table that maps it to a language key is policy. The key is the atom corpus's
-// own address for knowledge (languages: ["/mangle"], ["/go"], ["/markdown"]...).
+// languageOfFile asks the kernel what language a file is: the extension
+// table's row for its extension (policy/coder_language.mg,
+// extension_language/2), or "" when the table has no row (the compile then
+// keeps the project's language). Go measures the extension; the table that
+// maps it to a language key is policy. The key is the atom corpus's own
+// address for knowledge (languages: ["/mangle"], ["/go"], ["/markdown"]...).
 //
-// This used to be a Go switch with no row for any prose format, so a turn aimed
-// at a Markdown file kept the project's /go and carried ~4.7k tokens of Go atoms
-// (measured 2026-09-22 on the features docs campaign), while the policy table
-// that did have the row sat dormant: nothing ever asserted file_extension.
+// It asks with the extension bound and asserts nothing. It used to assert a
+// temporary file_extension(path, ext), query a language relation and retract
+// it: one untagged tuple shared with every other reader of the same path, so
+// a concurrent reader's cleanup could remove it mid-question (and this one's
+// could remove theirs).
 func (e *Executor) languageOfFile(path string) string {
 	ext := strings.ToLower(filepath.Ext(path))
 	if e.kernel == nil || ext == "" {
 		return ""
 	}
-	measured := types.Fact{Predicate: "file_extension", Args: []interface{}{path, ext}}
-	if err := e.kernel.Assert(measured); err != nil {
-		logging.Get(logging.CategorySession).Warn("file_extension for %s not asserted: %v", path, err)
-		return ""
-	}
-	defer func() {
-		if err := e.kernel.RetractFact(measured); err != nil {
-			logging.Get(logging.CategorySession).Warn("file_extension for %s not retracted: %v", path, err)
-		}
-	}()
-	facts, err := e.kernel.Query(fmt.Sprintf("detected_language(%s, Lang)", strconv.Quote(path)))
+	facts, err := e.kernel.Query(fmt.Sprintf("extension_language(%s, Lang)", strconv.Quote(ext)))
 	if err != nil {
-		logging.Get(logging.CategorySession).Warn("detected_language query for %s failed: %v", path, err)
+		logging.Get(logging.CategorySession).Warn("extension_language query for %s failed: %v", ext, err)
 		return ""
 	}
 	for _, f := range facts {
-		if len(f.Args) < 2 {
+		if len(f.Args) <= 1 {
 			continue
 		}
 		if lang := types.ExtractString(f.Args[1]); lang != "" {

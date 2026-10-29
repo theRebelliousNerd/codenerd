@@ -240,7 +240,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// would ever need an expert. task_complexity rides with the
 				// task for strategic_advisor_required.
 				"shard_agent", "shard_agent_domain", "technology_import_exact", "technology_import_prefix",
-				"shard_agent_recorded", "expert_task", "expert_task_target",
+				"shard_agent_recorded", "expert_task", "expert_task_target", "expert_task_extension",
 				"expert_task_speaker", "task_complexity",
 				// The turn's shard-agent critique (turn_rounds.mg), beside
 				// turn_wrote, which the round's owing joins.
