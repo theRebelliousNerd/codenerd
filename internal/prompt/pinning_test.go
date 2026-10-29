@@ -37,7 +37,11 @@ func TestNormalizeModelToken(t *testing.T) {
 		"vertex_ai/gemini-2.5-pro":         "gemini_2_5_pro",
 		"gpt-4o":                           "gpt_4o",
 		"GPT-4O":                           "gpt_4o",
-		"gemma4:12b":                       "gemma4",
+		"gemma4:12b":                       "gemma4_12b",
+		"qwen3:8b":                         "qwen3_8b",
+		"qwen3:32b":                        "qwen3_32b",
+		"qwen3:latest":                     "qwen3",
+		"ollama/qwen3:q4_K_M":              "qwen3_q4_k_m",
 		"":                                 "",
 		"   ":                              "",
 	}
@@ -223,5 +227,20 @@ func TestContextHashSeparatesPins(t *testing.T) {
 	b := NewCompilationContext().WithProviderModel("openai", "openai/GPT-4O")
 	if a.Hash() != b.Hash() {
 		t.Error("equivalent model spellings produced different cache identities")
+	}
+}
+
+// Distinct serving tags are distinct models: an exact pin to qwen3:8b must
+// neither match qwen3:32b nor pool evidence with it (Astra audit
+// exact-model-pin-tag-identity). The default tag is the bare model.
+func TestModelTokensKeepServingTagsDistinct(t *testing.T) {
+	if NormalizeModelToken("qwen3:8b") == NormalizeModelToken("qwen3:32b") {
+		t.Fatal("qwen3:8b and qwen3:32b normalized to one exact token")
+	}
+	if NormalizeModelToken("qwen3:latest") != NormalizeModelToken("qwen3") {
+		t.Fatal("qwen3:latest and qwen3 are the same model and must share a token")
+	}
+	if ModelFamilyToken(NormalizeModelToken("qwen3:8b")) == ModelFamilyToken(NormalizeModelToken("qwen3:32b")) {
+		t.Fatal("a family pin merged two sizes of a model into one family")
 	}
 }

@@ -85,12 +85,21 @@ var modelVersionSuffixes = map[string]struct{}{
 
 // NormalizeModelToken canonicalizes a model identifier into its exact token.
 //
-// Routing prefixes, vendor dot-prefixes and Bedrock-style version suffixes are
+// Routing prefixes, vendor dot-prefixes and Bedrock-style API revisions are
 // stripped first so that the many spellings of one model converge:
 //
 //	"anthropic/claude-opus-4-20260501"   -> "claude_opus_4_20260501"
 //	"anthropic.claude-sonnet-4-v1:0"     -> "claude_sonnet_4_v1"
 //	"gpt-4o"                             -> "gpt_4o"
+//	"qwen3:8b"                           -> "qwen3_8b"
+//	"qwen3:latest"                       -> "qwen3"
+//
+// A colon tag is part of a serving model's identity: Ollama's qwen3:8b and
+// qwen3:32b are different models, and an exact pin to one must not match the
+// other or pool its evidence with it. Only two colon suffixes are spellings
+// rather than identity and are dropped: a purely numeric API revision
+// (Bedrock's ":0") and Ollama's default tag ":latest", which names the same
+// model as the bare name.
 func NormalizeModelToken(model string) string {
 	name := strings.ToLower(strings.TrimSpace(model))
 	name = strings.TrimPrefix(name, "/")
@@ -108,9 +117,11 @@ func NormalizeModelToken(model string) string {
 		name = strings.TrimPrefix(name, prov)
 	}
 
-	// "...-v1:0" Bedrock-style version suffix.
-	if i := strings.Index(name, ":"); i > 0 {
-		name = name[:i]
+	// "...-v1:0" Bedrock-style API revision, or Ollama's ":latest" default.
+	if i := strings.LastIndex(name, ":"); i > 0 {
+		if tag := name[i+1:]; tag == "latest" || (tag != "" && strings.Trim(tag, "0123456789") == "") {
+			name = name[:i]
+		}
 	}
 
 	return pinSanitize(name)
