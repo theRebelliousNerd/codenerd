@@ -544,8 +544,8 @@ func TestEngineReset(t *testing.T) {
 	if engine.derivedCount != 0 {
 		t.Errorf("Expected derivedCount to be 0, got %d", engine.derivedCount)
 	}
-	if engine.baseStore == nil {
-		t.Errorf("Reset() did not initialize baseStore")
+	if engine.store == nil {
+		t.Errorf("Reset() did not initialize the store")
 	}
 }
 

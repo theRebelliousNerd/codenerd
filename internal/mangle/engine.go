@@ -63,9 +63,16 @@ var errNoSchemas = fmt.Errorf("no schemas loaded; call LoadSchema first")
 type Engine struct {
 	config Config
 
+	// mu guards the store as well as every other field: a writer (assert,
+	// remove, evaluate, clear) holds it exclusively for the whole change, and
+	// a reader holds it shared for the whole scan, so a reader never sees a
+	// half-evaluated fixpoint. The store itself is not wrapped in
+	// factstore.ConcurrentFactStore: evaluation runs inside the exclusive
+	// lock, and a merge lattice replaces a row (Remove, Add) from inside the
+	// store's own GetFacts callback, which a read-locked wrapper turns into a
+	// self-deadlock (TestEngine_LatticeEvaluates).
 	mu              sync.RWMutex
-	store           factstore.ConcurrentFactStore
-	baseStore       factstore.FactStoreWithRemove
+	store           factstore.FactStoreWithRemove
 	programInfo     *analysis.ProgramInfo
 	strata          []analysis.Nodeset       // Cached stratification from last rebuildProgramLocked
 	predToStratum   map[ast.PredicateSym]int // Cached predicate-to-stratum mapping
@@ -170,11 +177,9 @@ func newBaseStore() factstore.FactStoreWithRemove {
 
 // NewEngine creates a new Mangle engine instance.
 func NewEngine(cfg Config, persistence Persistence) (*Engine, error) {
-	baseStore := newBaseStore()
 	return &Engine{
 		config:         cfg,
-		baseStore:      baseStore,
-		store:          factstore.NewConcurrentFactStore(baseStore),
+		store:          newBaseStore(),
 		predicateIndex: make(map[string]ast.PredicateSym),
 		autoEval:       cfg.AutoEval,
 		persistence:    persistence,
@@ -625,7 +630,7 @@ func (e *Engine) removePredicateLocked(sym ast.PredicateSym) {
 		return nil
 	})
 	for _, atom := range atoms {
-		if e.baseStore.Remove(atom) {
+		if e.store.Remove(atom) {
 			if e.factCount > 0 {
 				e.factCount--
 			}
@@ -922,7 +927,9 @@ func (e *Engine) Query(ctx context.Context, query string) (*QueryResult, error) 
 		}
 		mode = ast.Mode(args)
 	}
-	e.mu.RUnlock()
+	// The read lock stays held by the evaluation below, which releases it:
+	// a writer must not change the store under a running scan. A canceled
+	// query returns at once; its scans stop at the next row (they observe ctx).
 
 	// Use a reasonable default timeout if not provided
 	var timeoutDuration time.Duration
@@ -950,6 +957,7 @@ func (e *Engine) Query(ctx context.Context, query string) (*QueryResult, error) 
 	errChan := make(chan error, 1)
 
 	go func() {
+		defer e.mu.RUnlock()
 		var results []map[string]any
 		seen := make(map[string]bool)
 		emit := func(fact ast.Atom) error {
@@ -1000,7 +1008,10 @@ func (e *Engine) Query(ctx context.Context, query string) (*QueryResult, error) 
 		// Rule derivations not already materialised in the store
 		// (e.g. AutoEval off). With AutoEval on these duplicate the
 		// stored rows and are dropped by the dedup above.
-		if len(queryContext.PredToRules[shape.atom.Predicate]) > 0 {
+		// A merge lattice is the exception: top-down evaluation applies no
+		// merge, so it would return every row the fixpoint replaced. Its
+		// answer is the evaluated store.
+		if len(queryContext.PredToRules[shape.atom.Predicate]) > 0 && !isLattice(decl) {
 			if err := queryContext.EvalQuery(shape.atom, mode, unionfind.New(), accept); err != nil {
 				errChan <- err
 				return
@@ -1052,20 +1063,17 @@ func (e *Engine) Query(ctx context.Context, query string) (*QueryResult, error) 
 
 // GetFacts retrieves all facts for a given predicate.
 func (e *Engine) GetFacts(predicate string) ([]Fact, error) {
+	// The scan holds the read lock: Clear and Reset swap e.store and every
+	// writer changes it under the write lock.
 	e.mu.RLock()
+	defer e.mu.RUnlock()
 	sym, ok := e.predicateIndex[predicate]
-	// Capture the store under the same lock: Clear and Reset swap e.store
-	// under the write lock, so reading the field after RUnlock is a data
-	// race that can also strand the scan across two different stores.
-	store := e.store
-	e.mu.RUnlock()
-
 	if !ok {
 		return nil, fmt.Errorf("predicate %s is not declared", predicate)
 	}
 
 	var results []Fact
-	err := store.GetFacts(ast.NewQuery(sym), func(atom ast.Atom) error {
+	err := e.store.GetFacts(ast.NewQuery(sym), func(atom ast.Atom) error {
 		args := make([]any, len(atom.Args))
 		for i, arg := range atom.Args {
 			args[i] = convertBaseTermToInterface(arg)
@@ -1088,16 +1096,14 @@ func (e *Engine) GetFacts(predicate string) ([]Fact, error) {
 // that shows a user what a program derived needs the engine's own spelling.
 func (e *Engine) AtomStrings(predicate string) ([]string, error) {
 	e.mu.RLock()
+	defer e.mu.RUnlock()
 	sym, ok := e.predicateIndex[predicate]
-	store := e.store
-	e.mu.RUnlock()
-
 	if !ok {
 		return nil, fmt.Errorf("predicate %s is not declared", predicate)
 	}
 
 	var atoms []string
-	err := store.GetFacts(ast.NewQuery(sym), func(atom ast.Atom) error {
+	err := e.store.GetFacts(ast.NewQuery(sym), func(atom ast.Atom) error {
 		atoms = append(atoms, atom.String())
 		return nil
 	})
@@ -1132,8 +1138,7 @@ func (e *Engine) GetStats() Stats {
 func (e *Engine) Clear() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.baseStore = newBaseStore()
-	e.store = factstore.NewConcurrentFactStore(e.baseStore)
+	e.store = newBaseStore()
 	e.factCount = 0
 	e.fileFacts = make(map[string][]ast.Atom)
 	e.idbBase = nil
@@ -1166,8 +1171,7 @@ func (e *Engine) Clear() {
 func (e *Engine) Reset() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.baseStore = newBaseStore()
-	e.store = factstore.NewConcurrentFactStore(e.baseStore)
+	e.store = newBaseStore()
 	e.factCount = 0
 	e.fileFacts = make(map[string][]ast.Atom)
 	e.programInfo = nil
@@ -1248,6 +1252,16 @@ func parseQueryShape(query string) (*queryShape, error) {
 // Mangle scan. EvalQuery resolves nested premises through ReadOnlyFactStore;
 // wrapping only the outer Query callback would leave those scans running after
 // the caller has stopped waiting.
+// isLattice reports whether a Decl hosts a merge lattice: one functional
+// dependency and a merge predicate, the shape the engine replaces rows for.
+func isLattice(decl *ast.Decl) bool {
+	if decl == nil || len(decl.FunDeps()) != 1 {
+		return false
+	}
+	_, merge := decl.MergePredicate()
+	return merge.Symbol != ""
+}
+
 type contextBoundFactStore struct {
 	ctx   context.Context
 	store factstore.ReadOnlyFactStore
@@ -1370,7 +1384,7 @@ func (e *Engine) removeFactsLocked(file string) int {
 	// Fast path: use reverse index
 	if atoms, ok := e.fileFacts[target]; ok {
 		for _, atom := range atoms {
-			if e.baseStore.Remove(atom) {
+			if e.store.Remove(atom) {
 				if e.factCount > 0 {
 					e.factCount--
 				}
@@ -1449,33 +1463,17 @@ func (e *Engine) QueryFacts(predicate string, args ...string) []Fact {
 // GetFactsSeq retrieves all facts for a given predicate as an iterator.
 func (e *Engine) GetFactsSeq(predicate string) iter.Seq[Fact] {
 	return func(yield func(Fact) bool) {
-		e.mu.RLock()
-		sym, ok := e.predicateIndex[predicate]
-		// Same store-capture discipline as GetFacts: the field must not be
-		// read after RUnlock while Clear/Reset can swap it.
-		store := e.store
-		e.mu.RUnlock()
-
-		if !ok {
+		// Collected under the read lock and yielded after it: the caller's
+		// loop body may write to the engine, which needs the write lock.
+		facts, err := e.GetFacts(predicate)
+		if err != nil {
 			return
 		}
-
-		_ = store.GetFacts(ast.NewQuery(sym), func(atom ast.Atom) error {
-			args := make([]any, len(atom.Args))
-			for i, arg := range atom.Args {
-				args[i] = convertBaseTermToInterface(arg)
-			}
-			fact := Fact{
-				Predicate: predicate,
-				Args:      args,
-				// No timestamp is stored in the EDB; leave zero like GetFacts
-				// rather than fabricating a per-fact time.Now().
-			}
+		for _, fact := range facts {
 			if !yield(fact) {
-				return fmt.Errorf("stop iteration")
+				return
 			}
-			return nil
-		})
+		}
 	}
 }
 

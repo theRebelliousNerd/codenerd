@@ -30,7 +30,7 @@ import (
 // ruleGraph is the rule-dependency graph of one program, by predicate name.
 type ruleGraph struct {
 	consumers   map[string][]string // body predicate -> heads of the rules reading it
-	nonMonotone map[string]struct{} // heads of rules with a negated premise or a transform
+	nonMonotone map[string]struct{} // heads with a negated premise, a transform, or a merge lattice
 }
 
 func premiseNames(t ast.Term, out map[string]struct{}) {
@@ -56,8 +56,15 @@ func isNegated(t ast.Term) bool {
 	return false
 }
 
-func buildRuleGraph(rules []ast.Clause) ruleGraph {
+// A merge lattice is non-monotone too: an added fact can replace a row, and a
+// conclusion drawn from the replaced row would otherwise survive.
+func buildRuleGraph(rules []ast.Clause, decls map[ast.PredicateSym]*ast.Decl) ruleGraph {
 	g := ruleGraph{consumers: make(map[string][]string), nonMonotone: make(map[string]struct{})}
+	for sym, decl := range decls {
+		if isLattice(decl) {
+			g.nonMonotone[sym.Symbol] = struct{}{}
+		}
+	}
 	edges := make(map[string]map[string]struct{})
 	for _, rule := range rules {
 		head := rule.Head.Predicate.Symbol
@@ -172,7 +179,7 @@ func (e *Engine) clearDerivedLocked(sym ast.PredicateSym) {
 		return nil
 	})
 	for _, atom := range atoms {
-		e.baseStore.Remove(atom)
+		e.store.Remove(atom)
 	}
 }
 
@@ -215,6 +222,6 @@ func (e *Engine) adoptProgramLocked(previous map[ast.PredicateSym]struct{}) {
 			return nil
 		})
 	}
-	e.rules = buildRuleGraph(e.programInfo.Rules)
+	e.rules = buildRuleGraph(e.programInfo.Rules, e.programInfo.Decls)
 	e.dirtyAll = true
 }
