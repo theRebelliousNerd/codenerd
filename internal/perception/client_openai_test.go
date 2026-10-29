@@ -455,3 +455,157 @@ func TestOpenAI_ThrottleSpacesRequests(t *testing.T) {
 		t.Errorf("3 requests in %v; want >= 200ms of spacing", elapsed)
 	}
 }
+
+// The pair is checked per request, not only at construction: SetModel (the
+// /model path) can move a valid client onto a model that rejects its effort.
+func TestOpenAI_AModelChangeRevalidatesTheSlotEffort(t *testing.T) {
+	rec := newOpenAIRecorder(t, jsonReply(openAIResponsesBody(3, 1)))
+	c := openAIClientWith(t, rec.srv.URL, func(cfg *OpenAIConfig) { cfg.Model = "gpt-6.1-terra"; cfg.ReasoningEffort = "none" })
+	c.SetModel("gpt-6.1-sol")
+	_, err := c.Complete(context.Background(), "hello")
+	if err == nil || !strings.Contains(err.Error(), "slot's reasoning_effort") {
+		t.Fatalf("Sol with the slot's effort none: err=%v, want a refusal naming the slot's effort", err)
+	}
+	content, done := c.CompleteWithStreaming(context.Background(), "", "hello", false)
+	if _, res := types.CollectStream(context.Background(), content, done, nil); res.Err == nil {
+		t.Fatal("the streaming route sent Sol with effort none")
+	}
+	if rec.count() != 0 {
+		t.Fatalf("%d incompatible request(s) reached the wire", rec.count())
+	}
+	// A profile model on the context is held to the same rule.
+	terra := openAIClientWith(t, rec.srv.URL, func(cfg *OpenAIConfig) { cfg.Model = "gpt-6.1-terra"; cfg.ReasoningEffort = "none" })
+	if _, err := terra.Complete(types.WithModelName(context.Background(), "gpt-6.1-sol"), "hello"); err == nil {
+		t.Fatal("a profile model that rejects the slot's effort was sent")
+	}
+}
+
+// codeNERD's research catalog has a local DuckDuckGo function named
+// web_search. It is an ordinary function tool and must be sent while hosted
+// search is off; only alongside the hosted web_search tool is it refused.
+func TestOpenAI_ALocalWebSearchFunctionIsSentWhenHostedSearchIsOff(t *testing.T) {
+	rec := newOpenAIRecorder(t, jsonReply(openAIResponsesBody(3, 1)))
+	tools := []ToolDefinition{
+		{Name: "web_search", Description: "DuckDuckGo", InputSchema: map[string]any{"type": "object"}},
+		{Name: "read_file", Description: "read", InputSchema: map[string]any{"type": "object"}},
+	}
+	c := openAIClientWith(t, rec.srv.URL, nil)
+	if _, err := c.CompleteWithTools(context.Background(), "sys", "find it", tools); err != nil {
+		t.Fatalf("the research catalog was refused with hosted search off: %v", err)
+	}
+	sent := rec.body(0)["tools"].([]any)
+	if len(sent) != 2 || sent[0].(map[string]any)["type"] != "function" || sent[0].(map[string]any)["name"] != "web_search" {
+		t.Fatalf("tools on the wire = %v, want both functions and no hosted tool", sent)
+	}
+	on := true
+	hosted := openAIClientWith(t, rec.srv.URL, func(cfg *OpenAIConfig) { cfg.Options.EnableWebSearch = &on })
+	if _, err := hosted.CompleteWithTools(context.Background(), "sys", "find it", tools); err == nil || !strings.Contains(err.Error(), "hosted web_search") {
+		t.Fatalf("a web_search function beside hosted search: err=%v, want the conflict named", err)
+	}
+	if rec.count() != 1 {
+		t.Fatalf("requests = %d, want only the hosted-off one", rec.count())
+	}
+}
+
+// An explicit refusal arrives on a "completed" run as a refusal content
+// block. Every path must report the typed StreamRefused outcome, never an
+// empty answer or an empty end_turn the loop mistakes for a final reply.
+func TestOpenAI_ARefusalIsTypedOnEveryPath(t *testing.T) {
+	refused := map[string]any{
+		"status": "completed",
+		"output": []map[string]any{{
+			"type": "message", "role": "assistant", "phase": "final_answer",
+			"content": []map[string]any{{"type": "refusal", "refusal": "I can't help with that."}},
+		}},
+		"usage": map[string]any{"input_tokens": 5, "output_tokens": 6},
+	}
+	isRefused := func(err error) bool {
+		var se *types.StreamError
+		return errors.As(err, &se) && se.Outcome == types.StreamRefused && strings.Contains(se.Detail, "can't help")
+	}
+	rec := newOpenAIRecorder(t, jsonReply(refused))
+	c := openAIClientWith(t, rec.srv.URL, nil)
+	if _, err := c.Complete(context.Background(), "x"); !isRefused(err) {
+		t.Errorf("CompleteWithSystem: err=%v, want StreamRefused", err)
+	}
+	if resp, err := c.CompleteWithTools(context.Background(), "s", "x", []ToolDefinition{{Name: "read_file", InputSchema: map[string]any{"type": "object"}}}); !isRefused(err) {
+		t.Errorf("CompleteWithTools: resp=%+v err=%v, want StreamRefused", resp, err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"response.refusal.delta\",\"delta\":\"I can't\"}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"refusal\",\"refusal\":\"I can't help with that.\"}]}],\"usage\":{\"input_tokens\":5,\"output_tokens\":6}}}\n\n")
+	}))
+	defer srv.Close()
+	content, done := openAIClientWith(t, srv.URL, nil).CompleteWithStreaming(context.Background(), "", "x", false)
+	if _, res := types.CollectStream(context.Background(), content, done, nil); res.Outcome() != types.StreamRefused {
+		t.Errorf("stream outcome = %s (%v), want refused", res.Outcome(), res.Err)
+	}
+}
+
+// Meta's Responses path shares the reply reader, so a refusal there is typed
+// too.
+func TestResponsesTerminal_ARefusalIsTypedForEveryProvider(t *testing.T) {
+	reply := &responsesReply{Status: "completed", Output: []responsesItem{{
+		Type: "message", Role: "assistant", Content: []responsesContent{{Type: "refusal", Refusal: "no"}},
+	}}}
+	err := responsesTerminal(reply, ProviderMeta, "muse-spark-1.3-contributor", "CompleteWithToolResults", 100)
+	var se *types.StreamError
+	if !errors.As(err, &se) || se.Outcome != types.StreamRefused || se.Provider != string(ProviderMeta) {
+		t.Fatalf("err=%v, want a Meta StreamRefused", err)
+	}
+	if err := responsesTerminal(&responsesReply{Status: "completed"}, ProviderMeta, "m", "x", 1); err != nil {
+		t.Fatalf("a plain completed reply was refused: %v", err)
+	}
+}
+
+// A Responses reply's assistant message items keep their phase and content
+// boundaries through the tool response and back onto the wire. OpenAI gets
+// the phase; Meta, whose acceptance of it is unverified, gets the same items
+// without it; text that had no phase never gains one.
+func TestResponses_AssistantPhaseAndItemBoundariesReplay(t *testing.T) {
+	reply := &responsesReply{Status: "completed", Output: []responsesItem{
+		{ID: "rs_1", Type: "reasoning", EncryptedContent: "CIPHER"},
+		{ID: "msg_c", Type: "message", Role: "assistant", Phase: "commentary", Content: []responsesContent{
+			{Type: "output_text", Text: "Reading the file."}, {Type: "output_text", Text: " Then editing."},
+		}},
+		{ID: "msg_plain", Type: "message", Role: "assistant", Content: []responsesContent{{Type: "output_text", Text: "Untagged."}}},
+		{Type: "function_call", CallID: "call_1", Name: "read_file", Arguments: `{"path":"a.go"}`},
+	}}
+	resp := responsesToolResponseFromReply(reply)
+	if resp.Text != "Untagged." {
+		t.Fatalf("answer text = %q: commentary must stay out of the answer", resp.Text)
+	}
+	history := []types.Message{
+		types.NewUserMessage(types.TextBlock("go")),
+		types.NewAssistantMessage(resp.Blocks...),
+		types.NewUserMessage(types.ToolResultBlock("call_1", "package a", false)),
+	}
+	shape := func(input []any) []string {
+		var out []string
+		for _, raw := range input {
+			m := raw.(map[string]any)
+			kind, _ := m["type"].(string)
+			if kind == "" {
+				kind = m["role"].(string)
+				if c, ok := m["content"].([]map[string]any); ok {
+					kind += fmt.Sprintf("[%d]", len(c))
+				}
+				if ph, ok := m["phase"]; ok {
+					kind += ":" + ph.(string)
+				}
+			}
+			out = append(out, kind)
+		}
+		return out
+	}
+	openai := strings.Join(shape(responsesInputFromHistory("", history, responsesInputOptions{Phase: true})), " ")
+	if want := "user[1] reasoning assistant[2]:commentary assistant[1] function_call function_call_output"; openai != want {
+		t.Fatalf("OpenAI replay = %s\nwant           %s", openai, want)
+	}
+	meta := strings.Join(shape(responsesInputFromHistory("", history, responsesInputOptions{})), " ")
+	if want := "user[1] reasoning assistant[2] assistant[1] function_call function_call_output"; meta != want {
+		t.Fatalf("Meta replay = %s\nwant         %s", meta, want)
+	}
+}

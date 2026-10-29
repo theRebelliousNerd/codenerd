@@ -348,7 +348,7 @@ func TestMetaResponsesRoundTripPreservesOrderReasoningAndIDs(t *testing.T) {
 		types.NewUserMessage(types.TextBlock("why?")),
 		types.AssistantMessageFrom(resp),
 	}
-	input := responsesInputFromHistory("sys", history)
+	input := responsesInputFromHistory("sys", history, responsesInputOptions{})
 
 	wantTypes := []string{
 		"", // developer instruction message (no "type" key)
@@ -388,7 +388,7 @@ func TestMetaResponsesTextOnlyTurnReplaysNoReasoning(t *testing.T) {
 		types.NewUserMessage(types.TextBlock("hi")),
 		{Role: "assistant", Text: "x"},
 	}
-	input := responsesInputFromHistory("sys", history)
+	input := responsesInputFromHistory("sys", history, responsesInputOptions{})
 	for i, item := range input {
 		m, ok := item.(map[string]any)
 		if !ok {

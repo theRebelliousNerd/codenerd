@@ -115,6 +115,10 @@ func responsesFinish(reply *responsesReply) string {
 		return reply.IncompleteDetails.Reason
 	}
 	if reply.Status == "" || reply.Status == "completed" {
+		// An explicit refusal is not an answer, whatever the status says.
+		if _, refused := responsesRefusal(reply); refused {
+			return "refusal"
+		}
 		// A run that ended by calling a tool is not a text answer.
 		for _, item := range reply.Output {
 			if item.Type == "function_call" {
@@ -140,6 +144,8 @@ func classifyResponsesFinish(ctx context.Context, terminal *responsesReply) func
 			return e.emptyStream(ctx)
 		case "content_filter":
 			return e.failure(types.StreamFiltered, "provider content filter stopped generation", nil)
+		case "refusal":
+			return e.failure(types.StreamRefused, "the model declined the request", nil)
 		case "tool_calls":
 			return e.failure(types.StreamUnsupported, "tool-call finish on a text-only stream", nil)
 		case "failed", "cancelled":

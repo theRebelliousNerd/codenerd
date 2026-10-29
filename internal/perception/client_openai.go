@@ -159,16 +159,25 @@ func (c *OpenAIClient) effortFor(ctx context.Context) string {
 	return c.reasoningEffort
 }
 
-// admit refuses a request before it is sent: a profile effort the target
-// model rejects, or input over the slot's cap.
+// admit refuses a request before it is sent: an effective (model, effort)
+// pair the model rejects, or input over the slot's cap.
+//
+// The pair is checked here, per request, and not only when the client is
+// built: the model can change after construction (SetModel from /model, a
+// shard profile's model on the context) while the effort stays the slot's,
+// and an effort valid for the old model can be invalid for the new one. The
+// error names where the effort came from.
 func (c *OpenAIClient) admit(ctx context.Context, system string, messages []types.Message, tools []ToolDefinition) error {
 	if c.apiKey == "" {
 		return fmt.Errorf("OpenAI API key not configured: set api_key_pools.openai or openai_api_key in .nerd/config.json")
 	}
+	model := c.modelFor(ctx)
 	if effort, ok := types.ReasoningEffortFromContext(ctx); ok {
-		if err := config.ValidateOpenAIEffort(c.modelFor(ctx), effort); err != nil {
+		if err := config.ValidateOpenAIEffort(model, effort); err != nil {
 			return fmt.Errorf("shard profile reasoning_effort %q: %w", effort, err)
 		}
+	} else if err := config.ValidateOpenAIEffort(model, c.reasoningEffort); err != nil {
+		return fmt.Errorf("the slot's reasoning_effort %q does not fit model %s: %w", c.reasoningEffort, model, err)
 	}
 	return admitInputWindow(c.maxInputTokens, ProviderOpenAI, c.modelFor(ctx), system, messages, tools, 0)
 }
@@ -256,14 +265,25 @@ func withStructuredOutput(req *responsesRequest) {
 	req.Text.Format = &responsesTextFormat{Type: "json_schema", Name: env.Name, Schema: env.Schema, Strict: &strict}
 }
 
-// finalize attaches search when on and computes the cache key over the final
-// tool list.
-func (c *OpenAIClient) finalize(req *responsesRequest, force bool) {
+// finalize attaches hosted search when it is on and computes the cache key
+// over the final tool list.
+//
+// A local function named web_search (the research catalog's DuckDuckGo tool)
+// is an ordinary function tool and is sent as one. Only when the hosted
+// web_search tool would ride on the same request is that a conflict, and only
+// then is the request refused, naming both.
+func (c *OpenAIClient) finalize(req *responsesRequest, force bool) error {
 	if force || c.IsWebSearchEnabled() {
+		for _, t := range req.Tools {
+			if t.Type == "function" && t.Name == "web_search" {
+				return fmt.Errorf("a function tool named web_search is offered while OpenAI's hosted web_search is on (openai.enable_web_search, or a grounded search); turn hosted search off for this slot or rename the function")
+			}
+		}
 		req.Tools = append(req.Tools, c.webSearchTool())
 		req.Include = appendInclude(req.Include, responsesWebSearchSourcesInclude)
 	}
 	req.PromptCacheKey = promptCacheKey(req.Model, req.Tools)
+	return nil
 }
 
 // execute posts one request and reports its usage under op.
@@ -316,11 +336,13 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 	start := time.Now()
 	c.clearGroundingSources()
 
-	req := c.newRequest(ctx, responsesInputFromHistory(systemPrompt, userTurn(userPrompt)))
+	req := c.newRequest(ctx, responsesInputFromHistory(systemPrompt, userTurn(userPrompt), responsesInputOptions{Phase: true}))
 	if isPiggybackPrompt(ctx, systemPrompt, userPrompt) {
 		withStructuredOutput(&req)
 	}
-	c.finalize(&req, false)
+	if err := c.finalize(&req, false); err != nil {
+		return "", err
+	}
 
 	reply, err := c.executeStructured(ctx, req, usageOpChat)
 	if err != nil {
@@ -354,19 +376,18 @@ func (c *OpenAIClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 	if err := c.admit(ctx, systemPrompt, history, tools); err != nil {
 		return nil, err
 	}
-	if err := rejectHostedToolNames(tools); err != nil {
-		return nil, err
-	}
 	ctx, cancel := c.withDeadline(ctx)
 	defer cancel()
 	c.clearGroundingSources()
 
-	req := c.newRequest(ctx, responsesInputFromHistory(systemPrompt, history))
+	req := c.newRequest(ctx, responsesInputFromHistory(systemPrompt, history, responsesInputOptions{Phase: true}))
 	req.Tools = responsesToolsFromDefinitions(tools)
 	if len(req.Tools) > 0 {
 		req.ToolChoice = "auto"
 	}
-	c.finalize(&req, false)
+	if err := c.finalize(&req, false); err != nil {
+		return nil, err
+	}
 
 	reply, err := c.execute(ctx, req, usageOpFor(len(tools)))
 	if err != nil {
@@ -377,17 +398,6 @@ func (c *OpenAIClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 		return nil, err
 	}
 	return responsesToolResponseFromReply(reply), nil
-}
-
-// rejectHostedToolNames refuses a function tool named like a hosted tool the
-// client may attach, which the API would reject as a duplicate.
-func rejectHostedToolNames(tools []ToolDefinition) error {
-	for _, t := range tools {
-		if t.Name == "web_search" {
-			return fmt.Errorf("tool name %q collides with OpenAI's hosted web_search tool", t.Name)
-		}
-	}
-	return nil
 }
 
 // appendInclude adds v to include once.

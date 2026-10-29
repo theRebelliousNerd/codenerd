@@ -4,6 +4,8 @@ package chat
 
 import (
 	"codenerd/internal/config"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -893,5 +895,39 @@ func TestCommand_ConfigModel(t *testing.T) {
 	last2 := result2.history[len(result2.history)-1]
 	if !strings.Contains(last2.Content, "Active model for") {
 		t.Errorf("Expected confirmation message, got: %s", last2.Content)
+	}
+}
+
+// A model switch is a change of the effective (model, effort) pair. Terra
+// with effort none is valid; Sol rejects none, so /model gpt-6.1-sol must be
+// refused before the config is saved or the live config changes, and the
+// message must name the effort rather than substitute one.
+func TestCommand_ModelSwitchRefusesAnEffortTheNewModelRejects(t *testing.T) {
+	t.Parallel()
+	workspace := t.TempDir()
+	m := NewTestModel(WithWorkspace(workspace))
+	m.Config.Provider = "openai"
+	m.Config.OpenAIAPIKey = "mock-key"
+	m.Config.Model = "gpt-6.1-terra"
+	m.Config.ReasoningEffort = "none"
+
+	out, _ := m.handleCommand("/model gpt-6.1-sol")
+	result := out.(Model)
+	last := result.history[len(result.history)-1].Content
+	if strings.Contains(last, "Switched active model") || !strings.Contains(last, "reasoning_effort `none`") {
+		t.Fatalf("an incompatible switch was not refused by its effort:\n%s", last)
+	}
+	if result.Config.Model != "gpt-6.1-terra" {
+		t.Fatalf("live config moved to %s on a refused switch", result.Config.Model)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, ".nerd", "config.json")); err == nil {
+		t.Fatal("a refused switch wrote config.json")
+	}
+
+	// A compatible pair still switches.
+	m.Config.ReasoningEffort = "high"
+	out, _ = m.handleCommand("/model gpt-6.1-sol")
+	if last := out.(Model).history[len(out.(Model).history)-1].Content; !strings.Contains(last, "Switched active model") {
+		t.Fatalf("a compatible switch was refused:\n%s", last)
 	}
 }

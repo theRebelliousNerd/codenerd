@@ -103,7 +103,9 @@ func (c *OpenAIClient) GroundedWebSearch(ctx context.Context, query string) (*ty
 	}
 
 	req := c.newRequest(ctx, []any{responsesInputText("user", trimmed)})
-	c.finalize(&req, true)
+	if err := c.finalize(&req, true); err != nil {
+		return nil, err
+	}
 
 	reply, err := postGroundedSearch(ctx, c.endpoint(), req, timeout, c.throttle)
 	if err != nil {
