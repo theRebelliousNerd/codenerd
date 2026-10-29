@@ -16,8 +16,8 @@ Status: open, in progress, fixed `<commit>`, closed (`<reason>`).
 | `responses-local-hosted-tool-name-contract` | `research-main-20261029-2049` | fixed `f2ef38dd2` |
 | `responses-refusal-wire-identity` | `research-main-20261029-1950` | fixed `cf55fc149` |
 | `responses-assistant-phase-replay` | `research-main-20261029-1950` | fixed `89e4a65c2` |
-| `exact-model-pin-tag-identity` | `research-main-20261029-1018` | open |
-| `streaming-grounding-source-ownership` | `research-main-20261029-1018` | open |
+| `exact-model-pin-tag-identity` | `research-main-20261029-1018` | fixed `e73911826` |
+| `streaming-grounding-source-ownership` | `research-main-20261029-1018` | fixed `ad6c2c79d` |
 | `ollama-shard-model-override` | `research-main-20261029-2152` | open |
 
 ## Lane A: experts, JIT, then session verdicts and test gates
@@ -45,6 +45,9 @@ Status: open, in progress, fixed `<commit>`, closed (`<reason>`).
 | `expert-lending-dependency-contract` | `research-main-20261029-2152` | open |
 | `slash-command-specialist-target-continuity` | `research-main-20261029-2221` | open |
 | `planned-step-expert-consultation-continuity` | `research-main-20261029-2241` | open |
+| `advisory-repair-continuation` | `research-main-20261029-2258` | open |
+| `expert-critique-domain-coverage` | `research-main-20261029-2258` | open |
+| `plan-bound-expert-decks` (innovation) | `research-main-20261029-2258` | open |
 
 ## Lane B: campaign and verification, then the Mangle kernel and world model
 
@@ -54,23 +57,25 @@ Status: open, in progress, fixed `<commit>`, closed (`<reason>`).
 | `campaign-ui-run-ownership` | `research-main-20261029-1950` | fixed `0abba9002` (lane) |
 | `campaign-context-seed-scheduler-ownership` | `research-main-20261029-1018` | fixed `f58648041` (lane) |
 | `recurse-compensation-write-ownership` | `research-main-20261029-1018` | fixed `3b6b6e1e0 + c7e090406` (lane) |
-| `residual-tool-generation-restriction-admission` | `research-main-20261029-1018` | open |
-| `verification-cancellation-after-deadline` | `research-main-20261029-0736` | open |
-| `verification-process-cleanup-parity` | `research-main-20261029-0736` | open |
-| `mangle-content-fingerprint-typed-identity` | `research-main-20261029-1018` | open |
-| `mangle-generic-merge-invalidation` | `research-main-20261029-0920` | open |
-| `mangle-inclusion-projection-closure` | `research-main-20261029-0850` | open |
-| `mangle-overlay-raw-store-ownership` | `research-main-20261029-0946` | open |
-| `projection-cache-allocation-acceptance` | `research-main-20261029-1018` | open |
-| `why-query-scope-preservation` | `research-main-20261029-1018` | open |
-| `world-cache-rolling-format-admission` | `research-main-20261029-1018` | open |
-| `scanner-graph-source-retirement` | `research-main-20261029-1018` | open |
-| `symbol-focus-identity-continuity` | `research-main-20261029-1018` | open |
+| `residual-tool-generation-restriction-admission` | `research-main-20261029-1018` | fixed `250dd7c79` |
+| `verification-cancellation-after-deadline` | `research-main-20261029-0736` | fixed `f8bbdeb55` |
+| `verification-process-cleanup-parity` | `research-main-20261029-0736` | fixed `ac6a2ae9d` |
+| `mangle-content-fingerprint-typed-identity` | `research-main-20261029-1018` | fixed `3d95367ff` |
+| `mangle-generic-merge-invalidation` | `research-main-20261029-0920` | fixed `2f1818f54` |
+| `mangle-inclusion-projection-closure` | `research-main-20261029-0850` | fixed `c839c8549` |
+| `mangle-overlay-raw-store-ownership` | `research-main-20261029-0946` | fixed `b72d18d79` |
+| `projection-cache-allocation-acceptance` | `research-main-20261029-1018` | parked: the audited code exists only on an unmerged lane branch |
+| `why-query-scope-preservation` | `research-main-20261029-1018` | fixed `b345d26b3` |
+| `world-cache-rolling-format-admission` | `research-main-20261029-1018` | parked: the audited code exists only on an unmerged lane branch |
+| `scanner-graph-source-retirement` | `research-main-20261029-1018` | fixed `4123cef79` |
+| `symbol-focus-identity-continuity` | `research-main-20261029-1018` | fixed `f8c94b5b6` |
 | `run_lint describes its build tags` (root finding, R1-27 rerun: the model believed run_lint takes no tags; it applies the workspace build env) | -- | fixed `c6659ef7d` |
 | `gate-comparison-domain-admission` | `research-main-20261029-2152` | open |
 | `gate-scoped-recurse-current-main-addendum` | `research-main-20261029-2221` | open |
 | `run-lint-effective-build-tag-receipt` | `research-main-20261029-2241` | open |
 | `scoped-gate-overlay-evidence-conservation` | `research-main-20261029-2241` | open |
+| `compile-diagnostic-witness-admission` | `research-main-20261029-2258` | open |
+| `coverage-source-identity-witness` | `research-main-20261029-2258` | open |
 
 ## codeNERD ladder runs: store, learning and memory, then chat and TUI
 
