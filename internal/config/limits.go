@@ -60,7 +60,7 @@ type CoreLimits struct {
 //	}
 //
 // Concurrency ceiling still comes from core_limits.max_concurrent_api_calls
-// (and engine overrides like xai_oauth.max_concurrent_calls / codex_cli.max_concurrent_calls).
+// (and engine overrides like codex_cli.max_concurrent_calls).
 type APISchedulerPolicy struct {
 	// MinCallSpacingMs is the minimum gap between successive slot grants.
 	// Subscription engines default to 150; api engine defaults to 0.

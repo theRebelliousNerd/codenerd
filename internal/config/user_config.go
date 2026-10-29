@@ -94,8 +94,8 @@ type UserConfig struct {
 	// CLI ENGINE CONFIGURATION
 	// =========================================================================
 
-	// Engine selection: "api" (default), "claude-cli", "codex-cli", "xai-oauth"
-	// When set to a CLI/OAuth engine, uses that backend instead of HTTP API keys.
+	// Engine selection: "api" (default), "claude-cli", "codex-cli"
+	// When set to a CLI engine, uses that backend instead of HTTP API keys.
 	Engine string `json:"engine,omitempty"`
 
 	// Gemini-specific configuration (thinking mode, grounding tools)
@@ -113,17 +113,14 @@ type UserConfig struct {
 	// Codex CLI configuration (used when Engine="codex-cli")
 	CodexCLI *CodexCLIConfig `json:"codex_cli,omitempty"`
 
-	// XAIOAuth SuperGrok / X Premium+ OAuth configuration (used when Engine="xai-oauth")
-	XAIOAuth *XAIOAuthConfig `json:"xai_oauth,omitempty"`
-
 	// Ollama chat (not embedding) configuration when provider=ollama is the main client.
 	// Embeddings still use embedding.ollama_*; this block is for LLM chat completions.
 	Ollama *OllamaLLMConfig `json:"ollama,omitempty"`
 
 	// Worker is an optional secondary LLM for shards / spawn / create / classification
 	// while the main TUI agent stays on Engine/Provider/Model. When unset, shards use
-	// the main client (e.g. SuperGrok via engine=xai-oauth). Optional cheap testing:
-	// main xai-oauth + worker.provider=ollama worker.model=gemma4:12b.
+	// the main client. Optional cheap testing:
+	// main engine + worker.provider=ollama worker.model=gemma4:12b.
 	// Image generation shards are excluded — see Image.
 	Worker *WorkerLLMConfig `json:"worker,omitempty"`
 
@@ -1208,7 +1205,7 @@ func (c *UserConfig) HasExplicitLLMSelection() bool {
 		c.AnthropicAPIKey != "" || c.OpenAIAPIKey != "" || c.GeminiAPIKey != "" ||
 		c.XAIAPIKey != "" || c.ZAIAPIKey != "" || c.OpenRouterAPIKey != "" ||
 		c.DashScopeAPIKey != "" || c.MetaAPIKey != "" || c.MoonshotAPIKey != "" ||
-		c.ClaudeCLI != nil || c.CodexCLI != nil || c.XAIOAuth != nil || c.Ollama != nil
+		c.ClaudeCLI != nil || c.CodexCLI != nil || c.Ollama != nil
 }
 
 // SetEngine updates the engine setting.
@@ -1217,10 +1214,9 @@ func (c *UserConfig) SetEngine(engine string) error {
 		"api":        true,
 		"claude-cli": true,
 		"codex-cli":  true,
-		"xai-oauth":  true,
 	}
 	if !validEngines[engine] {
-		return fmt.Errorf("invalid engine: %s (valid: api, claude-cli, codex-cli, xai-oauth)", engine)
+		return fmt.Errorf("invalid engine: %s (valid: api, claude-cli, codex-cli)", engine)
 	}
 	c.Engine = engine
 	return nil
@@ -1290,36 +1286,6 @@ func (c *UserConfig) GetCodexCLIConfig() *CodexCLIConfig {
 	return &cfg
 }
 
-// GetXAIOAuthConfig returns SuperGrok OAuth config with defaults applied. The
-// model is never defaulted: the OAuth API needs one, so xai_oauth.model must be
-// set and the client refuses to send a request without it.
-func (c *UserConfig) GetXAIOAuthConfig() *XAIOAuthConfig {
-	importGrok := true
-	fallbackAPI := true
-	if c.XAIOAuth == nil {
-		return &XAIOAuthConfig{
-			Timeout:            300,
-			ImportGrokAuth:     &importGrok,
-			FallbackToAPIKey:   &fallbackAPI,
-			MaxConcurrentCalls: DefaultXAIOAuthMaxConcurrentCalls,
-		}
-	}
-	cfg := *c.XAIOAuth
-	if cfg.Timeout == 0 {
-		cfg.Timeout = 300
-	}
-	if cfg.ImportGrokAuth == nil {
-		cfg.ImportGrokAuth = &importGrok
-	}
-	if cfg.FallbackToAPIKey == nil {
-		cfg.FallbackToAPIKey = &fallbackAPI
-	}
-	if cfg.MaxConcurrentCalls == 0 {
-		cfg.MaxConcurrentCalls = DefaultXAIOAuthMaxConcurrentCalls
-	}
-	return &cfg
-}
-
 // GetEffectiveMaxConcurrentAPICalls returns the scheduler ceiling after applying
 // engine-specific concurrency overrides.
 func (c *UserConfig) GetEffectiveMaxConcurrentAPICalls() int {
@@ -1332,13 +1298,7 @@ func (c *UserConfig) GetEffectiveMaxConcurrentAPICalls() int {
 			effective = codexCfg.MaxConcurrentCalls
 		}
 	}
-	if c.GetEngine() == "xai-oauth" {
-		oauthCfg := c.GetXAIOAuthConfig()
-		if oauthCfg.MaxConcurrentCalls > 0 && oauthCfg.MaxConcurrentCalls < effective {
-			effective = oauthCfg.MaxConcurrentCalls
-		}
-	}
-	// Optional Claude CLI ceiling (same pattern as Codex/SuperGrok).
+	// Optional Claude CLI ceiling (same pattern as Codex).
 	if c.GetEngine() == "claude-cli" && c.ClaudeCLI != nil && c.ClaudeCLI.MaxConcurrentCalls > 0 {
 		if c.ClaudeCLI.MaxConcurrentCalls < effective {
 			effective = c.ClaudeCLI.MaxConcurrentCalls
@@ -1348,11 +1308,11 @@ func (c *UserConfig) GetEffectiveMaxConcurrentAPICalls() int {
 	return effective
 }
 
-// subscriptionEngine reports engines that default to polite SuperGrok-style
+// subscriptionEngine reports engines that default to polite
 // scheduling (spacing + adaptive concurrency).
 func (c *UserConfig) subscriptionEngine() bool {
 	switch c.GetEngine() {
-	case "xai-oauth", "codex-cli", "claude-cli":
+	case "codex-cli", "claude-cli":
 		return true
 	default:
 		return false

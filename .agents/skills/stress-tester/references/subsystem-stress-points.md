@@ -22,10 +22,10 @@ Comprehensive catalog of all codeNERD subsystems with entry points, failure mode
 | Browser | `nerd browser *` | `/browser` |
 | TDD Loop | `nerd test`, TesterShard | `/tester` |
 | Review / Security | `nerd review`, `nerd security`, `nerd analyze`, `nerd explain` | `/shards` |
-| Main LLM | config `engine` / `provider` / `model` (Grok oauth or api) | `/perception` |
+| Main LLM | config `engine` / `provider` / `model` (Grok api) | `/perception` |
 | Worker LLM | optional `config.worker` (Ollama) for shards | `/perception`, `/shards` |
 | Image (Nano Banana 2) | `nerd spawn image_generator` / config `image` → Gemini only | `/perception`, `/shards` |
-| Auth engines | `nerd auth grok`, `engine=xai-oauth` / `api` | `/perception` |
+| Auth engines | `nerd auth claude`, `nerd auth codex`, `engine=api` | `/perception` |
 | JIT Compiler | `nerd jit`, all prompts | `/jit` |
 | Context | `nerd test-context`, all LLM interactions | `/context` |
 | Store | Persistence operations, maintenance schedule | `/store` |
@@ -44,7 +44,6 @@ Comprehensive catalog of all codeNERD subsystems with entry points, failure mode
 | One-shot Close | `Cortex.Close` + `maintenanceCancel` | Hang after Result if maintenance not cancelled | [one-shot-cli-exit.md](workflows/09-cli-workspace-matrix/one-shot-cli-exit.md) |
 | Close step bounds | `runCloseStep` / `closeStepTimeout=8s` (e18d6818) | Timeout storm delays exit; leaked teardown goroutines | one-shot-cli-exit |
 | `define-agent` flags | `--name` + `--topic` required (not positionals) | `required flag(s) "name", "topic" not set` | [define-agent-flags.md](workflows/09-cli-workspace-matrix/define-agent-flags.md) |
-| SuperGrok OAuth | `~/.nerd/xai_oauth.json` | `invalid_grant` when refresh revoked → `nerd auth grok` or API key | dual-llm-routing / matrix env |
 
 Full CLI catalog: [09-cli-workspace-matrix/full-cli-surface.md](workflows/09-cli-workspace-matrix/full-cli-surface.md).
 

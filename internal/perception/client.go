@@ -10,7 +10,6 @@ package perception
 // - client_openai.go      - OpenAI client implementation
 // - client_gemini.go      - Google Gemini client implementation
 // - client_xai.go         - xAI (Grok) API-key client implementation
-// - xaioauth/             - SuperGrok OAuth client (Hermes-style, modular package)
 // - client_openrouter.go  - OpenRouter multi-provider client implementation
 // - client_factory.go     - Provider detection and client factory functions
 // - claude_cli_client.go  - Claude Code CLI subprocess client

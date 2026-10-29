@@ -3,7 +3,7 @@
 | Date | Action |
 |------|--------|
 | **2026-07-13 (Superstar uplift)** | Reconciled the corpus against commit `c8f21b46` and dirty-tree fingerprint `687d1098c52d77160c71cab2f447c786cd8033c3`. Replaced the front door with the seven-section human contract and all nine applicability lanes; added five feature cards with acceptance and rollback; removed seven ledger-approved redirect stubs after exact SHA-256 and zero-inbound verification. Fixed the live nil-provider panic boundary and added its regression. Full perception tests passed. |
-| **2026-07-13** | Full rebuild to SUBAGENT_INSTRUCTIONS + cli quality bar. Research: listed `internal/perception/` (~50 non-test Go + ~48 tests + xaioauth), read transducer/understanding/semantic/factory/clients/taxonomy/learning/tracing/transport sources, grepped exports and reverse deps. Replaced thin inventory stubs with dense narrative corpus. Flagship: `IMPLEMENTED_SPEC.md` (transducer, semantic classifier, LLM clients). |
+| **2026-07-13** | Full rebuild to SUBAGENT_INSTRUCTIONS + cli quality bar. Research: listed `internal/perception/` (~50 non-test Go + ~48 tests), read transducer/understanding/semantic/factory/clients/taxonomy/learning/tracing/transport sources, grepped exports and reverse deps. Replaced thin inventory stubs with dense narrative corpus. Flagship: `IMPLEMENTED_SPEC.md` (transducer, semantic classifier, LLM clients). |
 | 2026-07-13 (earlier) | Thin auto-inventory stubs (domain-model naming) — **superseded**. |
 
 ## Canonical file set (this rebuild)

@@ -88,7 +88,6 @@ One-shot CLI entry points end-to-end (not interactive TUI). Use a dedicated work
 | Files land in monorepo not `-w` | Missing `CODENERD_WORKSPACE_ROOT` | Fixed: `resolveWorkspaceRoot` sets env |
 | Process hangs after `Result:` | Maintenance not cancelled **or** unbounded Close steps | Fixed e18d6818: `maintenanceCancel` + `runCloseStep` 8s |
 | `Cortex.Close: … timed out after 8s` | Stuck SQLite / shards during teardown | Soft warn; process should still exit — see P0c |
-| SuperGrok `invalid_grant` | Revoked OAuth refresh | `nerd auth grok` or `engine=api` + `xai_api_key` |
 | `define-agent` exit 1 immediately | Missing `--name` / `--topic` | Pass both flags (not positionals) |
 | `tool` / `check-mangle` exit 1 | Missing required args | Pass subcommand / file |
 | `test-context` type assert | Expects `*core.RealKernel`, got CortexKernel | Code bug — track in panic catalog |

@@ -38,9 +38,8 @@ Routing facts asserted during Understand (when KernelAsserter present) are **ret
 `cmd/nerd/cmd_auth.go` imports:
 
 - `codenerd/internal/perception` — Claude/Codex client helpers  
-- `codenerd/internal/perception/xaioauth` — Grok OAuth status / login / probe  
 
-Engines `claude-cli`, `codex-cli`, `xai-oauth` are first-class in `NewClientFromConfig`.
+Engines `claude-cli`, `codex-cli` are first-class in `NewClientFromConfig`.
 
 ## Campaign wiring
 

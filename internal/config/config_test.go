@@ -175,13 +175,13 @@ func TestUserConfig_GetEffectiveMaxConcurrentAPICalls(t *testing.T) {
 }
 
 func TestUserConfig_GetEffectiveAPISchedulerPolicy(t *testing.T) {
-	// SuperGrok defaults: spacing + adaptive on
+	// Subscription-engine defaults: spacing + adaptive on
 	oauth := &UserConfig{
-		Engine: "xai-oauth",
+		Engine: "codex-cli",
 		CoreLimits: &CoreLimits{
 			MaxConcurrentAPICalls: 5,
 		},
-		XAIOAuth: &XAIOAuthConfig{
+		CodexCLI: &CodexCLIConfig{
 			MaxConcurrentCalls: 2,
 		},
 	}
@@ -193,7 +193,7 @@ func TestUserConfig_GetEffectiveAPISchedulerPolicy(t *testing.T) {
 		t.Fatalf("spacing=%v want 150ms", pol.MinCallSpacing)
 	}
 	if !pol.AdaptiveConcurrency {
-		t.Fatal("expected adaptive concurrency for xai-oauth")
+		t.Fatal("expected adaptive concurrency for codex-cli")
 	}
 	if pol.AdaptiveFloor != 1 {
 		t.Fatalf("floor=%d want 1", pol.AdaptiveFloor)

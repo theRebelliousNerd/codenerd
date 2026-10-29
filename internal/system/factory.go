@@ -1067,7 +1067,7 @@ func initPerceptionLayer(bctx *bootContext) error {
 
 	// Prefer workspace config first so engine selection wins over a ambient
 	// ZAI_API_KEY (or --api-key). Previously any non-empty apiKey forced
-	// NewZAIClient and bypassed engine=xai-oauth / claude-cli / codex-cli.
+	// NewZAIClient and bypassed engine=claude-cli / codex-cli.
 	if baseLLMClient == nil {
 		if providerCfg, err := perception.ProviderConfigFromUserConfig(bctx.appCfg); err == nil {
 			if client, err2 := perception.NewClientFromConfig(providerCfg); err2 == nil {
@@ -1124,7 +1124,7 @@ func initPerceptionLayer(bctx *bootContext) error {
 	bctx.llmClient = mainScheduled
 
 	// Optional worker LLM for shards (e.g. local Ollama for cheap testing).
-	// When unset, shards share the main client (SuperGrok xai-oauth, API keys, etc.).
+	// When unset, shards share the main client (CLI engines, API keys, etc.).
 	shardRaw := rawLLMClient
 	shardServing := bctx.appCfg.GetMainLLMConfig()
 	if bctx.appCfg != nil {

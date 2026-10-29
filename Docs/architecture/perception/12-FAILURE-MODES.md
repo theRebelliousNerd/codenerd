@@ -65,14 +65,6 @@
 | **Mitigation** | Backoff; fallback models on some CLI clients; user waits |
 | **Code** | `claude_cli_client.go`, probe files, ZAI retry |
 
-### F8 — OAuth token expiry (xai-oauth)
-
-| | |
-|--|--|
-| **Symptoms** | 401; auth probe fail |
-| **Mitigation** | `EnsureValid` refresh; re-device login; import from grok CLI |
-| **Code** | `xaioauth/token.go`, `auth_device.go` |
-
 ### F9 — Mangle fact injection attempt
 
 | | |
@@ -147,7 +139,6 @@
 | F3 | Medium | Rare | **Yes** (fallback prompt) |
 | F4 | Medium | Quality | **Yes** |
 | F6 | High | Boot fail | No |
-| F8 | High | Auth fail | No |
 | F11 | Low | Delayed learning | **Yes** |
 
 ## First response checklist

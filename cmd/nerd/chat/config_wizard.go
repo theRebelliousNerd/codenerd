@@ -281,18 +281,16 @@ How would you like to connect to the LLM?
 | 1 | api | HTTP API with API key (pay-per-token) |
 | 2 | claude-cli | Claude Code CLI (Claude Pro/Max subscription) |
 | 3 | codex-cli | OpenAI Codex CLI (ChatGPT Plus/Pro subscription) |
-| 4 | xai-oauth | SuperGrok OAuth (SuperGrok / X Premium+ subscription) |
 
 **Recommendation:**
 - Use **api** if you have API credits and want fine-grained control
 - Use **claude-cli** if you have Claude Pro/Max subscription
 - Use **codex-cli** if you have ChatGPT Plus/Pro subscription
-- Use **xai-oauth** if you have SuperGrok (run nerd auth grok)
 
-Enter a number (1-4) or engine name:`,
+Enter a number (1-3) or engine name:`,
 		Time: time.Now(),
 	})
-	m.textarea.Placeholder = "Enter engine (1-4 or name)..."
+	m.textarea.Placeholder = "Enter engine (1-3 or name)..."
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
 	return m, nil
@@ -304,14 +302,13 @@ func (m Model) configWizardEngine(input string) (tea.Model, tea.Cmd) {
 		"1": "api", "api": "api",
 		"2": "claude-cli", "claude-cli": "claude-cli", "claude": "claude-cli",
 		"3": "codex-cli", "codex-cli": "codex-cli", "codex": "codex-cli",
-		"4": "xai-oauth", "xai-oauth": "xai-oauth", "grok": "xai-oauth", "supergrok": "xai-oauth",
 	}
 
 	engine, ok := engines[strings.ToLower(input)]
 	if !ok {
 		m = m.addMessage(Message{
 			Role:    "assistant",
-			Content: "Invalid selection. Please enter 1-4 or an engine name (api, claude-cli, codex-cli, xai-oauth):",
+			Content: "Invalid selection. Please enter 1-3 or an engine name (api, claude-cli, codex-cli):",
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
@@ -374,29 +371,6 @@ Enter model number/name (Enter to keep the CLI's own configured model):`, intern
 			Time: time.Now(),
 		})
 		m.textarea.Placeholder = "Codex CLI model (Enter for the CLI's default)..."
-
-	case "xai-oauth":
-		// SuperGrok OAuth: no API key (auth via `nerd auth grok`), but the
-		// OAuth API needs a model and the wizard does not pick one: the xAI
-		// model list is offered and the choice lands in xai_oauth.model.
-		m.configWizard.Provider = "xai"
-		m.configWizard.Step = StepModel
-		var sb strings.Builder
-		sb.WriteString("## Step 2: SuperGrok OAuth\n\n")
-		sb.WriteString("You selected **xai-oauth** (SuperGrok / X Premium+ subscription).\n\n")
-		sb.WriteString("- Auth: run \"nerd auth grok\" (or import from Grok CLI ~/.grok/auth.json)\n")
-		sb.WriteString("- No xai_api_key required\n\n")
-		sb.WriteString("### Model\n\n| # | Model |\n|---|-------|\n")
-		for i, model := range ProviderModels["xai"] {
-			sb.WriteString(fmt.Sprintf("| %d | %s |\n", i+1, model))
-		}
-		sb.WriteString("\nEnter a number or model id (Enter for the first listed):")
-		m = m.addMessage(Message{
-			Role:    "assistant",
-			Content: sb.String(),
-			Time:    time.Now(),
-		})
-		m.textarea.Placeholder = "Enter xAI model..."
 
 	default: // "api"
 		m.configWizard.Step = StepProvider

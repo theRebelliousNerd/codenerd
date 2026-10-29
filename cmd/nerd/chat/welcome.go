@@ -27,7 +27,7 @@ import (
 // the provider is working and generate a project-aware welcome message.
 //
 // Design decisions:
-//   - 30s timeout: SuperGrok OAuth / cold starts often exceed 10s (live test
+//   - 30s timeout: cold starts often exceed 10s (live test
 //     logged context deadline exceeded at exactly 9999ms).
 //   - Uses m.shutdownCtx as parent: cancels cleanly on quit
 //   - Captures scan stats by value (msg is a copy) so the goroutine is safe
@@ -42,12 +42,12 @@ func (m Model) performWelcomeHealthCheck(scanStats scanCompleteMsg) tea.Cmd {
 			}
 		}
 
-		// SuperGrok OAuth + cold starts routinely need >10s (live log: 9.999s fail).
+		// Cold starts routinely need >10s (live log: 9.999s fail).
 		ctx, cancel := context.WithTimeout(m.shutdownCtx, 30*time.Second)
 		defer cancel()
 
 		projectName := filepath.Base(m.workspace)
-		// Prefer engine (xai-oauth) over legacy provider label (often still "gemini").
+		// Prefer engine over legacy provider label (often still "gemini").
 		provider := "api"
 		model := ""
 		if m.Config != nil {
@@ -57,9 +57,6 @@ func (m Model) performWelcomeHealthCheck(scanStats scanCompleteMsg) tea.Cmd {
 				provider = m.Config.Provider
 			}
 			model = m.Config.Model
-			if model == "" && m.Config.XAIOAuth != nil {
-				model = m.Config.XAIOAuth.Model
-			}
 		}
 		if model == "" {
 			model = "unknown"

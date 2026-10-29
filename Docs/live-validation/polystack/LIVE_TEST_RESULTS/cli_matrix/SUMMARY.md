@@ -13,8 +13,7 @@ Path: `.nerd/live_feature_matrix/polystack`
 ## codeNERD bugs found
 1. **FIXED+PUSHED (d7a7ba2f)**: `nerd -w <dir> create` wrote files to monorepo CWD because modular tools use CODENERD_WORKSPACE_ROOT / Getwd, not VirtualStore workingDir.
 2. **OPEN**: create/spawn often hang after printing Result (likely cortex.Close/maintenance); harness kills after ~45–55s post-result.
-3. **ENV**: SuperGrok OAuth refresh token revoked (`invalid_grant`); live matrix used engine=api + xai_api_key. Re-run `nerd auth grok` for subscription path.
-4. **CLI UX**: `tool`, `check-mangle` require args; `test-context` fails type assert CortexKernel vs RealKernel.
+3. **CLI UX**: `tool`, `check-mangle` require args; `test-context` fails type assert CortexKernel vs RealKernel.
 
 ## Surfaces exercised (not exhaustive of every stress-tester workflow)
 - Diagnostics: status, agents, jit, glassbox, transparency, reflection, embedding, sessions, logs, mcp, memory, logic, knowledge, campaign list, autopoiesis, why

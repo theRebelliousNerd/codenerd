@@ -13,7 +13,7 @@ value another package can use. Load path: `LoadUserConfig`
 | File | Holds |
 |---|---|
 | `user_config.go` | `UserConfig` (`user_config.go:27-285`); load/save; provider and engine selection (`GetActiveProvider` :940-1008, `GetEngine` :1011-1016, `SetEngine` :1033-1045, `HasExplicitLLMSelection` :1021-1030); key read/write (`APIKeyForProvider` :860-888, `SetAPIKeyForProvider` :894-928); secondary-slot resolution (`resolveSecondarySlot` :837-852); scheduler ceilings (`GetEffectiveMaxConcurrentAPICalls` :1137-1161, `GetEffectiveAPISchedulerPolicy` :1176-1226); the browser section (`BrowserAutomationConfig` :1314-1337, `DefaultBrowserAutomationConfig` :1340-1354, `GetBrowserConfig` :1359-1401); JIT accessors (`GetJITConfig` :1572-1597, `GetEffectiveJITConfig` :1600-1620); `DefaultUserConfig` (:1487-1525) |
-| `llm.go` | `LLMConfig` (:16-22); `ClaudeCLIConfig` (:31-44) with `DefaultClaudeCLIConfig` (:229-234); `CodexCLIConfig` (:62-97) with `DefaultCodexCLIConfig` (:247-259), `DefaultCodexExecSkillName` (:56), `DefaultCodexMaxConcurrentCalls` (:58-59); `XAIOAuthConfig` (:134-159) with `DefaultXAIOAuthMaxConcurrentCalls` (:128) — there is no `DefaultXAIOAuthConfig`, defaults are inline in `GetXAIOAuthConfig` (`user_config.go:1108-1133`); `GeminiProviderConfig` (:190-203) with `DefaultGeminiProviderConfig` (:216-224); `CLIModelLabel` (:238-243); `GetClaudeCLICommand` (:273-275) |
+| `llm.go` | `LLMConfig` (:16-22); `ClaudeCLIConfig` (:31-44) with `DefaultClaudeCLIConfig` (:229-234); `CodexCLIConfig` (:62-97) with `DefaultCodexCLIConfig` (:247-259), `DefaultCodexExecSkillName` (:56), `DefaultCodexMaxConcurrentCalls` (:58-59); `GeminiProviderConfig` (:190-203) with `DefaultGeminiProviderConfig` (:216-224); `CLIModelLabel` (:238-243); `GetClaudeCLICommand` (:273-275) |
 | `memory.go` | `EmbeddingConfig` (:20-45); `ContextWindowConfig` (:55-87); `DefaultContextWindowConfig` (:115-130); `DefaultEmbeddingConfig` (:133-142); `DefaultOllamaEndpoint` (:17) |
 | `reflection.go` | `ReflectionConfig` custom `UnmarshalJSON` (:28-49); `DefaultReflectionConfig` (:52-60); resolved onto `UserConfig` by `GetReflectionConfig` (`user_config.go:384-406`) |
 | `shard.go` | `ShardProfile` (:5-39); sampling semantics (:15-19); the deleted per-shard ceilings (:23-31); `applyShardDefaults` (:42-50); `DefaultShardProfile` (:53-60); `DefaultShardProfiles` (:63-90) |
@@ -50,8 +50,6 @@ value another package can use. Load path: `LoadUserConfig`
   records their deletion).
 - No wall-clock run bounds exist; the keys that used to set them are refused
   (`removed_keys.go:28-61`).
-- No `DefaultXAIOAuthConfig` exists (`llm.go`, cf. `DefaultClaudeCLIConfig`
-  :229-234 and `DefaultCodexCLIConfig` :247-259).
 
 ---
 *Verified 2026-09-20 against `b63e848`. INTERNALS.md answers how it works;

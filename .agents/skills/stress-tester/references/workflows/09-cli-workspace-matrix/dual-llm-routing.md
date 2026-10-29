@@ -2,7 +2,7 @@
 
 ## What It Stresses
 
-- **Main** LLM (TUI agent / high-priority client): SuperGrok OAuth (`engine=xai-oauth`) or API key (`engine=api` + `xai_api_key`)
+- **Main** LLM (TUI agent / high-priority client): API key (`engine=api` + `xai_api_key`)
 - **Optional worker** LLM: `config.worker` (typically Ollama `gemma4:12b`) for shards / spawn / create / classification — cheap local testing
 - **Image** LLM (Nano Banana 2): `config.image` → Gemini **`gemini-3.1-flash-image`** — **must never** use Ollama worker
 - Boot messages and shard manager injection paths that split these three clients
@@ -13,13 +13,11 @@ Routing contract in `internal/config/user_config.go` and `cmd/nerd/chat/session_
 
 | Role | Config key | Typical provider | Used for |
 |------|------------|------------------|----------|
-| Main | `engine` / `provider` / `model` | xAI Grok (oauth or api) | Interactive agent, high-priority |
+| Main | `engine` / `provider` / `model` | xAI Grok (api) | Interactive agent, high-priority |
 | Worker | `worker` (optional) | Ollama | spawn, create, classification when set |
 | Image | `image` | Gemini only | `image_generator` shard / Nano Banana 2 |
 
 **Invariant:** Image generation is excluded from worker routing. `IsImageShardType` / `SetImageLLMClient` keep Gemini image models off Ollama.
-
-**Auth note:** SuperGrok OAuth may return `invalid_grant` if refresh revoked → `nerd auth grok` or switch to `engine=api` + key for matrix runs.
 
 ## Severity Levels
 
@@ -103,7 +101,6 @@ if (Test-Path $logs) {
 - [ ] `image_generator` never initialized with Ollama worker client
 - [ ] When `worker` unset, shards share main client (documented fallback)
 - [ ] When worker Ollama is down, boot logs soft-fail for worker without crashing main
-- [ ] OAuth `invalid_grant` handled by re-auth or API-key engine switch (env, not product panic)
 - [ ] No panic / `debug_program_ERROR.mg`
 
 ## Log / Message Patterns

@@ -9,7 +9,7 @@
 **VERIFIED CURRENT:** `internal/perception/perception_jit_contract_test.go#TestPerceptionJIT_ProductionBridgeUsesCanonicalContract` (`internal/perception/perception_jit_contract_test.go:196`) captures the actual production transducer request with the real compiler and full embedded atom corpus. Firewall closure, invalid-contract fallback and campaign/conversation controls also pass in `artifact:.corpus-build/runs/all-features-20261002/round4-perception.receipt.json` (10 PASS events including subtests). This is focused component evidence, not a live-provider or fresh-binary witness. Shipped seed parity remains red; the July inventory below is historical, not newly reverified.
 
 > Last verified: **2026-07-13**  
-> Source of truth: `internal/perception/` (+ `xaioauth/`)
+> Source of truth: `internal/perception/`
 
 ## Inventory summary
 
@@ -17,8 +17,6 @@
 |--------|--------------|
 | Package root non-test `.go` | ~50 |
 | Package root `*_test.go` | ~48 |
-| `xaioauth` sources | 13 |
-| `xaioauth` tests | several (`chat_test`, `store_test`, `token_test`, `errors_test`) |
 | Local `.mg` | 0 (consumes embedded core + policy) |
 | Package README | `internal/perception/README.md` (operator notes; some defaults stale vs code) |
 | Shared globals | `SharedTaxonomy`, `SharedSemanticClassifier` |
@@ -36,7 +34,6 @@
 | Client factory | `client_factory.go` | Live |
 | Provider clients | `client_*.go` | Live |
 | CLI engines | `claude_cli_client.go`, `codex_*.go` | Live |
-| SuperGrok OAuth | `xaioauth/` | Live |
 | Tracing / metrics | `tracing_client.go`, `metrics.go` | Live |
 | Transport pooling | `transport.go`, `scanner_pool.go` | Live |
 
@@ -50,7 +47,6 @@
 - `NewClientFromEnv`, `NewClientFromConfig`, `NewClassificationClientFromConfig`
 - `NewWorkerClientFromUserConfig`, `NewPlannerClientFromUserConfig`, `NewImageClientFromUserConfig`
 - `NewTracingLLMClient`, `NewClaudeCodeCLIClient`, `NewCodexExecClient`
-- `xaioauth.NewClientFromUserConfig`
 
 ### Kernel-facing
 

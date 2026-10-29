@@ -155,7 +155,7 @@ func TestGetEngine_WhenSet_ShouldReturnValue(t *testing.T) {
 }
 
 func TestSetEngine_WhenValid_ShouldSucceed(t *testing.T) {
-	validEngines := []string{"api", "claude-cli", "codex-cli", "xai-oauth"}
+	validEngines := []string{"api", "claude-cli", "codex-cli"}
 	for _, engine := range validEngines {
 		t.Run(engine, func(t *testing.T) {
 			cfg := &UserConfig{}

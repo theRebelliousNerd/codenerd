@@ -109,16 +109,6 @@ Re-exported in `transducer.go` for compatibility:
 - `PiggybackEnvelope`, `ControlPacket`, `IntentClassification`  
 - `MemoryOperation`, `SelfCorrection`
 
-## xaioauth public surface
-
-| Symbol | Package path |
-|--------|--------------|
-| Client constructors / Complete* | `internal/perception/xaioauth` |
-| Store / token / device auth | same |
-| Probe helpers | same |
-
-Exact exported names: see `xaioauth/client.go`, `store.go`, `auth_device.go`, `probe.go`.
-
 ## Important behavioral contracts
 
 1. **`ParseIntentWithContext` error contract:** often returns `(degradedIntent, nil)` on LLM failure. Check `Intent.Outcome` (disposition, stage, provider failure class, method) and `Response`; the kernel derives the disposition (`policy/perception_outcome.mg`).  

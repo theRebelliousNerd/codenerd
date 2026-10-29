@@ -4,7 +4,6 @@ import (
 	"codenerd/internal/broker"
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
-	"codenerd/internal/perception/xaioauth"
 	"fmt"
 	"os"
 	"strings"
@@ -86,10 +85,9 @@ type ProviderConfig struct {
 	ClassificationModel string
 
 	// CLI Engine Configuration (takes precedence over Provider when set)
-	Engine    string                  // "api", "claude-cli", "codex-cli", "xai-oauth"
+	Engine    string                  // "api", "claude-cli", "codex-cli"
 	ClaudeCLI *config.ClaudeCLIConfig // Claude CLI settings
 	CodexCLI  *config.CodexCLIConfig  // Codex CLI settings
-	XAIOAuth  *config.XAIOAuthConfig  // SuperGrok OAuth settings
 
 	// BaseURL overrides the endpoint for Anthropic and OpenAI-compatible providers
 	// (dashscope, meta, moonshot). Each has a sensible built-in default, so this
@@ -135,9 +133,9 @@ func ProviderConfigFromUserConfig(userCfg *config.UserConfig) (*ProviderConfig, 
 	if userCfg == nil {
 		return nil, fmt.Errorf("user config is nil")
 	}
-	// Check for CLI / OAuth engine configuration first
+	// Check for CLI engine configuration first
 	engine := userCfg.GetEngine()
-	if engine == "claude-cli" || engine == "codex-cli" || engine == "xai-oauth" {
+	if engine == "claude-cli" || engine == "codex-cli" {
 		// Context7 API key: check config first, then env var
 		context7Key := userCfg.Context7APIKey
 		if context7Key == "" {
@@ -148,18 +146,8 @@ func ProviderConfigFromUserConfig(userCfg *config.UserConfig) (*ProviderConfig, 
 			Engine:         engine,
 			ClaudeCLI:      userCfg.GetClaudeCLIConfig(),
 			CodexCLI:       userCfg.GetCodexCLIConfig(),
-			XAIOAuth:       userCfg.GetXAIOAuthConfig(),
 			Context7APIKey: context7Key,
 			Model:          userCfg.Model,
-		}
-		// SuperGrok hard-auth fallback needs the metered xAI key available.
-		if engine == "xai-oauth" {
-			xaiKey := userCfg.XAIAPIKey
-			if xaiKey == "" {
-				xaiKey = os.Getenv("XAI_API_KEY")
-			}
-			pc.APIKey = xaiKey
-			pc.Provider = ProviderXAI
 		}
 		return pc, nil
 	}
@@ -211,7 +199,7 @@ func ProviderConfigFromUserConfig(userCfg *config.UserConfig) (*ProviderConfig, 
 
 // DetectProvider checks .nerd/config.json first, then environment variables.
 // Priority: config.json > env vars (ANTHROPIC > OPENAI > GEMINI > XAI > ZAI)
-// CLI/OAuth engines (claude-cli, codex-cli, xai-oauth) are detected from config.json
+// CLI engines (claude-cli, codex-cli) are detected from config.json
 // and don't require API keys.
 func DetectProvider() (*ProviderConfig, error) {
 	logging.PerceptionDebug("DetectProvider: checking config and environment")
@@ -226,7 +214,7 @@ func DetectProvider() (*ProviderConfig, error) {
 	}
 	if cfg, err := ProviderConfigFromUserConfig(userCfg); err == nil {
 		// Subscription engines don't need API keys
-		if cfg.Engine == "claude-cli" || cfg.Engine == "codex-cli" || cfg.Engine == "xai-oauth" {
+		if cfg.Engine == "claude-cli" || cfg.Engine == "codex-cli" {
 			logging.Perception("DetectProvider: using subscription engine=%s", cfg.Engine)
 			return cfg, nil
 		}
@@ -345,7 +333,7 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 	}
 
 	// Subscription engines do not support model tiering — return nil to use main client.
-	if cfg.Engine == "claude-cli" || cfg.Engine == "codex-cli" || cfg.Engine == "xai-oauth" {
+	if cfg.Engine == "claude-cli" || cfg.Engine == "codex-cli" {
 		return nil, nil
 	}
 
@@ -462,70 +450,6 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 
 // NERD-EVOLVE-END: P1P2-model-tiering
 
-// newSuperGrokClientOrAPIFallback builds the SuperGrok OAuth client. If tokens are
-// quarantined/missing and an xAI API key is available (and fallback_to_api_key is
-// enabled, default true), falls back to metered API with a loud WARNING so CLI
-// sessions stay usable after refresh-token revoke. Prefer re-import (handled in
-// TokenSource.Load) over stuck quarantined tokens before this path runs.
-func newSuperGrokClientOrAPIFallback(config *ProviderConfig) (LLMClient, error) {
-	// Fail at boot, not on the first request: the OAuth API needs a model and
-	// none is invented for it.
-	if config.XAIOAuth == nil || strings.TrimSpace(config.XAIOAuth.Model) == "" {
-		return nil, xaioauth.ErrModelNotSet
-	}
-	oauthClient := xaioauth.NewClientFromUserConfig(config.XAIOAuth, config.MaxOutputTokens)
-	if err := oauthClient.TokenSource().Load(); err != nil && xaioauth.IsAuthRequired(err) {
-		if xaiOAuthFallbackEnabled(config) {
-			if key := resolveXAIAPIKey(config); key != "" {
-				logging.PerceptionWarn(
-					"WARNING: engine=xai-oauth hard auth failure — falling back to xAI API key (metered). "+
-						"OAuth detail: %v. Re-auth SuperGrok: nerd auth grok. "+
-						"Disable fallback: set xai_oauth.fallback_to_api_key=false",
-					err,
-				)
-				// The metered fallback runs the same model the OAuth engine
-				// was configured for (checked non-empty above), never the
-				// API client's own literal.
-				xai := NewXAIClient(key)
-				xai.SetModel(config.XAIOAuth.Model)
-				return xai, nil
-			}
-		}
-		logging.PerceptionWarn(
-			"WARNING: SuperGrok OAuth not ready: %v — run: nerd auth grok "+
-				"(or set xai_api_key + fallback_to_api_key for metered API fallback)",
-			err,
-		)
-	}
-	return oauthClient, nil
-}
-
-// xaiOAuthFallbackEnabled reports whether hard-auth API key fallback is allowed.
-// Default true when unset (CLI reliability).
-func xaiOAuthFallbackEnabled(pc *ProviderConfig) bool {
-	if pc == nil || pc.XAIOAuth == nil || pc.XAIOAuth.FallbackToAPIKey == nil {
-		return true
-	}
-	return *pc.XAIOAuth.FallbackToAPIKey
-}
-
-func resolveXAIAPIKey(pc *ProviderConfig) string {
-	if pc != nil {
-		if k := strings.TrimSpace(pc.APIKey); k != "" {
-			return k
-		}
-	}
-	if k := strings.TrimSpace(os.Getenv("XAI_API_KEY")); k != "" {
-		return k
-	}
-	// Load user config for root xai_api_key when engine is xai-oauth.
-	path := config.DefaultUserConfigPath()
-	if cfg, err := config.LoadUserConfig(path); err == nil && cfg != nil {
-		return strings.TrimSpace(cfg.XAIAPIKey)
-	}
-	return ""
-}
-
 // newCompatClient builds the main client for any vendor in
 // openAICompatVendorDefaults (the one list of OpenAI-compatible vendors).
 func newCompatClient(pc *ProviderConfig) (LLMClient, error) {
@@ -564,24 +488,22 @@ func newCompatClient(pc *ProviderConfig) (LLMClient, error) {
 }
 
 // NewClientFromConfig creates an LLM client from a provider config.
-// Subscription engines (claude-cli, codex-cli, xai-oauth) take precedence over API providers.
+// Subscription engines (claude-cli, codex-cli) take precedence over API providers.
 func newRawClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 	if config == nil {
 		return nil, fmt.Errorf("provider config is nil")
 	}
 
-	// Check for CLI/OAuth engine configuration first (takes precedence over API)
+	// Check for CLI engine configuration first (takes precedence over API)
 	switch config.Engine {
 	case "claude-cli":
 		return NewClaudeCodeCLIClient(config.ClaudeCLI), nil
 	case "codex-cli":
 		return NewCodexExecClient(config.CodexCLI), nil
-	case "xai-oauth":
-		return newSuperGrokClientOrAPIFallback(config)
 	case "api", "":
 		// Continue to API-based provider selection below
 	default:
-		return nil, fmt.Errorf("unknown engine: %s (valid: api, claude-cli, codex-cli, xai-oauth)", config.Engine)
+		return nil, fmt.Errorf("unknown engine: %s (valid: api, claude-cli, codex-cli)", config.Engine)
 	}
 
 	// No invented model. Every client below carries a constructor default,

@@ -3,10 +3,8 @@ package main
 import (
 	"codenerd/internal/config"
 	"codenerd/internal/perception"
-	"codenerd/internal/perception/xaioauth"
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"strings"
@@ -20,30 +18,13 @@ var authCmd = &cobra.Command{
 	Args:  cobra.NoArgs,
 	Use:   "auth",
 	Short: "Manage CLI engine authentication",
-	Long: `Configure authentication for CLI-based and SuperGrok OAuth LLM engines.
+	Long: `Configure authentication for CLI-based LLM engines.
 
 Available subcommands:
   claude - Authenticate and configure Claude Code CLI engine
   codex  - Authenticate and configure Codex CLI engine
-  grok   - Authenticate SuperGrok / X Premium+ OAuth (xai-oauth engine)
   status - Show current authentication status`,
 	RunE: parentGroupRunE,
-}
-
-// authGrokCmd authenticates SuperGrok OAuth
-var authGrokCmd = &cobra.Command{
-	Use:   "grok",
-	Short: "Authenticate with SuperGrok OAuth",
-	Long: `Authenticate with SuperGrok / X Premium+ via OAuth device code and configure codeNERD.
-
-This command:
-1. Optionally imports credentials from ~/.grok/auth.json (Grok CLI login)
-2. Otherwise runs OAuth device-code login against auth.x.ai
-3. Saves tokens to ~/.nerd/xai_oauth.json
-4. Updates .nerd/config.json to use engine=xai-oauth
-
-No XAI_API_KEY is required — usage draws SuperGrok subscription limits.`,
-	RunE: runAuthGrok,
 }
 
 // authClaudeCmd authenticates with Claude Code CLI
@@ -215,157 +196,6 @@ func runAuthCodex(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runAuthGrok authenticates SuperGrok OAuth and configures codeNERD.
-func runAuthGrok(cmd *cobra.Command, args []string) error {
-	fmt.Println("Configuring SuperGrok OAuth engine (xai-oauth)...")
-
-	cfg, err := loadOrCreateConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-	oauthCfg := cfg.GetXAIOAuthConfig()
-	// Always allow Grok CLI import during interactive re-auth.
-	if oauthCfg.ImportGrokAuth == nil {
-		t := true
-		oauthCfg.ImportGrokAuth = &t
-	}
-
-	client := xaioauth.NewClientFromUserConfig(oauthCfg, 0)
-	ts := client.TokenSource()
-
-	// The command deadline is --timeout. A health probe is one HTTP call,
-	// bounded by xai_oauth.timeout (seconds; GetXAIOAuthConfig supplies 300
-	// when the field is unset).
-	cmdCtx, cmdCancel := commandContext(cmd)
-	defer cmdCancel()
-	probeCtx, cancel := context.WithTimeout(cmdCtx, time.Duration(oauthCfg.Timeout)*time.Second)
-	defer cancel()
-	if err := ts.Load(); err == nil {
-		fmt.Println("Found SuperGrok credentials; running health probe...")
-		probe := client.RunHealthProbe(probeCtx)
-		if probe.Classification == xaioauth.ProbeReady {
-			if err := cfg.SetEngine("xai-oauth"); err != nil {
-				return err
-			}
-			cfg.XAIOAuth = oauthCfg
-			if err := cfg.Save(config.DefaultUserConfigPath()); err != nil {
-				return fmt.Errorf("failed to save config: %w", err)
-			}
-			fmt.Println("\n✓ SuperGrok OAuth credentials are ready")
-			fmt.Println("  Engine: xai-oauth")
-			fmt.Printf("  Model: %s\n", oauthCfg.Model)
-			fmt.Printf("  Source: %s\n", probe.Source)
-			return nil
-		}
-		fmt.Printf("Existing credentials not ready (%s): %s\n", probe.Classification, probe.Message)
-		if probe.Classification == xaioauth.ProbeLoginRequired {
-			fmt.Println("Clearing broken/quarantined tokens so we can re-import or re-login...")
-			_ = ts.PrepareForReauth()
-			// Fresh client after clear — try Grok CLI import again.
-			client = xaioauth.NewClientFromUserConfig(oauthCfg, 0)
-			ts = client.TokenSource()
-			if err := ts.Load(); err == nil {
-				probe = client.RunHealthProbe(probeCtx)
-				if probe.Classification == xaioauth.ProbeReady {
-					if err := cfg.SetEngine("xai-oauth"); err != nil {
-						return err
-					}
-					cfg.XAIOAuth = oauthCfg
-					if err := cfg.Save(config.DefaultUserConfigPath()); err != nil {
-						return fmt.Errorf("failed to save config: %w", err)
-					}
-					fmt.Println("\n✓ Recovered SuperGrok credentials (Grok CLI re-import)")
-					fmt.Println("  Engine: xai-oauth")
-					return nil
-				}
-			}
-		}
-		fmt.Println("Starting device-code login (browser approval)...")
-	} else {
-		fmt.Printf("No usable SuperGrok credentials: %v\n", err)
-		if xaioauth.IsAuthRequired(err) {
-			fmt.Println("Clearing quarantined store (if any) and retrying import...")
-			_ = ts.PrepareForReauth()
-			client = xaioauth.NewClientFromUserConfig(oauthCfg, 0)
-			ts = client.TokenSource()
-			if loadErr := ts.Load(); loadErr == nil {
-				probe := client.RunHealthProbe(probeCtx)
-				if probe.Classification == xaioauth.ProbeReady {
-					if err := cfg.SetEngine("xai-oauth"); err != nil {
-						return err
-					}
-					cfg.XAIOAuth = oauthCfg
-					if err := cfg.Save(config.DefaultUserConfigPath()); err != nil {
-						return fmt.Errorf("failed to save config: %w", err)
-					}
-					fmt.Println("\n✓ Recovered SuperGrok credentials after clearing quarantine")
-					fmt.Println("  Engine: xai-oauth")
-					return nil
-				}
-			}
-		}
-		fmt.Println("Starting device-code login (browser approval)...")
-	}
-
-	pkgCfg := client.Config()
-	// Each HTTP call uses the OAuth client's request bound (xai_oauth.timeout;
-	// the client default is 5m when that field is unset). The device-code
-	// poll stops at the authorization server's expires_in (RFC 8628), which
-	// LoginDeviceCode reads from the device-code response. cmdCtx adds a
-	// deadline only when the user set --timeout.
-	httpClient := &http.Client{Timeout: pkgCfg.Timeout}
-	loginCtx := cmdCtx
-
-	creds, err := xaioauth.LoginDeviceCode(loginCtx, httpClient, pkgCfg, func(dc xaioauth.DeviceCodeResponse) {
-		verify := dc.VerificationURIComplete
-		if verify == "" {
-			verify = dc.VerificationURI
-		}
-		fmt.Println()
-		fmt.Println("Open this URL in a browser and approve access:")
-		fmt.Printf("  %s\n", verify)
-		fmt.Printf("  User code: %s\n", dc.UserCode)
-		fmt.Println()
-		fmt.Println("Waiting for approval...")
-	})
-	if err != nil {
-		return fmt.Errorf("device login failed: %w", err)
-	}
-	if err := ts.SetCredentials(creds); err != nil {
-		return fmt.Errorf("save credentials: %w", err)
-	}
-	fmt.Println("✓ Tokens saved")
-
-	// Fresh request bound. The pre-login probe context has been running
-	// since before the user approved, so it must not also time out this call.
-	postProbe, postCancel := context.WithTimeout(cmdCtx, time.Duration(oauthCfg.Timeout)*time.Second)
-	defer postCancel()
-	probe := client.RunHealthProbe(postProbe)
-	if probe.Classification == xaioauth.ProbeTierForbidden {
-		fmt.Println("\n⚠️  OAuth login succeeded but inference is tier-gated (HTTP 403).")
-		fmt.Println("   Fall back to metered API: set engine=api, provider=xai, and xai_api_key.")
-	} else if probe.Classification != xaioauth.ProbeReady {
-		fmt.Printf("\n⚠️  Login saved but probe status=%s: %s\n", probe.Classification, probe.Message)
-	} else {
-		fmt.Println("✓ Health probe passed")
-	}
-
-	if err := cfg.SetEngine("xai-oauth"); err != nil {
-		return err
-	}
-	cfg.XAIOAuth = oauthCfg
-	if err := cfg.Save(config.DefaultUserConfigPath()); err != nil {
-		return fmt.Errorf("failed to save config: %w", err)
-	}
-
-	fmt.Println("\n✓ Configuration updated!")
-	fmt.Println("  Engine: xai-oauth")
-	fmt.Printf("  Model: %s\n", oauthCfg.Model)
-	fmt.Printf("  Credential path: %s\n", client.Config().CredentialPath)
-	fmt.Println("\ncodeNERD will use your SuperGrok subscription for LLM calls.")
-	return nil
-}
-
 // runAuthStatus shows current authentication status
 func runAuthStatus(cmd *cobra.Command, args []string) error {
 	cfg, err := loadOrCreateConfig()
@@ -431,9 +261,6 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-	case "xai-oauth":
-		printSuperGrokAuthStatus(ctx, cfg)
-
 	default:
 		fmt.Println("Backend: HTTP API")
 		provider, _ := cfg.GetActiveProvider()
@@ -444,85 +271,9 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 		if cfg.XAIAPIKey != "" || os.Getenv("XAI_API_KEY") != "" {
 			fmt.Println("  XAI API key: present (metered API available)")
 		}
-		// Always surface SuperGrok store health so users know if nerd auth grok is needed.
-		fmt.Println()
-		printSuperGrokAuthStatus(ctx, cfg)
 	}
 
 	return nil
-}
-
-// printSuperGrokAuthStatus probes SuperGrok OAuth regardless of active engine.
-// Status labels: ok | needs_reauth | api_fallback | degraded.
-func printSuperGrokAuthStatus(ctx context.Context, cfg *config.UserConfig) {
-	fmt.Println("SuperGrok OAuth (xai-oauth):")
-	oauthCfg := cfg.GetXAIOAuthConfig()
-	fmt.Printf("  Model: %s\n", oauthCfg.Model)
-	if cfg.GetEngine() == "xai-oauth" {
-		fmt.Printf("  Timeout: %ds\n", oauthCfg.Timeout)
-		fmt.Printf("  Max concurrent calls: %d\n", oauthCfg.MaxConcurrentCalls)
-		fmt.Printf("  Effective scheduler ceiling: %d\n", cfg.GetEffectiveMaxConcurrentAPICalls())
-	}
-	importGrok := oauthCfg.ImportGrokAuth == nil || *oauthCfg.ImportGrokAuth
-	fallbackAPI := oauthCfg.FallbackToAPIKey == nil || *oauthCfg.FallbackToAPIKey
-	fmt.Printf("  Import Grok CLI auth: %t\n", importGrok)
-	fmt.Printf("  Fallback to API key: %t\n", fallbackAPI)
-
-	client := xaioauth.NewClientFromUserConfig(oauthCfg, 0)
-	fmt.Printf("  Credential path: %s\n", client.Config().CredentialPath)
-	// One health probe. Bound by xai_oauth.timeout; a --timeout already on
-	// ctx wins when it is shorter.
-	probeCtx, cancel := context.WithTimeout(ctx, time.Duration(oauthCfg.Timeout)*time.Second)
-	defer cancel()
-	probe := client.RunHealthProbe(probeCtx)
-
-	xaiKey := strings.TrimSpace(cfg.XAIAPIKey)
-	if xaiKey == "" {
-		xaiKey = strings.TrimSpace(os.Getenv("XAI_API_KEY"))
-	}
-	apiKeyAvailable := xaiKey != ""
-	status := xaioauth.DeriveAuthStatus(probe, apiKeyAvailable, fallbackAPI)
-
-	fmt.Printf("  Status: %s\n", status)
-	fmt.Printf("  Probe: %s\n", probe.Classification)
-	fmt.Printf("  Message: %s\n", probe.Message)
-	if probe.Source != "" {
-		fmt.Printf("  Source: %s\n", probe.Source)
-	}
-	if !probe.ExpiresAt.IsZero() {
-		fmt.Printf("  Token expires: %s\n", probe.ExpiresAt.Format(time.RFC3339))
-	}
-	if probe.Quarantined {
-		fmt.Println("  Quarantined: yes (terminal refresh failure; tokens marked invalid)")
-	}
-	if probe.RawError != "" && probe.Classification != xaioauth.ProbeReady {
-		detail := strings.SplitN(probe.RawError, "\n", 2)[0]
-		fmt.Printf("  Detail: %s\n", detail)
-	}
-
-	switch status {
-	case xaioauth.AuthStatusOK:
-		fmt.Println("  Auth: ✓ SuperGrok OAuth ready (ok)")
-		if cfg.GetEngine() != "xai-oauth" {
-			fmt.Println("  Tip: set engine with: nerd auth grok  (or engine=xai-oauth in config)")
-		}
-	case xaioauth.AuthStatusAPIFallback:
-		fmt.Println("  Auth: ⚠ needs reauth — using API key fallback available (api_fallback)")
-		fmt.Println("  Action: run  nerd auth grok  to restore SuperGrok OAuth")
-		fmt.Println("  Note: with fallback_to_api_key=true (default), boot uses metered xAI until re-auth")
-	case xaioauth.AuthStatusNeedsReauth:
-		fmt.Println("  Auth: ❌ needs reauth")
-		fmt.Println("  Action: run  nerd auth grok  (device login or re-import from ~/.grok/auth.json)")
-		fmt.Println("  Clear: delete ~/.nerd/xai_oauth.json if tokens stay quarantined")
-		if !apiKeyAvailable {
-			fmt.Println("  Tip: set xai_api_key for metered fallback while re-authing")
-		}
-	case xaioauth.AuthStatusDegraded:
-		fmt.Println("  Auth: ⚠ degraded (transient probe failure)")
-		fmt.Println("  Action: retry later, or run  nerd auth grok")
-	default:
-		fmt.Println("  Action: run  nerd auth grok  or check network")
-	}
 }
 
 // Helper functions for auth commands
