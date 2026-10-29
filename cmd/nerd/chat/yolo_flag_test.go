@@ -13,6 +13,7 @@ import (
 // itself and says so to the kernel (yolo_mode), without writing the switch to
 // config.json. Until 2026-09-25 the chat never read the flag.
 func TestInitChat_YoloFlagIsSessionAutonomy(t *testing.T) {
+	t.Parallel()
 	m := InitChat(Config{Yolo: true})
 	m.Config = config.DefaultUserConfig() // whatever the repo's own config says is not under test
 	m.workspace = t.TempDir()

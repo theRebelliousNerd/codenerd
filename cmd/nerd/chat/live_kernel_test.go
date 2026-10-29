@@ -15,6 +15,7 @@ import (
 // =============================================================================
 
 func TestLive_KernelCreation(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -35,6 +36,7 @@ func TestLive_KernelCreation(t *testing.T) {
 }
 
 func TestLive_QueryCommand(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -71,6 +73,7 @@ func TestLive_QueryCommand(t *testing.T) {
 }
 
 func TestLive_FactsCommand(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -97,6 +100,7 @@ func TestLive_FactsCommand(t *testing.T) {
 }
 
 func TestLive_ShardsCommand(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -121,6 +125,7 @@ func TestLive_ShardsCommand(t *testing.T) {
 }
 
 func TestLive_AutopoiesisCommand(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -145,6 +150,7 @@ func TestLive_AutopoiesisCommand(t *testing.T) {
 }
 
 func TestLive_ResetCommand(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -168,6 +174,7 @@ func TestLive_ResetCommand(t *testing.T) {
 }
 
 func TestLive_HelpCommand(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -195,6 +202,7 @@ func TestLive_HelpCommand(t *testing.T) {
 }
 
 func TestLive_ModelCommand(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -219,6 +227,7 @@ func TestLive_ModelCommand(t *testing.T) {
 }
 
 func TestLive_ConfigCommand(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -237,6 +246,7 @@ func TestLive_ConfigCommand(t *testing.T) {
 }
 
 func TestLive_WhyCommand(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -261,6 +271,7 @@ func TestLive_WhyCommand(t *testing.T) {
 }
 
 func TestLive_StatusCommand(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -279,6 +290,7 @@ func TestLive_StatusCommand(t *testing.T) {
 }
 
 func TestLive_ClearCommand(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -301,6 +313,7 @@ func TestLive_ClearCommand(t *testing.T) {
 }
 
 func TestLive_VersionCommand(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -319,6 +332,7 @@ func TestLive_VersionCommand(t *testing.T) {
 }
 
 func TestLive_DiagnoseCommand(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -336,6 +350,7 @@ func TestLive_DiagnoseCommand(t *testing.T) {
 }
 
 func TestLive_ModeCommand(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -358,6 +373,7 @@ func TestLive_ModeCommand(t *testing.T) {
 }
 
 func TestLive_GlassBoxCommand(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -383,6 +399,7 @@ func TestLive_GlassBoxCommand(t *testing.T) {
 }
 
 func TestLive_ShadowModeCreation(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -409,6 +426,7 @@ func TestLive_ShadowModeCreation(t *testing.T) {
 }
 
 func TestLive_WhatIfCommand(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -427,6 +445,7 @@ func TestLive_WhatIfCommand(t *testing.T) {
 }
 
 func TestLive_HandleSubmit_MockLLM(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -466,6 +485,7 @@ func TestLive_HandleSubmit_MockLLM(t *testing.T) {
 }
 
 func TestLive_HandleSubmit_CommandDetection(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -500,6 +520,7 @@ func TestLive_HandleSubmit_CommandDetection(t *testing.T) {
 }
 
 func TestLive_MultipleCommandSequence(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -527,6 +548,7 @@ func TestLive_MultipleCommandSequence(t *testing.T) {
 }
 
 func TestLive_ViewRendering(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -551,6 +573,7 @@ func TestLive_ViewRendering(t *testing.T) {
 }
 
 func TestLive_InputProcessing(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -580,6 +603,7 @@ func TestLive_InputProcessing(t *testing.T) {
 }
 
 func TestLive_ErrorHandling(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -608,6 +632,7 @@ func TestLive_ErrorHandling(t *testing.T) {
 }
 
 func TestLive_PerformanceBaseline(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -646,6 +671,7 @@ func TestLive_PerformanceBaseline(t *testing.T) {
 // =============================================================================
 
 func TestLive_FullIntegration_CommandFlow(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -688,6 +714,7 @@ func TestLive_FullIntegration_CommandFlow(t *testing.T) {
 }
 
 func TestLive_FullIntegration_GlassBoxFlow(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}
@@ -727,6 +754,7 @@ func TestLive_FullIntegration_GlassBoxFlow(t *testing.T) {
 }
 
 func TestLive_FullIntegration_ErrorRecovery(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping live kernel test in short mode")
 	}

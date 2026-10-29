@@ -14,6 +14,7 @@ import (
 // the yolo_mode fact appears when autonomy turns on and is retracted when it
 // turns off, so the policy guards consult live state.
 func TestYolo_TogglesKernelFact(t *testing.T) {
+	t.Parallel()
 	m := NewTestModel()
 	m.workspace = t.TempDir()
 	if err := os.MkdirAll(filepath.Join(m.workspace, ".nerd"), 0o755); err != nil {
@@ -49,6 +50,7 @@ func TestYolo_TogglesKernelFact(t *testing.T) {
 // re-asserts yolo_mode once the kernel exists, because the fact is session
 // state that does not survive restarts while the config does.
 func TestYolo_BootRestoresFact(t *testing.T) {
+	t.Parallel()
 	m := NewTestModel()
 	m.Config = config.DefaultUserConfig()
 	m.Config.WorkMode = config.WorkModeYolo

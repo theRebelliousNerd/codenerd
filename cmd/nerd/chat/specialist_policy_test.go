@@ -37,6 +37,7 @@ func derivedPairs(t *testing.T, k core.Kernel, predicate string) map[string]stri
 }
 
 func TestSpecialistPolicy_ShouldDeriveExecuteAdviseAndAdvisorFromMatcherFacts(t *testing.T) {
+	t.Parallel()
 	m := newRoundtripModel(t)
 	const task = "refactor the routing seam"
 

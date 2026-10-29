@@ -146,6 +146,7 @@ func evidenceIntent(file string, conf float64) perception.Intent {
 // The policy gives an evidence request a disposition: with no shard candidate
 // (or one below the gate) the old result was no lane and a tool-less answer.
 func TestDecideRoute_EvidenceWithNoShardGathersEvidence(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		shard string
@@ -174,6 +175,7 @@ func TestDecideRoute_EvidenceWithNoShardGathersEvidence(t *testing.T) {
 // Suggested tools with no file still derive the lane: the answer must be told
 // it has no evidence, not left to answer from prose.
 func TestDecideRoute_ToolsOnlyEvidenceGathers(t *testing.T) {
+	t.Parallel()
 	m := newRoundtripModel(t)
 	intent := perception.Intent{Category: "/query", Verb: "/explain", Target: "retry policy", Confidence: 0.9, IsQuestion: true, ToolsNeeded: []string{"grep"}}
 	assertRouteIntent(t, m, intent)
@@ -185,6 +187,7 @@ func TestDecideRoute_ToolsOnlyEvidenceGathers(t *testing.T) {
 // The lane never takes a turn another lane owns: a confident shard still
 // delegates, a mutation never gathers, a plain question still answers.
 func TestDecideRoute_GatherEvidenceDoesNotTakeOtherLanes(t *testing.T) {
+	t.Parallel()
 	m := newRoundtripModel(t)
 	intent := evidenceIntent("app.log", 0.96)
 	assertRouteIntent(t, m, intent)
@@ -230,6 +233,7 @@ func TestGatherWorkspaceEvidence_DoesNotRereadAnObservedFile(t *testing.T) {
 // budget and the answer is in its head, so the sentinel is deliverable and the
 // partial coverage is stated.
 func TestProcessInput_EvidenceTurnDeliversTheFileToTheAnsweringCall(t *testing.T) {
+	t.Parallel()
 	ws := SetupLiveWorkspace(t)
 	kernel, err := core.NewRealKernelWithWorkspace(ws)
 	if err != nil {

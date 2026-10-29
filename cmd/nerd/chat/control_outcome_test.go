@@ -15,6 +15,7 @@ import (
 // the user is told, and history does not record the preference as asked-for
 // and kept.
 func TestApplyArticulationControlPacket_FailedMemoryWriteIsNotRecordedAsRemembered(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)

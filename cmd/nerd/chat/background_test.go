@@ -18,6 +18,7 @@ import (
 // kernel-laid chain (self_diagnosis.mg). Real kernel, embedded policy.
 
 func TestBackground_ReadOnlyDelegationRunsOffTheTurn(t *testing.T) {
+	t.Parallel()
 	m := admissionModel(t, config.WorkModeExplicit, nil)
 	intent := perception.Intent{Category: "/query", Verb: "/review", Target: "internal/auth", Confidence: 0.95}
 	assertRouteIntent(t, m, intent)
@@ -28,6 +29,7 @@ func TestBackground_ReadOnlyDelegationRunsOffTheTurn(t *testing.T) {
 }
 
 func TestBackground_MutationNeverRunsInTheBackground(t *testing.T) {
+	t.Parallel()
 	m := admissionModel(t, config.WorkModeYolo, nil)
 	intent := fixReadme()
 	assertRouteIntent(t, m, intent)
@@ -37,6 +39,7 @@ func TestBackground_MutationNeverRunsInTheBackground(t *testing.T) {
 }
 
 func TestBackground_JobIsGroundedWhileRunningAndClearedAfter(t *testing.T) {
+	t.Parallel()
 	m := admissionModel(t, config.WorkModePropose, nil)
 	job := backgroundJob{ID: "bg-1", Shard: "reviewer", Task: "review internal/auth", Started: time.Now()}
 	m.background.add(job, nil)
@@ -62,6 +65,7 @@ func TestBackground_JobIsGroundedWhileRunningAndClearedAfter(t *testing.T) {
 }
 
 func TestBackground_FailureIsReported(t *testing.T) {
+	t.Parallel()
 	m := admissionModel(t, config.WorkModePropose, nil)
 	job := backgroundJob{ID: "bg-2", Shard: "researcher", Task: "find the retry policy", Started: time.Now()}
 	m.background.add(job, nil)
@@ -72,6 +76,7 @@ func TestBackground_FailureIsReported(t *testing.T) {
 }
 
 func TestSelfDiagnosis_RoutesToTheBackgroundChain(t *testing.T) {
+	t.Parallel()
 	m := admissionModel(t, config.WorkModePropose, nil)
 	intent := perception.Intent{Category: "/query", Verb: "/self_diagnose", Target: "codenerd", Confidence: 0.9}
 	assertRouteIntent(t, m, intent)
@@ -82,6 +87,7 @@ func TestSelfDiagnosis_RoutesToTheBackgroundChain(t *testing.T) {
 }
 
 func TestSelfDiagnosis_TaskNamesEveryHotProblemWhole(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	logs := filepath.Join(ws, ".nerd", "logs")
 	if err := os.MkdirAll(logs, 0o755); err != nil {
@@ -116,6 +122,7 @@ func TestSelfDiagnosis_TaskNamesEveryHotProblemWhole(t *testing.T) {
 }
 
 func TestSelfDiagnosis_NoLogSaysHowToGetOne(t *testing.T) {
+	t.Parallel()
 	m := admissionModel(t, config.WorkModePropose, nil)
 	m.workspace = t.TempDir()
 	if _, ok, reason := m.selfDiagnosisJob(m.shutdownCtx, "reviewer"); ok || !strings.Contains(reason, "/debug-self") {
@@ -141,6 +148,7 @@ func injectedLines(t *testing.T, m Model) string {
 // The running-job line is the main agent's alone: a shard that read another
 // job's task took it up as its own.
 func TestBackground_RunningJobIsNamedToTheMainAgentOnly(t *testing.T) {
+	t.Parallel()
 	m := admissionModel(t, config.WorkModePropose, nil)
 	job := backgroundJob{ID: "bg-scope", Shard: "reviewer", Task: "review internal/auth", Started: time.Now()}
 	m.assertBackgroundJob(job, "/running")

@@ -22,6 +22,7 @@ func routeFor(t *testing.T, input string, intent perception.Intent) RouteDecisio
 // once produced a clarification request because /converse was missing from
 // that table.
 func TestDecideRoute_ConversationIsAnsweredByPerception(t *testing.T) {
+	t.Parallel()
 	for _, intent := range []perception.Intent{
 		{Category: "/query", Verb: "/greet", Target: "", Confidence: 0.1},
 		{Category: "/query", Verb: "/converse", Target: "", Confidence: 0.3},
@@ -47,6 +48,7 @@ func TestDecideRoute_ConversationIsAnsweredByPerception(t *testing.T) {
 // The same verbs without a reply from perception, and the verbs whose answer
 // needs the workspace, do not take that lane.
 func TestDecideRoute_NotEveryConversationIsAnsweredByPerception(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		intent perception.Intent
@@ -72,6 +74,7 @@ func TestDecideRoute_NotEveryConversationIsAnsweredByPerception(t *testing.T) {
 // confident one delegates. Until 2026-09-23 these were shouldClarifyIntent and
 // shouldAutoClarify (a keyword match over the input) in Go.
 func TestDecideRoute_ARequestNamingNothingClarifies(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		input  string

@@ -672,6 +672,7 @@ func TestUpdate_Performance_WithHistory(t *testing.T) {
 // =============================================================================
 
 func TestUpdate_NoGoroutineLeakOnQuit(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping goroutine test in short mode")
 	}

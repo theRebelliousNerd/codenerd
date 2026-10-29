@@ -135,6 +135,7 @@ func chatInitGit(t *testing.T, root string, args ...string) {
 // planner phases reach the Cortex planner, nothing reaches the main client,
 // and the completion message says what happened.
 func TestRunInitialization_PlannerPhasesUseTheSessionPlanner(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	files := map[string]string{
 		"README.md":    "# Agent\nBuild a coding agent that wires what it writes.\n",

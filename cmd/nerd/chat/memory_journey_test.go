@@ -14,6 +14,7 @@ import (
 // is stored as the type hydration loads (so it is recallable), the second
 // removes that record, and each turn tells the person what happened.
 func TestRememberThenForget_TheSavedPreferenceIsRecallableAndRemovable(t *testing.T) {
+	t.Parallel()
 	db, err := store.NewLocalStore(":memory:")
 	if err != nil {
 		t.Fatal(err)

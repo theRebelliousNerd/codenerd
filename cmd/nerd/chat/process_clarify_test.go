@@ -59,6 +59,7 @@ func (s *clarifyStubTransducer) SetStrategicContext(_ string) {}
 // that decision via the clarification path (routeWantsClarify) instead of
 // delegating to the coder shard.
 func TestProcessInputClarifyRouteRunsClarifierPath(t *testing.T) {
+	t.Parallel()
 	workspace := SetupLiveWorkspace(t)
 
 	kernel, err := core.NewRealKernelWithWorkspace(workspace)

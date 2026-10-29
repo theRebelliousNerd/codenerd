@@ -84,6 +84,7 @@ func TestPersistAgentProfile(t *testing.T) {
 }
 
 func TestSyncSessionToSQLite(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping sync test in short mode")
 	}

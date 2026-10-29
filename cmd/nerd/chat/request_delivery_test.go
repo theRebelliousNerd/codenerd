@@ -48,6 +48,7 @@ func flagTurn() perception.Intent {
 // The kernel's truth table, over one real kernel: each case is its own
 // request, and only the active request can raise a step.
 func TestDeliveryPolicy_TruthTable(t *testing.T) {
+	t.Parallel()
 	k, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatal(err)
@@ -144,6 +145,7 @@ func mustAssert(t *testing.T, k types.Kernel, f types.Fact) {
 // and its summary says so. Before the delivery rounds the turn ended at the
 // first reply.
 func TestDeliveryJourney_AMissingPartIsHandedBackUntilDelivered(t *testing.T) {
+	t.Parallel()
 	m, exec := journeyModel(t, config.WorkModeYolo, flagTurn())
 	exec.response = "Done. Added a --json flag to the status command; it prints the status as JSON."
 	jev := &fakeJevServer{probs: deliveryProbs(0.02, 0.96, 0.04)}
@@ -182,6 +184,7 @@ func TestDeliveryJourney_AMissingPartIsHandedBackUntilDelivered(t *testing.T) {
 
 // A step that delivers none of what it was handed is not handed it again.
 func TestDeliveryJourney_AStepThatResolvesNothingStops(t *testing.T) {
+	t.Parallel()
 	m, exec := journeyModel(t, config.WorkModeYolo, flagTurn())
 	exec.response = "Done. Added a --json flag to the status command."
 	m = withJev(t, m, &fakeJevServer{probs: deliveryProbs(0.02, 0.96, 0.04)})
@@ -207,6 +210,7 @@ func TestDeliveryJourney_AStepThatResolvesNothingStops(t *testing.T) {
 // A blocker the step names ends the request with the reply, and the reply
 // says what was not delivered and why.
 func TestDeliveryJourney_ANamedBlockerEndsTheRequest(t *testing.T) {
+	t.Parallel()
 	m, exec := journeyModel(t, config.WorkModeYolo, flagTurn())
 	exec.response = "Added the flag. Writing README.md was denied by the permission gate; approve it and I will document the flag."
 	m = withJev(t, m, &fakeJevServer{probs: deliveryProbs(0.97, 0.96, 0.05)})
@@ -227,6 +231,7 @@ func TestDeliveryJourney_ANamedBlockerEndsTheRequest(t *testing.T) {
 // Jev failing judges nothing: the reply says delivery was not judged, and no
 // step is invented.
 func TestDeliveryJourney_JevFailingHandsNothingBack(t *testing.T) {
+	t.Parallel()
 	m, exec := journeyModel(t, config.WorkModeYolo, flagTurn())
 	exec.response = "Done. Added a --json flag."
 	jev := &fakeJevServer{probs: deliveryProbs(0.02, 0.96, 0.04)}
@@ -246,6 +251,7 @@ func TestDeliveryJourney_JevFailingHandsNothingBack(t *testing.T) {
 
 // With Jev off there is no chain at all.
 func TestDelivery_OffWithoutJev(t *testing.T) {
+	t.Parallel()
 	m, _ := journeyModel(t, config.WorkModeYolo)
 	if dc := m.startDelivery(jsonFlagRequest, "coder"); dc != nil {
 		t.Fatal("a delivery chain opened with no Jev client")
@@ -323,6 +329,7 @@ func TestDeliveryLive_ShardSaysDoneButMissedAPart(t *testing.T) {
 // The multi-step lane: a plan whose steps left part of the request undone
 // goes on with a step for it, to the plan's writing shard.
 func TestDeliveryMultiStep_APlanThatMissedAPartGoesOn(t *testing.T) {
+	t.Parallel()
 	m, exec := journeyModel(t, config.WorkModeYolo)
 	exec.response = "Done. Added a --json flag to the status command."
 	m = withJev(t, m, &fakeJevServer{probs: deliveryProbs(0.02, 0.96, 0.04)})

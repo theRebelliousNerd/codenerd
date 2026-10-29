@@ -20,6 +20,7 @@ import (
 // A turn reads a file partly, asks a specialist, and the synthesis request
 // still holds the file's text and its PARTIAL coverage.
 func TestKnowledgeSynthesis_KeepsTheTurnsEvidence(t *testing.T) {
+	t.Parallel()
 	ws := SetupLiveWorkspace(t)
 	kernel, err := core.NewRealKernelWithWorkspace(ws)
 	if err != nil {
@@ -84,6 +85,7 @@ func TestKnowledgeSynthesis_NamesTheConsultationsThatDidNotAnswer(t *testing.T) 
 
 // Requests past the per-turn cap are reported as not run, not dropped.
 func TestKnowledgeRequests_PastTheCapAreReportedNotRun(t *testing.T) {
+	t.Parallel()
 	m, _ := journeyModel(t, config.WorkModePropose)
 	reqs := []articulation.KnowledgeRequest{
 		{Specialist: "researcher", Query: "q1", Purpose: "p1"},

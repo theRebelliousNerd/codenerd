@@ -26,6 +26,7 @@ ok  	codenerd/internal/example	0.01s`
 // for repairing a failing suite silently does not load at the one moment
 // anybody wants it.
 func TestFailingTesterOutputReachesTDDRepairMode(t *testing.T) {
+	t.Parallel()
 	m, _ := SetupLiveModel(t)
 	m.shardResultHistory = append(m.shardResultHistory, &ShardResult{
 		ShardType: "tester",
@@ -55,6 +56,7 @@ func TestFailingTesterOutputReachesTDDRepairMode(t *testing.T) {
 // displaces /active, so a false positive here does not merely add atoms -- it
 // changes which operational mode the whole compile selects for.
 func TestPassingTesterOutputLeavesModeAlone(t *testing.T) {
+	t.Parallel()
 	m, _ := SetupLiveModel(t)
 	m.shardResultHistory = append(m.shardResultHistory, &ShardResult{
 		ShardType: "tester",
@@ -76,6 +78,7 @@ func TestPassingTesterOutputLeavesModeAlone(t *testing.T) {
 // honest answer, and it is what the previous implementation accidentally did
 // for every input.
 func TestUnreadableTesterOutputAssertsNothing(t *testing.T) {
+	t.Parallel()
 	m, _ := SetupLiveModel(t)
 	m.shardResultHistory = append(m.shardResultHistory, &ShardResult{
 		ShardType: "tester",
@@ -92,6 +95,7 @@ func TestUnreadableTesterOutputAssertsNothing(t *testing.T) {
 // edited. Reporting its failures sends the model at tests that may already
 // pass, which is worse than saying nothing because it looks current.
 func TestMostRecentTesterResultWins(t *testing.T) {
+	t.Parallel()
 	m, _ := SetupLiveModel(t)
 	m.shardResultHistory = append(m.shardResultHistory,
 		&ShardResult{ShardType: "tester", RawOutput: failingGoOutput},
@@ -113,6 +117,7 @@ func TestMostRecentTesterResultWins(t *testing.T) {
 // tests set it by hand, which is exactly how a field survives with no
 // producer: the readers are exercised, so the feature looks covered.
 func TestRepeatedFailuresArmTheStopTreatingSymptomsSignal(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		history []*ShardResult
@@ -192,6 +197,7 @@ func TestRepeatedFailuresArmTheStopTreatingSymptomsSignal(t *testing.T) {
 // passing suite would put "fix root cause, not symptoms" in the prompt of a
 // turn with nothing to fix.
 func TestAPassingSuiteReportsNoRetryCount(t *testing.T) {
+	t.Parallel()
 	m, _ := SetupLiveModel(t)
 	m.shardResultHistory = append(m.shardResultHistory,
 		tester(failingGoOutput), tester(failingGoOutput), tester(passingGoOutput))

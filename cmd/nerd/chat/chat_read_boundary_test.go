@@ -93,6 +93,7 @@ func TestChatInfoGatheringRead_AllowsCanonicalInRootTargets(t *testing.T) {
 }
 
 func TestPerceivedForgetOnlyRemovesMatchingSessionNote(t *testing.T) {
+	t.Parallel()
 	for _, key := range []string{"permitted", "user_intent", "security_violation"} {
 		t.Run(key, func(t *testing.T) {
 			kernel, err := core.NewRealKernel()

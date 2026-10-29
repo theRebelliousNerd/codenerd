@@ -15,6 +15,7 @@ import (
 // no target: alone it asks "write what?"; read as a reply, it is answered in
 // the conversation, and nothing runs.
 func TestJevJourney_BareReplyIsAnsweredNotAskedAbout(t *testing.T) {
+	t.Parallel()
 	save := perception.Intent{Category: "/mutation", Verb: "/write", Target: "none", Confidence: 0.9}
 	for _, tc := range []struct {
 		name  string
@@ -45,6 +46,7 @@ func TestJevJourney_BareReplyIsAnsweredNotAskedAbout(t *testing.T) {
 // read-only /debug for a shard: feedback is answered, not delegated; read as a
 // mutation, it asks first.
 func TestJevJourney_FeedbackIsAnsweredNotWorked(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		intent perception.Intent

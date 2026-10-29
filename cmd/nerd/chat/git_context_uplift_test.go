@@ -13,6 +13,7 @@ import (
 // Chesterton's Fence context with no error anywhere.
 
 func TestPopulateGitContext_RoundTrip(t *testing.T) {
+	t.Parallel()
 	for _, attr := range []string{"/branch", "branch"} {
 		t.Run(attr, func(t *testing.T) {
 			k, err := core.NewRealKernel()

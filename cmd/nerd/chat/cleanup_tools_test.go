@@ -14,6 +14,7 @@ import (
 // while store.ToolStore.CleanupIntelligent sat unwired: which executions to
 // delete is a retention decision, and retention is the harness's.
 func TestCleanupTools_PreviewsTheEnforcedBudgetAndDeclinesSmart(t *testing.T) {
+	t.Parallel()
 	ts, err := store.NewToolStore(filepath.Join(t.TempDir(), "tools.db"))
 	if err != nil {
 		t.Fatal(err)

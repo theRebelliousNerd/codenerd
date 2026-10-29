@@ -45,6 +45,7 @@ func startExecution(t *testing.T, m Model, label string) (uint64, context.Contex
 
 // A stop decided for turn A arrives after A ended and B began: B runs on.
 func TestSideTurn_ADelayedStopCannotReachTheNextTurn(t *testing.T) {
+	t.Parallel()
 	chat := perception.Intent{Category: "/query", Verb: "/converse", Target: "none", Confidence: 0.9, Response: "Okay."}
 	m, _ := busyModel(t, chat)
 	m = withJev(t, m, &fakeJevServer{probs: map[string]float64{"wants_to_stop": 0.97, "changes_files": 0.03}})
@@ -70,6 +71,7 @@ func TestSideTurn_ADelayedStopCannotReachTheNextTurn(t *testing.T) {
 // A side turn of turn A whose read finishes after A ended does not replace
 // the brief the next turn works from.
 func TestSideTurn_AStaleSideTurnDoesNotReplaceTheBrief(t *testing.T) {
+	t.Parallel()
 	m, _ := busyModel(t)
 	current := &perception.Brief{Goal: "the next task", Ready: true}
 	stale := &perception.Brief{Goal: "the old task", Constraints: []string{"old rule"}}
@@ -95,6 +97,7 @@ func TestSideTurn_AStaleSideTurnDoesNotReplaceTheBrief(t *testing.T) {
 // Two reads of the same brief: the one that finishes second does not erase
 // the change the first one made; it says so instead.
 func TestSideTurn_AConcurrentBriefChangeIsNotLost(t *testing.T) {
+	t.Parallel()
 	m, _ := busyModel(t)
 	m.recordBrief(&perception.Brief{Goal: "fix the README"})
 	newer := &perception.Brief{Goal: "fix the README", Constraints: []string{"keep the badge"}}
@@ -117,6 +120,7 @@ func TestSideTurn_AConcurrentBriefChangeIsNotLost(t *testing.T) {
 
 // Deferred work does not steer the running work's brief.
 func TestSideTurn_LaterWorkDoesNotReplaceTheActiveBrief(t *testing.T) {
+	t.Parallel()
 	more := perception.Intent{Category: "/mutation", Verb: "/create", Target: "CHANGELOG.md", Confidence: 0.9, Response: "Sure.",
 		Brief: &perception.Brief{Goal: "add a CHANGELOG entry"}}
 	m, _ := busyModel(t, more)
@@ -134,6 +138,7 @@ func TestSideTurn_LaterWorkDoesNotReplaceTheActiveBrief(t *testing.T) {
 // Two side turns decided at once read only their own facts: B's stop
 // judgment is not in force when A, which judged no stop, is decided.
 func TestSideTurn_ConcurrentDecisionsDoNotMixJudgments(t *testing.T) {
+	t.Parallel()
 	m, _ := busyModel(t)
 	m.Config.TypeSafe = &config.TypeSafeConfig{}
 	chat := perception.Intent{Category: "/query", Verb: "/converse", Target: "none", Confidence: 0.9}
@@ -174,6 +179,7 @@ func (d *doneProbe) Done() <-chan struct{} {
 // Ctrl+X: the stopped turn's late cleanup cannot clear the next turn, and
 // the queued message waits until the stopped turn has wound down.
 func TestCtrlX_QueuedWorkWaitsForTheStoppedTurnToSettle(t *testing.T) {
+	t.Parallel()
 	m, aCtx := busyModel(t)
 	a := m.turn.current()
 	m.turn.enqueue("then add the section")

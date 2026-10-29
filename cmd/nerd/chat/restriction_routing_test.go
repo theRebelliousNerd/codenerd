@@ -16,6 +16,7 @@ func restrictionOf(u perception.Understanding) perception.Restriction {
 // confident coder candidate delegated it as work; the dream lane required a
 // /dream verb that the conversion never produced.
 func TestDecideRoute_RecognisedHypotheticalTakesTheDreamLane(t *testing.T) {
+	t.Parallel()
 	hypothetical := perception.Intent{
 		Category: "/mutation", Verb: "/fix", Target: "retryLoop", Confidence: 0.95,
 		Restriction: restrictionOf(perception.Understanding{Signals: perception.Signals{IsHypothetical: true}}),
@@ -50,6 +51,7 @@ func TestDecideRoute_RecognisedHypotheticalTakesTheDreamLane(t *testing.T) {
 // Confirm-first and no-changes requests are not what-ifs: they keep their
 // lane and are held to their limit at the action boundary instead.
 func TestDecideRoute_OtherRestrictionsKeepTheirLane(t *testing.T) {
+	t.Parallel()
 	m := newRoundtripModel(t)
 	intent := perception.Intent{
 		Category: "/mutation", Verb: "/fix", Target: "retryLoop", Confidence: 0.95,
@@ -65,6 +67,7 @@ func TestDecideRoute_OtherRestrictionsKeepTheirLane(t *testing.T) {
 // clear that follows it must not be the one that removes them; the previous
 // turn's must still go.
 func TestRoutingFacts_PerceptionPublicationSurvivesTheTurnsClears(t *testing.T) {
+	t.Parallel()
 	m := newRoundtripModel(t)
 	assertAll(t, m, core.Fact{Predicate: "derived_mode", Args: []any{"/debug"}}) // last turn's
 

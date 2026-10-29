@@ -134,6 +134,7 @@ func assertCanonicalScan(t *testing.T, m Model, ws string) {
 }
 
 func TestScanPath_ShouldKeyFactsByCanonicalPath(t *testing.T) {
+	t.Parallel()
 	m, ws := newScanModel(t)
 
 	// One relative, one absolute: both must land under the canonical identity.
@@ -155,6 +156,7 @@ func TestScanPath_ShouldKeyFactsByCanonicalPath(t *testing.T) {
 }
 
 func TestScanDir_ShouldKeyFactsByCanonicalPath(t *testing.T) {
+	t.Parallel()
 	m, ws := newScanModel(t)
 
 	msg := m.runDirScan("internal")()

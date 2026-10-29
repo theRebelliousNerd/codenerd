@@ -14,6 +14,7 @@ import (
 // reading routes the turn, so a judgment at 0.5 never disputes a mutation,
 // approves a go-ahead, stops a job or adds a restriction.
 func TestJevJourney_UnsettledJudgmentsAreNamedAndActOnNothing(t *testing.T) {
+	t.Parallel()
 	m, exec := journeyModel(t, config.WorkModeYolo, fixReadmeTurn("Fixing it.", nil))
 	unsettled := map[string]float64{
 		"changes_files": 0.5, "names_target": 0.5, "hypothetical": 0.5, "rules_out_changes": 0.5, "about_codenerd": 0.5, "asks_to_commit": 0.5,
@@ -48,6 +49,7 @@ func TestJevJourney_UnsettledJudgmentsAreNamedAndActOnNothing(t *testing.T) {
 // With no work running there is nothing to stop, so the stop judgment is not
 // asked; with a job running it is, and the state names the job.
 func TestJevJourney_StopIsAskedOnlyWhileWorkRuns(t *testing.T) {
+	t.Parallel()
 	chat := perception.Intent{Category: "/query", Verb: "/converse", Target: "none", Confidence: 0.9}
 	m, _ := journeyModel(t, config.WorkModePropose, chat)
 	if got := m.runningWork(); len(got) != 0 {

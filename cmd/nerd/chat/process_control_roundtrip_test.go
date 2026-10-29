@@ -127,6 +127,7 @@ func (e *processControlTaskExecutor) callCount() int {
 }
 
 func TestProcessInputControlPacketIsGovernedBeforeKnowledgeConsultation(t *testing.T) {
+	t.Parallel()
 	workspace := SetupLiveWorkspace(t)
 	baseKernel, err := core.NewRealKernelWithWorkspace(workspace)
 	if err != nil {
@@ -311,6 +312,7 @@ func TestProcessInputControlPacketIsGovernedBeforeKnowledgeConsultation(t *testi
 }
 
 func TestProcessInputMutationWithoutVerifierDoesNotClaimCompletion(t *testing.T) {
+	t.Parallel()
 	workspace := SetupLiveWorkspace(t)
 	kernel, err := core.NewRealKernelWithWorkspace(workspace)
 	if err != nil {
