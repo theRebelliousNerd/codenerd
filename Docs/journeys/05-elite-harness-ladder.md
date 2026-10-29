@@ -56,6 +56,12 @@ the protocol for a run, and the status of each rung with the run that moved it.
   no hand edit, fail-before checked (`TestEditElement_MalformedRevisionIsNotConcurrentChange`), G1-G3
   green; its own adversarial review added cases. Coder shard on `gpt-6.1-sol`: 27 calls, 1.0M input
   (82% cache reads), ~$0.62. **R1 streak 1.**
+- **R1-31 landed** (2026-10-29, `bbe67b2a5`): a planned step's guessed target that the turn never wrote
+  no longer fails the whole delegation at the final measurement; it measures unchanged and the turn
+  reaches its verdict, while a written target with no preimage still fails loudly. One production file
+  and its tests, no hand edit, fail-before checked, G1-G3 green (one unrelated `internal/mcp` load flake
+  found and fixed by hand, `b656de2bf`). First run where codeNERD ran tagged vet itself through `run_lint`.
+  **R1 streak 2.**
 - last updated: 2026-09-19 20:25
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0

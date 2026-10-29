@@ -6168,3 +6168,18 @@ model believed `run_lint` takes no build tags and ran untagged vet itself (queue
 receipts: the three-key Anthropic pool round-robined every call of a conversation onto a new key (126/126 hops, 17%
 cache reads vs ~80% single-key), fixed by conversation affinity `962a1e2ff`; and `.nerd/usage.json` attributes
 100% of tokens to shard "unknown" (brief R1-32). **Streak 1.**
+
+## R1-31, a guessed step target failed the whole turn -- landed (2026-10-29, 18:30-18:55)
+
+Brief (symptom only): a delegation failed at the very end with "final file-state measurement failed: no first-write
+preimage was recorded for internal/workspace/workspace.go", a file that does not exist and was never written; the
+model had edited the right files. Entry point: one chat request in the TUI (`--yolo`) on `99c5526e6`. One coder step,
+/done on measured evidence (build, suite, pinning, removed-tests); Jev read every part of the request as delivered.
+
+**Landed** `bbe67b2a5`: `internal/session/work_steps.go` (a target with no preimage outside the write set measures
+`/unchanged`; a written target without one still fails) plus its tests. Fail-before:
+`TestRunPlannedSteps_UnwrittenTargetReachesVerdict` and `TestAssertPlannedStepFileNetFailsClosedWithoutACompleteMeasurement`
+fail with the fix reverted. G1-G3 green apart from `TestCancelledCollectionIsIncomplete` (internal/mcp), a load-dependent
+ordering race in the MCP pager, fixed by hand with a deterministic test (`b656de2bf`). The turn ran `go vet` with
+`sqlite_vec` itself (run_lint's build-tag fix took). **Streak 2.**
+

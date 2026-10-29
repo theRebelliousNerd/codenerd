@@ -44,6 +44,7 @@ Status: open, in progress, fixed `<commit>`, closed (`<reason>`).
 | `system-execution-outcome-projection` | `research-main-20261029-1018` | open |
 | `expert-lending-dependency-contract` | `research-main-20261029-2152` | open |
 | `slash-command-specialist-target-continuity` | `research-main-20261029-2221` | open |
+| `planned-step-expert-consultation-continuity` | `research-main-20261029-2241` | open |
 
 ## Lane B: campaign and verification, then the Mangle kernel and world model
 
@@ -68,6 +69,8 @@ Status: open, in progress, fixed `<commit>`, closed (`<reason>`).
 | `run_lint describes its build tags` (root finding, R1-27 rerun: the model believed run_lint takes no tags; it applies the workspace build env) | -- | open |
 | `gate-comparison-domain-admission` | `research-main-20261029-2152` | open |
 | `gate-scoped-recurse-current-main-addendum` | `research-main-20261029-2221` | open |
+| `run-lint-effective-build-tag-receipt` | `research-main-20261029-2241` | open |
+| `scoped-gate-overlay-evidence-conservation` | `research-main-20261029-2241` | open |
 
 ## codeNERD ladder runs: store, learning and memory, then chat and TUI
 
