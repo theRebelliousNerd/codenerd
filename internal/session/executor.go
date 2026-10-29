@@ -2554,7 +2554,18 @@ func (r *ExecutionResult) turnAtom() types.MangleAtom {
 // corpus decides from those what evidence the write owes (turn_owes_gate). A
 // turn only adds writes, so a fact asserted before a forcing round is still
 // true at the closure.
+//
+// Whether each written path is net unchanged is measured again on every call,
+// because a later round can revert a write or redo a reverted one:
+// turn_write_reverted names the paths whose bytes on disk are their pre-image,
+// and the corpus owes nothing for those (turn_net_written).
 func (e *Executor) assertTurnWrites(turn types.MangleAtom, result *ExecutionResult) {
+	e.retractTurnPredicates(turn, "turn_write_reverted")
+	for _, path := range result.WrittenPaths {
+		if writeReverted(e.workspaceForVerification(), path, result.PreWriteContents) {
+			e.assertTurnFact(types.Fact{Predicate: "turn_write_reverted", Args: []any{turn, types.MangleString(path)}})
+		}
+	}
 	if result.writtenAsserted == nil {
 		result.writtenAsserted = make(map[string]bool, len(result.WrittenPaths))
 	}

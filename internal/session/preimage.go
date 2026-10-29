@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path/filepath"
 )
 
 // PreImage is what a written path held before the turn's first write to it.
@@ -109,4 +110,24 @@ func readPreImage(path string) PreImage {
 	default:
 		return PreImage{Unknown: err.Error()}
 	}
+}
+
+// writeReverted reports whether a written path's bytes on disk are its
+// pre-image again: the file it was, byte for byte, or absent when it did not
+// exist. A path with no recorded pre-image, or one that cannot be read now,
+// is not reverted: the cautious side.
+func writeReverted(workspace, path string, pre map[string]PreImage) bool {
+	img, ok := pre[path]
+	if !ok || !img.Known() {
+		return false
+	}
+	abs := path
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(workspace, filepath.FromSlash(path))
+	}
+	current := readPreImage(abs)
+	if !current.Known() || current.Existed != img.Existed {
+		return false
+	}
+	return current.Content == img.Content
 }

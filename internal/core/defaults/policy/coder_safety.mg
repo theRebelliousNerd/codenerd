@@ -462,8 +462,22 @@ write_class(".adoc", /doc).
 known_write_ext(Ext) :- write_class(Ext, _).
 
 has_turn_written(Turn) :- turn_written(Turn, _, _).
-turn_write_class(Turn, Class) :- turn_written(Turn, _, Ext), write_class(Ext, Class).
-turn_write_class(Turn, /other) :- turn_written(Turn, Path, Ext), !known_write_ext(Ext), !turn_doc_write(Turn, Path).
+
+# What a write owes is owed for the change it leaves, not for the path it
+# touched. turn_write_reverted(Turn, Path) is a written path whose bytes on
+# disk are its pre-image again -- the turn edited it and put it back, or
+# created it and removed it (the executor measures it each time it asserts
+# the write set; assertTurnWrites). Net unchanged, it owes nothing: on ladder
+# R1-24 an .mg edit reverted byte for byte still owed /test_run. It stays a
+# turn_written row, so the build graph and the no-recorded-write rule below
+# still see that the turn wrote.
+Decl turn_write_reverted(Turn, Path) bound [/name, /string].
+Decl turn_net_written(Turn, Path, Ext) bound [/name, /string, /string].
+Decl has_turn_net_written(Turn) bound [/name].
+turn_net_written(Turn, Path, Ext) :- turn_written(Turn, Path, Ext), !turn_write_reverted(Turn, Path).
+has_turn_net_written(Turn) :- turn_net_written(Turn, _, _).
+turn_write_class(Turn, Class) :- turn_net_written(Turn, _, Ext), write_class(Ext, Class).
+turn_write_class(Turn, /other) :- turn_net_written(Turn, Path, Ext), !known_write_ext(Ext), !turn_doc_write(Turn, Path).
 # A file of no known class under a declared docs path is documentation: the
 # corpus.toml that indexes a docs directory owes what its Markdown owes. Until
 # 2026-09-26 it was /other and owed a passing `go test ./...`: on campaign
@@ -472,7 +486,7 @@ turn_write_class(Turn, /other) :- turn_written(Turn, Path, Ext), !known_write_ex
 # admission audit read that as unfinished work -- its correct edits were rolled
 # back. Source code keeps its class wherever it sits (a .go file under docs/
 # still compiles into the module).
-turn_write_class(Turn, /doc) :- turn_written(Turn, Path, Ext), !known_write_ext(Ext), turn_doc_write(Turn, Path).
+turn_write_class(Turn, /doc) :- turn_net_written(Turn, Path, Ext), !known_write_ext(Ext), turn_doc_write(Turn, Path).
 
 turn_owes_gate(Turn, /build) :- turn_write_class(Turn, /go).
 turn_owes_gate(Turn, /test) :- turn_write_class(Turn, /go).
@@ -627,7 +641,7 @@ editing_persona(/tester).
 # decides who may run the check, so the obligation cannot drift from it.
 turn_owes_gate(Turn, /check) :-
     turn_catalog(Turn, /run_check),
-    has_turn_written(Turn).
+    has_turn_net_written(Turn).
 
 # An owed gate is met by this turn's affirmative verdict and nothing older; a
 # gate that recorded both verdicts is red, so the green one cannot carry it.

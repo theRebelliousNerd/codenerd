@@ -302,7 +302,7 @@ var hostWitnessPredicates = map[string]struct{}{
 	"turn_created_test": {}, "turn_test_coverage": {}, "turn_missing_test": {},
 	// What a write owes (N01): write_class is the table a model could
 	// otherwise extend to reclassify its own code as documentation.
-	"turn_written": {}, "turn_changed_element": {}, "turn_element_uncovered": {}, "turn_element_measured": {}, "write_class": {}, "known_write_ext": {}, "has_turn_written": {}, "turn_write_class": {},
+	"turn_written": {}, "turn_write_reverted": {}, "turn_net_written": {}, "has_turn_net_written": {}, "turn_changed_element": {}, "turn_element_uncovered": {}, "turn_element_measured": {}, "write_class": {}, "known_write_ext": {}, "has_turn_written": {}, "turn_write_class": {},
 	// The witness verdict (witness.mg): a model that could write witness_met
 	// could suppress turn_unwitnessed through its negation and manufacture
 	// its own completion.

@@ -289,7 +289,7 @@ func TestRunToolLoop_PiggybackRunsPostEditBuildGate(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace, "go.mod"), []byte("module example.com/piggyback\n\ngo 1.25\n"), 0o600); err != nil {
 		t.Fatalf("write go.mod: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, "broken.go"), []byte("package broken\nfunc nope(\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, "broken.go"), []byte("package broken\n"), 0o600); err != nil {
 		t.Fatalf("write broken.go: %v", err)
 	}
 
@@ -297,7 +297,11 @@ func TestRunToolLoop_PiggybackRunsPostEditBuildGate(t *testing.T) {
 	registerTestTool(t, &tools.Tool{
 		Effect: tools.EffectRead,
 		Name:   toolName, Category: tools.CategoryCode,
-		Execute: func(context.Context, map[string]any) (string, error) { return "written", nil },
+		// The write lands: a write that leaves the file as it was is net
+		// unchanged and owes no gate (turn_write_reverted).
+		Execute: func(context.Context, map[string]any) (string, error) {
+			return "written", os.WriteFile(filepath.Join(workspace, "broken.go"), []byte("package broken\nfunc nope(\n"), 0o600)
+		},
 	})
 
 	// The Piggyback channel continues the conversation now, so the model is
@@ -347,7 +351,7 @@ func TestRunToolLoop_ForcedFinalRunsPostEditBuildGate(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace, "go.mod"), []byte("module example.com/forcedfinal\n\ngo 1.25\n"), 0o600); err != nil {
 		t.Fatalf("write go.mod: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, "broken.go"), []byte("package broken\nfunc nope(\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, "broken.go"), []byte("package broken\n"), 0o600); err != nil {
 		t.Fatalf("write broken.go: %v", err)
 	}
 
@@ -358,7 +362,11 @@ func TestRunToolLoop_ForcedFinalRunsPostEditBuildGate(t *testing.T) {
 	registerTestTool(t, &tools.Tool{
 		Effect: tools.EffectWrite,
 		Name:   writeTool, Category: tools.CategoryCode,
-		Execute: func(context.Context, map[string]any) (string, error) { return "written", nil },
+		// The write lands: a write that leaves the file as it was is net
+		// unchanged and owes no gate (turn_write_reverted).
+		Execute: func(context.Context, map[string]any) (string, error) {
+			return "written", os.WriteFile(filepath.Join(workspace, "broken.go"), []byte("package broken\nfunc nope(\n"), 0o600)
+		},
 	})
 	const readTool = "forced_final_drift_probe"
 	registerTestTool(t, &tools.Tool{
