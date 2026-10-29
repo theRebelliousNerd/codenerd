@@ -91,12 +91,27 @@ func loadOrientationProjection(path string) (string, []Fact, error) {
 // orientationProjectionFlight coalesces concurrent parses of one projection.
 var orientationProjectionFlight singleflight.Group
 
-// parseOrientationProjection reads and parses the projection and remembers it.
+// parseOrientationProjection reads and parses the projection and remembers it,
+// in this process and, by its exact text, across processes
+// (orientation_projection_cache.go).
 func parseOrientationProjection(path string, before os.FileInfo, statErr error) (string, []Fact, error) {
 	body, err := os.ReadFile(path)
 	if err != nil {
 		return "", nil, err
 	}
+	decls, facts, err := cachedProjectionParse(projectionCachePath(path), body, func() (string, []Fact, error) {
+		return parseProjectionText(path, body)
+	})
+	if err != nil {
+		return "", nil, err
+	}
+	rememberOrientationProjection(path, before, statErr, len(body), decls, facts)
+	return decls, facts, nil
+}
+
+// parseProjectionText splits the projection text into its declarations and
+// parses its rows, which must all be ground facts.
+func parseProjectionText(path string, body []byte) (string, []Fact, error) {
 	var decls, rows strings.Builder
 	rowCount := 0
 	for _, line := range strings.Split(string(body), "\n") {
@@ -114,7 +129,6 @@ func parseOrientationProjection(path string, before os.FileInfo, statErr error) 
 		}
 	}
 	if rowCount == 0 {
-		rememberOrientationProjection(path, before, statErr, len(body), decls.String(), nil)
 		return decls.String(), nil, nil
 	}
 	facts, err := ParseFactsFromString(rows.String())
@@ -124,6 +138,5 @@ func parseOrientationProjection(path string, before os.FileInfo, statErr error) 
 	if len(facts) != rowCount {
 		return "", nil, fmt.Errorf("orientation projection %s: %d of %d rows are ground facts; the projection carries rows only", path, len(facts), rowCount)
 	}
-	rememberOrientationProjection(path, before, statErr, len(body), decls.String(), facts)
 	return decls.String(), facts, nil
 }
