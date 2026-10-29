@@ -35,6 +35,14 @@ the protocol for a run, and the status of each rung with the run that moved it.
 - **R1-26 landed, three files** (2026-10-29): stored vectors written before their embedding space was
   recorded are re-embedded once per space and rank again. Its first version healed on every recall;
   codeNERD fixed that on review in a second turn. Three production files, so it does not count. **R1 streak 0.**
+- **R1-27 not landed, harness-blocked** (2026-10-29): a non-revision string sent to `edit_element`
+  reported as a concurrent change. codeNERD's one-file fix was right and its verdict truthful
+  (`/unverified`: "the requested all-green acceptance is not established"), blocked by three harness
+  defects: G3 red from a guard the OpenAI client commit broke (fixed `db13edc5a`), no typed tool to run
+  `go vet` (autopoiesis tried to generate `/go_vet` and failed three times, R1-29), and
+  `world.ignore_patterns`' default `build` hiding the tracked `internal/build/` from workspace tools
+  (R1-30). Its last round also stopped trimming whitespace, refusing a padded valid revision
+  (criterion 7). First run with the coder shard on `gpt-6.1-sol`. **R1 streak 0.**
 - last updated: 2026-09-19 20:25
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0
@@ -170,6 +178,9 @@ C1-C5 from the R1-2 campaign comparison (`campaign_1284b6bb`); V1 found while fi
   the refusal says so to the retry.
 - **C3 a retry drops its reason.** The retry re-spawned the same create task without the failure
   that stopped it, and the create-only fallback refused because the file now existed.
+  **Landed `5b7ef9331`** (tests `2fd4024a0`): `withPreviousAttempt`
+  (`internal/campaign/orchestrator_task_handlers.go`) appends the last failed attempt's error to the
+  retry's input, read from the live campaign by task ID.
 - **C4 rollback covers the declared write set, not the attempt's writes.** It removed the created
   file and kept the coder's edit to `cmd_mangle_check.go` -- outside the set -- which imported it,
   so the tree stopped building. `TestRollback_KeepsFilesOutsideTheWriteSet` pins today's
@@ -178,6 +189,11 @@ C1-C5 from the R1-2 campaign comparison (`campaign_1284b6bb`); V1 found while fi
   typed return (`observation.Return`, on `session.TaskResult.Observed`) already carries the
   attempt's write set (`Changed`), its own error (`Failure`) and the kernel's verdict (`Outcome`).
   C3 and C4 share that root: the typed result (S1) stops one seam short of the campaign.
+  **Landed `5b7ef9331`** (tests `2fd4024a0`): `spawnTask` runs each turn through `ExecuteObserved`,
+  records `observation.Return.Writes` per attempt (`orchestrator_attempt_writes.go`), and
+  `undoFailedAttempt` undoes the attempt's own writes outside the snapshot while each path still holds
+  what the attempt left; another writer's files are left and named
+  (`TestRollback_UndoesTheAttemptsOwnWritesOutsideTheWriteSetAndNoOneElses`).
 - **C5 a gated coder turn has a way around its gate.** When the coder shard fails a `/file_create`
   task for any reason but a cancel -- including the test obligation ("hollow success blocked: turn
   created Go source ... without a test file") -- `executeFileTaskFallback`
@@ -204,6 +220,9 @@ C1-C5 from the R1-2 campaign comparison (`campaign_1284b6bb`); V1 found while fi
   fenced example is written as the example's inside alone (`//\tx := 1\n//` -- the package clause
   and every declaration gone), and a Markdown document with an untagged fence is written as that
   block's inside. The first R2 brief (scratchpad `brief_v1_*`).
+  **Landed `97fc8f379`**: `handleWriteFile` writes the bytes it is given (only an existing file's line
+  ending is kept); the campaign document fallback writes the reply as generated and unwraps it only
+  when wholly fenced (`unwrapReplyFence`, `internal/campaign/orchestrator_document_fallback.go`).
 
 ## What counts as a landing
 

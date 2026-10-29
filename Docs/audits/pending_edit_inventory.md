@@ -80,7 +80,7 @@ tm.kernel.Assert(Fact{
 |---|---|---|
 | Type | `string` (Mangle double-quoted, Go `string`) | `schemas_shards.mg:132` |
 | Full vs truncated | Policy treats as opaque; Go analog stores **200-char preview + "..."** in EDB, full `edit.Content` for `os.WriteFile` | `transaction_manager.go:174-185` |
-| Encoding | UTF-8 text; `extractCodeBlockForFile` strips ``` fences before write | `WRITE_MUTATION_INVENTORY.md:29` + `virtual_store_file_actions.go:202-206` |
+| Encoding | UTF-8 text; written as given, no fence stripping (V1 `97fc8f379`) | `WRITE_MUTATION_INVENTORY.md:29` + `virtual_store_file_actions.go:202-206` |
 | Hash | `sha256` of full content for `file_written(path, hash, sessionID, timestamp)` — not stored in `pending_edit` Content | `virtual_store_file_actions.go:232-233` |
 | Empty | Allowed for create/delete edge cases; `_` wildcard in policy means empty check not enforced | `coder_tdd.mg:52-53` `edit_is_implementation` vs `edit_is_test` |
 | Line-range variants | Code DOM paths (`edit_lines`, `insert_lines`, `delete_lines`) carry `start_line`/`end_line`/`after_line` as `float64` + `content string` fragment, not whole-file content | `virtual_store_codedom.go:325-457` |

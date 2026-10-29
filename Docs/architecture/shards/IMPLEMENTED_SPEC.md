@@ -217,14 +217,33 @@ terminal outcome.
 
 ### 6.1 Matching
 
-`MatchSpecialistsForTask` reads supplied files, calculates scores from extension,
-path, import, and content hints, maps technology patterns to registered agent
-names, caps the result according to verb configuration, and sorts by score. It is
-deterministic heuristic matching, not embedding retrieval or authority.
+The kernel decides which shard agent a task needs (as built 2026-10-29). Policy
+`internal/core/defaults/policy/shard_experts.mg` (Decls in
+`schemas_shard_experts.mg`) derives `expert_needed(Task, Agent, Reason)`, where
+Reason is the technology joining the task's files to the agent's domain. Its
+inputs are boot facts asserted by `internal/system/shard_expert_facts.go`
+(`shard_agent`, `shard_agent_domain` from agents.json `domains` and each agent's
+KB `lang`/`framework` tags, `technology_import_root` from init's table) and
+per-task facts asserted by `internal/experts/select.go` (`expert_task`,
+`expert_task_target`). A file's technologies come from the world model
+(`detected_language`, `file_topology`, `file_dir`, `dependency_link`).
+`specialist_match` is derived from the strongest evidence (import 90, language
+60), so `specialist_should_execute`, `specialist_should_advise` and
+`strategic_advisor_required` all follow the same decision. The new extensional
+predicates live in the "world" shard (`internal/shards/registration.go`) so the
+join never splits across kernel shards.
 
-Classifications separate executor, advisor, and observer roles plus technical,
-strategic, and domain knowledge tiers. `ShouldSpecialistExecuteTask` requires an
-executor classification and high confidence.
+`experts.Select` asserts a task, reads the derived facts and retracts them.
+`session.Executor.neededExperts` fills `CompilationContext.Experts` at every
+compile boundary, and the JIT pushes each expert's non-identity atoms and
+knowledge rows (`internal/prompt/compiler_experts.go`): a pushed expert lends its
+knowledge, not its identity. Chat delegation and `/review` take their specialist
+list from the same selection (`cmd/nerd/chat/expert_selection.go`). Init writes
+agents.json `domains` from the orient rule `orient_agent_domain`. The earlier Go
+matcher (`MatchSpecialistsForTask`, `CoreTechnologyPatterns`) is deleted.
+Proof: `TestBootAssertsShardExpertRosterAndTheCompileCarriesIt`,
+`TestShardExpertPolicyDerivesExpertNeeded`,
+`TestCompilationContextCarriesTheKernelsNeededExperts`.
 
 ### 6.2 Consultation
 

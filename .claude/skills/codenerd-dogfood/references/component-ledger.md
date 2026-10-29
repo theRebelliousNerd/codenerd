@@ -6115,3 +6115,25 @@ with a test of the new behaviour. G1-G3 (106/106) green; no hand edit. Leftover:
 still discarded. Process note: the root merged two hunter batches into main during the first turn,
 and its `go test ./...` saw the tree mid-change; merges now wait for a ladder turn to end.
 **Streak 0.**
+
+## R1-27, edit_element: a non-revision string read as a concurrent change -- not landed, harness-blocked (2026-10-29, 15:50-16:30)
+
+Brief (symptom only): `edit_element` with revision "latest" failed "precondition failed: ... is at rev
+1f11f9cf40f7, not latest -- it changed since it was read" though nothing had changed. Entry point: one chat
+request in the TUI (`--yolo`), on a fresh build of `9d26d9c3a`. First run with the coder shard profile on
+OpenAI `gpt-6.1-sol` at high effort (the new Responses client); three coder steps, ~40 minutes.
+
+**Not landed, reverted** (patch kept at `.nerd/dogfood/briefs/R1-27.run1.patch`). The fix was right and one
+production file (`internal/tools/codedom/element_edit.go`): a supplied revision must be 12 lowercase hex,
+otherwise refused as malformed with the format and `get_element`/`get_elements` as the source; stale and
+omitted revisions unchanged; thorough table tests plus a round-trip test. Verdict truthful: every step ended
+`/unverified` because its report said the all-green acceptance was not established, and the `/finish` round
+pushed it back twice. Blockers, all the harness's: (1) G3 red in `TestRepository_NoHardcodedModelNames` from
+`internal/config/openai.go` (my OpenAI commit; fixed `db13edc5a`); (2) no typed tool runs `go vet`, so the
+kernel delegated `/go_vet` to autopoiesis, which failed three times because Muse answered with a JSON envelope
+(R1-29: the piggyback atoms reach the tool generator's prompt); (3) `world.ignore_patterns`' default `build`
+hides the tracked `internal/build/` package, so the model could not read the failing guard (R1-30). Criterion 7:
+its last round stopped trimming whitespace, so a valid revision with stray spaces, accepted at HEAD, is refused.
+Other log findings: `read_file`'s did-you-mean offered `.env`; every boot re-fails to embed a zero-byte ecosystem
+paragraph, one from a deleted worktree (R1-28). Lanes merged meanwhile: B (V1 `97fc8f379`, C3/C4 tests
+`2fd4024a0`), A (kernel-decided shard-agent selection `ea95c9740`). **Streak 0.**

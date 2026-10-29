@@ -105,3 +105,18 @@ files the campaign created but never declared
 (`sweepUndeclaredRootWrites`,
 `internal/campaign/orchestrator_execution.go:198`), bounded by the
 `Campaign.RootBaseline` snapshot (`internal/campaign/types.go:197`).
+
+## Failed attempts, retries and the document fallback (as built 2026-10-29)
+
+A failed attempt is rolled back in two steps: `undoAttemptWrites`
+(`internal/campaign/orchestrator_attempt_writes.go`) first undoes the attempt's
+recorded writes (`observation.Return.Writes`) outside the snapshot, each only
+while the path still holds what the attempt left; then
+`rollbackTaskExecutionSnapshot` restores the declared write set. Leases are
+released last. Another writer's files are kept and named. A retry's input
+carries "=== THE PREVIOUS ATTEMPT AT THIS TASK FAILED ===" followed by the error
+(`withPreviousAttempt`, `orchestrator_task_handlers.go`). The document fallback
+lives in `orchestrator_document_fallback.go`: it writes the reply as generated and
+unwraps it only when the whole reply is one fenced block (`unwrapReplyFence`).
+The VirtualStore never rewrites content (`handleWriteFile`,
+`internal/core/virtual_store_file_actions.go`).
