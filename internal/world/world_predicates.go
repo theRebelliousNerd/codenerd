@@ -12,6 +12,8 @@ package world
 //	Scanner (full/incremental) topology, symbols, imports, entry pts   every scan
 //	                             + test-impact file facts (file_package,
 //	                               is_test_file, file_imports)
+//	                             + imports_project_file
+//	import-graph measurement   import_cycle_member                    when edges change
 //	Cartographer / deep scan   code_defines/code_calls + data flow     on demand (/scan --deep)
 //	(reserved, no writer)      symbol_defined/referenced/diagnostics   never
 //	CodeDOM scope (session)    active_file, code_element, file_in_scope session lifetime
@@ -65,6 +67,17 @@ var ScannerPredicates = []string{
 	"file_package",
 	"is_test_file",
 	"file_imports",
+	// Per-file import-graph measurement (import_cycles.go), emitted with
+	// the file's resolved edges.
+	"imports_project_file",
+}
+
+// ImportGraphPredicates are whole-graph measurements of the import edges
+// (import_cycles.go). Nothing persists them: ApplyIncrementalResult
+// re-measures them from the kernel's dependency_link whenever a scan changes
+// the edges, and the boot path measures them from the cached world it loads.
+var ImportGraphPredicates = []string{
+	"import_cycle_member",
 }
 
 // DeepPredicates are produced by the Cartographer (EnsureDeepFacts) and the
@@ -118,6 +131,7 @@ var GitPredicates = []string{
 // fact stream); do NOT use it as a replace-set — see ScannerReplaceSet.
 var WorldPredicates = concatPredicates(
 	ScannerPredicates,
+	ImportGraphPredicates,
 	DeepPredicates,
 	LSPPredicates,
 	SessionScopePredicates,

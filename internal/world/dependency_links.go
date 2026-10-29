@@ -181,8 +181,16 @@ func resolveDependencyLinksWithIndex(idx *repoFileIndex, facts []core.Fact) []co
 	// file_imports(TestFile, SourceFile) against code_element's file slot,
 	// and this resolution is the single definition of "file imports file" in
 	// the world model. Same edges, so full and incremental scans agree exactly.
+	// imports_project_file marks each importer once (import_cycles.go): a
+	// per-file measurement, stored and retracted with the file's edges.
 	out := make([]core.Fact, 0, 2*len(edges))
-	for _, e := range edges {
+	for i, e := range edges {
+		if i == 0 || edges[i-1].from != e.from {
+			out = append(out, core.Fact{
+				Predicate: "imports_project_file",
+				Args:      []any{e.from},
+			})
+		}
 		out = append(out, core.Fact{
 			Predicate: "dependency_link",
 			Args:      []any{e.from, e.to, e.imp},

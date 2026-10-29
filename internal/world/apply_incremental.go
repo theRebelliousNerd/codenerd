@@ -41,12 +41,12 @@ func ApplyIncrementalResult(kernel types.Kernel, res *IncrementalResult) error {
 		// diagnostic, and nothing restored them until a deep scan happened to
 		// run. See the ownership matrix in world_predicates.go.
 		_ = kernel.RemoveFactsByPredicateSet(ScannerReplaceSet())
-		if len(res.NewFacts) == 0 {
-			return applyOrientationDelta(kernel, res)
+		if len(res.NewFacts) > 0 {
+			if err := kernel.LoadFacts(toTypesFacts(res.NewFacts)); err != nil {
+				return err
+			}
 		}
-		// Convert world.Fact to types.Fact
-		typeFacts := toTypesFacts(res.NewFacts)
-		if err := kernel.LoadFacts(typeFacts); err != nil {
+		if err := refreshImportCycles(kernel); err != nil {
 			return err
 		}
 		return applyOrientationDelta(kernel, res)
@@ -56,6 +56,7 @@ func ApplyIncrementalResult(kernel types.Kernel, res *IncrementalResult) error {
 		typeFacts := toTypesFacts(res.RetractFacts)
 		_ = kernel.RetractExactFactsBatch(typeFacts)
 	}
+	edgesChanged := importEdgesChanged(res.RetractFacts, res.NewFacts)
 
 	// Whole-snapshot derivations are recomputed in full by every delta scan, so
 	// the previous generation is dropped rather than accumulated. project_language
@@ -65,13 +66,15 @@ func ApplyIncrementalResult(kernel types.Kernel, res *IncrementalResult) error {
 		_ = kernel.Retract(pred)
 	}
 
-	if len(res.NewFacts) == 0 {
-		return applyOrientationDelta(kernel, res)
+	if len(res.NewFacts) > 0 {
+		if err := kernel.LoadFacts(toTypesFacts(res.NewFacts)); err != nil {
+			return err
+		}
 	}
-	// Convert world.Fact to types.Fact
-	typeFacts := toTypesFacts(res.NewFacts)
-	if err := kernel.LoadFacts(typeFacts); err != nil {
-		return err
+	if edgesChanged {
+		if err := refreshImportCycles(kernel); err != nil {
+			return err
+		}
 	}
 	return applyOrientationDelta(kernel, res)
 }

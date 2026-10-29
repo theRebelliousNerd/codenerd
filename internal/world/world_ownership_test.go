@@ -109,6 +109,7 @@ func TestWorldPredicates_WhenListed_ShouldCoverEveryOwnerGroup(t *testing.T) {
 		"lsp":     LSPPredicates,
 		"scope":   SessionScopePredicates,
 		"git":     GitPredicates,
+		"import":  ImportGraphPredicates,
 	}
 	for name, preds := range groups {
 		for _, p := range preds {

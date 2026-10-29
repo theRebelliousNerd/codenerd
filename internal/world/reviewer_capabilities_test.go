@@ -82,10 +82,39 @@ func TestReviewerCapabilities(t *testing.T) {
 		{Predicate: "dependency_link", Args: []any{"internal/lib2/lib.go", "internal/lib/lib.go", "codenerd/internal/lib"}},
 	}
 
+	// --- Scenario D: Zombie Test ---
+	// imports_project_file is the world scanner's measurement
+	// (import_cycles.go).
+	topo := func(path, test string) core.Fact {
+		return core.Fact{Predicate: "file_topology", Args: []any{path, "hash", core.MangleAtom("/go"), int64(0), core.MangleAtom(test)}}
+	}
+	sym := func(id, path string) core.Fact {
+		return core.Fact{Predicate: "symbol_graph", Args: []any{id, "function", "public", path, "func " + id + "()"}}
+	}
+	dir := func(path, d string) core.Fact { return core.Fact{Predicate: "file_dir", Args: []any{path, d}} }
+	setupZombie := []core.Fact{
+		// Alone in its directory, importing nothing of the project.
+		topo("orphans/zombie_test.go", "/true"), sym("ID_Zombie", "orphans/zombie_test.go"), dir("orphans/zombie_test.go", "orphans"),
+		// Near miss: a test that imports a project file.
+		topo("e2e/flow_test.go", "/true"), sym("ID_Flow", "e2e/flow_test.go"), dir("e2e/flow_test.go", "e2e"),
+		{Predicate: "imports_project_file", Args: []any{"e2e/flow_test.go"}},
+		// Near miss: a Go test beside its package's source reaches it unimported.
+		topo("calc/calc_test.go", "/true"), sym("ID_CalcTest", "calc/calc_test.go"), dir("calc/calc_test.go", "calc"),
+		topo("calc/calc.go", "/false"), dir("calc/calc.go", "calc"),
+	}
+
+	// --- Scenario E: Circular dependency, measured by the world scanner ---
+	setupCircular := []core.Fact{
+		{Predicate: "import_cycle_member", Args: []any{"ring/a.py", "ring/a.py"}},
+		{Predicate: "import_cycle_member", Args: []any{"ring/b.py", "ring/a.py"}},
+	}
+
 	// Assert All
 	allFacts := append(setupHeroRisk, setupShotgun...)
 	allFacts = append(allFacts, setupCoupledLinked...)
 	allFacts = append(allFacts, setupLayerLeakage...)
+	allFacts = append(allFacts, setupZombie...)
+	allFacts = append(allFacts, setupCircular...)
 
 	for _, f := range allFacts {
 		if err := kernel.Assert(f); err != nil {
@@ -103,6 +132,8 @@ func TestReviewerCapabilities(t *testing.T) {
 	foundHero := false
 	foundShotgun := false
 	foundLayer := false
+	foundZombie := false
+	foundCircular := false
 
 	t.Logf("Found %d findings:", len(findings))
 	for _, f := range findings {
@@ -133,6 +164,16 @@ func TestReviewerCapabilities(t *testing.T) {
 				t.Errorf("LAYER_LEAKAGE for %s: it imports no entrypoint", file)
 			}
 			foundLayer = true
+		case "ZOMBIE_TEST":
+			if file != "orphans/zombie_test.go" {
+				t.Errorf("ZOMBIE_TEST for %s: it reaches project code", file)
+			}
+			foundZombie = true
+		case "CIRCULAR_DEPENDENCY":
+			if (file != "ring/a.py" && file != "ring/b.py") || msg != "ring/a.py" {
+				t.Errorf("CIRCULAR_DEPENDENCY(%s, %s), want a ring member rooted at ring/a.py", file, msg)
+			}
+			foundCircular = true
 		}
 	}
 
@@ -144,5 +185,11 @@ func TestReviewerCapabilities(t *testing.T) {
 	}
 	if !foundLayer {
 		t.Error("Did not detect LAYER_LEAKAGE")
+	}
+	if !foundZombie {
+		t.Error("Did not detect ZOMBIE_TEST")
+	}
+	if !foundCircular {
+		t.Error("Did not detect CIRCULAR_DEPENDENCY")
 	}
 }

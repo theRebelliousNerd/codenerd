@@ -204,8 +204,8 @@ func TestDependencyLink_WhenResolved_ShouldBeDeduplicatedAndSelfFree(t *testing.
 		{Predicate: "dependency_link", Args: []any{"pkg/a.go", "pkg:example.com/app/pkg", "example.com/app/pkg"}},
 	}
 	got := resolveDependencyLinksWithIndex(idx, raw)
-	if len(got) != 2 {
-		t.Fatalf("expected the resolved edge plus its file_imports row (dedup, no self-edge), got %d: %v", len(got), got)
+	if len(got) != 3 {
+		t.Fatalf("expected the resolved edge, its file_imports row and one imports_project_file (dedup, no self-edge), got %d: %v", len(got), got)
 	}
 	byPred := make(map[string][]Fact)
 	for _, f := range got {
@@ -249,10 +249,10 @@ func TestResolveDependencyLinks_PastFormerCap_KeepsEveryEdge(t *testing.T) {
 		Args:      []any{"cmd/main.go", "pkg:example.com/app/pkg", "example.com/app/pkg"},
 	}}
 	got := resolveDependencyLinksWithIndex(idx, raw)
-	if len(got) != 2*n {
-		t.Fatalf("resolved facts = %d, want %d (edge + file_imports for every file)", len(got), 2*n)
+	if len(got) != 2*n+1 {
+		t.Fatalf("resolved facts = %d, want %d (edge + file_imports for every file, one imports_project_file)", len(got), 2*n+1)
 	}
-	links, imports := 0, 0
+	links, imports, importers := 0, 0, 0
 	seenLast := false
 	last := files[n-1]
 	for _, f := range got {
@@ -264,9 +264,14 @@ func TestResolveDependencyLinks_PastFormerCap_KeepsEveryEdge(t *testing.T) {
 			}
 		case "file_imports":
 			imports++
+		case "imports_project_file":
+			importers++
 		default:
 			t.Errorf("unexpected predicate %s", f.Predicate)
 		}
+	}
+	if importers != 1 {
+		t.Fatalf("imports_project_file rows = %d, want 1 (one importer)", importers)
 	}
 	if links != n || imports != n {
 		t.Fatalf("dependency_link=%d file_imports=%d, want %d each", links, imports, n)

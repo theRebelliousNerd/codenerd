@@ -69,6 +69,13 @@ Decl symbol_graph(SymbolID, Type, Visibility, DefinedAt, Signature) bound [/stri
 # SerializationOrder: 13
 Decl dependency_link(CallerID, CalleeID, ImportPath) bound [/string, /string, /string].
 
+# Import-graph measurements (internal/world/import_cycles.go).
+# imports_project_file(File): File has a resolved in-workspace import edge.
+Decl imports_project_file(File) bound [/string].
+# import_cycle_member(File, Root): File lies on an import cycle (a strongly
+# connected component of two or more files), named by its smallest path.
+Decl import_cycle_member(File, Root) bound [/string, /string].
+
 # =============================================================================
 # SECTION 5: DIAGNOSTICS / LINTER-LOGIC BRIDGE (§2.2)
 # =============================================================================
