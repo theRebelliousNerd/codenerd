@@ -16,6 +16,7 @@ import (
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/embedding"
 	"codenerd/internal/features"
+	nerdinit "codenerd/internal/init"
 	"codenerd/internal/jsonl"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
@@ -1747,6 +1748,14 @@ func initIntelligenceLayer(bctx *bootContext) error {
 		logging.Get(logging.CategoryContext).Info("Ingested %d hybrid PROMPT atoms during boot", count)
 	}
 
+	// A prompts.yaml written before the atom cap (jit.atom_max_chars) holds a
+	// few atoms of up to 80k characters that selection can only take whole;
+	// it is re-atomized on disk before the sync loads it.
+	if n, err := nerdinit.RepairExistingPromptAtoms(bctx.workspace); err != nil {
+		logging.Get(logging.CategoryContext).Warn("Re-atomizing agent prompts failed: %v", err)
+	} else if n > 0 {
+		logging.Get(logging.CategoryContext).Info("Re-atomized %d agent prompts.yaml file(s) to the atom cap", n)
+	}
 	synchronizer := prsync.NewAgentSynchronizer(bctx.workspace, bctx.atomLoader)
 	if err := synchronizer.SyncAll(bctx.ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Agent sync failed: %v\n", err)

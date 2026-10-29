@@ -87,10 +87,20 @@ func splitMarkdownSections(content string, maxChars int, perHeading bool) []mdSe
 	}
 
 	var out []mdSection
-	for _, s := range merged {
-		for _, piece := range packToChars(s.Body, maxChars) {
-			out = append(out, mdSection{Title: s.Title, Body: piece})
+	if perHeading {
+		for _, s := range merged {
+			for _, piece := range packToChars(s.Body, maxChars) {
+				out = append(out, mdSection{Title: s.Title, Body: piece})
+			}
 		}
+		return out
+	}
+	joined := make([]string, 0, len(merged))
+	for _, s := range merged {
+		joined = append(joined, s.Body)
+	}
+	for _, piece := range packToChars(strings.Join(joined, "\n\n"), maxChars) {
+		out = append(out, mdSection{Body: piece})
 	}
 	return out
 }
@@ -201,8 +211,8 @@ func atomSlug(title string) string {
 		}
 	}
 	slug := strings.Trim(b.String(), "-")
-	if len(slug) > 48 {
-		slug = strings.Trim(slug[:48], "-")
+	if utf8.RuneCountInString(slug) > 48 {
+		slug = strings.Trim(string([]rune(slug)[:48]), "-")
 	}
 	if slug == "" {
 		return "section"
@@ -305,10 +315,11 @@ func renderAgentPromptAtom(atom agentPromptAtom) string {
 }
 
 // resplitPromptsYAML re-atomizes an existing prompts.yaml whose atoms exceed
-// the cap: each oversize atom keeps every field, and its content is cut into
-// capped sub-atoms (the first keeps the id). Returns changed=false when no
-// atom needed splitting. Node-level editing preserves fields this package
-// does not know about (intent_verbs, operational_modes, hand edits).
+// the cap: each oversize atom keeps every field, and its content is cut at
+// heading boundaries into capped one-concern sub-atoms (the first keeps the
+// id). Returns changed=false when no atom needed splitting. Node-level
+// editing preserves fields this package does not know about
+// (intent_verbs, operational_modes, hand edits).
 func resplitPromptsYAML(data []byte, atomCap int) ([]byte, bool, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
@@ -333,7 +344,7 @@ func resplitPromptsYAML(data []byte, atomCap int) ([]byte, bool, error) {
 			out = append(out, item)
 			continue
 		}
-		pieces := splitMarkdownSections(content, atomCap, false)
+		pieces := splitMarkdownSections(content, atomCap, true)
 		if len(pieces) <= 1 {
 			out = append(out, item)
 			continue

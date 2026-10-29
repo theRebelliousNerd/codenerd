@@ -206,6 +206,59 @@ func validatePromptsYAML(data []byte, agentNameLower string, atomCap int) error 
 	return nil
 }
 
+// RepairExistingPromptAtoms re-atomizes every existing
+// .nerd/agents/*/prompts.yaml in place so oversized atoms (the 3-atom,
+// up-to-80k-character files written before the atom cap) become capped,
+// selectable atoms without rerunning nerd init. It preserves every word and
+// field and only cuts content at heading boundaries into capped sub-atoms;
+// files already within the cap are left untouched. It returns how many files
+// were rewritten.
+func RepairExistingPromptAtoms(workspace string) (int, error) {
+	agentsDir := filepath.Join(workspace, ".nerd", "agents")
+	entries, err := os.ReadDir(agentsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("list agent prompts: %w", err)
+	}
+	atomCap := WorkspaceAtomMaxChars(workspace)
+	fixed := 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		agentNameLower := e.Name()
+		promptsPath := filepath.Join(agentsDir, agentNameLower, "prompts.yaml")
+		data, err := os.ReadFile(promptsPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return fixed, fmt.Errorf("read %s: %w", promptsPath, err)
+		}
+		if err := validatePromptsYAML(data, agentNameLower, atomCap); err == nil {
+			continue
+		}
+		refixed, changed, ferr := resplitPromptsYAML(data, atomCap)
+		if ferr != nil {
+			return fixed, fmt.Errorf("re-atomize %s: %w", promptsPath, ferr)
+		}
+		if !changed {
+			return fixed, fmt.Errorf("re-atomize %s: still oversized and could not be split", promptsPath)
+		}
+		if err := validatePromptsYAML(refixed, agentNameLower, atomCap); err != nil {
+			return fixed, fmt.Errorf("re-atomize %s: %w", promptsPath, err)
+		}
+		if err := os.WriteFile(promptsPath, refixed, 0644); err != nil {
+			return fixed, fmt.Errorf("write %s: %w", promptsPath, err)
+		}
+		logging.Boot("Re-atomized oversize prompt atoms in %s to the %d-character cap", promptsPath, atomCap)
+		fixed++
+	}
+	return fixed, nil
+}
+
 // buildPromptsYAML assembles the full prompts.yaml document from its pieces
 // (agentPromptAtoms, renderPromptsYAML).
 func buildPromptsYAML(agentNameLower, displayName, description, domainExpertise, topicsStr, methodologyContent, domainContent string, atomCap int) string {
@@ -312,10 +365,29 @@ func (i *Initializer) generateDomainContent(ctx context.Context, agent Recommend
 	return i.generateAgentAtomContent(ctx, agent, "domain", "agent_domain", i.agentPromptRequest(agent))
 }
 
+// agentSectionLimit is the per-section target the request gives the model.
+// One concern per atom means sections stay well under the atom cap
+// (jit.atom_max_chars): a third of the cap clamped to 300..600 characters, so
+// even a section that uses its full budget atomizes to one small selectable
+// atom instead of one cap-sized blob.
+func (i *Initializer) agentSectionLimit() int {
+	limit := i.atomMaxChars() / 3
+	if limit < 300 {
+		limit = 300
+	}
+	if limit > 600 {
+		limit = 600
+	}
+	if cap := i.atomMaxChars(); limit > cap {
+		limit = cap
+	}
+	return limit
+}
+
 // agentPromptRequest is the data of a specialist prompt-atom request.
 func (i *Initializer) agentPromptRequest(agent RecommendedAgent) string {
 	return fmt.Sprintf("Specialist agent: %q\nRole: %q\nResearch topics: %q\nSection limit: %d characters",
-		agent.Name, agent.Description, strings.Join(agent.Topics, ", "), i.atomMaxChars())
+		agent.Name, agent.Description, strings.Join(agent.Topics, ", "), i.agentSectionLimit())
 }
 
 // formatDomainExpertise formats the topics as a bulleted list for the identity atom.
