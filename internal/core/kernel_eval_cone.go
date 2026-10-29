@@ -34,8 +34,10 @@ import (
 // outside the cone reads no written predicate and no cone predicate, so its
 // inputs are unchanged and its old output is still its fixpoint.
 //
-// A stratum is a strongly connected component, so a cone never splits one: if
-// one member depends on a written predicate, every member does.
+// A cone never splits a strongly connected component: if one member depends
+// on a written predicate, every member does. A stratum is a layer of such
+// components that read nothing of each other (mangle.LayerStrata), so the
+// cone's members of a layer evaluate as they would alone.
 
 // coneIndex is the rule-dependency graph of one programInfo, by predicate
 // symbol name. Names, not PredicateSym: a Fact carries a name, and a name with

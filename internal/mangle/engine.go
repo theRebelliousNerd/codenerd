@@ -365,12 +365,9 @@ func (e *Engine) rebuildProgramLocked() error {
 	}
 	e.programInfo = programInfo
 
-	// Cache stratification for EvalStratifiedProgramWithStats
-	strata, predToStratum, err := analysis.Stratify(analysis.Program{
-		EdbPredicates: programInfo.EdbPredicates,
-		IdbPredicates: programInfo.IdbPredicates,
-		Rules:         programInfo.Rules,
-	})
+	// Cache stratification for EvalStratifiedProgramWithStats, layered
+	// (strata_layers.go).
+	strata, predToStratum, err := Stratify(programInfo)
 	if err != nil {
 		return fmt.Errorf("stratification failed: %w", err)
 	}
