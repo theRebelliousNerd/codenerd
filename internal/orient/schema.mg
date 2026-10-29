@@ -205,8 +205,11 @@ Decl cohort_directory_good(Dir, Window) bound [/string, /number].
 Decl cohort_directory_ord(Dir, Window, Ord) bound [/string, /number, /number].
 Decl cohort_connection(A, B, Window) bound [/string, /string, /number].
 Decl cohort_edge(A, B, Window) bound [/string, /string, /number].
-Decl cohort_reach(A, B, Window) bound [/string, /string, /number].
-Decl cohort_root_ord(Path, Window, Ord) bound [/string, /number, /number].
+# Component labels are merge lattices: one row per path (and window), the
+# smallest ordinal any neighbour has offered (lineage.mg).
+Decl cohort_root_ord(Path, Window, Ord)
+    descr [fundep([Path, Window], [Ord]), merge([Ord], "orient_lower_ord")]
+    bound [/string, /number, /number].
 Decl cohort_component(Path, Root, Window) bound [/string, /string, /number].
 Decl cohort_member_count(Root, Window, Count) bound [/string, /number, /number].
 Decl cohort_good(Root, Window) bound [/string, /number].
@@ -236,8 +239,13 @@ Decl digest_first_ord(Digest, Ord) bound [/string, /number].
 Decl read_connection(A, B) bound [/string, /string].
 Decl read_edge(A, B) bound [/string, /string].
 Decl read_has_connection(Path) bound [/string].
-Decl read_reach(A, B) bound [/string, /string].
-Decl read_component_ord(Path, Ord) bound [/string, /number].
+Decl read_component_ord(Path, Ord)
+    descr [fundep([Path], [Ord]), merge([Ord], "orient_lower_ord")]
+    bound [/string, /number].
+# orient_lower_ord(Held, Offered, Kept): the component-label merge, run
+# top-down on the held and the offered ordinal.
+Decl orient_lower_ord(Held, Offered, Kept) descr [mode('+', '+', '-'), deferred()]
+    bound [/number, /number, /number].
 Decl read_component(Path, Root) bound [/string, /string].
 Decl read_rep_score(Root, Path, Score) bound [/string, /string, /number].
 Decl read_rep_best(Root, Score) bound [/string, /number].
