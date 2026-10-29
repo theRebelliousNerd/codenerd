@@ -183,8 +183,11 @@ func TestWorkingLedger_AnEditRestatesTheStaleReadOnce(t *testing.T) {
 	if n := strings.Count(text, "predates the current content"); n != 1 {
 		t.Fatalf("the notice must not be repeated at the same revision; it appears %d times", n)
 	}
-	if n := strings.Count(text, "VIEW-OF-TARGET"); n != 2 {
-		t.Fatalf("the focus view is appended again at the new revision and only then; it appears %d times", n)
+	if n := strings.Count(text, "VIEW-OF-TARGET"); n != 1 {
+		t.Fatalf("the focus view is appended again at the new revision and the older view retired; it appears %d times", n)
+	}
+	if !strings.Contains(text, fmt.Sprintf(retiredViewNotice, "target.go")) {
+		t.Fatalf("the retired view leaves a stub saying where the current one is:\n%s", text)
 	}
 }
 
@@ -329,4 +332,30 @@ func lastResultOf(t *testing.T, messages []types.Message, call string) string {
 	}
 	t.Fatalf("the request carries no result for %s", call)
 	return ""
+}
+
+// A newer view of a file retires the older one: the request carries one whole
+// view per file, however often the file changed. Before this, every revision
+// left its whole view in every later request (21 views, 63% of one coder
+// request's input, 2026-10-29).
+func TestWorkingLedger_ANewerViewRetiresTheOlderOne(t *testing.T) {
+	l := newLedgerLoop(t, 1<<20, 2)
+	l.round("read_file", "v1-body")
+	for v := 2; v <= 5; v++ {
+		if err := os.WriteFile(filepath.Join(l.e.config.WorkspaceRoot, "target.go"), []byte(fmt.Sprintf("package target // v%d\n", v)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		l.round("edit_lines", fmt.Sprintf("edit-%d", v))
+	}
+	last := l.round("read_file", "after-edits")
+	text := requestText(last)
+	if n := strings.Count(text, "VIEW-OF-TARGET"); n != 1 {
+		t.Fatalf("after four edits the request carries %d whole views of target.go, want 1", n)
+	}
+	if n := strings.Count(text, fmt.Sprintf(retiredViewNotice, "target.go")); n != 4 {
+		t.Fatalf("each superseded view leaves one stub; found %d", n)
+	}
+	if !strings.Contains(text, "v1-body") || !strings.Contains(text, "edit-5") {
+		t.Fatal("retiring views must not touch the tool results the ledger carries")
+	}
 }
