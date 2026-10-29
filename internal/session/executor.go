@@ -2645,6 +2645,8 @@ func (e *Executor) assertTurnEvidence(turn types.MangleAtom, verb string, result
 	sources := append([]string(nil), e.turnCreatedSources...)
 	tests := append([][2]string(nil), e.turnCreatedTests...)
 	e.mu.RUnlock()
+	sources = e.retainExistingCreatedFiles(sources)
+	tests = e.retainExistingCreatedTests(tests)
 	seen := make(map[string]bool, len(sources)+len(tests))
 	for _, file := range sources {
 		if !seen[file] {
@@ -2664,6 +2666,61 @@ func (e *Executor) assertTurnEvidence(turn types.MangleAtom, verb string, result
 	// workspace as the last post-edit round left it, and no forcing round
 	// consults them yet.
 	e.assertTurnElements(turn, result)
+}
+
+// retainExistingCreatedFiles drops entries for files that no longer exist at
+// verdict time, so a Go source created then deleted in the same turn owes no
+// test. A file that still exists is kept unchanged, so its obligation is
+// exactly what it was. When the workspace cannot be resolved the existence
+// cannot be determined and everything is kept, preserving the previous
+// behaviour rather than pruning on an uncertain signal.
+func (e *Executor) retainExistingCreatedFiles(sources []string) []string {
+	kept := make([]string, 0, len(sources))
+	for _, s := range sources {
+		if e.createdFileExists(s) {
+			kept = append(kept, s)
+		}
+	}
+	return kept
+}
+
+// retainExistingCreatedTests drops covering tests that no longer exist at
+// verdict time, so a deleted test cannot discharge a surviving source. A test
+// that still exists is kept unchanged.
+func (e *Executor) retainExistingCreatedTests(tests [][2]string) [][2]string {
+	kept := make([][2]string, 0, len(tests))
+	for _, p := range tests {
+		if e.createdFileExists(p[0]) {
+			kept = append(kept, p)
+		}
+	}
+	return kept
+}
+
+// createdFileExists reports whether the canonical workspace-relative path (or
+// an absolute path outside the workspace) exists on disk. An unresolvable
+// workspace or a non-NotExist stat error keeps the file, so only a definite
+// deletion prunes the obligation.
+func (e *Executor) createdFileExists(canonical string) bool {
+	canonical = strings.TrimSpace(canonical)
+	if canonical == "" {
+		return false
+	}
+	var phys string
+	if filepath.IsAbs(canonical) {
+		phys = filepath.FromSlash(canonical)
+	} else {
+		ws := e.workspaceForVerification()
+		if strings.TrimSpace(ws) == "" {
+			return true
+		}
+		phys = filepath.Join(ws, filepath.FromSlash(canonical))
+	}
+	if _, err := os.Stat(phys); os.IsNotExist(err) {
+		return false
+	} else {
+		return true
+	}
 }
 
 // recordBuildState asserts this turn's mechanical measurements as the facts

@@ -1,6 +1,8 @@
 package session
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -48,7 +50,37 @@ func mutationResult() *ExecutionResult {
 // recordCreatedSource records a Go source the turn created, as
 // recordGoFileCreations does from inside the tool loop.
 func recordCreatedSource(e *Executor, path string) {
+	writeObligationFile(e, path, "package foo\n")
 	e.recordGoFileCreations(map[string]bool{path: false}, nil)
+}
+
+func writeObligationFile(e *Executor, path, content string) {
+	ws := e.config.WorkspaceRoot
+	var phys string
+	if filepath.IsAbs(path) {
+		phys = filepath.FromSlash(path)
+	} else {
+		phys = filepath.Join(ws, filepath.FromSlash(path))
+	}
+	if err := os.MkdirAll(filepath.Dir(phys), 0o755); err != nil {
+		panic(err)
+	}
+	if err := os.WriteFile(phys, []byte(content), 0o644); err != nil {
+		panic(err)
+	}
+}
+
+func removeWorkspaceFile(e *Executor, path string) {
+	ws := e.config.WorkspaceRoot
+	var phys string
+	if filepath.IsAbs(path) {
+		phys = filepath.FromSlash(path)
+	} else {
+		phys = filepath.Join(ws, filepath.FromSlash(path))
+	}
+	if err := os.Remove(phys); err != nil {
+		panic(err)
+	}
 }
 
 // assertWorldTestPairing is the world scanner's test_file_for fact: a test the
@@ -90,6 +122,8 @@ func TestVerify_CreateNoTestFails(t *testing.T) {
 // for a world rescan: the turn's own record pairs them.
 func TestVerify_CreateWithTestPasses(t *testing.T) {
 	e := newObligationExec(t)
+	writeObligationFile(e, "pkg/foo.go", "package foo\n")
+	writeObligationFile(e, "pkg/foo_test.go", "package foo\n")
 	e.recordGoFileCreations(map[string]bool{"pkg/foo.go": false, "pkg/foo_test.go": false}, nil)
 
 	if err := e.checkHollowSuccess(mutationResult()); err != nil {
@@ -157,12 +191,58 @@ func TestVerify_StaleNotLeak(t *testing.T) {
 	}
 }
 
+// A source created then deleted in the same turn owes nothing at end of turn:
+// the file is gone, so there is no new code to test.
+func TestVerify_CreatedThenDeletedOwesNothing(t *testing.T) {
+	e := newObligationExec(t)
+	recordCreatedSource(e, "pkg/foo.go")
+	removeWorkspaceFile(e, "pkg/foo.go")
+
+	if err := e.checkHollowSuccess(mutationResult()); err != nil {
+		t.Fatalf("a created-then-deleted source must owe nothing, got: %v", err)
+	}
+}
+
+// Deleting the source discharges the pair even when its test survives: the
+// surviving test covers nothing that still exists.
+func TestVerify_SourceDeletedTestSurvivesOwesNothing(t *testing.T) {
+	e := newObligationExec(t)
+	writeObligationFile(e, "pkg/foo.go", "package foo\n")
+	writeObligationFile(e, "pkg/foo_test.go", "package foo\n")
+	e.recordGoFileCreations(map[string]bool{"pkg/foo.go": false, "pkg/foo_test.go": false}, nil)
+	removeWorkspaceFile(e, "pkg/foo.go")
+
+	if err := e.checkHollowSuccess(mutationResult()); err != nil {
+		t.Fatalf("a deleted source must owe nothing even when its test survives, got: %v", err)
+	}
+}
+
+// A covering test deleted in the same turn cannot discharge a surviving
+// source: the source still exists and still owes exactly what it owed.
+func TestVerify_DeletedTestDoesNotCoverSurvivor(t *testing.T) {
+	e := newObligationExec(t)
+	writeObligationFile(e, "pkg/foo.go", "package foo\n")
+	writeObligationFile(e, "pkg/foo_test.go", "package foo\n")
+	e.recordGoFileCreations(map[string]bool{"pkg/foo.go": false, "pkg/foo_test.go": false}, nil)
+	removeWorkspaceFile(e, "pkg/foo_test.go")
+
+	err := e.checkHollowSuccess(mutationResult())
+	if err == nil {
+		t.Fatal("a source whose only covering test was deleted must still owe a test")
+	}
+	if !isHollowSuccessError(err) {
+		t.Fatalf("expected a hollow-success error, got %T: %v", err, err)
+	}
+}
+
 // A turn_created_source path must be stored as a string, not a Mangle name
 // constant. A path beginning with a slash would otherwise be stored as a name
 // and join with nothing.
 func TestVerify_MangleStringType(t *testing.T) {
 	e := newObligationExec(t)
-	recordCreatedSource(e, "/pkg/foo.go")
+	abs := filepath.Join(e.config.WorkspaceRoot, "pkg", "foo.go")
+	writeObligationFile(e, abs, "package foo\n")
+	e.recordGoFileCreations(map[string]bool{abs: false}, nil)
 	e.assertTurnEvidence(testTurn, "/create", mutationResult())
 	defer e.cleanupTurnFacts()
 
@@ -180,8 +260,42 @@ func TestVerify_MangleStringType(t *testing.T) {
 	if !ok {
 		t.Fatalf("turn_created_source path must round-trip as a string, got %T (%v)", facts[0].Args[1], facts[0].Args[1])
 	}
-	if got != "/pkg/foo.go" {
-		t.Fatalf("turn_created_source path = %q, want %q", got, "/pkg/foo.go")
+	if got != abs {
+		t.Fatalf("turn_created_source path = %q, want %q", got, abs)
+	}
+}
+
+// An empty canonical path prunes: there is nothing to keep, and asserting an
+// empty turn_created_source fact would be noise.
+func TestVerify_CreatedFileExists_EmptyPrunes(t *testing.T) {
+	e := newObligationExec(t)
+	if e.createdFileExists("") {
+		t.Fatal("empty canonical path must not exist")
+	}
+	if e.createdFileExists("   ") {
+		t.Fatal("whitespace-only canonical path must not exist")
+	}
+}
+
+// When the workspace cannot be resolved the existence cannot be determined, so
+// a relative path is kept. This is the conservative fallback that preserves
+// the previous behaviour instead of pruning on an uncertain signal.
+func TestVerify_CreatedFileExists_UnresolvableWorkspaceKeeps(t *testing.T) {
+	e := newObligationExec(t)
+	e.config.WorkspaceRoot = string([]byte{0})
+	if !e.createdFileExists("pkg/foo.go") {
+		t.Fatal("relative path with unresolvable workspace must be kept")
+	}
+}
+
+// A stat failure other than NotExist keeps the file. A path under a regular
+// file fails with ENOTDIR, which IsNotExist reports as false, so the
+// obligation is conservatively retained rather than pruned on an error.
+func TestVerify_CreatedFileExists_StatErrorKeeps(t *testing.T) {
+	e := newObligationExec(t)
+	writeObligationFile(e, "blocker", "not a dir\n")
+	if !e.createdFileExists("blocker/sub/file.go") {
+		t.Fatal("ENOTDIR stat error must keep the file")
 	}
 }
 

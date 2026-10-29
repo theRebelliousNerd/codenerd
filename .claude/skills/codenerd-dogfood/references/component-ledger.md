@@ -6063,3 +6063,22 @@ unchanged) still made it owe a `/test_run` round (about five minutes); `run_buil
 `null` as a directory; the importer test gate never runs a guard test that reads a package's source
 without importing it, which is how the literal-budget failure got past codeNERD's own gates.
 **Streak 0.**
+
+## R1-24, turn verdict: a created-then-deleted Go source still owed a test -- landed (2026-10-29, 03:23-04:13)
+
+Brief (symptom only): a turn that created a Go source and deleted it before finishing was still
+held to a test for it (`turn_missing_test` joins `turn_created_source` without asking whether the
+file survives). Entry point: one chat request in the TUI (`--yolo`), on a fresh build of
+`95654a6`. 50 minutes, two steps (fix, then a verification step), one coverage repair round that
+took two attempts.
+
+**Landed** (one file and its test, `internal/session/executor.go`): `assertTurnEvidence` drops
+created sources and created tests that no longer exist before asserting `turn_created_source` and
+`turn_created_test`; an unresolvable workspace or a stat error keeps the file, so only a definite
+deletion prunes. Review: `TestVerify_CreatedThenDeletedOwesNothing` and
+`TestVerify_DeletedTestDoesNotCoverSurvivor` fail with only the fix reverted and pass with it; the
+persisting-source tests are unchanged; G1 build, G2 vet, G3 `go test -count=1 ./...` (105/105)
+green; no hand edit. The verification step's report said the full gates were not run, though the
+harness had measured them; the summary still counted it verified. Harness finding: the importer
+test gate (8 packages, about 2.5 min) ran twice with no write between them, twice in the turn.
+**Streak 1.**
