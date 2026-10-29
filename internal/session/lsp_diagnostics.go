@@ -12,6 +12,7 @@ import (
 
 	"codenerd/internal/build"
 	"codenerd/internal/logging"
+	"codenerd/internal/processutil"
 	"codenerd/internal/types"
 	"codenerd/internal/world/lsp"
 )
@@ -83,7 +84,7 @@ var runGoplsCheck = func(ctx context.Context, bin, workspace string, files []str
 	cmd := exec.CommandContext(ctx, bin, append([]string{"check"}, files...)...)
 	cmd.Dir = workspace
 	cmd.Env = build.GetBuildEnv(nil, workspace)
-	return cmd.CombinedOutput()
+	return processutil.CombinedOutput(cmd)
 }
 
 // goDiagnosticFiles is every Go file the turn wrote. Diagnostics are what the

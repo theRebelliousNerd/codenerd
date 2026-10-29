@@ -68,14 +68,17 @@ var verifyBuildRunner verifyCommandRunner = func(ctx context.Context, dir string
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	cmd.Env = env
-	return cmd.CombinedOutput()
+	// processutil owns the process tree: a cancel kills the go driver and
+	// the test binary or compiler it started, not the driver alone
+	// (audit verification-process-cleanup-parity).
+	return processutil.CombinedOutput(cmd)
 }
 
 var verifyTestRunner verifyCommandRunner = func(ctx context.Context, dir string, env []string, name string, args []string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	cmd.Env = env
-	return processutil.NonInteractive(cmd).CombinedOutput()
+	return processutil.CombinedOutput(cmd)
 }
 
 // verifyLookPath resolves the Go toolchain. A seam so missing-toolchain

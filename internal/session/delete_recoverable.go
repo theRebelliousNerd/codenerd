@@ -40,7 +40,7 @@ import (
 // runners in verify_outcome.go.
 var gitRecoverableRunner = func(ctx context.Context, dir string, args []string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
-	return processutil.NonInteractive(cmd).CombinedOutput()
+	return processutil.CombinedOutput(cmd)
 }
 
 // deleteRecoverablePredicate is the fact the constitution reads. Declared in
