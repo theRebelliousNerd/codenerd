@@ -2,21 +2,36 @@ package core
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
 
+// newTestMangleWatcher builds a watcher, or skips when the host has no inotify
+// instance to give: inotify_init fails with EMFILE once a user's
+// fs.inotify.max_user_instances is spent (128 here, held by desktop apps), and
+// that measures the machine, not the watcher. Every other error is the test's.
+func newTestMangleWatcher(t *testing.T, dir string, k *RealKernel) (*MangleWatcher, error) {
+	t.Helper()
+	mw, err := NewMangleWatcher(dir, k)
+	if errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE) {
+		t.Skipf("no inotify instance available on this host (fs.inotify.max_user_instances spent): %v", err)
+	}
+	return mw, err
+}
+
 func TestMangleWatcher_New(t *testing.T) {
 	k := setupMockKernel(t)
 	defer k.Clear()
 
 	tempDir := t.TempDir()
-	mw, err := NewMangleWatcher(tempDir, k)
+	mw, err := newTestMangleWatcher(t, tempDir, k)
 	if err != nil {
 		t.Fatalf("Failed to create MangleWatcher: %v", err)
 	}
@@ -41,7 +56,7 @@ func TestMangleWatcher_StartStop(t *testing.T) {
 	defer k.Clear()
 
 	tempDir := t.TempDir()
-	mw, err := NewMangleWatcher(tempDir, k)
+	mw, err := newTestMangleWatcher(t, tempDir, k)
 	if err != nil {
 		t.Fatalf("Failed to create MangleWatcher: %v", err)
 	}
@@ -73,7 +88,7 @@ func TestMangleWatcher_GetStatsAndReset(t *testing.T) {
 	defer k.Clear()
 
 	tempDir := t.TempDir()
-	mw, err := NewMangleWatcher(tempDir, k)
+	mw, err := newTestMangleWatcher(t, tempDir, k)
 	if err != nil {
 		t.Fatalf("Failed to create MangleWatcher: %v", err)
 	}
@@ -107,7 +122,7 @@ func TestMangleWatcher_GetWatchedDirs(t *testing.T) {
 	defer k.Clear()
 
 	tempDir := t.TempDir()
-	mw, err := NewMangleWatcher(tempDir, k)
+	mw, err := newTestMangleWatcher(t, tempDir, k)
 	if err != nil {
 		t.Fatalf("Failed to create MangleWatcher: %v", err)
 	}
@@ -174,7 +189,7 @@ func TestMangleWatcher_HandleEventAndDebounce(t *testing.T) {
 	defer k.Clear()
 
 	tempDir := t.TempDir()
-	mw, err := NewMangleWatcher(tempDir, k)
+	mw, err := newTestMangleWatcher(t, tempDir, k)
 	if err != nil {
 		t.Fatalf("Failed to create MangleWatcher: %v", err)
 	}
@@ -253,7 +268,7 @@ func TestMangleWatcher_TriggerValidation(t *testing.T) {
 	defer k.Clear()
 
 	tempDir := t.TempDir()
-	mw, err := NewMangleWatcher(tempDir, k)
+	mw, err := newTestMangleWatcher(t, tempDir, k)
 	if err != nil {
 		t.Fatalf("Failed to create MangleWatcher: %v", err)
 	}
@@ -292,7 +307,7 @@ func TestMangleWatcher_ValidateAndRepair_FailedRead(t *testing.T) {
 	defer k.Clear()
 
 	tempDir := t.TempDir()
-	mw, err := NewMangleWatcher(tempDir, k)
+	mw, err := newTestMangleWatcher(t, tempDir, k)
 	if err != nil {
 		t.Fatalf("Failed to create MangleWatcher: %v", err)
 	}
@@ -343,7 +358,7 @@ func TestMangleWatcher_ValidateAndRepair_KeepsTheRestOfTheFile(t *testing.T) {
 		repair: map[string]string{"fixable(X) :- fact(X)": "fixable(X) :- fact(X)."},
 		reject: map[string]bool{"broken(X) :-\n    fact(X),\n    nonsense(X": true},
 	})
-	mw, err := NewMangleWatcher(t.TempDir(), k)
+	mw, err := newTestMangleWatcher(t, t.TempDir(), k)
 	if err != nil {
 		t.Fatal(err)
 	}
