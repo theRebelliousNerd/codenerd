@@ -61,10 +61,6 @@ type workingLoop struct {
 	// file's view, stale-observation notices -- keyed by the message it rides
 	// (ledgerKey), written once and resent unchanged.
 	appended map[string]string
-	// views maps a file to where its current view rides: the ledger key and
-	// the exact text appended there. A newer view of the same file retires
-	// the older one to a one-line stub (retireView).
-	views map[string]appendedView
 	// restated maps an observation to the revision it was last restated at
 	// (working_restated).
 	restated map[string]string
@@ -246,7 +242,6 @@ func (e *Executor) beginWorkingLoop(ctx context.Context, client types.LLMClient,
 		recalled:     make(map[string]bool),
 		evicted:      make(map[string]bool),
 		appended:     make(map[string]string),
-		views:        make(map[string]appendedView),
 		restated:     make(map[string]string),
 		inputCap:     broker.InputWindow(client),
 	}
@@ -846,7 +841,6 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 			loop.evicted[call] = true
 		}
 		loop.appended = make(map[string]string)
-		loop.views = make(map[string]appendedView)
 		loop.restated = make(map[string]string)
 		loop.viewed = ""
 		logging.Context("Working ledger: compaction at round %d moved %d result(s) out behind their recall handles", round, len(decision.Evict))
@@ -863,9 +857,18 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 		key = ledgerKey(n - 1)
 	}
 	var notes []string
-	var view string
+	// A newer view of a file is appended where it arises; the older views of
+	// that file stay where they are until the epoch ends, when a compaction
+	// takes every appended text with it. Retiring an older view to a stub
+	// rewrote the turn it rode on, and the provider's cached prefix broke
+	// there each time the focus moved: replayed on two recorded coder runs
+	// (TestReplayRecordedSession, 2026-10-29), retiring mid-epoch broke the
+	// prefix 14 and 8 times for $0.055 and $0.050; leaving the views to the
+	// epoch, 3 and 4 times for $0.040 and $0.041. The views' bytes count
+	// toward the ledger (each rides a ledger row as extra), so they bring the
+	// next compaction nearer instead of growing the request without bound.
 	if revision := decision.Revisions[loop.focus]; loop.focus+"@"+revision != loop.viewed {
-		if view = e.workingFocusView(ctx, loop); view != "" {
+		if view := e.workingFocusView(ctx, loop); view != "" {
 			notes = append(notes, view)
 		}
 		loop.viewed = loop.focus + "@" + revision
@@ -895,35 +898,8 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 		}
 		loop.appended[key] = text
 	}
-	if view != "" {
-		loop.retireView(loop.focus, key, view)
-	}
 	return nil
 }
-
-// appendedView is where a file's current view rides in the request.
-type appendedView struct {
-	key, text string
-}
-
-// retireView records view as file's current view at key and turns the view
-// it replaces into a one-line stub. Each view is a whole outline of the file
-// (about 25k characters for a large one), appended whenever the focus or the
-// file changes, and none was ever dropped: one dogfood coder request carried
-// 21 of them, 63% of its 185k input tokens, nine of the same file. A
-// superseded view is retired from the request; the stub says where the
-// current one is. Rewriting the older turn breaks the provider's cached
-// prefix once, at that turn, for each new view; that request had 19% of its
-// input from cache.
-func (loop *workingLoop) retireView(file, key, view string) {
-	if old, ok := loop.views[file]; ok && old.key != key {
-		loop.appended[old.key] = strings.Replace(loop.appended[old.key], old.text, fmt.Sprintf(retiredViewNotice, file), 1)
-	}
-	loop.views[file] = appendedView{key: key, text: view}
-}
-
-// retiredViewNotice replaces a view a newer view of the same file supersedes.
-const retiredViewNotice = "[harness: a view of %s was here; it is superseded by the newer view of that file later in this request.]"
 
 // mergeRepeatedCalls carries a call id that answers more than one result as
 // one ledger row. A client can reuse an id across rounds (a scripted one

@@ -344,6 +344,12 @@ func replayRecording(t *testing.T, reqs []replayRequest, workspace string, windo
 				continue
 			}
 			harnessSeen[p.text] = true
+			// A retired view's stub is what the builder that ran used to
+			// write in place of a superseded view; the builder replayed
+			// leaves views to the epoch and writes none.
+			if strings.HasPrefix(p.text, replayRetiredViewPrefix) {
+				continue
+			}
 			key := ledgerKey(p.index)
 			if p.index == 0 {
 				key = anchorLedgerKey
@@ -479,6 +485,10 @@ func replayHistory(items []replayItem, full map[string]replayItem, anchor string
 	flush()
 	return history, placed
 }
+
+// replayRetiredViewPrefix opens the stub an earlier builder left for a
+// superseded view.
+const replayRetiredViewPrefix = "[harness: a view of "
 
 // harnessPlacement is one recorded harness text and the history index of the
 // user turn it was appended to.

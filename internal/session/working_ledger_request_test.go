@@ -196,11 +196,8 @@ func TestWorkingLedger_AnEditRestatesTheStaleReadOnce(t *testing.T) {
 	if n := strings.Count(text, "predates the current content"); n != 1 {
 		t.Fatalf("the notice must not be repeated at the same revision; it appears %d times", n)
 	}
-	if n := strings.Count(text, "VIEW-OF-TARGET"); n != 1 {
-		t.Fatalf("the focus view is appended again at the new revision and the older view retired; it appears %d times", n)
-	}
-	if !strings.Contains(text, fmt.Sprintf(retiredViewNotice, "target.go")) {
-		t.Fatalf("the retired view leaves a stub saying where the current one is:\n%s", text)
+	if n := strings.Count(text, "VIEW-OF-TARGET"); n != 2 {
+		t.Fatalf("the focus view is appended again at the new revision, and the older one stays until the epoch ends; it appears %d times", n)
 	}
 }
 
@@ -350,11 +347,14 @@ func lastResultOf(t *testing.T, messages []types.Message, call string) string {
 	return ""
 }
 
-// A newer view of a file retires the older one: the request carries one whole
-// view per file, however often the file changed. Before this, every revision
-// left its whole view in every later request (21 views, 63% of one coder
-// request's input, 2026-10-29).
-func TestWorkingLedger_ANewerViewRetiresTheOlderOne(t *testing.T) {
+// A newer view of a file is appended where it arises, and the older views
+// stay where they are until the epoch ends: every request between two
+// compactions carries the one before it byte for byte, so the provider serves
+// all of it but the newest round from cache. Retiring an older view to a stub
+// rewrote its turn and broke the cached prefix at each new view (replayed on
+// two recorded runs: 14 and 8 breaks against 3 and 4). The views' bytes ride
+// the ledger, so they bring the next compaction nearer, and it takes them.
+func TestWorkingLedger_AViewStaysUntilTheEpochAndTheRequestIsAppendOnly(t *testing.T) {
 	t.Parallel()
 	l := newLedgerLoop(t, 1<<20, 2)
 	l.round("read_file", "v1-body")
@@ -364,15 +364,15 @@ func TestWorkingLedger_ANewerViewRetiresTheOlderOne(t *testing.T) {
 		}
 		l.round("edit_lines", fmt.Sprintf("edit-%d", v))
 	}
-	last := l.round("read_file", "after-edits")
-	text := requestText(last)
-	if n := strings.Count(text, "VIEW-OF-TARGET"); n != 1 {
-		t.Fatalf("after four edits the request carries %d whole views of target.go, want 1", n)
+	l.round("read_file", "after-edits")
+	for i := 1; i < len(l.sent); i++ {
+		requireAppendOnly(t, l.sent[i-1], l.sent[i], fmt.Sprintf("request %d after request %d", i+1, i))
 	}
-	if n := strings.Count(text, fmt.Sprintf(retiredViewNotice, "target.go")); n != 4 {
-		t.Fatalf("each superseded view leaves one stub; found %d", n)
+	text := requestText(l.sent[len(l.sent)-1])
+	if n := strings.Count(text, "VIEW-OF-TARGET"); n != 5 {
+		t.Fatalf("five revisions of target.go in one epoch carry %d views, want 5", n)
 	}
-	if !strings.Contains(text, "v1-body") || !strings.Contains(text, "edit-5") {
-		t.Fatal("retiring views must not touch the tool results the ledger carries")
+	if strings.Contains(text, "is superseded by the newer view") {
+		t.Fatal("a superseded view was rewritten to a stub mid-epoch")
 	}
 }
