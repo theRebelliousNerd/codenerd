@@ -49,14 +49,49 @@ func sharedKeyPool(provider Provider, keys []config.ResolvedProviderAPIKey) (*pr
 	return pool, nil
 }
 
-// selectKey uses least-in-flight load balancing with rotating ties. Health is
-// shared across every model/slot built from this provider's credential set.
-func (p *providerKeyPool) selectKey(ctx context.Context, excluded map[int]bool, pinned int) (int, error) {
+// affinityIndex is the credential a conversation prefers: a stable hash of
+// its identity over the pool size. Prompt caches are scoped to the account or
+// workspace a key belongs to, so a conversation whose consecutive calls hop
+// between keys loses its cached prefix on every hop. Measured 2026-10-29 on a
+// three-key Anthropic pool under least-in-flight-with-rotating-ties: 126 of
+// 126 follow-up calls in one scope changed key, and they read 17% of their
+// input from cache, against ~80% on a single-key provider in the same runs.
+func affinityIndex(affinity string, n int) int {
+	if affinity == "" || n <= 0 {
+		return -1
+	}
+	sum := sha256.Sum256([]byte(affinity))
+	v := uint64(0)
+	for _, b := range sum[:8] {
+		v = v<<8 | uint64(b)
+	}
+	return int(v % uint64(n))
+}
+
+// selectKey picks a credential. A call that carries a conversation identity
+// (affinity) goes to that conversation's preferred key whenever the key is
+// usable -- healthy, not cooling down, not already tried for this call -- so
+// the conversation keeps its prompt cache; different conversations hash to
+// different keys, which is what spreads the load. A call with no identity, or
+// whose preferred key is unusable, falls back to least-in-flight with rotating
+// ties. A pinned key wins over both. Health is shared across every model and
+// slot built from this provider's credential set.
+func (p *providerKeyPool) selectKey(ctx context.Context, excluded map[int]bool, pinned int, affinity string) (int, error) {
 	for {
 		if err := ctx.Err(); err != nil {
 			return -1, err
 		}
 		p.mu.Lock()
+		if pinned < 0 {
+			if pref := affinityIndex(affinity, len(p.health)); pref >= 0 {
+				h := p.health[pref]
+				if !excluded[pref] && !h.disabled && !time.Now().Before(h.cooldown) {
+					p.health[pref].active++
+					p.mu.Unlock()
+					return pref, nil
+				}
+			}
+		}
 		chosen := -1
 		var earliest time.Time
 		remaining := false
@@ -206,7 +241,9 @@ func (r *providerKeyRouter) selected(i int) { r.mu.Lock(); defer r.mu.Unlock(); 
 func (r *providerKeyRouter) pin() int       { r.mu.RLock(); defer r.mu.RUnlock(); return r.pinned }
 
 func (r *providerKeyRouter) attempt(ctx context.Context, excluded map[int]bool) (context.Context, context.CancelFunc, *keyPoolAttempt, int, error) {
-	i, err := r.pool.selectKey(ctx, excluded, r.pin())
+	// The conversation's identity is the scope the broker meters it under:
+	// one per session and per subagent, the unit that shares a cached prefix.
+	i, err := r.pool.selectKey(ctx, excluded, r.pin(), usage.SessionIDFromContext(ctx))
 	if err != nil {
 		return ctx, nil, nil, -1, err
 	}
